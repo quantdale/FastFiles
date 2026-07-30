@@ -1,19 +1,19 @@
 ## 1. Project Scaffolding
 
-- [ ] 1.1 Choose build system (CMake, targeting MSVC) and set up a multi-target C++ solution
-- [ ] 1.2 Create repo structure for three executable targets — `FastFilesIndexSvc`, `FastFilesEngine`, `FastFiles` — plus a shared static library for the IPC protocol
-- [ ] 1.3 Configure toolchain for x64 Windows 10 1809+/Windows 11, with warnings-as-errors and standard hardening compiler/linker flags
-- [ ] 1.4 Verify all three targets build cleanly from a fresh checkout
+- [x] 1.1 Choose build system (CMake, targeting MSVC) and set up a multi-target C++ solution
+- [x] 1.2 Create repo structure for three executable targets — `FastFilesIndexSvc`, `FastFilesEngine`, `FastFiles` — plus a shared static library for the IPC protocol
+- [x] 1.3 Configure toolchain for x64 Windows 10 1809+/Windows 11, with warnings-as-errors and standard hardening compiler/linker flags
+- [ ] 1.4 Verify all three targets build cleanly from a fresh checkout — **blocked in this environment**: no Windows/MSVC toolchain available to build the `WIN32`-only CMake project (see session notes)
 
 ## 2. Shared IPC Protocol Library
 
-- [ ] 2.1 Define the 8-byte frame header (`TotalLength`, `StructVersion`, `MessageType`) with encode/decode helpers
-- [ ] 2.2 Implement a protocol-wide maximum frame size constant, enforced (in `size_t`/`u64` arithmetic, never the `u32` field width) before any buffer allocation
-- [ ] 2.3 Define the closed engine→service command enum and payload structs: `Handshake`, `EnumerateVolumes`, `StartVolumeScan(VolumeId)`, `OpenUsnJournal(VolumeId, ResumeUsn)`, `StopVolumeScan(VolumeId)`, `CloseUsnJournal(VolumeId)`, `Heartbeat`
-- [ ] 2.4 Define `MftRecordV1`/`UsnDeltaV1` record struct layouts (fields only — parsing logic is deferred) with explicit length-prefixed field validation helpers (reject out-of-range length, never silently clamp)
-- [ ] 2.5 Implement bounds-checked message dispatch (switch-with-default or map lookup) that rejects and logs unrecognized `MessageType`/`StructVersion` values — no raw jump table indexed by an untrusted integer
-- [ ] 2.6 Implement wire-protocol version negotiation (`{Major, Minor}`) and the explicit `IncompatibleVersion` reply
-- [ ] 2.7 Unit tests: oversized frame rejected before allocation; record-count/payload-size mismatch rejected before parsing; out-of-range length-prefixed field rejects the whole record; unrecognized `MessageType` rejected without crashing
+- [x] 2.1 Define the 8-byte frame header (`TotalLength`, `StructVersion`, `MessageType`) with encode/decode helpers
+- [x] 2.2 Implement a protocol-wide maximum frame size constant, enforced (in `size_t`/`u64` arithmetic, never the `u32` field width) before any buffer allocation
+- [x] 2.3 Define the closed engine→service command enum and payload structs: `Handshake`, `EnumerateVolumes`, `StartVolumeScan(VolumeId)`, `OpenUsnJournal(VolumeId, ResumeUsn)`, `StopVolumeScan(VolumeId)`, `CloseUsnJournal(VolumeId)`, `Heartbeat`
+- [x] 2.4 Define `MftRecordV1`/`UsnDeltaV1` record struct layouts (fields only — parsing logic is deferred) with explicit length-prefixed field validation helpers (reject out-of-range length, never silently clamp)
+- [x] 2.5 Implement bounds-checked message dispatch (switch-with-default or map lookup) that rejects and logs unrecognized `MessageType`/`StructVersion` values — no raw jump table indexed by an untrusted integer
+- [x] 2.6 Implement wire-protocol version negotiation (`{Major, Minor}`) and the explicit `IncompatibleVersion` reply
+- [x] 2.7 Unit tests: oversized frame rejected before allocation; record-count/payload-size mismatch rejected before parsing; out-of-range length-prefixed field rejects the whole record; unrecognized `MessageType` rejected without crashing
 
 ## 3. FastFilesIndexSvc (privileged service)
 
