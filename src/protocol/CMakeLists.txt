@@ -1,5 +1,6 @@
 add_library(ffprotocol STATIC
   src/Frame.cpp
+  src/Commands.cpp
   src/Records.cpp
   src/Dispatch.cpp
   src/Version.cpp
