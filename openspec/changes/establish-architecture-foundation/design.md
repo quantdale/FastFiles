@@ -1,0 +1,96 @@
+## Context
+
+FastFiles' three product pillars (WizFile-style instant search, WizTree-style storage visualization, Finder-style Column View) all share one requirement: a persistent filesystem index that updates incrementally without full rescans. On NTFS that means reading the raw Master File Table and continuously monitoring the USN Change Journal — both of which require an elevated (admin) token on *every* `DeviceIoControl` call, not just a one-time initial scan. That collides with the product constraint that normal operation must not require administrator rights.
+
+This isn't a new problem — voidtools' Everything (the project's own named inspiration for the search pillar) solves it by splitting into a privileged Windows Service and an unprivileged client. Two rounds of research were done before writing this design: first, a comparative, adversarially-reviewed evaluation of five candidate technology stacks (native C++, C#/WinUI3, C#/WPF, Rust, and a hybrid native-core/C#-UI split); second, a targeted investigation of how Everything and comparable tools (WizTree, Docker Desktop) actually implement the privileged/unprivileged split, including real CVEs each has shipped in that exact boundary, followed by a from-scratch design and a three-lens adversarial security review (privilege escalation, protocol/data-integrity, availability/DoS).
+
+This document records the outcome of both research passes as the architectural foundation every later capability (search, storage analysis, file operations) will be built on.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Lock in the technology stack for the entire application.
+- Stand up the three-process privileged/unprivileged architecture as running, hardened code: `FastFilesIndexSvc` (privileged), `FastFilesEngine` (unprivileged index owner), `FastFiles` (UI shell).
+- Implement the IPC contract between `FastFilesEngine` and `FastFilesIndexSvc` with every mitigation from the adversarial security review baked in, not bolted on later.
+- Make the degraded-mode fallback (no service / declined / crashed) a first-class, permanently-supported operating state, proven by having the UI actually work end-to-end against it.
+- Ship enough of `FastFiles` (basic Column View browsing) that the skeleton is demonstrably usable, not just architecturally sound on paper.
+
+**Non-Goals (explicitly deferred to follow-up changes):**
+- Raw MFT parsing and USN journal reading inside `FastFilesIndexSvc` — this change ships the service's protocol/security skeleton with the scan/journal calls stubbed (e.g., returning "not yet implemented" over the already-real wire protocol), not the actual NTFS parsing logic.
+- The in-memory search index, search-as-you-type UI, and any query/filter/sort behavior.
+- Storage/treemap analysis.
+- File operations beyond read-only navigation (no copy/move/delete/rename yet).
+- Tabs, dual-pane, bookmarks/favorites, command palette, file preview.
+- The on-disk durable index store (SQLite vs. alternatives) — intentionally an open question, tracked below, because it doesn't block standing up the process architecture.
+- Enterprise/managed deployment (GPO/SCCM push) and per-user ACL-aware index filtering — both are real, deliberately deferred decisions, not oversights (see Open Questions).
+
+## Decisions
+
+### D1: Technology stack — Native C++ (Win32 + COM + Direct2D/DirectComposition)
+
+Chosen over C#/WinUI 3 (fit 6/10), C#/WPF (7/10, runner-up), Rust + native GUI toolkit (6/10), and a hybrid native-core/C#-UI split (4/10, rejected), via researched, scored, and adversarially stress-tested comparison.
+
+**Why:** Every candidate stack pays roughly the same cost for the two hardest, most distinctive pillars — raw MFT/USN access is a thin `DeviceIoControl` call regardless of language, and `IFileOperation`/`IDropTarget` are COM interfaces every stack reaches with comparable effort. The decision is actually won on the other 6–12 months of surrounding work. Native C++ wins because: (1) it is the literal architecture of the project's own named inspirations (WizTree, WizFile, voidtools Everything) at comparable small-team scale — existence-proof, not a bet; (2) cold start is an explicit product requirement, and this is the only stack with no runtime/JIT to warm up; (3) WPF's "more for free" advantage shrinks sharply for this specific app — native Windows 11 context menus need a raw `HMENU` that WPF's managed `ContextMenu` cannot produce either, and WPF's Fluent theme is confirmed fragile under heavy custom styling (an open crash-on-theme-toggle bug), which collides directly with a treemap and dense column view that must be heavily custom-styled anyway.
+
+**Trade-off accepted:** everything a UI framework normally gives free — per-monitor DPI handling, UI Automation/accessibility for custom-rendered controls, Windows 11 Mica/rounded-corner chrome, package-identity plumbing for context-menu integration — must be hand-built and hand-maintained indefinitely. This is a known, budgeted cost, not an oversight (see Risks).
+
+**Flip condition (documented, not triggered):** if the actual implementers lack Win32/COM/Direct2D experience and won't acquire it quickly, or there is hard pressure for a demoable prototype in weeks rather than months, WPF is the defensible fallback — the hard interop work (MFT/USN P/Invoke, `IFileOperation`) is framework-agnostic either way.
+
+### D2: Three-process privileged/unprivileged split, not two
+
+`FastFilesIndexSvc` (privileged) ↔ `FastFilesEngine` (unprivileged, owns the index) ↔ `FastFiles` (UI, any number of windows).
+
+**Why three, not Everything's two** (Everything fuses its unprivileged "engine" and its primary UI into one process): splitting the UI out costs one extra process and one extra IPC hop, but buys (a) multiple simultaneous windows without duplicating index ownership, and (b) engine survival across UI crashes/restarts — which matters more here because the UI additionally hosts a Direct2D/DirectComposition compositor and COM shell-integration surface (context menus, drag-drop), a strictly larger crash/attack surface than a headless index engine.
+
+**Why the service is stateless:** confirmed via research (a direct quote from voidtools' developer) that Everything's own privileged service holds no index and parses no queries — it is a thin, narrow relay for raw MFT/USN bytes. Mirroring this keeps the code that must be trusted at elevated-privilege level to a handful of narrow, auditable operations, rather than the whole index/query engine.
+
+### D3: IPC mechanism — named pipes only, both seams
+
+Two independent seams: `FastFilesEngine ↔ FastFilesIndexSvc` (the actual elevation boundary) and `FastFilesEngine ↔ FastFiles` (same-privilege, control-plane only).
+
+**Why named pipes over ALPC / shared memory / sockets:** deliberately one kernel-object type to reason about and ACL correctly, instead of two or three independent ACL-mistake surfaces. Both direct reference implementations studied (Everything, Docker Desktop) shipped real, public LPE/DoS CVEs from getting *this exact kind of object-ACL detail* wrong — simplicity here is a security choice, not just an ergonomic one.
+
+**Why the actual keystroke-level search still has zero IPC round-trip despite the split:** `FastFilesEngine` publishes an immutable, double-buffered index snapshot into a read-only memory-mapped section (`Local\FastFiles.IndexSnapshot.<SessionId>`) and only sends a lightweight "new generation ready" notification over the control pipe. `FastFiles` maps the section once and re-maps only on notification; search/filter/sort reads happen entirely in-process. This is what preserves Everything-level search latency despite the extra process boundary, at the cost of ~250ms worst-case staleness on the newest changes — imperceptible for a file browser.
+
+### D4: Security model (hardened per the adversarial review — see Risks for what each fixes)
+
+- **Privilege minimization:** `FastFilesIndexSvc` runs under a dedicated virtual service account (`NT SERVICE\FastFilesIndexSvc`) granted **only `SeBackupPrivilege`** via `LsaAddAccountRights` — never `LocalSystem`, never full Administrators, never `SeRestorePrivilege`/`SeDebugPrivilege`/`SeTcbPrivilege`.
+- **No SCM control rights granted to the client group.** The unprivileged `FastFilesUsers` group gets `SERVICE_QUERY_STATUS`/`SERVICE_QUERY_CONFIG` only — never `SERVICE_START`/`SERVICE_STOP`. The service self-detects staleness (hashes its own on-disk binary against what it loaded at startup, checked on a timer and opportunistically at handshake) and self-terminates abnormally to trigger SCM's own native `SERVICE_CONFIG_FAILURE_ACTIONS` restart. This single change closes three independent attack classes that a naive "let the client restart the service" design opens (see Risks).
+- **Symmetric mutual authentication.** Both directions verify the peer's image path (under the ACL-locked install directory) and a pinned Authenticode signature thumbprint — not just Windows group membership — re-validated periodically on long-lived connections, not only at initial handshake.
+- **Closed command protocol.** The engine→service command surface is a fixed, tiny enum (`Handshake / EnumerateVolumes / StartVolumeScan(VolumeId) / OpenUsnJournal(VolumeId, ResumeUsn) / StopVolumeScan / CloseUsnJournal / Heartbeat`) — no generic "open this path/handle" primitive exists. `VolumeId`/`JournalId` are opaque, service-assigned (from the service's own fixed-local-volume enumeration only), and scoped to the connection that created them — `Stop`/`Close` from a different connection is rejected.
+- **Frame and parser hardening:** one protocol-wide maximum frame size, checked before any allocation, in `u64` arithmetic (never the `u32` field width) to prevent integer-overflow-to-buffer-overflow; batch record counts cross-validated against actual bytes received before parsing a single record; every length-prefixed field (e.g. filenames) validated against its declared maximum, with an out-of-range value rejecting the whole record rather than being silently clamped; raw on-disk NTFS attribute fields (e.g. the `$FILE_NAME` attribute's internal length prefix) treated as fully untrusted input, exactly like network data, because a malformed volume (a plugged-in USB stick, a mounted VHD) can reach the parser with no admin action required.
+- **Never forward file content.** The parser reads and forwards only `$STANDARD_INFORMATION` and `$FILE_NAME` fields — never `$DATA`. This is called out explicitly because NTFS stores small files' content resident inside the MFT record itself; a naive "forward the attribute list" implementation would leak small-file content into a machine-wide-visible index.
+- **Filename canonicalization.** Raw-MFT filenames can contain byte sequences no Win32 API could ever produce. One canonicalization pass runs at ingestion; every file operation throughout the UI is keyed off the immutable `FileReferenceNumber`, never a re-derived path from a possibly-sanitized display string — preventing a "user sees one file, a different file gets acted on" spoof.
+- **DLL/binary hardening:** `SetDefaultDllDirectories` before any `LoadLibrary`, fully-qualified paths or static linking for all dependencies, install directory ACL'd to Admin/TrustedInstaller-write-only — a direct fix for the exact DLL-search-order LPE class Everything itself shipped (CVE-2020-24567).
+
+### D5: Degraded mode is a first-class, permanent operating state
+
+When the service is absent, declined at install, an incompatible version, or its connection drops, `FastFilesEngine` falls back to unprivileged `FindFirstFileEx` tree walks (skipping ACL-inaccessible folders, exactly like WizTree's documented no-admin behavior) plus one `ReadDirectoryChangesW` watch per browsed/pinned root. This is not an error state requiring a dialog — it's a small, non-modal status badge ("Instant search: basic — click to enable"), and this change proves it out by having Column View browsing work against this path from day one, since the privileged scan/journal calls are stubbed in this change anyway.
+
+### D6: Version compatibility — two independent mechanisms
+
+1. **Product build version:** service and engine ship from one installer; any mismatch is treated as "stale binary," and the self-heal in D4 corrects it automatically, in-band, with no client-granted SCM rights involved.
+2. **Wire-protocol version `{Major, Minor}`:** tracked independently of product version. `Major` mismatch (beyond a one-release-cycle overlap window, to absorb staged enterprise rollouts) gets an explicit `IncompatibleVersion` reply — never a silent hang — and the engine drops to degraded mode. `Minor` is purely additive via a per-frame `StructVersion` field; older readers skip fields/message types they don't recognize.
+
+## Risks / Trade-offs
+
+- **[Risk] Granting the client group any SCM control right over the service (start/stop) is a machine-wide denial-of-service lever** (any process run by any group member can stop the shared service on a loop) **and compounds a pipe-squatting race into a repeatable-at-will attack.** → **Mitigation:** D4's no-SCM-rights-to-clients decision; self-heal is entirely in-band via self-directed staleness detection plus SCM's native failure-actions.
+- **[Risk] Checking only Windows group membership (not process identity) on the privileged pipe lets any process run by an authorized user — not just the real engine — reach the full command surface,** including a full unprivileged-ACL-bypassing volume enumeration. → **Mitigation:** D4's symmetric mutual authentication (image path + pinned signature, both directions, re-validated periodically).
+- **[Risk] `SeBackupPrivilege` alone is still "effectively admin"** (it bypasses NTFS ACLs entirely) — least-privilege here reduces *incidental* capability (can't load drivers, can't debug arbitrary processes) but does not make the service harmless if compromised. → **Mitigation:** treat it as a genuinely high-value target regardless: minimal binary, no network exposure, no third-party parsing libraries, empirically verify (build-time checklist item) that `SeBackupPrivilege` alone is actually sufficient before assuming the minimization argument holds.
+- **[Risk] Cross-user visibility:** the index is visible machine-wide to any `FastFilesUsers` member (filenames/metadata only, never content) — mirrors Everything's own accepted model. Fine for the primary single-user personal-machine target; a real trade-off on shared machines. → **Mitigation:** documented, deliberate choice; `FastFilesUsers` membership (not automatic) is the coarse knob to limit exposure; revisit if shared-machine deployment becomes a real scenario.
+- **[Risk] Standing exposure window:** `FastFilesEngine` stays resident (and its privileged connection live) for the whole logon session even if no `FastFiles` window is ever opened, since that residency is what makes search feel instant. → **Mitigation:** after a configurable idle period (no UI window open, no significant filesystem-change volume), the engine voluntarily drops its privileged connection and falls back to periodic unprivileged resync, re-establishing on next UI launch or activity burst — bounding the exposure window without sacrificing the common-case latency win.
+- **[Risk] Everything a UI framework normally provides free (DPI, accessibility, modern chrome, package-identity for context menus) must be hand-built and hand-maintained indefinitely under D1.** → **Mitigation:** budgeted explicitly as ongoing scope in tasks.md rather than assumed away; not a blocker for this change (no context menus or custom chrome are in scope here), but a known cost for capabilities that follow.
+- **[Risk] Elevated-installer TOCTOU** (predictable temp paths, junction/symlink redirection of an elevated custom action) is a real, recurring LPE class for exactly this kind of installer, on every future update, not just first install. → **Mitigation:** randomized per-run scratch paths, reparse-point rejection, install-directory/pipe ACLs reapplied on every upgrade (tracked as an explicit task).
+- **[Risk] Distribution/trust friction:** raw-volume access forces unpackaged/sideloaded distribution (Store/MSIX sandboxing is incompatible with it), which increases exposure to Windows 11 Smart App Control and SmartScreen reputation-gating for a new, low-reputation binary. → **Mitigation:** out of scope for this change's code, but tracked as a known cost of D1/D2 for the eventual packaging/release work.
+
+## Migration Plan
+
+Greenfield project — no existing users or data to migrate. The relevant "deployment" sequence for this change is: installer (single UAC prompt) creates the `FastFilesUsers` local group and adds the installing user to it, registers `FastFilesIndexSvc` with the SCM under its virtual service account and grants it `SeBackupPrivilege`, ACLs the install directory and both named pipes, and registers `FastFilesEngine` as a per-user logon-triggered Scheduled Task. Uninstall reverses all of the above. No rollback-of-data concerns apply since this change introduces no persistent user data yet.
+
+## Open Questions
+
+- **Index storage shape** (SQLite as durable store + in-memory projection vs. alternatives) is intentionally not decided here — it doesn't block standing up the process architecture, and is scoped for a dedicated follow-up change/design.
+- **Enterprise/managed deployment** (GPO/SCCM/Intune push of the service where no interactive admin credential is available) is a real, first-class scenario per the research but is not implemented in this change — the wire-protocol's major+previous-major overlap window is designed to accommodate it later.
+- **Per-user ACL-aware index filtering** vs. accepting Everything's filename-only cross-user visibility model is a deliberate open decision, not scheduled for this change; default behavior ships as the accepted-trade-off model in D4/Risks until revisited.
+- **Multi-session isolation specifics** (per-session pipe/mapping naming is designed in, but concurrent-session load behavior is not yet load-tested) — tracked as a validation task, not a design gap.
+- **Build system choice (CMake vs. MSBuild/vcxproj)** for the C++ solution is left to tasks.md/implementation rather than fixed here, since it doesn't affect the architecture.
