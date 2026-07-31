@@ -17,15 +17,18 @@ std::optional<MessageType> ToMessageType(uint16_t raw) noexcept {
         case MessageType::NotYetImplemented:
         case MessageType::Heartbeat:
         case MessageType::HeartbeatAck:
-        case MessageType::ScanBatch:
+        case MessageType::ScanRecordBatch:
         case MessageType::ScanComplete:
-        case MessageType::JournalOpened:
-        case MessageType::UsnBatch:
-        case MessageType::JournalResumeInvalid:
+        case MessageType::UsnJournalOpened:
+        case MessageType::JournalRecordBatch:
             return static_cast<MessageType>(raw);
         default:
             return std::nullopt;
     }
+}
+
+bool IsScanCursorLengthValid(uint16_t lengthBytes) noexcept {
+    return lengthBytes <= kMaxScanCursorLengthBytes;
 }
 
 } // namespace ffprotocol

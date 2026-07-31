@@ -3,9 +3,9 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 
-#include "ffprotocol/Commands.h"
 #include "ffprotocol/Version.h"
 #include "ffsetup/AuthenticodeVerification.h"
 #include "ffsetup/Identifiers.h"
@@ -27,7 +27,9 @@ constexpr std::chrono::milliseconds kMaxBackoff{60000};
 // single blocking ReadFile, and forcibly cancels it via
 // CancelSynchronousIo if the timeout elapses before the read completes --
 // so a deadlocked-but-not-broken pipe can't wedge the caller forever
-// (spec "Heartbeat timeout is treated as disconnection").
+// (spec "Heartbeat timeout is treated as disconnection"). Used only for
+// the pre-Active handshake exchange; the Active state's own reader thread
+// (see ActiveLoop) handles everything once the connection is up.
 std::optional<ffipc::ReceivedFrame> ReadFrameWithTimeout(HANDLE pipe, std::chrono::milliseconds timeout) {
     std::optional<ffipc::ReceivedFrame> result;
     std::atomic<bool> done{false};
@@ -58,6 +60,23 @@ std::optional<std::wstring> GetProcessImagePath(HANDLE processHandle) {
         return std::nullopt;
     }
     return std::wstring(buffer, size);
+}
+
+std::optional<std::vector<ffprotocol::VolumeInfo>> ParseVolumeList(const std::vector<uint8_t>& payload) {
+    if (payload.size() < sizeof(ffprotocol::VolumeListHeader)) {
+        return std::nullopt;
+    }
+    ffprotocol::VolumeListHeader header{};
+    std::memcpy(&header, payload.data(), sizeof(header));
+    const size_t expectedSize = sizeof(header) + static_cast<size_t>(header.count) * sizeof(ffprotocol::VolumeInfo);
+    if (payload.size() != expectedSize) {
+        return std::nullopt;
+    }
+    std::vector<ffprotocol::VolumeInfo> volumes(header.count);
+    if (header.count > 0) {
+        std::memcpy(volumes.data(), payload.data() + sizeof(header), header.count * sizeof(ffprotocol::VolumeInfo));
+    }
+    return volumes;
 }
 
 } // namespace
@@ -104,6 +123,20 @@ void PrivilegedConnection::RequestReconnect() {
         wakeRequested_ = true;
     }
     wakeCv_.notify_all();
+}
+
+bool PrivilegedConnection::SendRequest(uint16_t messageType, const void* payload, uint32_t payloadSize) {
+    HANDLE pipe = activePipe_.load();
+    if (pipe == nullptr) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(writeMutex_);
+    // Re-check under the lock: the pipe could have been torn down between
+    // the load above and acquiring the lock.
+    if (activePipe_.load() != pipe) {
+        return false;
+    }
+    return ffipc::WriteFrame(pipe, messageType, payload, payloadSize);
 }
 
 bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
@@ -222,97 +255,189 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     }
 }
 
-bool PrivilegedConnection::SendCommand(uint16_t messageType, const void* payload, uint32_t payloadSize) {
-    std::lock_guard<std::mutex> lock(pipeMutex_);
-    if (activePipe_ == nullptr) {
-        return false;
+void PrivilegedConnection::DispatchReceivedFrame(
+    const ffipc::ReceivedFrame& frame, std::atomic<bool>& heartbeatAckPending, std::mutex& ackMutex,
+    std::condition_variable& ackCv, std::atomic<bool>& protocolViolation) {
+    auto messageType = ffprotocol::ToMessageType(frame.header.messageType);
+    if (!messageType) {
+        protocolViolation = true;
+        return;
     }
-    return ffipc::WriteFrame(activePipe_, messageType, payload, payloadSize);
-}
 
-bool PrivilegedConnection::SendCommand(uint16_t messageType) {
-    std::lock_guard<std::mutex> lock(pipeMutex_);
-    if (activePipe_ == nullptr) {
-        return false;
+    switch (*messageType) {
+        case MessageType::HeartbeatAck: {
+            std::lock_guard<std::mutex> lock(ackMutex);
+            heartbeatAckPending = false;
+            ackCv.notify_all();
+            break;
+        }
+
+        case MessageType::VolumeList: {
+            auto volumes = ParseVolumeList(frame.payload);
+            if (!volumes) {
+                protocolViolation = true;
+                break;
+            }
+            if (volumeListCallback_) {
+                volumeListCallback_(std::move(*volumes));
+            }
+            break;
+        }
+
+        case MessageType::ScanRecordBatch: {
+            if (frame.payload.size() < sizeof(ffprotocol::ScanRecordBatchHeader)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::ScanRecordBatchHeader header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            const size_t afterHeader = sizeof(header);
+            if (frame.payload.size() < afterHeader + header.resumeCursorLengthBytes) {
+                protocolViolation = true;
+                break;
+            }
+            std::vector<uint8_t> cursor(
+                frame.payload.begin() + afterHeader, frame.payload.begin() + afterHeader + header.resumeCursorLengthBytes);
+            const size_t recordsOffset = afterHeader + header.resumeCursorLengthBytes;
+            auto records = ffprotocol::ParseMftBatch(
+                frame.payload.data() + recordsOffset, frame.payload.size() - recordsOffset, header.recordCount);
+            if (!records) {
+                protocolViolation = true;
+                break;
+            }
+            if (scanBatchCallback_) {
+                scanBatchCallback_(header.volumeId, std::move(cursor), std::move(*records));
+            }
+            break;
+        }
+
+        case MessageType::ScanComplete: {
+            if (frame.payload.size() != sizeof(ffprotocol::ScanCompletePayload)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::ScanCompletePayload payload{};
+            std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+            if (scanCompleteCallback_) {
+                scanCompleteCallback_(payload.volumeId);
+            }
+            break;
+        }
+
+        case MessageType::UsnJournalOpened: {
+            if (frame.payload.size() != sizeof(ffprotocol::UsnJournalOpenedPayload)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::UsnJournalOpenedPayload payload{};
+            std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+            if (journalOpenedCallback_) {
+                journalOpenedCallback_(payload.volumeId, payload.journalId, payload.currentUsn);
+            }
+            break;
+        }
+
+        case MessageType::JournalRecordBatch: {
+            if (frame.payload.size() < sizeof(ffprotocol::JournalRecordBatchHeader)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::JournalRecordBatchHeader header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            const size_t recordsOffset = sizeof(header);
+            auto records = ffprotocol::ParseUsnDeltaBatch(
+                frame.payload.data() + recordsOffset, frame.payload.size() - recordsOffset, header.recordCount);
+            if (!records) {
+                protocolViolation = true;
+                break;
+            }
+            if (journalBatchCallback_) {
+                journalBatchCallback_(header.volumeId, header.latestUsn, std::move(*records));
+            }
+            break;
+        }
+
+        default:
+            // Handshake/HandshakeAck/etc. have no business appearing once
+            // the connection is Active.
+            protocolViolation = true;
+            break;
     }
-    return ffipc::WriteFrame(activePipe_, messageType);
 }
 
 void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
-    {
-        std::lock_guard<std::mutex> lock(pipeMutex_);
-        activePipe_ = pipe;
-    }
     SetState(ConnectionState::Active, UnavailableReason::None);
+    activePipe_ = pipe;
 
-    // index-storage-and-scanning: the service now pushes ScanBatch/
-    // UsnBatch/etc. asynchronously on this same connection (not only
-    // heartbeat replies), so a single blocking-read-with-timeout per
-    // heartbeat is no longer sufficient -- a dedicated reader thread reads
-    // continuously and dispatches, while this thread just paces
-    // heartbeats and watches for a liveness timeout.
-    std::atomic<bool> readerAlive{true};
-    std::atomic<int64_t> lastTrafficMs{
-        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()};
+    std::atomic<bool> heartbeatAckPending{false};
+    std::atomic<bool> protocolViolation{false};
+    std::mutex ackMutex;
+    std::condition_variable ackCv;
 
+    // A single reader thread owns every ReadFrame call on this connection
+    // for its Active lifetime -- HeartbeatAck feeds the heartbeat-wait
+    // below, every other message type is dispatched to whichever
+    // scan/journal callback applies (index-storage-and-scanning tasks.md
+    // 6.1). This is what lets scan/journal batches arrive asynchronously,
+    // interleaved with the heartbeat cadence, rather than only in
+    // lockstep reply to a request.
     std::thread reader([&] {
-        while (true) {
+        for (;;) {
             auto frame = ffipc::ReadFrame(pipe);
             if (!frame) {
+                protocolViolation = true; // read failure/disconnect -- reuse the same teardown path
+                ackCv.notify_all();
                 break;
             }
-            lastTrafficMs.store(
-                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-            if (frame->header.messageType == static_cast<uint16_t>(MessageType::HeartbeatAck)) {
-                continue; // consumed purely as a liveness signal
-            }
-            if (frameHandler_) {
-                frameHandler_(frame->header.messageType, frame->payload);
+            DispatchReceivedFrame(*frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+            if (protocolViolation.load()) {
+                ackCv.notify_all();
+                break;
             }
         }
-        readerAlive = false;
-        {
-            std::lock_guard<std::mutex> lock(wakeMutex_);
-            wakeRequested_ = true;
-        }
-        wakeCv_.notify_all(); // wake the pacing loop below promptly on disconnect
     });
+    HANDLE readerNativeHandle = reader.native_handle();
 
-    while (running_ && !idleDropped_ && readerAlive.load()) {
-        if (!SendCommand(static_cast<uint16_t>(MessageType::Heartbeat))) {
+    while (running_ && !idleDropped_ && !protocolViolation.load()) {
+        {
+            std::lock_guard<std::mutex> lock(ackMutex);
+            heartbeatAckPending = true;
+        }
+        bool sendOk;
+        {
+            std::lock_guard<std::mutex> lock(writeMutex_);
+            sendOk = ffipc::WriteFrame(pipe, static_cast<uint16_t>(MessageType::Heartbeat));
+        }
+        if (!sendOk) {
             break;
         }
 
-        std::unique_lock<std::mutex> lock(wakeMutex_);
-        wakeCv_.wait_for(lock, kHeartbeatInterval, [this, &readerAlive] { return wakeRequested_ || !running_ || !readerAlive.load(); });
+        std::unique_lock<std::mutex> ackLock(ackMutex);
+        const bool signaled = ackCv.wait_for(ackLock, kHeartbeatAckTimeout,
+                                              [&] { return !heartbeatAckPending.load() || protocolViolation.load(); });
+        const bool ackOk = signaled && !heartbeatAckPending.load() && !protocolViolation.load();
+        ackLock.unlock();
+        if (!ackOk) {
+            // Spec "Heartbeat timeout is treated as disconnection": force
+            // close even though the pipe itself may not have errored.
+            break;
+        }
+
+        std::unique_lock<std::mutex> wakeLock(wakeMutex_);
+        wakeCv_.wait_for(wakeLock, kHeartbeatInterval,
+                          [this, &protocolViolation] { return wakeRequested_ || !running_ || protocolViolation.load(); });
         wakeRequested_ = false;
-        lock.unlock();
-
-        if (!readerAlive.load()) {
-            break;
-        }
-        const auto nowMs =
-            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-        if (nowMs - lastTrafficMs.load() > kHeartbeatAckTimeout.count()) {
-            // Spec "Heartbeat timeout is treated as disconnection": no
-            // traffic of any kind (ack or pushed batch) since well past
-            // the ack timeout means the peer is unresponsive even though
-            // the pipe itself may not have errored.
-            break;
-        }
     }
 
-    {
-        std::lock_guard<std::mutex> lock(pipeMutex_);
-        activePipe_ = nullptr; // no SendCommand can reach this handle from here on
-    }
-    // Unblock the reader thread's pending ReadFrame so it observes the
-    // disconnect promptly rather than only whenever the peer next writes.
-    CancelSynchronousIo(reader.native_handle());
+    activePipe_ = nullptr;
+    // Unblock the reader thread's in-flight ReadFile (it has no other
+    // cancellation hook) before joining it.
+    CancelSynchronousIo(readerNativeHandle);
     reader.join();
 
+    const bool wasIdleDropped = idleDropped_.load();
     CloseHandle(pipe);
-    if (idleDropped_) {
+    if (wasIdleDropped) {
         SetState(ConnectionState::Disconnected, UnavailableReason::IdleDropped);
     } else {
         SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);

@@ -1,121 +1,169 @@
 #include "VolumeScanner.h"
 
-#include <windows.h>
 #include <winioctl.h>
 
 #include <cstring>
+#include <thread>
+#include <vector>
 
-#include "NtfsRawAccess.h"
+#include "ffipc/PipeFraming.h"
+#include "ffprotocol/Records.h"
+
+#include "MftParser.h"
 
 namespace ffindexsvc {
 
-std::vector<uint8_t> SerializeScanCursor(uint64_t resumeFileReferenceNumber) {
-    std::vector<uint8_t> cursor(sizeof(uint64_t));
-    std::memcpy(cursor.data(), &resumeFileReferenceNumber, sizeof(uint64_t));
-    return cursor;
-}
+namespace {
 
-std::optional<uint64_t> DeserializeScanCursor(const std::vector<uint8_t>& cursor) {
+constexpr uint32_t kBatchSize = 512;
+
+uint64_t DecodeCursor(const std::vector<uint8_t>& cursor) {
     if (cursor.size() != sizeof(uint64_t)) {
-        return std::nullopt;
+        return 0;
     }
     uint64_t value = 0;
-    std::memcpy(&value, cursor.data(), sizeof(uint64_t));
+    std::memcpy(&value, cursor.data(), sizeof(value));
     return value;
 }
 
-namespace {
-
-ffprotocol::MftRecordV1 ToWireRecord(uint64_t fileReferenceNumber, const ParsedMftRecord& parsed) {
-    ffprotocol::MftRecordV1 record;
-    record.fixed.fileReferenceNumber = fileReferenceNumber;
-    record.fixed.parentFileReferenceNumber = parsed.parentFileReferenceNumber;
-    // FSCTL_ENUM_USN_DATA + FSCTL_GET_NTFS_FILE_RECORD's $STANDARD_INFORMATION
-    // read only exposes LastModificationTime distinctly (see
-    // MftRecordParser) -- creation/last-access are set equal to it rather
-    // than left unset. DurableStore only ever persists last-write time
-    // (design.md 1.2), so this only affects these otherwise-unused wire
-    // fields, not what the index actually stores.
-    record.fixed.creationTime = parsed.lastWriteTime;
-    record.fixed.lastModifiedTime = parsed.lastWriteTime;
-    record.fixed.lastAccessTime = parsed.lastWriteTime;
-    record.fixed.sizeBytes = parsed.realSizeBytes;
-    record.fixed.fileAttributes = parsed.dosAttributes | (parsed.isDirectory ? FILE_ATTRIBUTE_DIRECTORY : 0);
-    record.fixed.fileNameLengthChars = static_cast<uint16_t>(parsed.name.size());
-    record.fileName = parsed.name;
-    return record;
+std::vector<uint8_t> EncodeCursor(uint64_t nextIndex) {
+    std::vector<uint8_t> cursor(sizeof(uint64_t));
+    std::memcpy(cursor.data(), &nextIndex, sizeof(nextIndex));
+    return cursor;
 }
 
-constexpr DWORD kEnumBufferBytes = 64 * 1024;
+bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextIndex) {
+    const std::vector<uint8_t> cursor = EncodeCursor(nextIndex);
+    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatch(records);
+
+    ffprotocol::ScanRecordBatchHeader header{};
+    header.volumeId = volumeId;
+    header.recordCount = static_cast<uint32_t>(records.size());
+    header.resumeCursorLengthBytes = static_cast<uint16_t>(cursor.size());
+
+    std::vector<uint8_t> payload;
+    payload.reserve(sizeof(header) + cursor.size() + serializedRecords.size());
+    const auto* headerBytes = reinterpret_cast<const uint8_t*>(&header);
+    payload.insert(payload.end(), headerBytes, headerBytes + sizeof(header));
+    payload.insert(payload.end(), cursor.begin(), cursor.end());
+    payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
+
+    std::lock_guard<std::mutex> lock(writeMutex);
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
+                              payload.data(), static_cast<uint32_t>(payload.size()));
+}
+
+bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId) {
+    ffprotocol::ScanCompletePayload payload{volumeId};
+    std::lock_guard<std::mutex> lock(writeMutex);
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete), &payload, sizeof(payload));
+}
 
 } // namespace
 
-bool VolumeScanner::Run(wchar_t driveLetter, uint64_t startFileReferenceNumber, const BatchCallback& onBatch) {
-    auto volume = RawVolumeHandle::Open(driveLetter);
-    if (!volume) {
-        return false;
+void RunVolumeScan(
+    HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
+    const std::vector<uint8_t>& resumeCursor, const std::atomic<bool>& shouldStop) {
+    const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
+
+    // FILE_FLAG_BACKUP_SEMANTICS + the process's already-enabled
+    // SeBackupPrivilege (enabled once at service startup -- see
+    // PrivilegeVerification.cpp) is what lets this open succeed without
+    // administrative rights (design.md D1 "SeBackupPrivilege only").
+    HANDLE volumeHandle = CreateFileW(
+        volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (volumeHandle == INVALID_HANDLE_VALUE) {
+        SendScanComplete(pipe, writeMutex, volumeId);
+        return;
     }
 
-    uint64_t currentStart = startFileReferenceNumber;
-    std::vector<uint8_t> outputBuffer(kEnumBufferBytes);
+    NTFS_VOLUME_DATA_BUFFER volumeData{};
+    DWORD bytesReturned = 0;
+    if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
+                          &bytesReturned, nullptr)) {
+        CloseHandle(volumeHandle);
+        SendScanComplete(pipe, writeMutex, volumeId);
+        return;
+    }
 
-    while (!stopRequested_.load(std::memory_order_relaxed)) {
-        MFT_ENUM_DATA_V0 enumData{};
-        enumData.StartFileReferenceNumber = currentStart;
-        enumData.LowUsn = 0;
-        enumData.HighUsn = MAXLONGLONG;
+    const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
+    const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
+    if (recordSize == 0 || bytesPerSector == 0) {
+        CloseHandle(volumeHandle);
+        SendScanComplete(pipe, writeMutex, volumeId);
+        return;
+    }
+    const uint64_t totalRecords = static_cast<uint64_t>(volumeData.MftValidDataLength.QuadPart) / recordSize;
 
-        DWORD bytesReturned = 0;
+    const size_t outputBufferSize = sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) - 1 + recordSize;
+    std::vector<uint8_t> outputBuffer(outputBufferSize);
+    std::vector<uint8_t> recordScratch(recordSize);
+
+    std::vector<ffprotocol::MftRecordV1> batch;
+    batch.reserve(kBatchSize);
+
+    uint64_t index = DecodeCursor(resumeCursor);
+    bool writeFailed = false;
+    for (; index < totalRecords && !shouldStop.load() && !writeFailed; ++index) {
+        NTFS_FILE_RECORD_INPUT_BUFFER input{};
+        input.FileReferenceNumber.QuadPart = static_cast<LONGLONG>(index);
+
+        DWORD recordBytesReturned = 0;
         const BOOL ok = DeviceIoControl(
-            volume->Get(), FSCTL_ENUM_USN_DATA, &enumData, sizeof(enumData), outputBuffer.data(),
-            static_cast<DWORD>(outputBuffer.size()), &bytesReturned, nullptr);
+            volumeHandle, FSCTL_GET_NTFS_FILE_RECORD, &input, sizeof(input), outputBuffer.data(),
+            static_cast<DWORD>(outputBuffer.size()), &recordBytesReturned, nullptr);
         if (!ok) {
-            // ERROR_HANDLE_EOF: enumeration reached the end of the MFT --
-            // the scan completed normally (task: no indefinite blocking,
-            // and this is the expected terminal condition, not an error).
-            return true;
-        }
-        if (bytesReturned < sizeof(uint64_t)) {
-            return true; // degenerate empty reply -- treat as completion rather than looping forever
+            // tasks.md 4.3: a single unreadable/nonexistent record is
+            // skipped, not treated as fatal to the whole scan.
+            continue;
         }
 
-        uint64_t nextStart = 0;
-        std::memcpy(&nextStart, outputBuffer.data(), sizeof(nextStart));
-
-        std::vector<ffprotocol::MftRecordV1> batch;
-        size_t offset = sizeof(uint64_t);
-        while (offset + sizeof(USN_RECORD_V2) <= bytesReturned) {
-            const auto* record = reinterpret_cast<const USN_RECORD_V2*>(outputBuffer.data() + offset);
-            if (record->RecordLength == 0 || offset + record->RecordLength > bytesReturned) {
-                break; // malformed trailing record -- stop consuming this buffer, not the whole scan
-            }
-
-            // Task 4.3: a single vanished/inconsistent record (deleted
-            // between FSCTL_ENUM_USN_DATA and our follow-up fetch, or a
-            // record that fails MftRecordParser's validation) is skipped,
-            // never aborts the scan.
-            auto parsed = FetchAndParseMftRecord(volume->Get(), volume->BytesPerSector(), record->FileReferenceNumber);
-            if (parsed) {
-                batch.push_back(ToWireRecord(record->FileReferenceNumber, *parsed));
-            }
-
-            offset += record->RecordLength;
+        const auto* output = reinterpret_cast<const NTFS_FILE_RECORD_OUTPUT_BUFFER*>(outputBuffer.data());
+        const uint32_t returnedRecordLength = output->FileRecordLength;
+        if (returnedRecordLength == 0 || returnedRecordLength > recordSize) {
+            continue;
         }
 
-        currentStart = nextStart;
+        // Fixup mutates in place -- copy into scratch so a bad record
+        // never corrupts our own read buffer's next iteration.
+        std::memcpy(recordScratch.data(), output->FileRecordBuffer, returnedRecordLength);
+        if (ApplyFixupAndValidate(recordScratch.data(), returnedRecordLength, bytesPerSector) != FixupResult::Ok) {
+            continue;
+        }
+        auto parsed = ParseMftAttributes(recordScratch.data(), returnedRecordLength);
+        if (!parsed) {
+            continue;
+        }
 
-        if (!batch.empty() || bytesReturned > sizeof(uint64_t)) {
-            // Persist/report progress even for a buffer that yielded zero
-            // *forwardable* records (all skipped) -- the resume cursor
-            // still must advance past them so a restart doesn't re-fetch
-            // the same already-visited, already-rejected records forever.
-            if (!onBatch(batch, SerializeScanCursor(nextStart))) {
-                return true;
-            }
+        ffprotocol::MftRecordV1 record{};
+        record.fixed.fileReferenceNumber = static_cast<uint64_t>(output->FileReferenceNumber.QuadPart);
+        record.fixed.parentFileReferenceNumber = parsed->parentFileReferenceNumber;
+        record.fixed.creationTime = parsed->creationTime;
+        record.fixed.lastModifiedTime = parsed->lastModifiedTime;
+        record.fixed.lastAccessTime = parsed->lastAccessTime;
+        record.fixed.sizeBytes = parsed->sizeBytes;
+        record.fixed.fileAttributes = parsed->fileAttributes;
+        record.fixed.fileNameLengthChars = static_cast<uint16_t>(parsed->fileName.size());
+        record.fileName = std::move(parsed->fileName);
+        batch.push_back(std::move(record));
+
+        if (batch.size() >= kBatchSize) {
+            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, index + 1);
+            batch.clear();
         }
     }
 
-    return true;
+    if (!batch.empty() && !writeFailed) {
+        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, index);
+    }
+
+    CloseHandle(volumeHandle);
+
+    if (!writeFailed && !shouldStop.load()) {
+        SendScanComplete(pipe, writeMutex, volumeId);
+    }
 }
 
 } // namespace ffindexsvc

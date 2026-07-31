@@ -23,18 +23,17 @@ enum class MessageType : uint16_t {
     Heartbeat = 12,
     HeartbeatAck = 13,
 
-    // index-storage-and-scanning: real scan/journal batch streaming.
-    // Pushed asynchronously by the service on the same Ctrl connection
-    // that issued StartVolumeScan/OpenUsnJournal -- interleaved with
-    // Heartbeat, never on a separate connection, so the existing
-    // connection-scoped VolumeId ownership rules (ConnectionRegistry)
-    // keep applying unchanged (design.md non-goal: this change does not
-    // reopen the transport design).
-    ScanBatch = 14,       // service -> engine, zero or more per active scan
-    ScanComplete = 15,    // service -> engine, terminal for one StartVolumeScan
-    JournalOpened = 16,   // service -> engine, immediate reply to OpenUsnJournal (carries JournalId)
-    UsnBatch = 17,        // service -> engine, streamed for the life of an open journal
-    JournalResumeInvalid = 18, // service -> engine: the supplied ResumeUsn is no longer valid (D6/task 7.6)
+    // index-storage-and-scanning: additive extensions replacing the
+    // NotYetImplemented stub replies for StartVolumeScan/OpenUsnJournal
+    // (design.md "Migration Plan" -- greenfield, no deployed clients to
+    // stay wire-compatible with yet, so these are plain new values rather
+    // than a versioned/negotiated extension). Streamed asynchronously by
+    // the service on the same Ctrl connection the request arrived on,
+    // interleaved with Heartbeat/Stop/Close traffic from the client.
+    ScanRecordBatch = 14,  // service -> client, zero or more per scan
+    ScanComplete = 15,     // service -> client, exactly once per scan that runs to completion
+    UsnJournalOpened = 16, // service -> client, once, acks OpenUsnJournal with the current JournalId
+    JournalRecordBatch = 17, // service -> client, zero or more per open journal
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -91,21 +90,20 @@ struct VolumeListHeader {
     uint32_t count;
 };
 
-// Upper bound on an opaque resume cursor's wire length (task 4.5, D8).
-// Cursors this protocol actually produces are a handful of bytes (an MFT
-// enumeration position); this ceiling exists only to bound the pre-parse
-// allocation, the same discipline as every other length-prefixed field
-// (spec "Frame and Input Validation").
+// index-storage-and-scanning tasks.md 4.5/D8: additive optional
+// resume-cursor argument. `resumeCursorLengthBytes` trailing opaque bytes
+// (previously issued by this same service via ScanRecordBatchHeader,
+// tasks.md 6.3) immediately follow this fixed struct on the wire; 0 means
+// "no cursor supplied -- scan from the beginning" (spec "Omitted cursor
+// performs a full scan").
 constexpr uint16_t kMaxScanCursorLengthBytes = 256;
 
-// Additive extension over the closed command surface (design.md D8): a
-// fixed header followed by `resumeCursorLengthBytes` opaque bytes.
-// resumeCursorLengthBytes == 0 requests a full scan from the beginning,
-// exactly as StartVolumeScan behaved before this field existed.
-struct StartVolumeScanRequestHeader {
+struct StartVolumeScanRequest {
     VolumeId volumeId;
     uint16_t resumeCursorLengthBytes;
 };
+
+bool IsScanCursorLengthValid(uint16_t lengthBytes) noexcept;
 
 struct StopVolumeScanRequest {
     VolumeId volumeId;
@@ -120,14 +118,15 @@ struct CloseUsnJournalRequest {
     VolumeId volumeId;
 };
 
-// service -> engine, asynchronously streamed while a scan is active
-// (ScanBatch). Layout on the wire: this fixed header, then
-// resumeCursorLengthBytes opaque cursor bytes (reflecting progress AFTER
-// this batch, for persisting per task 6.4), then the MFT record batch
-// itself in the same layout ParseMftBatch/SerializeMftBatch already
-// define (Records.h) -- placed last since its size is exactly implied by
-// recordCount rather than being separately length-prefixed.
-struct ScanBatchHeader {
+struct NotYetImplementedPayload {
+    uint16_t requestMessageType;
+};
+
+// ScanRecordBatch payload: this fixed header, `resumeCursorLengthBytes`
+// opaque cursor bytes (the scan's position as of just after this batch --
+// tasks.md 6.4), then a serialized MFT record batch in the same wire
+// format ParseMftBatch/SerializeMftBatch (Records.h) already define.
+struct ScanRecordBatchHeader {
     VolumeId volumeId;
     uint32_t recordCount;
     uint16_t resumeCursorLengthBytes;
@@ -137,32 +136,27 @@ struct ScanCompletePayload {
     VolumeId volumeId;
 };
 
-// service -> engine, immediate reply to OpenUsnJournal (spec "USN Journal
-// Identity Reported for Resume Validation").
-struct JournalOpenedPayload {
+struct UsnJournalOpenedPayload {
     VolumeId volumeId;
     uint64_t journalId;
+    // The journal's current NextUsn as of the open (i.e. where a
+    // start-fresh-from-now read would begin). Lets the caller recover
+    // safely if its own persisted ResumeUsn turns out to be stale for
+    // this JournalId (design.md D6): reopen with resumeUsn = this value
+    // rather than retrying the same invalid position, which would just
+    // read nothing since UsnJournalReader.cpp does not surface a distinct
+    // error for an out-of-range ResumeUsn.
+    uint64_t currentUsn;
 };
 
-// service -> engine, asynchronously streamed for the life of an open
-// journal. The USN delta batch (Records.h layout) follows this header.
-struct UsnBatchHeader {
+// JournalRecordBatch payload: this fixed header followed by a serialized
+// USN delta batch (Records.h's ParseUsnDeltaBatch/SerializeUsnDeltaBatch
+// wire format). `latestUsn` is the position to persist as this volume's
+// new ResumeUsn once the batch has been durably applied.
+struct JournalRecordBatchHeader {
     VolumeId volumeId;
     uint32_t recordCount;
-    uint64_t resumeUsnAfterBatch; // persist as the volume's ResumeUsn (D8) once this batch is committed
-};
-
-// service -> engine: sent instead of further UsnBatch frames when the
-// caller-supplied ResumeUsn (or the journal's position after a long-open
-// stream wraps mid-read) falls outside the journal's currently retained
-// range. The caller falls back to a reconciliation sweep for this volume
-// rather than resuming (D6, task 7.6).
-struct JournalResumeInvalidPayload {
-    VolumeId volumeId;
-};
-
-struct NotYetImplementedPayload {
-    uint16_t requestMessageType;
+    uint64_t latestUsn;
 };
 
 // Handshake/Heartbeat requests carry no payload beyond the frame header,

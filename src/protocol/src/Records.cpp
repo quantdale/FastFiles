@@ -92,32 +92,40 @@ std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
 
 namespace {
 
-template <typename FixedT, typename RecordT>
+template <typename RecordT>
 std::vector<uint8_t> SerializeBatch(const std::vector<RecordT>& records) {
-    size_t totalSize = 0;
+    std::vector<uint8_t> out;
+    size_t total = 0;
     for (const auto& record : records) {
-        totalSize += sizeof(FixedT) + record.fileName.size() * sizeof(char16_t);
+        if (!IsFileNameLengthValid(record.fixed.fileNameLengthChars)
+            || record.fixed.fileNameLengthChars != record.fileName.size()) {
+            continue;
+        }
+        total += sizeof(record.fixed) + record.fileName.size() * sizeof(char16_t);
     }
+    out.reserve(total);
 
-    std::vector<uint8_t> buffer;
-    buffer.reserve(totalSize);
     for (const auto& record : records) {
+        if (!IsFileNameLengthValid(record.fixed.fileNameLengthChars)
+            || record.fixed.fileNameLengthChars != record.fileName.size()) {
+            continue;
+        }
         const auto* fixedBytes = reinterpret_cast<const uint8_t*>(&record.fixed);
-        buffer.insert(buffer.end(), fixedBytes, fixedBytes + sizeof(FixedT));
+        out.insert(out.end(), fixedBytes, fixedBytes + sizeof(record.fixed));
         const auto* nameBytes = reinterpret_cast<const uint8_t*>(record.fileName.data());
-        buffer.insert(buffer.end(), nameBytes, nameBytes + record.fileName.size() * sizeof(char16_t));
+        out.insert(out.end(), nameBytes, nameBytes + record.fileName.size() * sizeof(char16_t));
     }
-    return buffer;
+    return out;
 }
 
 } // namespace
 
 std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records) {
-    return SerializeBatch<MftRecordFixedV1>(records);
+    return SerializeBatch(records);
 }
 
 std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records) {
-    return SerializeBatch<UsnDeltaFixedV1>(records);
+    return SerializeBatch(records);
 }
 
 } // namespace ffprotocol

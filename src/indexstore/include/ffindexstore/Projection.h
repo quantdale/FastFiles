@@ -1,117 +1,108 @@
 #pragma once
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
-#include "ffindexstore/FileId.h"
-#include "ffindexstore/IngestEntry.h"
+#include "ffindexstore/EntryRecord.h"
+#include "ffindexstore/Identity.h"
 #include "ffindexstore/NamePool.h"
 
 namespace ffindexstore {
 
-// The well-known Win32 FILE_ATTRIBUTE_DIRECTORY bit value. Duplicated here
-// (rather than including <windows.h>) so this library stays free of Win32
-// dependencies -- it holds no handles and makes no syscalls, which keeps
-// it buildable and unit-testable independent of the platform layer.
-constexpr uint32_t kFileAttributeDirectory = 0x10;
+class Store;
 
-struct ChildEntryView {
-    EntryKey key;
-    std::u16string_view name;
+// One entry in the in-memory projection (design.md D2): a fixed-size
+// record referencing its parent by FileReferenceNumber -- the spec's
+// explicitly-allowed alternative to a dense internal reference -- and its
+// name by an interned NameId, never by a stored full path.
+struct ProjectionEntry {
+    VolumeRowId volumeRowId = 0;
+    FileId frn;
+    FileId parentFrn;
+    NameId nameId = 0;
     uint64_t sizeBytes = 0;
-    uint64_t lastWriteTime = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastModifiedTime = 0;
+    uint64_t lastAccessTime = 0;
     uint32_t attributes = 0;
 };
 
-// The compact, dense in-memory index (design.md D2, tasks.md section 2):
-// every entry is a fixed-size record referencing its parent by
-// FileReferenceNumber and its name by an interned NameId, never a stored
-// full path. This is what search/browse/storage-analysis read at runtime;
-// it is rebuilt from DurableStore at startup and kept incrementally in
-// sync thereafter (never the other way around -- DurableStore is always
-// the source of truth).
+// The compact, RAM-resident view of the index that search/browse/storage-
+// analysis actually read (design.md D2), rebuilt from the durable Store at
+// startup (D4) and kept incrementally in sync thereafter (this is the
+// consumer of Store::ApplyBatch's committed data, applied strictly after
+// the corresponding commit -- see the `index-engine` ingestion-ordering
+// requirement; the ordering itself is the caller's responsibility, this
+// class only implements the in-memory half).
 //
-// Not internally synchronized: callers (IndexStore) serialize access
-// exactly as the ingestion pipeline ordering already requires (commit to
-// SQLite, then apply here, one batch at a time).
+// Not internally synchronized -- callers (the engine's single ingestion
+// pipeline thread, or a caller-held lock around startup rebuild) are
+// responsible for serializing mutation, consistent with SnapshotPublisher
+// already requiring the caller to serialize Publish() calls.
 class Projection {
 public:
-    // Applies one already-durably-committed batch of changes (task 3.3,
-    // D4). Upserts overwrite fields in place (including re-parenting) for
-    // an already-known key; Removes on an unknown key are a harmless no-op
-    // (idempotent, matching D7/D8's upsert semantics under resumed/
-    // re-delivered records).
-    void Apply(const std::vector<IngestEntry>& batch);
-    void ApplyOne(const IngestEntry& entry);
-
-    std::optional<ChildEntryView> TryGet(const EntryKey& key) const;
-    bool Contains(const EntryKey& key) const noexcept { return keyToIndex_.count(key) != 0; }
-
-    // Children of `parentKey`, for Column-View-style "list this directory"
-    // lookups (task 2.3) -- backed by the parent->children index, not a
-    // scan.
-    std::vector<ChildEntryView> ChildrenOf(const EntryKey& parentKey) const;
-
-    // On-demand full path reconstruction (task 2.4): walks parent
-    // references up to a self-referential root (NTFS's root record is its
-    // own parent) or an unknown ancestor, concatenating interned names,
-    // with defensive cycle detection -- a walk that revisits an
-    // already-seen FileReferenceNumber stops rather than looping, even
-    // though a well-formed volume should never produce that (design.md
-    // D7). `volumeRootPrefix` (e.g. L"C:") is prepended with a leading
-    // backslash before the first reconstructed segment; pass an empty
-    // string for a volume-relative path.
-    //
-    // Returns std::nullopt only if `key` itself is not present in the
-    // projection.
-    std::optional<std::wstring> ReconstructPath(const EntryKey& key, const std::wstring& volumeRootPrefix) const;
-
-    size_t EntryCount() const noexcept { return entries_.size(); }
-    const NamePool& Names() const noexcept { return namePool_; }
-
-    // Pre-sizes internal storage ahead of a bulk startup rebuild (task
-    // 2.5), using row counts already tracked in DurableStore's volumes
-    // metadata.
+    // task 2.5: pre-size before a bulk rebuild.
     void Reserve(size_t expectedEntryCount);
 
-    // Drops every entry belonging to `volumeId`, e.g. before a full
-    // rebuild-from-store pass for that volume, or on an explicit "forget
-    // this drive" action (task 7.4). O(entry count); intentionally not a
-    // hot-path operation.
-    void RemoveVolume(DurableVolumeId volumeId);
+    // Inserts a brand-new entry, or updates an existing one in place
+    // (including re-parenting, which updates the parent->children index --
+    // task 2.3).
+    void Upsert(VolumeRowId volumeRowId, const EntryRecord& record);
+    // No-op if the entry is not present.
+    void Remove(VolumeRowId volumeRowId, FileId frn);
 
-    void Clear();
+    const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
+
+    // task 2.3: parent->children lookup for directory-listing/Column-View
+    // style access. Returns nullptr if the parent has no known children
+    // (which is not the same as the parent itself being unknown).
+    const std::vector<uint32_t>* ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const;
+    const ProjectionEntry& EntryAt(uint32_t index) const { return entries_[index]; }
+
+    struct PathResult {
+        std::u16string path; // backslash-joined names, root-to-leaf, leaf included
+        // false if the walk stopped early because it hit an entry not
+        // present in the projection, or detected revisiting an FRN already
+        // seen in this same walk (task 2.4's defensive cycle detection) --
+        // in both cases `path` holds whatever prefix was resolved.
+        bool reachedRoot = false;
+    };
+    // task 2.4: walks parent references and concatenates interned names
+    // on demand -- never reads a precomputed path field.
+    PathResult ReconstructPath(VolumeRowId volumeRowId, FileId frn) const;
+
+    // task 3.1: rebuilds this volume's portion of the projection from the
+    // durable store in a single streaming pass, interning names and
+    // building the parent->children index as rows arrive.
+    // expectedEntryCount pre-sizes allocations (task 2.5/D4); the caller
+    // gets this from Store::GetVolumeMetadata(...)->entryCount.
+    void RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount);
+
+    size_t EntryCount() const noexcept { return idToIndex_.size(); }
+    const NamePool& Names() const noexcept { return namePool_; }
+
+    // Visits every live entry (fn(const EntryKey&, const ProjectionEntry&))
+    // -- used by consumers that need to export the whole projection (e.g.
+    // converting it to the directory-listing snapshot format for
+    // publication). Iterates the live-entry index rather than the dense
+    // array directly, so tombstoned/reused slots are never visited.
+    template <typename Fn>
+    void ForEachEntry(Fn&& fn) const {
+        for (const auto& [key, index] : idToIndex_) {
+            fn(key, entries_[index]);
+        }
+    }
 
 private:
-    struct ProjectionEntry {
-        FileId128 fileReferenceNumber;
-        FileId128 parentFileReferenceNumber;
-        DurableVolumeId volumeId = kInvalidDurableVolumeId;
-        NameId nameId = kInvalidNameId;
-        uint64_t sizeBytes = 0;
-        uint64_t lastWriteTime = 0;
-        uint32_t attributes = 0;
+    void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
 
-        EntryKey Key() const noexcept { return EntryKey{volumeId, fileReferenceNumber}; }
-        EntryKey ParentKey() const noexcept { return EntryKey{volumeId, parentFileReferenceNumber}; }
-    };
-
-    void InsertNew(const IngestEntry& entry);
-    void UpdateExisting(uint32_t index, const IngestEntry& entry);
-    void RemoveAt(uint32_t index);
-
-    void AddToParentIndex(const EntryKey& parentKey, uint32_t childIndex);
-    void RemoveFromParentIndex(const EntryKey& parentKey, uint32_t childIndex);
-    void RenumberInParentIndex(const EntryKey& parentKey, uint32_t oldIndex, uint32_t newIndex);
-
-    ChildEntryView ToView(const ProjectionEntry& entry) const;
-
-    std::vector<ProjectionEntry> entries_;
-    std::unordered_map<EntryKey, uint32_t, EntryKeyHash> keyToIndex_;
-    std::unordered_multimap<EntryKey, uint32_t, EntryKeyHash> parentToChildren_;
     NamePool namePool_;
+    std::vector<ProjectionEntry> entries_; // dense array; freed slots reused via freeList_
+    std::vector<uint32_t> freeList_;
+    std::unordered_map<EntryKey, uint32_t, EntryKeyHash> idToIndex_;
+    std::unordered_map<EntryKey, std::vector<uint32_t>, EntryKeyHash> parentToChildren_;
 };
 
 } // namespace ffindexstore

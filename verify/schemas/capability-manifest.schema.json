@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "FastFiles Verify Capability Manifest",
   "type": "object",
-  "required": ["id", "interfaceVersion", "tier", "entryModule", "entryPoints"],
+  "required": ["id", "interfaceVersion", "tier", "entryModule", "entryPoints", "repairPosture"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
     "interfaceVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
@@ -10,6 +10,14 @@
     "displayName": { "type": "string" },
     "description": { "type": "string" },
     "entryModule": { "type": "string" },
+    "dependsOn": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+    },
+    "repairPosture": {
+      "type": "string",
+      "enum": ["repair-supported", "repair-unsupported", "repair-unavailable"]
+    },
     "entryPoints": {
       "type": "object",
       "required": ["availability", "run", "diagnostics"],
@@ -18,7 +26,8 @@
         "run": { "type": "string" },
         "diagnostics": { "type": "string" },
         "baseline": { "type": "string" },
-        "repairHints": { "type": "string" }
+        "repairHints": { "type": "string" },
+        "repair": { "type": "string" }
       }
     }
   }

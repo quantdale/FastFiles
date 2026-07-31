@@ -123,6 +123,16 @@ void UiServer::BroadcastEngineStatus(HANDLE toSinglePipe) {
     }
 }
 
+void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories) {
+    {
+        std::lock_guard<std::mutex> lock(directoriesMutex_);
+        for (auto& [path, directory] : indexDirectories) {
+            directories_[path] = std::move(directory);
+        }
+    }
+    RepublishAndBroadcastGeneration();
+}
+
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
     engineActive_ = privilegedPathActive;
     BroadcastEngineStatus();

@@ -1,226 +1,159 @@
 #include "ffindexstore/Projection.h"
 
-#include <unordered_set>
+#include <algorithm>
+
+#include "ffindexstore/Store.h"
 
 namespace ffindexstore {
 
-void Projection::Apply(const std::vector<IngestEntry>& batch) {
-    for (const auto& entry : batch) {
-        ApplyOne(entry);
+void Projection::Reserve(size_t expectedEntryCount) {
+    entries_.reserve(expectedEntryCount);
+    idToIndex_.reserve(expectedEntryCount);
+    parentToChildren_.reserve(expectedEntryCount);
+    // Names recur constantly across a real tree (D2's rationale) -- a
+    // quarter of the entry count is a reasonable rough estimate for the
+    // unique-name-count hint; NamePool grows past this fine if wrong.
+    namePool_.Reserve(expectedEntryCount / 4 + 16, expectedEntryCount * 12);
+}
+
+void Projection::RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index) {
+    auto it = parentToChildren_.find(parentKey);
+    if (it == parentToChildren_.end()) {
+        return;
+    }
+    auto& siblings = it->second;
+    siblings.erase(std::remove(siblings.begin(), siblings.end(), index), siblings.end());
+    if (siblings.empty()) {
+        parentToChildren_.erase(it);
     }
 }
 
-void Projection::ApplyOne(const IngestEntry& entry) {
-    auto it = keyToIndex_.find(entry.key);
+void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
+    const EntryKey key{volumeRowId, record.id};
+    const NameId nameId = namePool_.Intern(record.name);
 
-    if (entry.op == IngestOp::Remove) {
-        if (it != keyToIndex_.end()) {
-            RemoveAt(it->second);
+    auto it = idToIndex_.find(key);
+    if (it != idToIndex_.end()) {
+        const uint32_t index = it->second;
+        ProjectionEntry& entry = entries_[index];
+
+        if (entry.parentFrn != record.parentId) {
+            RemoveFromChildrenList(EntryKey{volumeRowId, entry.parentFrn}, index);
+            // A self-referential parent (record.parentId == record.id) is
+            // the volume-root sentinel (NTFS record 5's parent is itself),
+            // not a real containment relationship -- it must not make the
+            // root list itself as its own child in a directory listing.
+            if (record.parentId != record.id) {
+                parentToChildren_[EntryKey{volumeRowId, record.parentId}].push_back(index);
+            }
         }
-        return; // unknown key: harmless no-op (D7/D8 idempotent upsert semantics)
+
+        entry.parentFrn = record.parentId;
+        entry.nameId = nameId;
+        entry.sizeBytes = record.sizeBytes;
+        entry.creationTime = record.creationTime;
+        entry.lastModifiedTime = record.lastModifiedTime;
+        entry.lastAccessTime = record.lastAccessTime;
+        entry.attributes = record.attributes;
+        return;
     }
 
-    if (it == keyToIndex_.end()) {
-        InsertNew(entry);
+    ProjectionEntry entry;
+    entry.volumeRowId = volumeRowId;
+    entry.frn = record.id;
+    entry.parentFrn = record.parentId;
+    entry.nameId = nameId;
+    entry.sizeBytes = record.sizeBytes;
+    entry.creationTime = record.creationTime;
+    entry.lastModifiedTime = record.lastModifiedTime;
+    entry.lastAccessTime = record.lastAccessTime;
+    entry.attributes = record.attributes;
+
+    uint32_t index;
+    if (!freeList_.empty()) {
+        index = freeList_.back();
+        freeList_.pop_back();
+        entries_[index] = entry;
     } else {
-        UpdateExisting(it->second, entry);
+        index = static_cast<uint32_t>(entries_.size());
+        entries_.push_back(entry);
+    }
+
+    idToIndex_.emplace(key, index);
+    if (record.parentId != record.id) {
+        parentToChildren_[EntryKey{volumeRowId, record.parentId}].push_back(index);
     }
 }
 
-void Projection::InsertNew(const IngestEntry& entry) {
-    ProjectionEntry projected;
-    projected.fileReferenceNumber = entry.key.fileReferenceNumber;
-    projected.parentFileReferenceNumber = entry.parentFileReferenceNumber;
-    projected.volumeId = entry.key.volumeId;
-    projected.nameId = namePool_.Intern(entry.name);
-    projected.sizeBytes = entry.sizeBytes;
-    projected.lastWriteTime = entry.lastWriteTime;
-    projected.attributes = entry.attributes;
-
-    const auto newIndex = static_cast<uint32_t>(entries_.size());
-    entries_.push_back(projected);
-    keyToIndex_.emplace(entry.key, newIndex);
-    // A self-referential root (NTFS record 5, whose ParentFileReferenceNumber
-    // is itself) is not its own child -- registering it would make
-    // ChildrenOf(root) incorrectly include the root itself.
-    if (!(projected.ParentKey() == entry.key)) {
-        AddToParentIndex(projected.ParentKey(), newIndex);
+void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
+    const EntryKey key{volumeRowId, frn};
+    auto it = idToIndex_.find(key);
+    if (it == idToIndex_.end()) {
+        return;
     }
+    const uint32_t index = it->second;
+    RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
+    idToIndex_.erase(it);
+    freeList_.push_back(index);
+    // entries_[index] itself is left in place (tombstoned) -- nothing
+    // reachable via idToIndex_/parentToChildren_ points at it anymore, and
+    // it will be overwritten the next time freeList_ hands its index back
+    // out in Upsert.
 }
 
-void Projection::UpdateExisting(uint32_t index, const IngestEntry& entry) {
-    ProjectionEntry& projected = entries_[index];
-    const EntryKey oldParentKey = projected.ParentKey();
-    const EntryKey newParentKey = EntryKey{entry.key.volumeId, entry.parentFileReferenceNumber};
-    const bool wasSelfReferential = oldParentKey == entry.key;
-    const bool isSelfReferential = newParentKey == entry.key;
+const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
+    auto it = idToIndex_.find(EntryKey{volumeRowId, frn});
+    return it == idToIndex_.end() ? nullptr : &entries_[it->second];
+}
 
-    if (!(oldParentKey == newParentKey)) {
-        if (!wasSelfReferential) {
-            RemoveFromParentIndex(oldParentKey, index);
+const std::vector<uint32_t>* Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
+    auto it = parentToChildren_.find(EntryKey{volumeRowId, parentFrn});
+    return it == parentToChildren_.end() ? nullptr : &it->second;
+}
+
+Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, FileId frn) const {
+    PathResult result;
+    std::vector<NameId> partsReversed;
+    std::unordered_set<EntryKey, EntryKeyHash> visited;
+
+    FileId current = frn;
+    for (;;) {
+        const EntryKey currentKey{volumeRowId, current};
+        // task 2.4: a walk that revisits an FRN already seen in *this*
+        // walk stops rather than looping -- defensive only, a well-formed
+        // volume should never produce this (design.md D7).
+        if (!visited.insert(currentKey).second) {
+            break;
         }
-        if (!isSelfReferential) {
-            AddToParentIndex(newParentKey, index);
+
+        const ProjectionEntry* entry = Find(volumeRowId, current);
+        if (entry == nullptr) {
+            break; // dangling/unknown parent -- stop, incomplete
         }
-    }
+        partsReversed.push_back(entry->nameId);
 
-    projected.parentFileReferenceNumber = entry.parentFileReferenceNumber;
-    projected.nameId = namePool_.Intern(entry.name);
-    projected.sizeBytes = entry.sizeBytes;
-    projected.lastWriteTime = entry.lastWriteTime;
-    projected.attributes = entry.attributes;
-}
-
-void Projection::RemoveAt(uint32_t index) {
-    const ProjectionEntry removed = entries_[index];
-    if (!(removed.ParentKey() == removed.Key())) {
-        RemoveFromParentIndex(removed.ParentKey(), index);
-    }
-    keyToIndex_.erase(removed.Key());
-
-    const auto lastIndex = static_cast<uint32_t>(entries_.size() - 1);
-    if (index != lastIndex) {
-        const ProjectionEntry moved = entries_[lastIndex];
-        entries_[index] = moved;
-        keyToIndex_[moved.Key()] = index;
-        if (!(moved.ParentKey() == moved.Key())) {
-            RenumberInParentIndex(moved.ParentKey(), lastIndex, index);
+        if (entry->parentFrn == current) {
+            // Self-referential parent: the volume root (NTFS record 5's
+            // parent reference is itself) -- walk terminates successfully.
+            result.reachedRoot = true;
+            break;
         }
+        current = entry->parentFrn;
     }
-    entries_.pop_back();
-}
 
-void Projection::AddToParentIndex(const EntryKey& parentKey, uint32_t childIndex) {
-    parentToChildren_.emplace(parentKey, childIndex);
-}
-
-void Projection::RemoveFromParentIndex(const EntryKey& parentKey, uint32_t childIndex) {
-    auto range = parentToChildren_.equal_range(parentKey);
-    for (auto it = range.first; it != range.second; ++it) {
-        if (it->second == childIndex) {
-            parentToChildren_.erase(it);
-            return;
+    for (auto it = partsReversed.rbegin(); it != partsReversed.rend(); ++it) {
+        if (!result.path.empty()) {
+            result.path.push_back(u'\\');
         }
-    }
-}
-
-void Projection::RenumberInParentIndex(const EntryKey& parentKey, uint32_t oldIndex, uint32_t newIndex) {
-    auto range = parentToChildren_.equal_range(parentKey);
-    for (auto it = range.first; it != range.second; ++it) {
-        if (it->second == oldIndex) {
-            it->second = newIndex;
-            return;
-        }
-    }
-}
-
-ChildEntryView Projection::ToView(const ProjectionEntry& entry) const {
-    ChildEntryView view;
-    view.key = entry.Key();
-    view.name = namePool_.Lookup(entry.nameId);
-    view.sizeBytes = entry.sizeBytes;
-    view.lastWriteTime = entry.lastWriteTime;
-    view.attributes = entry.attributes;
-    return view;
-}
-
-std::optional<ChildEntryView> Projection::TryGet(const EntryKey& key) const {
-    auto it = keyToIndex_.find(key);
-    if (it == keyToIndex_.end()) {
-        return std::nullopt;
-    }
-    return ToView(entries_[it->second]);
-}
-
-std::vector<ChildEntryView> Projection::ChildrenOf(const EntryKey& parentKey) const {
-    std::vector<ChildEntryView> result;
-    auto range = parentToChildren_.equal_range(parentKey);
-    for (auto it = range.first; it != range.second; ++it) {
-        result.push_back(ToView(entries_[it->second]));
+        auto name = namePool_.Get(*it);
+        result.path.append(name.begin(), name.end());
     }
     return result;
 }
 
-std::optional<std::wstring> Projection::ReconstructPath(const EntryKey& key, const std::wstring& volumeRootPrefix) const {
-    auto startIt = keyToIndex_.find(key);
-    if (startIt == keyToIndex_.end()) {
-        return std::nullopt;
-    }
-
-    std::vector<NameId> segmentsRootToLeafReversed; // collected leaf-to-root, reversed before join
-    std::unordered_set<uint64_t> visited; // keyed on a combined hash of (low, high) per step
-
-    uint32_t index = startIt->second;
-    for (;;) {
-        const ProjectionEntry& entry = entries_[index];
-        const uint64_t visitToken = entry.fileReferenceNumber.low ^ (entry.fileReferenceNumber.high * 0x9e3779b97f4a7c15ULL);
-        if (!visited.insert(visitToken).second) {
-            break; // defensive cycle guard (task 2.4) -- should never trigger on a well-formed volume
-        }
-        segmentsRootToLeafReversed.push_back(entry.nameId);
-
-        if (entry.fileReferenceNumber == entry.parentFileReferenceNumber) {
-            break; // self-referential root record (e.g. NTFS record 5)
-        }
-        const EntryKey parentKey = entry.ParentKey();
-        auto parentIt = keyToIndex_.find(parentKey);
-        if (parentIt == keyToIndex_.end()) {
-            break; // ancestor outside the projection (volume root boundary, or not yet ingested)
-        }
-        index = parentIt->second;
-    }
-
-    std::wstring path = volumeRootPrefix;
-    for (auto it = segmentsRootToLeafReversed.rbegin(); it != segmentsRootToLeafReversed.rend(); ++it) {
-        std::u16string_view name = namePool_.Lookup(*it);
-        if (name.empty()) {
-            continue; // the synthetic root record's own name is empty; nothing to append
-        }
-        path.push_back(L'\\');
-        // Element-by-element conversion, not a reinterpret_cast of the
-        // buffer: char16_t and wchar_t are the same width on Windows (the
-        // only platform this ships on) but that's not guaranteed by the
-        // language, and a raw pointer-width cast would be undefined
-        // behavior anywhere it isn't.
-        path.reserve(path.size() + name.size());
-        for (char16_t ch : name) {
-            path.push_back(static_cast<wchar_t>(ch));
-        }
-    }
-    return path;
-}
-
-void Projection::Reserve(size_t expectedEntryCount) {
-    entries_.reserve(expectedEntryCount);
-    keyToIndex_.reserve(expectedEntryCount);
-    parentToChildren_.reserve(expectedEntryCount);
-    // Names are far fewer than entries in practice (D2); a conservative
-    // fraction avoids over-reserving the arena while still cutting rehash
-    // churn during a bulk load.
-    namePool_.Reserve(expectedEntryCount / 4 + 16, expectedEntryCount * 4);
-}
-
-void Projection::RemoveVolume(DurableVolumeId volumeId) {
-    std::vector<EntryKey> keysToRemove;
-    keysToRemove.reserve(entries_.size());
-    for (const auto& entry : entries_) {
-        if (entry.volumeId == volumeId) {
-            keysToRemove.push_back(entry.Key());
-        }
-    }
-    for (const auto& key : keysToRemove) {
-        auto it = keyToIndex_.find(key);
-        if (it != keyToIndex_.end()) {
-            RemoveAt(it->second);
-        }
-    }
-}
-
-void Projection::Clear() {
-    entries_.clear();
-    keyToIndex_.clear();
-    parentToChildren_.clear();
-    namePool_.Clear();
+void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
+    Reserve(EntryCount() + expectedEntryCount);
+    store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) { Upsert(volumeRowId, record); });
 }
 
 } // namespace ffindexstore

@@ -14,12 +14,11 @@ namespace ffindexsvc {
 // itself is the connection-scoped resource (spec "Opaque, Connection-
 // Scoped Handles").
 //
-// Originally added (establish-architecture-foundation) as scoping
-// infrastructure ahead of real MFT/USN parsing; index-storage-and-scanning
-// now builds real StartVolumeScan/OpenUsnJournal handling directly on top
-// of it (ServiceConnection.cpp's per-connection scan/journal worker
-// threads), exercised end-to-end by Stop/Close rejection and
-// disconnect-teardown, not just scoping bookkeeping in isolation.
+// StartVolumeScan/OpenUsnJournal now drive real scanning/journal-reading
+// worker threads (VolumeScanner.h/UsnJournalReader.h, index-storage-and-
+// scanning tasks.md 4/5); this registry is the ownership bookkeeping a
+// ServiceConnection uses to decide whether a Stop/Close request is
+// authorized before it stops the corresponding worker.
 class ConnectionRegistry {
 public:
     using ConnectionId = uint64_t;
