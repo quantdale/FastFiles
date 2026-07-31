@@ -25,6 +25,11 @@ if(MSVC)
 endif()
 
 option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
+option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
+
+if(MSVC AND FASTFILES_STATIC_ANALYSIS)
+  add_compile_options(/analyze)
+endif()
 
 add_subdirectory(src/protocol)
 add_subdirectory(src/ipc)
@@ -33,6 +38,7 @@ add_subdirectory(src/indexsvc)
 add_subdirectory(src/engine)
 add_subdirectory(src/ui)
 add_subdirectory(src/installer)
+add_subdirectory(src/fftest)
 
 if(FASTFILES_BUILD_TESTS)
   enable_testing()

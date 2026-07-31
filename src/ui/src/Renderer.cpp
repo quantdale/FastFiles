@@ -29,7 +29,7 @@ bool Renderer::Initialize(HWND hwnd) {
     }
 
     D2D1_FACTORY_OPTIONS factoryOptions{};
-    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &factoryOptions, &d2dFactory_))) {
+    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factoryOptions, d2dFactory_.GetAddressOf()))) {
         return false;
     }
     if (FAILED(d2dFactory_->CreateDevice(dxgiDevice_.Get(), &d2dDevice_))) {

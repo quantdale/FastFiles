@@ -74,6 +74,9 @@ int wmain() {
     // per-session background helper launched by the Scheduled Task (or
     // lazily by the UI); it simply runs until the logon session ends.
     HANDLE parkEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (parkEvent == nullptr) {
+        return 1;
+    }
     WaitForSingleObject(parkEvent, INFINITE);
     return 0;
 }

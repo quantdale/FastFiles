@@ -53,7 +53,7 @@ void ColumnView::TruncateAfter(int columnIndex) {
     }
 }
 
-void ColumnView::RequestColumn(int columnIndex, const std::wstring& path) {
+void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         Column column;

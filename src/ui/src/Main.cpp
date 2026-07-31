@@ -9,8 +9,10 @@
 
 #include "WindowShell.h"
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int showCommand) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
+    if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
+        return 1;
+    }
 
     ffui::WindowShell shell;
     if (!shell.Initialize(instance, showCommand)) {

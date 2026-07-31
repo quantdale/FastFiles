@@ -1,0 +1,13 @@
+{
+  "id": "windows-build-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 0,
+  "displayName": "Windows Build Validation",
+  "description": "MSVC/CMake toolchain discovery, Debug/Release/static-analysis builds, and the ctest unit+fuzz suites.",
+  "entryModule": "Build.psm1",
+  "entryPoints": {
+    "availability": "Test-BuildCapabilityAvailability",
+    "run": "Invoke-BuildCapability",
+    "diagnostics": "Get-BuildCapabilityDiagnostics"
+  }
+}

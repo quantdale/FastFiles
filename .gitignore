@@ -1,0 +1,9 @@
+build/
+out/
+.vs/
+CMakeUserPresets.json
+
+# Runtime-verification harness: transient run artifacts and machine-local baselines
+# are evidence of a specific execution, not source — never checked in.
+verify/runs/
+verify/baselines/

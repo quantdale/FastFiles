@@ -1,13 +1,13 @@
 ## 1. Harness Core, Capability Registry & Contracts
 
-- [ ] 1.1 Create the `verify/` tooling root and the PowerShell 7 orchestrator **core** (registry + scheduler + gate + reporting) exposing the verbs `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, each non-interactive with distinct documented exit codes
-- [ ] 1.2 Define the **capability interface** (id, `interfaceVersion` semver, tier, `availability()` probe, `run()`, `diagnostics()`, optional `baseline()`/`repair-hints()`) and a schema for it
-- [ ] 1.3 Implement **capability discovery**: scan the capability module directory, validate each against the interface schema, load only supported `interfaceVersion`s, and record an incompatible-version load as a diagnostic (never a silent drop)
-- [ ] 1.4 Implement the execution-context fingerprint (OS build, VS toolset + SDK versions, elevation state, session id/kind, provider/target identity) and persist it as `manifest.json`
-- [ ] 1.5 Define the per-run artifact tree `verify/runs/<change>/<timestamp>/` and the stable `result.json` schema with the four-state outcome vocabulary (`PASS`/`FAIL`/`SKIPPED`, plus gate-level `REQUIRED-BUT-UNAVAILABLE`); ensure concurrent runs are isolated
-- [ ] 1.6 Implement capability/suite descriptors (id → command → tier → required privileges → pass/fail predicate → on-failure diagnostics) so adding a validation needs no core edits
-- [ ] 1.7 Implement availability-probe-driven tier gating with SKIP-with-reason: compare each capability's requirement against the fingerprint and emit `SKIPPED(reason, requiredContext)` — never a silent pass — when unmet
-- [ ] 1.8 Implement the **Capability Artifact Contract**: the `result.json` envelope schema (id, interface version, tier, outcome, timing, produced-artifact paths+types), the namespaced `artifacts/<capability>/` layout, and a core indexer that builds `index.json` from envelopes only — archiving all payloads opaquely and never parsing capability-specific formats
+- [x] 1.1 Create the `verify/` tooling root and the PowerShell 7 orchestrator **core** (registry + scheduler + gate + reporting) exposing the verbs `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, each non-interactive with distinct documented exit codes
+- [x] 1.2 Define the **capability interface** (id, `interfaceVersion` semver, tier, `availability()` probe, `run()`, `diagnostics()`, optional `baseline()`/`repair-hints()`) and a schema for it
+- [x] 1.3 Implement **capability discovery**: scan the capability module directory, validate each against the interface schema, load only supported `interfaceVersion`s, and record an incompatible-version load as a diagnostic (never a silent drop)
+- [x] 1.4 Implement the execution-context fingerprint (OS build, VS toolset + SDK versions, elevation state, session id/kind, provider/target identity) and persist it as `manifest.json`
+- [x] 1.5 Define the per-run artifact tree `verify/runs/<change>/<timestamp>/` and the stable `result.json` schema with the four-state outcome vocabulary (`PASS`/`FAIL`/`SKIPPED`, plus gate-level `REQUIRED-BUT-UNAVAILABLE`); ensure concurrent runs are isolated
+- [x] 1.6 Implement capability/suite descriptors (id → command → tier → required privileges → pass/fail predicate → on-failure diagnostics) so adding a validation needs no core edits
+- [x] 1.7 Implement availability-probe-driven tier gating with SKIP-with-reason: compare each capability's requirement against the fingerprint and emit `SKIPPED(reason, requiredContext)` — never a silent pass — when unmet
+- [x] 1.8 Implement the **Capability Artifact Contract**: the `result.json` envelope schema (id, interface version, tier, outcome, timing, produced-artifact paths+types), the namespaced `artifacts/<capability>/` layout, and a core indexer that builds `index.json` from envelopes only — archiving all payloads opaquely and never parsing capability-specific formats
 
 ## 2. Environment Providers
 
@@ -26,12 +26,12 @@
 
 ## 4. Windows Build Automation (Tier 0)
 
-- [ ] 4.1 Implement toolchain discovery via `vswhere` (require `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`) and Developer-environment activation (`VsDevCmd`/`vcvarsall`) into the build process; record the selected toolset/SDK in the fingerprint
-- [ ] 4.2 Add CMake presets for Debug, Release, and a `/analyze` static-analysis variant; drive configure/build with the toolset-bundled CMake + Ninja (no global PATH dependency)
-- [ ] 4.3 Implement clean and incremental build modes and report which was used
-- [ ] 4.4 Implement compiler/linker diagnostics parsing (severity/file/line/code/message), build-failure classification, and first-failing-target/diagnostic identification (incl. `/WX` breaks)
-- [ ] 4.5 Implement the build summary (configuration, toolset, per-target result, warning/error counts, duration)
-- [ ] 4.6 Add an `fftest` CMake target and wire the existing `ctest` unit + fuzz suites as Tier-0 capabilities emitting JUnit-compatible results
+- [x] 4.1 Implement toolchain discovery via `vswhere` (require `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`) and Developer-environment activation (`VsDevCmd`/`vcvarsall`) into the build process; record the selected toolset/SDK in the fingerprint
+- [x] 4.2 Add CMake presets for Debug, Release, and a `/analyze` static-analysis variant; drive configure/build with the toolset-bundled CMake + Ninja (no global PATH dependency)
+- [x] 4.3 Implement clean and incremental build modes and report which was used
+- [x] 4.4 Implement compiler/linker diagnostics parsing (severity/file/line/code/message), build-failure classification, and first-failing-target/diagnostic identification (incl. `/WX` breaks)
+- [x] 4.5 Implement the build summary (configuration, toolset, per-target result, warning/error counts, duration)
+- [x] 4.6 Add an `fftest` CMake target and wire the existing `ctest` unit + fuzz suites as Tier-0 capabilities emitting JUnit-compatible results
 
 ## 5. Installer & Service Validation (Tier 1)
 
@@ -88,7 +88,7 @@
 
 ## 12. Prove The Capability — Unblock The Foundation
 
-- [ ] 12.1 Run Tier 0 against `establish-architecture-foundation` and close task 1.4 (clean Debug+Release build from fresh checkout) and task 7.7 (fuzz suite runs) with real run-tree evidence
+- [x] 12.1 Run Tier 0 against `establish-architecture-foundation` and close task 1.4 (clean Debug+Release build from fresh checkout) and task 7.7 (fuzz suite runs) with real run-tree evidence
 - [ ] 12.2 Run Tier 1 and close foundation task 7.1 (SeBackupPrivilege sufficiency), 7.2 (pipe-squatting hard-fail), 7.3 (impostor handshake rejection), 7.4 (client group cannot SCM-control the service), 7.5 (UI degraded-mode on service absent/stopped/killed) with captured evidence
 - [ ] 12.3 Record 7.6 (multi-session load) and any UI-Automation/Stress capabilities as `SKIPPED(requires-Tier-2/3)` via the four-state contract, referencing the follow-up changes — not a silent pass
 - [ ] 12.4 Produce the first complete verification report (md/html/json/junit + performance + failure summaries) and confirm the four-state archive gate passes for the foundation change on a green run
