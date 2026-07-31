@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
-project(FastFiles LANGUAGES CXX)
+# C is enabled solely to compile the vendored SQLite amalgamation
+# (third_party/sqlite); all first-party FastFiles code is C++20.
+project(FastFiles LANGUAGES CXX C)
 
 if(NOT WIN32)
   message(FATAL_ERROR "FastFiles targets Windows only (Win32/COM/Direct2D/NTFS APIs).")
