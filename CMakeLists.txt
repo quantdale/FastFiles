@@ -31,9 +31,12 @@ if(MSVC AND FASTFILES_STATIC_ANALYSIS)
   add_compile_options(/analyze)
 endif()
 
+add_subdirectory(third_party/sqlite)
+
 add_subdirectory(src/protocol)
 add_subdirectory(src/ipc)
 add_subdirectory(src/setup)
+add_subdirectory(src/indexstore)
 add_subdirectory(src/indexsvc)
 add_subdirectory(src/engine)
 add_subdirectory(src/ui)

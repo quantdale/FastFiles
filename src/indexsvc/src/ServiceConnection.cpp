@@ -1,20 +1,64 @@
 #include "ServiceConnection.h"
 
+#include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
 #include "ffipc/PipeFraming.h"
 #include "ffprotocol/Version.h"
 
 #include "ClientAuthentication.h"
 #include "StalenessMonitor.h"
+#include "UsnJournalReader.h"
 #include "VolumeEnumeration.h"
+#include "VolumeScanner.h"
 
 namespace ffindexsvc {
 
 namespace {
 
 using ffprotocol::MessageType;
+
+// index-storage-and-scanning: a scan or journal stream runs on its own
+// background thread (writes to the shared pipe handle serialized via
+// `writeMutex`) so the ctrl loop below stays free to keep servicing
+// Heartbeat/Stop/Close/second-scan requests concurrently, per tasks.md
+// 4.4/5.4's "batched streaming ... for the duration of an open journal
+// handle" requirement.
+struct ActiveWorker {
+    uint32_t volumeId = 0;
+    std::shared_ptr<std::atomic<bool>> stopFlag;
+    std::thread thread;
+};
+
+void StopAndJoin(std::vector<ActiveWorker>& workers, uint32_t volumeId) {
+    for (auto it = workers.begin(); it != workers.end(); ++it) {
+        if (it->volumeId == volumeId) {
+            it->stopFlag->store(true);
+            if (it->thread.joinable()) {
+                it->thread.join();
+            }
+            workers.erase(it);
+            return;
+        }
+    }
+}
+
+void StopAndJoinAll(std::vector<ActiveWorker>& workers) {
+    for (auto& worker : workers) {
+        worker.stopFlag->store(true);
+    }
+    for (auto& worker : workers) {
+        if (worker.thread.joinable()) {
+            worker.thread.join();
+        }
+    }
+    workers.clear();
+}
 
 bool SendIncompatibleVersion(HANDLE pipeHandle) {
     ffprotocol::IncompatibleVersionPayload payload{ffprotocol::kCurrentProtocolVersion};
@@ -24,11 +68,6 @@ bool SendIncompatibleVersion(HANDLE pipeHandle) {
 bool SendHandshakeReject(HANDLE pipeHandle, ffprotocol::HandshakeRejectReason reason) {
     ffprotocol::HandshakeRejectPayload payload{reason};
     return ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
-}
-
-bool SendNotYetImplemented(HANDLE pipeHandle, MessageType requestType) {
-    ffprotocol::NotYetImplementedPayload payload{static_cast<uint16_t>(requestType)};
-    return ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::NotYetImplemented), &payload, sizeof(payload));
 }
 
 bool SendVolumeList(HANDLE pipeHandle) {
@@ -99,6 +138,14 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
         return;
     }
 
+    // Guards every WriteFrame call on pipeHandle from any thread -- this
+    // loop plus any active scan/journal worker threads (VolumeScanner.h /
+    // UsnJournalReader.h) all write to the same handle, and named-pipe
+    // writes from multiple threads are not implicitly serialized.
+    std::mutex writeMutex;
+    std::vector<ActiveWorker> activeScans;
+    std::vector<ActiveWorker> activeJournals;
+
     bool disconnect = false;
     while (!disconnect) {
         auto frame = ffipc::ReadFrame(pipeHandle);
@@ -107,19 +154,46 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
         }
 
         switch (static_cast<MessageType>(frame->header.messageType)) {
-            case MessageType::EnumerateVolumes:
+            case MessageType::EnumerateVolumes: {
+                std::lock_guard<std::mutex> lock(writeMutex);
                 disconnect = !SendVolumeList(pipeHandle);
                 break;
+            }
 
             case MessageType::StartVolumeScan: {
-                if (frame->payload.size() != sizeof(ffprotocol::StartVolumeScanRequest)) {
+                if (frame->payload.size() < sizeof(ffprotocol::StartVolumeScanRequest)) {
                     disconnect = true;
                     break;
                 }
                 ffprotocol::StartVolumeScanRequest request{};
                 std::memcpy(&request, frame->payload.data(), sizeof(request));
+                const size_t expectedCursorBytes = frame->payload.size() - sizeof(request);
+                if (!ffprotocol::IsScanCursorLengthValid(request.resumeCursorLengthBytes)
+                    || expectedCursorBytes != request.resumeCursorLengthBytes) {
+                    disconnect = true;
+                    break;
+                }
+                std::vector<uint8_t> resumeCursor(
+                    frame->payload.begin() + sizeof(request), frame->payload.end());
+
+                const wchar_t driveLetter = ResolveVolumeIdToDriveLetter(request.volumeId);
+                if (driveLetter == L'\0') {
+                    disconnect = true;
+                    break;
+                }
+
                 registry.MarkVolumeScanStarted(connectionId, request.volumeId);
-                disconnect = !SendNotYetImplemented(pipeHandle, MessageType::StartVolumeScan);
+                StopAndJoin(activeScans, request.volumeId.value); // supersede any prior scan of the same volume
+
+                ActiveWorker worker;
+                worker.volumeId = request.volumeId.value;
+                worker.stopFlag = std::make_shared<std::atomic<bool>>(false);
+                const auto volumeId = request.volumeId;
+                const auto stopFlag = worker.stopFlag;
+                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, stopFlag] {
+                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, *stopFlag);
+                });
+                activeScans.push_back(std::move(worker));
                 break;
             }
 
@@ -139,7 +213,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     disconnect = true;
                     break;
                 }
-                disconnect = !SendNotYetImplemented(pipeHandle, MessageType::StopVolumeScan);
+                StopAndJoin(activeScans, request.volumeId.value);
                 break;
             }
 
@@ -150,8 +224,26 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 }
                 ffprotocol::OpenUsnJournalRequest request{};
                 std::memcpy(&request, frame->payload.data(), sizeof(request));
+
+                const wchar_t driveLetter = ResolveVolumeIdToDriveLetter(request.volumeId);
+                if (driveLetter == L'\0') {
+                    disconnect = true;
+                    break;
+                }
+
                 registry.MarkUsnJournalOpened(connectionId, request.volumeId);
-                disconnect = !SendNotYetImplemented(pipeHandle, MessageType::OpenUsnJournal);
+                StopAndJoin(activeJournals, request.volumeId.value);
+
+                ActiveWorker worker;
+                worker.volumeId = request.volumeId.value;
+                worker.stopFlag = std::make_shared<std::atomic<bool>>(false);
+                const auto volumeId = request.volumeId;
+                const auto resumeUsn = request.resumeUsn;
+                const auto stopFlag = worker.stopFlag;
+                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn, stopFlag] {
+                    RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
+                });
+                activeJournals.push_back(std::move(worker));
                 break;
             }
 
@@ -166,7 +258,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     disconnect = true;
                     break;
                 }
-                disconnect = !SendNotYetImplemented(pipeHandle, MessageType::CloseUsnJournal);
+                StopAndJoin(activeJournals, request.volumeId.value);
                 break;
             }
 
@@ -179,6 +271,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     disconnect = true;
                     break;
                 }
+                std::lock_guard<std::mutex> lock(writeMutex);
                 disconnect = !ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
                 break;
             }
@@ -192,6 +285,8 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
         }
     }
 
+    StopAndJoinAll(activeScans);
+    StopAndJoinAll(activeJournals);
     registry.TeardownConnection(connectionId);
     CloseClientIdentity(*identity);
     CloseHandle(pipeHandle);
