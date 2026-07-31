@@ -8,6 +8,9 @@
 - [x] 1.6 Implement capability/suite descriptors (id → command → tier → required privileges → pass/fail predicate → on-failure diagnostics) so adding a validation needs no core edits
 - [x] 1.7 Implement availability-probe-driven tier gating with SKIP-with-reason: compare each capability's requirement against the fingerprint and emit `SKIPPED(reason, requiredContext)` — never a silent pass — when unmet
 - [x] 1.8 Implement the **Capability Artifact Contract**: the `result.json` envelope schema (id, interface version, tier, outcome, timing, produced-artifact paths+types), the namespaced `artifacts/<capability>/` layout, and a core indexer that builds `index.json` from envelopes only — archiving all payloads opaquely and never parsing capability-specific formats
+- [ ] 1.9 Implement registry hardening: reject duplicate capability ids and duplicate id+version pairs across all discovered manifests before any capability executes, recording each rejection as a load diagnostic
+- [ ] 1.10 Add an optional `dependsOn` (capability ids) field to the capability manifest schema; validate every dependency resolves to a loaded capability (missing ⇒ load diagnostic, dependent capability excluded) and that the dependency graph is acyclic (cycle ⇒ load diagnostic naming every capability in the cycle, none of them execute)
+- [ ] 1.11 Extend the capability interface (D11) with a declared repair posture (`repair-supported` | `repair-unsupported` | `repair-unavailable`) and, when supported, a `repair(context)` entry point; update the capability-interface schema accordingly
 
 ## 2. Environment Providers
 
@@ -18,11 +21,12 @@
 
 ## 3. Diagnostics, Crash Analysis & Reporting
 
-- [ ] 3.1 Implement the Diagnostics capability orchestrating native tooling, each availability-probed with graceful `SKIPPED`-on-absence: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces
-- [ ] 3.2 Implement the **Crash Analysis** capability: dump capture, symbol resolution, stack trace generation, crash classification bucket, reproduction-artifact preservation, report attachment, and a structured verdict for the repair loop; degrade to dump-only when symbols/debugger absent
+- [ ] 3.1 Register Diagnostics as its own independently-discoverable, independently-runnable capability (availability probe + `run` entry point invokable directly, e.g. `run diagnostics` — not only a cross-cutting on-failure mechanism) that probes for native tooling with no hardcoded paths and reports each as available (with version/path) or `SKIPPED(reason)` — never a capability failure merely because one tool is absent: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), WPA, Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces
+- [ ] 3.2 Implement the **Crash Analysis** capability: dump capture, executable and faulting-thread identification, symbol resolution, stack trace generation, crash classification bucket, reproduction-artifact preservation, report attachment, and a structured verdict for the repair loop; degrade to dump-only when symbols/debugger absent
 - [ ] 3.3 Implement the reporters that project a run tree to Markdown, HTML (self-contained), JSON, and JUnit XML
-- [ ] 3.4 Implement the performance summary (vs. baseline) and failure summary (with linked crash-analysis artifacts)
+- [ ] 3.4 Implement the performance summary (vs. baseline), failure summary (with linked crash-analysis artifacts), and — without changing the `result.json` envelope schema — surface each capability's duration/version (from the envelope), the run's environment fingerprint (from the manifest), any capability-recorded tool-version metadata, produced artifacts, repair attempts (from `repair-log.jsonl`), and skip/unavailable reasons
 - [ ] 3.5 Add report-fidelity checks: regenerating from an unchanged run tree yields the same PASS/FAIL/SKIP/required-but-unavailable verdicts with no invented results
+- [ ] 3.6 Ensure `verify.ps1 doctor` (section 13) reuses Diagnostics' tool-discovery logic rather than duplicating it
 
 ## 4. Windows Build Automation (Tier 0)
 
@@ -69,10 +73,11 @@
 
 ## 9. Autonomous Repair Loop
 
-- [ ] 9.1 Implement the loop driver (build → install → run → verify → diagnose → root-cause → fix → rebuild → reinstall → re-run) with a hard iteration cap
-- [ ] 9.2 Implement fix classification: Class A (harness/config/env) auto-apply + log; Class B (product source) apply on a work branch with recorded root-cause + diff, flagged for review, never silently accepted
-- [ ] 9.3 Consume Crash Analysis structured verdicts at the root-cause step; implement the failure-signature (normalized error + capability + phase) no-progress detector that stops and escalates on recurrence
-- [ ] 9.4 Implement `repair-log.jsonl` capturing every iteration (root cause, fix class, action, outcome)
+- [ ] 9.1 Implement the capability-owned repair interface: each capability declares its repair posture (`repair-supported` | `repair-unsupported` | `repair-unavailable`) in its manifest and, when `repair-supported`, exposes a `repair(context)` entry point containing its own fix logic; the orchestrator's repair coordinator invokes the declared entry point and records the outcome, containing no capability-specific repair logic itself
+- [ ] 9.2 Implement the loop driver (build → install → run → verify → diagnose → root-cause → fix → rebuild → reinstall → re-run) with a hard iteration cap
+- [ ] 9.3 Implement fix classification: Class A (harness/config/env) auto-apply + log; Class B (product source) apply on a work branch with recorded root-cause + diff, flagged for review, never silently accepted
+- [ ] 9.4 Consume Crash Analysis structured verdicts at the root-cause step; implement the failure-signature (normalized error + capability + phase) no-progress detector that stops and escalates on recurrence
+- [ ] 9.5 Implement `repair-log.jsonl` capturing every iteration (root cause, fix class, action, outcome)
 
 ## 10. Four-State Archive-Gate Integration
 
@@ -93,3 +98,9 @@
 - [ ] 12.3 Record 7.6 (multi-session load) and any UI-Automation/Stress capabilities as `SKIPPED(requires-Tier-2/3)` via the four-state contract, referencing the follow-up changes — not a silent pass
 - [ ] 12.4 Produce the first complete verification report (md/html/json/junit + performance + failure summaries) and confirm the four-state archive gate passes for the foundation change on a green run
 - [ ] 12.5 Define acceptance-criteria evidence: a single agent-invoked run that discovers capabilities, builds, installs, validates, diagnoses/repairs as needed, reports, and gates — with minimal human intervention (one-time elevation approval) — documented as the capability's success proof
+
+## 13. Developer-Experience Inspection Verbs
+
+- [ ] 13.1 Implement `verify.ps1 list`: enumerate every discovered capability (including ones rejected by registry hardening) with id, interface version, tier, load status, and declared dependencies, in human-readable and JSON form; creates no run artifact tree
+- [ ] 13.2 Implement `verify.ps1 doctor`: probe and report environment readiness (PowerShell, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, ProcMon, ProcDump, WinDbg, Application Verifier, Hyper-V presence, Windows Sandbox presence) as presence/version detection only — no environment provisioning, no hardcoded paths; note this is distinct from implementing the Hyper-V/Windows-Sandbox Environment Provider adapters themselves (section 2.3, still deferred)
+- [ ] 13.3 Ensure `list`/`doctor` are read-only: no run directory is created under `verify/runs/`, and only usage-error exit codes apply (no PASS/FAIL/SKIPPED semantics)

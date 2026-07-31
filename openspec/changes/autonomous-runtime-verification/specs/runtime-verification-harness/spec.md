@@ -23,7 +23,7 @@ The harness SHALL be organized as a registry of independently discoverable capab
 - **THEN** that capability SHALL be recorded as `SKIPPED` with a machine-readable reason and required-context descriptor, and SHALL NOT be executed, reported as `PASSED`, or reported as `FAILED`
 
 ### Requirement: Capability Interface And Versioning
-Every capability SHALL implement a common versioned interface exposing at least an id, an interface version, a tier, an availability probe, a run entry point that emits a schema-conformant result, and its declared diagnostics; the core SHALL load only capabilities whose interface version is within its supported range and SHALL make adding a new capability possible without modifying the orchestrator core.
+Every capability SHALL implement a common versioned interface exposing at least an id, an interface version, a tier, an optional list of capability-id dependencies, an availability probe, a run entry point that emits a schema-conformant result, its declared diagnostics, and a declared repair posture (`repair-supported`, `repair-unsupported`, or `repair-unavailable`, with a repair entry point required only when the posture is `repair-supported`); the core SHALL load only capabilities whose interface version is within its supported range and SHALL make adding a new capability possible without modifying the orchestrator core.
 
 #### Scenario: A new capability is added without touching the core
 - **WHEN** a new capability module conforming to the interface is added to the capability registry
@@ -32,6 +32,29 @@ Every capability SHALL implement a common versioned interface exposing at least 
 #### Scenario: An incompatible interface version is refused, not silently dropped
 - **WHEN** a capability declares an interface version outside the core's supported range
 - **THEN** the core SHALL refuse to load it and SHALL record a load diagnostic identifying the capability and the version mismatch, rather than silently ignoring it
+
+#### Scenario: A capability declares its repair posture
+- **WHEN** a capability is loaded
+- **THEN** its declared repair posture SHALL be one of `repair-supported`, `repair-unsupported`, or `repair-unavailable`, and a `repair-supported` capability SHALL expose a repair entry point that the orchestrator invokes without containing any capability-specific repair logic itself
+
+### Requirement: Capability Registry Hardening And Dependency Validation
+Before executing any capability, the core SHALL validate the full set of discovered capability manifests: no two capabilities SHALL share an id, no capability id SHALL be loaded at two different versions simultaneously, every declared dependency SHALL resolve to another loaded capability, and the dependency graph SHALL contain no cycle; any violation SHALL be recorded as a load diagnostic identifying the offending capabilities and SHALL exclude only the invalid/cyclically-dependent capabilities from execution, never silently.
+
+#### Scenario: Duplicate capability ids are rejected
+- **WHEN** two discovered manifests declare the same capability id
+- **THEN** the core SHALL refuse to load the duplicate, recording a load diagnostic identifying both manifest paths, and SHALL NOT execute either as if only one existed silently
+
+#### Scenario: A missing dependency is a load diagnostic, not a silent drop
+- **WHEN** a capability declares a dependency on a capability id that is not present among the loaded capabilities
+- **THEN** the core SHALL record a load diagnostic naming the missing dependency and SHALL exclude the dependent capability from execution
+
+#### Scenario: A cyclic dependency is detected and rejected
+- **WHEN** two or more capabilities' declared dependencies form a cycle
+- **THEN** the core SHALL detect the cycle, record a load diagnostic naming every capability in the cycle, and SHALL NOT execute any capability in the cycle
+
+#### Scenario: Invalid capabilities never execute
+- **WHEN** the registry hardening validation runs
+- **THEN** every capability that fails schema validation, interface-version support, duplicate-id/version checks, or dependency/cycle validation SHALL be excluded from execution before any capability's run entry point is invoked in that pass
 
 ### Requirement: Execution-Context Fingerprint
 Before running any suite, the harness SHALL capture an environment fingerprint including OS build, selected VS toolset and Windows SDK versions, elevation state, session id and kind, and the validation target identity, and SHALL persist it as `manifest.json` in the run's artifact tree.
@@ -103,12 +126,27 @@ On any capability failure the harness SHALL collect the diagnostics declared for
 - **WHEN** a declared native diagnostic tool (e.g. WinDbg, WPR, ProcMon, Application Verifier) is not available on the host
 - **THEN** the harness SHALL record that collector as `SKIPPED` with a reason and continue collecting the remaining diagnostics, rather than failing the run because a tool is absent
 
+### Requirement: Diagnostics As An Independently Runnable, Self-Describing Capability
+Diagnostics SHALL be registered as its own capability in the registry (not only a cross-cutting on-failure mechanism): it SHALL expose an availability probe and a run entry point invokable directly (e.g. `run diagnostics`), and its run result SHALL enumerate each native diagnostic tool it knows about (at least ETW, Windows Performance Recorder, Windows Performance Analyzer, Process Monitor, ProcDump, WinDbg/`cdb`, Application Verifier, and PageHeap) with structured metadata — available/absent, and version/path when available — discovered without any hardcoded path. An absent tool SHALL be recorded as `SKIPPED(reason)` for that tool, never as a capability failure; the archive gate MAY still resolve the Diagnostics capability itself to `REQUIRED-BUT-UNAVAILABLE` if a change's gate policy marks it required and it was skipped overall, per D5/D8 — individual tool absence never bypasses that gate-level distinction by reporting itself as required-but-unavailable directly.
+
+#### Scenario: Diagnostics runs standalone and enumerates tooling
+- **WHEN** the Diagnostics capability is run directly
+- **THEN** it SHALL probe for each of its known native tools without assuming any is present, and SHALL report each tool's availability, version, and path (when found) in a structured, capability-owned artifact
+
+#### Scenario: An absent tool is a per-tool skip, not a capability failure
+- **WHEN** a declared native diagnostic tool is not found on the host
+- **THEN** Diagnostics SHALL record that tool as `SKIPPED` with a reason, SHALL continue probing the remaining tools, and SHALL NOT fail the capability merely because one tool is absent
+
+#### Scenario: No hardcoded tool paths
+- **WHEN** Diagnostics locates a native tool
+- **THEN** it SHALL discover the tool's location via environment/registry/well-known-install-root probing rather than a single hardcoded path, so the check remains valid across hosts with different install layouts
+
 ### Requirement: Crash Analysis
-The harness SHALL provide a Crash Analysis capability that, when a monitored process crashes, captures a dump, resolves symbols, generates a stack trace, classifies the crash into a bucket, preserves reproduction artifacts, attaches all of this to the validation report, and exposes a structured verdict consumable by the repair loop.
+The harness SHALL provide a Crash Analysis capability that, when a monitored process crashes, captures a dump, identifies the crashing executable and its faulting thread, resolves symbols, generates a stack trace, classifies the crash into a bucket, preserves reproduction artifacts, attaches all of this to the validation report, and exposes a structured verdict consumable by the repair loop.
 
 #### Scenario: A crash produces a classified, symbolized artifact
 - **WHEN** a monitored FastFiles process crashes during a run
-- **THEN** Crash Analysis SHALL capture the dump, resolve symbols, produce a stack trace, assign a classification bucket (e.g. faulting module + exception code + normalized top frames), and preserve the reproduction context (inputs + environment fingerprint) into the run tree
+- **THEN** Crash Analysis SHALL capture the dump, identify the crashing executable and its faulting thread, resolve symbols, produce a stack trace for the faulting thread, assign a classification bucket (faulting module + exception code + normalized top frames), and preserve the reproduction context (inputs + environment fingerprint) into the run tree
 
 #### Scenario: Crash analysis feeds the repair loop
 - **WHEN** the repair loop reaches its root-cause step for a crash failure
@@ -144,8 +182,20 @@ The harness SHALL generate reports for a run in Markdown, HTML, JSON, and JUnit 
 - **WHEN** a report is regenerated from an unchanged run tree
 - **THEN** it SHALL reflect the same pass/fail/skip outcomes as the underlying `result.json` files, containing no verdicts not present in the artifacts
 
+#### Scenario: Reports surface duration, version, fingerprint, tool versions, artifacts, and repair attempts without changing the result envelope schema
+- **WHEN** a report is generated
+- **THEN** it SHALL surface each capability's execution duration and interface version (already present in the envelope), the run's environment fingerprint (from the manifest), any tool-version metadata a capability recorded in its own payload (e.g. Diagnostics' tooling inventory), the capability's produced artifacts, any repair attempts recorded in `repair-log.jsonl` for that run, and the reason for any unavailable/skipped capability — all without adding new fields to the shared `result.json` envelope schema (D16); capability-specific data (e.g. tool versions) SHALL be read from that capability's own artifact payload, never encoded into the shared envelope
+
 ### Requirement: Bounded Autonomous Repair Loop
-The harness SHALL support a repair loop (build → install → run → verify → diagnose → identify root cause → apply fix → rebuild → reinstall → re-run) that classifies each fix, applies harness/config fixes automatically, gates product-source fixes, stops on a repeated failure signature, and halts at a hard iteration cap; every iteration SHALL be appended to a repair log.
+Repair logic SHALL be owned by the capability that failed, not by the orchestrator: every capability SHALL declare a repair posture (`repair-supported`, `repair-unsupported`, or `repair-unavailable`), and the orchestrator SHALL only coordinate — invoking a `repair-supported` capability's own repair entry point, never containing capability-specific repair logic itself. On top of that, the harness SHALL support a repair loop (build → install → run → verify → diagnose → identify root cause → apply fix → rebuild → reinstall → re-run) that classifies each fix, applies harness/config fixes automatically, gates product-source fixes, stops on a repeated failure signature, and halts at a hard iteration cap; every iteration SHALL be appended to a repair log.
+
+#### Scenario: The orchestrator coordinates but never repairs directly
+- **WHEN** the repair loop identifies a failing capability whose posture is `repair-supported`
+- **THEN** the orchestrator SHALL invoke that capability's own repair entry point and apply the Class A/B gating to its result, and SHALL NOT contain repair logic specific to that capability
+
+#### Scenario: Repair-unsupported or repair-unavailable capabilities are not repaired
+- **WHEN** a failing capability's posture is `repair-unsupported` or `repair-unavailable`
+- **THEN** the repair loop SHALL record that no repair was attempted and SHALL surface the failure for manual handling rather than guessing at a fix
 
 #### Scenario: Harness/config fixes are auto-applied; product-code fixes are gated
 - **WHEN** the loop identifies a fix
@@ -177,3 +227,18 @@ The harness SHALL provide a gate, consulted before a change is archived, that re
 #### Scenario: An unrepresented product edit blocks archival
 - **WHEN** the run's repair loop applied a product-source change that does not map to any task or spec in the change
 - **THEN** the gate SHALL not pass until that change is represented in the change's tasks/specs or reverted
+
+### Requirement: Developer-Experience Inspection Verbs — `list` And `doctor`
+In addition to the validation-lifecycle verbs, the harness SHALL expose two read-only inspection verbs: `list`, which enumerates every discovered capability (including ones rejected by registry hardening) with its id, interface version, tier, load status, and declared dependencies; and `doctor`, which probes and reports environment readiness — PowerShell version, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, Process Monitor, ProcDump, WinDbg, Application Verifier, Hyper-V, and Windows Sandbox — as presence/version detection only, with no hardcoded paths and no environment provisioning. Neither verb SHALL create a run in the per-run artifact tree.
+
+#### Scenario: list enumerates the registry, including rejected capabilities
+- **WHEN** `list` runs
+- **THEN** it SHALL report every discovered capability's id, interface version, tier, load status (loaded, or rejected with reason), and declared dependencies, in both human-readable and machine-readable form
+
+#### Scenario: doctor reports environment readiness without provisioning anything
+- **WHEN** `doctor` runs
+- **THEN** it SHALL probe for each of its known prerequisites and native tools and report each as present (with version where available) or absent, without installing, provisioning, or modifying any of them
+
+#### Scenario: Inspection verbs do not create run artifacts
+- **WHEN** `list` or `doctor` completes
+- **THEN** no new directory SHALL be created under `verify/runs/`, since neither verb executes a capability's run entry point
