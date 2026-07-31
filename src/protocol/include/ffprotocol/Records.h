@@ -21,6 +21,12 @@ constexpr uint32_t kMaxBatchRecordCount = 8192;
 // content" -- $DATA is never read or forwarded). FileNameLength is a
 // length-prefixed field: the trailing `FileNameLength` UTF-16 code units
 // immediately follow this fixed struct on the wire.
+// index-storage-and-scanning tasks.md 1.2/D2: entries need a persisted
+// size, matching $STANDARD_INFORMATION's AllocatedLength/FileSize fields
+// -- fileReferenceNumber/parentFileReferenceNumber are 64-bit here
+// (NTFS); a 128-bit ReFS identifier is out of scope for this wire format
+// version (design.md "Open Questions" -- left to a future extension, not
+// resolved here).
 #pragma pack(push, 1)
 struct MftRecordFixedV1 {
     uint64_t fileReferenceNumber;
@@ -28,6 +34,7 @@ struct MftRecordFixedV1 {
     uint64_t creationTime;
     uint64_t lastModifiedTime;
     uint64_t lastAccessTime;
+    uint64_t sizeBytes;
     uint32_t fileAttributes;
     uint16_t fileNameLengthChars;
 };
@@ -38,6 +45,7 @@ struct UsnDeltaFixedV1 {
     uint64_t parentFileReferenceNumber;
     uint32_t reason;
     uint64_t timestamp;
+    uint64_t sizeBytes;
     uint32_t fileAttributes;
     uint16_t fileNameLengthChars;
 };
@@ -74,5 +82,17 @@ std::optional<std::vector<MftRecordV1>> ParseMftBatch(
 
 std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     const uint8_t* payload, size_t payloadSize, uint32_t declaredCount);
+
+// Serializes records into the same wire layout ParseMftBatch/
+// ParseUsnDeltaBatch consume -- used by `FastFilesIndexSvc` to build
+// StartVolumeScan/OpenUsnJournal batch payloads. Records whose filename
+// length is out of range (per IsFileNameLengthValid) are silently
+// dropped, not serialized -- the service allowlist-parser is expected to
+// have already validated each record before reaching here (Records.h is
+// the wire-format layer, not the semantic-validity layer), but this
+// keeps the two directions symmetric under fuzzing/round-trip tests
+// rather than emitting a frame the receiver's own parser would reject.
+std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records);
+std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records);
 
 } // namespace ffprotocol

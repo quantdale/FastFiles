@@ -18,11 +18,15 @@ namespace ffindexsvc {
 // service process, not just within one connection.
 void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, ConnectionRegistry& registry);
 
-// The Data pipe carries no defined traffic until real MFT/USN batch
-// streaming lands in the follow-up change (task 3.8's scan/journal calls
-// are stubbed) -- this just accepts and closes the connection so the pipe
-// itself exists and is reachable/secured (task 3.2) without leaving a
-// thread parked on undefined behavior.
+// The Data pipe carries no defined traffic: index-storage-and-scanning's
+// real MFT/USN batch streaming (tasks.md 4.4/5.4) runs on the same Ctrl
+// connection the StartVolumeScan/OpenUsnJournal request arrived on
+// (a background thread per active scan/journal writes batch frames to
+// that same pipe handle, serialized against the Ctrl loop's own writes --
+// see ServiceConnection.cpp) rather than needing a second pipe. This just
+// accepts and closes the connection so the Data pipe itself exists and is
+// reachable/secured (task 3.2) without leaving a thread parked on
+// undefined behavior.
 void RunDataConnection(HANDLE pipeHandle);
 
 } // namespace ffindexsvc

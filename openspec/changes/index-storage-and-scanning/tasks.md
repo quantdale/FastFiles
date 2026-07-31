@@ -26,20 +26,22 @@
 
 ## 4. Privileged Service: Real MFT Volume Scanning
 
-- [ ] 4.1 Replace `StartVolumeScan`'s stub response with real raw-volume MFT enumeration using the service's `SeBackupPrivilege`-granted access.
-- [ ] 4.2 Implement the MFT attribute allowlist parser: read and forward only `$STANDARD_INFORMATION` and `$FILE_NAME`, explicitly excluding `$DATA` (including resident content) and all other attribute types.
-- [ ] 4.3 Implement per-record validation with skip-and-continue semantics for a single malformed/inconsistent record, without aborting the scan.
-- [ ] 4.4 Implement batched streaming of scan records to the requesting connection, respecting the existing frame-size and record-count validation rules.
-- [ ] 4.5 Extend `StartVolumeScan` to accept an optional, opaque resume cursor; implement resuming enumeration from approximately that position when supplied, and full-from-start enumeration when omitted.
-- [ ] 4.6 Confirm scanning succeeds against files exclusively locked by other processes (raw MFT read does not require normal file-sharing-mode access).
+- [x] 4.1 Replace `StartVolumeScan`'s stub response with real raw-volume MFT enumeration using the service's `SeBackupPrivilege`-granted access. (`VolumeScanner.cpp`, via `FSCTL_GET_NTFS_FILE_RECORD` per-index retrieval rather than hand-walking `$MFT`'s own data runs)
+- [x] 4.2 Implement the MFT attribute allowlist parser: read and forward only `$STANDARD_INFORMATION` and `$FILE_NAME`, explicitly excluding `$DATA` (including resident content) and all other attribute types. (`MftParser.cpp`)
+- [x] 4.3 Implement per-record validation with skip-and-continue semantics for a single malformed/inconsistent record, without aborting the scan. (`ApplyFixupAndValidate`/`ParseMftAttributes` return a skip signal; `VolumeScanner.cpp`'s loop `continue`s rather than aborting)
+- [x] 4.4 Implement batched streaming of scan records to the requesting connection, respecting the existing frame-size and record-count validation rules. (`MessageType::ScanRecordBatch`, 512-record batches, `ffipc::WriteFrame`'s existing `kMaxFrameSize` check fails the batch safely rather than truncating it)
+- [x] 4.5 Extend `StartVolumeScan` to accept an optional, opaque resume cursor; implement resuming enumeration from approximately that position when supplied, and full-from-start enumeration when omitted. (`StartVolumeScanRequest::resumeCursorLengthBytes` + trailing bytes; cursor is the 8-byte LE next-MFT-index)
+- [ ] 4.6 Confirm scanning succeeds against files exclusively locked by other processes (raw MFT read does not require normal file-sharing-mode access). (true by construction of the `FSCTL_GET_NTFS_FILE_RECORD` approach, but unconfirmed -- needs an actual Windows run against a locked file, not verifiable in this sandbox)
 
 ## 5. Privileged Service: Real USN Journal Streaming
 
-- [ ] 5.1 Replace `OpenUsnJournal`'s stub response with real `FSCTL_QUERY_USN_JOURNAL`/`FSCTL_READ_USN_JOURNAL`-based journal reads from the supplied `ResumeUsn`.
-- [ ] 5.2 Include the volume's current `JournalId` in `OpenUsnJournal` responses so callers can detect a recreated/invalidated journal.
-- [ ] 5.3 Apply the same MFT attribute allowlist and per-record validation rules (section 4.2/4.3) to journal change records.
-- [ ] 5.4 Implement batched streaming of live change records for the duration of an open journal handle, torn down on `CloseUsnJournal` or disconnect per the existing connection-scoped handle rules.
-- [ ] 5.5 Ensure both `StartVolumeScan` and `OpenUsnJournal` respond within normal response time even when no new data is currently available (no indefinite blocking).
+- [x] 5.1 Replace `OpenUsnJournal`'s stub response with real `FSCTL_QUERY_USN_JOURNAL`/`FSCTL_READ_USN_JOURNAL`-based journal reads from the supplied `ResumeUsn`. (`UsnJournalReader.cpp`)
+- [x] 5.2 Include the volume's current `JournalId` in `OpenUsnJournal` responses so callers can detect a recreated/invalidated journal. (`MessageType::UsnJournalOpened`)
+- [x] 5.3 Apply the same MFT attribute allowlist and per-record validation rules (section 4.2/4.3) to journal change records. (`TryReenrichFromMft` re-reads each changed FRN through the same `MftParser` path; falls back to the raw `USN_RECORD`'s own allowlisted fields only if that fails, e.g. a delete)
+- [x] 5.4 Implement batched streaming of live change records for the duration of an open journal handle, torn down on `CloseUsnJournal` or disconnect per the existing connection-scoped handle rules. (`MessageType::JournalRecordBatch`; `ServiceConnection.cpp`'s per-connection worker-thread bookkeeping stops/joins on Close or teardown)
+- [x] 5.5 Ensure both `StartVolumeScan` and `OpenUsnJournal` respond within normal response time even when no new data is currently available (no indefinite blocking). (scan is a bounded loop over a known record count; journal idle-polls in cancellable slices rather than blocking on the FSCTL call)
+
+Note: sections 4-5 depend on Win32 APIs (`DeviceIoControl`/`winioctl.h` FSCTLs) with no Windows toolchain available in the implementing sandbox -- the raw MFT record parser (`MftParser.cpp`) is portable and unit-tested (`tests/indexsvc`) against hand-built synthetic records, but `VolumeScanner.cpp`/`UsnJournalReader.cpp`/`ServiceConnection.cpp`'s actual `DeviceIoControl` usage is unverified by a real build and needs a Windows compile + real-volume smoke test before being trusted.
 
 ## 6. Engine Ingestion Pipeline Orchestration
 

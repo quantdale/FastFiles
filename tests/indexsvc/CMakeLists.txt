@@ -1,0 +1,4 @@
+add_executable(ffmftparser_tests test_mft_parser.cpp)
+target_link_libraries(ffmftparser_tests PRIVATE ffmftparser)
+
+add_test(NAME ffmftparser_tests COMMAND ffmftparser_tests)

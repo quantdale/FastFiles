@@ -90,4 +90,42 @@ std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     return result;
 }
 
+namespace {
+
+template <typename RecordT>
+std::vector<uint8_t> SerializeBatch(const std::vector<RecordT>& records) {
+    std::vector<uint8_t> out;
+    size_t total = 0;
+    for (const auto& record : records) {
+        if (!IsFileNameLengthValid(record.fixed.fileNameLengthChars)
+            || record.fixed.fileNameLengthChars != record.fileName.size()) {
+            continue;
+        }
+        total += sizeof(record.fixed) + record.fileName.size() * sizeof(char16_t);
+    }
+    out.reserve(total);
+
+    for (const auto& record : records) {
+        if (!IsFileNameLengthValid(record.fixed.fileNameLengthChars)
+            || record.fixed.fileNameLengthChars != record.fileName.size()) {
+            continue;
+        }
+        const auto* fixedBytes = reinterpret_cast<const uint8_t*>(&record.fixed);
+        out.insert(out.end(), fixedBytes, fixedBytes + sizeof(record.fixed));
+        const auto* nameBytes = reinterpret_cast<const uint8_t*>(record.fileName.data());
+        out.insert(out.end(), nameBytes, nameBytes + record.fileName.size() * sizeof(char16_t));
+    }
+    return out;
+}
+
+} // namespace
+
+std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records) {
+    return SerializeBatch(records);
+}
+
+std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records) {
+    return SerializeBatch(records);
+}
+
 } // namespace ffprotocol
