@@ -144,6 +144,91 @@ void TestTornSectorIsDetectedAsMalformed() {
           "a fixup marker mismatch (torn write) is detected rather than silently trusted");
 }
 
+// tasks.md 9.8: a record with a resident $DATA attribute (small/resident
+// file content, exactly the case design.md calls out as the trap -- "even
+// for small files whose content is resident inside the MFT record
+// itself") must still parse correctly using only $STANDARD_INFORMATION/
+// $FILE_NAME, with the $DATA bytes never reaching ParsedMftRecord (whose
+// fields structurally have no place to carry arbitrary attribute payload
+// in the first place).
+void TestResidentDataAttributeIsNeverSurfaced() {
+    constexpr size_t kRecordSize = 1024;
+    std::vector<uint8_t> buf(kRecordSize, 0);
+    constexpr uint16_t bytesPerSector = 512;
+    const size_t sectorCount = kRecordSize / bytesPerSector;
+    const uint16_t usaSize = static_cast<uint16_t>(sectorCount + 1);
+    const uint16_t usaOffset = 0x30;
+    const uint16_t firstAttributeOffset = static_cast<uint16_t>(usaOffset + usaSize * 2 + 6);
+
+    std::memcpy(buf.data(), "FILE", 4);
+    WriteU16(buf, 4, usaOffset);
+    WriteU16(buf, 6, usaSize);
+    WriteU16(buf, 20, firstAttributeOffset);
+    WriteU16(buf, 22, 0x0001);
+
+    size_t off = firstAttributeOffset;
+    // $STANDARD_INFORMATION
+    WriteU32(buf, off + 0, 0x10);
+    WriteU32(buf, off + 4, 24 + 48);
+    buf[off + 8] = 0;
+    WriteU32(buf, off + 16, 48);
+    WriteU16(buf, off + 20, 24);
+    WriteU64(buf, off + 24 + 32, 0x20);
+    off += 24 + 48;
+
+    // $FILE_NAME
+    const std::u16string name = u"secret.txt";
+    const size_t fileNameValueLen = 66 + name.size() * 2;
+    WriteU32(buf, off + 0, 0x30);
+    WriteU32(buf, off + 4, static_cast<uint32_t>(24 + fileNameValueLen));
+    buf[off + 8] = 0;
+    WriteU32(buf, off + 16, static_cast<uint32_t>(fileNameValueLen));
+    WriteU16(buf, off + 20, 24);
+    WriteU64(buf, off + 24 + 0, 5);
+    buf[off + 24 + 64] = static_cast<uint8_t>(name.size());
+    buf[off + 24 + 65] = 1;
+    std::memcpy(buf.data() + off + 24 + 66, name.data(), name.size() * 2);
+    off += 24 + fileNameValueLen;
+
+    // $DATA (resident, type 0x80) -- a small file's content stored inline.
+    const char secretContent[] = "SECRET_FILE_CONTENT_MUST_NEVER_BE_FORWARDED";
+    const size_t dataValueLen = sizeof(secretContent);
+    WriteU32(buf, off + 0, 0x80);
+    WriteU32(buf, off + 4, static_cast<uint32_t>(24 + dataValueLen));
+    buf[off + 8] = 0; // resident -- exactly the "small file" case
+    WriteU32(buf, off + 16, static_cast<uint32_t>(dataValueLen));
+    WriteU16(buf, off + 20, 24);
+    std::memcpy(buf.data() + off + 24, secretContent, dataValueLen);
+    off += 24 + dataValueLen;
+
+    WriteU32(buf, off, 0xFFFFFFFFu);
+    off += 8;
+    WriteU32(buf, 24, static_cast<uint32_t>(off));
+
+    const uint16_t usn = 7;
+    WriteU16(buf, usaOffset, usn);
+    for (size_t sector = 0; sector < sectorCount; ++sector) {
+        const size_t tailOffset = (sector + 1) * bytesPerSector - 2;
+        uint16_t trueValue;
+        std::memcpy(&trueValue, buf.data() + tailOffset, 2);
+        WriteU16(buf, usaOffset + (sector + 1) * 2, trueValue);
+        WriteU16(buf, tailOffset, usn);
+    }
+
+    Check(ApplyFixupAndValidate(buf.data(), buf.size(), bytesPerSector) == FixupResult::Ok,
+          "a record containing a $DATA attribute still passes fixup/validation");
+    auto parsed = ParseMftAttributes(buf.data(), buf.size());
+    Check(parsed.has_value() && parsed->fileName == u"secret.txt",
+          "$STANDARD_INFORMATION/$FILE_NAME are still parsed correctly alongside an ignored $DATA attribute");
+    // ParsedMftRecord has no field capable of carrying arbitrary
+    // attribute payload -- this is a structural guarantee (the struct has
+    // exactly the allowlisted fields and nothing else), confirmed here by
+    // checking the one variable-length field it does have (fileName)
+    // never picked up any fragment of the $DATA content.
+    Check(parsed->fileName.find(u"SECRET") == std::u16string::npos,
+          "no fragment of the $DATA content appears in the parsed record's name field");
+}
+
 void TestOversizedAttributeLengthIsRejectedNotOverread() {
     auto record = BuildSyntheticRecord(512, u"hello.txt", 5, 0, false);
     Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds before corrupting the attribute stream");
@@ -163,6 +248,7 @@ int main() {
     TestNotInUseRecordIsRejectedBeforeParsing();
     TestWrongSignatureIsRejected();
     TestTornSectorIsDetectedAsMalformed();
+    TestResidentDataAttributeIsNeverSurfaced();
     TestOversizedAttributeLengthIsRejectedNotOverread();
 
     if (g_failures > 0) {

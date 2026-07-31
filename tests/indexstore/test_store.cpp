@@ -183,6 +183,36 @@ void TestForgetVolumeIsExplicitAndRemovesEntries() {
     Check(!store.GetVolumeMetadata(vol).has_value(), "the volume row itself is gone after an explicit forget");
 }
 
+// tasks.md 9.1 proxy: a real "kill -9 mid-batch" can't be simulated from
+// within this process, but the mechanism it depends on -- WAL replay
+// recovering already-committed data on next open, without requiring an
+// explicit checkpoint first -- is exactly what this exercises: data is
+// committed via ApplyBatch (a real transaction, same as ingestion uses),
+// the Store is destroyed with no checkpoint call at all, and a fresh
+// Store reopening the same file must still see it.
+void TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_wal_replay.db");
+    VolumeKey key;
+    key.serialNumber = 1;
+    VolumeRowId vol;
+    {
+        Store store;
+        store.Open(dbPath);
+        vol = *store.GetOrCreateVolume(key);
+        EntryRecord entry;
+        entry.id = FileId{1, 0};
+        entry.parentId = FileId{1, 0};
+        entry.name = u"root";
+        store.ApplyBatch(vol, {{EntryChangeKind::Upsert, entry}});
+        // Deliberately no CheckpointPassive()/explicit sync call here --
+        // only the destructor's plain sqlite3_close runs.
+    }
+    Store reopened;
+    Check(reopened.Open(dbPath), "a database with an un-checkpointed WAL still opens cleanly");
+    Check(reopened.CountEntries(vol) == 1, "WAL replay on open recovers committed data with no explicit prior checkpoint");
+    Check(reopened.RunIntegrityCheck(), "the recovered database passes an integrity check");
+}
+
 void TestDataSurvivesReopenAfterClose() {
     const std::string dbPath = FreshDbPath("ffindexstore_test_durable.db");
     VolumeKey key;
@@ -214,6 +244,7 @@ int main() {
     TestVolumeMetadataRoundTrips();
     TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes();
     TestForgetVolumeIsExplicitAndRemovesEntries();
+    TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint();
     TestDataSurvivesReopenAfterClose();
 
     if (g_failures > 0) {
