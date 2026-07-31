@@ -1,0 +1,7 @@
+add_executable(ffindexstore_store_tests test_store.cpp)
+target_link_libraries(ffindexstore_store_tests PRIVATE ffindexstore)
+add_test(NAME ffindexstore_store_tests COMMAND ffindexstore_store_tests)
+
+add_executable(ffindexstore_projection_tests test_projection.cpp)
+target_link_libraries(ffindexstore_projection_tests PRIVATE ffindexstore)
+add_test(NAME ffindexstore_projection_tests COMMAND ffindexstore_projection_tests)

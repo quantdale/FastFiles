@@ -1,20 +1,20 @@
 ## 1. Durable Storage Schema and Persistence Layer
 
-- [ ] 1.1 Add SQLite as a bundled/statically-linked dependency of `FastFilesEngine`, opened in WAL journal mode with `synchronous=NORMAL`.
-- [ ] 1.2 Design and create the `entries` table keyed by (volume identifier, `FileReferenceNumber`), sized to accommodate both NTFS's 64-bit and ReFS's 128-bit file identifiers, with columns for `ParentFileReferenceNumber`, name (plain string, not interned — see design.md D3), size, last-write time, and attribute flags.
-- [ ] 1.3 Design and create the `volumes` table keyed by durable volume identifier (volume GUID + cached serial number), with columns for availability status, last-seen timestamp, USN `JournalId`, persisted `ResumeUsn`, scan-progress cursor, and last-reconciliation timestamp.
-- [ ] 1.4 Add a stored schema-version marker (e.g., `PRAGMA user_version` or a dedicated metadata row) to support future in-place migrations.
-- [ ] 1.5 Implement batched, explicit-transaction writes for ingestion (multi-record commits, not per-record commits).
-- [ ] 1.6 Implement scheduled WAL checkpointing (periodic passive checkpoint, size-triggered forced checkpoint).
-- [ ] 1.7 Implement startup integrity verification (`PRAGMA integrity_check` or equivalent) with a defined fallback (rebuild from fresh scan) if it fails.
+- [x] 1.1 Add SQLite as a bundled/statically-linked dependency of `FastFilesEngine`, opened in WAL journal mode with `synchronous=NORMAL`. (vendored amalgamation in `third_party/sqlite`, `ffindexstore::Store::Open`)
+- [x] 1.2 Design and create the `entries` table keyed by (volume identifier, `FileReferenceNumber`), sized to accommodate both NTFS's 64-bit and ReFS's 128-bit file identifiers, with columns for `ParentFileReferenceNumber`, name (plain string, not interned — see design.md D3), size, last-write time, and attribute flags.
+- [x] 1.3 Design and create the `volumes` table keyed by durable volume identifier (volume GUID + cached serial number), with columns for availability status, last-seen timestamp, USN `JournalId`, persisted `ResumeUsn`, scan-progress cursor, and last-reconciliation timestamp.
+- [x] 1.4 Add a stored schema-version marker (e.g., `PRAGMA user_version` or a dedicated metadata row) to support future in-place migrations.
+- [x] 1.5 Implement batched, explicit-transaction writes for ingestion (multi-record commits, not per-record commits). (`Store::ApplyBatch`)
+- [ ] 1.6 Implement scheduled WAL checkpointing (periodic passive checkpoint, size-triggered forced checkpoint). (`Store::CheckpointPassive`/`CheckpointIfWalExceeds` implemented; periodic invocation from the engine's ingestion loop lands with section 3/6)
+- [ ] 1.7 Implement startup integrity verification (`PRAGMA integrity_check` or equivalent) with a defined fallback (rebuild from fresh scan) if it fails. (`Store::Open`/`RunIntegrityCheck` implemented and report failure; engine-side "rebuild from fresh scan" fallback policy lands with section 3)
 
 ## 2. In-Memory Projection
 
-- [ ] 2.1 Define the fixed-size in-memory entry record layout (`FileReferenceNumber`, `ParentFileReferenceNumber`/dense parent reference, `NameId`, size, timestamps, attributes).
-- [ ] 2.2 Implement the interned/deduplicated name pool (contiguous string arena + offset/length table + insertion-time dedup hash lookup).
-- [ ] 2.3 Implement the parent→children index used for directory-listing/Column-View-style lookups.
-- [ ] 2.4 Implement on-demand full-path reconstruction (parent-chain walk + interned-name concatenation), including defensive cycle detection (stop if a `FileReferenceNumber` is revisited within one walk).
-- [ ] 2.5 Pre-size projection allocations using row counts tracked in the `volumes` table metadata to avoid incremental reallocation during bulk rebuilds.
+- [x] 2.1 Define the fixed-size in-memory entry record layout (`FileReferenceNumber`, `ParentFileReferenceNumber`/dense parent reference, `NameId`, size, timestamps, attributes). (`ffindexstore::ProjectionEntry`)
+- [x] 2.2 Implement the interned/deduplicated name pool (contiguous string arena + offset/length table + insertion-time dedup hash lookup). (`ffindexstore::NamePool`)
+- [x] 2.3 Implement the parent→children index used for directory-listing/Column-View-style lookups. (`Projection::ChildIndices`)
+- [x] 2.4 Implement on-demand full-path reconstruction (parent-chain walk + interned-name concatenation), including defensive cycle detection (stop if a `FileReferenceNumber` is revisited within one walk). (`Projection::ReconstructPath`)
+- [x] 2.5 Pre-size projection allocations using row counts tracked in the `volumes` table metadata to avoid incremental reallocation during bulk rebuilds. (`Projection::Reserve`, `RebuildVolumeFromStore`)
 
 ## 3. Startup Rebuild and Incremental Sync
 
