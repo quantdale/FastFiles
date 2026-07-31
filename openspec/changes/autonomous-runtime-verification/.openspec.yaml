@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-07-31
+goal: Give the FastFiles AI agent autonomous Windows build/install/runtime
+  verification with a repair loop and archive gate
