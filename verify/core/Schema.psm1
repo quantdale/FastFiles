@@ -76,13 +76,20 @@ function Test-JsonSchemaNode {
 }
 
 function Get-PropertyValue {
+    # Note the unary-comma wrapping on every non-null return: PowerShell enumerates
+    # (unrolls) any collection written to a function's output pipeline, so a
+    # single-element array value would otherwise come back to the caller as its
+    # bare scalar element and an empty array would come back as $null — silently
+    # destroying "is this an array" information the schema's array-type check
+    # depends on. Wrapping with ",<value>" makes the pipeline unroll the wrapper
+    # by exactly one level, handing the caller the original value untouched.
     param($Data, [string]$Name)
     if ($Data -is [System.Collections.IDictionary]) {
-        if ($Data.Contains($Name)) { return $Data[$Name] }
+        if ($Data.Contains($Name)) { return , $Data[$Name] }
         return $null
     }
     $prop = $Data.PSObject.Properties[$Name]
-    if ($prop) { return $prop.Value }
+    if ($prop) { return , $prop.Value }
     return $null
 }
 
