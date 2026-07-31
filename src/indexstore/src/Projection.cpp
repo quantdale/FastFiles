@@ -101,6 +101,20 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     // out in Upsert.
 }
 
+void Projection::RemoveVolume(VolumeRowId volumeRowId) {
+    // Collect first, then remove: Remove() mutates idToIndex_, so it can't
+    // run while iterating it.
+    std::vector<FileId> frns;
+    for (const auto& pair : idToIndex_) {
+        if (pair.first.volumeRowId == volumeRowId) {
+            frns.push_back(pair.first.frn);
+        }
+    }
+    for (const FileId& frn : frns) {
+        Remove(volumeRowId, frn);
+    }
+}
+
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
     auto it = idToIndex_.find(EntryKey{volumeRowId, frn});
     return it == idToIndex_.end() ? nullptr : &entries_[it->second];

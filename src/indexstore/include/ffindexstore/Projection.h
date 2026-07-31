@@ -52,6 +52,13 @@ public:
     void Upsert(VolumeRowId volumeRowId, const EntryRecord& record);
     // No-op if the entry is not present.
     void Remove(VolumeRowId volumeRowId, FileId frn);
+    // tasks.md 7.4's projection half: drops every entry belonging to a
+    // forgotten volume (dense-slot tombstoning, id->index and
+    // parent->children rows) -- equivalent to calling Remove on each of
+    // the volume's entries. Interned names are not reclaimed, exactly as
+    // with individual Remove (the pool is reclaimed on the next full
+    // rebuild -- design.md "Risks" name-pool eviction note).
+    void RemoveVolume(VolumeRowId volumeRowId);
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
 

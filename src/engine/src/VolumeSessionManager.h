@@ -62,6 +62,7 @@ private:
     void OnScanComplete(ffprotocol::VolumeId volumeId);
     void OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn);
     void OnJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV1> records);
+    void OnJournalResumeInvalid(ffprotocol::VolumeId volumeId);
 
     // Issues StartVolumeScan (with the persisted cursor if the initial
     // scan never finished, task 6.3) and OpenUsnJournal (with the

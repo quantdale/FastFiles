@@ -66,6 +66,24 @@ std::string GetIndexDatabasePathUtf8() {
     return dbPathUtf8;
 }
 
+// Task 1.7's rebuild-from-fresh-scan fallback helper: deletes the database
+// file plus its WAL/SHM siblings after a failed integrity check, so the
+// next open starts from a clean, empty store that gets rebuilt by a fresh
+// scan. The path arrives UTF-8 (Store's portable boundary); convert back
+// to wide for the Win32 delete calls -- GetIndexDatabasePathUtf8 produced
+// it from a wide path, so the round-trip is lossless.
+void DeleteIndexDatabaseFiles(const std::string& dbPathUtf8) {
+    const int wideLength = MultiByteToWideChar(CP_UTF8, 0, dbPathUtf8.c_str(), -1, nullptr, 0);
+    if (wideLength <= 0) {
+        return;
+    }
+    std::wstring dbPathWide(static_cast<size_t>(wideLength) - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, dbPathUtf8.c_str(), -1, dbPathWide.data(), wideLength);
+    DeleteFileW(dbPathWide.c_str());
+    DeleteFileW((dbPathWide + L"-wal").c_str());
+    DeleteFileW((dbPathWide + L"-shm").c_str());
+}
+
 // Task 4.10: drop the privileged connection after 10 minutes of no UI
 // window and no significant recent filesystem-change activity.
 constexpr std::chrono::milliseconds kIdleTimeout{10 * 60 * 1000};
@@ -92,14 +110,32 @@ int wmain() {
 
     ffengine::IndexPipeline indexPipeline;
     const std::string dbPathUtf8 = GetIndexDatabasePathUtf8();
-    if (!dbPathUtf8.empty() && !indexPipeline.Open(dbPathUtf8)) {
-        // Task 1.7's engine-side policy: an unopenable/corrupt durable
-        // store is not fatal to the process -- the engine still serves
-        // degraded-mode browsing; scanning simply has nowhere durable to
-        // persist to until the next restart finds a healthy database
-        // (e.g. after the file is manually removed).
-        std::fwprintf(stderr, L"FastFilesEngine: failed to open index database at %hs -- indexing disabled this session\n",
-                      dbPathUtf8.c_str());
+    if (!dbPathUtf8.empty()) {
+        bool integrityFailed = false;
+        bool opened = indexPipeline.Open(dbPathUtf8, &integrityFailed);
+        if (!opened && integrityFailed) {
+            // Task 1.7's defined fallback: an existing database that fails
+            // its integrity check is never trusted -- delete it (plus its
+            // WAL/SHM siblings) and reopen a fresh, empty store, which the
+            // normal scan/reconciliation machinery then rebuilds from a
+            // fresh scan.
+            std::fwprintf(stderr,
+                          L"FastFilesEngine: index database at %hs failed its integrity check -- deleting it and rebuilding from a fresh scan\n",
+                          dbPathUtf8.c_str());
+            indexPipeline.Close();
+            DeleteIndexDatabaseFiles(dbPathUtf8);
+            opened = indexPipeline.Open(dbPathUtf8);
+        }
+        if (!opened) {
+            // An unopenable durable store (for reasons other than
+            // integrity, or if the delete-and-reopen fallback itself
+            // failed) is not fatal to the process -- the engine still
+            // serves degraded-mode browsing; scanning simply has nowhere
+            // durable to persist to until the next restart finds a
+            // healthy database (e.g. after the file is manually removed).
+            std::fwprintf(stderr, L"FastFilesEngine: failed to open index database at %hs -- indexing disabled this session\n",
+                          dbPathUtf8.c_str());
+        }
     }
 
     ffengine::IdleManager idleManager;

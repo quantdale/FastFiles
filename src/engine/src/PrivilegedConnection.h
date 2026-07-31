@@ -48,6 +48,10 @@ public:
     using JournalOpenedCallback = std::function<void(ffprotocol::VolumeId, uint64_t journalId, uint64_t currentUsn)>;
     using JournalBatchCallback =
         std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV1> records)>;
+    // The service rejected the requested resume position as outside the
+    // journal's retained range (MessageType::JournalResumeInvalid) -- the
+    // payload carries no position, only the volume it concerns.
+    using JournalResumeInvalidCallback = std::function<void(ffprotocol::VolumeId)>;
 
     ~PrivilegedConnection();
 
@@ -62,6 +66,9 @@ public:
     void SetScanCompleteCallback(ScanCompleteCallback callback) { scanCompleteCallback_ = std::move(callback); }
     void SetJournalOpenedCallback(JournalOpenedCallback callback) { journalOpenedCallback_ = std::move(callback); }
     void SetJournalBatchCallback(JournalBatchCallback callback) { journalBatchCallback_ = std::move(callback); }
+    void SetJournalResumeInvalidCallback(JournalResumeInvalidCallback callback) {
+        journalResumeInvalidCallback_ = std::move(callback);
+    }
 
     // installDir: the ACL-locked directory FastFilesIndexSvc.exe is
     // expected to live in, for the engine-side identity check (task 4.4).
@@ -111,6 +118,7 @@ private:
     ScanCompleteCallback scanCompleteCallback_;
     JournalOpenedCallback journalOpenedCallback_;
     JournalBatchCallback journalBatchCallback_;
+    JournalResumeInvalidCallback journalResumeInvalidCallback_;
 
     std::atomic<ConnectionState> state_{ConnectionState::Disconnected};
     std::atomic<bool> running_{false};

@@ -34,6 +34,7 @@ enum class MessageType : uint16_t {
     ScanComplete = 15,     // service -> client, exactly once per scan that runs to completion
     UsnJournalOpened = 16, // service -> client, once, acks OpenUsnJournal with the current JournalId
     JournalRecordBatch = 17, // service -> client, zero or more per open journal
+    JournalResumeInvalid = 18, // service -> engine: the supplied ResumeUsn is no longer valid (D6/task 7.6)
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -142,10 +143,10 @@ struct UsnJournalOpenedPayload {
     // The journal's current NextUsn as of the open (i.e. where a
     // start-fresh-from-now read would begin). Lets the caller recover
     // safely if its own persisted ResumeUsn turns out to be stale for
-    // this JournalId (design.md D6): reopen with resumeUsn = this value
-    // rather than retrying the same invalid position, which would just
-    // read nothing since UsnJournalReader.cpp does not surface a distinct
-    // error for an out-of-range ResumeUsn.
+    // this JournalId (design.md D6): when UsnJournalReader.cpp reports
+    // the resume position as out of the journal's retained range (see
+    // JournalResumeInvalid below), reopen with resumeUsn = this value
+    // rather than retrying the same invalid position.
     uint64_t currentUsn;
 };
 
@@ -157,6 +158,15 @@ struct JournalRecordBatchHeader {
     VolumeId volumeId;
     uint32_t recordCount;
     uint64_t latestUsn;
+};
+
+// service -> engine: sent instead of further JournalRecordBatch frames
+// when the caller-supplied ResumeUsn (or the journal's position after a
+// long-open stream wraps mid-read) falls outside the journal's currently
+// retained range. The caller falls back to a reconciliation sweep for
+// this volume rather than resuming (D6, task 7.6).
+struct JournalResumeInvalidPayload {
+    VolumeId volumeId;
 };
 
 // Handshake/Heartbeat requests carry no payload beyond the frame header,

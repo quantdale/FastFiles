@@ -44,6 +44,16 @@ void TestUnrecognizedMessageTypeRejected() {
     Check(ToMessageType(static_cast<uint16_t>(MessageType::Handshake)).has_value(),
           "a real MessageType value round-trips");
 
+    // Bounds around the closed command surface's current end
+    // (index-storage-and-scanning's JournalResumeInvalid = 18): the last
+    // assigned value must round-trip, the next unassigned one must not.
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid)).has_value(),
+          "JournalResumeInvalid (the newest service->engine message) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid) + 1).has_value() == false,
+          "the first unassigned value past JournalResumeInvalid is rejected");
+    Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
+          "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
+
     FrameHeader header{};
     header.totalLength = sizeof(FrameHeader);
     header.messageType = 0xBEEF;

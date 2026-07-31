@@ -4,6 +4,7 @@
 #include <rpc.h>
 
 #include <cstring>
+#include <string>
 
 namespace ffengine {
 

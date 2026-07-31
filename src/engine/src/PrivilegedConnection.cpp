@@ -337,6 +337,19 @@ void PrivilegedConnection::DispatchReceivedFrame(
             break;
         }
 
+        case MessageType::JournalResumeInvalid: {
+            if (frame.payload.size() != sizeof(ffprotocol::JournalResumeInvalidPayload)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::JournalResumeInvalidPayload payload{};
+            std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+            if (journalResumeInvalidCallback_) {
+                journalResumeInvalidCallback_(payload.volumeId);
+            }
+            break;
+        }
+
         case MessageType::JournalRecordBatch: {
             if (frame.payload.size() < sizeof(ffprotocol::JournalRecordBatchHeader)) {
                 protocolViolation = true;

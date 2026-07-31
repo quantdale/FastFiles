@@ -137,13 +137,25 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
             }
             const uint8_t* value = record + offset + valueOffset;
 
-            if (typeCode == kAttributeTypeStandardInformation && valueLength >= 36) {
+            if (typeCode == kAttributeTypeStandardInformation) {
+                // A malformed $STANDARD_INFORMATION isolates the whole
+                // record rather than being silently skipped -- every real
+                // record has exactly one, so a broken one means the
+                // record itself is inconsistent.
+                if (valueLength < 36) {
+                    return std::nullopt;
+                }
                 creationTime = ReadU64(value + 0);
                 lastModifiedTime = ReadU64(value + 8);
                 lastAccessTime = ReadU64(value + 24);
                 standardInfoAttributes = ReadU32(value + 32);
                 haveStandardInformation = true;
             } else if (typeCode == kAttributeTypeFileName && valueLength >= 66) {
+                // Unlike $STANDARD_INFORMATION, an individual malformed
+                // $FILE_NAME does not reject the record on its own -- a
+                // record with one bad name attribute alongside a good one
+                // should still surface the good one; if none ever parses,
+                // haveName stays false and the record is skipped below.
                 const uint8_t nameLengthChars = value[64];
                 const uint8_t nsType = value[65];
                 const size_t nameBytes = static_cast<size_t>(nameLengthChars) * sizeof(char16_t);

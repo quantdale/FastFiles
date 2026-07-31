@@ -55,11 +55,35 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV1& record) {
     return entry;
 }
 
+// task 1.6: the size-triggered forced-checkpoint threshold. ~4000 WAL
+// frames at the default 4 KiB page size (~16 MB) -- past that, a passive
+// checkpoint is escalated to a full RESTART checkpoint.
+constexpr uint64_t kWalForceCheckpointThresholdBytes = 4000ULL * 4096;
+
 } // namespace
 
-bool IndexPipeline::Open(const std::string& dbPathUtf8) {
+bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return store_.Open(dbPathUtf8);
+    if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
+        return false;
+    }
+    dbPathUtf8_ = dbPathUtf8;
+    return true;
+}
+
+void IndexPipeline::Close() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    store_.Close();
+    dbPathUtf8_.clear();
+}
+
+void IndexPipeline::RunStoreMaintenance() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!store_.IsOpen()) {
+        return;
+    }
+    store_.CheckpointPassive();
+    store_.CheckpointIfWalExceeds(dbPathUtf8_, kWalForceCheckpointThresholdBytes);
 }
 
 void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
@@ -174,7 +198,15 @@ bool IndexPipeline::SetLastReconciliationTime(ffindexstore::VolumeRowId id, uint
 bool IndexPipeline::ForgetVolume(ffindexstore::VolumeRowId id) {
     std::lock_guard<std::mutex> lock(mutex_);
     reconciliationSeen_.erase(id);
-    return store_.ForgetVolume(id);
+    if (!store_.ForgetVolume(id)) {
+        return false;
+    }
+    // Same commit-before-apply ordering as ingestion (design.md D4): the
+    // projection's copy of this volume's entries is only dropped once the
+    // durable rows are actually gone, so no stale entries keep being
+    // exported/published for a forgotten volume.
+    projection_.RemoveVolume(id);
+    return true;
 }
 
 void IndexPipeline::BeginReconciliationPass(ffindexstore::VolumeRowId id) {

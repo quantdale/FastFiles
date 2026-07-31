@@ -2,6 +2,14 @@
 
 namespace ffindexsvc {
 
+// Enables SeBackupPrivilege on this process's token (a no-op, returning
+// true, if already enabled). Holding the privilege is not enough on its
+// own -- it must be explicitly enabled before FILE_FLAG_BACKUP_SEMANTICS
+// opens bypass the normal ACL check. Idempotent and cheap enough to call
+// before every raw volume open (VolumeScanner, UsnJournalReader), not
+// just once at service startup.
+bool EnsureBackupPrivilegeEnabled();
+
 // Task 7.1: empirically verify that SeBackupPrivilege alone (the only
 // privilege the service's virtual account is granted -- design.md D4) is
 // sufficient to open a raw volume handle and query the USN journal, since

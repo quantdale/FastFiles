@@ -53,6 +53,7 @@ void VolumeSessionManager::Start() {
                                                 std::vector<ffprotocol::UsnDeltaV1> records) {
         OnJournalBatch(id, latestUsn, std::move(records));
     });
+    connection_.SetJournalResumeInvalidCallback([this](ffprotocol::VolumeId id) { OnJournalResumeInvalid(id); });
 
     running_ = true;
     reconciliationThread_ = std::thread(&VolumeSessionManager::ReconciliationSchedulerLoop, this);
@@ -258,6 +259,38 @@ void VolumeSessionManager::OnJournalBatch(
     RepublishSnapshot(durableId, driveLetter);
 }
 
+void VolumeSessionManager::OnJournalResumeInvalid(ffprotocol::VolumeId volumeId) {
+    ffindexstore::VolumeRowId durableId = 0;
+    uint64_t journalId = 0;
+    bool journalIdKnown = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(volumeId.value);
+        if (it == sessionsByEphemeralId_.end()) {
+            return;
+        }
+        durableId = it->second.durableId;
+        journalId = it->second.journalId;
+        journalIdKnown = it->second.journalIdKnown;
+    }
+
+    // design.md D6, tasks.md 7.6: the persisted ResumeUsn falls outside
+    // the journal's retained range (the journal wrapped during a long
+    // disconnection). Same policy as OnJournalOpened's JournalId-mismatch
+    // branch: stop trusting the persisted position and reconcile instead
+    // of silently missing the changes in the gap. JournalResumeInvalid
+    // carries no currentUsn, so the position resets to the journal's
+    // start and the journal is reopened from there using the existing
+    // OpenUsnJournal request -- the batches from that reopened journal
+    // plus the reconciliation pass's full scan cover the gap.
+    if (journalIdKnown) {
+        pipeline_.SetJournalPosition(durableId, journalId, 0);
+    }
+    TriggerReconciliation(volumeId, durableId);
+    ffprotocol::OpenUsnJournalRequest request{volumeId, 0};
+    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal), &request, sizeof(request));
+}
+
 void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter) {
     if (!onSnapshotReady_) {
         return;
@@ -277,6 +310,15 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
         if (!running_.load()) {
             break;
         }
+
+        // tasks.md 1.6: scheduled WAL checkpointing rides this periodic
+        // poll -- a cheap passive checkpoint every pass, escalating to a
+        // forced checkpoint once the WAL grows past the threshold
+        // (design.md "Risks": unbounded WAL growth). Runs regardless of
+        // the privileged connection's state: it's purely local
+        // maintenance of the engine's own database file.
+        pipeline_.RunStoreMaintenance();
+
         // tasks.md 8.5: never schedule privileged-path reconciliation
         // while degraded -- there is no connection to send it over, and
         // no ephemeral VolumeIds to address volumes with even if there

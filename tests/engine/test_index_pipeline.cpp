@@ -161,6 +161,37 @@ void TestVolumeAvailabilityAndForget() {
     Check(!pipeline.GetVolumeMetadata(vol).has_value(), "the volume is gone after an explicit forget");
 }
 
+void TestForgetVolumePurgesProjection() {
+    IndexPipeline pipeline;
+    pipeline.Open(FreshDbPath("engine_test_forget_projection.db"));
+    VolumeKey keyA;
+    keyA.serialNumber = 1;
+    VolumeKey keyB;
+    keyB.serialNumber = 2;
+    auto volA = pipeline.ResolveVolume(keyA);
+    auto volB = pipeline.ResolveVolume(keyB);
+    pipeline.ApplyMftBatch(volA, {
+                                     MakeMftRecord(5, 5, u"", 0x10, 0),
+                                     MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                     MakeMftRecord(101, 100, u"notes.txt", 0, 42),
+                                 });
+    pipeline.ApplyMftBatch(volB, {
+                                     MakeMftRecord(5, 5, u"", 0x10, 0),
+                                     MakeMftRecord(200, 5, u"Data", 0x10, 0),
+                                     MakeMftRecord(201, 200, u"keep.txt", 0, 7),
+                                 });
+
+    Check(pipeline.ForgetVolume(volA), "an explicit ForgetVolume succeeds");
+
+    auto snapshotA = pipeline.ExportDirectorySnapshot(volA, L"C:");
+    Check(snapshotA.empty(), "a forgotten volume's entries are purged from the in-memory projection, not just the store");
+    auto snapshotB = pipeline.ExportDirectorySnapshot(volB, L"D:");
+    Check(snapshotB.count(L"D:") == 1 && snapshotB.count(L"D:\\Data") == 1,
+          "another volume's directories are unaffected by the forget");
+    Check(snapshotB[L"D:\\Data"].entries.size() == 1 && snapshotB[L"D:\\Data"].entries[0].name == L"keep.txt",
+          "another volume's file entries are unaffected by the forget");
+}
+
 } // namespace
 
 int main() {
@@ -170,6 +201,7 @@ int main() {
     TestReconciliationRemovesEntryNotSeenInFullScan();
     TestUsnDeleteReasonRemovesEntry();
     TestVolumeAvailabilityAndForget();
+    TestForgetVolumePurgesProjection();
 
     if (g_failures > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", g_failures);

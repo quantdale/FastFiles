@@ -240,6 +240,33 @@ void TestOversizedAttributeLengthIsRejectedNotOverread() {
     Check(!parsed.has_value(), "an attribute whose declared length overruns the record is rejected, not read out of bounds");
 }
 
+// Ported from the sibling implementation's TestMissingStandardInformationRejected:
+// both allowlisted attributes must be present AND well-formed for a
+// record to be considered valid -- a record whose $STANDARD_INFORMATION
+// is missing or malformed is rejected even with a valid $FILE_NAME.
+void TestMissingStandardInformationRejected() {
+    // firstAttributeOffset matches BuildSyntheticRecord's own formula for
+    // these parameters (usaOffset=0x30, sectorCount=1024/512=2, usaSize=3).
+    constexpr size_t kFirstAttributeOffset = 0x30 + 3 * 2 + 6;
+
+    // Missing entirely: relabel the $STANDARD_INFORMATION attribute's
+    // type code as $OBJECT_ID so only $FILE_NAME remains.
+    auto missing = BuildSyntheticRecord(512, u"x.txt", 5, 0, false);
+    Check(ApplyFixupAndValidate(missing.data(), missing.size(), 512) == FixupResult::Ok, "fixup succeeds before corrupting the attribute stream");
+    WriteU32(missing, kFirstAttributeOffset + 0, 0x40); // $OBJECT_ID instead of $STANDARD_INFORMATION
+    Check(!ParseMftAttributes(missing.data(), missing.size()).has_value(),
+          "a record missing $STANDARD_INFORMATION (even with a valid $FILE_NAME) is rejected");
+
+    // Malformed: a $STANDARD_INFORMATION whose declared value is too
+    // short to hold the fixed-layout prefix isolates the whole record
+    // rather than being silently skipped.
+    auto malformed = BuildSyntheticRecord(512, u"x.txt", 5, 0, false);
+    Check(ApplyFixupAndValidate(malformed.data(), malformed.size(), 512) == FixupResult::Ok, "fixup succeeds before truncating the attribute value");
+    WriteU32(malformed, kFirstAttributeOffset + 16, 20); // valueLength < the 36-byte fixed prefix
+    Check(!ParseMftAttributes(malformed.data(), malformed.size()).has_value(),
+          "a record with a malformed $STANDARD_INFORMATION is rejected, not parsed without it");
+}
+
 } // namespace
 
 int main() {
@@ -250,6 +277,7 @@ int main() {
     TestTornSectorIsDetectedAsMalformed();
     TestResidentDataAttributeIsNeverSurfaced();
     TestOversizedAttributeLengthIsRejectedNotOverread();
+    TestMissingStandardInformationRejected();
 
     if (g_failures > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", g_failures);

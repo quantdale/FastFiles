@@ -26,12 +26,12 @@ using namespace ffindexstore;
 // harness is not part of the shipped Windows product -- just used here to
 // sanity-check the projection's real memory footprint at scale).
 long GetRssKb() {
-    FILE* f = std::fopen("/proc/self/status", "r");
-    if (!f) return -1;
+    FILE* f = nullptr;
+    if (fopen_s(&f, "/proc/self/status", "r") != 0 || !f) return -1;
     char line[256];
     long rss = -1;
     while (std::fgets(line, sizeof(line), f)) {
-        if (std::sscanf(line, "VmRSS: %ld kB", &rss) == 1) break;
+        if (sscanf_s(line, "VmRSS: %ld kB", &rss) == 1) break;
     }
     std::fclose(f);
     return rss;

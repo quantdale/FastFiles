@@ -11,6 +11,7 @@
 #include "ffprotocol/Records.h"
 
 #include "MftParser.h"
+#include "PrivilegeVerification.h"
 
 namespace ffindexsvc {
 
@@ -64,6 +65,12 @@ std::optional<ParsedMftRecord> TryReenrichFromMft(
         return std::nullopt;
     }
     const auto* output = reinterpret_cast<const NTFS_FILE_RECORD_OUTPUT_BUFFER*>(outputBuffer.data());
+    // The FSCTL can return a different, nearby record when the exact FRN's
+    // sequence number is stale -- verify the returned record is the one
+    // that was requested before trusting any of its bytes.
+    if (static_cast<uint64_t>(output->FileReferenceNumber.QuadPart) != fileReferenceNumber) {
+        return std::nullopt;
+    }
     const uint32_t returnedRecordLength = output->FileRecordLength;
     if (returnedRecordLength == 0 || returnedRecordLength > recordSize) {
         return std::nullopt;
@@ -75,45 +82,76 @@ std::optional<ParsedMftRecord> TryReenrichFromMft(
     return ParseMftAttributes(scratch.data(), returnedRecordLength);
 }
 
+// Queries the volume's USN journal, creating one first if the volume
+// doesn't have an active journal yet (ERROR_JOURNAL_NOT_ACTIVE) -- the
+// first time this volume is indexed, a journal must be brought into
+// existence so future changes are tracked at all (task 5.1's "real USN
+// journal reads" presumes one exists). Returns false if no journal data
+// could be obtained either way.
+bool QueryOrCreateUsnJournal(HANDLE volumeHandle, USN_JOURNAL_DATA_V0& journalData) {
+    DWORD bytesReturned = 0;
+    BOOL ok = DeviceIoControl(volumeHandle, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &journalData, sizeof(journalData),
+                               &bytesReturned, nullptr);
+
+    if (!ok && GetLastError() == ERROR_JOURNAL_NOT_ACTIVE) {
+        CREATE_USN_JOURNAL_DATA createData{};
+        createData.MaximumSize = 32ull * 1024 * 1024;
+        createData.AllocationDelta = 4ull * 1024 * 1024;
+        if (DeviceIoControl(volumeHandle, FSCTL_CREATE_USN_JOURNAL, &createData, sizeof(createData), nullptr, 0,
+                             &bytesReturned, nullptr)) {
+            ok = DeviceIoControl(volumeHandle, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &journalData, sizeof(journalData),
+                                  &bytesReturned, nullptr);
+        }
+    }
+    return ok != FALSE;
+}
+
 } // namespace
 
-void RunUsnJournalStream(
+JournalStreamOutcome RunUsnJournalStream(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter, uint64_t resumeUsn,
     const std::atomic<bool>& shouldStop) {
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
+
+    // SeBackupPrivilege must be explicitly enabled (not just held) for
+    // FILE_FLAG_BACKUP_SEMANTICS to bypass the normal ACL check on a raw
+    // volume open -- idempotent and cheap, ensured at every open site
+    // rather than relying on service-startup ordering.
+    if (!EnsureBackupPrivilegeEnabled()) {
+        return JournalStreamOutcome::Ended;
+    }
 
     HANDLE volumeHandle = CreateFileW(
         volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (volumeHandle == INVALID_HANDLE_VALUE) {
-        return;
+        return JournalStreamOutcome::Ended;
     }
 
     USN_JOURNAL_DATA_V0 journalData{};
-    DWORD bytesReturned = 0;
-    if (!DeviceIoControl(volumeHandle, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &journalData, sizeof(journalData),
-                          &bytesReturned, nullptr)) {
+    if (!QueryOrCreateUsnJournal(volumeHandle, journalData)) {
         CloseHandle(volumeHandle);
-        return;
+        return JournalStreamOutcome::Ended;
     }
 
     if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID),
                             static_cast<uint64_t>(journalData.NextUsn))) {
         CloseHandle(volumeHandle);
-        return;
+        return JournalStreamOutcome::Ended;
     }
 
     NTFS_VOLUME_DATA_BUFFER volumeData{};
+    DWORD bytesReturned = 0;
     if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                           &bytesReturned, nullptr)) {
         CloseHandle(volumeHandle);
-        return;
+        return JournalStreamOutcome::Ended;
     }
     const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         CloseHandle(volumeHandle);
-        return;
+        return JournalStreamOutcome::Ended;
     }
     std::vector<uint8_t> mftOutputBuffer(sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) - 1 + recordSize);
     std::vector<uint8_t> mftScratch(recordSize);
@@ -123,6 +161,7 @@ void RunUsnJournalStream(
     std::vector<ffprotocol::UsnDeltaV1> batch;
     batch.reserve(kBatchSize);
     uint64_t latestUsnInBatch = resumeUsn;
+    JournalStreamOutcome outcome = JournalStreamOutcome::Ended;
 
     while (!shouldStop.load()) {
         READ_USN_JOURNAL_DATA_V0 readRequest{};
@@ -136,6 +175,16 @@ void RunUsnJournalStream(
         DWORD readBytesReturned = 0;
         if (!DeviceIoControl(volumeHandle, FSCTL_READ_USN_JOURNAL, &readRequest, sizeof(readRequest), readBuffer.data(),
                               static_cast<DWORD>(readBuffer.size()), &readBytesReturned, nullptr)) {
+            const DWORD error = GetLastError();
+            if (error == ERROR_JOURNAL_ENTRY_DELETED || error == ERROR_INVALID_PARAMETER) {
+                // D6/task 7.6: startUsn is no longer within the journal's
+                // retained range (wrap, or the journal was deleted and
+                // recreated) -- distinct from ordinary teardown so the
+                // caller can tell the engine to fall back to a
+                // reconciliation sweep rather than silently resume.
+                outcome = JournalStreamOutcome::ResumePositionInvalid;
+                break;
+            }
             // A recreated/invalidated journal (or any other read failure)
             // ends this stream -- the engine detects the discontinuity
             // via a subsequent OpenUsnJournal reporting a different
@@ -213,6 +262,7 @@ void RunUsnJournalStream(
     }
 
     CloseHandle(volumeHandle);
+    return outcome;
 }
 
 } // namespace ffindexsvc

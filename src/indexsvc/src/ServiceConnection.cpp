@@ -241,7 +241,18 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const auto resumeUsn = request.resumeUsn;
                 const auto stopFlag = worker.stopFlag;
                 worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn, stopFlag] {
-                    RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
+                    const JournalStreamOutcome outcome =
+                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
+                    if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
+                        // D6/task 7.6: tell the engine its ResumeUsn aged
+                        // out of the journal's retained range before this
+                        // worker tears down, so it falls back to a
+                        // reconciliation sweep instead of a blind resume.
+                        ffprotocol::JournalResumeInvalidPayload payload{volumeId};
+                        std::lock_guard<std::mutex> lock(writeMutex);
+                        ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
+                                           &payload, sizeof(payload));
+                    }
                 });
                 activeJournals.push_back(std::move(worker));
                 break;

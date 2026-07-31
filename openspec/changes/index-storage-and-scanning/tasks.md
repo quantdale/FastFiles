@@ -5,8 +5,8 @@
 - [x] 1.3 Design and create the `volumes` table keyed by durable volume identifier (volume GUID + cached serial number), with columns for availability status, last-seen timestamp, USN `JournalId`, persisted `ResumeUsn`, scan-progress cursor, and last-reconciliation timestamp.
 - [x] 1.4 Add a stored schema-version marker (e.g., `PRAGMA user_version` or a dedicated metadata row) to support future in-place migrations.
 - [x] 1.5 Implement batched, explicit-transaction writes for ingestion (multi-record commits, not per-record commits). (`Store::ApplyBatch`)
-- [ ] 1.6 Implement scheduled WAL checkpointing (periodic passive checkpoint, size-triggered forced checkpoint). (`Store::CheckpointPassive`/`CheckpointIfWalExceeds` implemented; periodic invocation from the engine's ingestion loop lands with section 3/6)
-- [ ] 1.7 Implement startup integrity verification (`PRAGMA integrity_check` or equivalent) with a defined fallback (rebuild from fresh scan) if it fails. (`Store::Open`/`RunIntegrityCheck` implemented and report failure; engine-side "rebuild from fresh scan" fallback policy lands with section 3)
+- [x] 1.6 Implement scheduled WAL checkpointing (periodic passive checkpoint, size-triggered forced checkpoint). (`Store::CheckpointPassive`/`CheckpointIfWalExceeds`, invoked every `VolumeSessionManager::ReconciliationSchedulerLoop` poll via `IndexPipeline::RunStoreMaintenance`)
+- [x] 1.7 Implement startup integrity verification (`PRAGMA integrity_check` or equivalent) with a defined fallback (rebuild from fresh scan) if it fails. (`Store::Open`/`RunIntegrityCheck` report failure via an out-param; `Main.cpp`'s fallback deletes the db file plus its `-wal`/`-shm` siblings and reopens a fresh, empty store that the normal scan machinery rebuilds)
 
 ## 2. In-Memory Projection
 

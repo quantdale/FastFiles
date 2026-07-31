@@ -30,7 +30,21 @@ namespace ffengine {
 // caller) do not need to coordinate with each other.
 class IndexPipeline {
 public:
-    bool Open(const std::string& dbPathUtf8);
+    // outIntegrityFailed (optional, task 1.7): set to true when the open
+    // failed specifically because the existing file failed its integrity
+    // check, so the caller can apply the rebuild-from-fresh-scan fallback
+    // (delete the file and reopen) rather than treating it as a generic
+    // I/O failure.
+    bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
+    void Close();
+
+    // task 1.6: scheduled WAL maintenance, intended to be called on a
+    // low-frequency timer (the engine calls it from VolumeSessionManager's
+    // ReconciliationSchedulerLoop poll). Runs a cheap passive checkpoint
+    // every call and escalates to a forced checkpoint once the WAL has
+    // grown past the threshold (design.md "Risks": unbounded WAL growth
+    // under sustained write bursts). No-op if the store was never opened.
+    void RunStoreMaintenance();
 
     // task 3.1/3.2: rebuilds every volume already known to the durable
     // store, invoking onVolumeRebuilt once per volume as soon as that
@@ -94,6 +108,7 @@ private:
     std::mutex mutex_;
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
+    std::string dbPathUtf8_; // remembered from Open() for RunStoreMaintenance's WAL-size check
 
     struct FileIdHash {
         size_t operator()(const ffindexstore::FileId& id) const noexcept {
