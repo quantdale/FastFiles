@@ -6,6 +6,8 @@ add_executable(FastFilesEngine
   src/SnapshotPublisher.cpp
   src/UiServer.cpp
   src/IdleManager.cpp
+  src/IngestionPipeline.cpp
+  src/VolumeIdentityLookup.cpp
 )
 
-target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup)
+target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup ffindexstore)

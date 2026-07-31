@@ -222,24 +222,94 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     }
 }
 
+bool PrivilegedConnection::SendCommand(uint16_t messageType, const void* payload, uint32_t payloadSize) {
+    std::lock_guard<std::mutex> lock(pipeMutex_);
+    if (activePipe_ == nullptr) {
+        return false;
+    }
+    return ffipc::WriteFrame(activePipe_, messageType, payload, payloadSize);
+}
+
+bool PrivilegedConnection::SendCommand(uint16_t messageType) {
+    std::lock_guard<std::mutex> lock(pipeMutex_);
+    if (activePipe_ == nullptr) {
+        return false;
+    }
+    return ffipc::WriteFrame(activePipe_, messageType);
+}
+
 void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
+    {
+        std::lock_guard<std::mutex> lock(pipeMutex_);
+        activePipe_ = pipe;
+    }
     SetState(ConnectionState::Active, UnavailableReason::None);
 
-    while (running_ && !idleDropped_) {
-        if (!ffipc::WriteFrame(pipe, static_cast<uint16_t>(MessageType::Heartbeat))) {
-            break;
+    // index-storage-and-scanning: the service now pushes ScanBatch/
+    // UsnBatch/etc. asynchronously on this same connection (not only
+    // heartbeat replies), so a single blocking-read-with-timeout per
+    // heartbeat is no longer sufficient -- a dedicated reader thread reads
+    // continuously and dispatches, while this thread just paces
+    // heartbeats and watches for a liveness timeout.
+    std::atomic<bool> readerAlive{true};
+    std::atomic<int64_t> lastTrafficMs{
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()};
+
+    std::thread reader([&] {
+        while (true) {
+            auto frame = ffipc::ReadFrame(pipe);
+            if (!frame) {
+                break;
+            }
+            lastTrafficMs.store(
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+            if (frame->header.messageType == static_cast<uint16_t>(MessageType::HeartbeatAck)) {
+                continue; // consumed purely as a liveness signal
+            }
+            if (frameHandler_) {
+                frameHandler_(frame->header.messageType, frame->payload);
+            }
         }
-        auto reply = ReadFrameWithTimeout(pipe, kHeartbeatAckTimeout);
-        if (!reply || reply->header.messageType != static_cast<uint16_t>(MessageType::HeartbeatAck)) {
-            // Spec "Heartbeat timeout is treated as disconnection": force
-            // close even though the pipe itself may not have errored.
+        readerAlive = false;
+        {
+            std::lock_guard<std::mutex> lock(wakeMutex_);
+            wakeRequested_ = true;
+        }
+        wakeCv_.notify_all(); // wake the pacing loop below promptly on disconnect
+    });
+
+    while (running_ && !idleDropped_ && readerAlive.load()) {
+        if (!SendCommand(static_cast<uint16_t>(MessageType::Heartbeat))) {
             break;
         }
 
         std::unique_lock<std::mutex> lock(wakeMutex_);
-        wakeCv_.wait_for(lock, kHeartbeatInterval, [this] { return wakeRequested_ || !running_; });
+        wakeCv_.wait_for(lock, kHeartbeatInterval, [this, &readerAlive] { return wakeRequested_ || !running_ || !readerAlive.load(); });
         wakeRequested_ = false;
+        lock.unlock();
+
+        if (!readerAlive.load()) {
+            break;
+        }
+        const auto nowMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (nowMs - lastTrafficMs.load() > kHeartbeatAckTimeout.count()) {
+            // Spec "Heartbeat timeout is treated as disconnection": no
+            // traffic of any kind (ack or pushed batch) since well past
+            // the ack timeout means the peer is unresponsive even though
+            // the pipe itself may not have errored.
+            break;
+        }
     }
+
+    {
+        std::lock_guard<std::mutex> lock(pipeMutex_);
+        activePipe_ = nullptr; // no SendCommand can reach this handle from here on
+    }
+    // Unblock the reader thread's pending ReadFrame so it observes the
+    // disconnect promptly rather than only whenever the peer next writes.
+    CancelSynchronousIo(reader.native_handle());
+    reader.join();
 
     CloseHandle(pipe);
     if (idleDropped_) {

@@ -85,8 +85,9 @@ bool SendScanBatch(PipeWriter& writer, ffprotocol::VolumeId volumeId, const std:
     return writer.Write(static_cast<uint16_t>(MessageType::ScanBatch), payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
-bool SendUsnBatch(PipeWriter& writer, ffprotocol::VolumeId volumeId, const std::vector<ffprotocol::UsnDeltaV1>& batch) {
-    ffprotocol::UsnBatchHeader header{volumeId, static_cast<uint32_t>(batch.size())};
+bool SendUsnBatch(PipeWriter& writer, ffprotocol::VolumeId volumeId, const std::vector<ffprotocol::UsnDeltaV1>& batch,
+                   uint64_t resumeUsnAfterBatch) {
+    ffprotocol::UsnBatchHeader header{volumeId, static_cast<uint32_t>(batch.size()), resumeUsnAfterBatch};
     std::vector<uint8_t> recordsBlob = ffprotocol::SerializeUsnDeltaBatch(batch);
 
     std::vector<uint8_t> payload;
@@ -316,8 +317,8 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const uint64_t resumeUsn = request.resumeUsn;
                 std::thread worker([reader, writer, volumeId, driveLetter, journalId, resumeUsn]() {
                     const JournalRunOutcome outcome = reader->Run(driveLetter, journalId, resumeUsn,
-                        [&](const std::vector<ffprotocol::UsnDeltaV1>& batch, uint64_t /*resumeUsnAfterBatch*/) {
-                            return SendUsnBatch(*writer, volumeId, batch);
+                        [&](const std::vector<ffprotocol::UsnDeltaV1>& batch, uint64_t resumeUsnAfterBatch) {
+                            return SendUsnBatch(*writer, volumeId, batch, resumeUsnAfterBatch);
                         });
                     if (outcome == JournalRunOutcome::ResumePositionInvalid) {
                         ffprotocol::JournalResumeInvalidPayload payload{volumeId};

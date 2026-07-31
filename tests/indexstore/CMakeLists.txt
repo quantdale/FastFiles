@@ -1,0 +1,4 @@
+add_executable(ffindexstore_tests test_indexstore.cpp)
+target_link_libraries(ffindexstore_tests PRIVATE ffindexstore)
+
+add_test(NAME ffindexstore_tests COMMAND ffindexstore_tests)

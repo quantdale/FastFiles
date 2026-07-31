@@ -149,6 +149,7 @@ struct JournalOpenedPayload {
 struct UsnBatchHeader {
     VolumeId volumeId;
     uint32_t recordCount;
+    uint64_t resumeUsnAfterBatch; // persist as the volume's ResumeUsn (D8) once this batch is committed
 };
 
 // service -> engine: sent instead of further UsnBatch frames when the

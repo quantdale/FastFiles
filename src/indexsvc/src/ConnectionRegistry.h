@@ -14,11 +14,12 @@ namespace ffindexsvc {
 // itself is the connection-scoped resource (spec "Opaque, Connection-
 // Scoped Handles").
 //
-// This bookkeeping exists now even though StartVolumeScan/OpenUsnJournal
-// currently just reply NotYetImplemented (task 3.8): it's the scoping
-// infrastructure the follow-up change (real MFT/USN parsing) will build
-// on, and it's exercised end-to-end by this change's Stop/Close rejection
-// and disconnect-teardown behavior regardless.
+// Originally added (establish-architecture-foundation) as scoping
+// infrastructure ahead of real MFT/USN parsing; index-storage-and-scanning
+// now builds real StartVolumeScan/OpenUsnJournal handling directly on top
+// of it (ServiceConnection.cpp's per-connection scan/journal worker
+// threads), exercised end-to-end by Stop/Close rejection and
+// disconnect-teardown, not just scoping bookkeeping in isolation.
 class ConnectionRegistry {
 public:
     using ConnectionId = uint64_t;
