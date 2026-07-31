@@ -8,9 +8,9 @@
 - [x] 1.6 Implement capability/suite descriptors (id → command → tier → required privileges → pass/fail predicate → on-failure diagnostics) so adding a validation needs no core edits
 - [x] 1.7 Implement availability-probe-driven tier gating with SKIP-with-reason: compare each capability's requirement against the fingerprint and emit `SKIPPED(reason, requiredContext)` — never a silent pass — when unmet
 - [x] 1.8 Implement the **Capability Artifact Contract**: the `result.json` envelope schema (id, interface version, tier, outcome, timing, produced-artifact paths+types), the namespaced `artifacts/<capability>/` layout, and a core indexer that builds `index.json` from envelopes only — archiving all payloads opaquely and never parsing capability-specific formats
-- [ ] 1.9 Implement registry hardening: reject duplicate capability ids and duplicate id+version pairs across all discovered manifests before any capability executes, recording each rejection as a load diagnostic
-- [ ] 1.10 Add an optional `dependsOn` (capability ids) field to the capability manifest schema; validate every dependency resolves to a loaded capability (missing ⇒ load diagnostic, dependent capability excluded) and that the dependency graph is acyclic (cycle ⇒ load diagnostic naming every capability in the cycle, none of them execute)
-- [ ] 1.11 Extend the capability interface (D11) with a declared repair posture (`repair-supported` | `repair-unsupported` | `repair-unavailable`) and, when supported, a `repair(context)` entry point; update the capability-interface schema accordingly
+- [x] 1.9 Implement registry hardening: reject duplicate capability ids and duplicate id+version pairs across all discovered manifests before any capability executes, recording each rejection as a load diagnostic
+- [x] 1.10 Add an optional `dependsOn` (capability ids) field to the capability manifest schema; validate every dependency resolves to a loaded capability (missing ⇒ load diagnostic, dependent capability excluded) and that the dependency graph is acyclic (cycle ⇒ load diagnostic naming every capability in the cycle, none of them execute)
+- [x] 1.11 Extend the capability interface (D11) with a declared repair posture (`repair-supported` | `repair-unsupported` | `repair-unavailable`) and, when supported, a `repair(context)` entry point; update the capability-interface schema accordingly
 
 ## 2. Environment Providers
 
