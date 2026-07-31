@@ -83,6 +83,18 @@ public:
     size_t EntryCount() const noexcept { return idToIndex_.size(); }
     const NamePool& Names() const noexcept { return namePool_; }
 
+    // Visits every live entry (fn(const EntryKey&, const ProjectionEntry&))
+    // -- used by consumers that need to export the whole projection (e.g.
+    // converting it to the directory-listing snapshot format for
+    // publication). Iterates the live-entry index rather than the dense
+    // array directly, so tombstoned/reused slots are never visited.
+    template <typename Fn>
+    void ForEachEntry(Fn&& fn) const {
+        for (const auto& [key, index] : idToIndex_) {
+            fn(key, entries_[index]);
+        }
+    }
+
 private:
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
 

@@ -21,8 +21,9 @@ constexpr size_t kReadBufferSize = 64 * 1024;
 constexpr std::chrono::milliseconds kIdlePollInterval{1000};
 constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
 
-bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId) {
-    ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId};
+bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
+                        uint64_t currentUsn) {
+    ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
 }
@@ -96,7 +97,8 @@ void RunUsnJournalStream(
         return;
     }
 
-    if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID))) {
+    if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID),
+                            static_cast<uint64_t>(journalData.NextUsn))) {
         CloseHandle(volumeHandle);
         return;
     }

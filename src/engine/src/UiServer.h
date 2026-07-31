@@ -30,6 +30,16 @@ public:
     // client (task 4.9; spec "Version-Aware Reconnection" / status badge).
     void SetEngineStatus(bool privilegedPathActive);
 
+    // index-storage-and-scanning tasks.md 3.5: merges directory data
+    // sourced from the privileged, whole-volume index (VolumeSessionManager/
+    // IndexPipeline) into the published snapshot, republishing and
+    // broadcasting a new generation exactly as a degraded-mode directory
+    // request does. Keyed by full path, same as directories_ -- entries
+    // from the index simply take their place alongside (and eventually
+    // superseding, as the index grows to cover them) any degraded-mode-
+    // populated entries for the same path.
+    void MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories);
+
     // Invoked (from an arbitrary internal thread) on every UI request --
     // used by IdleManager (task 4.10) as the "recent activity" signal.
     std::function<void()> onActivity;

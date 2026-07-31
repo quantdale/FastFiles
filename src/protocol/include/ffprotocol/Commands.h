@@ -139,6 +139,14 @@ struct ScanCompletePayload {
 struct UsnJournalOpenedPayload {
     VolumeId volumeId;
     uint64_t journalId;
+    // The journal's current NextUsn as of the open (i.e. where a
+    // start-fresh-from-now read would begin). Lets the caller recover
+    // safely if its own persisted ResumeUsn turns out to be stale for
+    // this JournalId (design.md D6): reopen with resumeUsn = this value
+    // rather than retrying the same invalid position, which would just
+    // read nothing since UsnJournalReader.cpp does not surface a distinct
+    // error for an out-of-range ResumeUsn.
+    uint64_t currentUsn;
 };
 
 // JournalRecordBatch payload: this fixed header followed by a serialized

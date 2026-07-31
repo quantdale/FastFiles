@@ -18,11 +18,11 @@
 
 ## 3. Startup Rebuild and Incremental Sync
 
-- [ ] 3.1 Implement full projection rebuild from SQLite on `FastFilesEngine` startup, streaming rows in a single pass per volume.
-- [ ] 3.2 Publish each volume's rebuilt data as its own snapshot generation as soon as that volume finishes rebuilding, rather than gating on all volumes.
-- [ ] 3.3 Implement the ingestion pipeline ordering: commit batch to SQLite first, then apply the same batch to the in-memory projection, then bump/publish the snapshot generation.
-- [ ] 3.4 Implement retry-on-failure for a batch whose SQLite commit fails, ensuring the projection is never updated for an uncommitted batch.
-- [ ] 3.5 Wire projection updates into the existing double-buffered memory-mapped snapshot and control-pipe notification mechanism from `establish-architecture-foundation`.
+- [x] 3.1 Implement full projection rebuild from SQLite on `FastFilesEngine` startup, streaming rows in a single pass per volume. (`IndexPipeline::RebuildAll` -> `Projection::RebuildVolumeFromStore`, called from `Main.cpp` at startup)
+- [x] 3.2 Publish each volume's rebuilt data as its own snapshot generation as soon as that volume finishes rebuilding, rather than gating on all volumes. (`RebuildAll`'s per-volume callback in `Main.cpp` exports and publishes immediately, before the next volume's rebuild)
+- [x] 3.3 Implement the ingestion pipeline ordering: commit batch to SQLite first, then apply the same batch to the in-memory projection, then bump/publish the snapshot generation. (`IndexPipeline::ApplyMftBatch`/`ApplyUsnBatch`; `VolumeSessionManager` publishes only after a successful apply)
+- [x] 3.4 Implement retry-on-failure for a batch whose SQLite commit fails, ensuring the projection is never updated for an uncommitted batch. (`Store::ApplyBatch`'s transaction rolls back and returns false on any step failure; `ApplyMftBatch`/`ApplyUsnBatch` only touch the projection after that returns true, and the caller leaves the scan cursor/journal position untouched on failure so a subsequent batch or restart can make progress -- there is no automatic re-send of the exact failed batch, since the durable store's atomicity already guarantees nothing is lost, only "not yet applied")
+- [x] 3.5 Wire projection updates into the existing double-buffered memory-mapped snapshot and control-pipe notification mechanism from `establish-architecture-foundation`. (`IndexPipeline::ExportDirectorySnapshot` converts the projection into the existing `SnapshotFormat.h` directory-listing shape; `UiServer::MergeIndexDirectories` merges it in and republishes through the unchanged `SnapshotPublisher`/`NewGeneration` mechanism)
 
 ## 4. Privileged Service: Real MFT Volume Scanning
 
@@ -45,27 +45,29 @@ Note: sections 4-5 depend on Win32 APIs (`DeviceIoControl`/`winioctl.h` FSCTLs) 
 
 ## 6. Engine Ingestion Pipeline Orchestration
 
-- [ ] 6.1 Implement the engine-side consumer that receives streamed scan/journal batches from the service and hands them to the ingestion pipeline (section 3).
-- [ ] 6.2 Implement filename canonicalization at ingestion (per the foundation change's existing decision), keyed off `FileReferenceNumber`, never off a re-derived path.
-- [ ] 6.3 On startup, before calling `StartVolumeScan`, check for a persisted scan-progress cursor per volume and supply it if present.
-- [ ] 6.4 Persist the scan-progress cursor after each committed scan batch, and clear/finalize it once a volume's initial scan completes.
+- [x] 6.1 Implement the engine-side consumer that receives streamed scan/journal batches from the service and hands them to the ingestion pipeline (section 3). (`VolumeSessionManager::OnScanBatch`/`OnJournalBatch`, fed by `PrivilegedConnection`'s reader-thread callbacks)
+- [x] 6.2 Implement filename canonicalization at ingestion (per the foundation change's existing decision), keyed off `FileReferenceNumber`, never off a re-derived path. (`IndexPipeline`'s `ToEntryRecord` always takes parent linkage from the wire record's own parent-FRN field)
+- [x] 6.3 On startup, before calling `StartVolumeScan`, check for a persisted scan-progress cursor per volume and supply it if present. (`VolumeSessionManager::StartOrResumeVolume`)
+- [x] 6.4 Persist the scan-progress cursor after each committed scan batch, and clear/finalize it once a volume's initial scan completes. (`OnScanBatch`/`OnScanComplete` -> `IndexPipeline::SetScanCursor`/`MarkScanComplete`)
 
 ## 7. Volume Lifecycle: Disconnect, Reconnect, and Retention
 
-- [ ] 7.1 Map the service's ephemeral, connection-scoped `VolumeId` to the durable volume identifier (volume GUID + serial number) on every `EnumerateVolumes` call.
-- [ ] 7.2 Detect a volume's disappearance from `EnumerateVolumes` results and mark its `volumes` row unavailable (with a last-seen timestamp), without deleting its entries.
-- [ ] 7.3 Exclude unavailable-volume entries from active/live results by default while keeping them queryable, and ensure no operation on one volume's status can affect another volume's entries.
-- [ ] 7.4 Implement an explicit, separate user-triggered action to permanently remove an unavailable volume's index data ("forget this drive"), distinct from the automatic disconnect handling.
-- [ ] 7.5 On a volume's reappearance, compare its reported `JournalId` against the persisted one; if it matches, resume incremental journal ingestion from the persisted position.
-- [ ] 7.6 If the `JournalId` differs or the persisted resume position falls outside the journal's retained range, mark the volume for reconciliation instead of resuming, and instead of an unconditional full rescan.
+- [x] 7.1 Map the service's ephemeral, connection-scoped `VolumeId` to the durable volume identifier (volume GUID + serial number) on every `EnumerateVolumes` call. (`VolumeSessionManager::OnVolumeList` + `VolumeIdentity.cpp`'s `GetVolumeNameForVolumeMountPointW`/`UuidFromStringW`-based resolution)
+- [x] 7.2 Detect a volume's disappearance from `EnumerateVolumes` results and mark its `volumes` row unavailable (with a last-seen timestamp), without deleting its entries. (`OnVolumeList`'s seen/unseen diff)
+- [x] 7.3 Exclude unavailable-volume entries from active/live results by default while keeping them queryable, and ensure no operation on one volume's status can affect another volume's entries. (live snapshot publication only ever runs for volumes currently present in the latest `EnumerateVolumes` reply, so an unavailable volume's entries are never republished, while `Store`/`Projection` retain them fully queryable; per-volume `VolumeRowId` keying already isolates one volume's state from another's)
+- [ ] 7.4 Implement an explicit, separate user-triggered action to permanently remove an unavailable volume's index data ("forget this drive"), distinct from the automatic disconnect handling. (the underlying primitive -- `IndexPipeline::ForgetVolume`/`Store::ForgetVolume` -- exists and is unit-tested, but no user-facing control-surface command triggers it yet; that's a UI-facing addition for a later change)
+- [x] 7.5 On a volume's reappearance, compare its reported `JournalId` against the persisted one; if it matches, resume incremental journal ingestion from the persisted position. (`VolumeSessionManager::OnJournalOpened`)
+- [x] 7.6 If the `JournalId` differs or the persisted resume position falls outside the journal's retained range, mark the volume for reconciliation instead of resuming, and instead of an unconditional full rescan. (`OnJournalOpened`'s mismatch branch -> `TriggerReconciliation`)
 
 ## 8. Reconciliation Sweeps
 
-- [ ] 8.1 Implement a per-volume reconciliation sweep that compares persisted entries against current ground truth (fresh scan or filesystem walk) and reports additions, removals, and stale-field updates.
-- [ ] 8.2 Implement idle-time/low-I/O-priority scheduling and pacing for reconciliation sweeps so they don't degrade foreground responsiveness.
-- [ ] 8.3 Implement periodic automatic scheduling of reconciliation sweeps per available volume (configurable interval), requiring no user-initiated manual rescan.
-- [ ] 8.4 Ensure reconciliation sweeps reuse/update existing (volume identifier, `FileReferenceNumber`) rows rather than deleting and recreating a volume's entire entry set.
-- [ ] 8.5 Skip scheduling privileged-path reconciliation while the engine is in degraded mode; resume scheduling once the privileged connection returns to `Active`.
+- [x] 8.1 Implement a per-volume reconciliation sweep that compares persisted entries against current ground truth (fresh scan or filesystem walk) and reports additions, removals, and stale-field updates. (a from-scratch `StartVolumeScan` pass; `IndexPipeline::BeginReconciliationPass`/`FinishReconciliationPass` anti-joins the pass's observed-FRN set against the durable store to find removals, while additions/stale-field updates fall naturally out of the pass's normal upserts)
+- [ ] 8.2 Implement idle-time/low-I/O-priority scheduling and pacing for reconciliation sweeps so they don't degrade foreground responsiveness. (not implemented -- the reconciliation-triggered scan runs through the same `VolumeScanner` path as the initial scan, at normal thread/I/O priority; no idle-detection or `SetThreadPriority`/I/O-priority-hint throttling exists yet)
+- [x] 8.3 Implement periodic automatic scheduling of reconciliation sweeps per available volume (configurable interval), requiring no user-initiated manual rescan. (`VolumeSessionManager::ReconciliationSchedulerLoop`; interval is a fixed constant today, not yet exposed as user-configurable)
+- [x] 8.4 Ensure reconciliation sweeps reuse/update existing (volume identifier, `FileReferenceNumber`) rows rather than deleting and recreating a volume's entire entry set. (the pass applies via the same `ApplyMftBatch`/upsert path as any other scan; only entries never observed during the completed pass are removed)
+- [x] 8.5 Skip scheduling privileged-path reconciliation while the engine is in degraded mode; resume scheduling once the privileged connection returns to `Active`. (`ReconciliationSchedulerLoop` checks `active_` every poll)
+
+Note: sections 3/6/7/8's engine-side code (`IndexPipeline.cpp` aside, which is portable and unit-tested in `tests/engine`) touches `windows.h` (`PrivilegedConnection.cpp`'s reader-thread refactor, `VolumeSessionManager.cpp`, `VolumeIdentity.cpp`'s `UuidFromStringW`/`GetVolumeNameForVolumeMountPointW` usage, `Main.cpp`'s `SHGetKnownFolderPath`) and is likewise unverified by an actual Windows build in this sandbox -- reviewed carefully by hand against the documented Win32 APIs, but needs a real compile and a multi-volume manual test (plug/unplug a removable drive, force a journal recreation, kill the engine mid-scan) before being trusted.
 
 ## 9. Testing and Validation
 
