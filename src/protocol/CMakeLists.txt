@@ -4,6 +4,8 @@ add_library(ffprotocol STATIC
   src/Records.cpp
   src/Dispatch.cpp
   src/Version.cpp
+  src/UiProtocol.cpp
+  src/SnapshotFormat.cpp
 )
 
 target_include_directories(ffprotocol PUBLIC include)

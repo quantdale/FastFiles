@@ -2,3 +2,8 @@ add_executable(ffprotocol_tests test_protocol.cpp)
 target_link_libraries(ffprotocol_tests PRIVATE ffprotocol)
 
 add_test(NAME ffprotocol_tests COMMAND ffprotocol_tests)
+
+add_executable(ffprotocol_fuzz_tests test_fuzz.cpp)
+target_link_libraries(ffprotocol_fuzz_tests PRIVATE ffprotocol)
+
+add_test(NAME ffprotocol_fuzz_tests COMMAND ffprotocol_fuzz_tests)

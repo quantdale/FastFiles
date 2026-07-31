@@ -1,2 +1,11 @@
-add_executable(FastFilesEngine src/Main.cpp)
-target_link_libraries(FastFilesEngine PRIVATE ffprotocol)
+add_executable(FastFilesEngine
+  src/Main.cpp
+  src/PrivilegedConnection.cpp
+  src/DegradedModeEnumerator.cpp
+  src/DirectoryWatcher.cpp
+  src/SnapshotPublisher.cpp
+  src/UiServer.cpp
+  src/IdleManager.cpp
+)
+
+target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup)

@@ -27,9 +27,12 @@ endif()
 option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
 
 add_subdirectory(src/protocol)
+add_subdirectory(src/ipc)
+add_subdirectory(src/setup)
 add_subdirectory(src/indexsvc)
 add_subdirectory(src/engine)
 add_subdirectory(src/ui)
+add_subdirectory(src/installer)
 
 if(FASTFILES_BUILD_TESTS)
   enable_testing()
