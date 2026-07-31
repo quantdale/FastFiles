@@ -9,9 +9,7 @@
 
 namespace ffindexsvc {
 
-namespace {
-
-bool EnableBackupPrivilege() {
+bool EnsureBackupPrivilegeEnabled() {
     HANDLE token = nullptr;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token)) {
         return false;
@@ -34,10 +32,8 @@ bool EnableBackupPrivilege() {
     return adjusted;
 }
 
-} // namespace
-
 void VerifyBackupPrivilegeSufficiency() {
-    if (!EnableBackupPrivilege()) {
+    if (!EnsureBackupPrivilegeEnabled()) {
         std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] SeBackupPrivilege is not held/enabled -- skipping (task 7.1 check)\n");
         return;
     }

@@ -8,6 +8,10 @@ add_executable(FastFilesIndexSvc
   src/ConnectionRegistry.cpp
   src/PrivilegeVerification.cpp
   src/ServiceConnection.cpp
+  src/MftRecordParser.cpp
+  src/NtfsRawAccess.cpp
+  src/VolumeScanner.cpp
+  src/UsnJournalReader.cpp
 )
 
 target_link_libraries(FastFilesIndexSvc PRIVATE ffprotocol ffipc ffsetup)

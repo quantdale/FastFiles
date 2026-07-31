@@ -90,4 +90,34 @@ std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     return result;
 }
 
+namespace {
+
+template <typename FixedT, typename RecordT>
+std::vector<uint8_t> SerializeBatch(const std::vector<RecordT>& records) {
+    size_t totalSize = 0;
+    for (const auto& record : records) {
+        totalSize += sizeof(FixedT) + record.fileName.size() * sizeof(char16_t);
+    }
+
+    std::vector<uint8_t> buffer;
+    buffer.reserve(totalSize);
+    for (const auto& record : records) {
+        const auto* fixedBytes = reinterpret_cast<const uint8_t*>(&record.fixed);
+        buffer.insert(buffer.end(), fixedBytes, fixedBytes + sizeof(FixedT));
+        const auto* nameBytes = reinterpret_cast<const uint8_t*>(record.fileName.data());
+        buffer.insert(buffer.end(), nameBytes, nameBytes + record.fileName.size() * sizeof(char16_t));
+    }
+    return buffer;
+}
+
+} // namespace
+
+std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records) {
+    return SerializeBatch<MftRecordFixedV1>(records);
+}
+
+std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records) {
+    return SerializeBatch<UsnDeltaFixedV1>(records);
+}
+
 } // namespace ffprotocol

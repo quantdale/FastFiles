@@ -28,6 +28,7 @@ struct MftRecordFixedV1 {
     uint64_t creationTime;
     uint64_t lastModifiedTime;
     uint64_t lastAccessTime;
+    uint64_t sizeBytes; // real (logical) size, from $FILE_NAME's cached RealSize field
     uint32_t fileAttributes;
     uint16_t fileNameLengthChars;
 };
@@ -38,6 +39,7 @@ struct UsnDeltaFixedV1 {
     uint64_t parentFileReferenceNumber;
     uint32_t reason;
     uint64_t timestamp;
+    uint64_t sizeBytes; // as MftRecordFixedV1::sizeBytes -- USN_RECORD itself never carries size
     uint32_t fileAttributes;
     uint16_t fileNameLengthChars;
 };
@@ -74,5 +76,13 @@ std::optional<std::vector<MftRecordV1>> ParseMftBatch(
 
 std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     const uint8_t* payload, size_t payloadSize, uint32_t declaredCount);
+
+// Inverse of ParseMftBatch/ParseUsnDeltaBatch: produces the flat records
+// blob those functions expect (fixed struct + trailing filename per
+// record, back to back). The record count itself travels separately on
+// the wire (e.g. ScanBatchHeader::recordCount) -- these functions do not
+// emit a count prefix.
+std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records);
+std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records);
 
 } // namespace ffprotocol
