@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <commctrl.h>
+#include <d2d1.h>
+#include <dwrite.h>
 #include <fstream>
 #include <unordered_map>
+#include <wrl/client.h>
 
 namespace ffui {
 namespace {
@@ -15,6 +18,81 @@ constexpr int kClearHistoryId = 7105;
 constexpr int kSortDirectionId = 7107;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
+
+using Microsoft::WRL::ComPtr;
+
+void PaintSearchEdit(HWND hwnd) {
+    PAINTSTRUCT paint{};
+    HDC dc = BeginPaint(hwnd, &paint);
+    if (!dc) return;
+
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    ComPtr<ID2D1Factory> factory;
+    ComPtr<ID2D1DCRenderTarget> target;
+    ComPtr<IDWriteFactory> writeFactory;
+    ComPtr<IDWriteTextFormat> format;
+    if (SUCCEEDED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, IID_PPV_ARGS(&factory)))) {
+        D2D1_RENDER_TARGET_PROPERTIES properties = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_IGNORE),
+            0.0f, 0.0f, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_FEATURE_LEVEL_DEFAULT);
+        if (SUCCEEDED(factory->CreateDCRenderTarget(&properties, &target)) &&
+            SUCCEEDED(target->BindDC(dc, &client)) &&
+            SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                           reinterpret_cast<IUnknown**>(writeFactory.GetAddressOf()))) &&
+            SUCCEEDED(writeFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                                      14.0f, L"en-us", &format))) {
+            target->BeginDraw();
+            target->Clear(D2D1::ColorF(D2D1::ColorF::White));
+            ComPtr<ID2D1SolidColorBrush> border;
+            ComPtr<ID2D1SolidColorBrush> textBrush;
+            target->CreateSolidColorBrush(D2D1::ColorF(0x7A8AA0), &border);
+            target->CreateSolidColorBrush(D2D1::ColorF(0x1B2430), &textBrush);
+            const auto bounds = D2D1::RectF(0.5f, 0.5f,
+                                             static_cast<float>(client.right) - 0.5f,
+                                             static_cast<float>(client.bottom) - 0.5f);
+            if (border) target->DrawRoundedRectangle(D2D1::RoundedRect(bounds, 4.0f, 4.0f), border.Get(), 1.0f);
+
+            int length = GetWindowTextLengthW(hwnd);
+            std::wstring text(static_cast<size_t>(length) + 1, L'\0');
+            GetWindowTextW(hwnd, text.data(), length + 1);
+            text.resize(static_cast<size_t>(length));
+            if (text.empty()) {
+                text = L"Search indexed locations…";
+                textBrush.Reset();
+                target->CreateSolidColorBrush(D2D1::ColorF(0x6B7785), &textBrush);
+            }
+            const auto textRect = D2D1::RectF(10.0f, 3.0f,
+                                              static_cast<float>(client.right) - 10.0f,
+                                              static_cast<float>(client.bottom) - 3.0f);
+            target->DrawText(text.c_str(), static_cast<UINT32>(text.size()), format.Get(), textRect,
+                             textBrush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            target->EndDraw();
+        }
+    }
+    EndPaint(hwnd, &paint);
+}
+
+LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                UINT_PTR subclassId, DWORD_PTR refData) {
+    UNREFERENCED_PARAMETER(wParam);
+    UNREFERENCED_PARAMETER(lParam);
+    UNREFERENCED_PARAMETER(subclassId);
+    UNREFERENCED_PARAMETER(refData);
+    if (message == WM_ERASEBKGND) return 1;
+    if (message == WM_PAINT) {
+        PaintSearchEdit(hwnd);
+        return 0;
+    }
+    if (message == WM_SETTEXT || message == WM_CLEAR || message == WM_CUT || message == WM_PASTE) {
+        const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return result;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
 
 std::wstring JoinPath(const std::wstring& folder, const std::wstring& name) {
     if (folder.empty()) return name;
@@ -58,6 +136,7 @@ std::wstring FormatFileTime(uint64_t ticks) {
 }
 
 SearchPanel::~SearchPanel() {
+    if (queryEdit_) RemoveWindowSubclass(queryEdit_, SearchEditProc, 1);
     stopping_ = true;
     currentGeneration_.fetch_add(1);
     workCv_.notify_all();
@@ -89,6 +168,11 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     sortDirection_ = CreateWindowExW(0, L"BUTTON", L"Ascending", WS_CHILD,
                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortDirectionId)), nullptr, nullptr);
     if (!query_ || !scope_ || !sort_ || !list_ || !status_ || !clearHistory_ || !sortDirection_) return false;
+    COMBOBOXINFO comboInfo{sizeof(comboInfo)};
+    if (GetComboBoxInfo(query_, &comboInfo) && comboInfo.hwndItem) {
+        queryEdit_ = comboInfo.hwndItem;
+        SetWindowSubclass(queryEdit_, SearchEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    }
     for (const wchar_t* text : {L"Current Folder", L"Current Folder + Subfolders", L"Current Drive", L"All Indexed Locations"})
         SendMessageW(scope_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created"})

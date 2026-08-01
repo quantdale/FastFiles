@@ -40,7 +40,7 @@
 
 ## 5. Search UI — Input and Debouncing
 
-- [ ] 5.1 Implement the search box control (Direct2D/DirectComposition, consistent with the existing UI shell) with text input and focus handling
+- [x] 5.1 Implement the search box control (Direct2D/DirectComposition, consistent with the existing UI shell) with text input and focus handling
 - [x] 5.2 Implement debounced dispatch: fixed delay after the last keystroke before triggering search execution (initial value from design.md's Open Questions, tunable)
 - [x] 5.3 Wire the input-generation token (Section 2.5) through from keystroke to dispatch to result handling
 - [x] 5.4 Implement in-progress vs. completed vs. no-results visual states for the search box/result area

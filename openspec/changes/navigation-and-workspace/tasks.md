@@ -21,7 +21,7 @@
 
 - [x] 3.1 Implement history recording keyed to folder-change navigation events only (descend, breadcrumb click, committed path entry, sidebar click, drive selection) — explicitly excluding selection-only and scroll-only changes
 - [x] 3.2 Implement Back/Forward stack semantics: moving the pointer without pushing a new entry, and truncating stale forward entries after a new navigation following a Back
-- [ ] 3.3 Wire history state and Back/Forward affordances to a specific `NavigationContext` instance, confirming no shared or cross-context history state exists
+- [x] 3.3 Wire history state and Back/Forward affordances to a specific `NavigationContext` instance, confirming no shared or cross-context history state exists
 - [ ] 3.4 Implement Back/Forward UI affordances (buttons and keyboard shortcuts) with disabled state when no history is available in that direction
 
 ## 4. Drive Selection

@@ -28,6 +28,8 @@ int main() {
     Check(!IsValidFileName(L"bad?.txt", &reason) && !reason.empty(), "reserved character accepted");
     Check(!IsValidFileName(L"CON.txt", &reason), "device name accepted");
     Check(!IsValidFileName(L"trailing. ", &reason), "trailing space accepted");
+    Check(IsValidFileName(std::wstring(255, L'a'), &reason), "maximum Windows component length rejected");
+    Check(!IsValidFileName(std::wstring(256, L'a'), &reason), "overlong Windows component accepted");
 
     std::unordered_set<std::wstring> occupied{L"D:\\target\\file.txt", L"D:\\target\\file (2).txt"};
     const auto exists = [&](const std::wstring& path) { return occupied.contains(path); };

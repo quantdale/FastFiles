@@ -14,6 +14,7 @@
 #include "OleDragDrop.h"
 #include "ffprotocol/Settings.h"
 #include "Preview.h"
+#include "NavigationWorkspace.h"
 
 namespace ffui {
 
@@ -50,10 +51,12 @@ private:
     void BeginInlineRename(const std::wstring& path);
     void FinishInlineRename(bool commit);
     void ShowContextMenu(POINT screenPoint);
+    void NavigateWorkspace(const std::wstring& path, const std::wstring& selectName = {});
     std::filesystem::path ShortcutSettingsPath() const;
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;
+    NavigationWorkspace navigationWorkspace_{L"C:\\"};
     ColumnView columnView_;
     EngineClient engineClient_;
     FileOperations fileOperations_;

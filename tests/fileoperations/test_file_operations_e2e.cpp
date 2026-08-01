@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <windows.h>
+#include <winioctl.h>
 #include <objbase.h>
 #include <aclapi.h>
 
@@ -30,7 +31,7 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     if (message == ffui::WM_APP_FILE_OPERATION_EVENT) {
         std::unique_ptr<ffui::FileOperationEvent> event(reinterpret_cast<ffui::FileOperationEvent*>(lParam));
-        if (event->kind == ffui::FileOperationEventKind::Progress && cancelOnProgress != nullptr) {
+        if (event->kind == ffui::FileOperationEventKind::Progress && event->total > 0 && cancelOnProgress != nullptr) {
             cancelOnProgress->CancelCurrent();
             cancelOnProgress = nullptr;
         }
@@ -52,7 +53,7 @@ void Check(bool value, const char* message) {
 std::unique_ptr<ffui::FileOperationEvent> Run(ffui::FileOperations& operations, ffui::FileOperationRequest request) {
     lastEvent.reset();
     operations.Enqueue(std::move(request));
-    const ULONGLONG deadline = GetTickCount64() + 15000;
+    const ULONGLONG deadline = GetTickCount64() + 60000;
     MSG message{};
     while (!lastEvent && GetTickCount64() < deadline) {
         while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
@@ -68,6 +69,20 @@ std::unique_ptr<ffui::FileOperationEvent> Run(ffui::FileOperations& operations, 
 void WriteText(const std::filesystem::path& path, const char* text) {
     std::ofstream stream(path, std::ios::binary);
     stream << text;
+}
+
+void CreateSparseFile(const std::filesystem::path& path, uint64_t bytes) {
+    HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                FILE_ATTRIBUTE_NORMAL, nullptr);
+    Check(handle != INVALID_HANDLE_VALUE, "could not create sparse-file fixture");
+    DWORD returned = 0;
+    Check(DeviceIoControl(handle, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr) != FALSE,
+          "could not mark sparse file");
+    LARGE_INTEGER size{};
+    size.QuadPart = static_cast<LONGLONG>(bytes);
+    Check(SetFilePointerEx(handle, size, nullptr, FILE_BEGIN) != FALSE && SetEndOfFile(handle) != FALSE,
+          "could not size sparse file");
+    CloseHandle(handle);
 }
 
 std::string ReadText(const std::filesystem::path& path) {
@@ -182,7 +197,9 @@ int main() {
     ffui::FileOperationRequest cancellable{};
     cancellable.kind = ffui::FileOperationKind::Copy;
     cancellable.destination = cancellationDestination.wstring();
-    for (int index = 0; index < 512; ++index) {
+    CreateSparseFile(cancellationSource / L"multi-gigabyte-sparse.bin", 2ull * 1024ull * 1024ull * 1024ull);
+    cancellable.sources.push_back((cancellationSource / L"multi-gigabyte-sparse.bin").wstring());
+    for (int index = 0; index < 2048; ++index) {
         const auto item = cancellationSource / (L"item-" + std::to_wstring(index) + L".txt");
         WriteText(item, "cancel test");
         cancellable.sources.push_back(item.wstring());
@@ -190,8 +207,8 @@ int main() {
     cancelOnProgress = &operations;
     event = Run(operations, std::move(cancellable));
     cancelOnProgress = nullptr;
-    Check(event->kind == ffui::FileOperationEventKind::Cancelled && event->completed < event->total,
-          "cooperative mid-batch cancellation did not stop remaining items");
+    Check(event->kind == ffui::FileOperationEventKind::Cancelled && event->completed < event->total &&
+          event->total >= 2049, "cooperative mid-batch cancellation did not stop the large batch");
 
     WriteText(source / L"valid.txt", "valid");
     event = Run(operations, {ffui::FileOperationKind::Copy,

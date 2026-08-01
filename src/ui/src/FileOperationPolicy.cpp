@@ -25,6 +25,7 @@ bool IsValidFileName(const std::wstring& name, std::wstring* reason) {
         return false;
     };
     if (name.empty()) return reject(L"A name is required.");
+    if (name.size() > 255) return reject(L"A Windows filename component cannot exceed 255 characters.");
     if (name == L"." || name == L"..") return reject(L"That name is reserved by Windows.");
     if (name.back() == L'.' || name.back() == L' ') return reject(L"A name cannot end with a period or space.");
     for (const wchar_t character : name) {

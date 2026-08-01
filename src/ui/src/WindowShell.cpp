@@ -106,6 +106,14 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
     }
 }) {}
 
+void WindowShell::NavigateWorkspace(const std::wstring& path, const std::wstring& selectName) {
+    if (path.empty()) return;
+    navigationWorkspace_.Navigate(path);
+    columnView_.NavigateToPath(path, selectName);
+    RefreshSelectionPresentation();
+    RequestRepaint();
+}
+
 std::filesystem::path WindowShell::ShortcutSettingsPath() const {
     std::vector<wchar_t> buffer(32768);
     const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
@@ -120,6 +128,10 @@ CommandContext WindowShell::CurrentCommandContext() const {
 bool WindowShell::InitializeCommands() {
     const BaselineHandlers handlers{[this](const std::wstring& commandId) -> CommandHandler {
         return [this, commandId](const std::vector<std::wstring>& paths) {
+            const std::wstring activePath = columnView_.ActivePanePath();
+            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+                navigationWorkspace_.Navigate(activePath);
+            }
             if (commandId == L"file.copy" || commandId == L"file.cut") {
                 clipboardPaths_ = paths;
                 clipboardIsCut_ = commandId == L"file.cut";
@@ -188,7 +200,7 @@ bool WindowShell::InitializeCommands() {
                 }
             } else if (commandId == L"item.open" && paths.size() == 1) {
                 const DWORD attributes = GetFileAttributesW(paths.front().c_str());
-                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) columnView_.NavigateToPath(paths.front());
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) NavigateWorkspace(paths.front());
                 else if (!OpenWithDefaultApplication(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
             } else if (commandId == L"item.open-with" && paths.size() == 1) {
                 if (!ShowOpenWithPicker(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The application picker could not be opened.", L"Open with", MB_OK | MB_ICONERROR);
@@ -201,7 +213,7 @@ bool WindowShell::InitializeCommands() {
                 if (fallback) MessageBoxW(hwnd_, L"A relative path was not possible; the absolute path was copied instead.", L"Copy relative path", MB_OK | MB_ICONINFORMATION);
             } else if (commandId == L"item.open-containing-folder" && paths.size() == 1) {
                 const std::filesystem::path selected(paths.front());
-                columnView_.NavigateToPath(selected.parent_path().wstring(), selected.filename().wstring());
+                NavigateWorkspace(selected.parent_path().wstring(), selected.filename().wstring());
             } else if (commandId == L"item.open-terminal") {
                 const std::wstring target = paths.size() == 1 ? paths.front() : columnView_.ActivePanePath();
                 if (!target.empty()) LaunchTerminalHere(hwnd_, target);
@@ -226,8 +238,14 @@ bool WindowShell::InitializeCommands() {
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
                 MessageBoxW(hwnd_, L"Path entry is not available in the current navigation surface.", L"Focus path", MB_OK | MB_ICONINFORMATION);
-            } else if (commandId == L"navigation.back" || commandId == L"navigation.forward" ||
-                       commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
+            } else if (commandId == L"navigation.back" || commandId == L"navigation.forward") {
+                const bool moved = commandId == L"navigation.back" ? navigationWorkspace_.GoBack() : navigationWorkspace_.GoForward();
+                if (moved) {
+                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    RefreshSelectionPresentation();
+                    RequestRepaint();
+                }
+            } else if (commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
                 MessageBoxW(hwnd_, L"This navigation action is unavailable in the current workspace.", L"Navigation", MB_OK | MB_ICONINFORMATION);
             } else if (commandId == L"file.rename" && paths.size() == 1) {
                 const std::filesystem::path source(paths.front());
@@ -254,6 +272,10 @@ bool WindowShell::InitializeCommands() {
                                     [this](const std::wstring& id) { InvokeCommand(id); })) return false;
     return searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
                                                                   const ffsearch::PathReconstruction& path) {
+        const std::wstring navigationPath = candidate.isDirectory
+            ? (std::filesystem::path(candidate.folder) / candidate.name).wstring()
+            : candidate.folder;
+        if (!navigationPath.empty()) navigationWorkspace_.Navigate(navigationPath);
         if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
         else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
         RefreshSelectionPresentation();

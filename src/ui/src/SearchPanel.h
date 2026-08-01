@@ -61,6 +61,7 @@ private:
 
     HWND owner_ = nullptr;
     HWND query_ = nullptr;
+    HWND queryEdit_ = nullptr;
     HWND scope_ = nullptr;
     HWND sort_ = nullptr;
     HWND list_ = nullptr;
