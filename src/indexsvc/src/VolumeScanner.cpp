@@ -62,11 +62,28 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete), &payload, sizeof(payload));
 }
 
+class BackgroundMode {
+public:
+    explicit BackgroundMode(bool enabled) : enabled_(enabled && SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)) {}
+    ~BackgroundMode() {
+        if (enabled_) {
+            SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_END);
+        }
+    }
+
+private:
+    bool enabled_ = false;
+};
+
 } // namespace
 
 void RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
-    const std::vector<uint8_t>& resumeCursor, const std::atomic<bool>& shouldStop) {
+    const std::vector<uint8_t>& resumeCursor, bool lowPriority, const std::atomic<bool>& shouldStop) {
+    // THREAD_MODE_BACKGROUND lowers both CPU and I/O scheduling priority
+    // for the lifetime of a reconciliation worker. It is thread-local, so
+    // normal scans and journal readers remain responsive.
+    BackgroundMode backgroundMode(lowPriority);
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
 
     // FILE_FLAG_BACKUP_SEMANTICS + an enabled SeBackupPrivilege is what
@@ -117,6 +134,7 @@ void RunVolumeScan(
     // positions are FRNs, i.e. byte offsets into the $MFT (FRN == index *
     // recordSize) -- converted at each enumeration call below.
     uint64_t nextIndex = DecodeCursor(resumeCursor);
+    size_t recordsSinceYield = 0;
     bool writeFailed = false;
     bool enumerationEnded = false;
 
@@ -162,6 +180,10 @@ void RunVolumeScan(
             }
             bufferHadRecords = true;
             offset += entry->RecordLength;
+            if (lowPriority && ++recordsSinceYield >= 128) {
+                Sleep(1); // pace every enumerated record, including entries that vanish or fail validation
+                recordsSinceYield = 0;
+            }
 
             const uint64_t frn = entry->FileReferenceNumber;
             consumedIndex = frn / recordSize + 1;
@@ -213,7 +235,6 @@ void RunVolumeScan(
             record.fixed.fileNameLengthChars = static_cast<uint16_t>(parsed->fileName.size());
             record.fileName = std::move(parsed->fileName);
             batch.push_back(std::move(record));
-
             if (batch.size() >= kBatchSize) {
                 // Mid-buffer flush: the cursor can only advance past
                 // records already enumerated, so it is this record's own

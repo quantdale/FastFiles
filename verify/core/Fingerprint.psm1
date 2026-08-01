@@ -34,7 +34,8 @@ function Get-EnvironmentFingerprint {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $Change,
-        [string] $ProviderId = 'local'
+        [string] $ProviderId = 'local',
+        [pscustomobject] $Provider
     )
 
     $os = Get-CimInstance -ClassName Win32_OperatingSystem
@@ -50,7 +51,8 @@ function Get-EnvironmentFingerprint {
         SessionId        = $sessionInfo.SessionId
         SessionKind      = $sessionInfo.SessionKind
         ProviderId       = $ProviderId
-        TargetIdentity   = "$($env:COMPUTERNAME):local"
+        Provider         = $Provider
+        TargetIdentity   = if ($Provider -and $Provider.TargetIdentity) { $Provider.TargetIdentity } else { "$($env:COMPUTERNAME):$ProviderId" }
         Toolchain        = $toolchain
         CapabilityLoadDiagnostics = @()
     }

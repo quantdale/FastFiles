@@ -1,5 +1,6 @@
 #include "ServiceConnection.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstring>
@@ -87,7 +88,8 @@ bool SendVolumeList(HANDLE pipeHandle) {
 // the caller) if the Handshake payload itself is malformed, or if version
 // negotiation/authentication fails after having already sent the
 // appropriate rejection reply.
-std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wstring& installDir, bool& outShouldClose) {
+std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wstring& installDir,
+                                                bool& outShouldClose, ffprotocol::ProtocolVersion& outVersion) {
     auto frame = ffipc::ReadFrame(pipeHandle);
     outShouldClose = true;
     if (!frame || frame->header.messageType != static_cast<uint16_t>(MessageType::Handshake)) {
@@ -116,7 +118,11 @@ std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wst
         return std::nullopt;
     }
 
-    ffprotocol::HandshakeAckPayload ack{ffprotocol::kCurrentProtocolVersion};
+    outVersion = request.clientVersion.major == ffprotocol::kCurrentProtocolVersion.major
+        ? ffprotocol::ProtocolVersion{ffprotocol::kCurrentProtocolVersion.major,
+                                      (std::min)(request.clientVersion.minor, ffprotocol::kCurrentProtocolVersion.minor)}
+        : request.clientVersion;
+    ffprotocol::HandshakeAckPayload ack{outVersion};
     if (!ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeAck), &ack, sizeof(ack))) {
         CloseClientIdentity(*identity);
         return std::nullopt;
@@ -132,7 +138,8 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
     const ConnectionRegistry::ConnectionId connectionId = static_cast<ConnectionRegistry::ConnectionId>(reinterpret_cast<uintptr_t>(pipeHandle));
 
     bool shouldClose = false;
-    auto identity = PerformHandshake(pipeHandle, installDir, shouldClose);
+    ffprotocol::ProtocolVersion negotiatedVersion{};
+    auto identity = PerformHandshake(pipeHandle, installDir, shouldClose, negotiatedVersion);
     if (!identity) {
         CloseHandle(pipeHandle);
         return;
@@ -161,20 +168,32 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
             }
 
             case MessageType::StartVolumeScan: {
-                if (frame->payload.size() < sizeof(ffprotocol::StartVolumeScanRequest)) {
+                const bool useV1 = negotiatedVersion.major == 1;
+                const size_t requestSize = useV1 ? sizeof(ffprotocol::StartVolumeScanRequestV1)
+                                                 : sizeof(ffprotocol::StartVolumeScanRequest);
+                if (frame->payload.size() < requestSize) {
                     disconnect = true;
                     break;
                 }
                 ffprotocol::StartVolumeScanRequest request{};
-                std::memcpy(&request, frame->payload.data(), sizeof(request));
-                const size_t expectedCursorBytes = frame->payload.size() - sizeof(request);
+                if (useV1) {
+                    ffprotocol::StartVolumeScanRequestV1 requestV1{};
+                    std::memcpy(&requestV1, frame->payload.data(), sizeof(requestV1));
+                    request.volumeId = requestV1.volumeId;
+                    request.resumeCursorLengthBytes = requestV1.resumeCursorLengthBytes;
+                    request.flags = 0;
+                } else {
+                    std::memcpy(&request, frame->payload.data(), sizeof(request));
+                }
+                const size_t expectedCursorBytes = frame->payload.size() - requestSize;
                 if (!ffprotocol::IsScanCursorLengthValid(request.resumeCursorLengthBytes)
+                    || !ffprotocol::AreStartVolumeScanFlagsValid(request.flags)
                     || expectedCursorBytes != request.resumeCursorLengthBytes) {
                     disconnect = true;
                     break;
                 }
                 std::vector<uint8_t> resumeCursor(
-                    frame->payload.begin() + sizeof(request), frame->payload.end());
+                    frame->payload.begin() + requestSize, frame->payload.end());
 
                 const wchar_t driveLetter = ResolveVolumeIdToDriveLetter(request.volumeId);
                 if (driveLetter == L'\0') {
@@ -189,9 +208,10 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 worker.volumeId = request.volumeId.value;
                 worker.stopFlag = std::make_shared<std::atomic<bool>>(false);
                 const auto volumeId = request.volumeId;
+                const bool lowPriority = (request.flags & ffprotocol::kStartVolumeScanLowPriority) != 0;
                 const auto stopFlag = worker.stopFlag;
-                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, stopFlag] {
-                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, *stopFlag);
+                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, stopFlag] {
+                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag);
                 });
                 activeScans.push_back(std::move(worker));
                 break;

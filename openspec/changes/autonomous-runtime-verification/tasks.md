@@ -14,19 +14,19 @@
 
 ## 2. Environment Providers
 
-- [ ] 2.1 Define the Environment Provider interface (`provision → activate → collect-logs → cleanup → snapshot-restore-if-supported`) and record the active provider in the manifest
-- [ ] 2.2 Implement the `local` provider: Tier 0 in the current session; Tier 1 via on-demand elevation (elevated shell / one-time approved elevated scheduled task); **mandatory idempotent teardown** even on failure
+- [x] 2.1 Define the Environment Provider interface (`provision → activate → collect-logs → cleanup → snapshot-restore-if-supported`) and record the active provider in the manifest
+- [x] 2.2 Implement the `local` provider: Tier 0 in the current session; Tier 1 via on-demand elevation (elevated shell / one-time approved elevated scheduled task); **mandatory idempotent teardown** even on failure
 - [ ] 2.3 Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end
 - [ ] 2.4 Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree
 
 ## 3. Diagnostics, Crash Analysis & Reporting
 
-- [ ] 3.1 Register Diagnostics as its own independently-discoverable, independently-runnable capability (availability probe + `run` entry point invokable directly, e.g. `run diagnostics` — not only a cross-cutting on-failure mechanism) that probes for native tooling with no hardcoded paths and reports each as available (with version/path) or `SKIPPED(reason)` — never a capability failure merely because one tool is absent: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), WPA, Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces
+- [x] 3.1 Register Diagnostics as its own independently-discoverable, independently-runnable capability (availability probe + `run` entry point invokable directly, e.g. `run diagnostics` — not only a cross-cutting on-failure mechanism) that probes for native tooling with no hardcoded paths and reports each as available (with version/path) or `SKIPPED(reason)` — never a capability failure merely because one tool is absent: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), WPA, Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces
 - [ ] 3.2 Implement the **Crash Analysis** capability: dump capture, executable and faulting-thread identification, symbol resolution, stack trace generation, crash classification bucket, reproduction-artifact preservation, report attachment, and a structured verdict for the repair loop; degrade to dump-only when symbols/debugger absent
-- [ ] 3.3 Implement the reporters that project a run tree to Markdown, HTML (self-contained), JSON, and JUnit XML
+- [x] 3.3 Implement the reporters that project a run tree to Markdown, HTML (self-contained), JSON, and JUnit XML
 - [ ] 3.4 Implement the performance summary (vs. baseline), failure summary (with linked crash-analysis artifacts), and — without changing the `result.json` envelope schema — surface each capability's duration/version (from the envelope), the run's environment fingerprint (from the manifest), any capability-recorded tool-version metadata, produced artifacts, repair attempts (from `repair-log.jsonl`), and skip/unavailable reasons
-- [ ] 3.5 Add report-fidelity checks: regenerating from an unchanged run tree yields the same PASS/FAIL/SKIP/required-but-unavailable verdicts with no invented results
-- [ ] 3.6 Ensure `verify.ps1 doctor` (section 13) reuses Diagnostics' tool-discovery logic rather than duplicating it
+- [x] 3.5 Add report-fidelity checks: regenerating from an unchanged run tree yields the same PASS/FAIL/SKIP/required-but-unavailable verdicts with no invented results
+- [x] 3.6 Ensure `verify.ps1 doctor` (section 13) reuses Diagnostics' tool-discovery logic rather than duplicating it
 
 ## 4. Windows Build Automation (Tier 0)
 
@@ -101,6 +101,6 @@
 
 ## 13. Developer-Experience Inspection Verbs
 
-- [ ] 13.1 Implement `verify.ps1 list`: enumerate every discovered capability (including ones rejected by registry hardening) with id, interface version, tier, load status, and declared dependencies, in human-readable and JSON form; creates no run artifact tree
-- [ ] 13.2 Implement `verify.ps1 doctor`: probe and report environment readiness (PowerShell, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, ProcMon, ProcDump, WinDbg, Application Verifier, Hyper-V presence, Windows Sandbox presence) as presence/version detection only — no environment provisioning, no hardcoded paths; note this is distinct from implementing the Hyper-V/Windows-Sandbox Environment Provider adapters themselves (section 2.3, still deferred)
-- [ ] 13.3 Ensure `list`/`doctor` are read-only: no run directory is created under `verify/runs/`, and only usage-error exit codes apply (no PASS/FAIL/SKIPPED semantics)
+- [x] 13.1 Implement `verify.ps1 list`: enumerate every discovered capability (including ones rejected by registry hardening) with id, interface version, tier, load status, and declared dependencies, in human-readable and JSON form; creates no run artifact tree
+- [x] 13.2 Implement `verify.ps1 doctor`: probe and report environment readiness (PowerShell, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, ProcMon, ProcDump, WinDbg, Application Verifier, Hyper-V presence, Windows Sandbox presence) as presence/version detection only — no environment provisioning, no hardcoded paths; note this is distinct from implementing the Hyper-V/Windows-Sandbox Environment Provider adapters themselves (section 2.3, still deferred)
+- [x] 13.3 Ensure `list`/`doctor` are read-only: no run directory is created under `verify/runs/`, and only usage-error exit codes apply (no PASS/FAIL/SKIPPED semantics)

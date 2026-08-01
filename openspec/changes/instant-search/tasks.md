@@ -1,16 +1,16 @@
 ## 1. Query Grammar and Filter Registry
 
-- [ ] 1.1 Implement the tokenizer: split on unquoted whitespace, honor double-quoted values, classify each token as structured filter / wildcard pattern / free-text term
-- [ ] 1.2 Define the filter-registry data structure (`key → {value-parser, predicate-factory}`) and the lookup/dispatch used by the tokenizer for `key:value` tokens
-- [ ] 1.3 Implement `ext:` filter (extension match, case-insensitive, leading dot optional)
-- [ ] 1.4 Implement `name:` and `folder:` filters (literal/quoted value match against filename and containing path respectively)
-- [ ] 1.5 Implement `size:` filter: comparison operators (`>`, `<`, `>=`, `<=`, `=`), unit suffixes (`B`/`KB`/`MB`/`GB`), and `..` range form
-- [ ] 1.6 Implement `modified:` filter: absolute dates, `..` date ranges, relative offsets (e.g., `>7d`, `today`)
-- [ ] 1.7 Implement `kind:` filter as a registry entry with a minimal built-in default category set (document/image/video/audio/archive/executable/folder), structured so a later change can supply the authoritative category table without altering the parser
-- [ ] 1.8 Implement wildcard compilation (`*`, `?`) into a glob matcher for bare wildcard tokens
-- [ ] 1.9 Implement unrecognized-key fallback: treat as literal free-text match, report the key as unrecognized to the caller
-- [ ] 1.10 Unit tests: each filter key's value parser (valid and invalid inputs), quoting/embedded-space handling, wildcard compilation, unrecognized-key fallback behavior
-- [ ] 1.11 Unit test: registering a new filter key in isolation does not change parsing/matching behavior of any existing key
+- [x] 1.1 Implement the tokenizer: split on unquoted whitespace, honor double-quoted values, classify each token as structured filter / wildcard pattern / free-text term
+- [x] 1.2 Define the filter-registry data structure (`key → {value-parser, predicate-factory}`) and the lookup/dispatch used by the tokenizer for `key:value` tokens
+- [x] 1.3 Implement `ext:` filter (extension match, case-insensitive, leading dot optional)
+- [x] 1.4 Implement `name:` and `folder:` filters (literal/quoted value match against filename and containing path respectively)
+- [x] 1.5 Implement `size:` filter: comparison operators (`>`, `<`, `>=`, `<=`, `=`), unit suffixes (`B`/`KB`/`MB`/`GB`), and `..` range form
+- [x] 1.6 Implement `modified:` filter: absolute dates, `..` date ranges, relative offsets (e.g., `>7d`, `today`)
+- [x] 1.7 Implement `kind:` filter as a registry entry with a minimal built-in default category set (document/image/video/audio/archive/executable/folder), structured so a later change can supply the authoritative category table without altering the parser
+- [x] 1.8 Implement wildcard compilation (`*`, `?`) into a glob matcher for bare wildcard tokens
+- [x] 1.9 Implement unrecognized-key fallback: treat as literal free-text match, report the key as unrecognized to the caller
+- [x] 1.10 Unit tests: each filter key's value parser (valid and invalid inputs), quoting/embedded-space handling, wildcard compilation, unrecognized-key fallback behavior
+- [x] 1.11 Unit test: registering a new filter key in isolation does not change parsing/matching behavior of any existing key
 
 ## 2. Matching Engine
 

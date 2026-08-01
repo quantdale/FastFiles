@@ -28,6 +28,10 @@ std::optional<MessageType> ToMessageType(uint16_t raw) noexcept {
     }
 }
 
+bool AreStartVolumeScanFlagsValid(uint16_t flags) noexcept {
+    return (flags & ~kKnownStartVolumeScanFlags) == 0;
+}
+
 bool IsScanCursorLengthValid(uint16_t lengthBytes) noexcept {
     return lengthBytes <= kMaxScanCursorLengthBytes;
 }

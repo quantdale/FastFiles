@@ -66,7 +66,38 @@ void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
     }
 }
 
-void ColumnView::ActivateItem(int columnIndex, int itemIndex) {
+void ColumnView::SelectSingle(Column& column, int itemIndex) {
+    column.selectedIndices.clear();
+    column.selectedIndices.insert(itemIndex);
+    column.selectionAnchor = itemIndex;
+    column.focusIndex = itemIndex;
+}
+
+void ColumnView::ToggleSelection(Column& column, int itemIndex) {
+    if (!column.selectedIndices.erase(itemIndex)) {
+        column.selectedIndices.insert(itemIndex);
+    }
+    if (column.selectionAnchor < 0) {
+        column.selectionAnchor = itemIndex;
+    }
+    column.focusIndex = itemIndex;
+}
+
+void ColumnView::SelectRange(Column& column, int itemIndex) {
+    if (column.selectionAnchor < 0) {
+        SelectSingle(column, itemIndex);
+        return;
+    }
+    column.selectedIndices.clear();
+    const int first = std::min(column.selectionAnchor, itemIndex);
+    const int last = std::max(column.selectionAnchor, itemIndex);
+    for (int index = first; index <= last; ++index) {
+        column.selectedIndices.insert(index);
+    }
+    column.focusIndex = itemIndex;
+}
+
+void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift) {
     std::wstring childPath;
     bool isDirectory = false;
     {
@@ -78,9 +109,21 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex) {
         if (itemIndex < 0 || itemIndex >= static_cast<int>(column.items.size())) {
             return;
         }
-        column.selectedIndex = itemIndex;
+        if (shift) {
+            SelectRange(column, itemIndex);
+        } else if (control) {
+            ToggleSelection(column, itemIndex);
+        } else {
+            SelectSingle(column, itemIndex);
+        }
         isDirectory = column.items[itemIndex].isDirectory;
         childPath = JoinPath(column.path, column.items[itemIndex].name);
+    }
+
+    if (control || shift) {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        focusedColumnIndex_ = columnIndex;
+        return;
     }
 
     TruncateAfter(columnIndex);
@@ -111,12 +154,12 @@ void ColumnView::OnKeyDown(int virtualKey) {
         switch (virtualKey) {
             case VK_UP:
                 if (!focused.items.empty()) {
-                    focused.selectedIndex = std::max(0, focused.selectedIndex - 1);
+                    SelectSingle(focused, std::max(0, focused.focusIndex - 1));
                 }
                 break;
             case VK_DOWN:
                 if (!focused.items.empty()) {
-                    focused.selectedIndex = std::min(static_cast<int>(focused.items.size()) - 1, focused.selectedIndex + 1);
+                    SelectSingle(focused, std::min(static_cast<int>(focused.items.size()) - 1, focused.focusIndex + 1));
                 }
                 break;
             case VK_LEFT:
@@ -127,7 +170,19 @@ void ColumnView::OnKeyDown(int virtualKey) {
                 break;
             case VK_RETURN:
                 activateColumnIndex = focusedColumnIndex_;
-                activateItemIndex = focused.selectedIndex;
+                activateItemIndex = focused.focusIndex;
+                break;
+            case 'A':
+                if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                    focused.selectedIndices.clear();
+                    for (int index = 0; index < static_cast<int>(focused.items.size()); ++index) {
+                        focused.selectedIndices.insert(index);
+                    }
+                    focused.focusIndex = focused.items.empty() ? -1 : 0;
+                    if (!focused.items.empty()) {
+                        focused.selectionAnchor = 0;
+                    }
+                }
                 break;
             default:
                 break;
@@ -139,13 +194,36 @@ void ColumnView::OnKeyDown(int virtualKey) {
     }
 }
 
-void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset) {
+void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, bool control, bool shift) {
     if (clientPoint.y < kBadgeHeight) {
         return;
     }
     const int columnIndex = static_cast<int>((clientPoint.x + scrollOffset) / kColumnWidth);
     const int itemIndex = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
-    ActivateItem(columnIndex, itemIndex);
+    ActivateItem(columnIndex, itemIndex, control, shift);
+}
+
+std::vector<std::wstring> ColumnView::ActiveSelectionPaths() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    std::vector<std::wstring> paths;
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+        return paths;
+    }
+    const Column& column = columns_[focusedColumnIndex_];
+    for (int index : column.selectedIndices) {
+        if (index >= 0 && index < static_cast<int>(column.items.size())) {
+            paths.push_back(JoinPath(column.path, column.items[index].name));
+        }
+    }
+    return paths;
+}
+
+std::wstring ColumnView::ActivePanePath() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+        return {};
+    }
+    return columns_[focusedColumnIndex_].path;
 }
 
 void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot) {
@@ -167,10 +245,11 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
     }
 
     column.error = ColumnErrorState::None;
+    const std::set<int> oldSelection = column.selectedIndices;
     column.items.clear();
     column.items.reserve(directory.entries.size());
     for (const auto& entry : directory.entries) {
-        column.items.push_back({entry.name, entry.isDirectory});
+        column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes, entry.attributes});
     }
     std::sort(column.items.begin(), column.items.end(), [](const ColumnItem& a, const ColumnItem& b) {
         if (a.isDirectory != b.isDirectory) {
@@ -178,6 +257,15 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
         }
         return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
     });
+    column.selectedIndices.clear();
+    for (int index : oldSelection) {
+        if (index >= 0 && index < static_cast<int>(column.items.size())) {
+            column.selectedIndices.insert(index);
+        }
+    }
+    if (column.focusIndex >= static_cast<int>(column.items.size())) {
+        column.focusIndex = -1;
+    }
 }
 
 void ColumnView::OnSnapshotUpdated() {
@@ -213,6 +301,16 @@ void ColumnView::SetEngineStatus(bool active) {
     engineActive_ = active;
 }
 
+void ColumnView::SetDarkTheme(bool dark) {
+    if (darkTheme_ != dark) {
+        darkTheme_ = dark;
+        resourcesCreated_ = false; // recreated together with the next paint
+        backgroundBrush_.Reset(); borderBrush_.Reset(); textBrush_.Reset(); selectionBrush_.Reset();
+        folderGlyphBrush_.Reset(); fileGlyphBrush_.Reset(); errorBrush_.Reset();
+        badgeActiveBrush_.Reset(); badgeDegradedBrush_.Reset();
+    }
+}
+
 float ColumnView::ContentWidth() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     return kColumnWidth * static_cast<float>(columns_.size());
@@ -223,13 +321,44 @@ int ColumnView::FocusedColumnIndex() const {
     return focusedColumnIndex_;
 }
 
+std::optional<FileDescriptor> ColumnView::CurrentSelection() const {
+    SelectionSummary summary = CurrentSelectionSummary();
+    if (summary.items.size() != 1) {
+        return std::nullopt;
+    }
+    return summary.items.front();
+}
+
+SelectionSummary ColumnView::CurrentSelectionSummary() const {
+    SelectionSummary summary;
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+        return summary;
+    }
+    const Column& column = columns_[focusedColumnIndex_];
+    for (int index : column.selectedIndices) {
+        if (index < 0 || index >= static_cast<int>(column.items.size())) {
+            continue;
+        }
+        const ColumnItem& item = column.items[index];
+        summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes, item.attributes, item.isDirectory});
+        if (!item.isDirectory) summary.knownSizeBytes += item.sizeBytes;
+    }
+    return summary;
+}
+
+std::wstring ColumnView::CurrentPath() const {
+    const std::wstring path = ActivePanePath();
+    return path.empty() ? L"Computer" : path;
+}
+
 void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory) {
     if (resourcesCreated_) {
         return;
     }
-    context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::White), &backgroundBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xD8D8D8), &borderBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &textBrush_);
+    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF), &backgroundBrush_);
+    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0x50535A : 0xD8D8D8), &borderBrush_);
+    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0xF1F3F4 : 0x000000), &textBrush_);
     context->CreateSolidColorBrush(D2D1::ColorF(0x2B6CDA), &selectionBrush_);
     context->CreateSolidColorBrush(D2D1::ColorF(0x5B8FE0), &folderGlyphBrush_);
     context->CreateSolidColorBrush(D2D1::ColorF(0x9AA0A6), &fileGlyphBrush_);
@@ -252,7 +381,7 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset) {
     EnsureCreated(context, dwriteFactory);
 
-    context->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    context->Clear(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF));
 
     // Task 5.9: non-modal engine-connection-state status badge.
     D2D1_RECT_F badgeRect = D2D1::RectF(0, 0, viewportSize.width, kBadgeHeight);
@@ -289,7 +418,7 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 continue;
             }
 
-            if (r == column.selectedIndex) {
+            if (column.selectedIndices.contains(r)) {
                 D2D1_RECT_F selectionRect = D2D1::RectF(x, y, x + kColumnWidth, y + kRowHeight);
                 // Task 5.6: the deepest active selection (the focused
                 // column) is visually distinct from remembered selections

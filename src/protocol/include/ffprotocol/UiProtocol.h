@@ -19,6 +19,7 @@ enum class UiMessageType : uint16_t {
     DirectoryError = 4,     // Engine -> UI: the requested path is inaccessible or gone
     NewGeneration = 5,      // Engine -> UI: unsolicited, a new snapshot generation is ready
     EngineStatus = 6,       // Engine -> UI: unsolicited, connection-state badge update
+    ReloadIndexingConfig = 7, // UI -> Engine: settings.json was atomically replaced
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;

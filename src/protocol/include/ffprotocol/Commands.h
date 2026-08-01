@@ -99,12 +99,27 @@ struct VolumeListHeader {
 // performs a full scan").
 constexpr uint16_t kMaxScanCursorLengthBytes = 256;
 
-struct StartVolumeScanRequest {
+// StartVolumeScan flags. A reconciliation sweep is deliberately run in
+// Windows background mode so its CPU and I/O work yield to foreground
+// browsing and initial indexing.
+constexpr uint16_t kStartVolumeScanLowPriority = 0x0001;
+constexpr uint16_t kKnownStartVolumeScanFlags = kStartVolumeScanLowPriority;
+
+// Protocol v1 ended after the cursor length. Keep its exact packed layout
+// so a v2 engine can still talk to a negotiated v1 service.
+struct StartVolumeScanRequestV1 {
     VolumeId volumeId;
     uint16_t resumeCursorLengthBytes;
 };
 
+struct StartVolumeScanRequest {
+    VolumeId volumeId;
+    uint16_t resumeCursorLengthBytes;
+    uint16_t flags;
+};
+
 bool IsScanCursorLengthValid(uint16_t lengthBytes) noexcept;
+bool AreStartVolumeScanFlagsValid(uint16_t flags) noexcept;
 
 struct StopVolumeScanRequest {
     VolumeId volumeId;

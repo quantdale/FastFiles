@@ -1,4 +1,6 @@
 add_subdirectory(protocol)
 add_subdirectory(indexstore)
+add_subdirectory(search)
 add_subdirectory(indexsvc)
 add_subdirectory(engine)
+add_subdirectory(navigation)

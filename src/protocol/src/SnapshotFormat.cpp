@@ -11,6 +11,11 @@ void AppendU32(std::vector<uint8_t>& buffer, uint32_t value) {
     buffer.insert(buffer.end(), bytes, bytes + sizeof(value));
 }
 
+void AppendU64(std::vector<uint8_t>& buffer, uint64_t value) {
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
+    buffer.insert(buffer.end(), bytes, bytes + sizeof(value));
+}
+
 void AppendWString(std::vector<uint8_t>& buffer, const std::wstring& text) {
     AppendU32(buffer, static_cast<uint32_t>(text.size()));
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text.data());
@@ -31,6 +36,13 @@ public:
         }
         std::memcpy(&out, data_ + offset_, sizeof(uint32_t));
         offset_ += sizeof(uint32_t);
+        return true;
+    }
+
+    bool ReadU64(uint64_t& out) {
+        if (remaining() < sizeof(uint64_t)) return false;
+        std::memcpy(&out, data_ + offset_, sizeof(uint64_t));
+        offset_ += sizeof(uint64_t);
         return true;
     }
 
@@ -80,6 +92,8 @@ std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDire
         AppendU32(buffer, static_cast<uint32_t>(directory.entries.size()));
         for (const auto& entry : directory.entries) {
             buffer.push_back(entry.isDirectory ? 1 : 0);
+            AppendU64(buffer, entry.sizeBytes);
+            AppendU32(buffer, entry.attributes);
             AppendWString(buffer, entry.name);
         }
     }
@@ -111,7 +125,7 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         // length prefix) bytes -- reject an implausible declared count
         // before reserve() ever sees an attacker-controlled value up to
         // UINT32_MAX (same discipline as Records.h/IsBatchCountPlausible).
-        constexpr size_t kMinBytesPerEntry = 1 + sizeof(uint32_t);
+        constexpr size_t kMinBytesPerEntry = 1 + sizeof(uint64_t) + 2 * sizeof(uint32_t);
         if (static_cast<uint64_t>(entryCount) * kMinBytesPerEntry > reader.Remaining()) {
             return std::nullopt;
         }
@@ -122,12 +136,17 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
 
         for (uint32_t e = 0; e < entryCount; ++e) {
             uint8_t isDirectoryByte = 0;
+            uint64_t sizeBytes = 0;
+            uint32_t attributes = 0;
             std::wstring name;
-            if (!reader.ReadByte(isDirectoryByte) || !reader.ReadWString(name)) {
+            if (!reader.ReadByte(isDirectoryByte) || !reader.ReadU64(sizeBytes)
+                || !reader.ReadU32(attributes) || !reader.ReadWString(name)) {
                 return std::nullopt;
             }
             SnapshotDirectoryEntry entry;
             entry.isDirectory = isDirectoryByte != 0;
+            entry.sizeBytes = sizeBytes;
+            entry.attributes = attributes;
             entry.name = std::move(name);
             directory.entries.push_back(std::move(entry));
         }

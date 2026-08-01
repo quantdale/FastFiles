@@ -220,6 +220,11 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 break;
             }
 
+            case UiMessageType::ReloadIndexingConfig:
+                if (!frame->payload.empty()) goto disconnected;
+                if (onReloadIndexingConfig) onReloadIndexingConfig();
+                break;
+
             default:
                 goto disconnected; // reply-only types are illegal from a client
         }

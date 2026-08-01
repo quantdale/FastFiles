@@ -4,6 +4,9 @@ add_executable(FastFiles WIN32
   src/Renderer.cpp
   src/ColumnView.cpp
   src/EngineClient.cpp
+  src/FileOperations.cpp
+  src/Preview.cpp
+  src/NavigationWorkspace.cpp
 )
 
 target_link_libraries(FastFiles PRIVATE
@@ -15,4 +18,7 @@ target_link_libraries(FastFiles PRIVATE
   d2d1
   dwrite
   dcomp
+  windowscodecs
+  shell32
+  ole32
 )

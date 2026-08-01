@@ -1,34 +1,34 @@
 ## 1. Worker Thread & IFileOperation Infrastructure
 
-- [ ] 1.1 Create the dedicated file-ops worker thread in `FastFiles`, initialized as `COINIT_APARTMENTTHREADED` (STA), with its own message loop
-- [ ] 1.2 Implement the in-process request queue from the UI thread to the worker thread (post copy/move/rename/delete/create requests as plain-data messages, no raw COM pointers crossing threads)
-- [ ] 1.3 Implement the `IFileOperationProgressSink` class used by all batch operations (`Pre*`/`Post*Item`, `UpdateProgress`), registered via `Advise` before `PerformOperations`
-- [ ] 1.4 Implement the event-marshaling path from worker thread back to UI thread (progress, completion, per-item error, cancellation state) via window messages carrying plain data only
-- [ ] 1.5 Implement serialized queuing so a second requested operation waits for the current one to finish on the same worker thread, with a visible "queued" vs. "in progress" UI state
+- [x] 1.1 Create the dedicated file-ops worker thread in `FastFiles`, initialized as `COINIT_APARTMENTTHREADED` (STA), with its own message loop
+- [x] 1.2 Implement the in-process request queue from the UI thread to the worker thread (post copy/move/rename/delete/create requests as plain-data messages, no raw COM pointers crossing threads)
+- [x] 1.3 Implement the `IFileOperationProgressSink` class used by all batch operations (`Pre*`/`Post*Item`, `UpdateProgress`), registered via `Advise` before `PerformOperations`
+- [x] 1.4 Implement the event-marshaling path from worker thread back to UI thread (progress, completion, per-item error, cancellation state) via window messages carrying plain data only
+- [x] 1.5 Implement serialized queuing so a second requested operation waits for the current one to finish on the same worker thread, with a visible "queued" vs. "in progress" UI state
 
 ## 2. Core File Operations
 
-- [ ] 2.1 Implement Copy (`IFileOperation::CopyItems`) for single and multi-item selections
-- [ ] 2.2 Implement Move (`IFileOperation::MoveItems`) for single and multi-item selections
+- [x] 2.1 Implement Copy (`IFileOperation::CopyItems`) for single and multi-item selections
+- [x] 2.2 Implement Move (`IFileOperation::MoveItems`) for single and multi-item selections
 - [ ] 2.3 Implement Rename (`IFileOperation::RenameItem`), including client-side validation of reserved characters and sibling-name collisions before submission
 - [ ] 2.4 Implement New Folder / New File creation (`IFileOperation::NewItem`), with the created item immediately ready for inline rename
 - [ ] 2.5 Wire copy/move/rename/create entry points into `column-view-browsing`'s context menu and standard keyboard shortcuts (Ctrl+C/X/V, F2, Ctrl+Shift+N, etc.)
 
 ## 3. Progress, Cancellation, and Error Handling
 
-- [ ] 3.1 Implement the progress UI surface: current-item name, overall percentage, transfer speed, and ETA display
-- [ ] 3.2 Implement the rolling-average speed/ETA calculation from `UpdateProgress` work-unit deltas, suppressing speed/ETA until enough samples exist
-- [ ] 3.3 Implement the Cancel affordance and the cooperative cancellation path (stop signal honored between/mid items, accounting for completed vs. not-attempted items)
-- [ ] 3.4 Implement per-item error capture in the progress sink (locked file, access denied, vanished source) without aborting the remaining batch
-- [ ] 3.5 Implement the end-of-batch summary UI ("Copied N of M — K failed") with access to per-item failure detail
+- [x] 3.1 Implement the progress UI surface: current-item name, overall percentage, transfer speed, and ETA display
+- [x] 3.2 Implement the rolling-average speed/ETA calculation from `UpdateProgress` work-unit deltas, suppressing speed/ETA until enough samples exist
+- [x] 3.3 Implement the Cancel affordance and the cooperative cancellation path (stop signal honored between/mid items, accounting for completed vs. not-attempted items)
+- [x] 3.4 Implement per-item error capture in the progress sink (locked file, access denied, vanished source) without aborting the remaining batch
+- [x] 3.5 Implement the end-of-batch summary UI ("Copied N of M — K failed") with access to per-item failure detail
 - [ ] 3.6 Verify no crash/hang paths exist for locked files, permission errors, and items that disappear between listing and processing
 
 ## 4. Recycle Bin and Permanent Delete
 
-- [ ] 4.1 Implement default Delete (Del key, context menu) via `IFileOperation::DeleteItems` with the Recycle-Bin-enabled flag equivalent to `FOF_ALLOWUNDO`
-- [ ] 4.2 Implement permanent delete as a distinct command (Shift+Delete, separate context-menu entry), invoking `DeleteItems` without the Recycle-Bin flag
-- [ ] 4.3 Implement the permanent-delete confirmation dialog: explicit item count/names, "cannot be undone" copy, Cancel as default-focused action, and no suppress-this-dialog preference
-- [ ] 4.4 Verify the default-delete confirmation preference (if/when suppressible) has no effect on the permanent-delete confirmation
+- [x] 4.1 Implement default Delete (Del key, context menu) via `IFileOperation::DeleteItems` with the Recycle-Bin-enabled flag equivalent to `FOF_ALLOWUNDO`
+- [x] 4.2 Implement permanent delete as a distinct command (Shift+Delete, separate context-menu entry), invoking `DeleteItems` without the Recycle-Bin flag
+- [x] 4.3 Implement the permanent-delete confirmation dialog: explicit item count/names, "cannot be undone" copy, Cancel as default-focused action, and no suppress-this-dialog preference
+- [x] 4.4 Verify the default-delete confirmation preference (if/when suppressible) has no effect on the permanent-delete confirmation
 
 ## 5. Conflict Resolution
 
@@ -54,13 +54,13 @@
 
 ## 7. Multi-Selection Model
 
-- [ ] 7.1 Implement per-pane selection state (selected set, anchor index, focus index) independent across panes
-- [ ] 7.2 Implement plain click (clear-and-select-one)
-- [ ] 7.3 Implement Ctrl-click toggle without disturbing other selected items
-- [ ] 7.4 Implement Shift-click contiguous range selection from the current anchor, re-anchoring correctly on repeated Shift-clicks
-- [ ] 7.5 Implement Ctrl+A scoped to the active pane's currently visible/listed items only
-- [ ] 7.6 Verify selecting within a child column does not clear or alter the parent column's own selection highlight
-- [ ] 7.7 Wire "current selection in the active pane" as the uniform input contract consumed by all file-operation entry points (context menu, keyboard shortcuts, drag start)
+- [x] 7.1 Implement per-pane selection state (selected set, anchor index, focus index) independent across panes
+- [x] 7.2 Implement plain click (clear-and-select-one)
+- [x] 7.3 Implement Ctrl-click toggle without disturbing other selected items
+- [x] 7.4 Implement Shift-click contiguous range selection from the current anchor, re-anchoring correctly on repeated Shift-clicks
+- [x] 7.5 Implement Ctrl+A scoped to the active pane's currently visible/listed items only
+- [x] 7.6 Verify selecting within a child column does not clear or alter the parent column's own selection highlight
+- [x] 7.7 Wire "current selection in the active pane" as the uniform input contract consumed by all file-operation entry points (context menu, keyboard shortcuts, drag start)
 
 ## 8. Native OLE Drag-and-Drop
 
@@ -76,8 +76,8 @@
 
 ## 9. Index Invalidation Notification
 
-- [ ] 9.1 Implement the best-effort notification from `FastFiles` to `FastFilesEngine` (over the existing engine↔UI control pipe) of paths affected by a completed operation
-- [ ] 9.2 Verify a completed file operation is reported to the user as complete without waiting on or being blocked by this notification, including when `FastFilesEngine` is unreachable
+- [x] 9.1 Implement the best-effort notification from `FastFiles` to `FastFilesEngine` (over the existing engine↔UI control pipe) of paths affected by a completed operation
+- [x] 9.2 Verify a completed file operation is reported to the user as complete without waiting on or being blocked by this notification, including when `FastFilesEngine` is unreachable
 
 ## 10. Integration and Validation
 

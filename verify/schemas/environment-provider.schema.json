@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles Verify Environment Provider Contract",
+  "description": "Versioned contract for a verification execution target. Provider modules implement the declared lifecycle entry points.",
+  "type": "object",
+  "required": ["id", "interfaceVersion", "entryPoints", "supportsSnapshotRestore"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "interfaceVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "displayName": { "type": "string" },
+    "supportsSnapshotRestore": { "type": "boolean" },
+    "entryPoints": {
+      "type": "object",
+      "required": ["provision", "activate", "collectLogs", "cleanup"],
+      "properties": {
+        "provision": { "type": "string" },
+        "activate": { "type": "string" },
+        "collectLogs": { "type": "string" },
+        "cleanup": { "type": "string" },
+        "snapshotRestore": { "type": "string" }
+      }
+    }
+  }
+}

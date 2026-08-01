@@ -285,6 +285,8 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
                 ffprotocol::SnapshotDirectoryEntry snapshotEntry;
                 snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));
                 snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
+                snapshotEntry.sizeBytes = child.sizeBytes;
+                snapshotEntry.attributes = child.attributes;
                 directory.entries.push_back(std::move(snapshotEntry));
             }
         }

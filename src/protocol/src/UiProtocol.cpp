@@ -12,6 +12,7 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::DirectoryError:
         case UiMessageType::NewGeneration:
         case UiMessageType::EngineStatus:
+        case UiMessageType::ReloadIndexingConfig:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;

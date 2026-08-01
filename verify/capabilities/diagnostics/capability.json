@@ -1,0 +1,14 @@
+{
+  "id": "diagnostics",
+  "interfaceVersion": "1.0.0",
+  "tier": 0,
+  "displayName": "Diagnostics",
+  "description": "Inventories Windows diagnostic tooling without treating an absent optional tool as a capability failure.",
+  "entryModule": "Diagnostics.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-DiagnosticsCapabilityAvailability",
+    "run": "Invoke-DiagnosticsCapability",
+    "diagnostics": "Get-DiagnosticsCapabilityDiagnostics"
+  }
+}

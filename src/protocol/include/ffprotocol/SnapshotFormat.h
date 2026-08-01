@@ -37,6 +37,8 @@ enum class DirectoryEnumerationStatus : uint32_t {
 struct SnapshotDirectoryEntry {
     std::wstring name;
     bool isDirectory = false;
+    uint64_t sizeBytes = 0;
+    uint32_t attributes = 0;
 };
 
 struct SnapshotDirectory {
@@ -47,7 +49,8 @@ struct SnapshotDirectory {
 // Serializes the given view of directories in path-sorted order (the
 // caller passes a std::map, which is already ordered) into the flat
 // format: [u32 directoryCount] { [len-prefixed path][u32 status][u32
-// entryCount] { [u8 isDirectory][len-prefixed name] } }.
+// entryCount] { [u8 isDirectory][u64 size][u32 attributes]
+// [len-prefixed name] } }.
 std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories);
 
 // Parses a buffer produced by SerializeSnapshot. Returns std::nullopt on

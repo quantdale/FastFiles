@@ -4,6 +4,8 @@
 #include <dwrite.h>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <string>
 #include <vector>
 #include <wrl/client.h>
@@ -12,12 +14,20 @@
 #include "ffprotocol/UiProtocol.h"
 
 #include "EngineClient.h"
+#include "Preview.h"
 
 namespace ffui {
 
 struct ColumnItem {
     std::wstring name;
     bool isDirectory = false;
+    uint64_t sizeBytes = 0;
+    uint32_t attributes = 0;
+};
+
+struct SelectionSummary {
+    std::vector<FileDescriptor> items;
+    uint64_t knownSizeBytes = 0;
 };
 
 enum class ColumnErrorState {
@@ -29,7 +39,9 @@ enum class ColumnErrorState {
 struct Column {
     std::wstring path;
     std::vector<ColumnItem> items;
-    int selectedIndex = -1;
+    std::set<int> selectedIndices;
+    int selectionAnchor = -1;
+    int focusIndex = -1;
     ColumnErrorState error = ColumnErrorState::None;
 };
 
@@ -43,7 +55,7 @@ public:
     // Task 5.3/5.4/5.5: selecting an item in a column. Folders truncate
     // and (re)populate the next column; files never create a new column.
     // This is the "full" selection used by mouse clicks and Enter.
-    void ActivateItem(int columnIndex, int itemIndex);
+    void ActivateItem(int columnIndex, int itemIndex, bool control = false, bool shift = false);
 
     // Task 5.10: keyboard navigation. Up/Down move the visual selection
     // within the focused column only (no column population); Left/Right
@@ -53,16 +65,25 @@ public:
 
     // Mouse hit-testing entry point (translates a client-area point into
     // a column/item index and calls ActivateItem).
-    void OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset);
+    void OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, bool control, bool shift);
+
+    // Real filesystem paths for the currently active pane selection.  File
+    // operations and drag start consume this single selection contract.
+    std::vector<std::wstring> ActiveSelectionPaths() const;
+    std::wstring ActivePanePath() const;
 
     void OnSnapshotUpdated();
     void OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
     void SetEngineStatus(bool active);
+    void SetDarkTheme(bool dark);
 
     void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset);
 
     float ContentWidth() const;
     int FocusedColumnIndex() const;
+    std::optional<FileDescriptor> CurrentSelection() const;
+    SelectionSummary CurrentSelectionSummary() const;
+    std::wstring CurrentPath() const;
     static constexpr float kColumnWidth = 240.0f;
     static constexpr float kRowHeight = 24.0f;
     static constexpr float kBadgeHeight = 28.0f;
@@ -71,6 +92,9 @@ private:
     void TruncateAfter(int columnIndex);
     void RequestColumn(int columnIndex, const std::wstring& path);
     void RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot);
+    static void SelectSingle(Column& column, int itemIndex);
+    static void ToggleSelection(Column& column, int itemIndex);
+    static void SelectRange(Column& column, int itemIndex);
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
 
     EngineClient* engineClient_ = nullptr;
@@ -91,6 +115,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
     bool resourcesCreated_ = false;
+    bool darkTheme_ = false;
 };
 
 } // namespace ffui

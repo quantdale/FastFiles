@@ -11,6 +11,7 @@
     "sessionId",
     "sessionKind",
     "providerId",
+    "provider",
     "targetIdentity"
   ],
   "properties": {
@@ -22,6 +23,17 @@
     "sessionId": { "type": "integer" },
     "sessionKind": { "type": "string" },
     "providerId": { "type": "string" },
+    "provider": {
+      "type": "object",
+      "required": ["id", "interfaceVersion", "targetIdentity", "supportsSnapshotRestore"],
+      "properties": {
+        "id": { "type": "string" },
+        "interfaceVersion": { "type": "string" },
+        "displayName": { "type": "string" },
+        "targetIdentity": { "type": "string" },
+        "supportsSnapshotRestore": { "type": "boolean" }
+      }
+    },
     "targetIdentity": { "type": "string" },
     "toolchain": { "type": "object" },
     "capabilityLoadDiagnostics": { "type": "array" }

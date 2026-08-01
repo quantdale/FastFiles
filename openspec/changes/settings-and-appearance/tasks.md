@@ -1,24 +1,24 @@
 ## 1. Settings Persistence Foundation
 
-- [ ] 1.1 Define the `settings.json` schema (top-level `schemaVersion` plus indexing, search, appearance, navigation, shortcuts, preview, and storage-analysis sections) and its location under `%LOCALAPPDATA%\FastFiles\settings.json`.
-- [ ] 1.2 Implement atomic write (write-temp-then-rename) and load of `settings.json` from `FastFiles`.
-- [ ] 1.3 Implement section-scoped validation with per-section fallback-to-defaults, `.bak` preservation of an unparseable file, and a diagnostic log entry on fallback.
-- [ ] 1.4 Implement first-run default seeding: all fixed local volumes included, built-in noise-directory excludes (`$Recycle.Bin`, `System Volume Information`), Follow-System theme, default shortcut bindings sourced from `keyboard-shortcuts`.
-- [ ] 1.5 Implement "Reset to Defaults" (rewrite all sections to defaults; verify no persisted index data is touched).
+- [x] 1.1 Define the `settings.json` schema (top-level `schemaVersion` plus indexing, search, appearance, navigation, shortcuts, preview, and storage-analysis sections) and its location under `%LOCALAPPDATA%\FastFiles\settings.json`.
+- [x] 1.2 Implement atomic write (write-temp-then-rename) and load of `settings.json` from `FastFiles`.
+- [x] 1.3 Implement section-scoped validation with per-section fallback-to-defaults, `.bak` preservation of an unparseable file, and a diagnostic log entry on fallback.
+- [x] 1.4 Implement first-run default seeding: all fixed local volumes included, built-in noise-directory excludes (`$Recycle.Bin`, `System Volume Information`), Follow-System theme, default shortcut bindings sourced from `keyboard-shortcuts`.
+- [x] 1.5 Implement "Reset to Defaults" (rewrite all sections to defaults; verify no persisted index data is touched).
 
 ## 2. Indexing Configuration Surface
 
 - [ ] 2.1 Implement the indexed-volume selection UI (list discoverable volumes, toggle inclusion) backed by the persisted volume list.
 - [ ] 2.2 Implement the directory include/exclude rule editor per volume (ordered prefix-path rules, longest-match-wins precedence, add/remove/reorder).
-- [ ] 2.3 Define and implement the `ReloadIndexingConfig` control-plane message on the existing `FastFilesEngine ↔ FastFiles` pipe, sent after a successful settings write.
-- [ ] 2.4 Implement `FastFilesEngine`-side re-read of `settings.json` on `ReloadIndexingConfig` receipt and at its own startup (coordinate the diff/re-evaluation hook-in point with `index-storage-and-scanning`).
+- [x] 2.3 Define and implement the `ReloadIndexingConfig` control-plane message on the existing `FastFilesEngine ↔ FastFiles` pipe, sent after a successful settings write.
+- [x] 2.4 Implement `FastFilesEngine`-side re-read of `settings.json` on `ReloadIndexingConfig` receipt and at its own startup (coordinate the diff/re-evaluation hook-in point with `index-storage-and-scanning`).
 - [ ] 2.5 Verify volume/rule changes take effect without restarting `FastFiles`, `FastFilesEngine`, or `FastFilesIndexSvc`.
 
 ## 3. Search, Navigation, and Preview/Storage-Analysis Preference Settings
 
 - [ ] 3.1 Implement search preference settings (default search scope, search-history retention and clear-history action).
 - [ ] 3.2 Implement navigation preference settings (default startup location, restore-previous-session toggle).
-- [ ] 3.3 Implement preview behavior settings (enable/disable preview pane, maximum auto-preview file size).
+- [x] 3.3 Implement preview behavior settings (enable/disable preview pane, maximum auto-preview file size).
 - [ ] 3.4 Implement storage-analysis behavior settings (editable file-type/extension category definitions).
 - [ ] 3.5 Wire each preference setting to the section of `settings.json` it belongs to and confirm consumers (search, navigation, preview, storage-analysis capabilities) can read the persisted values.
 
@@ -31,8 +31,8 @@
 
 ## 5. Appearance Theme Selection
 
-- [ ] 5.1 Implement the Light/Dark/Follow-System theme selection setting and its persistence.
-- [ ] 5.2 Implement OS theme-change detection (`WM_SETTINGSCHANGE`/`AppsUseLightTheme`) for Follow-System mode.
+- [x] 5.1 Implement the Light/Dark/Follow-System theme selection setting and its persistence.
+- [x] 5.2 Implement OS theme-change detection (`WM_SETTINGSCHANGE`/`AppsUseLightTheme`) for Follow-System mode.
 
 ## 6. Theming Mechanism (Direct2D Resource Recreation)
 
@@ -44,7 +44,7 @@
 
 ## 7. Index Health Status Derivation
 
-- [ ] 7.1 Implement the pure derivation function mapping `index-engine`'s connection state and `filesystem-index-store`'s per-volume scan/reconciliation state to the five status values (`Fully Indexed`, `Currently Indexing`, `Partially Indexed`, `Unavailable`, `Needs Reconciliation`), introducing no new persisted state.
+- [x] 7.1 Implement the pure derivation function mapping `index-engine`'s connection state and `filesystem-index-store`'s per-volume scan/reconciliation state to the five status values (`Fully Indexed`, `Currently Indexing`, `Partially Indexed`, `Unavailable`, `Needs Reconciliation`), introducing no new persisted state.
 - [ ] 7.2 Implement the fixed precedence order for resolving a single headline status when multiple conditions apply, plus a per-volume detail view showing all applicable conditions.
 - [ ] 7.3 Build the per-volume status display UI, including messaging clear enough to explain a possibly-missing search result.
 

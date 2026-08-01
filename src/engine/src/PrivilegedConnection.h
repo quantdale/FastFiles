@@ -76,6 +76,9 @@ public:
     void Stop();
 
     ConnectionState CurrentState() const noexcept { return state_.load(); }
+    ffprotocol::ProtocolVersion NegotiatedVersion() const noexcept {
+        return {negotiatedMajor_.load(), negotiatedMinor_.load()};
+    }
 
     // Sends a request frame on the current Active connection, thread-safe
     // against the connection's own Heartbeat writes and any other caller
@@ -123,6 +126,8 @@ private:
     std::atomic<ConnectionState> state_{ConnectionState::Disconnected};
     std::atomic<bool> running_{false};
     std::atomic<bool> idleDropped_{false};
+    std::atomic<uint16_t> negotiatedMajor_{0};
+    std::atomic<uint16_t> negotiatedMinor_{0};
 
     // Guards every WriteFrame call on activePipe_ -- ActiveLoop's own
     // Heartbeat and any thread calling SendRequest (e.g. the volume

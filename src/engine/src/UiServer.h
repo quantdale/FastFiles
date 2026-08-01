@@ -10,6 +10,7 @@
 #include "ffipc/PipeListener.h"
 #include "ffsetup/SecurityDescriptors.h"
 #include "ffprotocol/SnapshotFormat.h"
+#include "ffprotocol/UiProtocol.h"
 
 #include "DirectoryWatcher.h"
 #include "SnapshotPublisher.h"
@@ -43,6 +44,7 @@ public:
     // Invoked (from an arbitrary internal thread) on every UI request --
     // used by IdleManager (task 4.10) as the "recent activity" signal.
     std::function<void()> onActivity;
+    std::function<void()> onReloadIndexingConfig;
 
 private:
     void HandleConnection(HANDLE pipe);

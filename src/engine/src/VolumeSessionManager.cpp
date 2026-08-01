@@ -31,6 +31,27 @@ uint64_t NowAsFileTime() {
 constexpr uint64_t kReconciliationIntervalFileTime = 6ULL * 3600 * 10'000'000; // 6 hours
 constexpr std::chrono::minutes kSchedulerPollInterval{10};
 
+std::vector<uint8_t> BuildStartScanPayload(ffprotocol::ProtocolVersion version, ffprotocol::VolumeId volumeId,
+                                           const std::vector<uint8_t>& cursor, uint16_t flags) {
+    const bool useV1 = version.major == 1;
+    const size_t headerSize = useV1 ? sizeof(ffprotocol::StartVolumeScanRequestV1)
+                                    : sizeof(ffprotocol::StartVolumeScanRequest);
+    std::vector<uint8_t> payload(headerSize + cursor.size());
+    if (useV1) {
+        const ffprotocol::StartVolumeScanRequestV1 request{
+            volumeId, static_cast<uint16_t>(cursor.size())};
+        std::memcpy(payload.data(), &request, sizeof(request));
+    } else {
+        const ffprotocol::StartVolumeScanRequest request{
+            volumeId, static_cast<uint16_t>(cursor.size()), flags};
+        std::memcpy(payload.data(), &request, sizeof(request));
+    }
+    if (!cursor.empty()) {
+        std::memcpy(payload.data() + headerSize, cursor.data(), cursor.size());
+    }
+    return payload;
+}
+
 } // namespace
 
 VolumeSessionManager::VolumeSessionManager(IndexPipeline& pipeline, PrivilegedConnection& connection)
@@ -38,6 +59,18 @@ VolumeSessionManager::VolumeSessionManager(IndexPipeline& pipeline, PrivilegedCo
 
 VolumeSessionManager::~VolumeSessionManager() {
     Stop();
+}
+
+void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        configuredVolumes_ = std::move(volumes);
+    }
+    // Re-enumeration makes newly enabled volumes enter the normal session
+    // start path without waiting for an engine restart.
+    if (active_.load()) {
+        connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes));
+    }
 }
 
 void VolumeSessionManager::Start() {
@@ -99,6 +132,12 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
             if (sessionsByEphemeralId_.find(info.id.value) != sessionsByEphemeralId_.end()) {
                 continue; // already tracked this connection
             }
+            const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [&info](const auto& volume) {
+                return !volume.key.empty() && towupper(volume.key.front()) == towupper(info.driveLetter);
+            });
+            if (configured == configuredVolumes_.end() || !configured->enabled) {
+                continue; // absent means pending user decision; disabled volumes are never started
+            }
             auto key = ResolveVolumeKeyForDriveLetter(info.driveLetter);
             if (!key) {
                 continue; // couldn't resolve durable identity right now -- try again next poll
@@ -134,6 +173,14 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
 }
 
 void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId, const VolumeSession& session) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const std::wstring key(1, session.driveLetter);
+        const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [&key](const auto& volume) {
+            return !volume.key.empty() && towupper(volume.key.front()) == key.front();
+        });
+        if (configured != configuredVolumes_.end() && !configured->enabled) return;
+    }
     auto meta = pipeline_.GetVolumeMetadata(session.durableId);
 
     // tasks.md 6.3/D8: only (re)start the initial scan if it never
@@ -143,12 +190,7 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     // Resume-or-Reconcile, Not Blind Rescan").
     if (!meta || !meta->scanComplete) {
         std::vector<uint8_t> cursor = meta ? meta->scanCursor : std::vector<uint8_t>{};
-        std::vector<uint8_t> payload(sizeof(ffprotocol::StartVolumeScanRequest) + cursor.size());
-        ffprotocol::StartVolumeScanRequest request{ephemeralId, static_cast<uint16_t>(cursor.size())};
-        std::memcpy(payload.data(), &request, sizeof(request));
-        if (!cursor.empty()) {
-            std::memcpy(payload.data() + sizeof(request), cursor.data(), cursor.size());
-        }
+        auto payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, cursor, 0);
         connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
                                  static_cast<uint32_t>(payload.size()));
     }
@@ -163,8 +205,13 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
 
 void VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId) {
     pipeline_.BeginReconciliationPass(durableId);
-    ffprotocol::StartVolumeScanRequest request{ephemeralId, 0}; // no cursor -- a full, from-scratch pass
-    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), &request, sizeof(request));
+    // Reconciliation is deliberately lower priority than an initial scan:
+    // it is a correctness backstop and must not compete with foreground
+    // indexing or interactive filesystem work (task 8.2).
+    const auto payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, {},
+                                                ffprotocol::kStartVolumeScanLowPriority);
+    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
+                            static_cast<uint32_t>(payload.size()));
 }
 
 void VolumeSessionManager::OnScanBatch(

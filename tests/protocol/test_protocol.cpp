@@ -1,12 +1,18 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <vector>
+
+#include <windows.h>
 
 #include "ffprotocol/Commands.h"
 #include "ffprotocol/Dispatch.h"
 #include "ffprotocol/Frame.h"
+#include "ffprotocol/IndexHealth.h"
+#include "ffprotocol/Settings.h"
 #include "ffprotocol/Records.h"
+#include "ffprotocol/UiProtocol.h"
 #include "ffprotocol/Version.h"
 
 namespace {
@@ -53,6 +59,12 @@ void TestUnrecognizedMessageTypeRejected() {
           "the first unassigned value past JournalResumeInvalid is rejected");
     Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
           "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
+    Check(AreStartVolumeScanFlagsValid(0), "a normal-priority scan uses a valid zero flag set");
+    Check(AreStartVolumeScanFlagsValid(kStartVolumeScanLowPriority),
+          "a reconciliation scan may request low-priority scheduling");
+    Check(!AreStartVolumeScanFlagsValid(0x8000), "unknown StartVolumeScan flags are rejected");
+    Check(sizeof(StartVolumeScanRequestV1) + sizeof(uint16_t) == sizeof(StartVolumeScanRequest),
+          "v2 appends flags after the exact packed v1 scan-request prefix");
 
     FrameHeader header{};
     header.totalLength = sizeof(FrameHeader);
@@ -141,6 +153,89 @@ void TestVersionCompatibility() {
     Check(!IsVersionCompatible({2, 0}, {3, 0}), "peer with a newer major version is incompatible");
 }
 
+void TestIndexHealthPrecedence() {
+    VolumeIndexConditions conditions{true, true, false, false, false};
+    Check(DeriveIndexHealth(conditions) == IndexHealth::FullyIndexed, "healthy volume derives Fully Indexed");
+    conditions.partiallyIndexed = true;
+    Check(DeriveIndexHealth(conditions) == IndexHealth::PartiallyIndexed, "partial scope derives Partially Indexed");
+    conditions.needsReconciliation = true;
+    Check(DeriveIndexHealth(conditions) == IndexHealth::NeedsReconciliation, "reconciliation outranks partial scope");
+    conditions.scanning = true;
+    Check(DeriveIndexHealth(conditions) == IndexHealth::CurrentlyIndexing, "active scan outranks reconciliation");
+    conditions.privilegedConnectionActive = false;
+    Check(DeriveIndexHealth(conditions) == IndexHealth::Unavailable, "unavailable connection has highest precedence");
+}
+
+void TestPrefixRulePrecedence() {
+    VolumeSetting volume;
+    volume.enabled = true;
+    volume.rules = {{L"C:\\Work", true}, {L"C:\\Work\\Private", false}};
+    Check(IsPathIncluded(volume, L"C:\\Work\\Readme.txt"), "broader include permits its subtree");
+    Check(!IsPathIncluded(volume, L"C:\\Work\\Private\\notes.txt"), "longest matching prefix rule wins");
+}
+
+void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
+    wchar_t oldLocalAppData[MAX_PATH * 4]{};
+    const DWORD oldLength = GetEnvironmentVariableW(L"LOCALAPPDATA", oldLocalAppData, static_cast<DWORD>(std::size(oldLocalAppData)));
+    wchar_t tempRoot[MAX_PATH]{};
+    GetTempPathW(static_cast<DWORD>(std::size(tempRoot)), tempRoot);
+    wchar_t uniquePath[MAX_PATH]{};
+    GetTempFileNameW(tempRoot, L"ffs", 0, uniquePath);
+    DeleteFileW(uniquePath);
+    CreateDirectoryW(uniquePath, nullptr);
+    SetEnvironmentVariableW(L"LOCALAPPDATA", uniquePath);
+
+    (void)LoadSettings(true);
+    Check(GetFileAttributesW(SettingsPath().c_str()) != INVALID_FILE_ATTRIBUTES,
+          "first UI load seeds a complete default settings file");
+
+    Settings settings = DefaultSettings();
+    settings.startupLocation = L"C:\\Work\\日本語\\\"quoted\"";
+    settings.defaultSearchScope = L"D:\\資料";
+    settings.indexing = {{L"C:\\", true, {{L"C:\\Work\\Private", false}}}};
+    Check(SaveSettings(settings), "settings are written as UTF-8 JSON");
+    const Settings loaded = LoadSettings();
+    Check(loaded.startupLocation == settings.startupLocation && loaded.defaultSearchScope == settings.defaultSearchScope,
+          "escaped Windows and Unicode paths round-trip without accumulating backslashes");
+    Check(loaded.indexing.size() == 1 && loaded.indexing[0].rules.size() == 1
+              && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path,
+          "indexing paths round-trip through JSON escaping");
+
+    {
+        std::ofstream partial(SettingsPath(), std::ios::binary | std::ios::trunc);
+        partial << "{\"schemaVersion\":1,\"appearance\":{\"theme\":42},"
+                   "\"navigation\":{\"startupLocation\":\"D:\\\\Valid\",\"restorePreviousSession\":false}}";
+    }
+    const Settings sectionFallback = LoadSettings(false);
+    Check(sectionFallback.theme == DefaultSettings().theme && sectionFallback.startupLocation == L"D:\\Valid"
+              && !sectionFallback.restorePreviousSession,
+          "an invalid section falls back independently without discarding valid sections");
+    const std::wstring settingsLog = std::wstring(uniquePath) + L"\\FastFiles\\logs\\settings.log";
+    Check(GetFileAttributesW(settingsLog.c_str()) != INVALID_FILE_ATTRIBUTES,
+          "section fallback writes a metadata-only diagnostic log entry");
+
+    {
+        std::ofstream corrupt(SettingsPath(), std::ios::binary | std::ios::trunc);
+        corrupt << "{\"theme\": Dark}"; // balanced delimiters, invalid JSON token
+    }
+    const Settings recovered = LoadSettings(true);
+    Check(recovered.theme == DefaultSettings().theme, "syntactically invalid balanced JSON falls back to defaults");
+    Check(GetFileAttributesW((SettingsPath() + L".bak").c_str()) != INVALID_FILE_ATTRIBUTES,
+          "an unparseable settings file is preserved as settings.json.bak");
+
+    SetEnvironmentVariableW(L"LOCALAPPDATA", oldLength > 0 ? oldLocalAppData : nullptr);
+    std::wstring fastFilesPath = std::wstring(uniquePath) + L"\\FastFiles";
+    std::wstring backupPath = fastFilesPath + L"\\settings.json.bak";
+    std::wstring settingsPath = fastFilesPath + L"\\settings.json";
+    std::wstring logPath = fastFilesPath + L"\\logs\\settings.log";
+    DeleteFileW(backupPath.c_str());
+    DeleteFileW(settingsPath.c_str());
+    DeleteFileW(logPath.c_str());
+    RemoveDirectoryW((fastFilesPath + L"\\logs").c_str());
+    RemoveDirectoryW(fastFilesPath.c_str());
+    RemoveDirectoryW(uniquePath);
+}
+
 } // namespace
 
 int main() {
@@ -150,6 +245,9 @@ int main() {
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestVersionCompatibility();
+    TestIndexHealthPrecedence();
+    TestPrefixRulePrecedence();
+    TestSettingsUtf8RoundTripAndCorruptionRecovery();
 
     if (g_failures > 0) {
         std::fprintf(stderr, "\n%d check(s) failed\n", g_failures);

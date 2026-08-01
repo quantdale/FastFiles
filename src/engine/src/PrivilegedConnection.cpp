@@ -235,8 +235,24 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     }
 
     switch (static_cast<MessageType>(reply->header.messageType)) {
-        case MessageType::HandshakeAck:
+        case MessageType::HandshakeAck: {
+            if (reply->payload.size() != sizeof(ffprotocol::HandshakeAckPayload)) {
+                CloseHandle(pipe);
+                SetState(ConnectionState::Disconnected, UnavailableReason::HandshakeRejected);
+                return nullptr;
+            }
+            ffprotocol::HandshakeAckPayload ack{};
+            std::memcpy(&ack, reply->payload.data(), sizeof(ack));
+            if (!ffprotocol::IsVersionCompatible(ffprotocol::kCurrentProtocolVersion, ack.negotiatedVersion)
+                || ack.negotiatedVersion.major > ffprotocol::kCurrentProtocolVersion.major) {
+                CloseHandle(pipe);
+                SetState(ConnectionState::Disconnected, UnavailableReason::IncompatibleProtocolVersion);
+                return nullptr;
+            }
+            negotiatedMajor_ = ack.negotiatedVersion.major;
+            negotiatedMinor_ = ack.negotiatedVersion.minor;
             return pipe;
+        }
 
         case MessageType::IncompatibleVersion:
             // Task 4.9: treat as privileged-path-unavailable, not a

@@ -11,7 +11,7 @@ struct ProtocolVersion {
 };
 
 // The version this build of the library implements.
-constexpr ProtocolVersion kCurrentProtocolVersion{1, 0};
+constexpr ProtocolVersion kCurrentProtocolVersion{2, 0};
 
 // Major must match, or be exactly one behind current, to absorb staged
 // enterprise rollouts across one release cycle (design.md D6). Minor is

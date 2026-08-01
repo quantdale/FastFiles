@@ -1,5 +1,6 @@
 #include "EngineClient.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -227,6 +228,7 @@ void EngineClient::Start(GenerationCallback onNewGeneration, StatusCallback onSt
 
     running_ = true;
     managementThread_ = std::thread(&EngineClient::ManagementLoop, this);
+    invalidationThread_ = std::thread(&EngineClient::InvalidationLoop, this);
 }
 
 void EngineClient::Stop() {
@@ -234,12 +236,16 @@ void EngineClient::Stop() {
         return;
     }
     running_ = false;
+    invalidationCv_.notify_all();
 
     // CancelSynchronousIo targets whatever blocking call this specific
     // thread currently has pending (the reader loop's ReadFile), which is
     // more robust than CancelIoEx(handle) racing a concurrent CloseHandle.
     if (managementThread_.joinable()) {
         CancelSynchronousIo(managementThread_.native_handle());
+    }
+    if (invalidationThread_.joinable()) {
+        CancelSynchronousIo(invalidationThread_.native_handle());
     }
 
     HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
@@ -249,10 +255,38 @@ void EngineClient::Stop() {
     if (managementThread_.joinable()) {
         managementThread_.join();
     }
+    if (invalidationThread_.joinable()) {
+        invalidationThread_.join();
+    }
     UnmapSnapshotSection();
 }
 
 void EngineClient::RequestDirectory(const std::wstring& path) {
+    if (path.empty() || !running_) return;
+    {
+        std::lock_guard<std::mutex> lock(invalidationMutex_);
+        if (std::find(invalidationQueue_.begin(), invalidationQueue_.end(), path) == invalidationQueue_.end()) {
+            invalidationQueue_.push_back(path);
+        }
+    }
+    invalidationCv_.notify_one();
+}
+
+void EngineClient::InvalidationLoop() {
+    while (running_) {
+        std::wstring path;
+        {
+            std::unique_lock<std::mutex> lock(invalidationMutex_);
+            invalidationCv_.wait(lock, [this] { return !running_ || !invalidationQueue_.empty(); });
+            if (!running_) break;
+            path = std::move(invalidationQueue_.front());
+            invalidationQueue_.pop_front();
+        }
+        SendDirectoryRequest(path);
+    }
+}
+
+void EngineClient::SendDirectoryRequest(const std::wstring& path) {
     HANDLE pipe = pipe_.load();
     if (pipe == INVALID_HANDLE_VALUE) {
         return;
@@ -266,6 +300,13 @@ void EngineClient::RequestDirectory(const std::wstring& path) {
     std::lock_guard<std::mutex> lock(writeMutex_);
     ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::RequestDirectory), payload.data(),
                        static_cast<uint32_t>(payload.size()));
+}
+
+void EngineClient::ReloadIndexingConfig() {
+    HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) return;
+    std::lock_guard<std::mutex> lock(writeMutex_);
+    ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ReloadIndexingConfig));
 }
 
 } // namespace ffui

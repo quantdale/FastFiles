@@ -11,6 +11,8 @@
 #include "ffindexstore/Identity.h"
 #include "ffprotocol/Commands.h"
 #include "ffprotocol/SnapshotFormat.h"
+#include "ffprotocol/Settings.h"
+#include "ffprotocol/UiProtocol.h"
 
 #include "IndexPipeline.h"
 #include "PrivilegedConnection.h"
@@ -48,6 +50,7 @@ public:
     using SnapshotReadyCallback =
         std::function<void(ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>)>;
     void SetSnapshotReadyCallback(SnapshotReadyCallback callback) { onSnapshotReady_ = std::move(callback); }
+    void ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes);
 
 private:
     struct VolumeSession {
@@ -83,6 +86,7 @@ private:
 
     std::mutex mutex_;
     std::map<uint32_t, VolumeSession> sessionsByEphemeralId_; // keyed by ffprotocol::VolumeId::value
+    std::vector<ffprotocol::VolumeSetting> configuredVolumes_;
 
     std::atomic<bool> active_{false};
     std::atomic<bool> running_{false};

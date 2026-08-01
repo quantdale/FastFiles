@@ -45,6 +45,7 @@ void RunVolumeScan(
     ffprotocol::VolumeId volumeId,
     wchar_t driveLetter,
     const std::vector<uint8_t>& resumeCursor,
+    bool lowPriority,
     const std::atomic<bool>& shouldStop);
 
 } // namespace ffindexsvc

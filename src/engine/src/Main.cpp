@@ -20,6 +20,7 @@
 
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
+#include "ffprotocol/Settings.h"
 
 #include "IdleManager.h"
 #include "IndexPipeline.h"
@@ -141,6 +142,13 @@ int wmain() {
     ffengine::IdleManager idleManager;
     ffengine::PrivilegedConnection privilegedConnection;
     ffengine::VolumeSessionManager volumeSessions(indexPipeline, privilegedConnection);
+
+    // The engine owns applying indexing decisions. Reload is notify-then-pull:
+    // settings.json is atomically written by the UI before this message.
+    uiServer.onReloadIndexingConfig = [&volumeSessions] {
+        volumeSessions.ReloadConfiguration(ffprotocol::LoadSettings(false).indexing);
+    };
+    volumeSessions.ReloadConfiguration(ffprotocol::LoadSettings(false).indexing);
 
     uiServer.onActivity = [&idleManager] { idleManager.NotifyActivity(); };
 

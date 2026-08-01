@@ -1,5 +1,7 @@
 #pragma once
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -37,6 +39,7 @@ public:
     // shows up either as a DirectoryErrorCallback invocation or as the
     // path appearing in the next snapshot generation (onNewGeneration).
     void RequestDirectory(const std::wstring& path);
+    void ReloadIndexingConfig();
 
     // Reads the most recently published snapshot directly out of the
     // mapped shared-memory section.
@@ -46,6 +49,8 @@ private:
     void ManagementLoop();
     bool ConnectAndSubscribe();
     void ReaderLoop();
+    void InvalidationLoop();
+    void SendDirectoryRequest(const std::wstring& path);
     bool MapSnapshotSection(const std::wstring& sectionName);
     void UnmapSnapshotSection();
     void LaunchEngineIfNotRunning(const std::wstring& pipeName);
@@ -57,8 +62,12 @@ private:
     const uint8_t* mappedView_ = nullptr;
 
     std::thread managementThread_;
+    std::thread invalidationThread_;
     std::atomic<bool> running_{false};
     std::mutex writeMutex_;
+    std::mutex invalidationMutex_;
+    std::condition_variable invalidationCv_;
+    std::deque<std::wstring> invalidationQueue_;
 
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;

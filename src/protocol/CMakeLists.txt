@@ -5,6 +5,8 @@ add_library(ffprotocol STATIC
   src/Dispatch.cpp
   src/Version.cpp
   src/UiProtocol.cpp
+  src/IndexHealth.cpp
+  src/Settings.cpp
   src/SnapshotFormat.cpp
 )
 
