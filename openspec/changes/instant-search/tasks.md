@@ -12,6 +12,8 @@
 - [x] 1.10 Unit tests: each filter key's value parser (valid and invalid inputs), quoting/embedded-space handling, wildcard compilation, unrecognized-key fallback behavior
 - [x] 1.11 Unit test: registering a new filter key in isolation does not change parsing/matching behavior of any existing key
 
+> Consolidation disposition: the query grammar/filter registry is intentionally self-contained and complete. Sections 2-4 remain open; this change does not widen the shared snapshot format merely to claim matching or path-reconstruction work before those consumers are implemented.
+
 ## 2. Matching Engine
 
 - [ ] 2.1 Implement the in-process reader over `FastFilesEngine`'s mapped snapshot (map-once, re-map on generation-change notification, per the existing engine↔UI control-pipe contract)

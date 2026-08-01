@@ -14,6 +14,8 @@
 - [x] 2.4 Implement `FastFilesEngine`-side re-read of `settings.json` on `ReloadIndexingConfig` receipt and at its own startup (coordinate the diff/re-evaluation hook-in point with `index-storage-and-scanning`).
 - [ ] 2.5 Verify volume/rule changes take effect without restarting `FastFiles`, `FastFilesEngine`, or `FastFilesIndexSvc`.
 
+> Consolidation disposition: task 2.4 covers only message transport plus settings reload and is complete. Task 2.5 remains open until `index-storage-and-scanning` exposes and validates live scope re-evaluation semantics.
+
 ## 3. Search, Navigation, and Preview/Storage-Analysis Preference Settings
 
 - [ ] 3.1 Implement search preference settings (default search scope, search-history retention and clear-history action).
@@ -28,6 +30,8 @@
 - [ ] 4.2 Implement rebinding UI with conflict detection against existing bindings before a rebind is committed.
 - [ ] 4.3 Implement "reset shortcuts to defaults."
 - [ ] 4.4 Coordinate with `shell-integration-and-commands` on the exact shortcut data model shape; add a thin adapter layer if needed rather than redefining the model.
+
+> Consolidation disposition: tasks 4.1-4.4 remain open until `shell-integration-and-commands` publishes its `ShortcutBinding` read/write contract. The persisted settings section is not a substitute for that authoritative runtime model.
 
 ## 5. Appearance Theme Selection
 
@@ -61,6 +65,8 @@
 - [ ] 9.2 Define and implement enable/disable control-plane messages to `FastFilesEngine`, distinct from pause/resume, global and per-volume.
 - [ ] 9.3 Implement the newly-detected-volume pending-decision surface (derived from any engine-observed volume absent from the persisted volume list, not a new tracked list) and the "add to indexing" action.
 - [ ] 9.4 Verify pause/resume/enable/disable/add-volume actions are reflected back through the status display from section 7 rather than tracked as separate outcome state.
+
+> Consolidation disposition: section 9 remains ordinary unfinished cross-change work, not a merge blocker. It requires the scanning/session owner to finalize the runtime pause, disable, and per-volume state transitions before the settings UI can truthfully validate them.
 
 ## 10. Cross-Cutting Validation
 

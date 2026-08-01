@@ -47,6 +47,8 @@
 - [ ] 6.5 Implement the multi-selection aggregate view: total item count and total size across all selected files and folders, replacing single-item detail fields
 - [ ] 6.6 Manual test: selecting an unindexed large folder shows "Calculating…" immediately, the UI remains responsive (navigation/selection still work) while it resolves, and the panel updates once the result is ready; selecting a different folder mid-computation does not later show the first folder's stale result
 
+> Consolidation disposition: tasks 6.2-6.5 remain open because the shared folder-aggregate contract does not yet exist. Completion must add an index-store read API, an engine request/response or snapshot-notification payload for pending aggregates, and a request identity/generation used to reject stale results. The preview UI must consume that shared contract rather than introduce a parallel recursive filesystem walk.
+
 ## 7. Status Bar
 
 - [x] 7.1 Implement the persistent status bar UI element (always visible during Column View browsing): selection count, total selection size, current path

@@ -55,7 +55,10 @@ void TestRepeatedNamesAcrossTreeShareOneInternedId() {
 
     const auto* e1 = proj.Find(1, FileId{101, 0});
     const auto* e2 = proj.Find(1, FileId{201, 0});
-    Check(e1 != nullptr && e2 != nullptr, "both entries are found");
+    if (e1 == nullptr || e2 == nullptr) {
+        Check(false, "both entries are found");
+        return;
+    }
     Check(e1->nameId == e2->nameId, "identical names under different parents share one interned NameId");
     Check(proj.Names().UniqueNameCount() == 4, "the name pool holds one entry per distinct name (C:, a, b, config.json)");
 }

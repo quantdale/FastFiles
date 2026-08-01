@@ -21,19 +21,22 @@ add_compile_definitions(
   WIN32_LEAN_AND_MEAN
 )
 
+option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
+option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
+
+# Add the vendored C target before applying first-party warning and analysis
+# policy. SQLite keeps its own warning configuration in its subdirectory and
+# must not fail FastFiles analysis on Windows SDK annotations.
+add_subdirectory(third_party/sqlite)
+
 if(MSVC)
   add_compile_options(/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus)
   add_link_options(/DYNAMICBASE /NXCOMPAT /guard:cf)
 endif()
 
-option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
-option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
-
 if(MSVC AND FASTFILES_STATIC_ANALYSIS)
   add_compile_options(/analyze)
 endif()
-
-add_subdirectory(third_party/sqlite)
 
 add_subdirectory(src/protocol)
 add_subdirectory(src/ipc)

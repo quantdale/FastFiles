@@ -31,7 +31,7 @@
 - [x] 4.3 Implement per-record validation with skip-and-continue semantics for a single malformed/inconsistent record, without aborting the scan. (`ApplyFixupAndValidate`/`ParseMftAttributes` return a skip signal; `VolumeScanner.cpp`'s loop `continue`s rather than aborting)
 - [x] 4.4 Implement batched streaming of scan records to the requesting connection, respecting the existing frame-size and record-count validation rules. (`MessageType::ScanRecordBatch`, 512-record batches, `ffipc::WriteFrame`'s existing `kMaxFrameSize` check fails the batch safely rather than truncating it)
 - [x] 4.5 Extend `StartVolumeScan` to accept an optional, opaque resume cursor; implement resuming enumeration from approximately that position when supplied, and full-from-start enumeration when omitted. (`StartVolumeScanRequest::resumeCursorLengthBytes` + trailing bytes; cursor is the 8-byte LE next-MFT-index)
-- [ ] 4.6 Confirm scanning succeeds against files exclusively locked by other processes (raw MFT read does not require normal file-sharing-mode access). (true by construction of the `FSCTL_GET_NTFS_FILE_RECORD` approach, but unconfirmed -- needs an actual Windows run against a locked file, not verifiable in this sandbox)
+- [ ] 4.6 Confirm scanning succeeds against files exclusively locked by other processes (raw MFT read does not require normal file-sharing-mode access). (The implementation builds and uses `FSCTL_GET_NTFS_FILE_RECORD` rather than opening the locked file, but empirical confirmation still requires an elevated run with `FastFilesIndexSvc` installed and started against a real NTFS volume while a test file is held under an exclusive lock. This host currently has the built executable but no installed service, and the current process is not elevated.)
 
 ## 5. Privileged Service: Real USN Journal Streaming
 
@@ -41,7 +41,7 @@
 - [x] 5.4 Implement batched streaming of live change records for the duration of an open journal handle, torn down on `CloseUsnJournal` or disconnect per the existing connection-scoped handle rules. (`MessageType::JournalRecordBatch`; `ServiceConnection.cpp`'s per-connection worker-thread bookkeeping stops/joins on Close or teardown)
 - [x] 5.5 Ensure both `StartVolumeScan` and `OpenUsnJournal` respond within normal response time even when no new data is currently available (no indefinite blocking). (scan is a bounded loop over a known record count; journal idle-polls in cancellable slices rather than blocking on the FSCTL call)
 
-Note: sections 4-5 depend on Win32 APIs (`DeviceIoControl`/`winioctl.h` FSCTLs) with no Windows toolchain available in the implementing sandbox -- the raw MFT record parser (`MftParser.cpp`) is portable and unit-tested (`tests/indexsvc`) against hand-built synthetic records, but `VolumeScanner.cpp`/`UsnJournalReader.cpp`/`ServiceConnection.cpp`'s actual `DeviceIoControl` usage is unverified by a real build and needs a Windows compile + real-volume smoke test before being trusted.
+Note: sections 4-5 now compile successfully with the Windows/MSVC toolchain, and the raw MFT record parser (`MftParser.cpp`) is unit-tested (`tests/indexsvc`) against hand-built synthetic records. The remaining evidence gap is runtime-only: `VolumeScanner.cpp`/`UsnJournalReader.cpp`/`ServiceConnection.cpp` still need an elevated, installed-service smoke test against a real NTFS volume.
 
 ## 6. Engine Ingestion Pipeline Orchestration
 
@@ -67,7 +67,7 @@ Note: sections 4-5 depend on Win32 APIs (`DeviceIoControl`/`winioctl.h` FSCTLs) 
 - [x] 8.4 Ensure reconciliation sweeps reuse/update existing (volume identifier, `FileReferenceNumber`) rows rather than deleting and recreating a volume's entire entry set. (the pass applies via the same `ApplyMftBatch`/upsert path as any other scan; only entries never observed during the completed pass are removed)
 - [x] 8.5 Skip scheduling privileged-path reconciliation while the engine is in degraded mode; resume scheduling once the privileged connection returns to `Active`. (`ReconciliationSchedulerLoop` checks `active_` every poll)
 
-Note: sections 3/6/7/8's engine-side code (`IndexPipeline.cpp` aside, which is portable and unit-tested in `tests/engine`) touches `windows.h` (`PrivilegedConnection.cpp`'s reader-thread refactor, `VolumeSessionManager.cpp`, `VolumeIdentity.cpp`'s `UuidFromStringW`/`GetVolumeNameForVolumeMountPointW` usage, `Main.cpp`'s `SHGetKnownFolderPath`) and is likewise unverified by an actual Windows build in this sandbox -- reviewed carefully by hand against the documented Win32 APIs, but needs a real compile and a multi-volume manual test (plug/unplug a removable drive, force a journal recreation, kill the engine mid-scan) before being trusted.
+Note: sections 3/6/7/8's Windows-specific engine code now builds successfully, and `VolumeSessionManager::OnJournalOpened` is defined, linked, and covered by the engine reconnect/discontinuity tests. A real multi-volume runtime pass (plug/unplug a removable drive, force a journal recreation, kill the engine mid-scan) remains open and requires the installed privileged service.
 
 ## 9. Testing and Validation
 

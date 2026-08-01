@@ -19,6 +19,8 @@
 - [ ] 2.3 Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end
 - [ ] 2.4 Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree
 
+> Consolidation disposition: tasks 2.3-2.4 remain open by design. The local provider is implemented and validated, and this host exposes the Hyper-V module, but there is no configured VM/baseline checkpoint and the current process is not elevated. No VMware, VirtualBox, Windows Sandbox, GitHub Actions, or self-hosted disposable runner is available. Completion requires a configured snapshot-restorable target and captured end-to-end evidence from that target; local-only evidence is insufficient.
+
 ## 3. Diagnostics, Crash Analysis & Reporting
 
 - [x] 3.1 Register Diagnostics as its own independently-discoverable, independently-runnable capability (availability probe + `run` entry point invokable directly, e.g. `run diagnostics` — not only a cross-cutting on-failure mechanism) that probes for native tooling with no hardcoded paths and reports each as available (with version/path) or `SKIPPED(reason)` — never a capability failure merely because one tool is absent: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), WPA, Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces

@@ -1,5 +1,7 @@
 ## 1. Navigation Context Model
 
+> Consolidation disposition: the earlier shared-file coordination risk is resolved by the consolidated `WindowShell`/`ColumnView` integration. Remaining unchecked items are implementation work, not a missing dependency; changes to shared UI files must preserve the already-integrated preview, file-operation, and settings paths.
+
 - [x] 1.1 Define the `NavigationContext` struct (current path, per-column selection/scroll state, back/forward history stack, address bar mode) as a plain in-process object with no owned IPC/engine handle
 - [x] 1.2 Extend the existing single per-process `EngineConnection` (from `establish-architecture-foundation`) with an API surface for "request/subscribe to a directory listing at path P," usable concurrently by any number of `NavigationContext` instances
 - [ ] 1.3 Implement instantiation of a `column-view-browsing` instance bound to a given `NavigationContext`, reading only through the shared `EngineConnection`
