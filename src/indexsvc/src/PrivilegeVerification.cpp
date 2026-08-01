@@ -32,43 +32,58 @@ bool EnsureBackupPrivilegeEnabled() {
     return adjusted;
 }
 
-void VerifyBackupPrivilegeSufficiency() {
-    if (!EnsureBackupPrivilegeEnabled()) {
-        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] SeBackupPrivilege is not held/enabled -- skipping (task 7.1 check)\n");
-        return;
+BackupPrivilegeProbeResult ProbeBackupPrivilegeSufficiency() {
+    BackupPrivilegeProbeResult result;
+    result.privilegeEnabled = EnsureBackupPrivilegeEnabled();
+    if (!result.privilegeEnabled) {
+        return result;
     }
 
     auto volumes = EnumerateFixedNtfsVolumes();
-    if (volumes.empty()) {
-        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] no fixed NTFS/ReFS volume found to test against\n");
-        return;
+    result.volumeFound = !volumes.empty();
+    if (!result.volumeFound) {
+        return result;
     }
 
-    const wchar_t driveLetter = volumes.front().driveLetter;
-    wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
+    result.driveLetter = volumes.front().driveLetter;
+    wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', result.driveLetter, L':', L'\0'};
 
-    // FILE_FLAG_BACKUP_SEMANTICS + an enabled SeBackupPrivilege is what
-    // lets this bypass the normal ACL check a raw volume open would
-    // otherwise require -- this is the exact mechanism the design's
-    // privilege-minimization argument depends on.
     HANDLE volumeHandle = CreateFileW(
         volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
         OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (volumeHandle == INVALID_HANDLE_VALUE) {
-        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] FAIL -- could not open raw volume handle for %ls (error %lu)\n",
-                       volumePath, GetLastError());
-        return;
+    result.volumeOpened = volumeHandle != INVALID_HANDLE_VALUE;
+    if (!result.volumeOpened) {
+        result.volumeOpenError = GetLastError();
+        return result;
     }
 
     USN_JOURNAL_DATA_V0 journalData{};
     DWORD bytesReturned = 0;
-    const BOOL journalQueryOk = DeviceIoControl(
-        volumeHandle, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &journalData, sizeof(journalData), &bytesReturned, nullptr);
-    const DWORD journalQueryError = journalQueryOk ? 0 : GetLastError();
-
+    result.journalQueried = DeviceIoControl(
+        volumeHandle, FSCTL_QUERY_USN_JOURNAL, nullptr, 0, &journalData,
+        sizeof(journalData), &bytesReturned, nullptr) != FALSE;
+    result.journalQueryError = result.journalQueried ? ERROR_SUCCESS : GetLastError();
     CloseHandle(volumeHandle);
+    return result;
+}
 
-    if (journalQueryOk) {
+void VerifyBackupPrivilegeSufficiency() {
+    const BackupPrivilegeProbeResult result = ProbeBackupPrivilegeSufficiency();
+    if (!result.privilegeEnabled) {
+        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] SeBackupPrivilege is not held/enabled -- skipping (task 7.1 check)\n");
+        return;
+    }
+    if (!result.volumeFound) {
+        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] no fixed NTFS/ReFS volume found to test against\n");
+        return;
+    }
+    wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', result.driveLetter, L':', L'\0'};
+    if (!result.volumeOpened) {
+        std::fwprintf(stderr, L"FastFilesIndexSvc: [privilege-check] FAIL -- could not open raw volume handle for %ls (error %lu)\n",
+                       volumePath, result.volumeOpenError);
+        return;
+    }
+    if (result.journalQueried) {
         std::fwprintf(stderr,
             L"FastFilesIndexSvc: [privilege-check] PASS -- SeBackupPrivilege alone opened %ls and queried its USN journal\n",
             volumePath);
@@ -80,7 +95,7 @@ void VerifyBackupPrivilegeSufficiency() {
         // already succeeded above).
         std::fwprintf(stderr,
             L"FastFilesIndexSvc: [privilege-check] volume handle opened, but FSCTL_QUERY_USN_JOURNAL failed (error %lu) for %ls\n",
-            journalQueryError, volumePath);
+            result.journalQueryError, volumePath);
     }
 }
 

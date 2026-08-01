@@ -40,11 +40,14 @@ public:
     // superseding, as the index grows to cover them) any degraded-mode-
     // populated entries for the same path.
     void MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories);
+    void RemoveVolumeDirectories(wchar_t driveLetter);
 
     // Invoked (from an arbitrary internal thread) on every UI request --
     // used by IdleManager (task 4.10) as the "recent activity" signal.
     std::function<void()> onActivity;
     std::function<void()> onReloadIndexingConfig;
+    std::function<std::vector<ffprotocol::UnavailableVolumeRecord>()> onRequestUnavailableVolumes;
+    std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
 
 private:
     void HandleConnection(HANDLE pipe);
@@ -52,6 +55,8 @@ private:
     void OnDirectoryChanged(const std::wstring& path);
     void RepublishAndBroadcastGeneration();
     void BroadcastEngineStatus(HANDLE toSinglePipe = nullptr);
+    bool SendUnavailableVolumes(HANDLE pipe);
+    bool SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId);
 
     ffipc::PipeListener listener_;
     ffsetup::OwnedSecurityDescriptor securityDescriptor_;

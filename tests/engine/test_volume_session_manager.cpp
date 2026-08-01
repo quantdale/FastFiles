@@ -74,10 +74,38 @@ void TestChangedJournalTriggersReconciliation() {
           "changed journal resets the stored position to the new journal's current point");
 }
 
+void TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_volume_disappearance.db")),
+          "pipeline opens for volume-disappearance test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 3;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    ffindexstore::VolumeRowId callbackVolume = 0;
+    wchar_t callbackDrive = L'\0';
+    manager.SetVolumeUnavailableCallback([&](ffindexstore::VolumeRowId id, wchar_t driveLetter) {
+        callbackVolume = id;
+        callbackDrive = driveLetter;
+    });
+
+    manager.Start();
+    connection.volumeListCallback_({});
+
+    const auto metadata = pipeline.GetVolumeMetadata(volumeId);
+    Check(metadata && !metadata->available, "a disappeared volume is retained but marked unavailable");
+    Check(callbackVolume == volumeId && callbackDrive == L'C',
+          "a disappeared volume requests withdrawal of its published drive snapshot");
+}
+
 } // namespace
 
 int main() {
     TestMatchingJournalResumesWithoutReconciliation();
     TestChangedJournalTriggersReconciliation();
+    TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume();
     return g_failures == 0 ? 0 : 1;
 }

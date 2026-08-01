@@ -26,11 +26,10 @@ namespace ffindexsvc {
 // with MftParser.h's allowlisted, skip-and-continue-on-malformed-record
 // logic (tasks.md 4.2/4.3). The record index still doubles as the resume
 // cursor (tasks.md 4.5/D8): resumeCursor is the 8-byte little-endian
-// index of the next record to read, empty meaning "start from record 0".
-// Note the units split: the cursor is a record INDEX, while
-// FSCTL_ENUM_USN_DATA's start position and returned FileReferenceNumbers
-// are NTFS FRNs, i.e. BYTE OFFSETS into the $MFT (FRN == index *
-// recordSize) -- the two are converted at the enumeration boundary.
+// opaque FSCTL_ENUM_USN_DATA file-reference cursor, empty meaning "start
+// from file reference 0". It is intentionally not converted to a byte
+// offset or record index; Windows returns the exact value required by the
+// next call as the first 8 bytes of each enumeration buffer.
 //
 // Writes to `pipe` are serialized via `writeMutex`, which the caller
 // shares with whatever else writes to the same connection (Heartbeat

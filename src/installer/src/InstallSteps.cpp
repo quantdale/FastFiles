@@ -4,10 +4,12 @@
 #define SECURITY_WIN32
 #include <security.h>
 #include <shlobj.h>
+#include <werapi.h>
 
 #include <cstdio>
 #include <iterator>
 #include <string>
+#include <utility>
 
 #include "ffsetup/GroupSetup.h"
 #include "ffsetup/Identifiers.h"
@@ -24,6 +26,31 @@
 namespace ffinstaller {
 
 namespace {
+
+class ScratchDirectoryGuard {
+public:
+    explicit ScratchDirectoryGuard(std::wstring path) : path_(std::move(path)) {}
+    ~ScratchDirectoryGuard() {
+        const std::wstring searchPattern = path_ + L"\\*";
+        WIN32_FIND_DATAW findData{};
+        HANDLE findHandle = FindFirstFileW(searchPattern.c_str(), &findData);
+        if (findHandle != INVALID_HANDLE_VALUE) {
+            do {
+                if (wcscmp(findData.cFileName, L".") != 0 && wcscmp(findData.cFileName, L"..") != 0) {
+                    DeleteFileW((path_ + L"\\" + findData.cFileName).c_str());
+                }
+            } while (FindNextFileW(findHandle, &findData));
+            FindClose(findHandle);
+        }
+        RemoveDirectoryW(path_.c_str());
+    }
+
+    ScratchDirectoryGuard(const ScratchDirectoryGuard&) = delete;
+    ScratchDirectoryGuard& operator=(const ScratchDirectoryGuard&) = delete;
+
+private:
+    std::wstring path_;
+};
 
 std::wstring GetSourceDirectory() {
     wchar_t path[MAX_PATH * 4];
@@ -102,6 +129,122 @@ void StartIndexService() {
     CloseServiceHandle(scm);
 }
 
+bool StopIndexService() {
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (scm == nullptr) {
+        return false;
+    }
+    SC_HANDLE service = OpenServiceW(scm, ffsetup::kServiceName, SERVICE_STOP | SERVICE_QUERY_STATUS);
+    if (service == nullptr) {
+        const DWORD error = GetLastError();
+        CloseServiceHandle(scm);
+        return error == ERROR_SERVICE_DOES_NOT_EXIST;
+    }
+
+    SERVICE_STATUS_PROCESS status{};
+    DWORD bytesNeeded = 0;
+    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                              reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+        CloseServiceHandle(service);
+        CloseServiceHandle(scm);
+        return false;
+    }
+    if (status.dwCurrentState != SERVICE_STOPPED) {
+        SERVICE_STATUS basicStatus{};
+        if (status.dwCurrentState != SERVICE_STOP_PENDING
+            && !ControlService(service, SERVICE_CONTROL_STOP, &basicStatus)) {
+            CloseServiceHandle(service);
+            CloseServiceHandle(scm);
+            return false;
+        }
+        const ULONGLONG deadline = GetTickCount64() + 30000;
+        do {
+            Sleep(200);
+            if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                                      reinterpret_cast<LPBYTE>(&status), sizeof(status), &bytesNeeded)) {
+                CloseServiceHandle(service);
+                CloseServiceHandle(scm);
+                return false;
+            }
+        } while (status.dwCurrentState != SERVICE_STOPPED && GetTickCount64() < deadline);
+    }
+    const bool stopped = status.dwCurrentState == SERVICE_STOPPED;
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return stopped;
+}
+
+bool SetRegistryString(HKEY key, const wchar_t* name, const std::wstring& value) {
+    return RegSetValueExW(key, name, 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(value.c_str()),
+        static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+bool RegisterUninstallMetadata(const std::wstring& installerPath, const std::wstring& installDir) {
+    HKEY key = nullptr;
+    constexpr wchar_t kPath[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FastFiles";
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, kPath, 0, nullptr, 0, KEY_SET_VALUE,
+                        nullptr, &key, nullptr) != ERROR_SUCCESS) {
+        return false;
+    }
+    const std::wstring uninstallCommand = L"\"" + installerPath + L"\" /uninstall";
+    const bool ok = SetRegistryString(key, L"DisplayName", L"FastFiles")
+        && SetRegistryString(key, L"DisplayVersion", L"0.1.0")
+        && SetRegistryString(key, L"Publisher", L"FastFiles")
+        && SetRegistryString(key, L"InstallLocation", installDir)
+        && SetRegistryString(key, L"UninstallString", uninstallCommand)
+        && SetRegistryString(key, L"QuietUninstallString", uninstallCommand);
+    RegCloseKey(key);
+    return ok;
+}
+
+void UnregisterUninstallMetadata() {
+    RegDeleteTreeW(HKEY_LOCAL_MACHINE,
+                   L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FastFiles");
+}
+
+void DeleteKnownTree(const std::wstring& path) {
+    const DWORD rootAttributes = GetFileAttributesW(path.c_str());
+    if (rootAttributes == INVALID_FILE_ATTRIBUTES || (rootAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+        return;
+    }
+    const std::wstring searchPattern = path + L"\\*";
+    WIN32_FIND_DATAW findData{};
+    HANDLE findHandle = FindFirstFileW(searchPattern.c_str(), &findData);
+    if (findHandle != INVALID_HANDLE_VALUE) {
+        do {
+            if (wcscmp(findData.cFileName, L".") == 0 || wcscmp(findData.cFileName, L"..") == 0) {
+                continue;
+            }
+            const std::wstring child = path + L"\\" + findData.cFileName;
+            if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                if ((findData.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+                    RemoveDirectoryW(child.c_str());
+                } else {
+                    DeleteKnownTree(child);
+                }
+            } else {
+                DeleteFileW(child.c_str());
+            }
+        } while (FindNextFileW(findHandle, &findData));
+        FindClose(findHandle);
+    }
+    RemoveDirectoryW(path.c_str());
+}
+
+void RemoveDiagnosticState() {
+    RegDeleteTreeW(HKEY_LOCAL_MACHINE,
+        L"SOFTWARE\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\\FastFilesIndexSvc.exe");
+    WerRemoveExcludedApplication(ffsetup::kIndexSvcExeName, FALSE);
+
+    PWSTR programDataPath = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &programDataPath))) {
+        const std::wstring fastFilesPath = std::wstring(programDataPath) + L"\\FastFiles";
+        CoTaskMemFree(programDataPath);
+        DeleteKnownTree(fastFilesPath);
+    }
+}
+
 } // namespace
 
 int RunInstall() {
@@ -116,14 +259,21 @@ int RunInstall() {
         std::fwprintf(stderr, L"FastFilesSetup: could not create a verified scratch directory -- aborting\n");
         return 1;
     }
+    ScratchDirectoryGuard scratchGuard(*scratchDir);
 
     CreateDirectoryW(installDir.c_str(), nullptr);
 
     const bool isUpgrade = ServiceIsRegistered();
 
+    if (isUpgrade && !StopIndexService()) {
+        std::fwprintf(stderr, L"FastFilesSetup: failed to stop FastFilesIndexSvc for upgrade\n");
+        return 1;
+    }
+
     if (!StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kIndexSvcExeName) ||
         !StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kEngineExeName) ||
-        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFiles.exe")) {
+        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFiles.exe") ||
+        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFilesSetup.exe")) {
         std::fwprintf(stderr, L"FastFilesSetup: failed to stage/install binaries\n");
         return 1;
     }
@@ -144,8 +294,10 @@ int RunInstall() {
     if (isUpgrade) {
         // Task 6.3: reapply security on every upgrade, not just first
         // install.
-        if (!ffsetup::ReapplyIndexServiceSecurity(clientGroupSid->Get()).success) {
-            std::fwprintf(stderr, L"FastFilesSetup: failed to reapply service security on upgrade\n");
+        const ffsetup::SetupResult securityResult = ffsetup::ReapplyIndexServiceSecurity(clientGroupSid->Get());
+        if (!securityResult.success) {
+            std::fwprintf(stderr, L"FastFilesSetup: failed to reapply service security on upgrade (error %lu)\n",
+                          securityResult.errorCode);
             return 1;
         }
     } else {
@@ -166,11 +318,18 @@ int RunInstall() {
         return 1;
     }
 
+    const std::wstring installerPath = installDir + L"\\FastFilesSetup.exe";
+    if (!RegisterUninstallMetadata(installerPath, installDir)) {
+        std::fwprintf(stderr, L"FastFilesSetup: failed to register uninstall metadata\n");
+        return 1;
+    }
+
     StartIndexService();
     return 0;
 }
 
 int RunUninstall() {
+    UnregisterUninstallMetadata();
     ffsetup::UnregisterEngineScheduledTask();
     ffsetup::UnregisterIndexService();
     ffsetup::DeleteAuthorizedClientGroup();
@@ -191,6 +350,8 @@ int RunUninstall() {
         }
         RemoveDirectoryW(installDir.c_str());
     }
+
+    RemoveDiagnosticState();
 
     return 0;
 }

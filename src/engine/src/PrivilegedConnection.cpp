@@ -395,8 +395,12 @@ void PrivilegedConnection::DispatchReceivedFrame(
 }
 
 void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
-    SetState(ConnectionState::Active, UnavailableReason::None);
+    // State observers synchronously send their initial EnumerateVolumes
+    // request when they see Active, so publish the verified pipe first.
+    // Reversing these two operations drops that first request because
+    // SendRequest observes a null activePipe_.
     activePipe_ = pipe;
+    SetState(ConnectionState::Active, UnavailableReason::None);
 
     std::atomic<bool> heartbeatAckPending{false};
     std::atomic<bool> protocolViolation{false};

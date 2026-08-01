@@ -15,7 +15,7 @@
                              (e.g. only Tier-1 capabilities were requested, unelevated)
       3  HARNESS ERROR        invalid usage or an internal harness exception
       10 NOT-YET-IMPLEMENTED  the verb is scaffolded but its capability lands in a
-                              later phase of this change (install/diagnose/repair/gate)
+                              later phase of this change (install/repair/gate)
 #>
 
 [CmdletBinding()]
@@ -173,9 +173,53 @@ function Write-InspectionOutput {
     }
 }
 
+function Get-ExistingRunContext {
+    param([string] $RequestedTimestamp)
+
+    $changeRunsDir = Join-Path $VerifyRoot "runs\$Change"
+    if (-not $RequestedTimestamp) {
+        $latest = Get-ChildItem -Path $changeRunsDir -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending | Select-Object -First 1
+        if (-not $latest) { throw "No runs found for change '$Change' under $changeRunsDir" }
+        $RequestedTimestamp = $latest.Name
+    }
+    $runPath = Join-Path $changeRunsDir $RequestedTimestamp
+    if (-not (Test-Path -LiteralPath $runPath)) { throw "Run not found: $runPath" }
+    [pscustomobject]@{
+        VerifyRoot    = $VerifyRoot
+        Change        = $Change
+        Timestamp     = $RequestedTimestamp
+        RunPath       = $runPath
+        ManifestPath  = Join-Path $runPath 'manifest.json'
+        IndexPath     = Join-Path $runPath 'index.json'
+        RepairLogPath = Join-Path $runPath 'repair-log.jsonl'
+        ArtifactsRoot = Join-Path $runPath 'artifacts'
+        SchemasRoot   = Join-Path $VerifyRoot 'schemas'
+    }
+}
+
+function Write-RunReports {
+    param([Parameter(Mandatory)] [pscustomobject] $RunContext)
+
+    Build-RunIndex -RunContext $RunContext | Out-Null
+    New-JsonRunReport -RunContext $RunContext | Out-Null
+    $markdownPath = New-MarkdownRunReport -RunContext $RunContext
+    New-HtmlRunReport -RunContext $RunContext | Out-Null
+    New-JUnitRunReport -RunContext $RunContext | Out-Null
+    $fidelity = Test-RunReportFidelity -RunContext $RunContext
+    if (-not $fidelity.Valid) { throw "Report fidelity check failed: $($fidelity.Errors -join '; ')" }
+    return $markdownPath
+}
+
 switch ($Verb) {
     'build' {
         $result = Invoke-VerificationRun -CapabilityFilter @('windows-build-validation')
+        Write-Host ''
+        Write-Host "Run tree: $($result.RunContext.RunPath)"
+        exit (Get-VerbExitCode -Envelopes $result.Envelopes)
+    }
+    'install' {
+        $result = Invoke-VerificationRun -CapabilityFilter @('windows-install-service-validation')
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
         exit (Get-VerbExitCode -Envelopes $result.Envelopes)
@@ -186,39 +230,31 @@ switch ($Verb) {
         Write-Host "Run tree: $($result.RunContext.RunPath)"
         exit (Get-VerbExitCode -Envelopes $result.Envelopes)
     }
-    'report' {
-        $changeRunsDir = Join-Path $VerifyRoot "runs\$Change"
+    'diagnose' {
         if (-not $RunTimestamp) {
-            $latest = Get-ChildItem -Path $changeRunsDir -Directory -ErrorAction SilentlyContinue |
-                Sort-Object Name -Descending | Select-Object -First 1
-            if (-not $latest) {
-                Write-Error "No runs found for change '$Change' under $changeRunsDir"
-                exit $ExitError
-            }
-            $RunTimestamp = $latest.Name
+            $result = Invoke-VerificationRun -CapabilityFilter @('diagnostics', 'crash-analysis')
+            Write-Host ''
+            Write-Host "Run tree: $($result.RunContext.RunPath)"
+            exit (Get-VerbExitCode -Envelopes $result.Envelopes)
         }
-        $runPath = Join-Path $changeRunsDir $RunTimestamp
-        if (-not (Test-Path $runPath)) {
-            Write-Error "Run not found: $runPath"
-            exit $ExitError
-        }
-        $runContext = [pscustomobject]@{
-            VerifyRoot    = $VerifyRoot
-            Change        = $Change
-            Timestamp     = $RunTimestamp
-            RunPath       = $runPath
-            ManifestPath  = Join-Path $runPath 'manifest.json'
-            IndexPath     = Join-Path $runPath 'index.json'
-            ArtifactsRoot = Join-Path $runPath 'artifacts'
-            SchemasRoot   = Join-Path $VerifyRoot 'schemas'
-        }
-        Build-RunIndex -RunContext $runContext | Out-Null
-        New-JsonRunReport -RunContext $runContext | Out-Null
-        $mdPath = New-MarkdownRunReport -RunContext $runContext
-        New-HtmlRunReport -RunContext $runContext | Out-Null
-        New-JUnitRunReport -RunContext $runContext | Out-Null
-        $fidelity = Test-RunReportFidelity -RunContext $runContext
-        if (-not $fidelity.Valid) { throw "Report fidelity check failed: $($fidelity.Errors -join '; ')" }
+
+        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
+        if (-not (Test-Path -LiteralPath $runContext.ManifestPath)) { throw "Run manifest not found: $($runContext.ManifestPath)" }
+        $fingerprint = Get-Content -LiteralPath $runContext.ManifestPath -Raw | ConvertFrom-Json
+        $discovery = Find-Capabilities -CapabilitiesRoot (Join-Path $VerifyRoot 'capabilities') `
+            -ManifestSchemaPath (Join-Path $VerifyRoot 'schemas\capability-manifest.schema.json')
+        $crashCapability = $discovery.Capabilities | Where-Object Id -eq 'crash-analysis' | Select-Object -First 1
+        if (-not $crashCapability) { throw 'The crash-analysis capability is not registered or failed registry validation.' }
+        $options = @{ RepoRoot = $RepoRoot }
+        $envelope = Invoke-Capability -Capability $crashCapability -RunContext $runContext -Fingerprint $fingerprint -Options $options
+        Write-RunReports -RunContext $runContext | Out-Null
+        Write-Host "Crash analysis: status=$($envelope.status)$(if ($envelope.reason) { " reason=$($envelope.reason)" })"
+        Write-Host "Run tree: $($runContext.RunPath)"
+        exit (Get-VerbExitCode -Envelopes @($envelope))
+    }
+    'report' {
+        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
+        $mdPath = Write-RunReports -RunContext $runContext
         Write-Host "Report written: $mdPath"
         exit $ExitPass
     }
@@ -250,7 +286,7 @@ switch ($Verb) {
         exit $ExitPass
     }
     default {
-        Write-Warning "Verb '$Verb' is scaffolded (exposed per task 1.1) but its capability lands in a later phase of autonomous-runtime-verification: install/service work needs Tier-1 elevation (tasks 5-6), diagnose needs the Diagnostics/Crash-Analysis capability (task 3), repair needs the repair-loop driver (task 9), and gate needs the four-state archive gate (task 10)."
+        Write-Warning "Verb '$Verb' is scaffolded (exposed per task 1.1) but its capability lands in a later phase of autonomous-runtime-verification: install/service work needs Tier-1 elevation (tasks 5-6), repair needs the repair-loop driver (task 9), and gate needs the four-state archive gate (task 10)."
         exit $ExitNotImplemented
     }
 }

@@ -121,6 +121,7 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
 
 void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes) {
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toStart;
+    std::vector<VolumeSession> unavailable;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -160,6 +161,7 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
         for (auto it = sessionsByEphemeralId_.begin(); it != sessionsByEphemeralId_.end();) {
             if (std::find(seenEphemeral.begin(), seenEphemeral.end(), it->first) == seenEphemeral.end()) {
                 pipeline_.SetVolumeAvailable(it->second.durableId, false, NowAsFileTime());
+                unavailable.push_back(it->second);
                 it = sessionsByEphemeralId_.erase(it);
             } else {
                 ++it;
@@ -169,6 +171,11 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
 
     for (const auto& [ephemeralId, session] : toStart) {
         StartOrResumeVolume(ephemeralId, session);
+    }
+    for (const auto& session : unavailable) {
+        if (onVolumeUnavailable_) {
+            onVolumeUnavailable_(session.durableId, session.driveLetter);
+        }
     }
 }
 

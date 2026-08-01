@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <cwctype>
 #include <iterator>
 
 #include "ffipc/PipeFraming.h"
@@ -133,6 +134,60 @@ void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::Snapshot
     RepublishAndBroadcastGeneration();
 }
 
+void UiServer::RemoveVolumeDirectories(wchar_t driveLetter) {
+    if (driveLetter == L'\0') {
+        return;
+    }
+    std::wstring root;
+    root.push_back(static_cast<wchar_t>(towupper(driveLetter)));
+    root.push_back(L':');
+    const std::wstring descendantPrefix = root + L"\\";
+    {
+        std::lock_guard<std::mutex> lock(directoriesMutex_);
+        for (auto it = directories_.begin(); it != directories_.end();) {
+            std::wstring normalized = it->first;
+            if (!normalized.empty()) {
+                normalized[0] = static_cast<wchar_t>(towupper(normalized[0]));
+            }
+            if (normalized == root || normalized.starts_with(descendantPrefix)) {
+                it = directories_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    RepublishAndBroadcastGeneration();
+}
+
+bool UiServer::SendUnavailableVolumes(HANDLE pipe) {
+    const auto records = onRequestUnavailableVolumes ? onRequestUnavailableVolumes()
+                                                     : std::vector<ffprotocol::UnavailableVolumeRecord>{};
+    if (records.size() > (ffprotocol::kMaxFrameSize - sizeof(ffprotocol::FrameHeader)
+                          - sizeof(ffprotocol::UnavailableVolumesHeader))
+            / sizeof(ffprotocol::UnavailableVolumeRecord)) {
+        return false;
+    }
+    std::vector<uint8_t> payload(sizeof(ffprotocol::UnavailableVolumesHeader)
+                                 + records.size() * sizeof(ffprotocol::UnavailableVolumeRecord));
+    const ffprotocol::UnavailableVolumesHeader header{static_cast<uint32_t>(records.size())};
+    std::memcpy(payload.data(), &header, sizeof(header));
+    if (!records.empty()) {
+        std::memcpy(payload.data() + sizeof(header), records.data(),
+                    records.size() * sizeof(ffprotocol::UnavailableVolumeRecord));
+    }
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::UnavailableVolumes), payload.data(),
+                             static_cast<uint32_t>(payload.size()));
+}
+
+bool UiServer::SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId) {
+    const auto status = onForgetUnavailableVolume
+        ? onForgetUnavailableVolume(volumeRowId)
+        : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
+    const ffprotocol::ForgetUnavailableVolumeResultPayload payload{volumeRowId, status};
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult),
+                             &payload, sizeof(payload));
+}
+
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
     engineActive_ = privilegedPathActive;
     BroadcastEngineStatus();
@@ -224,6 +279,20 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 if (!frame->payload.empty()) goto disconnected;
                 if (onReloadIndexingConfig) onReloadIndexingConfig();
                 break;
+
+            case UiMessageType::RequestUnavailableVolumes:
+                if (!frame->payload.empty() || !SendUnavailableVolumes(pipe)) goto disconnected;
+                break;
+
+            case UiMessageType::ForgetUnavailableVolume: {
+                if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
+                ffprotocol::ForgetUnavailableVolumePayload payload{};
+                std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+                if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(pipe, payload.volumeRowId)) {
+                    goto disconnected;
+                }
+                break;
+            }
 
             default:
                 goto disconnected; // reply-only types are illegal from a client

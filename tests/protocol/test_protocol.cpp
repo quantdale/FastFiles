@@ -153,6 +153,26 @@ void TestVersionCompatibility() {
     Check(!IsVersionCompatible({2, 0}, {3, 0}), "peer with a newer major version is incompatible");
 }
 
+void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::RequestUnavailableVolumes)).has_value(),
+          "RequestUnavailableVolumes is part of the closed UI command surface");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult)).has_value(),
+          "ForgetUnavailableVolumeResult is part of the closed UI command surface");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult) + 1).has_value(),
+          "the first unassigned UI message after volume lifecycle commands is rejected");
+    Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
+          "forget request carries only the durable volume row id");
+    Check(sizeof(ForgetUnavailableVolumeResultPayload)
+              == sizeof(int64_t) + sizeof(ForgetUnavailableVolumeStatus),
+          "forget result is a packed row-id/status pair");
+    Check(sizeof(UnavailableVolumeRecord) == sizeof(int64_t) + 16 + sizeof(uint32_t) + sizeof(uint64_t),
+          "unavailable-volume records have the fixed packed wire shape");
+    Check(IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus::Removed),
+          "a defined forget result status is accepted");
+    Check(!IsForgetUnavailableVolumeStatusValid(static_cast<ForgetUnavailableVolumeStatus>(0xFFFF)),
+          "an undefined forget result status is rejected");
+}
+
 void TestIndexHealthPrecedence() {
     VolumeIndexConditions conditions{true, true, false, false, false};
     Check(DeriveIndexHealth(conditions) == IndexHealth::FullyIndexed, "healthy volume derives Fully Indexed");
@@ -242,6 +262,7 @@ int main() {
     TestOversizedFrameRejectedBeforeAllocation();
     TestUnrecognizedMessageTypeRejected();
     TestUnsupportedStructVersionRejected();
+    TestUiVolumeLifecycleMessagesAreClosedAndFixedSize();
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestVersionCompatibility();

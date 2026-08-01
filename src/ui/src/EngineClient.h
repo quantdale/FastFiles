@@ -8,6 +8,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 #include <windows.h>
 
 #include "ffprotocol/SnapshotFormat.h"
@@ -31,6 +32,10 @@ public:
     using GenerationCallback = std::function<void()>;
     using StatusCallback = std::function<void(bool privilegedPathActive)>;
     using DirectoryErrorCallback = std::function<void(const std::wstring& path, ffprotocol::DirectoryErrorReason reason)>;
+    using UnavailableVolumesCallback =
+        std::function<void(std::vector<ffprotocol::UnavailableVolumeRecord>)>;
+    using ForgetUnavailableVolumeCallback =
+        std::function<void(ffprotocol::ForgetUnavailableVolumeResultPayload)>;
 
     void Start(GenerationCallback onNewGeneration, StatusCallback onStatus, DirectoryErrorCallback onDirectoryError);
     void Stop();
@@ -40,6 +45,8 @@ public:
     // path appearing in the next snapshot generation (onNewGeneration).
     void RequestDirectory(const std::wstring& path);
     void ReloadIndexingConfig();
+    void RequestUnavailableVolumes(UnavailableVolumesCallback callback);
+    void ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailableVolumeCallback callback);
 
     // Reads the most recently published snapshot directly out of the
     // mapped shared-memory section.
@@ -72,6 +79,9 @@ private:
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;
     DirectoryErrorCallback onDirectoryError_;
+    std::mutex volumeCallbackMutex_;
+    UnavailableVolumesCallback onUnavailableVolumes_;
+    ForgetUnavailableVolumeCallback onForgetUnavailableVolume_;
 };
 
 } // namespace ffui

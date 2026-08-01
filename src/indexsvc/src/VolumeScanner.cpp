@@ -16,8 +16,9 @@ namespace ffindexsvc {
 
 namespace {
 
-constexpr uint32_t kBatchSize = 512;
+constexpr uint32_t kBatchSize = 64;
 constexpr size_t kEnumBufferSize = 64 * 1024;
+constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
 
 uint64_t DecodeCursor(const std::vector<uint8_t>& cursor) {
     if (cursor.size() != sizeof(uint64_t)) {
@@ -28,15 +29,15 @@ uint64_t DecodeCursor(const std::vector<uint8_t>& cursor) {
     return value;
 }
 
-std::vector<uint8_t> EncodeCursor(uint64_t nextIndex) {
+std::vector<uint8_t> EncodeCursor(uint64_t nextFileReference) {
     std::vector<uint8_t> cursor(sizeof(uint64_t));
-    std::memcpy(cursor.data(), &nextIndex, sizeof(nextIndex));
+    std::memcpy(cursor.data(), &nextFileReference, sizeof(nextFileReference));
     return cursor;
 }
 
 bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextIndex) {
-    const std::vector<uint8_t> cursor = EncodeCursor(nextIndex);
+                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextFileReference) {
+    const std::vector<uint8_t> cursor = EncodeCursor(nextFileReference);
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatch(records);
 
     ffprotocol::ScanRecordBatchHeader header{};
@@ -130,17 +131,18 @@ void RunVolumeScan(
     std::vector<ffprotocol::MftRecordV1> batch;
     batch.reserve(kBatchSize);
 
-    // The resume cursor is a record INDEX (8-byte LE); FSCTL_ENUM_USN_DATA
-    // positions are FRNs, i.e. byte offsets into the $MFT (FRN == index *
-    // recordSize) -- converted at each enumeration call below.
-    uint64_t nextIndex = DecodeCursor(resumeCursor);
+    // FSCTL_ENUM_USN_DATA returns the exact opaque file-reference value
+    // required by its next call as the first 8 bytes of each output
+    // buffer. Preserve it verbatim in the resume cursor.
+    uint64_t nextFileReference = DecodeCursor(resumeCursor);
     size_t recordsSinceYield = 0;
     bool writeFailed = false;
     bool enumerationEnded = false;
 
     while (!enumerationEnded && !shouldStop.load() && !writeFailed) {
         MFT_ENUM_DATA_V0 enumData{};
-        enumData.StartFileReferenceNumber = nextIndex * recordSize;
+        const uint64_t bufferStartFileReference = nextFileReference;
+        enumData.StartFileReferenceNumber = nextFileReference;
         enumData.LowUsn = 0;
         enumData.HighUsn = MAXLONGLONG;
 
@@ -159,24 +161,15 @@ void RunVolumeScan(
             break;
         }
 
-        // The first 8 bytes are the FRN (byte offset) to continue from on
-        // the next call -- back in cursor units, that is the index of the
-        // next record to enumerate.
-        uint64_t nextStartFrn = 0;
-        std::memcpy(&nextStartFrn, enumBuffer.data(), sizeof(nextStartFrn));
-        const uint64_t bufferEndIndex = nextStartFrn / recordSize;
+        uint64_t bufferNextFileReference = 0;
+        std::memcpy(&bufferNextFileReference, enumBuffer.data(), sizeof(bufferNextFileReference));
 
         bool bufferHadRecords = false;
-        // Index just past the last buffer entry we actually processed --
-        // the cursor position if this buffer is abandoned mid-way
-        // (cancellation), where advancing to bufferEndIndex would skip
-        // records never fetched at all.
-        uint64_t consumedIndex = nextIndex;
         size_t offset = sizeof(uint64_t);
         while (offset + sizeof(USN_RECORD_V2) <= enumBytesReturned && !shouldStop.load() && !writeFailed) {
             const auto* entry = reinterpret_cast<const USN_RECORD_V2*>(enumBuffer.data() + offset);
             if (entry->RecordLength == 0 || offset + entry->RecordLength > enumBytesReturned) {
-                break; // malformed trailing record -- stop consuming this buffer, resume from bufferEndIndex
+                break; // malformed trailing record -- stop consuming this buffer
             }
             bufferHadRecords = true;
             offset += entry->RecordLength;
@@ -186,7 +179,6 @@ void RunVolumeScan(
             }
 
             const uint64_t frn = entry->FileReferenceNumber;
-            consumedIndex = frn / recordSize + 1;
             NTFS_FILE_RECORD_INPUT_BUFFER input{};
             input.FileReferenceNumber.QuadPart = static_cast<LONGLONG>(frn);
 
@@ -205,7 +197,13 @@ void RunVolumeScan(
             // The FSCTL can return a different, nearby record when the
             // exact FRN's sequence number is stale -- verify the returned
             // record is the one that was requested before trusting it.
-            if (static_cast<uint64_t>(output->FileReferenceNumber.QuadPart) != frn) {
+            // A USN file reference carries the MFT sequence number in its
+            // upper 16 bits. FSCTL_GET_NTFS_FILE_RECORD identifies the
+            // returned segment by the lower 48-bit MFT record number, so
+            // compare that stable segment portion rather than rejecting
+            // every valid record whose sequence is nonzero.
+            if ((static_cast<uint64_t>(output->FileReferenceNumber.QuadPart) & kMftSegmentNumberMask)
+                != (frn & kMftSegmentNumberMask)) {
                 continue;
             }
             const uint32_t returnedRecordLength = output->FileRecordLength;
@@ -216,7 +214,8 @@ void RunVolumeScan(
             // Fixup mutates in place -- copy into scratch so a bad record
             // never corrupts our own read buffer's next iteration.
             std::memcpy(recordScratch.data(), output->FileRecordBuffer, returnedRecordLength);
-            if (ApplyFixupAndValidate(recordScratch.data(), returnedRecordLength, bytesPerSector) != FixupResult::Ok) {
+            const FixupResult fixupResult = ApplyFixupAndValidate(recordScratch.data(), returnedRecordLength, bytesPerSector);
+            if (fixupResult != FixupResult::Ok) {
                 continue;
             }
             auto parsed = ParseMftAttributes(recordScratch.data(), returnedRecordLength);
@@ -236,14 +235,14 @@ void RunVolumeScan(
             record.fileName = std::move(parsed->fileName);
             batch.push_back(std::move(record));
             if (batch.size() >= kBatchSize) {
-                // Mid-buffer flush: the cursor can only advance past
-                // records already enumerated, so it is this record's own
-                // index + 1 (FRN / recordSize), not the buffer's end.
-                writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, consumedIndex);
+                // A mid-buffer cursor stays at the buffer start. A crash
+                // can replay a bounded prefix, which ingestion safely
+                // upserts; advancing to the buffer's next cursor here
+                // could skip records not processed yet.
+                writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, bufferStartFileReference);
                 batch.clear();
             }
         }
-
         // The buffer is consumed (or abandoned on cancellation); advance
         // the cursor past it entirely -- including buffers whose records
         // were ALL skipped (an empty batch is still sent then, purely to
@@ -252,22 +251,24 @@ void RunVolumeScan(
         // mid-buffer stop the cursor only advances past the entries
         // actually processed.
         const bool bufferAbandoned = shouldStop.load() || writeFailed;
-        if (!bufferAbandoned && !bufferHadRecords && bufferEndIndex <= nextIndex) {
+        if (!bufferAbandoned && !bufferHadRecords && bufferNextFileReference <= nextFileReference) {
             // No records and no forward progress -- treat as end of the
             // enumeration rather than spinning on the same position.
             enumerationEnded = true;
             break;
         }
-        nextIndex = bufferAbandoned ? consumedIndex : bufferEndIndex;
+        if (!bufferAbandoned) {
+            nextFileReference = bufferNextFileReference;
+        }
 
         if (!writeFailed && bufferHadRecords) {
-            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextIndex);
+            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
             batch.clear();
         }
     }
 
     if (!batch.empty() && !writeFailed) {
-        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextIndex);
+        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
     }
 
     CloseHandle(volumeHandle);

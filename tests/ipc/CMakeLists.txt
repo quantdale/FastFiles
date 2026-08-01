@@ -1,0 +1,4 @@
+add_executable(ffipc_framing_tests test_pipe_framing.cpp)
+target_link_libraries(ffipc_framing_tests PRIVATE ffipc)
+
+add_test(NAME ffipc_framing_tests COMMAND ffipc_framing_tests)

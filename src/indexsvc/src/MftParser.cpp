@@ -71,21 +71,32 @@ FixupResult ApplyFixupAndValidate(uint8_t* record, size_t recordSize, uint32_t b
     const uint8_t* usa = record + usaOffset;
     const uint16_t usn = ReadU16(usa);
 
+    bool protectedOnDisk = true;
+    bool alreadyRestored = true;
     for (size_t sector = 0; sector < sectorCount; ++sector) {
         const size_t lastTwoBytesOffset = (sector + 1) * static_cast<size_t>(bytesPerSector) - sizeof(uint16_t);
         if (lastTwoBytesOffset + sizeof(uint16_t) > recordSize) {
             return FixupResult::Malformed;
         }
         uint8_t* sectorTail = record + lastTwoBytesOffset;
-        if (ReadU16(sectorTail) != usn) {
-            // A torn write: the sector's saved marker doesn't match the
-            // record's USN -- the record is inconsistent and must not be
-            // trusted (this is exactly what the fixup mechanism exists to
-            // detect).
-            return FixupResult::Malformed;
-        }
         const uint8_t* trueValue = usa + (sector + 1) * sizeof(uint16_t);
-        std::memcpy(sectorTail, trueValue, sizeof(uint16_t));
+        protectedOnDisk = protectedOnDisk && ReadU16(sectorTail) == usn;
+        alreadyRestored = alreadyRestored && ReadU16(sectorTail) == ReadU16(trueValue);
+    }
+
+    if (!protectedOnDisk && !alreadyRestored) {
+        // Neither a consistently protected on-disk record nor a
+        // consistently restored record returned by the NTFS driver: a
+        // mixed/mismatched sector tail is treated as torn or corrupt.
+        return FixupResult::Malformed;
+    }
+    if (protectedOnDisk) {
+        for (size_t sector = 0; sector < sectorCount; ++sector) {
+            const size_t lastTwoBytesOffset = (sector + 1) * static_cast<size_t>(bytesPerSector) - sizeof(uint16_t);
+            uint8_t* sectorTail = record + lastTwoBytesOffset;
+            const uint8_t* trueValue = usa + (sector + 1) * sizeof(uint16_t);
+            std::memcpy(sectorTail, trueValue, sizeof(uint16_t));
+        }
     }
 
     return FixupResult::Ok;

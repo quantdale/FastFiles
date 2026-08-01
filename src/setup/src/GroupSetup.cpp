@@ -3,6 +3,8 @@
 #include <windows.h>
 #include <lm.h>
 
+#include <cstdio>
+
 #include "ffsetup/Identifiers.h"
 
 namespace ffsetup {
@@ -16,7 +18,9 @@ SetupResult CreateGroupIfMissing() noexcept {
 
     DWORD parmErr = 0;
     NET_API_STATUS status = NetLocalGroupAdd(nullptr, 1, reinterpret_cast<LPBYTE>(&info), &parmErr);
-    if (status != NERR_Success && status != NERR_GroupExists) {
+    if (status != NERR_Success && status != NERR_GroupExists && status != ERROR_ALIAS_EXISTS) {
+        std::fwprintf(stderr, L"FastFilesSetup: NetLocalGroupAdd failed for '%ls' (status %lu)\n",
+                      kAuthorizedClientGroupName, static_cast<unsigned long>(status));
         return SetupResult::Failure(status);
     }
     return SetupResult::Ok();
@@ -35,7 +39,9 @@ SetupResult CreateAuthorizedClientGroupAndAddUser(const std::wstring& userName) 
 
     NET_API_STATUS status = NetLocalGroupAddMembers(
         nullptr, kAuthorizedClientGroupName, 3, reinterpret_cast<LPBYTE>(&member), 1);
-    if (status != NERR_Success && status != ERROR_MEMBER_IN_ALIAS) {
+    if (status != NERR_Success && status != ERROR_MEMBER_IN_ALIAS && status != NERR_UserInGroup) {
+        std::fwprintf(stderr, L"FastFilesSetup: NetLocalGroupAddMembers failed for '%ls' (status %lu)\n",
+                      userName.c_str(), static_cast<unsigned long>(status));
         return SetupResult::Failure(status);
     }
     return SetupResult::Ok();

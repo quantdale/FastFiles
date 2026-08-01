@@ -4,4 +4,4 @@ add_executable(FastFilesSetup
   src/ScratchPath.cpp
 )
 
-target_link_libraries(FastFilesSetup PRIVATE ffsetup)
+target_link_libraries(FastFilesSetup PRIVATE ffsetup wer)

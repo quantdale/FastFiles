@@ -2,6 +2,8 @@
 
 #include <ntsecapi.h>
 
+#include <cstdio>
+
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/SecurityDescriptors.h"
 
@@ -58,6 +60,7 @@ SetupResult ConfigureFailureActions(SC_HANDLE service) noexcept {
     config.lpsaActions = actions;
 
     if (!ChangeServiceConfig2W(service, SERVICE_CONFIG_FAILURE_ACTIONS, &config)) {
+        std::fwprintf(stderr, L"FastFilesSetup: ChangeServiceConfig2 failure actions failed (error %lu)\n", GetLastError());
         return SetupResult::FromLastError();
     }
 
@@ -68,6 +71,14 @@ SetupResult ConfigureFailureActions(SC_HANDLE service) noexcept {
     SERVICE_FAILURE_ACTIONS_FLAG flag{};
     flag.fFailureActionsOnNonCrashFailures = TRUE;
     if (!ChangeServiceConfig2W(service, SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, &flag)) {
+        std::fwprintf(stderr, L"FastFilesSetup: ChangeServiceConfig2 failure-actions flag failed (error %lu)\n", GetLastError());
+        return SetupResult::FromLastError();
+    }
+
+    SERVICE_DELAYED_AUTO_START_INFO delayedStart{};
+    delayedStart.fDelayedAutostart = TRUE;
+    if (!ChangeServiceConfig2W(service, SERVICE_CONFIG_DELAYED_AUTO_START_INFO, &delayedStart)) {
+        std::fwprintf(stderr, L"FastFilesSetup: ChangeServiceConfig2 delayed start failed (error %lu)\n", GetLastError());
         return SetupResult::FromLastError();
     }
 
@@ -95,10 +106,14 @@ SetupResult RegisterIndexService(const std::wstring& binaryPath, PSID clientGrou
 
     // lpPassword is nullptr: virtual service accounts (NT SERVICE\<name>)
     // are managed by SCM itself and never take a password.
+    // SCM parses lpBinaryPathName as a command line. Quote the executable
+    // unconditionally so the standard Program Files install path cannot be
+    // split at its first space (for example, into C:\Program.exe).
+    const std::wstring quotedBinaryPath = L"\"" + binaryPath + L"\"";
     SC_HANDLE service = CreateServiceW(
         scm, kServiceName, kServiceDisplayName,
         SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
-        binaryPath.c_str(), nullptr, nullptr, nullptr,
+        quotedBinaryPath.c_str(), nullptr, nullptr, nullptr,
         kServiceVirtualAccountName, nullptr);
 
     if (service == nullptr) {
@@ -159,16 +174,26 @@ SetupResult ReapplyIndexServiceSecurity(PSID clientGroupSid) noexcept {
         return SetupResult::FromLastError();
     }
 
-    SC_HANDLE service = OpenServiceW(scm, kServiceName, WRITE_DAC | SERVICE_CHANGE_CONFIG);
+    // SERVICE_START is additionally required when failure actions contain
+    // SC_ACTION_RESTART, even though the configuration operation itself is
+    // authorized by SERVICE_CHANGE_CONFIG.
+    SC_HANDLE service = OpenServiceW(scm, kServiceName, WRITE_DAC | SERVICE_CHANGE_CONFIG | SERVICE_START);
     if (service == nullptr) {
         const DWORD error = GetLastError();
+        std::fwprintf(stderr, L"FastFilesSetup: OpenService for security reapply failed (error %lu)\n", error);
         CloseServiceHandle(scm);
         return SetupResult::Failure(error);
     }
 
     SetupResult result = ConfigureFailureActions(service);
+    if (!result.success) {
+        std::fwprintf(stderr, L"FastFilesSetup: failure-action reconfiguration failed (error %lu)\n", result.errorCode);
+    }
     if (result.success) {
         result = ApplyServiceSecurityDescriptor(service, clientGroupSid);
+        if (!result.success) {
+            std::fwprintf(stderr, L"FastFilesSetup: service DACL reapply failed (error %lu)\n", result.errorCode);
+        }
     }
 
     CloseServiceHandle(service);

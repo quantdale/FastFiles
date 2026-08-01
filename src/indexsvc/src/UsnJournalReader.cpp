@@ -21,6 +21,7 @@ constexpr uint32_t kBatchSize = 512;
 constexpr size_t kReadBufferSize = 64 * 1024;
 constexpr std::chrono::milliseconds kIdlePollInterval{1000};
 constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
+constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
 
 bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
                         uint64_t currentUsn) {
@@ -66,9 +67,11 @@ std::optional<ParsedMftRecord> TryReenrichFromMft(
     }
     const auto* output = reinterpret_cast<const NTFS_FILE_RECORD_OUTPUT_BUFFER*>(outputBuffer.data());
     // The FSCTL can return a different, nearby record when the exact FRN's
-    // sequence number is stale -- verify the returned record is the one
-    // that was requested before trusting any of its bytes.
-    if (static_cast<uint64_t>(output->FileReferenceNumber.QuadPart) != fileReferenceNumber) {
+    // sequence number is stale. Its output identifies the 48-bit MFT
+    // segment while the USN record carries a sequence number in the upper
+    // 16 bits, so compare the stable segment portion before trusting it.
+    if ((static_cast<uint64_t>(output->FileReferenceNumber.QuadPart) & kMftSegmentNumberMask)
+        != (fileReferenceNumber & kMftSegmentNumberMask)) {
         return std::nullopt;
     }
     const uint32_t returnedRecordLength = output->FileRecordLength;

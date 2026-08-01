@@ -20,6 +20,10 @@ enum class UiMessageType : uint16_t {
     NewGeneration = 5,      // Engine -> UI: unsolicited, a new snapshot generation is ready
     EngineStatus = 6,       // Engine -> UI: unsolicited, connection-state badge update
     ReloadIndexingConfig = 7, // UI -> Engine: settings.json was atomically replaced
+    RequestUnavailableVolumes = 8, // UI -> Engine: enumerate forget-eligible volume rows
+    UnavailableVolumes = 9, // Engine -> UI: fixed-record list response
+    ForgetUnavailableVolume = 10, // UI -> Engine: explicit destructive action by durable row id
+    ForgetUnavailableVolumeResult = 11, // Engine -> UI: explicit outcome for the requested row
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -66,6 +70,35 @@ struct NewGenerationPayload {
 
 struct EngineStatusPayload {
     PrivilegedPathStatus status;
+};
+
+struct UnavailableVolumesHeader {
+    uint32_t count;
+};
+
+struct UnavailableVolumeRecord {
+    int64_t volumeRowId;
+    uint8_t volumeGuid[16];
+    uint32_t serialNumber;
+    uint64_t entryCount;
+};
+
+struct ForgetUnavailableVolumePayload {
+    int64_t volumeRowId;
+};
+
+enum class ForgetUnavailableVolumeStatus : uint16_t {
+    Removed = 1,
+    NotFound = 2,
+    VolumeAvailable = 3,
+    Failed = 4,
+};
+
+bool IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus status) noexcept;
+
+struct ForgetUnavailableVolumeResultPayload {
+    int64_t volumeRowId;
+    ForgetUnavailableVolumeStatus status;
 };
 
 #pragma pack(pop)

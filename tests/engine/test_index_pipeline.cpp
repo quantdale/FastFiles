@@ -181,6 +181,8 @@ void TestForgetVolumePurgesProjection() {
                                      MakeMftRecord(201, 200, u"keep.txt", 0, 7),
                                  });
 
+    Check(!pipeline.ForgetVolume(volB), "an available volume is not eligible for the explicit forget action");
+    Check(pipeline.SetVolumeAvailable(volA, false, 123), "the target volume is marked unavailable before forgetting");
     Check(pipeline.ForgetVolume(volA), "an explicit ForgetVolume succeeds");
 
     auto snapshotA = pipeline.ExportDirectorySnapshot(volA, L"C:");

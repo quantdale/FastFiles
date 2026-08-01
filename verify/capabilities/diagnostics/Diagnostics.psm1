@@ -66,7 +66,7 @@ function Get-DiagnosticToolInventory {
     $inventory += New-DiagnosticToolResult -Id 'pageheap' -CommandNames @('gflags') -Detail 'PageHeap configuration is exposed by gflags'
     $inventory += New-DiagnosticToolResult -Id 'windbg-cdb' -CommandNames @('cdb', 'windbg') -Detail 'Windows debugger command-line interface'
 
-    $wer = [pscustomobject]@{ id = 'wer-local-dumps'; status = 'SKIPPED'; reason = 'no-crash-observed'; path = $null; version = $null; discovery = 'windows-error-reporting'; detail = 'Crash Analysis configures a run-local dump location only while handling a crash.' }
+    $wer = [pscustomobject]@{ id = 'wer-local-dumps'; status = 'PASS'; reason = $null; path = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'; version = $null; discovery = 'windows-error-reporting'; detail = 'CrashCapture configures per-executable WER dumps in an admin-only run-local directory and restores prior registry state.' }
     $inventory += $wer
     $inventory += [pscustomobject]@{ id = 'installer-msi-logs'; status = 'SKIPPED'; reason = 'no-installer-operation-in-run'; path = $null; version = $null; discovery = $null; detail = 'Installer capability supplies MSI logs when an install operation runs.' }
     $inventory += [pscustomobject]@{ id = 'ipc-traces'; status = 'SKIPPED'; reason = 'no-ipc-trace-provider-registered'; path = $null; version = $null; discovery = $null; detail = 'IPC capability supplies its trace artifact when implemented.' }
@@ -81,6 +81,12 @@ function Invoke-DiagnosticsCapability {
     $inventoryPath = Join-Path $ArtifactsDir 'diagnostic-tool-inventory.json'
     [pscustomobject]@{ generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o'); tools = $inventory } |
         ConvertTo-Json -Depth 8 | Set-Content -Path $inventoryPath -Encoding utf8
+    $toolVersionsPath = Join-Path $ArtifactsDir 'tool-version-metadata.json'
+    [pscustomobject]@{
+        tools = @($inventory | Where-Object { $_.status -eq 'PASS' } | ForEach-Object {
+            [pscustomobject]@{ id = $_.id; version = $_.version; path = $_.path }
+        })
+    } | ConvertTo-Json -Depth 6 | Set-Content -Path $toolVersionsPath -Encoding utf8
 
     $subResults = @($inventory | ForEach-Object {
         [pscustomobject]@{ id = $_.id; tier = 0; status = $_.status; reason = $_.reason; requiredContext = $null; durationMs = 0; detail = $_.detail; diagnostics = @() }
@@ -89,7 +95,10 @@ function Invoke-DiagnosticsCapability {
     $skipped = @($inventory | Where-Object { $_.status -eq 'SKIPPED' }).Count
     return [pscustomobject]@{
         Status = 'PASS'; Reason = $null; Summary = "$available tools available; $skipped unavailable or not applicable";
-        Artifacts = @(@{ path = 'artifacts/diagnostics/diagnostic-tool-inventory.json'; type = 'diagnostic-tool-inventory' }); SubResults = $subResults
+        Artifacts = @(
+            @{ path = 'artifacts/diagnostics/diagnostic-tool-inventory.json'; type = 'diagnostic-tool-inventory' }
+            @{ path = 'artifacts/diagnostics/tool-version-metadata.json'; type = 'tool-version-metadata' }
+        ); SubResults = $subResults
     }
 }
 

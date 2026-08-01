@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
+#include <iterator>
 #include <memory>
 #include <shellapi.h>
 #include <windowsx.h>
@@ -28,7 +30,12 @@ constexpr UINT kMenuPreview1Mb = 40006;
 constexpr UINT kMenuPreview16Mb = 40007;
 constexpr UINT kMenuPreview64Mb = 40008;
 constexpr UINT kMenuOperationDetails = 40009;
+constexpr UINT kMenuForgetUnavailableDrive = 40010;
+constexpr UINT kForgetDriveCommandBase = 41000;
+constexpr size_t kMaxForgetDriveMenuItems = 1000;
 constexpr UINT WM_APP_PREVIEW_READY = WM_APP + 3;
+constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
+constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
 
 std::wstring FormatSize(uint64_t bytes) {
     wchar_t buffer[64]{};
@@ -66,6 +73,20 @@ std::wstring FormatAttributes(uint32_t attributes) {
     if ((attributes & FILE_ATTRIBUTE_SYSTEM) != 0) add(L"System");
     if ((attributes & FILE_ATTRIBUTE_ARCHIVE) != 0) add(L"Archive");
     return result.empty() ? L"Normal" : result;
+}
+
+std::wstring FormatUnavailableVolume(const ffprotocol::UnavailableVolumeRecord& record) {
+    GUID guid{};
+    static_assert(sizeof(guid) == sizeof(record.volumeGuid));
+    std::memcpy(&guid, record.volumeGuid, sizeof(guid));
+    wchar_t guidText[40]{};
+    if (StringFromGUID2(guid, guidText, static_cast<int>(std::size(guidText))) == 0) {
+        wcscpy_s(guidText, L"{unknown-volume-guid}");
+    }
+    wchar_t serialText[16]{};
+    swprintf_s(serialText, L"%08X", record.serialNumber);
+    return std::wstring(guidText) + L"  (serial " + serialText + L", "
+        + std::to_wstring(record.entryCount) + L" indexed entries)";
 }
 }
 
@@ -124,6 +145,8 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     AppendMenuW(settingsMenu, MF_STRING, kMenuPreview1Mb, L"Preview Limit: 1 MB");
     AppendMenuW(settingsMenu, MF_STRING, kMenuPreview16Mb, L"Preview Limit: 16 MB");
     AppendMenuW(settingsMenu, MF_STRING, kMenuPreview64Mb, L"Preview Limit: 64 MB");
+    AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(settingsMenu, MF_STRING, kMenuForgetUnavailableDrive, L"Forget Unavailable Drive…");
     AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(settingsMenu, MF_STRING, kMenuResetSettings, L"Reset Settings to Defaults");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"Settings");
@@ -374,6 +397,83 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RequestRepaint();
             return 0;
 
+        case WM_APP_UNAVAILABLE_VOLUMES: {
+            std::unique_ptr<std::vector<ffprotocol::UnavailableVolumeRecord>> records(
+                reinterpret_cast<std::vector<ffprotocol::UnavailableVolumeRecord>*>(lParam));
+            if (!records || records->empty()) {
+                MessageBoxW(hwnd_, L"There are no unavailable drives with retained index data.",
+                            L"Forget unavailable drive", MB_OK | MB_ICONINFORMATION);
+                return 0;
+            }
+
+            HMENU choices = CreatePopupMenu();
+            if (choices == nullptr) {
+                return 0;
+            }
+            const size_t visibleCount = (std::min)(records->size(), kMaxForgetDriveMenuItems);
+            for (size_t i = 0; i < visibleCount; ++i) {
+                const std::wstring label = FormatUnavailableVolume((*records)[i]);
+                AppendMenuW(choices, MF_STRING, kForgetDriveCommandBase + static_cast<UINT>(i), label.c_str());
+            }
+            RECT windowRect{};
+            GetWindowRect(hwnd_, &windowRect);
+            const UINT command = TrackPopupMenu(
+                choices, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                (windowRect.left + windowRect.right) / 2, (windowRect.top + windowRect.bottom) / 2,
+                0, hwnd_, nullptr);
+            DestroyMenu(choices);
+            if (command < kForgetDriveCommandBase
+                || command >= kForgetDriveCommandBase + static_cast<UINT>(visibleCount)) {
+                return 0;
+            }
+
+            const auto selected = (*records)[static_cast<size_t>(command - kForgetDriveCommandBase)];
+            const std::wstring prompt = L"Permanently remove this unavailable drive's retained index data?\n\n"
+                + FormatUnavailableVolume(selected) + L"\n\nThe drive itself will not be modified.";
+            if (MessageBoxW(hwnd_, prompt.c_str(), L"Forget unavailable drive",
+                            MB_OKCANCEL | MB_DEFBUTTON2 | MB_ICONWARNING) != IDOK) {
+                return 0;
+            }
+            engineClient_.ForgetUnavailableVolume(selected.volumeRowId, [this](auto result) {
+                auto owned = std::make_unique<ffprotocol::ForgetUnavailableVolumeResultPayload>(result);
+                const HWND target = hwnd_;
+                if (target != nullptr
+                    && PostMessageW(target, WM_APP_FORGET_VOLUME_RESULT, 0,
+                                    reinterpret_cast<LPARAM>(owned.get()))) {
+                    owned.release();
+                }
+            });
+            return 0;
+        }
+
+        case WM_APP_FORGET_VOLUME_RESULT: {
+            std::unique_ptr<ffprotocol::ForgetUnavailableVolumeResultPayload> result(
+                reinterpret_cast<ffprotocol::ForgetUnavailableVolumeResultPayload*>(lParam));
+            if (!result) {
+                return 0;
+            }
+            const wchar_t* messageText = L"The retained index data could not be removed.";
+            UINT icon = MB_ICONERROR;
+            switch (result->status) {
+                case ffprotocol::ForgetUnavailableVolumeStatus::Removed:
+                    messageText = L"The unavailable drive's retained index data was removed.";
+                    icon = MB_ICONINFORMATION;
+                    break;
+                case ffprotocol::ForgetUnavailableVolumeStatus::NotFound:
+                    messageText = L"That unavailable drive is no longer present in the index.";
+                    icon = MB_ICONINFORMATION;
+                    break;
+                case ffprotocol::ForgetUnavailableVolumeStatus::VolumeAvailable:
+                    messageText = L"The drive is currently available and cannot be forgotten.";
+                    icon = MB_ICONWARNING;
+                    break;
+                case ffprotocol::ForgetUnavailableVolumeStatus::Failed:
+                    break;
+            }
+            MessageBoxW(hwnd_, messageText, L"Forget unavailable drive", MB_OK | icon);
+            return 0;
+        }
+
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
@@ -537,6 +637,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 case kMenuPreview1Mb: settings_.maxAutoPreviewBytes = 1ULL * 1024ULL * 1024ULL; break;
                 case kMenuPreview16Mb: settings_.maxAutoPreviewBytes = 16ULL * 1024ULL * 1024ULL; break;
                 case kMenuPreview64Mb: settings_.maxAutoPreviewBytes = 64ULL * 1024ULL * 1024ULL; break;
+                case kMenuForgetUnavailableDrive:
+                    engineClient_.RequestUnavailableVolumes([this](auto records) {
+                        auto owned = std::make_unique<std::vector<ffprotocol::UnavailableVolumeRecord>>(
+                            std::move(records));
+                        const HWND target = hwnd_;
+                        if (target != nullptr
+                            && PostMessageW(target, WM_APP_UNAVAILABLE_VOLUMES, 0,
+                                            reinterpret_cast<LPARAM>(owned.get()))) {
+                            owned.release();
+                        }
+                    });
+                    return 0;
                 case kMenuOperationDetails: {
                     std::wstring details;
                     for (const auto& failure : lastOperationFailures_) {

@@ -13,6 +13,10 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::NewGeneration:
         case UiMessageType::EngineStatus:
         case UiMessageType::ReloadIndexingConfig:
+        case UiMessageType::RequestUnavailableVolumes:
+        case UiMessageType::UnavailableVolumes:
+        case UiMessageType::ForgetUnavailableVolume:
+        case UiMessageType::ForgetUnavailableVolumeResult:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;
@@ -21,6 +25,18 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
 
 bool IsUiPathLengthValid(uint16_t lengthChars) noexcept {
     return lengthChars > 0 && lengthChars <= kMaxPathLengthChars;
+}
+
+bool IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus status) noexcept {
+    switch (status) {
+        case ForgetUnavailableVolumeStatus::Removed:
+        case ForgetUnavailableVolumeStatus::NotFound:
+        case ForgetUnavailableVolumeStatus::VolumeAvailable:
+        case ForgetUnavailableVolumeStatus::Failed:
+            return true;
+        default:
+            return false;
+    }
 }
 
 UiFrameValidationResult ValidateUiFrame(const FrameHeader& header) noexcept {

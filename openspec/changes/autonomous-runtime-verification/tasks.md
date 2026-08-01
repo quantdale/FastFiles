@@ -24,9 +24,9 @@
 ## 3. Diagnostics, Crash Analysis & Reporting
 
 - [x] 3.1 Register Diagnostics as its own independently-discoverable, independently-runnable capability (availability probe + `run` entry point invokable directly, e.g. `run diagnostics` — not only a cross-cutting on-failure mechanism) that probes for native tooling with no hardcoded paths and reports each as available (with version/path) or `SKIPPED(reason)` — never a capability failure merely because one tool is absent: Event Viewer (`Get-WinEvent`), ETW/WPR (`wpr`/`logman`, WPA-openable `.etl`), WPA, Process Monitor, ProcDump, Application Verifier + PageHeap, WinDbg/`cdb`, WER/mini dumps to a run-local admin-only path, installer/MSI logs, IPC traces
-- [ ] 3.2 Implement the **Crash Analysis** capability: dump capture, executable and faulting-thread identification, symbol resolution, stack trace generation, crash classification bucket, reproduction-artifact preservation, report attachment, and a structured verdict for the repair loop; degrade to dump-only when symbols/debugger absent
+- [x] 3.2 Implement the **Crash Analysis** capability: dump capture, executable and faulting-thread identification, symbol resolution, stack trace generation, crash classification bucket, reproduction-artifact preservation, report attachment, and a structured verdict for the repair loop; degrade to dump-only when symbols/debugger absent
 - [x] 3.3 Implement the reporters that project a run tree to Markdown, HTML (self-contained), JSON, and JUnit XML
-- [ ] 3.4 Implement the performance summary (vs. baseline), failure summary (with linked crash-analysis artifacts), and — without changing the `result.json` envelope schema — surface each capability's duration/version (from the envelope), the run's environment fingerprint (from the manifest), any capability-recorded tool-version metadata, produced artifacts, repair attempts (from `repair-log.jsonl`), and skip/unavailable reasons
+- [x] 3.4 Implement the performance summary (vs. baseline), failure summary (with linked crash-analysis artifacts), and — without changing the `result.json` envelope schema — surface each capability's duration/version (from the envelope), the run's environment fingerprint (from the manifest), any capability-recorded tool-version metadata, produced artifacts, repair attempts (from `repair-log.jsonl`), and skip/unavailable reasons
 - [x] 3.5 Add report-fidelity checks: regenerating from an unchanged run tree yields the same PASS/FAIL/SKIP/required-but-unavailable verdicts with no invented results
 - [x] 3.6 Ensure `verify.ps1 doctor` (section 13) reuses Diagnostics' tool-discovery logic rather than duplicating it
 
@@ -41,20 +41,20 @@
 
 ## 5. Installer & Service Validation (Tier 1)
 
-- [ ] 5.1 Implement install / upgrade / repair / uninstall drivers (non-interactive) capturing installer logs into diagnostics
-- [ ] 5.2 Implement post-install integrity verification: files present, install-dir ACLs, registry entries, scheduled task, and service presence/config
-- [ ] 5.3 Implement service registration & SCM config validation (start type, service/virtual account, delayed start, SCM security descriptor denying client-group control)
-- [ ] 5.4 Implement service lifecycle validation (start/stop/restart/delayed-start/recovery actions) with bounded-timeout state polling
-- [ ] 5.5 Implement service logging / Event Viewer validation for lifecycle events, collected into diagnostics
+- [x] 5.1 Implement install / upgrade / repair / uninstall drivers (non-interactive) capturing installer logs into diagnostics
+- [x] 5.2 Implement post-install integrity verification: files present, install-dir ACLs, registry entries, scheduled task, and service presence/config
+- [x] 5.3 Implement service registration & SCM config validation (start type, service/virtual account, delayed start, SCM security descriptor denying client-group control)
+- [x] 5.4 Implement service lifecycle validation (start/stop/restart/delayed-start/recovery actions) with bounded-timeout state polling
+- [x] 5.5 Implement service logging / Event Viewer validation for lifecycle events, collected into diagnostics
 
 ## 6. Privilege, Engine–Service & IPC Validation (Tier 1)
 
-- [ ] 6.1 Build `fftest.exe` probes wrapping existing self-checks (`VerifyBackupPrivilegeSufficiency`, `VerifyClientAtHandshake`) and new token/integrity/ACL/shared-memory probes; emit JSON + exit codes
+- [x] 6.1 Build `fftest.exe` probes wrapping existing self-checks (`VerifyBackupPrivilegeSufficiency`, `VerifyClientAtHandshake`) and new token/integrity/ACL/shared-memory probes; emit JSON + exit codes
 - [ ] 6.2 Implement privilege/token/integrity validation (SeBackup/SeRestore-only posture; service/user/admin/standard/SYSTEM contexts) with explanatory failure diagnostics
 - [ ] 6.3 Implement ACL/object-security validation for install dir, named pipes, and shared-memory mappings; Authenticode verification of binaries
 - [ ] 6.4 Implement engine–service validation: discovery, mutual auth + Authenticode pinning, heartbeat-loss recovery, idle disconnect, version-mismatch → degraded mode, startup sequencing
 - [ ] 6.5 Implement IPC validation: pipe first-instance/squatting hard-fail, pipe ACLs, handshake, snapshot publication/sync without round-trip, session isolation, timeout recovery, reconnection
-- [ ] 6.6 Implement protocol-robustness validation: malformed/oversized frames rejected without crash/over-allocation; large valid payload handled within the protocol maximum
+- [x] 6.6 Implement protocol-robustness validation: malformed/oversized frames rejected without crash/over-allocation; large valid payload handled within the protocol maximum
 
 ## 7. Filesystem, Reliability, Stress & Performance Validation
 

@@ -95,6 +95,7 @@ public:
     bool SetLastReconciliationTime(VolumeRowId volumeRowId, uint64_t nowTimestamp);
     // tasks.md 7.4: explicit, separate user-triggered permanent removal --
     // distinct from the automatic disconnect handling, which never deletes.
+    // Refuses missing or currently-available volumes.
     bool ForgetVolume(VolumeRowId volumeRowId);
 
     // --- Entries (tasks.md 1.2, 1.5) ---

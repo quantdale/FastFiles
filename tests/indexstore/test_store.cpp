@@ -178,6 +178,10 @@ void TestForgetVolumeIsExplicitAndRemovesEntries() {
     entry.name = u"root";
     store.ApplyBatch(vol, {{EntryChangeKind::Upsert, entry}});
 
+    Check(!store.ForgetVolume(vol), "an available volume cannot be forgotten");
+    Check(store.CountEntries(vol) == 1 && store.GetVolumeMetadata(vol).has_value(),
+          "a rejected forget leaves the available volume untouched");
+    Check(store.SetVolumeAvailable(vol, false, 100), "the volume can be marked unavailable before forgetting");
     Check(store.ForgetVolume(vol), "explicit ForgetVolume succeeds");
     Check(store.CountEntries(vol) == 0, "entries are gone after an explicit forget");
     Check(!store.GetVolumeMetadata(vol).has_value(), "the volume row itself is gone after an explicit forget");

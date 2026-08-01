@@ -217,6 +217,16 @@ function Invoke-BuildCapability {
     $summaryPath = Join-Path $ArtifactsDir 'build-summary.json'
     $buildSummary | ConvertTo-Json -Depth 12 | Set-Content -Path $summaryPath -Encoding utf8
     $artifacts += @{ path = 'artifacts/windows-build-validation/build-summary.json'; type = 'build-summary' }
+    $toolVersionsPath = Join-Path $ArtifactsDir 'tool-version-metadata.json'
+    [pscustomobject]@{
+        tools = @(
+            [pscustomobject]@{ id = 'visual-studio-vc-toolset'; version = $toolchain.InstallationVersion; path = $toolchain.InstallationPath }
+            [pscustomobject]@{ id = 'windows-sdk'; version = $toolchain.WindowsSdkVersion; path = $null }
+            [pscustomobject]@{ id = 'cmake'; version = $null; path = $toolchain.CMakeExe }
+            [pscustomobject]@{ id = 'ninja'; version = $null; path = $toolchain.NinjaExe }
+        )
+    } | ConvertTo-Json -Depth 6 | Set-Content -Path $toolVersionsPath -Encoding utf8
+    $artifacts += @{ path = 'artifacts/windows-build-validation/tool-version-metadata.json'; type = 'tool-version-metadata' }
 
     $passCount = @($subResults | Where-Object { $_.status -eq 'PASS' }).Count
     $failCount = @($subResults | Where-Object { $_.status -eq 'FAIL' }).Count

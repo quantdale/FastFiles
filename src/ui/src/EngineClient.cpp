@@ -179,6 +179,53 @@ void EngineClient::ReaderLoop() {
                 break;
             }
 
+            case UiMessageType::UnavailableVolumes: {
+                if (frame->payload.size() < sizeof(ffprotocol::UnavailableVolumesHeader)) {
+                    break;
+                }
+                ffprotocol::UnavailableVolumesHeader header{};
+                std::memcpy(&header, frame->payload.data(), sizeof(header));
+                const size_t expected = sizeof(header)
+                    + static_cast<size_t>(header.count) * sizeof(ffprotocol::UnavailableVolumeRecord);
+                if (expected != frame->payload.size()) {
+                    break;
+                }
+                std::vector<ffprotocol::UnavailableVolumeRecord> records(header.count);
+                if (!records.empty()) {
+                    std::memcpy(records.data(), frame->payload.data() + sizeof(header),
+                                records.size() * sizeof(ffprotocol::UnavailableVolumeRecord));
+                }
+                UnavailableVolumesCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+                    callback = std::move(onUnavailableVolumes_);
+                }
+                if (callback) {
+                    callback(std::move(records));
+                }
+                break;
+            }
+
+            case UiMessageType::ForgetUnavailableVolumeResult: {
+                if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumeResultPayload)) {
+                    break;
+                }
+                ffprotocol::ForgetUnavailableVolumeResultPayload payload{};
+                std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+                if (!ffprotocol::IsForgetUnavailableVolumeStatusValid(payload.status)) {
+                    break;
+                }
+                ForgetUnavailableVolumeCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+                    callback = std::move(onForgetUnavailableVolume_);
+                }
+                if (callback) {
+                    callback(payload);
+                }
+                break;
+            }
+
             default:
                 break; // ignore anything unexpected rather than tearing down the UI
         }
@@ -307,6 +354,76 @@ void EngineClient::ReloadIndexingConfig() {
     if (pipe == INVALID_HANDLE_VALUE) return;
     std::lock_guard<std::mutex> lock(writeMutex_);
     ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ReloadIndexingConfig));
+}
+
+void EngineClient::RequestUnavailableVolumes(UnavailableVolumesCallback callback) {
+    {
+        std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+        onUnavailableVolumes_ = std::move(callback);
+    }
+    HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) {
+        UnavailableVolumesCallback unavailable;
+        {
+            std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+            unavailable = std::move(onUnavailableVolumes_);
+        }
+        if (unavailable) {
+            unavailable({});
+        }
+        return;
+    }
+    bool sent = false;
+    {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestUnavailableVolumes));
+    }
+    if (!sent) {
+        UnavailableVolumesCallback unavailable;
+        {
+            std::lock_guard<std::mutex> callbackLock(volumeCallbackMutex_);
+            unavailable = std::move(onUnavailableVolumes_);
+        }
+        if (unavailable) {
+            unavailable({});
+        }
+    }
+}
+
+void EngineClient::ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailableVolumeCallback callback) {
+    {
+        std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+        onForgetUnavailableVolume_ = std::move(callback);
+    }
+    HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) {
+        ForgetUnavailableVolumeCallback failed;
+        {
+            std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
+            failed = std::move(onForgetUnavailableVolume_);
+        }
+        if (failed) {
+            failed({volumeRowId, ffprotocol::ForgetUnavailableVolumeStatus::Failed});
+        }
+        return;
+    }
+    const ffprotocol::ForgetUnavailableVolumePayload payload{volumeRowId};
+    bool sent = false;
+    {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolume),
+                                 &payload, sizeof(payload));
+    }
+    if (!sent) {
+        ForgetUnavailableVolumeCallback failed;
+        {
+            std::lock_guard<std::mutex> callbackLock(volumeCallbackMutex_);
+            failed = std::move(onForgetUnavailableVolume_);
+        }
+        if (failed) {
+            failed({volumeRowId, ffprotocol::ForgetUnavailableVolumeStatus::Failed});
+        }
+    }
 }
 
 } // namespace ffui

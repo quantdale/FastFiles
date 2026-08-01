@@ -23,6 +23,19 @@ std::optional<std::wstring> GetProcessImagePath(HANDLE processHandle) {
     return std::wstring(buffer, size);
 }
 
+HANDLE OpenImpersonatedClientProcess(HANDLE pipeHandle, ULONG clientPid) noexcept {
+    // The service runs as a restricted virtual account and deliberately
+    // does not hold SeDebugPrivilege. Query the client process while
+    // impersonating that same pipe client so its normal process DACL
+    // permits PROCESS_QUERY_LIMITED_INFORMATION, then immediately revert.
+    if (!ImpersonateNamedPipeClient(pipeHandle)) {
+        return nullptr;
+    }
+    HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, clientPid);
+    RevertToSelf();
+    return processHandle;
+}
+
 // Case-insensitive check that `path`'s directory is exactly `installDir`
 // (after canonicalizing both) and its filename matches `expectedExeName`.
 // A prefix-only check (e.g. "C:\FastFiles" matching "C:\FastFilesEvil...")
@@ -100,7 +113,7 @@ std::optional<ClientIdentity> VerifyClientAtHandshake(
         return std::nullopt;
     }
 
-    HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, clientPid);
+    HANDLE processHandle = OpenImpersonatedClientProcess(pipeHandle, clientPid);
     if (processHandle == nullptr) {
         outRejectReasonIfFailed = ffprotocol::HandshakeRejectReason::UnverifiedImagePath;
         return std::nullopt;

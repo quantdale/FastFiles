@@ -1,0 +1,14 @@
+{
+  "id": "crash-analysis",
+  "interfaceVersion": "1.0.0",
+  "tier": 0,
+  "displayName": "Crash Analysis",
+  "description": "Classifies captured process crashes and preserves dump, stack, symbol, and reproduction evidence.",
+  "entryModule": "CrashAnalysis.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-CrashAnalysisCapabilityAvailability",
+    "run": "Invoke-CrashAnalysisCapability",
+    "diagnostics": "Get-CrashAnalysisCapabilityDiagnostics"
+  }
+}

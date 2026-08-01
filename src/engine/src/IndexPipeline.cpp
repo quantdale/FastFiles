@@ -197,10 +197,10 @@ bool IndexPipeline::SetLastReconciliationTime(ffindexstore::VolumeRowId id, uint
 
 bool IndexPipeline::ForgetVolume(ffindexstore::VolumeRowId id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    reconciliationSeen_.erase(id);
     if (!store_.ForgetVolume(id)) {
         return false;
     }
+    reconciliationSeen_.erase(id);
     // Same commit-before-apply ordering as ingestion (design.md D4): the
     // projection's copy of this volume's entries is only dropped once the
     // durable rows are actually gone, so no stale entries keep being

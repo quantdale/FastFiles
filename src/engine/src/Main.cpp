@@ -14,9 +14,11 @@
 #include <shlobj.h>
 
 #include <chrono>
+#include <cstring>
 #include <cstdio>
 #include <iterator>
 #include <string>
+#include <vector>
 
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
@@ -148,7 +150,35 @@ int wmain() {
     uiServer.onReloadIndexingConfig = [&volumeSessions] {
         volumeSessions.ReloadConfiguration(ffprotocol::LoadSettings(false).indexing);
     };
-    volumeSessions.ReloadConfiguration(ffprotocol::LoadSettings(false).indexing);
+    uiServer.onRequestUnavailableVolumes = [&indexPipeline] {
+        std::vector<ffprotocol::UnavailableVolumeRecord> records;
+        for (const auto& metadata : indexPipeline.GetAllVolumes()) {
+            if (metadata.available) {
+                continue;
+            }
+            ffprotocol::UnavailableVolumeRecord record{};
+            record.volumeRowId = metadata.rowId;
+            std::memcpy(record.volumeGuid, metadata.key.volumeGuid.data(), metadata.key.volumeGuid.size());
+            record.serialNumber = metadata.key.serialNumber;
+            record.entryCount = metadata.entryCount;
+            records.push_back(record);
+        }
+        return records;
+    };
+    uiServer.onForgetUnavailableVolume = [&indexPipeline](int64_t volumeRowId) {
+        const auto metadata = indexPipeline.GetVolumeMetadata(volumeRowId);
+        if (!metadata) {
+            return ffprotocol::ForgetUnavailableVolumeStatus::NotFound;
+        }
+        if (metadata->available) {
+            return ffprotocol::ForgetUnavailableVolumeStatus::VolumeAvailable;
+        }
+        return indexPipeline.ForgetVolume(volumeRowId)
+            ? ffprotocol::ForgetUnavailableVolumeStatus::Removed
+            : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
+    };
+    const auto initialSettings = ffprotocol::LoadSettings(false);
+    volumeSessions.ReloadConfiguration(initialSettings.indexing);
 
     uiServer.onActivity = [&idleManager] { idleManager.NotifyActivity(); };
 
@@ -156,6 +186,8 @@ int wmain() {
                                                           std::map<std::wstring, ffprotocol::SnapshotDirectory> directories) {
         uiServer.MergeIndexDirectories(std::move(directories));
     });
+    volumeSessions.SetVolumeUnavailableCallback(
+        [&uiServer](ffindexstore::VolumeRowId, wchar_t driveLetter) { uiServer.RemoveVolumeDirectories(driveLetter); });
     volumeSessions.Start();
 
     // task 3.1/3.2: rebuild every already-known volume from the durable
@@ -165,7 +197,7 @@ int wmain() {
     // that volume's rebuild completes.
     indexPipeline.RebuildAll([&uiServer, &indexPipeline](ffindexstore::VolumeRowId volumeId) {
         auto meta = indexPipeline.GetVolumeMetadata(volumeId);
-        if (!meta) {
+        if (!meta || !meta->available) {
             return;
         }
         const wchar_t driveLetter = ffengine::ResolveDriveLetterForVolumeKey(meta->key);

@@ -1,0 +1,14 @@
+{
+  "id": "windows-protocol-robustness",
+  "interfaceVersion": "1.0.0",
+  "tier": 0,
+  "displayName": "Windows Protocol Robustness",
+  "description": "Runs deterministic parser, boundary framing, and fixed-seed fuzz suites for malformed, oversized, count-mismatched, and maximum-size payloads.",
+  "entryModule": "ProtocolRobustness.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-ProtocolRobustnessAvailability",
+    "run": "Invoke-ProtocolRobustnessCapability",
+    "diagnostics": "Get-ProtocolRobustnessDiagnostics"
+  }
+}

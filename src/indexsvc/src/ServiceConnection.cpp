@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -23,6 +24,27 @@ namespace ffindexsvc {
 namespace {
 
 using ffprotocol::MessageType;
+
+constexpr std::chrono::milliseconds kInboundPollInterval{2};
+
+// A synchronous named-pipe handle serializes an outstanding blocking
+// ReadFile with writes issued by scan/journal worker threads on that same
+// handle.  Do not park the control thread inside ReadFrame while workers
+// may have asynchronous results to publish.  PeekNamedPipe is nonblocking;
+// once a complete header is present, the client is already in WriteFrame
+// and will immediately supply the (bounded) payload.
+std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle) {
+    for (;;) {
+        DWORD bytesAvailable = 0;
+        if (!PeekNamedPipe(pipeHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr)) {
+            return std::nullopt;
+        }
+        if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
+            return ffipc::ReadFrame(pipeHandle);
+        }
+        std::this_thread::sleep_for(kInboundPollInterval);
+    }
+}
 
 // index-storage-and-scanning: a scan or journal stream runs on its own
 // background thread (writes to the shared pipe handle serialized via
@@ -155,7 +177,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
 
     bool disconnect = false;
     while (!disconnect) {
-        auto frame = ffipc::ReadFrame(pipeHandle);
+        auto frame = ReadActiveFrame(pipeHandle);
         if (!frame) {
             break; // I/O error or clean disconnect
         }

@@ -97,10 +97,18 @@ void PipeListener::Stop() {
     }
     running_ = false;
 
-    // ConnectNamedPipe is blocking (no FILE_FLAG_OVERLAPPED); the
-    // conventional way to unblock it is to connect a throwaway client to
-    // the same pipe name, which makes the pending ConnectNamedPipe return
-    // so the accept loop can observe running_ == false and exit.
+    // Cancel the listener thread's blocking ConnectNamedPipe directly. The
+    // previous self-connect-only approach could deadlock when the server's
+    // own token was intentionally absent from the pipe DACL (for example a
+    // restricted virtual service account). ERROR_OPERATION_ABORTED then
+    // takes the existing !running_ path in the accept loop.
+    if (acceptThread_.joinable()) {
+        CancelSynchronousIo(reinterpret_cast<HANDLE>(acceptThread_.native_handle()));
+    }
+
+    // Keep the throwaway connection as a fallback for Windows versions or
+    // transient states where CancelSynchronousIo cannot locate the pending
+    // synchronous operation.
     HANDLE unstick = CreateFileW(pipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
     if (unstick != INVALID_HANDLE_VALUE) {
         CloseHandle(unstick);

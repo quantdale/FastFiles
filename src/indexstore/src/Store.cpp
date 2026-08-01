@@ -458,6 +458,21 @@ bool Store::ForgetVolume(VolumeRowId volumeRowId) {
     }
     bool ok = true;
     {
+        // A forget is deliberately narrower than a generic delete: only a
+        // row already marked unavailable is eligible. Checking inside the
+        // same write transaction prevents a reconnect racing the deletion.
+        Statement eligibility(db_, "SELECT available FROM volumes WHERE id=?;");
+        ok = eligibility.Valid();
+        if (ok) {
+            sqlite3_bind_int64(eligibility, 1, static_cast<sqlite3_int64>(volumeRowId));
+            ok = sqlite3_step(eligibility) == SQLITE_ROW && sqlite3_column_int(eligibility, 0) == 0;
+        }
+    }
+    if (!ok) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
+    {
         Statement deleteEntries(db_, "DELETE FROM entries WHERE volume_id=?;");
         ok = deleteEntries.Valid();
         if (ok) {
@@ -473,7 +488,14 @@ bool Store::ForgetVolume(VolumeRowId volumeRowId) {
             ok = sqlite3_step(deleteVolume) == SQLITE_DONE;
         }
     }
-    ExecSql(db_, ok ? "COMMIT;" : "ROLLBACK;");
+    if (ok) {
+        if (!ExecSql(db_, "COMMIT;")) {
+            ExecSql(db_, "ROLLBACK;");
+            ok = false;
+        }
+    } else {
+        ExecSql(db_, "ROLLBACK;");
+    }
     return ok;
 }
 

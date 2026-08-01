@@ -3,6 +3,8 @@
 #include <securitybaseapi.h>
 #include <sddl.h>
 
+#include "ffsetup/Identifiers.h"
+
 namespace ffsetup {
 
 namespace {
@@ -122,16 +124,18 @@ std::optional<OwnedSecurityDescriptor> BuildServiceObjectSecurityDescriptor(PSID
 std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexcept {
     auto systemSid = GetLocalSystemSid();
     auto adminSid = GetBuiltinAdministratorsSid();
-    if (!systemSid || !adminSid) {
+    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
+    if (!systemSid || !adminSid || !serviceSid) {
         return std::nullopt;
     }
 
     const DWORD inherit = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
-    EXPLICIT_ACCESS_W entries[2] = {
+    EXPLICIT_ACCESS_W entries[3] = {
         MakeGrant(systemSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
         MakeGrant(adminSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
+        MakeGrant(serviceSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
     };
-    return BuildFromExplicitAccess(entries, 2);
+    return BuildFromExplicitAccess(entries, 3);
 }
 
 std::optional<OwnedSecurityDescriptor> BuildCurrentUserPipeSecurityDescriptor() noexcept {
@@ -164,20 +168,25 @@ std::optional<OwnedSecurityDescriptor> BuildCurrentUserPipeSecurityDescriptor() 
 std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID clientGroupSid) noexcept {
     auto systemSid = GetLocalSystemSid();
     auto adminSid = GetBuiltinAdministratorsSid();
-    if (!systemSid || !adminSid || clientGroupSid == nullptr) {
+    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
+    if (!systemSid || !adminSid || !serviceSid || clientGroupSid == nullptr) {
         return std::nullopt;
     }
 
     const DWORD inherit = OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE;
-    EXPLICIT_ACCESS_W entries[3] = {
+    EXPLICIT_ACCESS_W entries[4] = {
         MakeGrant(systemSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
         MakeGrant(adminSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
+        // SCM creates the process under this virtual account, which must
+        // be able to load the service image and its adjacent DLLs. It does
+        // not receive write access to the protected install directory.
+        MakeGrant(serviceSid->Get(), GENERIC_READ | GENERIC_EXECUTE, GRANT_ACCESS, inherit),
         // Admin/TrustedInstaller-write-only: the client group may read and
         // execute the installed binaries but never write into the
         // directory (design.md D4 DLL/binary hardening).
         MakeGrant(clientGroupSid, GENERIC_READ | GENERIC_EXECUTE, GRANT_ACCESS, inherit),
     };
-    return BuildFromExplicitAccess(entries, 3);
+    return BuildFromExplicitAccess(entries, 4);
 }
 
 } // namespace ffsetup

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <windows.h>
+
 namespace ffindexsvc {
 
 // Enables SeBackupPrivilege on this process's token (a no-op, returning
@@ -9,6 +11,20 @@ namespace ffindexsvc {
 // before every raw volume open (VolumeScanner, UsnJournalReader), not
 // just once at service startup.
 bool EnsureBackupPrivilegeEnabled();
+
+struct BackupPrivilegeProbeResult {
+    bool privilegeEnabled = false;
+    bool volumeFound = false;
+    bool volumeOpened = false;
+    bool journalQueried = false;
+    wchar_t driveLetter = L'\0';
+    DWORD volumeOpenError = ERROR_SUCCESS;
+    DWORD journalQueryError = ERROR_SUCCESS;
+};
+
+// Structured form consumed by fftest and the runtime harness. The service
+// startup self-check below is a logging wrapper over this same probe.
+BackupPrivilegeProbeResult ProbeBackupPrivilegeSufficiency();
 
 // Task 7.1: empirically verify that SeBackupPrivilege alone (the only
 // privilege the service's virtual account is granted -- design.md D4) is

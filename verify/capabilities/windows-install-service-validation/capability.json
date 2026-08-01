@@ -1,0 +1,14 @@
+{
+  "id": "windows-install-service-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Install And Service Validation",
+  "description": "Drives install, upgrade, repair, uninstall, integrity, SCM lifecycle, recovery, and lifecycle-log validation with unconditional teardown.",
+  "entryModule": "InstallService.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-InstallServiceCapabilityAvailability",
+    "run": "Invoke-InstallServiceCapability",
+    "diagnostics": "Get-InstallServiceCapabilityDiagnostics"
+  }
+}

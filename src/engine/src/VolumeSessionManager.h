@@ -50,6 +50,10 @@ public:
     using SnapshotReadyCallback =
         std::function<void(ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory>)>;
     void SetSnapshotReadyCallback(SnapshotReadyCallback callback) { onSnapshotReady_ = std::move(callback); }
+    using VolumeUnavailableCallback = std::function<void(ffindexstore::VolumeRowId, wchar_t)>;
+    void SetVolumeUnavailableCallback(VolumeUnavailableCallback callback) {
+        onVolumeUnavailable_ = std::move(callback);
+    }
     void ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes);
 
 private:
@@ -83,6 +87,7 @@ private:
     IndexPipeline& pipeline_;
     PrivilegedConnection& connection_;
     SnapshotReadyCallback onSnapshotReady_;
+    VolumeUnavailableCallback onVolumeUnavailable_;
 
     std::mutex mutex_;
     std::map<uint32_t, VolumeSession> sessionsByEphemeralId_; // keyed by ffprotocol::VolumeId::value

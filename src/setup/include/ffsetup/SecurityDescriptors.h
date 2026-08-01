@@ -55,14 +55,15 @@ std::optional<OwnedSecurityDescriptor> BuildPipeSecurityDescriptor(PSID clientGr
 std::optional<OwnedSecurityDescriptor> BuildServiceObjectSecurityDescriptor(PSID clientGroupSid) noexcept;
 
 // Security descriptor for the install directory: write access restricted
-// to Administrators/TrustedInstaller, read+execute for the client group
-// (design.md D4 DLL/binary hardening; spec references install-dir ACL).
+// to SYSTEM/Administrators, read+execute for the service virtual account
+// and client group (design.md D4 DLL/binary hardening; spec references
+// install-dir ACL).
 std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID clientGroupSid) noexcept;
 
-// Security descriptor granting full control to SYSTEM/Administrators only
-// -- no other principal, not even the authorized client group. Used for
-// the service's own log and crash-dump directories (task 3.12), since
-// those can contain sensitive data from a SeBackupPrivilege process.
+// Security descriptor granting full control only to SYSTEM, Administrators,
+// and the service's own virtual account -- never the authorized client
+// group. Used for the service's log and crash-dump directories (task 3.12),
+// since those can contain sensitive data from a SeBackupPrivilege process.
 std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexcept;
 
 // Security descriptor for FastFilesEngine's same-privilege, UI-facing pipe

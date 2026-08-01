@@ -5,6 +5,8 @@
 #include <shlobj.h>
 #include <werapi.h>
 
+#include <iterator>
+
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/SecurityDescriptors.h"
 
@@ -59,6 +61,40 @@ std::wstring EnsureAdminOnlyLogDirectory() {
     CreateDirectoryW(baseDir.c_str(), nullptr);
     ApplyAdminOnlyAcl(baseDir);
     return EnsureDirectory(baseDir + L"\\Logs");
+}
+
+void WriteServiceLifecycleLog(const wchar_t* message) {
+    if (message == nullptr) {
+        return;
+    }
+    const std::wstring logDir = EnsureAdminOnlyLogDirectory();
+    if (logDir.empty()) {
+        return;
+    }
+    const std::wstring logPath = logDir + L"\\service.log";
+    HANDLE file = CreateFileW(logPath.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ,
+                              nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    LARGE_INTEGER fileSize{};
+    if (GetFileSizeEx(file, &fileSize) && fileSize.QuadPart == 0) {
+        constexpr wchar_t kByteOrderMark = 0xFEFF;
+        DWORD bomWritten = 0;
+        WriteFile(file, &kByteOrderMark, sizeof(kByteOrderMark), &bomWritten, nullptr);
+    }
+    SYSTEMTIME now{};
+    GetSystemTime(&now);
+    wchar_t line[512];
+    const int length = swprintf_s(
+        line, std::size(line), L"%04u-%02u-%02uT%02u:%02u:%02u.%03uZ %ls\r\n",
+        now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute,
+        now.wSecond, now.wMilliseconds, message);
+    if (length > 0) {
+        DWORD written = 0;
+        WriteFile(file, line, static_cast<DWORD>(length * sizeof(wchar_t)), &written, nullptr);
+    }
+    CloseHandle(file);
 }
 
 void HardenCrashDumpHandling() {

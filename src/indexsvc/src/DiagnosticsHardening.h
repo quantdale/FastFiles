@@ -8,6 +8,10 @@ namespace ffindexsvc {
 // (task 3.12).
 std::wstring EnsureAdminOnlyLogDirectory();
 
+// Appends a timestamped lifecycle record to the admin-only service log.
+// Logging is best-effort and never weakens the service's fail-closed paths.
+void WriteServiceLifecycleLog(const wchar_t* message);
+
 // Redirects Windows Error Reporting local crash dumps for this binary away
 // from the default per-user location (%LOCALAPPDATA%\CrashDumps, which is
 // user-readable) to an admin-only directory, and additionally excludes

@@ -1,4 +1,5 @@
 add_subdirectory(protocol)
+add_subdirectory(ipc)
 add_subdirectory(indexstore)
 add_subdirectory(search)
 add_subdirectory(indexsvc)

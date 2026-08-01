@@ -144,6 +144,20 @@ void TestTornSectorIsDetectedAsMalformed() {
           "a fixup marker mismatch (torn write) is detected rather than silently trusted");
 }
 
+void TestAlreadyRestoredFixupsAreAccepted() {
+    auto record = BuildSyntheticRecord(512, u"restored.txt", 5, 42, false);
+    constexpr size_t kUsaOffset = 0x30;
+    for (size_t sector = 0; sector < 2; ++sector) {
+        const uint16_t trueValue = static_cast<uint16_t>(record[kUsaOffset + (sector + 1) * 2])
+            | static_cast<uint16_t>(record[kUsaOffset + (sector + 1) * 2 + 1] << 8);
+        WriteU16(record, (sector + 1) * 512 - 2, trueValue);
+    }
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok,
+          "a record whose sector-tail fixups were already restored by the NTFS driver is accepted");
+    const auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed && parsed->fileName == u"restored.txt", "an already-restored record remains parseable");
+}
+
 // tasks.md 9.8: a record with a resident $DATA attribute (small/resident
 // file content, exactly the case design.md calls out as the trap -- "even
 // for small files whose content is resident inside the MFT record
@@ -275,6 +289,7 @@ int main() {
     TestNotInUseRecordIsRejectedBeforeParsing();
     TestWrongSignatureIsRejected();
     TestTornSectorIsDetectedAsMalformed();
+    TestAlreadyRestoredFixupsAreAccepted();
     TestResidentDataAttributeIsNeverSurfaced();
     TestOversizedAttributeLengthIsRejectedNotOverread();
     TestMissingStandardInformationRejected();

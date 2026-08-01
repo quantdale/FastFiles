@@ -58,7 +58,9 @@ void StopEverything() {
 void WINAPI ServiceCtrlHandler(DWORD control) {
     if (control == SERVICE_CONTROL_STOP) {
         SetStatus(SERVICE_STOP_PENDING);
+        ffindexsvc::WriteServiceLifecycleLog(L"service stop requested");
         StopEverything();
+        ffindexsvc::WriteServiceLifecycleLog(L"service stopped");
         SetStatus(SERVICE_STOPPED);
     }
 }
@@ -126,6 +128,7 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 
     g_status.dwControlsAccepted = SERVICE_ACCEPT_STOP;
     SetStatus(SERVICE_RUNNING);
+    ffindexsvc::WriteServiceLifecycleLog(L"service started");
 }
 
 } // namespace
