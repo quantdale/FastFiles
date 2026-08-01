@@ -7,6 +7,7 @@ add_library(ffprotocol STATIC
   src/UiProtocol.cpp
   src/IndexHealth.cpp
   src/Settings.cpp
+  src/Diagnostics.cpp
   src/SnapshotFormat.cpp
 )
 

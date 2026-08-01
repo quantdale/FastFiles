@@ -15,6 +15,8 @@
 #include "ffprotocol/Settings.h"
 #include "Preview.h"
 #include "NavigationWorkspace.h"
+#include "NavigationChrome.h"
+#include "NavigationSidebar.h"
 
 namespace ffui {
 
@@ -52,11 +54,14 @@ private:
     void FinishInlineRename(bool commit);
     void ShowContextMenu(POINT screenPoint);
     void NavigateWorkspace(const std::wstring& path, const std::wstring& selectName = {});
+    float NavigationViewportWidth() const;
     std::filesystem::path ShortcutSettingsPath() const;
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;
     NavigationWorkspace navigationWorkspace_{L"C:\\"};
+    NavigationChrome navigationChrome_;
+    NavigationSidebar navigationSidebar_;
     ColumnView columnView_;
     EngineClient engineClient_;
     FileOperations fileOperations_;

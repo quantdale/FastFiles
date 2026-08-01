@@ -6,7 +6,7 @@
 - [x] 1.4 Implement fallthrough behavior: a provider that fails during `CreatePreview` is treated as non-applicable and resolution proceeds to the next-priority provider or the no-match fallback
 - [x] 1.5 Implement the background thread-pool submission path for preview requests, with single-flight "most-recent-selection-wins" cancellation/discard of superseded results
 - [x] 1.6 Implement the no-preview-available fallback UI state (used whenever no provider matches or all matching providers fail)
-- [ ] 1.7 Unit tests: extension match takes priority over content sniff; content sniff runs only when no extension match exists; a throwing/failing provider falls through instead of propagating; a superseded request's result is discarded, not rendered
+- [x] 1.7 Unit tests: extension match takes priority over content sniff; content sniff runs only when no extension match exists; a throwing/failing provider falls through instead of propagating; a superseded request's result is discarded, not rendered
 
 ## 2. Image Preview Provider (WIC)
 
@@ -62,5 +62,5 @@
 
 - [x] 8.1 Verify all three capabilities (`file-preview`, `properties-and-details`, `status-bar`) consume selection state identically and consistently from `column-view-browsing`/`multi-selection-and-dragdrop`, with no divergent or duplicated selection-tracking logic
 - [x] 8.2 Verify adding a hypothetical new preview provider (e.g., a stub for a future format) requires no changes outside `FastFiles`'s preview registry code — no touching `FastFilesEngine`, the index schema, or the IPC protocol
-- [ ] 8.3 Fuzz/stress test: malformed image and text files (truncated, wrong-extension, adversarial headers) across both preview providers, confirming no crash or hang
+- [x] 8.3 Fuzz/stress test: malformed image and text files (truncated, wrong-extension, adversarial headers) across both preview providers, confirming no crash or hang
 - [ ] 8.4 Regression test: rapid combined selection + navigation changes (stress-driven) across preview, properties, and status bar simultaneously, confirming no stale data is ever displayed and the UI never blocks

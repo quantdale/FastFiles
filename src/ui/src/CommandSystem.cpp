@@ -185,6 +185,11 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     ok = RegisterOne(registry, handlers, L"navigation.forward", L"Forward", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_RIGHT, ModifierAlt}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.refresh", L"Refresh", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_F5, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.focus-path", L"Focus Path Entry", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'L', ModifierControl}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.new-tab", L"New Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', ModifierControl}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.close-tab", L"Close Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'W', ModifierControl}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.next-tab", L"Next Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_TAB, ModifierControl}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.previous-tab", L"Previous Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_TAB, static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.reopen-tab", L"Reopen Closed Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Column View", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-dual-pane", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"selection.select-all", L"Select All", L"Selection", kAnySelection, ShortcutScope::ActiveView, KeyChord{'A', ModifierControl}) && ok;

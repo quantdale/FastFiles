@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <string>
+
 namespace ffindexsvc {
 
 // Enables SeBackupPrivilege on this process's token (a no-op, returning
@@ -11,6 +13,28 @@ namespace ffindexsvc {
 // before every raw volume open (VolumeScanner, UsnJournalReader), not
 // just once at service startup.
 bool EnsureBackupPrivilegeEnabled();
+
+struct TokenPrivilegeState {
+    bool backupPrivilegeHeld = false;
+    bool backupPrivilegeEnabled = false;
+    std::wstring accountName;
+    std::wstring accountSid;
+};
+
+enum class RawVolumeOpenOutcome {
+    PrivilegeAbsent,
+    PrivilegePresentNotEnabled,
+    EnabledButDenied,
+    Succeeded,
+};
+
+TokenPrivilegeState CaptureTokenPrivilegeState();
+RawVolumeOpenOutcome ClassifyRawVolumeOpen(const TokenPrivilegeState& tokenState,
+                                           bool opened, DWORD errorCode);
+const wchar_t* RawVolumeOpenOutcomeName(RawVolumeOpenOutcome outcome);
+void LogRawVolumeOpenDiagnostic(const std::wstring& volumePath,
+                                const TokenPrivilegeState& tokenState,
+                                RawVolumeOpenOutcome outcome, DWORD errorCode);
 
 struct BackupPrivilegeProbeResult {
     bool privilegeEnabled = false;

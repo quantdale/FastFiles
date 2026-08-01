@@ -7,6 +7,7 @@
 #include <iterator>
 
 #include "ffipc/PipeFraming.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/UiProtocol.h"
 #include "ffsetup/Identifiers.h"
 
@@ -99,6 +100,8 @@ void UiServer::RepublishAndBroadcastGeneration() {
         generation = snapshot_.Publish(directories_);
     }
     if (generation == 0) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      {}, {}, L"snapshot-publish-failed", ERROR_WRITE_FAULT, 0});
         return; // publish failed (e.g. exceeded slot capacity); nothing to announce
     }
 
@@ -188,11 +191,19 @@ bool UiServer::SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowI
         ? onForgetUnavailableVolume(volumeRowId)
         : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
     const ffprotocol::ForgetUnavailableVolumeResultPayload payload{volumeRowId, status};
+    if (status == ffprotocol::ForgetUnavailableVolumeStatus::Failed) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                      {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0});
+    }
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult),
                              &payload, sizeof(payload));
 }
 
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
+    if (engineActive_ != privilegedPathActive) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      {}, {}, privilegedPathActive ? L"active" : L"unavailable", 0, 0});
+    }
     engineActive_ = privilegedPathActive;
     BroadcastEngineStatus();
 }
@@ -211,10 +222,14 @@ void UiServer::HandleRequestDirectory(HANDLE pipe, const std::wstring& path) {
     }
 
     if (result.status == EnumerationStatus::AccessDenied) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+                                      path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0});
         SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::AccessDenied);
         return;
     }
     if (result.status == EnumerationStatus::NotFound) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+                                      path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0});
         SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
         return;
     }

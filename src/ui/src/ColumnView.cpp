@@ -411,6 +411,16 @@ void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::Director
     }
 }
 
+void ColumnView::ShowUnavailableLocation(const std::wstring& displayName) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    Column column;
+    column.path = displayName.empty() ? L"Unavailable location" : displayName;
+    column.error = ColumnErrorState::NoLongerAvailable;
+    columns_ = {std::move(column)};
+    focusedColumnIndex_ = 0;
+    pendingSelectionName_.clear();
+}
+
 void ColumnView::SetEngineStatus(bool active) {
     engineActive_ = active;
 }

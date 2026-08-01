@@ -214,13 +214,13 @@ void SearchPanel::Reposition() {
     RECT client{}; GetClientRect(owner_, &client);
     const int width = static_cast<int>(client.right);
     const int height = static_cast<int>(client.bottom);
-    SetWindowPos(query_, HWND_TOP, 12, 36, (std::max)(180, width - 700), 300, SWP_SHOWWINDOW);
-    SetWindowPos(scope_, HWND_TOP, (std::max)(194, width - 508), 36, 210, 300, SWP_SHOWWINDOW);
-    SetWindowPos(sort_, HWND_TOP, (std::max)(406, width - 296), 36, 126, 300, SWP_SHOWWINDOW);
-    SetWindowPos(sortDirection_, HWND_TOP, width - 158, 36, 146, 26, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, 12, 68, width - 150, 24, SWP_SHOWWINDOW);
-    SetWindowPos(clearHistory_, HWND_TOP, width - 126, 64, 114, 26, SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, 12, 96, width - 24, (std::max)(80, height - 108), SWP_SHOWWINDOW);
+    SetWindowPos(query_, HWND_TOP, 12, 44, (std::max)(180, width - 700), 300, SWP_SHOWWINDOW);
+    SetWindowPos(scope_, HWND_TOP, (std::max)(194, width - 508), 44, 210, 300, SWP_SHOWWINDOW);
+    SetWindowPos(sort_, HWND_TOP, (std::max)(406, width - 296), 44, 126, 300, SWP_SHOWWINDOW);
+    SetWindowPos(sortDirection_, HWND_TOP, width - 158, 44, 146, 26, SWP_SHOWWINDOW);
+    SetWindowPos(status_, HWND_TOP, 12, 76, width - 150, 24, SWP_SHOWWINDOW);
+    SetWindowPos(clearHistory_, HWND_TOP, width - 126, 72, 114, 26, SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, 12, 104, width - 24, (std::max)(80, height - 116), SWP_SHOWWINDOW);
 }
 
 bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {

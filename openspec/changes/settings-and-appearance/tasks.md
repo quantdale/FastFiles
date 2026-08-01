@@ -54,8 +54,8 @@
 
 ## 8. Diagnostic Logging
 
-- [ ] 8.1 Implement local per-user diagnostic logging for indexing errors, inaccessible directories, volume state transitions, and database problems.
-- [ ] 8.2 Enforce that log entries never contain file content, only path/metadata/error information.
+- [x] 8.1 Implement local per-user diagnostic logging for indexing errors, inaccessible directories, volume state transitions, and database problems.
+- [x] 8.2 Enforce that log entries never contain file content, only path/metadata/error information.
 - [ ] 8.3 Implement the diagnostic bundle export feature with aggregated/redacted output by default (counts and directory-structure summaries).
 - [ ] 8.4 Implement the explicit opt-in required to include literal paths/filenames in an exported bundle, keeping file content excluded regardless.
 

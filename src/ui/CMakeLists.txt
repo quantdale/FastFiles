@@ -10,6 +10,8 @@ add_executable(FastFiles WIN32
   src/OleDragDrop.cpp
   src/Preview.cpp
   src/NavigationWorkspace.cpp
+  src/NavigationChrome.cpp
+  src/NavigationSidebar.cpp
   src/CommandSystem.cpp
   src/CommandPalette.cpp
   src/QuickActions.cpp

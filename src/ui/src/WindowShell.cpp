@@ -44,6 +44,8 @@ constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
 constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
 constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
 constexpr UINT kContextCommandBase = 20000;
+constexpr int kNavigationChromeHeight = 72;
+constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
 
 std::wstring FormatSize(uint64_t bytes) {
     wchar_t buffer[64]{};
@@ -111,7 +113,15 @@ void WindowShell::NavigateWorkspace(const std::wstring& path, const std::wstring
     navigationWorkspace_.Navigate(path);
     columnView_.NavigateToPath(path, selectName);
     RefreshSelectionPresentation();
+    navigationChrome_.Refresh();
+    navigationSidebar_.Refresh();
     RequestRepaint();
+}
+
+float WindowShell::NavigationViewportWidth() const {
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    return static_cast<float>((std::max)(0L, client.right - client.left - navigationSidebar_.Width()));
 }
 
 std::filesystem::path WindowShell::ShortcutSettingsPath() const {
@@ -237,16 +247,54 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"app.command-palette") {
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
-                MessageBoxW(hwnd_, L"Path entry is not available in the current navigation surface.", L"Focus path", MB_OK | MB_ICONINFORMATION);
+                navigationChrome_.FocusAddressBar();
+            } else if (commandId == L"navigation.new-tab") {
+                navigationWorkspace_.OpenTab();
+                columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                RefreshSelectionPresentation();
+                navigationChrome_.Refresh();
+                RequestRepaint();
+            } else if (commandId == L"navigation.close-tab") {
+                if (navigationWorkspace_.CloseActiveTab()) {
+                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    RefreshSelectionPresentation();
+                    navigationChrome_.Refresh();
+                    RequestRepaint();
+                }
+            } else if (commandId == L"navigation.next-tab" || commandId == L"navigation.previous-tab") {
+                const size_t count = navigationWorkspace_.TabCount();
+                if (count > 1) {
+                    const size_t current = navigationWorkspace_.ActiveTabIndex();
+                    const size_t next = commandId == L"navigation.next-tab"
+                        ? (current + 1) % count
+                        : (current + count - 1) % count;
+                    if (navigationWorkspace_.SwitchTab(next)) {
+                        columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                        RefreshSelectionPresentation();
+                        navigationChrome_.Refresh();
+                        RequestRepaint();
+                    }
+                }
+            } else if (commandId == L"navigation.reopen-tab") {
+                if (navigationWorkspace_.ReopenClosedTab()) {
+                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    RefreshSelectionPresentation();
+                    navigationChrome_.Refresh();
+                    RequestRepaint();
+                }
             } else if (commandId == L"navigation.back" || commandId == L"navigation.forward") {
                 const bool moved = commandId == L"navigation.back" ? navigationWorkspace_.GoBack() : navigationWorkspace_.GoForward();
                 if (moved) {
                     columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
                     RefreshSelectionPresentation();
+                    navigationChrome_.Refresh();
                     RequestRepaint();
                 }
             } else if (commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
-                MessageBoxW(hwnd_, L"This navigation action is unavailable in the current workspace.", L"Navigation", MB_OK | MB_ICONINFORMATION);
+                if (navigationWorkspace_.IsDualPane()) navigationWorkspace_.DisableDualPane();
+                else navigationWorkspace_.EnableDualPane();
+                navigationChrome_.Refresh();
+                RequestRepaint();
             } else if (commandId == L"file.rename" && paths.size() == 1) {
                 const std::filesystem::path source(paths.front());
                 const auto name = PromptForLeafName(hwnd_, L"Rename", source.filename().wstring());
@@ -279,6 +327,7 @@ bool WindowShell::InitializeCommands() {
         if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
         else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
         RefreshSelectionPresentation();
+        navigationChrome_.Refresh();
         RequestRepaint();
     }, settings_.retainSearchHistory);
 }
@@ -309,9 +358,9 @@ LRESULT CALLBACK WindowShell::InlineRenameProc(HWND hwnd, UINT message, WPARAM w
 void WindowShell::BeginInlineRename(const std::wstring& path) {
     FinishInlineRename(false);
     inlineRenamePath_ = path;
-    const int x = static_cast<int>(columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f);
+    const int x = navigationSidebar_.Width() + static_cast<int>(columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f);
     const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
-    const int y = static_cast<int>(ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight);
+    const int y = kNavigationChromeHeight + static_cast<int>(ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight);
     inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
                                     WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, 205, 24, hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
@@ -460,6 +509,26 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     settings_ = ffprotocol::LoadSettings();
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
+    if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const std::wstring& path) {
+            columnView_.NavigateToPath(path);
+            RefreshSelectionPresentation();
+            RequestRepaint();
+        })) return false;
+    if (!navigationSidebar_.Initialize(hwnd_, &navigationWorkspace_, [this](const NavigationSidebar::NavigationTarget& target) {
+            if (target.path.empty()) {
+                columnView_.ShowUnavailableLocation(target.displayName);
+                RefreshSelectionPresentation();
+                RequestRepaint();
+                return;
+            }
+            if (target.openInNewTab) navigationWorkspace_.OpenTab(target.path);
+            else navigationWorkspace_.Navigate(target.path);
+            columnView_.NavigateToPath(target.path);
+            RefreshSelectionPresentation();
+            navigationChrome_.Refresh();
+            navigationSidebar_.Refresh();
+            RequestRepaint();
+        })) return false;
     if (!fileOperations_.Start(hwnd_)) return false;
     if (!InitializeCommands()) return false;
     IDropTarget* dropTarget = nullptr;
@@ -507,6 +576,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
 
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
+    SetTimer(hwnd_, kWorkspaceSaveTimer, 500, nullptr);
     return true;
 }
 
@@ -519,6 +589,7 @@ int WindowShell::RunMessageLoop() {
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
+    navigationWorkspace_.FlushState();
     engineClient_.Stop();
     fileOperations_.Stop();
     return static_cast<int>(msg.wParam);
@@ -554,12 +625,14 @@ void WindowShell::Render() {
     RECT clientRect{};
     GetClientRect(hwnd_, &clientRect);
     D2D1_SIZE_F viewportSize = D2D1::SizeF(
-        static_cast<float>(clientRect.right - clientRect.left),
-        static_cast<float>(clientRect.bottom - clientRect.top));
+        NavigationViewportWidth(),
+        static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top - kNavigationChromeHeight)));
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
+    context->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(navigationSidebar_.Width()), static_cast<float>(kNavigationChromeHeight)));
     columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_);
     RenderDetails(context, viewportSize);
+    context->SetTransform(D2D1::Matrix3x2F::Identity());
     renderer_.EndFrame();
 }
 
@@ -697,6 +770,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             const UINT width = LOWORD(lParam);
             const UINT height = HIWORD(lParam);
             renderer_.Resize(width, height);
+            navigationChrome_.Reposition();
+            navigationSidebar_.Reposition();
             commandPalette_.Reposition();
             searchPanel_.Reposition();
             RequestRepaint();
@@ -739,6 +814,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_TIMER:
+            if (wParam == kWorkspaceSaveTimer) {
+                navigationWorkspace_.FlushState();
+                return 0;
+            }
             if (searchPanel_.HandleTimer(wParam)) return 0;
             return DefWindowProcW(hwnd, message, wParam, lParam);
 
@@ -888,7 +967,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 if (!event->createdPaths.empty()) {
                     const std::filesystem::path created(event->createdPaths.front());
-                    columnView_.NavigateToPath(created.parent_path().wstring(), created.filename().wstring());
+                    NavigateWorkspace(created.parent_path().wstring(), created.filename().wstring());
                     BeginInlineRename(created.wstring());
                 }
                 // The existing UI-to-engine control pipe has no blocking
@@ -900,6 +979,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     if (!parent.empty()) engineClient_.RequestDirectory(parent);
                 }
                 columnView_.OnSnapshotUpdated();
+                navigationChrome_.Refresh();
                 RequestRepaint();
             }
             return 0;
@@ -907,16 +987,20 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_LBUTTONDOWN: {
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam)));
+                static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
+                static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
             columnView_.OnMouseDown(
                 point, scrollOffset_, (GetKeyState(VK_CONTROL) & 0x8000) != 0,
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0);
             dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
             RefreshSelectionPresentation();
-            RECT clientRect{};
-            GetClientRect(hwnd, &clientRect);
-            EnsureColumnVisible(columnView_.FocusedColumnIndex(), static_cast<float>(clientRect.right - clientRect.left));
+            EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+            const std::wstring activePath = columnView_.ActivePanePath();
+            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+                navigationWorkspace_.Navigate(activePath);
+            }
+            navigationChrome_.Refresh();
             RequestRepaint();
             return 0;
         }
@@ -937,8 +1021,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_RBUTTONDOWN: {
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam)));
+                static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
+                static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
             columnView_.OnMouseDown(point, scrollOffset_, false, false);
+            const std::wstring activePath = columnView_.ActivePanePath();
+            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+                navigationWorkspace_.Navigate(activePath);
+            }
+            navigationChrome_.Refresh();
             RefreshSelectionPresentation();
             RequestRepaint();
             return 0;
@@ -946,9 +1036,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_MOUSEWHEEL: {
             const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            RECT clientRect{};
-            GetClientRect(hwnd, &clientRect);
-            const float viewportWidth = static_cast<float>(clientRect.right - clientRect.left);
+            const float viewportWidth = NavigationViewportWidth();
             const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
             scrollOffset_ = std::clamp(scrollOffset_ - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
             RequestRepaint();
@@ -960,8 +1048,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (point.x == -1 && point.y == -1) {
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
-                point = {static_cast<LONG>(column * ColumnView::kColumnWidth - scrollOffset_ + 24),
-                         static_cast<LONG>(ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight)};
+                point = {static_cast<LONG>(navigationSidebar_.Width() + column * ColumnView::kColumnWidth - scrollOffset_ + 24),
+                         static_cast<LONG>(kNavigationChromeHeight + ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight)};
                 ClientToScreen(hwnd_, &point);
             }
             ShowContextMenu(point);
@@ -987,11 +1075,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             columnView_.OnKeyDown(static_cast<int>(wParam));
             RefreshSelectionPresentation();
+            const std::wstring activePath = columnView_.ActivePanePath();
+            if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
+                navigationWorkspace_.Navigate(activePath);
+            }
+            navigationChrome_.Refresh();
             if (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN) {
-                RECT clientRect{};
-                GetClientRect(hwnd, &clientRect);
-                const float viewportWidth = static_cast<float>(clientRect.right - clientRect.left);
-                EnsureColumnVisible(columnView_.FocusedColumnIndex(), viewportWidth);
+                EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
             }
             RequestRepaint();
             return 0;
@@ -1043,6 +1133,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            KillTimer(hwnd_, kWorkspaceSaveTimer);
+            navigationWorkspace_.FlushState();
             if (inlineRename_ != nullptr) FinishInlineRename(false);
             RevokeDragDrop(hwnd);
             dropTarget_.Reset();

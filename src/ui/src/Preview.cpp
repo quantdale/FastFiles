@@ -243,7 +243,12 @@ uint64_t PreviewController::Request(const FileDescriptor& descriptor) {
         if (SUCCEEDED(comResult)) {
             CoUninitialize();
         }
-        if (!cancellation->load()) {
+        bool stillCurrent = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            stillCurrent = !stopping_ && cancellation_ == cancellation && requestId_ == requestId;
+        }
+        if (stillCurrent && !cancellation->load()) {
             completion_(requestId, std::move(result));
         }
         });

@@ -93,13 +93,28 @@ void RunVolumeScan(
     // it must be explicitly enabled, so ensure it (idempotent, cheap) at
     // every open site rather than relying on service-startup ordering.
     if (!EnsureBackupPrivilegeEnabled()) {
+        const DWORD privilegeEnableError = GetLastError();
+        const TokenPrivilegeState tokenState = CaptureTokenPrivilegeState();
+        // Preserve the existing fail-closed behavior, but retain enough
+        // evidence to distinguish a missing/disabled privilege from a raw
+        // volume denial when the enable step itself prevented the open.
+        LogRawVolumeOpenDiagnostic(
+            volumePath, tokenState,
+            ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
         SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }
+    // Capture the actual service token immediately before the raw-volume
+    // open. The capture is observational and must not alter the call path.
+    const TokenPrivilegeState tokenState = CaptureTokenPrivilegeState();
     HANDLE volumeHandle = CreateFileW(
         volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (volumeHandle == INVALID_HANDLE_VALUE) {
+    const bool volumeOpened = volumeHandle != INVALID_HANDLE_VALUE;
+    const DWORD volumeOpenError = volumeOpened ? ERROR_SUCCESS : GetLastError();
+    LogRawVolumeOpenDiagnostic(volumePath, tokenState,
+                               ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
+    if (!volumeOpened) {
         SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }

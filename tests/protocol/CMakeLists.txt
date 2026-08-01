@@ -3,6 +3,10 @@ target_link_libraries(ffprotocol_tests PRIVATE ffprotocol)
 
 add_test(NAME ffprotocol_tests COMMAND ffprotocol_tests)
 
+add_executable(ffprotocol_diagnostics_tests test_diagnostics.cpp)
+target_link_libraries(ffprotocol_diagnostics_tests PRIVATE ffprotocol)
+add_test(NAME ffprotocol_diagnostics_tests COMMAND ffprotocol_diagnostics_tests)
+
 add_executable(ffprotocol_fuzz_tests test_fuzz.cpp)
 target_link_libraries(ffprotocol_fuzz_tests PRIVATE ffprotocol)
 

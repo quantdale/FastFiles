@@ -83,6 +83,7 @@ public:
 
     void OnSnapshotUpdated();
     void OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
+    void ShowUnavailableLocation(const std::wstring& displayName);
     void SetEngineStatus(bool active);
     void SetDarkTheme(bool dark);
 
