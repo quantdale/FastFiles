@@ -10,17 +10,17 @@
 #include "WindowShell.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
-    if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
+    if (FAILED(OleInitialize(nullptr))) {
         return 1;
     }
 
     ffui::WindowShell shell;
     if (!shell.Initialize(instance, showCommand)) {
-        CoUninitialize();
+        OleUninitialize();
         return 1;
     }
 
     const int exitCode = shell.RunMessageLoop();
-    CoUninitialize();
+    OleUninitialize();
     return exitCode;
 }

@@ -31,6 +31,15 @@ EnumerationResult EnumerateDirectoryDegraded(const std::wstring& directoryPath) 
         entry.name = name;
         entry.isDirectory = (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
         entry.accessible = true;
+        entry.sizeBytes = (static_cast<uint64_t>(findData.nFileSizeHigh) << 32) | findData.nFileSizeLow;
+        ULARGE_INTEGER created{}, modified{};
+        created.LowPart = findData.ftCreationTime.dwLowDateTime;
+        created.HighPart = findData.ftCreationTime.dwHighDateTime;
+        modified.LowPart = findData.ftLastWriteTime.dwLowDateTime;
+        modified.HighPart = findData.ftLastWriteTime.dwHighDateTime;
+        entry.creationTime = created.QuadPart;
+        entry.lastModifiedTime = modified.QuadPart;
+        entry.attributes = findData.dwFileAttributes;
         result.entries.push_back(std::move(entry));
     } while (FindNextFileW(handle, &findData));
 

@@ -17,6 +17,10 @@ struct Candidate {
     uint64_t sizeBytes = 0;
     uint64_t modifiedTime = 0; // Windows FILETIME ticks
     bool isDirectory = false;
+    uint64_t createdTime = 0;
+    int64_t volumeId = 0;
+    uint64_t id = 0;
+    uint64_t parentId = 0;
 };
 
 struct SizeFilter { enum class Op { Equal, Greater, GreaterEqual, Less, LessEqual, Range }; Op op; uint64_t first; uint64_t second = 0; };
@@ -42,6 +46,7 @@ struct Query {
     std::vector<Predicate> predicates;
     std::vector<std::wstring> unrecognizedKeys;
     std::vector<std::wstring> invalidFilters;
+    std::wstring primaryTerm;
     bool Matches(const Candidate& candidate) const;
 };
 

@@ -51,21 +51,23 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
 
 bool EngineClient::MapSnapshotSection(const std::wstring& sectionName) {
     UnmapSnapshotSection();
-
-    mappingHandle_ = OpenFileMappingW(FILE_MAP_READ, FALSE, sectionName.c_str());
-    if (mappingHandle_ == nullptr) {
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sectionName.c_str());
+    if (mapping == nullptr) {
         return false;
     }
-    mappedView_ = static_cast<const uint8_t*>(MapViewOfFile(mappingHandle_, FILE_MAP_READ, 0, 0, 0));
-    if (mappedView_ == nullptr) {
-        CloseHandle(mappingHandle_);
-        mappingHandle_ = nullptr;
+    const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
+    if (view == nullptr) {
+        CloseHandle(mapping);
         return false;
     }
+    std::lock_guard<std::mutex> lock(mappingMutex_);
+    mappingHandle_ = mapping;
+    mappedView_ = view;
     return true;
 }
 
 void EngineClient::UnmapSnapshotSection() {
+    std::lock_guard<std::mutex> lock(mappingMutex_);
     if (mappedView_ != nullptr) {
         UnmapViewOfFile(mappedView_);
         mappedView_ = nullptr;
@@ -77,6 +79,7 @@ void EngineClient::UnmapSnapshotSection() {
 }
 
 std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClient::ReadSnapshot() const {
+    std::lock_guard<std::mutex> lock(mappingMutex_);
     if (mappedView_ == nullptr) {
         return std::nullopt;
     }

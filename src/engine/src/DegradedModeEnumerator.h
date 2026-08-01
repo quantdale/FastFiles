@@ -8,6 +8,10 @@ struct DirectoryEntry {
     std::wstring name;
     bool isDirectory = false;
     bool accessible = true; // false if per-entry metadata could not be read
+    uint64_t sizeBytes = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastModifiedTime = 0;
+    uint32_t attributes = 0;
 };
 
 enum class EnumerationStatus {

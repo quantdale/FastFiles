@@ -1,12 +1,17 @@
 #pragma once
 #include <windows.h>
+#include <filesystem>
 #include <future>
 #include <map>
 
 #include "ColumnView.h"
+#include "CommandPalette.h"
+#include "CommandSystem.h"
 #include "EngineClient.h"
 #include "FileOperations.h"
 #include "Renderer.h"
+#include "SearchPanel.h"
+#include "OleDragDrop.h"
 #include "ffprotocol/Settings.h"
 #include "Preview.h"
 
@@ -23,6 +28,8 @@ public:
 
 private:
     static LRESULT CALLBACK WndProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK InlineRenameProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                             UINT_PTR subclassId, DWORD_PTR referenceData);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     void Render();
@@ -35,15 +42,35 @@ private:
     void RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize);
     void RequestFileType(const std::wstring& path);
     std::wstring FileTypeFor(const std::wstring& path) const;
+    bool InitializeCommands();
+    CommandContext CurrentCommandContext() const;
+    bool InvokeCommand(const std::wstring& commandId);
+    bool DispatchShortcut(const MSG& message, ShortcutScope scope);
+    bool QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination, FileOperationKind kind);
+    void BeginInlineRename(const std::wstring& path);
+    void FinishInlineRename(bool commit);
+    void ShowContextMenu(POINT screenPoint);
+    std::filesystem::path ShortcutSettingsPath() const;
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;
     ColumnView columnView_;
     EngineClient engineClient_;
     FileOperations fileOperations_;
+    OperationHistory operationHistory_;
+    Microsoft::WRL::ComPtr<IDropTarget> dropTarget_;
+    CommandRegistry commandRegistry_;
+    ShortcutMap shortcuts_;
+    CommandPalette commandPalette_;
+    SearchPanel searchPanel_;
+    bool engineActive_ = false;
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;
     bool clipboardIsCut_ = false;
+    bool dragArmed_ = false;
+    POINT dragOrigin_{};
+    HWND inlineRename_ = nullptr;
+    std::wstring inlineRenamePath_;
     float scrollOffset_ = 0.0f;
     ffprotocol::Settings settings_;
     std::mutex previewMutex_;

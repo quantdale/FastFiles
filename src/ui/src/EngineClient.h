@@ -67,6 +67,7 @@ private:
 
     HANDLE mappingHandle_ = nullptr;
     const uint8_t* mappedView_ = nullptr;
+    mutable std::mutex mappingMutex_;
 
     std::thread managementThread_;
     std::thread invalidationThread_;

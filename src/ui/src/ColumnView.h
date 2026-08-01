@@ -15,6 +15,7 @@
 
 #include "EngineClient.h"
 #include "Preview.h"
+#include "CommandSystem.h"
 
 namespace ffui {
 
@@ -70,7 +71,15 @@ public:
     // Real filesystem paths for the currently active pane selection.  File
     // operations and drag start consume this single selection contract.
     std::vector<std::wstring> ActiveSelectionPaths() const;
+    std::vector<SelectionItem> ActiveSelectionItems() const;
     std::wstring ActivePanePath() const;
+    std::wstring RootPath() const;
+    void SelectAll();
+    void RefreshActiveColumn();
+    void NavigateToPath(const std::wstring& path, const std::wstring& selectName = {});
+    void NavigateToHierarchy(const std::wstring& fullPath, bool isDirectory);
+    void NavigateToHierarchy(const std::vector<std::wstring>& segments, bool isDirectory);
+    int FocusedItemIndex() const;
 
     void OnSnapshotUpdated();
     void OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
@@ -116,6 +125,7 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
     bool resourcesCreated_ = false;
     bool darkTheme_ = false;
+    std::wstring pendingSelectionName_;
 };
 
 } // namespace ffui

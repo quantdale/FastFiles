@@ -278,6 +278,11 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
 
         ffprotocol::SnapshotDirectory directory;
         directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+        directory.volumeRowId = entry.volumeRowId;
+        directory.directoryIdLow = entry.frn.low;
+        directory.directoryIdHigh = entry.frn.high;
+        directory.parentIdLow = entry.parentFrn.low;
+        directory.parentIdHigh = entry.parentFrn.high;
         if (const auto* children = projection_.ChildIndices(id, entry.frn)) {
             directory.entries.reserve(children->size());
             for (uint32_t childIndex : *children) {
@@ -287,6 +292,13 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
                 snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
                 snapshotEntry.sizeBytes = child.sizeBytes;
                 snapshotEntry.attributes = child.attributes;
+                snapshotEntry.creationTime = child.creationTime;
+                snapshotEntry.lastModifiedTime = child.lastModifiedTime;
+                snapshotEntry.volumeRowId = child.volumeRowId;
+                snapshotEntry.fileIdLow = child.frn.low;
+                snapshotEntry.fileIdHigh = child.frn.high;
+                snapshotEntry.parentIdLow = child.parentFrn.low;
+                snapshotEntry.parentIdHigh = child.parentFrn.high;
                 directory.entries.push_back(std::move(snapshotEntry));
             }
         }

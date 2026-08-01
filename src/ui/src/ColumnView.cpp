@@ -1,4 +1,5 @@
 #include "ColumnView.h"
+#include "SelectionModel.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -67,34 +68,15 @@ void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
 }
 
 void ColumnView::SelectSingle(Column& column, int itemIndex) {
-    column.selectedIndices.clear();
-    column.selectedIndices.insert(itemIndex);
-    column.selectionAnchor = itemIndex;
-    column.focusIndex = itemIndex;
+    ApplySelectionClick(column.selectedIndices, column.selectionAnchor, column.focusIndex, itemIndex, false, false);
 }
 
 void ColumnView::ToggleSelection(Column& column, int itemIndex) {
-    if (!column.selectedIndices.erase(itemIndex)) {
-        column.selectedIndices.insert(itemIndex);
-    }
-    if (column.selectionAnchor < 0) {
-        column.selectionAnchor = itemIndex;
-    }
-    column.focusIndex = itemIndex;
+    ApplySelectionClick(column.selectedIndices, column.selectionAnchor, column.focusIndex, itemIndex, true, false);
 }
 
 void ColumnView::SelectRange(Column& column, int itemIndex) {
-    if (column.selectionAnchor < 0) {
-        SelectSingle(column, itemIndex);
-        return;
-    }
-    column.selectedIndices.clear();
-    const int first = std::min(column.selectionAnchor, itemIndex);
-    const int last = std::max(column.selectionAnchor, itemIndex);
-    for (int index = first; index <= last; ++index) {
-        column.selectedIndices.insert(index);
-    }
-    column.focusIndex = itemIndex;
+    ApplySelectionClick(column.selectedIndices, column.selectionAnchor, column.focusIndex, itemIndex, false, true);
 }
 
 void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift) {
@@ -218,12 +200,135 @@ std::vector<std::wstring> ColumnView::ActiveSelectionPaths() const {
     return paths;
 }
 
+std::vector<SelectionItem> ColumnView::ActiveSelectionItems() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    std::vector<SelectionItem> items;
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return items;
+    const Column& column = columns_[focusedColumnIndex_];
+    for (int index : column.selectedIndices) {
+        if (index >= 0 && index < static_cast<int>(column.items.size())) {
+            items.push_back({JoinPath(column.path, column.items[index].name), column.items[index].isDirectory});
+        }
+    }
+    return items;
+}
+
+void ColumnView::SelectAll() {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return;
+    Column& column = columns_[focusedColumnIndex_];
+    SelectAllItems(column.selectedIndices, column.selectionAnchor, column.focusIndex,
+                   static_cast<int>(column.items.size()));
+}
+
+void ColumnView::RefreshActiveColumn() {
+    const std::wstring path = ActivePanePath();
+    if (!path.empty() && engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+}
+
+void ColumnView::NavigateToPath(const std::wstring& path, const std::wstring& selectName) {
+    if (path.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        columns_.clear();
+        Column column;
+        column.path = path;
+        columns_.push_back(std::move(column));
+        focusedColumnIndex_ = 0;
+        pendingSelectionName_ = selectName;
+    }
+    if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+}
+
+void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirectory) {
+    if (fullPath.size() < 3) return;
+    const size_t slash = fullPath.find_last_of(L"\\/");
+    if (slash == std::wstring::npos) return;
+    const std::wstring containingPath = fullPath.substr(0, slash);
+    const std::wstring selectedName = fullPath.substr(slash + 1);
+    std::vector<std::wstring> paths;
+    if (containingPath.size() >= 3 && containingPath[1] == L':') {
+        std::wstring current = containingPath.substr(0, 3);
+        paths.push_back(current);
+        size_t start = 3;
+        while (start < containingPath.size()) {
+            const size_t end = containingPath.find(L'\\', start);
+            const std::wstring component = containingPath.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+            if (!component.empty()) {
+                if (current.back() != L'\\') current += L'\\';
+                current += component;
+                paths.push_back(current);
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+    } else {
+        paths.push_back(containingPath);
+    }
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        columns_.clear();
+        for (const auto& path : paths) {
+            Column column;
+            column.path = path;
+            columns_.push_back(std::move(column));
+        }
+        focusedColumnIndex_ = static_cast<int>(columns_.size()) - 1;
+        pendingSelectionName_ = selectedName;
+    }
+    for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    if (isDirectory && engineClient_ != nullptr) engineClient_->RequestDirectory(fullPath);
+}
+
+void ColumnView::NavigateToHierarchy(const std::vector<std::wstring>& segments, bool isDirectory) {
+    if (segments.size() < 2) return;
+    std::vector<std::wstring> paths;
+    std::wstring current = segments.front();
+    paths.push_back(current);
+    for (size_t index = 1; index + 1 < segments.size(); ++index) {
+        if (!current.empty() && current.back() != L'\\') current += L'\\';
+        current += segments[index];
+        paths.push_back(current);
+    }
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        columns_.clear();
+        for (const auto& path : paths) {
+            Column column;
+            column.path = path;
+            columns_.push_back(std::move(column));
+        }
+        focusedColumnIndex_ = static_cast<int>(columns_.size()) - 1;
+        pendingSelectionName_ = segments.back();
+    }
+    for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    if (isDirectory && engineClient_ != nullptr) {
+        std::wstring folder = paths.back();
+        if (folder.back() != L'\\') folder += L'\\';
+        engineClient_->RequestDirectory(folder + segments.back());
+    }
+}
+
+int ColumnView::FocusedItemIndex() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return -1;
+    return columns_[focusedColumnIndex_].focusIndex;
+}
+
 std::wstring ColumnView::ActivePanePath() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
         return {};
     }
     return columns_[focusedColumnIndex_].path;
+}
+
+std::wstring ColumnView::RootPath() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    for (const auto& column : columns_) {
+        if (!column.path.empty()) return column.path;
+    }
+    return {};
 }
 
 void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot) {
@@ -257,6 +362,15 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
         }
         return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
     });
+    if (!pendingSelectionName_.empty()) {
+        for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
+            if (_wcsicmp(column.items[index].name.c_str(), pendingSelectionName_.c_str()) == 0) {
+                SelectSingle(column, index);
+                break;
+            }
+        }
+        pendingSelectionName_.clear();
+    }
     column.selectedIndices.clear();
     for (int index : oldSelection) {
         if (index >= 0 && index < static_cast<int>(column.items.size())) {

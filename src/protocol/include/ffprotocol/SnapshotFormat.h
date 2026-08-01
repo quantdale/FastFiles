@@ -39,11 +39,23 @@ struct SnapshotDirectoryEntry {
     bool isDirectory = false;
     uint64_t sizeBytes = 0;
     uint32_t attributes = 0;
+    uint64_t creationTime = 0;
+    uint64_t lastModifiedTime = 0;
+    int64_t volumeRowId = 0;
+    uint64_t fileIdLow = 0;
+    uint64_t fileIdHigh = 0;
+    uint64_t parentIdLow = 0;
+    uint64_t parentIdHigh = 0;
 };
 
 struct SnapshotDirectory {
     DirectoryEnumerationStatus status = DirectoryEnumerationStatus::NotFound;
     std::vector<SnapshotDirectoryEntry> entries;
+    int64_t volumeRowId = 0;
+    uint64_t directoryIdLow = 0;
+    uint64_t directoryIdHigh = 0;
+    uint64_t parentIdLow = 0;
+    uint64_t parentIdHigh = 0;
 };
 
 // Serializes the given view of directories in path-sorted order (the

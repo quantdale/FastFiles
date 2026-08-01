@@ -140,7 +140,40 @@ FilterRegistry FilterRegistry::WithDefaults() {
 
 bool Query::Matches(const Candidate& candidate) const { return std::all_of(predicates.begin(), predicates.end(), [&](const auto& p) { return p(candidate); }); }
 bool OrdinalContains(std::wstring_view h, std::wstring_view n) { if (n.empty()) return true; for (size_t i = 0; i + n.size() <= h.size(); ++i) if (CompareStringOrdinal(h.data() + i, static_cast<int>(n.size()), n.data(), static_cast<int>(n.size()), TRUE) == CSTR_EQUAL) return true; return false; }
-bool GlobMatches(std::wstring_view text, std::wstring_view pattern) { size_t t = 0, p = 0, star = std::wstring_view::npos, saved = 0; while (t < text.size()) { if (p < pattern.size() && (pattern[p] == L'?' || CompareStringOrdinal(text.data() + t, 1, pattern.data() + p, 1, TRUE) == CSTR_EQUAL)) { ++t; ++p; } else if (p < pattern.size() && pattern[p] == L'*') { star = p++; saved = t; } else if (star != std::wstring_view::npos) { p = star + 1; t = ++saved; } else return false; } while (p < pattern.size() && pattern[p] == L'*') ++p; return p == pattern.size(); }
+bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
+    const auto width = [](std::wstring_view value, size_t offset) -> size_t {
+        if (offset + 1 < value.size() && IS_HIGH_SURROGATE(value[offset]) && IS_LOW_SURROGATE(value[offset + 1])) return 2;
+        return 1;
+    };
+    size_t textIndex = 0, patternIndex = 0, star = std::wstring_view::npos, saved = 0;
+    while (textIndex < text.size()) {
+        if (patternIndex < pattern.size() && pattern[patternIndex] == L'?') {
+            textIndex += width(text, textIndex);
+            ++patternIndex;
+        } else if (patternIndex < pattern.size() && pattern[patternIndex] != L'*') {
+            const size_t textWidth = width(text, textIndex);
+            const size_t patternWidth = width(pattern, patternIndex);
+            if (textWidth == patternWidth && CompareStringOrdinal(text.data() + textIndex, static_cast<int>(textWidth),
+                    pattern.data() + patternIndex, static_cast<int>(patternWidth), TRUE) == CSTR_EQUAL) {
+                textIndex += textWidth;
+                patternIndex += patternWidth;
+            } else if (star != std::wstring_view::npos) {
+                patternIndex = star + 1;
+                saved += width(text, saved);
+                textIndex = saved;
+            } else return false;
+        } else if (patternIndex < pattern.size() && pattern[patternIndex] == L'*') {
+            star = patternIndex++;
+            saved = textIndex;
+        } else if (star != std::wstring_view::npos) {
+            patternIndex = star + 1;
+            saved += width(text, saved);
+            textIndex = saved;
+        } else return false;
+    }
+    while (patternIndex < pattern.size() && pattern[patternIndex] == L'*') ++patternIndex;
+    return patternIndex == pattern.size();
+}
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
     Query query;
     for (const auto& token : Tokenize(text)) {
@@ -159,6 +192,7 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
         if (token.find_first_of(L"*?") != std::wstring::npos) {
             query.predicates.push_back([token](const Candidate& candidate) { return GlobMatches(candidate.name, token); });
         } else {
+            if (query.primaryTerm.empty()) query.primaryTerm = token;
             query.predicates.push_back([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); });
         }
     }

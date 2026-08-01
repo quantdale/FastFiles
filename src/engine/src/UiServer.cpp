@@ -26,6 +26,10 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
         ffprotocol::SnapshotDirectoryEntry snapshotEntry;
         snapshotEntry.name = entry.name;
         snapshotEntry.isDirectory = entry.isDirectory;
+        snapshotEntry.sizeBytes = entry.sizeBytes;
+        snapshotEntry.creationTime = entry.creationTime;
+        snapshotEntry.lastModifiedTime = entry.lastModifiedTime;
+        snapshotEntry.attributes = entry.attributes;
         directory.entries.push_back(std::move(snapshotEntry));
     }
     return directory;

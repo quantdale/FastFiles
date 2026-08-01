@@ -5,14 +5,22 @@ add_executable(FastFiles WIN32
   src/ColumnView.cpp
   src/EngineClient.cpp
   src/FileOperations.cpp
+  src/FileOperationPolicy.cpp
+  src/ConflictDialog.cpp
+  src/OleDragDrop.cpp
   src/Preview.cpp
   src/NavigationWorkspace.cpp
+  src/CommandSystem.cpp
+  src/CommandPalette.cpp
+  src/QuickActions.cpp
+  src/SearchPanel.cpp
 )
 
 target_link_libraries(FastFiles PRIVATE
   ffprotocol
   ffipc
   ffsetup
+  ffsearch
   d3d11
   dxgi
   d2d1
@@ -21,4 +29,5 @@ target_link_libraries(FastFiles PRIVATE
   windowscodecs
   shell32
   ole32
+  comctl32
 )

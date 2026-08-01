@@ -1,5 +1,11 @@
 #include "WindowShell.h"
 
+#include "ConflictDialog.h"
+
+#include <commctrl.h>
+#include <utility>
+#include "QuickActions.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstring>
@@ -36,6 +42,8 @@ constexpr size_t kMaxForgetDriveMenuItems = 1000;
 constexpr UINT WM_APP_PREVIEW_READY = WM_APP + 3;
 constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
 constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
+constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
+constexpr UINT kContextCommandBase = 20000;
 
 std::wstring FormatSize(uint64_t bytes) {
     wchar_t buffer[64]{};
@@ -97,6 +105,277 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
         if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
+
+std::filesystem::path WindowShell::ShortcutSettingsPath() const {
+    std::vector<wchar_t> buffer(32768);
+    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= buffer.size()) return {};
+    return std::filesystem::path(buffer.data()) / L"FastFiles" / L"shortcuts.json";
+}
+
+CommandContext WindowShell::CurrentCommandContext() const {
+    return {ClassifySelection(columnView_.ActiveSelectionItems()), !clipboardPaths_.empty()};
+}
+
+bool WindowShell::InitializeCommands() {
+    const BaselineHandlers handlers{[this](const std::wstring& commandId) -> CommandHandler {
+        return [this, commandId](const std::vector<std::wstring>& paths) {
+            if (commandId == L"file.copy" || commandId == L"file.cut") {
+                clipboardPaths_ = paths;
+                clipboardIsCut_ = commandId == L"file.cut";
+            } else if (commandId == L"file.paste") {
+                const std::wstring destination = columnView_.ActivePanePath();
+                if (!clipboardPaths_.empty() && !destination.empty()) {
+                    if (QueueTransfer(clipboardPaths_, destination,
+                                      clipboardIsCut_ ? FileOperationKind::Move : FileOperationKind::Copy) && clipboardIsCut_) {
+                        clipboardPaths_.clear();
+                    }
+                }
+            } else if (commandId == L"file.new-folder") {
+                const std::wstring destination = columnView_.ActivePanePath();
+                if (!destination.empty()) {
+                    const auto exists = [](const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; };
+                    const std::wstring suggested = exists((std::filesystem::path(destination) / L"New folder").wstring())
+                        ? GenerateKeepBothName(destination, L"New folder", exists) : L"New folder";
+                    fileOperations_.Enqueue({FileOperationKind::CreateFolder, {}, destination, suggested, true});
+                }
+            } else if (commandId == L"file.new-file") {
+                const std::wstring destination = columnView_.ActivePanePath();
+                if (!destination.empty()) {
+                    const auto exists = [](const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; };
+                    const std::wstring suggested = exists((std::filesystem::path(destination) / L"New file.txt").wstring())
+                        ? GenerateKeepBothName(destination, L"New file.txt", exists) : L"New file.txt";
+                    fileOperations_.Enqueue({FileOperationKind::CreateFile, {}, destination, suggested, true});
+                }
+            } else if (commandId == L"file.delete" || commandId == L"file.delete-permanently") {
+                const bool permanent = commandId == L"file.delete-permanently";
+                if (paths.empty()) return;
+                if (permanent) {
+                    std::wstring prompt = L"Permanently delete " + std::to_wstring(paths.size()) + L" item(s)? This cannot be undone.\n\n" + paths.front();
+                    if (MessageBoxW(hwnd_, prompt.c_str(), L"Delete permanently", MB_OKCANCEL | MB_DEFBUTTON2 | MB_ICONWARNING) != IDOK) return;
+                }
+                fileOperations_.Enqueue({FileOperationKind::Delete, paths, {}, {}, !permanent});
+            } else if (commandId == L"file.undo") {
+                const auto undo = operationHistory_.Pop();
+                if (!undo) {
+                    MessageBoxW(hwnd_, L"There is no reversible file operation to undo in this session.", L"Undo", MB_OK | MB_ICONINFORMATION);
+                    return;
+                }
+                if (undo->kind == ReversibleOperationKind::RecycleDelete) {
+                    FileOperationRequest request{};
+                    request.kind = FileOperationKind::Restore;
+                    request.restorePaths = undo->paths;
+                    request.recordHistory = false;
+                    for (const auto& path : undo->paths) request.sources.push_back(path.originalPath);
+                    fileOperations_.Enqueue(std::move(request));
+                } else if (undo->kind == ReversibleOperationKind::Rename && undo->paths.size() == 1) {
+                    FileOperationRequest request{};
+                    request.kind = FileOperationKind::Rename;
+                    request.sources = {undo->paths.front().resultingPath};
+                    request.newName = std::filesystem::path(undo->paths.front().originalPath).filename().wstring();
+                    request.recordHistory = false;
+                    fileOperations_.Enqueue(std::move(request));
+                } else {
+                    for (const auto& path : undo->paths) {
+                        FileOperationRequest request{};
+                        request.kind = FileOperationKind::Move;
+                        request.sources = {path.resultingPath};
+                        request.destination = std::filesystem::path(path.originalPath).parent_path().wstring();
+                        request.transferPlan = {{path.resultingPath, std::filesystem::path(path.originalPath).filename().wstring(), false}};
+                        request.recordHistory = false;
+                        fileOperations_.Enqueue(std::move(request));
+                    }
+                }
+            } else if (commandId == L"item.open" && paths.size() == 1) {
+                const DWORD attributes = GetFileAttributesW(paths.front().c_str());
+                if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) columnView_.NavigateToPath(paths.front());
+                else if (!OpenWithDefaultApplication(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
+            } else if (commandId == L"item.open-with" && paths.size() == 1) {
+                if (!ShowOpenWithPicker(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The application picker could not be opened.", L"Open with", MB_OK | MB_ICONERROR);
+            } else if (commandId == L"item.copy-path") {
+                CopyPathsToClipboard(hwnd_, paths);
+            } else if (commandId == L"item.copy-relative-path") {
+                bool fallback = false;
+                const auto relative = PathsRelativeTo(paths, columnView_.RootPath(), fallback);
+                CopyPathsToClipboard(hwnd_, relative);
+                if (fallback) MessageBoxW(hwnd_, L"A relative path was not possible; the absolute path was copied instead.", L"Copy relative path", MB_OK | MB_ICONINFORMATION);
+            } else if (commandId == L"item.open-containing-folder" && paths.size() == 1) {
+                const std::filesystem::path selected(paths.front());
+                columnView_.NavigateToPath(selected.parent_path().wstring(), selected.filename().wstring());
+            } else if (commandId == L"item.open-terminal") {
+                const std::wstring target = paths.size() == 1 ? paths.front() : columnView_.ActivePanePath();
+                if (!target.empty()) LaunchTerminalHere(hwnd_, target);
+            } else if (commandId == L"item.properties") {
+                RefreshSelectionPresentation();
+                SetWindowTextW(hwnd_, L"FastFiles — Properties");
+                RequestRepaint();
+            } else if (commandId == L"selection.select-all") {
+                columnView_.SelectAll();
+                RefreshSelectionPresentation();
+                RequestRepaint();
+            } else if (commandId == L"navigation.refresh") {
+                columnView_.RefreshActiveColumn();
+            } else if (commandId == L"search.focus") {
+                searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_);
+            } else if (commandId == L"storage.analyze") {
+                MessageBoxW(hwnd_, L"Storage analysis is not available yet.", L"Analyze storage", MB_OK | MB_ICONINFORMATION);
+            } else if (commandId == L"app.settings") {
+                DrawMenuBar(hwnd_);
+                MessageBoxW(hwnd_, L"Use the Settings menu to adjust FastFiles.", L"Settings", MB_OK | MB_ICONINFORMATION);
+            } else if (commandId == L"app.command-palette") {
+                commandPalette_.Show(CurrentCommandContext());
+            } else if (commandId == L"navigation.focus-path") {
+                MessageBoxW(hwnd_, L"Path entry is not available in the current navigation surface.", L"Focus path", MB_OK | MB_ICONINFORMATION);
+            } else if (commandId == L"navigation.back" || commandId == L"navigation.forward" ||
+                       commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
+                MessageBoxW(hwnd_, L"This navigation action is unavailable in the current workspace.", L"Navigation", MB_OK | MB_ICONINFORMATION);
+            } else if (commandId == L"file.rename" && paths.size() == 1) {
+                const std::filesystem::path source(paths.front());
+                const auto name = PromptForLeafName(hwnd_, L"Rename", source.filename().wstring());
+                if (name && !name->empty() && *name != source.filename().wstring()) {
+                    std::wstring reason;
+                    const auto sibling = source.parent_path() / *name;
+                    if (!IsValidFileName(*name, &reason)) {
+                        MessageBoxW(hwnd_, reason.c_str(), L"Invalid name", MB_OK | MB_ICONWARNING);
+                    } else if (GetFileAttributesW(sibling.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                        MessageBoxW(hwnd_, L"An item with that name already exists in this folder.", L"Rename", MB_OK | MB_ICONWARNING);
+                    } else {
+                        fileOperations_.Enqueue({FileOperationKind::Rename, paths, {}, *name, true});
+                    }
+                }
+            }
+        };
+    }};
+    if (!RegisterBaselineCommands(commandRegistry_, handlers)) return false;
+    const auto shortcutPath = ShortcutSettingsPath();
+    if (shortcutPath.empty()) shortcuts_.ResetDefaults(commandRegistry_);
+    else shortcuts_.Load(shortcutPath, commandRegistry_, [](const std::wstring& message) { OutputDebugStringW((message + L"\n").c_str()); });
+    if (!commandPalette_.Initialize(hwnd_, &commandRegistry_, &shortcuts_,
+                                    [this](const std::wstring& id) { InvokeCommand(id); })) return false;
+    return searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
+                                                                  const ffsearch::PathReconstruction& path) {
+        if (path.complete) columnView_.NavigateToHierarchy(path.segments, candidate.isDirectory);
+        else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
+        RefreshSelectionPresentation();
+        RequestRepaint();
+    }, settings_.retainSearchHistory);
+}
+
+bool WindowShell::QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination,
+                                FileOperationKind kind) {
+    if (paths.empty() || destination.empty()) return false;
+    fileOperations_.Enqueue({kind, paths, destination, {}, true});
+    return true;
+}
+
+LRESULT CALLBACK WindowShell::InlineRenameProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                UINT_PTR, DWORD_PTR referenceData) {
+    auto* shell = reinterpret_cast<WindowShell*>(referenceData);
+    if (message == WM_KEYDOWN && shell != nullptr) {
+        if (wParam == VK_RETURN) {
+            shell->FinishInlineRename(true);
+            return 0;
+        }
+        if (wParam == VK_ESCAPE) {
+            shell->FinishInlineRename(false);
+            return 0;
+        }
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+void WindowShell::BeginInlineRename(const std::wstring& path) {
+    FinishInlineRename(false);
+    inlineRenamePath_ = path;
+    const int x = static_cast<int>(columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f);
+    const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
+    const int y = static_cast<int>(ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight);
+    inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, 205, 24, hwnd_,
+                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
+    if (inlineRename_ == nullptr) {
+        inlineRenamePath_.clear();
+        return;
+    }
+    SendMessageW(inlineRename_, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+    SetWindowSubclass(inlineRename_, InlineRenameProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SendMessageW(inlineRename_, EM_SETSEL, 0, static_cast<LPARAM>(-1));
+    SetFocus(inlineRename_);
+}
+
+void WindowShell::FinishInlineRename(bool commit) {
+    if (inlineRename_ == nullptr) return;
+    const HWND edit = inlineRename_;
+    inlineRename_ = nullptr;
+    RemoveWindowSubclass(edit, InlineRenameProc, 1);
+    std::wstring value(static_cast<size_t>(GetWindowTextLengthW(edit)) + 1, L'\0');
+    GetWindowTextW(edit, value.data(), static_cast<int>(value.size()));
+    value.resize(wcslen(value.c_str()));
+    DestroyWindow(edit);
+    const std::wstring path = std::exchange(inlineRenamePath_, {});
+    SetFocus(hwnd_);
+    if (!commit || value == std::filesystem::path(path).filename().wstring()) return;
+    std::wstring reason;
+    const auto sibling = std::filesystem::path(path).parent_path() / value;
+    if (!IsValidFileName(value, &reason)) {
+        MessageBoxW(hwnd_, reason.c_str(), L"Invalid name", MB_OK | MB_ICONWARNING);
+        BeginInlineRename(path);
+        return;
+    }
+    if (GetFileAttributesW(sibling.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        MessageBoxW(hwnd_, L"An item with that name already exists in this folder.", L"Rename", MB_OK | MB_ICONWARNING);
+        BeginInlineRename(path);
+        return;
+    }
+    fileOperations_.Enqueue({FileOperationKind::Rename, {path}, {}, value, true});
+}
+
+bool WindowShell::InvokeCommand(const std::wstring& commandId) {
+    const CommandContext context = CurrentCommandContext();
+    const auto paths = columnView_.ActiveSelectionPaths();
+    if (!commandRegistry_.Invoke(commandId, context, paths)) {
+        MessageBoxW(hwnd_, L"That command is not available for the current selection.", L"Command unavailable", MB_OK | MB_ICONINFORMATION);
+        return false;
+    }
+    return true;
+}
+
+bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope) {
+    if (message.message != WM_KEYDOWN && message.message != WM_SYSKEYDOWN) return false;
+    uint8_t modifiers = ModifierNone;
+    if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) modifiers |= ModifierControl;
+    if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) modifiers |= ModifierShift;
+    if ((GetKeyState(VK_MENU) & 0x8000) != 0) modifiers |= ModifierAlt;
+    const ShortcutBinding* binding = shortcuts_.FindByChord({static_cast<uint16_t>(message.wParam), modifiers}, scope);
+    return binding != nullptr && InvokeCommand(binding->commandId);
+}
+
+void WindowShell::ShowContextMenu(POINT screenPoint) {
+    const CommandContext context = CurrentCommandContext();
+    std::vector<const CommandDescriptor*> commands;
+    for (const auto* command : commandRegistry_.Query(context)) {
+        if (command->category == L"File" || command->category == L"Item") commands.push_back(command);
+    }
+    if (commands.empty()) return;
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) return;
+    std::vector<std::wstring> commandIds;
+    std::wstring previousCategory;
+    for (const auto* command : commands) {
+        if (!previousCategory.empty() && previousCategory != command->category) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        const bool enabled = !command->enabledPredicate || command->enabledPredicate(context);
+        const UINT id = kContextCommandBase + static_cast<UINT>(commandIds.size());
+        AppendMenuW(menu, MF_STRING | (enabled ? MF_ENABLED : MF_GRAYED), id, command->displayName.c_str());
+        commandIds.push_back(command->commandId);
+        previousCategory = command->category;
+    }
+    const UINT selected = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                           screenPoint.x, screenPoint.y, hwnd_, nullptr);
+    DestroyMenu(menu);
+    if (selected >= kContextCommandBase && selected < kContextCommandBase + commandIds.size()) {
+        InvokeCommand(commandIds[selected - kContextCommandBase]);
+    }
+}
 
 LRESULT CALLBACK WindowShell::WndProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     WindowShell* self = nullptr;
@@ -160,6 +439,35 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
     if (!fileOperations_.Start(hwnd_)) return false;
+    if (!InitializeCommands()) return false;
+    IDropTarget* dropTarget = nullptr;
+    if (FAILED(CreateFileDropTarget(
+            [this] { return columnView_.ActivePanePath(); },
+            [this](std::vector<std::wstring> paths, DWORD effect) {
+                const std::wstring destination = columnView_.ActivePanePath();
+                if (destination.empty()) return;
+                if (effect == DROPEFFECT_LINK) {
+                    FileOperationRequest request{};
+                    request.kind = FileOperationKind::Link;
+                    request.sources = std::move(paths);
+                    request.destination = destination;
+                    const auto exists = [](const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; };
+                    for (const auto& source : request.sources) {
+                        std::wstring name = std::filesystem::path(source).filename().wstring() + L".lnk";
+                        if (exists((std::filesystem::path(destination) / name).wstring())) {
+                            name = GenerateKeepBothName(destination, name, exists);
+                        }
+                        request.transferPlan.push_back({source, name, false});
+                    }
+                    fileOperations_.Enqueue(std::move(request));
+                } else {
+                    QueueTransfer(paths, destination, effect == DROPEFFECT_MOVE ? FileOperationKind::Move : FileOperationKind::Copy);
+                }
+            }, &dropTarget)) || FAILED(RegisterDragDrop(hwnd_, dropTarget))) {
+        if (dropTarget != nullptr) dropTarget->Release();
+        return false;
+    }
+    dropTarget_.Attach(dropTarget);
 
     engineClient_.Start(
         [this] {
@@ -168,7 +476,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         },
         [this](bool active) {
             columnView_.SetEngineStatus(active);
-            PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, active ? 1 : 0, 0);
         },
         [this](const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
             columnView_.OnDirectoryError(path, reason);
@@ -183,6 +491,9 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
 int WindowShell::RunMessageLoop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        if (commandPalette_.HandleMessage(msg)) continue;
+        if (DispatchShortcut(msg, ShortcutScope::Global)) continue;
+        if (!commandPalette_.Visible() && msg.hwnd != inlineRename_ && DispatchShortcut(msg, ShortcutScope::ActiveView)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -364,6 +675,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             const UINT width = LOWORD(lParam);
             const UINT height = HIWORD(lParam);
             renderer_.Resize(width, height);
+            commandPalette_.Reposition();
+            searchPanel_.Reposition();
             RequestRepaint();
             return 0;
         }
@@ -392,6 +705,28 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_APP_REPAINT:
             RequestRepaint();
             return 0;
+
+        case WM_APP_ENGINE_STATUS:
+            engineActive_ = wParam != 0;
+            searchPanel_.SetEngineActive(engineActive_);
+            RequestRepaint();
+            return 0;
+
+        case WM_APP_SEARCH_COMPLETE:
+            searchPanel_.HandleCompletion(lParam);
+            return 0;
+
+        case WM_TIMER:
+            if (searchPanel_.HandleTimer(wParam)) return 0;
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+
+        case WM_NOTIFY:
+            if (searchPanel_.HandleNotify(lParam)) return 0;
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+
+        case WM_DRAWITEM:
+            if (searchPanel_.HandleDrawItem(lParam)) return TRUE;
+            return DefWindowProcW(hwnd, message, wParam, lParam);
 
         case WM_APP_PREVIEW_READY:
             RequestRepaint();
@@ -474,6 +809,19 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_FILE_OPERATION_CONFLICT: {
+            auto* question = reinterpret_cast<FileOperationConflictQuestion*>(lParam);
+            if (question == nullptr) return 0;
+            const ConflictDecision decision = ShowConflictDialog(hwnd_, question->source, question->destination);
+            {
+                std::lock_guard lock(question->mutex);
+                question->decision = decision;
+                question->answered = true;
+            }
+            question->answeredCondition.notify_one();
+            return 0;
+        }
+
         case WM_APP_FILE_OPERATION_EVENT: {
             std::unique_ptr<FileOperationEvent> event(reinterpret_cast<FileOperationEvent*>(lParam));
             if (!event) return 0;
@@ -501,6 +849,26 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     title += L" (first: " + event->failures.front().path + L")";
                 }
                 SetWindowTextW(hwnd_, title.c_str());
+                if (event->reversibleOperation) {
+                    auto& reversible = *event->reversibleOperation;
+                    if (reversible.kind == ReversibleOperationKind::Rename && reversible.paths.size() == 1) {
+                        operationHistory_.PushRename(std::move(reversible.paths.front().originalPath),
+                                                     std::move(reversible.paths.front().resultingPath));
+                    } else if (reversible.kind == ReversibleOperationKind::Move) {
+                        operationHistory_.PushMove(std::move(reversible.paths));
+                    } else if (reversible.kind == ReversibleOperationKind::RecycleDelete) {
+                        operationHistory_.PushRecycleDelete(std::move(reversible.paths));
+                    }
+                }
+                if (event->operation == FileOperationKind::Restore && !event->failures.empty()) {
+                    MessageBoxW(hwnd_, L"The deleted item can no longer be restored. It may have been removed from the Recycle Bin.",
+                                L"Undo unavailable", MB_OK | MB_ICONWARNING);
+                }
+                if (!event->createdPaths.empty()) {
+                    const std::filesystem::path created(event->createdPaths.front());
+                    columnView_.NavigateToPath(created.parent_path().wstring(), created.filename().wstring());
+                    BeginInlineRename(created.wstring());
+                }
                 // The existing UI-to-engine control pipe has no blocking
                 // request/reply path here.  Requesting affected directories
                 // is deliberately best effort: it refreshes any live
@@ -521,10 +889,35 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             columnView_.OnMouseDown(
                 point, scrollOffset_, (GetKeyState(VK_CONTROL) & 0x8000) != 0,
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
             RefreshSelectionPresentation();
             RECT clientRect{};
             GetClientRect(hwnd, &clientRect);
             EnsureColumnVisible(columnView_.FocusedColumnIndex(), static_cast<float>(clientRect.right - clientRect.left));
+            RequestRepaint();
+            return 0;
+        }
+
+        case WM_MOUSEMOVE:
+            if (dragArmed_ && (wParam & MK_LBUTTON) != 0 &&
+                (std::abs(GET_X_LPARAM(lParam) - dragOrigin_.x) >= GetSystemMetrics(SM_CXDRAG) ||
+                 std::abs(GET_Y_LPARAM(lParam) - dragOrigin_.y) >= GetSystemMetrics(SM_CYDRAG))) {
+                dragArmed_ = false;
+                BeginFileDrag(columnView_.ActiveSelectionPaths());
+                return 0;
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+
+        case WM_LBUTTONUP:
+            dragArmed_ = false;
+            return 0;
+
+        case WM_RBUTTONDOWN: {
+            D2D1_POINT_2F point = D2D1::Point2F(
+                static_cast<float>(GET_X_LPARAM(lParam)), static_cast<float>(GET_Y_LPARAM(lParam)));
+            columnView_.OnMouseDown(point, scrollOffset_, false, false);
+            RefreshSelectionPresentation();
             RequestRepaint();
             return 0;
         }
@@ -541,38 +934,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_CONTEXTMENU: {
-            HMENU menu = CreatePopupMenu();
-            if (!menu) return 0;
-            AppendMenuW(menu, MF_STRING, kMenuCopy, L"Copy");
-            AppendMenuW(menu, MF_STRING, kMenuCut, L"Cut");
-            AppendMenuW(menu, MF_STRING, kMenuPaste, L"Paste");
-            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, kMenuNewFolder, L"New folder");
-            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, kMenuDelete, L"Delete");
-            AppendMenuW(menu, MF_STRING, kMenuPermanentDelete, L"Delete permanently");
-            const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                                                GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 0, hwnd_, nullptr);
-            DestroyMenu(menu);
-            const auto paths = columnView_.ActiveSelectionPaths();
-            if (command == kMenuCopy || command == kMenuCut) {
-                clipboardPaths_ = paths;
-                clipboardIsCut_ = command == kMenuCut;
-            } else if (command == kMenuPaste && !clipboardPaths_.empty()) {
-                fileOperations_.Enqueue({clipboardIsCut_ ? FileOperationKind::Move : FileOperationKind::Copy,
-                                         clipboardPaths_, columnView_.ActivePanePath(), {}, true});
-                if (clipboardIsCut_) clipboardPaths_.clear();
-            } else if (command == kMenuNewFolder && !columnView_.ActivePanePath().empty()) {
-                fileOperations_.Enqueue({FileOperationKind::CreateFolder, {}, columnView_.ActivePanePath(), L"New folder", true});
-            } else if (command == kMenuDelete && !paths.empty()) {
-                fileOperations_.Enqueue({FileOperationKind::Delete, paths, {}, {}, true});
-            } else if (command == kMenuPermanentDelete && !paths.empty()) {
-                std::wstring prompt = L"Permanently delete " + std::to_wstring(paths.size()) + L" item(s)? This cannot be undone.\n\n" + paths.front();
-                if (paths.size() > 1) prompt += L"\n…";
-                if (MessageBoxW(hwnd_, prompt.c_str(), L"Delete permanently", MB_OKCANCEL | MB_DEFBUTTON2 | MB_ICONWARNING) == IDOK) {
-                    fileOperations_.Enqueue({FileOperationKind::Delete, paths, {}, {}, false});
-                }
+            POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            if (point.x == -1 && point.y == -1) {
+                const int column = columnView_.FocusedColumnIndex();
+                const int item = columnView_.FocusedItemIndex();
+                point = {static_cast<LONG>(column * ColumnView::kColumnWidth - scrollOffset_ + 24),
+                         static_cast<LONG>(ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight)};
+                ClientToScreen(hwnd_, &point);
             }
+            ShowContextMenu(point);
             return 0;
         }
 
@@ -583,37 +953,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 ApplyTheme();
                 return 0;
             }
-            const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             if (wParam == VK_ESCAPE) {
+                if (searchPanel_.Visible()) {
+                    searchPanel_.Hide();
+                    SetFocus(hwnd_);
+                    return 0;
+                }
                 fileOperations_.CancelCurrent();
                 SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
-                return 0;
-            }
-            if (control && (wParam == 'C' || wParam == 'X')) {
-                clipboardPaths_ = columnView_.ActiveSelectionPaths();
-                clipboardIsCut_ = wParam == 'X';
-                return 0;
-            }
-            if (control && wParam == 'V' && !clipboardPaths_.empty()) {
-                fileOperations_.Enqueue({clipboardIsCut_ ? FileOperationKind::Move : FileOperationKind::Copy,
-                                         clipboardPaths_, columnView_.ActivePanePath(), {}, true});
-                if (clipboardIsCut_) clipboardPaths_.clear();
-                return 0;
-            }
-            if (wParam == VK_DELETE) {
-                const auto paths = columnView_.ActiveSelectionPaths();
-                std::wstring prompt = L"Permanently delete " + std::to_wstring(paths.size()) + L" item(s)? This cannot be undone.";
-                if (!paths.empty()) prompt += L"\n\n" + paths.front() + (paths.size() > 1 ? L"\n…" : L"");
-                if (!paths.empty() && (!shift || MessageBoxW(hwnd_, prompt.c_str(),
-                    L"Delete permanently", MB_OKCANCEL | MB_DEFBUTTON2 | MB_ICONWARNING) == IDOK)) {
-                    fileOperations_.Enqueue({FileOperationKind::Delete, paths, {}, {}, !shift});
-                }
-                return 0;
-            }
-            if (control && shift && wParam == 'N') {
-                const auto destination = columnView_.ActivePanePath();
-                if (!destination.empty()) fileOperations_.Enqueue({FileOperationKind::CreateFolder, {}, destination, L"New folder", true});
                 return 0;
             }
             columnView_.OnKeyDown(static_cast<int>(wParam));
@@ -629,6 +976,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_COMMAND:
+            if (searchPanel_.HandleOwnerCommand(wParam, lParam)) return 0;
+            if (commandPalette_.HandleOwnerCommand(wParam, lParam)) return 0;
             switch (LOWORD(wParam)) {
                 case kMenuThemeLight: settings_.theme = ffprotocol::ThemePreference::Light; break;
                 case kMenuThemeDark: settings_.theme = ffprotocol::ThemePreference::Dark; break;
@@ -672,6 +1021,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_DESTROY:
+            if (inlineRename_ != nullptr) FinishInlineRename(false);
+            RevokeDragDrop(hwnd);
+            dropTarget_.Reset();
             fileOperations_.Stop();
             previewController_.Clear();
             hwnd_ = nullptr;

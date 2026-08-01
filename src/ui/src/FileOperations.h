@@ -6,15 +6,29 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <optional>
+#include <condition_variable>
 #include <windows.h>
+
+#include "FileOperationPolicy.h"
 
 namespace ffui {
 
 // Posted to the UI HWND.  The receiver owns and deletes the event; it never
 // contains a COM interface or any other apartment-bound value.
 constexpr UINT WM_APP_FILE_OPERATION_EVENT = WM_APP + 2;
+constexpr UINT WM_APP_FILE_OPERATION_CONFLICT = WM_APP + 8;
 
-enum class FileOperationKind { Copy, Move, Rename, CreateFolder, CreateFile, Delete };
+struct FileOperationConflictQuestion {
+    std::wstring source;
+    std::wstring destination;
+    std::mutex mutex;
+    std::condition_variable answeredCondition;
+    ConflictDecision decision;
+    bool answered = false;
+};
+
+enum class FileOperationKind { Copy, Move, Rename, CreateFolder, CreateFile, Delete, Restore, Link };
 enum class FileOperationEventKind { Queued, Started, Progress, Completed, Cancelled };
 
 struct FileOperationFailure {
@@ -33,6 +47,8 @@ struct FileOperationEvent {
     std::vector<std::wstring> affectedPaths;
     double workUnitsPerSecond = 0.0;
     double etaSeconds = -1.0;
+    std::optional<ReversibleOperation> reversibleOperation;
+    std::vector<std::wstring> createdPaths;
 };
 
 struct FileOperationRequest {
@@ -41,6 +57,9 @@ struct FileOperationRequest {
     std::wstring destination;
     std::wstring newName;
     bool recycle = true;
+    std::vector<TransferPlanItem> transferPlan;
+    std::vector<ReversiblePath> restorePaths;
+    bool recordHistory = true;
 };
 
 class FileOperations {
@@ -60,6 +79,7 @@ public:
 private:
     void WorkerMain();
     void Execute(const FileOperationRequest& request);
+    ConflictDecision RequestConflictDecision(const std::wstring& source, const std::wstring& destination);
     HWND eventWindow_ = nullptr;
     std::atomic<DWORD> workerThreadId_{0};
     std::thread worker_;

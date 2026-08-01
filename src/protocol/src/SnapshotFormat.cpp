@@ -89,11 +89,23 @@ std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDire
     for (const auto& [path, directory] : directories) {
         AppendWString(buffer, path);
         AppendU32(buffer, static_cast<uint32_t>(directory.status));
+        AppendU64(buffer, static_cast<uint64_t>(directory.volumeRowId));
+        AppendU64(buffer, directory.directoryIdLow);
+        AppendU64(buffer, directory.directoryIdHigh);
+        AppendU64(buffer, directory.parentIdLow);
+        AppendU64(buffer, directory.parentIdHigh);
         AppendU32(buffer, static_cast<uint32_t>(directory.entries.size()));
         for (const auto& entry : directory.entries) {
             buffer.push_back(entry.isDirectory ? 1 : 0);
             AppendU64(buffer, entry.sizeBytes);
             AppendU32(buffer, entry.attributes);
+            AppendU64(buffer, entry.creationTime);
+            AppendU64(buffer, entry.lastModifiedTime);
+            AppendU64(buffer, static_cast<uint64_t>(entry.volumeRowId));
+            AppendU64(buffer, entry.fileIdLow);
+            AppendU64(buffer, entry.fileIdHigh);
+            AppendU64(buffer, entry.parentIdLow);
+            AppendU64(buffer, entry.parentIdHigh);
             AppendWString(buffer, entry.name);
         }
     }
@@ -117,7 +129,11 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
 
         uint32_t statusRaw = 0;
         uint32_t entryCount = 0;
-        if (!reader.ReadU32(statusRaw) || !reader.ReadU32(entryCount)) {
+        uint64_t volumeRowId = 0, directoryIdLow = 0, directoryIdHigh = 0, parentIdLow = 0, parentIdHigh = 0;
+        if (!reader.ReadU32(statusRaw) || !reader.ReadU64(volumeRowId)
+            || !reader.ReadU64(directoryIdLow) || !reader.ReadU64(directoryIdHigh)
+            || !reader.ReadU64(parentIdLow) || !reader.ReadU64(parentIdHigh)
+            || !reader.ReadU32(entryCount)) {
             return std::nullopt;
         }
 
@@ -125,28 +141,46 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         // length prefix) bytes -- reject an implausible declared count
         // before reserve() ever sees an attacker-controlled value up to
         // UINT32_MAX (same discipline as Records.h/IsBatchCountPlausible).
-        constexpr size_t kMinBytesPerEntry = 1 + sizeof(uint64_t) + 2 * sizeof(uint32_t);
+        constexpr size_t kMinBytesPerEntry = 1 + 8 * sizeof(uint64_t) + 2 * sizeof(uint32_t);
         if (static_cast<uint64_t>(entryCount) * kMinBytesPerEntry > reader.Remaining()) {
             return std::nullopt;
         }
 
         SnapshotDirectory directory;
         directory.status = static_cast<DirectoryEnumerationStatus>(statusRaw);
+        directory.volumeRowId = static_cast<int64_t>(volumeRowId);
+        directory.directoryIdLow = directoryIdLow;
+        directory.directoryIdHigh = directoryIdHigh;
+        directory.parentIdLow = parentIdLow;
+        directory.parentIdHigh = parentIdHigh;
         directory.entries.reserve(entryCount);
 
         for (uint32_t e = 0; e < entryCount; ++e) {
             uint8_t isDirectoryByte = 0;
             uint64_t sizeBytes = 0;
             uint32_t attributes = 0;
+            uint64_t creationTime = 0, lastModifiedTime = 0, entryVolumeRowId = 0;
+            uint64_t fileIdLow = 0, fileIdHigh = 0, entryParentIdLow = 0, entryParentIdHigh = 0;
             std::wstring name;
             if (!reader.ReadByte(isDirectoryByte) || !reader.ReadU64(sizeBytes)
-                || !reader.ReadU32(attributes) || !reader.ReadWString(name)) {
+                || !reader.ReadU32(attributes) || !reader.ReadU64(creationTime)
+                || !reader.ReadU64(lastModifiedTime) || !reader.ReadU64(entryVolumeRowId)
+                || !reader.ReadU64(fileIdLow) || !reader.ReadU64(fileIdHigh)
+                || !reader.ReadU64(entryParentIdLow) || !reader.ReadU64(entryParentIdHigh)
+                || !reader.ReadWString(name)) {
                 return std::nullopt;
             }
             SnapshotDirectoryEntry entry;
             entry.isDirectory = isDirectoryByte != 0;
             entry.sizeBytes = sizeBytes;
             entry.attributes = attributes;
+            entry.creationTime = creationTime;
+            entry.lastModifiedTime = lastModifiedTime;
+            entry.volumeRowId = static_cast<int64_t>(entryVolumeRowId);
+            entry.fileIdLow = fileIdLow;
+            entry.fileIdHigh = fileIdHigh;
+            entry.parentIdLow = entryParentIdLow;
+            entry.parentIdHigh = entryParentIdHigh;
             entry.name = std::move(name);
             directory.entries.push_back(std::move(entry));
         }
