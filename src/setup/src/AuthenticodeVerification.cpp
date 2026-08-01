@@ -66,11 +66,20 @@ std::optional<Thumbprint> VerifyAuthenticodeAndGetThumbprint(const std::wstring&
 }
 
 bool VerifyPinnedSignature(const std::wstring& filePath, const Thumbprint& expected) noexcept {
+#ifdef FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED
+    // Compile-time-only escape hatch for a disposable local diagnostic build.
+    // Never enable this in a shipped binary: production mutual authentication
+    // must continue to fail closed when pins are not configured.
+    (void)filePath;
+    (void)expected;
+    return true;
+#else
     if (IsPlaceholderThumbprint(expected)) {
         return false; // fail closed: pin not yet configured
     }
     auto actual = VerifyAuthenticodeAndGetThumbprint(filePath);
     return actual.has_value() && *actual == expected;
+#endif
 }
 
 } // namespace ffsetup
