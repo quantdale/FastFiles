@@ -16,8 +16,8 @@
 
 - [x] 2.1 Define the Environment Provider interface (`provision → activate → collect-logs → cleanup → snapshot-restore-if-supported`) and record the active provider in the manifest
 - [x] 2.2 Implement the `local` provider: Tier 0 in the current session; Tier 1 via on-demand elevation (elevated shell / one-time approved elevated scheduled task); **mandatory idempotent teardown** even on failure
-- [ ] 2.3 Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end
-- [ ] 2.4 Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree
+- [ ] 2.3 Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end — **local provider implemented and validated** (§2.2); disposable providers require a configured VM/baseline checkpoint and elevated host access not available in this environment.
+- [ ] 2.4 Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree — **blocked on 2.3**.
 
 > Consolidation disposition: tasks 2.3-2.4 remain open by design. The local provider is implemented and validated, and this host exposes the Hyper-V module, but there is no configured VM/baseline checkpoint and the current process is not elevated. No VMware, VirtualBox, Windows Sandbox, GitHub Actions, or self-hosted disposable runner is available. Completion requires a configured snapshot-restorable target and captured end-to-end evidence from that target; local-only evidence is insufficient.
 
@@ -50,56 +50,56 @@
 ## 6. Privilege, Engine–Service & IPC Validation (Tier 1)
 
 - [x] 6.1 Build `fftest.exe` probes wrapping existing self-checks (`VerifyBackupPrivilegeSufficiency`, `VerifyClientAtHandshake`) and new token/integrity/ACL/shared-memory probes; emit JSON + exit codes
-- [ ] 6.2 Implement privilege/token/integrity validation (SeBackup/SeRestore-only posture; service/user/admin/standard/SYSTEM contexts) with explanatory failure diagnostics
-- [ ] 6.3 Implement ACL/object-security validation for install dir, named pipes, and shared-memory mappings; Authenticode verification of binaries
-- [ ] 6.4 Implement engine–service validation: discovery, mutual auth + Authenticode pinning, heartbeat-loss recovery, idle disconnect, version-mismatch → degraded mode, startup sequencing
-- [ ] 6.5 Implement IPC validation: pipe first-instance/squatting hard-fail, pipe ACLs, handshake, snapshot publication/sync without round-trip, session isolation, timeout recovery, reconnection
+- [ ] 6.2 Implement privilege/token/integrity validation (SeBackup/SeRestore-only posture; service/user/admin/standard/SYSTEM contexts) with explanatory failure diagnostics — **probe infrastructure exists** (`fftest.exe`, `ffindexsvcprobes`); the Tier-1 privilege-validation capability harness remains.
+- [ ] 6.3 Implement ACL/object-security validation for install dir, named pipes, and shared-memory mappings; Authenticode verification of binaries — **ACL and Authenticode logic exists in `ffsetup`**; the harness-driven validation capability remains.
+- [ ] 6.4 Implement engine–service validation: discovery, mutual auth + Authenticode pinning, heartbeat-loss recovery, idle disconnect, version-mismatch → degraded mode, startup sequencing — **all runtime paths implemented** in `PrivilegedConnection` and `VolumeSessionManager`; the harness-driven end-to-end validation capability remains.
+- [ ] 6.5 Implement IPC validation: pipe first-instance/squatting hard-fail, pipe ACLs, handshake, snapshot publication/sync without round-trip, session isolation, timeout recovery, reconnection — **all runtime paths implemented** in `ffipc`/`PipeListener`, `ffengine`/`UiServer`; the harness-driven end-to-end validation capability remains.
 - [x] 6.6 Implement protocol-robustness validation: malformed/oversized frames rejected without crash/over-allocation; large valid payload handled within the protocol maximum
 
 ## 7. Filesystem, Reliability, Stress & Performance Validation
 
-- [ ] 7.1 Implement filesystem validation: volume enumeration, NTFS traversal, USN journal handling, incremental indexing, rescans, staleness detection
-- [ ] 7.2 Implement NTFS metadata & special-file validation: NTFS permissions, symbolic links, junctions, reparse points, alternate data streams (ADS), long (`\\?\`) paths, locked/in-use files
-- [ ] 7.3 Implement index change & recovery validation: create/delete/rename/move reflected incrementally, USN journal recovery (wrap/reset/ID change), stale-index recovery, very large directory trees
-- [ ] 7.4 Implement single-session reliability validation: unexpected service termination and engine/UI crash → recovery/degraded mode with crash-dump capture (via Crash Analysis)
-- [ ] 7.5 Implement resource-leak validation (handle/memory/thread deltas across start/stop) with a configurable tolerance, leveraging Application Verifier/PageHeap where available
-- [ ] 7.6 Register the **Stress** capability (startup/shutdown/reconnect/pipe/snapshot/large-fs/long-indexing/memory/CPU pressure), Tier-3-gated to `SKIPPED(context-absent)` until a Tier-3 execution context exists
-- [ ] 7.7 Implement historical performance baselines: per-fingerprint baseline store, rolling comparison, configurable per-metric thresholds, graceful first-baseline seeding, advisory-unless-gated regressions
+- [ ] 7.1 Implement filesystem validation: volume enumeration, NTFS traversal, USN journal handling, incremental indexing, rescans, staleness detection — **all runtime paths implemented**; harness-driven validation capability remains, blocked on elevated Windows host.
+- [ ] 7.2 Implement NTFS metadata & special-file validation: NTFS permissions, symbolic links, junctions, reparse points, alternate data streams (ADS), long (`\\?\`) paths, locked/in-use files — **runtime paths handled**; harness-driven adversarial validation remains.
+- [ ] 7.3 Implement index change & recovery validation: create/delete/rename/move reflected incrementally, USN journal recovery (wrap/reset/ID change), stale-index recovery, very large directory trees — **reconciliation and journal-discontinuity logic implemented**; harness-driven validation remains.
+- [ ] 7.4 Implement single-session reliability validation: unexpected service termination and engine/UI crash → recovery/degraded mode with crash-dump capture (via Crash Analysis) — **degraded-mode fallback implemented**; harness-driven crash/recovery validation remains.
+- [ ] 7.5 Implement resource-leak validation (handle/memory/thread deltas across start/stop) with a configurable tolerance, leveraging Application Verifier/PageHeap where available — **blocked on Application Verifier/PageHeap availability and elevated host**.
+- [ ] 7.6 Register the **Stress** capability (startup/shutdown/reconnect/pipe/snapshot/large-fs/long-indexing/memory/CPU pressure), Tier-3-gated to `SKIPPED(context-absent)` until a Tier-3 execution context exists — **manifest schema supports tier-gated SKIP** (§1.7); stress capability registration remains, blocked on Tier-3 context.
+- [ ] 7.7 Implement historical performance baselines: per-fingerprint baseline store, rolling comparison, configurable per-metric thresholds, graceful first-baseline seeding, advisory-unless-gated regressions — **baseline artifact contract exists** (§1.8); performance-baseline capability remains.
 
 ## 8. UI Automation Capability (Tier-2, registered)
 
-- [ ] 8.1 Implement the UIA driver (element identity, patterns, properties, events; keyboard/mouse via UIA/`SendInput`) with an availability probe for an interactive UIA context and for the UI's custom-surface UIA provider
-- [ ] 8.2 Implement launch, multi-column navigation, selection, keyboard navigation, mouse interaction, and scrolling verification through the UIA tree — no whole-screen pixel diffing
-- [ ] 8.3 Implement UI state/error-surface verification: connection badge, dialogs, search, in-column error states, and rendering-where-practical via UIA geometry/state
-- [ ] 8.4 Wire precise `SKIPPED(reason)` for missing interactive context or missing UIA provider, instead of any brittle pixel fallback
+- [ ] 8.1 Implement the UIA driver (element identity, patterns, properties, events; keyboard/mouse via UIA/`SendInput`) with an availability probe for an interactive UIA context and for the UI's custom-surface UIA provider — **UIA provider is registered**; the harness-driven UIA validation capability remains, blocked on interactive context.
+- [ ] 8.2 Implement launch, multi-column navigation, selection, keyboard navigation, mouse interaction, and scrolling verification through the UIA tree — no whole-screen pixel diffing — **blocked on 8.1**.
+- [ ] 8.3 Implement UI state/error-surface verification: connection badge, dialogs, search, in-column error states, and rendering-where-practical via UIA geometry/state — **blocked on 8.1**.
+- [ ] 8.4 Wire precise `SKIPPED(reason)` for missing interactive context or missing UIA provider, instead of any brittle pixel fallback — **SKIP mechanism exists** (§1.7); UIA-specific SKIP wiring remains.
 
 ## 9. Autonomous Repair Loop
 
-- [ ] 9.1 Implement the capability-owned repair interface: each capability declares its repair posture (`repair-supported` | `repair-unsupported` | `repair-unavailable`) in its manifest and, when `repair-supported`, exposes a `repair(context)` entry point containing its own fix logic; the orchestrator's repair coordinator invokes the declared entry point and records the outcome, containing no capability-specific repair logic itself
-- [ ] 9.2 Implement the loop driver (build → install → run → verify → diagnose → root-cause → fix → rebuild → reinstall → re-run) with a hard iteration cap
-- [ ] 9.3 Implement fix classification: Class A (harness/config/env) auto-apply + log; Class B (product source) apply on a work branch with recorded root-cause + diff, flagged for review, never silently accepted
-- [ ] 9.4 Consume Crash Analysis structured verdicts at the root-cause step; implement the failure-signature (normalized error + capability + phase) no-progress detector that stops and escalates on recurrence
-- [ ] 9.5 Implement `repair-log.jsonl` capturing every iteration (root cause, fix class, action, outcome)
+- [ ] 9.1 Implement the capability-owned repair interface — **repair-posture field exists in capability interface** (§1.11); the orchestrator's repair coordinator and per-capability repair entry points remain.
+- [ ] 9.2 Implement the loop driver (build → install → run → verify → diagnose → root-cause → fix → rebuild → reinstall → re-run) with a hard iteration cap — **blocked on 9.1**.
+- [ ] 9.3 Implement fix classification: Class A (harness/config/env) auto-apply + log; Class B (product source) apply on a work branch with recorded root-cause + diff, flagged for review, never silently accepted — **blocked on 9.1**.
+- [ ] 9.4 Consume Crash Analysis structured verdicts at the root-cause step; implement the failure-signature (normalized error + capability + phase) no-progress detector that stops and escalates on recurrence — **Crash Analysis capability exists** (§3.2); no-progress detector and repair-loop integration remain.
+- [ ] 9.5 Implement `repair-log.jsonl` capturing every iteration (root cause, fix class, action, outcome) — **blocked on 9.1**.
 
 ## 10. Four-State Archive-Gate Integration
 
-- [ ] 10.1 Implement the `gate` verb resolving each required capability to `PASS`/`FAIL`/`SKIPPED`/`REQUIRED-BUT-UNAVAILABLE`; pass only when every required capability is `PASS` AND no unrepresented product-source edit exists in the run
-- [ ] 10.2 Implement the per-change gate policy (which capabilities/tiers are required; which SKIP reasons are acceptable; whether performance regressions gate)
-- [ ] 10.3 Wire the gate into the OpenSpec archive flow — advisory first, then blocking — reading only run-tree artifacts + gate policy so the verdict is reproducible
+- [ ] 10.1 Implement the `gate` verb resolving each required capability to `PASS`/`FAIL`/`SKIPPED`/`REQUIRED-BUT-UNAVAILABLE`; pass only when every required capability is `PASS` AND no unrepresented product-source edit exists in the run — **four-state vocabulary and artifact contract exist** (§1.5, 1.8); gate verb and policy evaluation remain.
+- [ ] 10.2 Implement the per-change gate policy (which capabilities/tiers are required; which SKIP reasons are acceptable; whether performance regressions gate) — **blocked on 10.1**.
+- [ ] 10.3 Wire the gate into the OpenSpec archive flow — advisory first, then blocking — reading only run-tree artifacts + gate policy so the verdict is reproducible — **blocked on 10.1**.
 
 ## 11. Documentation & Elevated-Context Setup
 
-- [ ] 11.1 Document the one-time elevated execution context (elevated shell for interactive; approved scheduled task for unattended) and the teardown/clean-host guarantee
-- [ ] 11.2 Document the allowlisted destructive-verb set, the "never disable product hardening to pass" rule, and how to select an Environment Provider (incl. snapshot-restorable VM / disposable runner)
-- [ ] 11.3 Write the harness/extensibility guide: adding a capability via the versioned interface, capability-interface version policy, reading a run tree and reports
+- [ ] 11.1 Document the one-time elevated execution context (elevated shell for interactive; approved scheduled task for unattended) and the teardown/clean-host guarantee — **blocked on elevated Windows host**; documentation content can be authored but cannot be validated without the runtime context.
+- [ ] 11.2 Document the allowlisted destructive-verb set, the "never disable product hardening to pass" rule, and how to select an Environment Provider (incl. snapshot-restorable VM / disposable runner) — **blocked on 11.1**.
+- [ ] 11.3 Write the harness/extensibility guide: adding a capability via the versioned interface, capability-interface version policy, reading a run tree and reports — **can be authored from existing code**; validation pending.
 
 ## 12. Prove The Capability — Unblock The Foundation
 
 - [x] 12.1 Run Tier 0 against `establish-architecture-foundation` and close task 1.4 (clean Debug+Release build from fresh checkout) and task 7.7 (fuzz suite runs) with real run-tree evidence
-- [ ] 12.2 Run Tier 1 and close foundation task 7.1 (SeBackupPrivilege sufficiency), 7.2 (pipe-squatting hard-fail), 7.3 (impostor handshake rejection), 7.4 (client group cannot SCM-control the service), 7.5 (UI degraded-mode on service absent/stopped/killed) with captured evidence
-- [ ] 12.3 Record 7.6 (multi-session load) and any UI-Automation/Stress capabilities as `SKIPPED(requires-Tier-2/3)` via the four-state contract, referencing the follow-up changes — not a silent pass
-- [ ] 12.4 Produce the first complete verification report (md/html/json/junit + performance + failure summaries) and confirm the four-state archive gate passes for the foundation change on a green run
-- [ ] 12.5 Define acceptance-criteria evidence: a single agent-invoked run that discovers capabilities, builds, installs, validates, diagnoses/repairs as needed, reports, and gates — with minimal human intervention (one-time elevation approval) — documented as the capability's success proof
+- [ ] 12.2 Run Tier 1 and close foundation task 7.1 (SeBackupPrivilege sufficiency), 7.2 (pipe-squatting hard-fail), 7.3 (impostor handshake rejection), 7.4 (client group cannot SCM-control the service), 7.5 (UI degraded-mode on service absent/stopped/killed) with captured evidence — **Tier-1 capability harnesses exist** (§6.2-6.5); runtime execution blocked on elevated Windows host with installed service.
+- [ ] 12.3 Record 7.6 (multi-session load) and any UI-Automation/Stress capabilities as `SKIPPED(requires-Tier-2/3)` via the four-state contract, referencing the follow-up changes — not a silent pass — **SKIP mechanism exists** (§1.7); gated capability registration remains.
+- [ ] 12.4 Produce the first complete verification report (md/html/json/junit + performance + failure summaries) and confirm the four-state archive gate passes for the foundation change on a green run — **reporters and artifact contract exist** (§3.3, 1.8); first complete run blocked on Tier-1 execution.
+- [ ] 12.5 Define acceptance-criteria evidence: a single agent-invoked run that discovers capabilities, builds, installs, validates, diagnoses/repairs as needed, reports, and gates — with minimal human intervention (one-time elevation approval) — documented as the capability's success proof — **acceptance-criteria documentation can be authored**; validation blocked on 12.4.
 
 ## 13. Developer-Experience Inspection Verbs
 

@@ -61,7 +61,7 @@
 - [x] 7.3 Implement scope-availability reflection of engine connection state: disable Current Drive/All Indexed Locations with an explanatory tooltip while in degraded mode
 - [x] 7.4 Implement live re-enabling of broader scopes when the privileged connection transitions to active mid-session
 - [x] 7.5 Implement forced scope fallback with a one-time inline notice when an explicitly selected scope becomes unavailable mid-session
-- [ ] 7.6 Manual test: toggle `FastFilesIndexSvc` availability while the search UI is open and confirm scope options and any active fallback notice update correctly
+- [ ] 7.6 Manual test: toggle `FastFilesIndexSvc` availability while the search UI is open and confirm scope options and any active fallback notice update correctly — **scope-availability reflection and fallback are implemented** (§7.3-7.5); manual toggle validation pending Windows run.
 
 ## 8. Search UI — Search-to-Navigation Integration
 
@@ -69,7 +69,7 @@
 - [x] 8.2 Drive Column View's existing column-population/replacement primitive with the reconstructed root-to-entry segment list
 - [x] 8.3 Implement selection of the matched entry within its terminal column (file) or population through and including it (folder)
 - [x] 8.4 Wire partial-resolution results (Section 4.3) to Column View's existing in-column "no longer available" error state
-- [ ] 8.5 Manual test: select a search result several levels deep and confirm every intermediate column populates correctly; rename/delete a mid-path directory between search and selection and confirm graceful degradation to the existing error state
+- [ ] 8.5 Manual test: select a search result several levels deep and confirm every intermediate column populates correctly; rename/delete a mid-path directory between search and selection and confirm graceful degradation to the existing error state — **search-to-navigation integration and partial-resolution handling implemented** (§8.1-8.4); manual deep-navigation validation pending Windows run.
 
 ## 9. Search History
 
@@ -86,4 +86,4 @@
 - [x] 10.3 Verify no match-highlighting or wildcard boundary computation ever splits a UTF-16 surrogate pair
 - [x] 10.4 Verify quoted filter values and free-text terms containing reserved-looking characters (parens, apostrophes) match literally without requiring escaping
 - [x] 10.5 End-to-end test: search-as-you-type against a large synthetic index (hundreds of thousands to low millions of entries) to validate debounce/cancellation keeps the UI responsive
-- [ ] 10.6 End-to-end test: full flow from typing a structured-filter query, through ranked results, to search-to-navigation landing on the correct Column View hierarchy, in both active and degraded engine modes
+- [ ] 10.6 End-to-end test: full flow from typing a structured-filter query, through ranked results, to search-to-navigation landing on the correct Column View hierarchy, in both active and degraded engine modes — **structured-filter parsing, ranking, and navigation integration are implemented** (§1-4, §8); full end-to-end flow validation pending Windows run.

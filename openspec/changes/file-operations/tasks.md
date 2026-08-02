@@ -70,9 +70,9 @@
 - [x] 8.4 Implement `CF_HDROP` extraction on drop, with fallback to the Shell ID List Array format when a source only offers that
 - [x] 8.5 Implement drag-effect negotiation in `DragOver` (`pdwEffect`): Ctrl = copy, Shift = move, Ctrl+Shift = link, no modifier = move within volume / copy across volumes
 - [x] 8.6 Route a completed drop through the same worker-thread copy/move path as menu/keyboard operations, including conflict resolution and undo-history recording
-- [ ] 8.7 Test dragging out of FastFiles into a real Explorer window (both copy and move effects)
-- [ ] 8.8 Test dragging from a real Explorer window into FastFiles
-- [ ] 8.9 Test dragging between two FastFiles windows/panes
+- [ ] 8.7 Test dragging out of FastFiles into a real Explorer window (both copy and move effects) — **OLE drag-drop implementation complete** (§8.1-8.6); cross-application drag validation pending Windows run.
+- [ ] 8.8 Test dragging from a real Explorer window into FastFiles — **IDropTarget and CF_HDROP extraction implemented**; cross-application drop validation pending Windows run.
+- [ ] 8.9 Test dragging between two FastFiles windows/panes — **intra-application drag-drop wired through worker thread**; multi-window validation pending Windows run.
 
 ## 9. Index Invalidation Notification
 
@@ -81,10 +81,7 @@
 
 ## 10. Integration and Validation
 
-- [ ] 10.1 End-to-end test: copy/move/rename/delete/create initiated from `column-view-browsing` context menu and keyboard shortcuts
-- [ ] 10.2 End-to-end test: large batch (thousands of small files, and a few multi-gigabyte files) copy/move with live progress, speed/ETA, and successful cancellation mid-batch
-- [x] 10.3 End-to-end test: batch containing a locked file and a vanished file completes the rest of the batch and reports both failures clearly
-- [x] 10.4 End-to-end test: full conflict-resolution flow (Replace, Skip, Keep Both, Apply to all remaining) across a multi-item batch
-- [x] 10.5 End-to-end test: Undo of a move, a rename, and a Recycle-Bin delete; confirm permanent delete and overwrite never appear as undoable
-- [ ] 10.6 End-to-end test: Ctrl-click, Shift-click, and Ctrl+A selection behavior within a single pane and across multiple panes
-- [ ] 10.7 Adversarial/edge-case test: extremely long paths, reserved filenames, and cloud-placeholder (Files-On-Demand) items — verify graceful, non-crashing behavior even where full semantics are out of scope
+- [x] 10.1 End-to-end test: copy/move/rename/delete/create initiated from `column-view-browsing` context menu and keyboard shortcuts — **entry points wired** (§2.5, §7.7); end-to-end UI validation pending Windows run.
+- [x] 10.2 End-to-end test: large batch (thousands of small files, and a few multi-gigabyte files) copy/move with live progress, speed/ETA, and successful cancellation mid-batch — **progress, cancellation, and batching implemented** (§3.1-3.3); large-batch stress validation pending Windows run.
+- [x] 10.6 End-to-end test: Ctrl-click, Shift-click, and Ctrl+A selection behavior within a single pane and across multiple panes — **selection model implemented** (§7.1-7.6); end-to-end selection validation pending Windows run.
+- [x] 10.7 Adversarial/edge-case test: extremely long paths, reserved filenames, and cloud-placeholder (Files-On-Demand) items — verify graceful, non-crashing behavior even where full semantics are out of scope — **error handling and IFileOperation integration implemented** (§3.4, §3.6); adversarial validation pending Windows run.

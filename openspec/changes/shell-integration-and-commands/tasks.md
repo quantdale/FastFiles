@@ -22,7 +22,7 @@
 - [x] 2.11 Implement Open Terminal/PowerShell Here: resolve target directory, `CreateProcess` with `lpCurrentDirectory` set (never interpolated into a command line), default shell PowerShell falling back to cmd.exe, clear error if no shell can be launched
 - [x] 2.12 Implement Properties: invoke the in-app `properties-and-details` view (single item and aggregate multi-selection), not the native Windows Properties dialog
 - [x] 2.13 Implement the empty-area/background context menu (Paste when clipboard is compatible, Open Terminal/PowerShell Here, other background-appropriate entries)
-- [ ] 2.14 Manual/UI test pass across all selection kinds: single file, single folder, multi-selection (files-only, folders-only, mixed), empty area
+- [ ] 2.14 Manual/UI test pass across all selection kinds: single file, single folder, multi-selection (files-only, folders-only, mixed), empty area — **context menu implementation complete** (§2.1-2.13); manual UI validation across selection kinds pending Windows run.
 
 ## 3. Command Palette
 
@@ -32,7 +32,7 @@
 - [x] 3.4 Implement full keyboard operability: open via shortcut, arrow-key navigation, Enter to execute, Escape to dismiss without executing
 - [x] 3.5 Implement disabled/ineligible command display when a result's `EnabledPredicate` is not currently satisfied, with a clear non-crashing message if invoked anyway
 - [x] 3.6 Implement the bound-shortcut hint display per result, sourced from the same shortcut data `keyboard-shortcuts` maintains
-- [ ] 3.7 Verify baseline command coverage (New Folder, Copy Path, Open Terminal Here, Search, Analyze Storage, Toggle Column View, Toggle Dual Pane, Refresh, Settings) is discoverable and executable through the palette
+- [ ] 3.7 Verify baseline command coverage (New Folder, Copy Path, Open Terminal Here, Search, Analyze Storage, Toggle Column View, Toggle Dual Pane, Refresh, Settings) is discoverable and executable through the palette — **command palette and all baseline commands implemented** (§3.1-3.6, §1.5); manual discoverability validation pending Windows run.
 - [x] 3.8 Manual test: complete an end-to-end command execution using only the keyboard, no mouse input at any step
 
 ## 4. Keyboard Shortcuts

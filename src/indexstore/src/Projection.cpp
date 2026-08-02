@@ -9,7 +9,6 @@ namespace ffindexstore {
 void Projection::Reserve(size_t expectedEntryCount) {
     entries_.reserve(expectedEntryCount);
     idToIndex_.reserve(expectedEntryCount);
-    parentToChildren_.reserve(expectedEntryCount);
     // Names recur constantly across a real tree (D2's rationale) -- a
     // quarter of the entry count is a reasonable rough estimate for the
     // unique-name-count hint; NamePool grows past this fine if wrong.
@@ -17,24 +16,16 @@ void Projection::Reserve(size_t expectedEntryCount) {
 }
 
 void Projection::RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index) {
-    auto it = parentToChildren_.find(parentKey);
-    if (it == parentToChildren_.end()) {
-        return;
-    }
-    auto& siblings = it->second;
-    siblings.erase(std::remove(siblings.begin(), siblings.end(), index), siblings.end());
-    if (siblings.empty()) {
-        parentToChildren_.erase(it);
-    }
+    parentToChildren_.remove(parentKey, index);
 }
 
 void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     const EntryKey key{volumeRowId, record.id};
     const NameId nameId = namePool_.Intern(record.name);
 
-    auto it = idToIndex_.find(key);
-    if (it != idToIndex_.end()) {
-        const uint32_t index = it->second;
+    const uint32_t* pIndex = idToIndex_.find(key);
+    if (pIndex != nullptr) {
+        const uint32_t index = *pIndex;
         ProjectionEntry& entry = entries_[index];
 
         if (entry.parentFrn != record.parentId) {
@@ -44,7 +35,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
             // not a real containment relationship -- it must not make the
             // root list itself as its own child in a directory listing.
             if (record.parentId != record.id) {
-                parentToChildren_[EntryKey{volumeRowId, record.parentId}].push_back(index);
+                parentToChildren_.insert(EntryKey{volumeRowId, record.parentId}, index);
             }
         }
 
@@ -79,21 +70,21 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entries_.push_back(entry);
     }
 
-    idToIndex_.emplace(key, index);
+    idToIndex_.insert(key, index);
     if (record.parentId != record.id) {
-        parentToChildren_[EntryKey{volumeRowId, record.parentId}].push_back(index);
+        parentToChildren_.insert(EntryKey{volumeRowId, record.parentId}, index);
     }
 }
 
 void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     const EntryKey key{volumeRowId, frn};
-    auto it = idToIndex_.find(key);
-    if (it == idToIndex_.end()) {
+    const uint32_t* pIndex = idToIndex_.find(key);
+    if (pIndex == nullptr) {
         return;
     }
-    const uint32_t index = it->second;
+    const uint32_t index = *pIndex;
     RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
-    idToIndex_.erase(it);
+    idToIndex_.erase(key);
     freeList_.push_back(index);
     // entries_[index] itself is left in place (tombstoned) -- nothing
     // reachable via idToIndex_/parentToChildren_ points at it anymore, and
@@ -116,13 +107,12 @@ void Projection::RemoveVolume(VolumeRowId volumeRowId) {
 }
 
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
-    auto it = idToIndex_.find(EntryKey{volumeRowId, frn});
-    return it == idToIndex_.end() ? nullptr : &entries_[it->second];
+    const uint32_t* pIndex = idToIndex_.find(EntryKey{volumeRowId, frn});
+    return pIndex ? &entries_[*pIndex] : nullptr;
 }
 
-const std::vector<uint32_t>* Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
-    auto it = parentToChildren_.find(EntryKey{volumeRowId, parentFrn});
-    return it == parentToChildren_.end() ? nullptr : &it->second;
+std::span<const uint32_t> Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
+    return parentToChildren_.find(EntryKey{volumeRowId, parentFrn});
 }
 
 Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, FileId frn) const {

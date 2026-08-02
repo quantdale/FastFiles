@@ -82,8 +82,8 @@ void TestChildrenLookupSupportsDirectoryListing() {
     proj.Upsert(1, MakeEntry(101, 5, u"b", 0x10));
     proj.Upsert(1, MakeEntry(102, 5, u"c", 0x10));
 
-    const auto* children = proj.ChildIndices(1, FileId{5, 0});
-    Check(children != nullptr && children->size() == 3, "all three children are found under their parent");
+    auto children = proj.ChildIndices(1, FileId{5, 0});
+    Check(!children.empty() && children.size() == 3, "all three children are found under their parent");
 }
 
 void TestReparentingUpdatesParentChildIndex() {
@@ -95,10 +95,10 @@ void TestReparentingUpdatesParentChildIndex() {
 
     proj.Upsert(1, MakeEntry(200, 101, u"moved.txt", 0)); // re-parent from a -> b
 
-    const auto* aChildren = proj.ChildIndices(1, FileId{100, 0});
-    Check(aChildren == nullptr || aChildren->empty(), "old parent no longer lists the moved entry as a child");
-    const auto* bChildren = proj.ChildIndices(1, FileId{101, 0});
-    Check(bChildren != nullptr && bChildren->size() == 1, "new parent lists the moved entry as a child");
+    auto aChildren = proj.ChildIndices(1, FileId{100, 0});
+    Check(aChildren.empty(), "old parent no longer lists the moved entry as a child");
+    auto bChildren = proj.ChildIndices(1, FileId{101, 0});
+    Check(!bChildren.empty() && bChildren.size() == 1, "new parent lists the moved entry as a child");
 }
 
 void TestRemoveDropsEntryButLeavesSiblingsIntact() {

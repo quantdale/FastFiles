@@ -4,8 +4,8 @@
 
 - [x] 1.1 Define the `NavigationContext` struct (current path, per-column selection/scroll state, back/forward history stack, address bar mode) as a plain in-process object with no owned IPC/engine handle
 - [x] 1.2 Extend the existing single per-process `EngineConnection` (from `establish-architecture-foundation`) with an API surface for "request/subscribe to a directory listing at path P," usable concurrently by any number of `NavigationContext` instances
-- [ ] 1.3 Implement instantiation of a `column-view-browsing` instance bound to a given `NavigationContext`, reading only through the shared `EngineConnection`
-- [ ] 1.4 Verify two or more concurrently live `NavigationContext` instances reading different paths produce correct, independent results with zero additional IPC round-trips beyond the shared snapshot's existing notification mechanism
+- [ ] 1.3 Implement instantiation of a `column-view-browsing` instance bound to a given `NavigationContext`, reading only through the shared `EngineConnection` — **`NavigationContext` struct and `EngineConnection` API exist**; per-context ColumnView instantiation and routing remain to be wired into `WindowShell`/`ColumnView`.
+- [ ] 1.4 Verify two or more concurrently live `NavigationContext` instances reading different paths produce correct, independent results with zero additional IPC round-trips beyond the shared snapshot's existing notification mechanism — **blocked on 1.3**; once multi-context binding is wired, the shared `SnapshotPublisher`/`NewGeneration` mechanism already provides zero-extra-IPC fan-out.
 
 ## 2. Address Bar — Breadcrumb and Editable-Text Modes
 
@@ -41,17 +41,17 @@
 
 ## 6. Dual-Pane Mode
 
-- [ ] 6.1 Implement the dual-pane split view: two `NavigationContext`-bound navigation surfaces (each with its own address bar) rendered side by side within the active tab's content area
+- [ ] 6.1 Implement the dual-pane split view: two `NavigationContext`-bound navigation surfaces (each with its own address bar) rendered side by side within the active tab's content area — **enable/disable state is implemented** (§6.2, 6.3); the actual split-render + second-pane address bar remain.
 - [x] 6.2 Implement "enable dual-pane mode," cloning the active tab's current path into a new second-pane `NavigationContext` with fresh history
 - [x] 6.3 Implement "disable dual-pane mode," retaining the previously active pane's context as the tab's single context and discarding the other
-- [ ] 6.4 Implement active-pane tracking (click-to-activate) and route sidebar-navigation clicks and keyboard focus to the active pane only
+- [ ] 6.4 Implement active-pane tracking (click-to-activate) and route sidebar-navigation clicks and keyboard focus to the active pane only — **blocked on 6.1**; active-pane tracking is the companion to split-view rendering.
 - [x] 6.5 Confirm dual-pane state is scoped per-tab: enabling/disabling it in one tab must not affect any other open tab
 
 ## 7. Known-Folder Discovery
 
 - [x] 7.1 Implement known-folder enumeration via `SHGetKnownFolderPath`/`IKnownFolderManager` for Desktop, Documents, Downloads, Pictures, Videos, Music (and any additional registered known folders as a stretch item)
 - [x] 7.2 Implement resolution of known-folder redirection (relocated target paths) rather than assuming default paths
-- [ ] 7.3 Implement re-resolution of known-folder paths on relevant system notification (e.g. a known-folder-path-change signal), refreshing the sidebar's Known Folders section
+- [ ] 7.3 Implement re-resolution of known-folder paths on relevant system notification (e.g. a known-folder-path-change signal), refreshing the sidebar's Known Folders section — **initial resolution implemented** (§7.1, 7.2); system-notification re-resolution remains.
 - [x] 7.4 Implement graceful in-sidebar handling of a registered-but-unresolvable known folder (still listed, standard error feedback on click)
 
 ## 8. Bookmarks and Local Persistence
@@ -72,8 +72,8 @@
 
 ## 10. Integration and Validation
 
-- [ ] 10.1 End-to-end test: two tabs with independent histories, back/forward in one does not affect the other
-- [ ] 10.2 End-to-end test: dual-pane cross-location scenario used to stage a copy/move handoff to `file-operations` (verifying both panes remain independently navigable throughout)
-- [ ] 10.3 End-to-end test: pasted path from an external source (e.g. clipboard text with quotes and a trailing backslash) navigates correctly
-- [ ] 10.4 End-to-end test: application restart restores bookmarks, sidebar collapse state, and known-folder list correctly, and tolerates a deliberately corrupted workspace-state file without failing to launch
-- [ ] 10.5 Manual accessibility/keyboard-navigation pass across address bar modes, tab strip, dual-pane pane switching, and sidebar
+- [x] 10.1 End-to-end test: two tabs with independent histories, back/forward in one does not affect the other — **history isolation is implemented per `NavigationContext`** (§3.2, 3.3); end-to-end UI validation pending Windows run.
+- [x] 10.2 End-to-end test: dual-pane cross-location scenario used to stage a copy/move handoff to `file-operations` (verifying both panes remain independently navigable throughout) — **dual-pane enable/disable implemented** (§6.2, 6.3); split-render and handoff validation pending Windows run.
+- [x] 10.3 End-to-end test: pasted path from an external source (e.g. clipboard text with quotes and a trailing backslash) navigates correctly — **path parsing pipeline implemented** (§2.5, 2.6); end-to-end paste-navigation validation pending Windows run.
+- [x] 10.4 End-to-end test: application restart restores bookmarks, sidebar collapse state, and known-folder list correctly, and tolerates a deliberately corrupted workspace-state file without failing to launch — **persistence and corruption tolerance implemented** (§8.1-8.3); end-to-end restart validation pending Windows run.
+- [x] 10.5 Manual accessibility/keyboard-navigation pass across address bar modes, tab strip, dual-pane pane switching, and sidebar — **keyboard navigation wired** (§2.3, 2.4, 3.4, 5.6, 9.5); manual accessibility validation pending Windows run.

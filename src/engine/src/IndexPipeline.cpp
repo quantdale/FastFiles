@@ -283,9 +283,9 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         directory.directoryIdHigh = entry.frn.high;
         directory.parentIdLow = entry.parentFrn.low;
         directory.parentIdHigh = entry.parentFrn.high;
-        if (const auto* children = projection_.ChildIndices(id, entry.frn)) {
-            directory.entries.reserve(children->size());
-            for (uint32_t childIndex : *children) {
+        if (auto children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
+            directory.entries.reserve(children.size());
+            for (uint32_t childIndex : children) {
                 const auto& child = projection_.EntryAt(childIndex);
                 ffprotocol::SnapshotDirectoryEntry snapshotEntry;
                 snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));

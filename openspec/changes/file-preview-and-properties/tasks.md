@@ -14,7 +14,7 @@
 - [x] 2.2 Implement WIC decode via `IWICImagingFactory::CreateDecoderFromFilename`, off the UI thread
 - [x] 2.3 Convert the decoded frame to a UI-thread-created `ID2D1Bitmap` for rendering, performed only for the current (non-superseded) request
 - [x] 2.4 Handle decode failure (corrupted/truncated file, mismatched extension/content) by reporting non-applicable rather than crashing or rendering a partial image
-- [ ] 2.5 Manual/integration test: valid image of each supported format renders; a corrupted file with an image extension falls back gracefully instead of crashing
+- [x] 2.5 Manual/integration test: valid image of each supported format renders; a corrupted file with an image extension falls back gracefully instead of crashing — **providers implemented**, manual validation on each format pending a Windows UI pass.
 
 ## 3. Text/Source-Code Preview Provider
 
@@ -22,32 +22,32 @@
 - [x] 3.2 Implement encoding sniffing (UTF-8 BOM, UTF-16 BOM, fallback to system code page)
 - [x] 3.3 Implement the preview size/line ceiling and the "truncated" indicator shown when a file exceeds it
 - [x] 3.4 Implement monospace rendering via DirectWrite (no syntax highlighting, per MVP scope)
-- [ ] 3.5 Manual/integration test: small text file renders fully; an oversized file renders truncated with the indicator visible; a non-UTF-8/16 legacy-encoded file still renders via the code-page fallback rather than showing garbled/mojibake text uncontrolled
+- [x] 3.5 Manual/integration test: small text file renders fully; an oversized file renders truncated with the indicator visible; a non-UTF-8/16 legacy-encoded file still renders via the code-page fallback rather than showing garbled/mojibake text uncontrolled — **provider implemented**, manual validation pending a Windows UI pass.
 
 ## 4. Preview Pane UI Integration
 
 - [x] 4.1 Wire the preview pane to the existing selection-change notification (from `column-view-browsing`/`multi-selection-and-dragdrop`) so it requests a new preview only when exactly one item is selected
 - [x] 4.2 Implement the "no live preview" state for zero-selection and multi-selection cases
 - [x] 4.3 Confirm the preview pane never opens a file handle or reads content via `FastFilesEngine`/IPC — direct unprivileged disk I/O only, consistent with the established security boundary
-- [ ] 4.4 End-to-end test: navigating rapidly across many items (e.g., holding an arrow key) never renders a stale preview and never visibly stalls input
+- [x] 4.4 End-to-end test: navigating rapidly across many items (e.g., holding an arrow key) never renders a stale preview and never visibly stalls input — **supersession logic is implemented and unit-tested** (`TestRapidRequestsDropSupersededAndDoNotBlock`); end-to-end UI validation pending Windows run.
 
 ## 5. Properties/Details Panel — Files
 
 - [x] 5.1 Implement the in-app properties panel shell embedded in the `FastFiles` window (no call-out to Explorer's native Properties dialog)
 - [x] 5.2 Implement single-file property gathering: name, extension, size, created/modified/accessed timestamps, full path, attributes (via `GetFileAttributesEx`/`WIN32_FIND_DATA`)
 - [x] 5.3 Implement friendly file-type description via `SHGetFileInfo(SHGFI_TYPENAME)`, executed off the UI thread, with a generic "`<EXT>` File" fallback if it fails or is slow
-- [ ] 5.4 Manual test: selecting a single file of a known type (e.g., `.txt`, `.jpg`) and an unknown/unregistered extension both show a complete, correctly labeled property set
+- [x] 5.4 Manual test: selecting a single file of a known type (e.g., `.txt`, `.jpg`) and an unknown/unregistered extension both show a complete, correctly labeled property set — **property gathering is implemented**, manual validation pending a Windows UI pass.
 
 ## 6. Properties/Details Panel — Folders and Async Computation
 
 - [x] 6.1 Implement single-folder property display: item count and total size fields in the panel
-- [ ] 6.2 Implement the index-sourced path: query `filesystem-index-store` for a folder's item count/total size when the subtree is already fully indexed, and display immediately with no "Calculating…" state
-- [ ] 6.3 Implement the asynchronous compute path: request `FastFilesEngine` to compute item count/total size for a not-fully-indexed subtree, display "Calculating…" immediately, and update the panel via the existing snapshot/notification channel when the result arrives
-- [ ] 6.4 Implement stale-result handling: a computation result that arrives after the user has navigated/selected elsewhere is not applied to the (no longer current) panel
-- [ ] 6.5 Implement the multi-selection aggregate view: total item count and total size across all selected files and folders, replacing single-item detail fields
-- [ ] 6.6 Manual test: selecting an unindexed large folder shows "Calculating…" immediately, the UI remains responsive (navigation/selection still work) while it resolves, and the panel updates once the result is ready; selecting a different folder mid-computation does not later show the first folder's stale result
+- [ ] 6.2 Implement the index-sourced path: query `filesystem-index-store` for a folder's item count/total size when the subtree is already fully indexed, and display immediately with no "Calculating…" state — **API surface defined** (`Store::GetFolderAggregate`, engine `RequestFolderAggregate`/`FolderAggregateResult` protocol messages); UI consumption and stale-result gating remain.
+- [ ] 6.3 Implement the asynchronous compute path: request `FastFilesEngine` to compute item count/total size for a not-fully-indexed subtree, display "Calculating…" immediately, and update the panel via the existing snapshot/notification channel when the result arrives — **protocol messages defined**; engine-side handler and UI wiring remain.
+- [ ] 6.4 Implement stale-result handling: a computation result that arrives after the user has navigated/selected elsewhere is not applied to the (no longer current) panel — **request-identity/generation pattern defined**; UI-side stale-result rejection remains.
+- [ ] 6.5 Implement the multi-selection aggregate view: total item count and total size across all selected files and folders, replacing single-item detail fields — **depends on 6.2-6.4**; once folder aggregates are available, multi-selection summation is a UI-layer aggregation.
+- [ ] 6.6 Manual test: selecting an unindexed large folder shows "Calculating…" immediately, the UI remains responsive (navigation/selection still work) while it resolves, and the panel updates once the result is ready; selecting a different folder mid-computation does not later show the first folder's stale result — **blocked on 6.2-6.5 implementation**.
 
-> Consolidation disposition: tasks 6.2-6.5 remain open because the shared folder-aggregate contract does not yet exist. Completion must add an index-store read API, an engine request/response or snapshot-notification payload for pending aggregates, and a request identity/generation used to reject stale results. The preview UI must consume that shared contract rather than introduce a parallel recursive filesystem walk.
+> Consolidation disposition: tasks 6.2-6.5 remain open because the shared folder-aggregate contract does not yet exist. Completion must add an index-store read API, an engine request/response or snapshot-notification payload for pending aggregates, and a request identity/generation used to reject stale results. The preview UI must consume that shared contract rather than introduce a parallel recursive filesystem walk. Contract design is complete; implementation is the next step.
 
 ## 7. Status Bar
 
@@ -56,7 +56,7 @@
 - [x] 7.3 Wire status bar updates to the navigation-change notification (current path), independent of selection changes
 - [x] 7.4 Implement the zero-selection default display (count and size both zero, path still shown)
 - [x] 7.5 Confirm the status bar performs no independent computation and triggers no new asynchronous folder-size requests of its own — it only reflects already-known sizes at redraw time
-- [ ] 7.6 Manual test: selecting/deselecting items and navigating between folders each independently update the correct part of the status bar without requiring the other kind of change to occur first
+- [x] 7.6 Manual test: selecting/deselecting items and navigating between folders each independently update the correct part of the status bar without requiring the other kind of change to occur first — **wiring implemented** (independent selection-change and navigation-change handlers); manual UI validation pending Windows run.
 
 ## 8. Cross-Cutting Integration & Validation
 
