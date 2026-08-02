@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_set>
@@ -9,6 +10,7 @@
 #include "ffindexstore/FlatHashMap.h"
 #include "ffindexstore/Identity.h"
 #include "ffindexstore/NamePool.h"
+#include "ffindexstore/Store.h"
 
 namespace ffindexstore {
 
@@ -225,6 +227,13 @@ public:
     // style access. Returns empty span if the parent has no known children
     // (which is not the same as the parent itself being unknown).
     std::span<const uint32_t> ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const;
+
+    // file-preview-and-properties §6.2 / storage-analysis §3.1: walks the
+    // in-memory subtree rooted at `parentFrn` and returns the aggregate item
+    // count (all descendants, excluding the root itself) and the total
+    // sizeBytes sum across every entry in that subtree. Returns std::nullopt
+    // if the root is unknown, distinguishing "not indexed" from "empty folder".
+    std::optional<FolderAggregate> GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) const;
     const ProjectionEntry& EntryAt(uint32_t index) const { return entries_[index]; }
 
     struct PathResult {

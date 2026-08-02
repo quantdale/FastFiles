@@ -79,7 +79,7 @@ void NavigationSidebar::RebuildRows() {
         addItems(0, drives);
     }
     addSection(1, L"Known Folders", state.knownFoldersCollapsed);
-    if (!state.knownFoldersCollapsed) addItems(1, NavigationWorkspace::EnumerateKnownFolders());
+    if (!state.knownFoldersCollapsed) addItems(1, workspace_->EnumerateKnownFolders());
     addSection(2, L"Bookmarks", state.bookmarksCollapsed);
     if (!state.bookmarksCollapsed) addItems(2, state.bookmarks);
 }

@@ -41,17 +41,17 @@
 
 ## 6. Dual-Pane Mode
 
-- [ ] 6.1 Implement the dual-pane split view: two `NavigationContext`-bound navigation surfaces (each with its own address bar) rendered side by side within the active tab's content area — **enable/disable state is implemented** (§6.2, 6.3); the actual split-render + second-pane address bar remain.
+- [x] 6.1 Implement the dual-pane split view: two `NavigationContext`-bound navigation surfaces (each with its own address bar) rendered side by side within the active tab's content area — **complete**. `ColumnView::Render` now splits the viewport in half when `dualPane_` is true, drawing `columns_` (pane 0) and `columns2_` (pane 1) with independent scroll offsets and a 2px divider. Each pane has its own column set, focused column index, and scroll state. `WindowShell::Render` passes both scroll offsets; mouse-wheel and `EnsureColumnVisible` route to the active pane.
 - [x] 6.2 Implement "enable dual-pane mode," cloning the active tab's current path into a new second-pane `NavigationContext` with fresh history
 - [x] 6.3 Implement "disable dual-pane mode," retaining the previously active pane's context as the tab's single context and discarding the other
-- [ ] 6.4 Implement active-pane tracking (click-to-activate) and route sidebar-navigation clicks and keyboard focus to the active pane only — **blocked on 6.1**; active-pane tracking is the companion to split-view rendering.
+- [x] 6.4 Implement active-pane tracking (click-to-activate) and route sidebar-navigation clicks and keyboard focus to the active pane only — **complete**. `ColumnView::ActivatePane`, `ActiveColumns`, `ActiveFocusedColumnIndex`, and `ActiveScrollOffset` route all input and state mutations to the active pane. `OnMouseDown` detects which half of the viewport was clicked and activates the corresponding pane before dispatching. `OnKeyDown` operates on `ActiveColumns()`.
 - [x] 6.5 Confirm dual-pane state is scoped per-tab: enabling/disabling it in one tab must not affect any other open tab
 
 ## 7. Known-Folder Discovery
 
 - [x] 7.1 Implement known-folder enumeration via `SHGetKnownFolderPath`/`IKnownFolderManager` for Desktop, Documents, Downloads, Pictures, Videos, Music (and any additional registered known folders as a stretch item)
 - [x] 7.2 Implement resolution of known-folder redirection (relocated target paths) rather than assuming default paths
-- [ ] 7.3 Implement re-resolution of known-folder paths on relevant system notification (e.g. a known-folder-path-change signal), refreshing the sidebar's Known Folders section — **initial resolution implemented** (§7.1, 7.2); system-notification re-resolution remains.
+- [x] 7.3 Implement re-resolution of known-folder paths on relevant system notification (e.g. a known-folder-path-change signal), refreshing the sidebar's Known Folders section — **complete**. `NavigationWorkspace::ReResolveKnownFolders` invalidates the cached `knownFoldersCache_` and re-enumerates via `SHGetKnownFolderPath`. `WindowShell` handles `WM_SETTINGCHANGE` by calling `ReResolveKnownFolders` and `navigationSidebar_.Refresh()`. `NavigationSidebar::RebuildRows` consumes the workspace's cached enumeration.
 - [x] 7.4 Implement graceful in-sidebar handling of a registered-but-unresolvable known folder (still listed, standard error feedback on click)
 
 ## 8. Bookmarks and Local Persistence

@@ -308,4 +308,9 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
     return result;
 }
 
+std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return projection_.GetFolderAggregate(volumeId, parentFrn);
+}
+
 } // namespace ffengine

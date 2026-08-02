@@ -18,6 +18,9 @@ struct FileDescriptor {
     uint64_t sizeBytes = 0;
     uint32_t attributes = 0;
     bool isDirectory = false;
+    uint64_t fileIdLow = 0;
+    uint64_t fileIdHigh = 0;
+    int64_t volumeRowId = 0;
 };
 
 enum class MatchResult {

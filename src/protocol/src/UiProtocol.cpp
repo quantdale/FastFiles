@@ -17,6 +17,8 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::UnavailableVolumes:
         case UiMessageType::ForgetUnavailableVolume:
         case UiMessageType::ForgetUnavailableVolumeResult:
+        case UiMessageType::RequestFolderAggregate:
+        case UiMessageType::FolderAggregateResult:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;
@@ -33,6 +35,17 @@ bool IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus status) 
         case ForgetUnavailableVolumeStatus::NotFound:
         case ForgetUnavailableVolumeStatus::VolumeAvailable:
         case ForgetUnavailableVolumeStatus::Failed:
+            return true;
+        default:
+            return false;
+    }
+}
+
+bool IsFolderAggregateStatusValid(FolderAggregateStatus status) noexcept {
+    switch (status) {
+        case FolderAggregateStatus::Resolved:
+        case FolderAggregateStatus::Pending:
+        case FolderAggregateStatus::NotFound:
             return true;
         default:
             return false;

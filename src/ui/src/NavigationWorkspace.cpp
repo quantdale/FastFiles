@@ -291,19 +291,27 @@ std::vector<std::wstring> NavigationWorkspace::EnumerateDrives() {
 }
 
 std::vector<Bookmark> NavigationWorkspace::EnumerateKnownFolders() {
-    struct KnownFolder { const wchar_t* name; const KNOWNFOLDERID* id; };
-    const KnownFolder folders[] = {
-        {L"Desktop", &FOLDERID_Desktop}, {L"Documents", &FOLDERID_Documents},
-        {L"Downloads", &FOLDERID_Downloads}, {L"Pictures", &FOLDERID_Pictures},
-        {L"Videos", &FOLDERID_Videos}, {L"Music", &FOLDERID_Music}};
-    std::vector<Bookmark> result;
-    for (const auto& folder : folders) {
-        PWSTR path = nullptr;
-        const HRESULT status = SHGetKnownFolderPath(*folder.id, KF_FLAG_DEFAULT, nullptr, &path);
-        result.push_back({status == S_OK && path != nullptr ? path : L"", folder.name});
-        if (path != nullptr) CoTaskMemFree(path);
+    if (knownFoldersDirty_) {
+        knownFoldersCache_.clear();
+        struct KnownFolder { const wchar_t* name; const KNOWNFOLDERID* id; };
+        const KnownFolder folders[] = {
+            {L"Desktop", &FOLDERID_Desktop}, {L"Documents", &FOLDERID_Documents},
+            {L"Downloads", &FOLDERID_Downloads}, {L"Pictures", &FOLDERID_Pictures},
+            {L"Videos", &FOLDERID_Videos}, {L"Music", &FOLDERID_Music}};
+        for (const auto& folder : folders) {
+            PWSTR path = nullptr;
+            const HRESULT status = SHGetKnownFolderPath(*folder.id, KF_FLAG_DEFAULT, nullptr, &path);
+            knownFoldersCache_.push_back({status == S_OK && path != nullptr ? path : L"", folder.name});
+            if (path != nullptr) CoTaskMemFree(path);
+        }
+        knownFoldersDirty_ = false;
     }
-    return result;
+    return knownFoldersCache_;
+}
+
+void NavigationWorkspace::ReResolveKnownFolders() {
+    knownFoldersDirty_ = true;
+    EnumerateKnownFolders(); // refresh the cache immediately
 }
 
 std::wstring NavigationWorkspace::StateFilePath() {

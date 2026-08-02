@@ -42,6 +42,7 @@ constexpr size_t kMaxForgetDriveMenuItems = 1000;
 constexpr UINT WM_APP_PREVIEW_READY = WM_APP + 3;
 constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
 constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
+constexpr UINT WM_APP_FOLDER_AGGREGATE = WM_APP + 6;
 constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
 constexpr UINT kContextCommandBase = 20000;
 constexpr int kNavigationChromeHeight = 72;
@@ -582,6 +583,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
         });
 
+    engineClient_.RequestFolderAggregate(0, 0, 0, [this](uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
+        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
+        const HWND target = hwnd_;
+        if (target != nullptr
+            && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
+                            reinterpret_cast<LPARAM>(payload.get()))) {
+            payload.release();
+        }
+    });
+
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
     SetTimer(hwnd_, kWorkspaceSaveTimer, 500, nullptr);
@@ -638,7 +649,7 @@ void WindowShell::Render() {
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
     context->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(navigationSidebar_.Width()), static_cast<float>(kNavigationChromeHeight)));
-    columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_);
+    columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
     RenderDetails(context, viewportSize);
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     renderer_.EndFrame();
@@ -722,7 +733,36 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
         info += L"Extension: " + extensionLabel + L"\n";
         info += L"Path: " + selection->path + L"\n";
         if (selection->isDirectory) {
-            info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
+            if (selection->volumeRowId != lastAggregateRequestVolumeRowId_ || selection->fileIdLow != lastAggregateRequestFrnLow_ || selection->fileIdHigh != lastAggregateRequestFrnHigh_) {
+                lastAggregateRequestVolumeRowId_ = selection->volumeRowId;
+                lastAggregateRequestFrnLow_ = selection->fileIdLow;
+                lastAggregateRequestFrnHigh_ = selection->fileIdHigh;
+                const uint64_t requestId = engineClient_.LastRequestId() + 1;
+                pendingAggregateRequestId_ = requestId;
+                pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
+                pendingAggregateItemCount_ = 0;
+                pendingAggregateTotalSize_ = 0;
+                engineClient_.RequestFolderAggregate(
+                    static_cast<int64_t>(selection->volumeRowId),
+                    selection->fileIdLow, selection->fileIdHigh,
+                    [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
+                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
+                        const HWND target = hwnd_;
+                        if (target != nullptr
+                            && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
+                                            reinterpret_cast<LPARAM>(payload.get()))) {
+                            payload.release();
+                        }
+                    });
+            }
+            if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Pending) {
+                info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
+            } else if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Resolved) {
+                info += L"Type: Folder\nItems: " + std::to_wstring(pendingAggregateItemCount_) + L"\n";
+                info += L"Total size: " + FormatSize(pendingAggregateTotalSize_);
+            } else {
+                info += L"Type: Folder\nItems: —\nTotal size: —";
+            }
         } else {
             info += L"Type: " + typeLabel + L"\n";
             info += L"Size: " + FormatSize(selection->sizeBytes) + L"\n";
@@ -763,13 +803,31 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
     const float columnLeft = columnIndex * ColumnView::kColumnWidth;
     const float columnRight = columnLeft + ColumnView::kColumnWidth;
-    if (columnLeft < scrollOffset_) {
-        scrollOffset_ = columnLeft;
-    } else if (columnRight > scrollOffset_ + viewportWidth) {
-        scrollOffset_ = columnRight - viewportWidth;
+    if (columnView_.IsDualPane()) {
+        const float paneWidth = viewportWidth / 2.0f;
+        const int pane = columnView_.ActivePane();
+        const float paneScroll = pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2();
+        if (columnLeft < paneScroll) {
+            if (pane == 0) scrollOffset_ = columnLeft;
+            else columnView_.SetScrollOffset2(columnLeft);
+        } else if (columnRight > paneScroll + paneWidth) {
+            const float newScroll = columnRight - paneWidth;
+            if (pane == 0) scrollOffset_ = newScroll;
+            else columnView_.SetScrollOffset2(newScroll);
+        }
+        const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
+        const float clamped = std::clamp(pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2(), 0.0f, maxScroll);
+        if (pane == 0) scrollOffset_ = clamped;
+        else columnView_.SetScrollOffset2(clamped);
+    } else {
+        if (columnLeft < scrollOffset_) {
+            scrollOffset_ = columnLeft;
+        } else if (columnRight > scrollOffset_ + viewportWidth) {
+            scrollOffset_ = columnRight - viewportWidth;
+        }
+        const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
+        scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxScroll);
     }
-    const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-    scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxScroll);
 }
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -797,6 +855,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_SETTINGCHANGE:
             if (settings_.theme == ffprotocol::ThemePreference::FollowSystem) ApplyTheme();
+            navigationWorkspace_.ReResolveKnownFolders();
+            navigationSidebar_.Refresh();
             return 0;
 
         case WM_PAINT: {
@@ -918,6 +978,23 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_FOLDER_AGGREGATE: {
+            auto* payload = reinterpret_cast<ffprotocol::FolderAggregateResultPayload*>(lParam);
+            if (!payload) {
+                return 0;
+            }
+            // Stale-result gating: only accept the response that matches the
+            // request the UI still considers current.
+            if (payload->requestId == pendingAggregateRequestId_) {
+                pendingAggregateStatus_ = payload->status;
+                pendingAggregateItemCount_ = payload->itemCount;
+                pendingAggregateTotalSize_ = payload->totalSizeBytes;
+                RequestRepaint();
+            }
+            delete payload;
+            return 0;
+        }
+
         case WM_APP_FILE_OPERATION_CONFLICT: {
             auto* question = reinterpret_cast<FileOperationConflictQuestion*>(lParam);
             if (question == nullptr) return 0;
@@ -998,7 +1075,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
                 static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
             columnView_.OnMouseDown(
-                point, scrollOffset_, (GetKeyState(VK_CONTROL) & 0x8000) != 0,
+                point, scrollOffset_, NavigationViewportWidth(),
+                (GetKeyState(VK_CONTROL) & 0x8000) != 0,
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0);
             dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
@@ -1031,7 +1109,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             D2D1_POINT_2F point = D2D1::Point2F(
                 static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
                 static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
-            columnView_.OnMouseDown(point, scrollOffset_, false, false);
+            columnView_.OnMouseDown(point, scrollOffset_, NavigationViewportWidth(), false, false);
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
@@ -1045,8 +1123,25 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_MOUSEWHEEL: {
             const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
             const float viewportWidth = NavigationViewportWidth();
-            const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-            scrollOffset_ = std::clamp(scrollOffset_ - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
+            POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            ScreenToClient(hwnd_, &pt);
+            const float effectiveX = pt.x - static_cast<float>(navigationSidebar_.Width());
+            
+            if (columnView_.IsDualPane()) {
+                const float paneWidth = viewportWidth / 2.0f;
+                const int pane = effectiveX < paneWidth ? 0 : 1;
+                const float paneScroll = pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2();
+                const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
+                const float newScroll = std::clamp(paneScroll - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
+                if (pane == 0) {
+                    scrollOffset_ = newScroll;
+                } else {
+                    columnView_.SetScrollOffset2(newScroll);
+                }
+            } else {
+                const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
+                scrollOffset_ = std::clamp(scrollOffset_ - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
+            }
             RequestRepaint();
             return 0;
         }

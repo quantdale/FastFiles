@@ -24,6 +24,9 @@ struct ColumnItem {
     bool isDirectory = false;
     uint64_t sizeBytes = 0;
     uint32_t attributes = 0;
+    uint64_t fileIdLow = 0;
+    uint64_t fileIdHigh = 0;
+    int64_t volumeRowId = 0;
 };
 
 struct SelectionSummary {
@@ -66,7 +69,16 @@ public:
 
     // Mouse hit-testing entry point (translates a client-area point into
     // a column/item index and calls ActivateItem).
-    void OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, bool control, bool shift);
+    void OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth, bool control, bool shift);
+
+    // Dual-pane (task 6.1/6.4): enable/disable the second navigation
+    // surface and switch active pane. When disabled, only pane 0 is used.
+    void SetDualPane(bool enabled);
+    bool IsDualPane() const { return dualPane_; }
+    void ActivatePane(int paneIndex);
+    int ActivePane() const { return activePane_; }
+    const std::vector<Column>& ActiveColumns() const;
+    std::vector<Column>& ActiveColumns();
 
     // Real filesystem paths for the currently active pane selection.  File
     // operations and drag start consume this single selection contract.
@@ -86,10 +98,23 @@ public:
     void ShowUnavailableLocation(const std::wstring& displayName);
     void SetEngineStatus(bool active);
     void SetDarkTheme(bool dark);
+    void SetScrollOffset2(float offset) { scrollOffset2_ = offset; }
+    float ScrollOffset2() const { return scrollOffset2_; }
 
-    void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset);
+    // Dual-pane support
+    void SetDualPane(bool enabled);
+    bool IsDualPane() const { return dualPane_; }
+    void ActivatePane(int paneIndex);
+    int ActivePane() const { return activePane_; }
+    std::vector<Column>& ActiveColumns();
+    const std::vector<Column>& ActiveColumns() const;
+    int& ActiveFocusedColumnIndex();
+    float& ActiveScrollOffset();
+
+    void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2 = 0.0f);
 
     float ContentWidth() const;
+    float PaneContentWidth(int paneIndex) const;
     int FocusedColumnIndex() const;
     std::optional<FileDescriptor> CurrentSelection() const;
     SelectionSummary CurrentSelectionSummary() const;
@@ -110,7 +135,11 @@ private:
     EngineClient* engineClient_ = nullptr;
     mutable std::mutex columnsMutex_;
     std::vector<Column> columns_;
+    std::vector<Column> columns2_;
     int focusedColumnIndex_ = 0;
+    int focusedColumnIndex2_ = 0;
+    int activePane_ = 0;
+    bool dualPane_ = false;
     std::atomic<bool> engineActive_{false}; // written from EngineClient's background callback, read by Render on the UI thread
 
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> backgroundBrush_;
@@ -127,6 +156,7 @@ private:
     bool resourcesCreated_ = false;
     bool darkTheme_ = false;
     std::wstring pendingSelectionName_;
+    float scrollOffset2_ = 0.0f;
 };
 
 } // namespace ffui

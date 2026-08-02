@@ -104,6 +104,11 @@ public:
     std::map<std::wstring, ffprotocol::SnapshotDirectory> ExportDirectorySnapshot(
         ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix);
 
+    // file-preview-and-properties §6.2 / storage-analysis §3.1: returns the
+    // subtree aggregate for `parentFrn` from the in-memory projection if
+    // the folder is known, or std::nullopt if it is not.
+    std::optional<ffindexstore::Projection::FolderAggregate> GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn);
+
 private:
     std::mutex mutex_;
     ffindexstore::Store store_;

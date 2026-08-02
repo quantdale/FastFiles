@@ -48,15 +48,20 @@ public:
     std::function<void()> onReloadIndexingConfig;
     std::function<std::vector<ffprotocol::UnavailableVolumeRecord>()> onRequestUnavailableVolumes;
     std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
+    using OnRequestFolderAggregate = std::function<std::optional<ffindexstore::Projection::FolderAggregate>(ffindexstore::VolumeRowId, ffindexstore::FileId)>;
+    OnRequestFolderAggregate onRequestFolderAggregate;
 
 private:
     void HandleConnection(HANDLE pipe);
     void HandleRequestDirectory(HANDLE pipe, const std::wstring& path);
+    void HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8_t>& framePayload);
     void OnDirectoryChanged(const std::wstring& path);
     void RepublishAndBroadcastGeneration();
     void BroadcastEngineStatus(HANDLE toSinglePipe = nullptr);
     bool SendUnavailableVolumes(HANDLE pipe);
     bool SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId);
+    bool SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
+                                   uint64_t itemCount, uint64_t totalSizeBytes);
 
     ffipc::PipeListener listener_;
     ffsetup::OwnedSecurityDescriptor securityDescriptor_;

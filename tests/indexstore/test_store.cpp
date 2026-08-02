@@ -238,6 +238,41 @@ void TestDataSurvivesReopenAfterClose() {
     Check(reopened.CountEntries(vol) == 1, "committed data survives close/reopen (WAL durability)");
 }
 
+void TestGetFolderAggregateFromStore() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_folder_agg.db");
+    Store store;
+    store.Open(dbPath);
+    VolumeKey key;
+    key.serialNumber = 1;
+    auto vol = *store.GetOrCreateVolume(key);
+
+    // Root (5), children: Users(100), Windows(101), file(102)
+    // Users has children: bob(200), alice(201)
+    // bob has child: notes.txt(300)
+    store.ApplyBatch(vol, {
+        {EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(100, 5, u"Users", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(101, 5, u"Windows", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(102, 5, u"readme.txt", 0)},
+        {EntryChangeKind::Upsert, MakeEntry(200, 100, u"bob", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(201, 100, u"alice", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(300, 200, u"notes.txt", 0)},
+    });
+
+    auto rootAgg = store.GetFolderAggregate(*vol, FileId{5, 0});
+    Check(rootAgg.has_value(), "store root aggregate is present");
+    Check(rootAgg->itemCount == 6, "store root aggregate counts all descendants");
+    Check(rootAgg->totalSizeBytes == 0, "store root aggregate sums to zero size");
+
+    auto usersAgg = store.GetFolderAggregate(*vol, FileId{100, 0});
+    Check(usersAgg.has_value(), "store Users aggregate is present");
+    Check(usersAgg->itemCount == 3, "store Users aggregate has three descendants");
+    Check(usersAgg->totalSizeBytes == 0, "store Users aggregate size is zero");
+
+    auto unknown = store.GetFolderAggregate(*vol, FileId{999, 0});
+    Check(!unknown.has_value(), "unknown folder returns nullopt");
+}
+
 } // namespace
 
 int main() {
@@ -250,6 +285,7 @@ int main() {
     TestForgetVolumeIsExplicitAndRemovesEntries();
     TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint();
     TestDataSurvivesReopenAfterClose();
+    TestGetFolderAggregateFromStore();
 
     if (g_failures > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", g_failures);

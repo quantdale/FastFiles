@@ -93,6 +93,13 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
+    uint64_t pendingAggregateRequestId_ = 0;
+    ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
+    uint64_t pendingAggregateItemCount_ = 0;
+    uint64_t pendingAggregateTotalSize_ = 0;
+    int64_t lastAggregateRequestVolumeRowId_ = 0;
+    uint64_t lastAggregateRequestFrnLow_ = 0;
+    uint64_t lastAggregateRequestFrnHigh_ = 0;
 };
 
 } // namespace ffui

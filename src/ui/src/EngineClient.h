@@ -36,6 +36,8 @@ public:
         std::function<void(std::vector<ffprotocol::UnavailableVolumeRecord>)>;
     using ForgetUnavailableVolumeCallback =
         std::function<void(ffprotocol::ForgetUnavailableVolumeResultPayload)>;
+    using FolderAggregateCallback =
+        std::function<void(uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes)>;
 
     void Start(GenerationCallback onNewGeneration, StatusCallback onStatus, DirectoryErrorCallback onDirectoryError);
     void Stop();
@@ -47,6 +49,8 @@ public:
     void ReloadIndexingConfig();
     void RequestUnavailableVolumes(UnavailableVolumesCallback callback);
     void ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailableVolumeCallback callback);
+    void RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback);
+    uint64_t LastRequestId() const { return lastRequestId_; }
 
     // Reads the most recently published snapshot directly out of the
     // mapped shared-memory section.
@@ -76,6 +80,7 @@ private:
     std::mutex invalidationMutex_;
     std::condition_variable invalidationCv_;
     std::deque<std::wstring> invalidationQueue_;
+    uint64_t lastRequestId_ = 0;
 
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;
@@ -83,6 +88,8 @@ private:
     std::mutex volumeCallbackMutex_;
     UnavailableVolumesCallback onUnavailableVolumes_;
     ForgetUnavailableVolumeCallback onForgetUnavailableVolume_;
+    std::mutex aggregateCallbackMutex_;
+    FolderAggregateCallback onFolderAggregate_;
 };
 
 } // namespace ffui

@@ -159,6 +159,29 @@ void TestRebuildFromStoreMatchesPersistedData() {
     Check(proj.Find(vol, FileId{100, 0}) != nullptr, "rebuilt projection matches durable store contents");
 }
 
+void TestFolderAggregateCountsSubtree() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"Users", 0x10));
+    proj.Upsert(1, MakeEntry(101, 5, u"Windows", 0x10));
+    proj.Upsert(1, MakeEntry(200, 100, u"bob", 0x10));
+    proj.Upsert(1, MakeEntry(201, 100, u"alice", 0x10));
+    proj.Upsert(1, MakeEntry(300, 200, u"notes.txt", 0));
+
+    auto aggregate = proj.GetFolderAggregate(1, FileId{5, 0});
+    Check(aggregate.has_value(), "root aggregate is present");
+    Check(aggregate->itemCount == 5, "root aggregate counts all descendants");
+    Check(aggregate->totalSizeBytes == 0, "no entries carry non-zero size in this test");
+
+    auto usersAgg = proj.GetFolderAggregate(1, FileId{100, 0});
+    Check(usersAgg.has_value(), "Users aggregate is present");
+    Check(usersAgg->itemCount == 3, "Users subtree has three descendants");
+    Check(usersAgg->totalSizeBytes == 0, "Users subtree size is zero");
+
+    auto unknown = proj.GetFolderAggregate(1, FileId{999, 0});
+    Check(!unknown.has_value(), "unknown root returns nullopt");
+}
+
 } // namespace
 
 int main() {
@@ -171,6 +194,7 @@ int main() {
     TestCycleDoesNotCauseInfiniteWalk();
     TestVolumesAreIsolatedFromEachOther();
     TestRebuildFromStoreMatchesPersistedData();
+    TestFolderAggregateCountsSubtree();
 
     if (g_failures > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", g_failures);

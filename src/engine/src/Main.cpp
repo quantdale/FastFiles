@@ -177,6 +177,9 @@ int wmain() {
             ? ffprotocol::ForgetUnavailableVolumeStatus::Removed
             : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
     };
+    uiServer.onRequestFolderAggregate = [&indexPipeline](ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) -> std::optional<ffindexstore::Projection::FolderAggregate> {
+        return indexPipeline.GetFolderAggregate(volumeId, parentFrn);
+    };
     const auto initialSettings = ffprotocol::LoadSettings(false);
     volumeSessions.ReloadConfiguration(initialSettings.indexing);
 

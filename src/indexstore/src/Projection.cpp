@@ -115,6 +115,34 @@ std::span<const uint32_t> Projection::ChildIndices(VolumeRowId volumeRowId, File
     return parentToChildren_.find(EntryKey{volumeRowId, parentFrn});
 }
 
+std::optional<Projection::FolderAggregate> Projection::GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) const {
+    FolderAggregate result = {0, 0};
+    const ProjectionEntry* root = Find(volumeRowId, parentFrn);
+    if (root == nullptr) {
+        return std::nullopt;
+    }
+
+    std::vector<FileId> stack;
+    stack.push_back(parentFrn);
+
+    while (!stack.empty()) {
+        FileId current = stack.back();
+        stack.pop_back();
+
+        auto children = ChildIndices(volumeRowId, current);
+        for (uint32_t childIndex : children) {
+            const auto& child = EntryAt(childIndex);
+            ++result.itemCount;
+            result.totalSizeBytes += child.sizeBytes;
+            if ((child.attributes & kFileAttributeDirectory) != 0) {
+                stack.push_back(child.frn);
+            }
+        }
+    }
+
+    return result;
+}
+
 Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, FileId frn) const {
     PathResult result;
     std::vector<NameId> partsReversed;

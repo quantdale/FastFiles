@@ -195,6 +195,16 @@ bool UiServer::SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowI
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
                                       {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0});
     }
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolumeResult),
+                             &payload, sizeof(payload));
+}
+
+bool UiServer::SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
+                                         uint64_t itemCount, uint64_t totalSizeBytes) {
+    const ffprotocol::FolderAggregateResultPayload payload{requestId, status, itemCount, totalSizeBytes};
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResult),
+                             &payload, sizeof(payload));
+}
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult),
                              &payload, sizeof(payload));
 }
@@ -238,6 +248,30 @@ void UiServer::HandleRequestDirectory(HANDLE pipe, const std::wstring& path) {
     // client can read the freshly enumerated directory straight out of
     // the shared-memory snapshot, zero further IPC round trip.
     RepublishAndBroadcastGeneration();
+}
+
+void UiServer::HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8_t>& framePayload) {
+    if (framePayload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) {
+        return;
+    }
+    ffprotocol::RequestFolderAggregatePayload request{};
+    std::memcpy(&request, framePayload.data(), sizeof(request));
+
+    if (!onRequestFolderAggregate) {
+        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        return;
+    }
+
+    const ffindexstore::FileId parentFrn{request.parentFrnLow, request.parentFrnHigh};
+    const auto aggregateOpt = onRequestFolderAggregate(static_cast<ffindexstore::VolumeRowId>(request.volumeRowId), parentFrn);
+
+    if (!aggregateOpt) {
+        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+    } else {
+        const auto& aggregate = *aggregateOpt;
+        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::Resolved,
+                                  aggregate.itemCount, aggregate.totalSizeBytes);
+    }
 }
 
 void UiServer::HandleConnection(HANDLE pipe) {
@@ -303,18 +337,24 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 if (!frame->payload.empty() || !SendUnavailableVolumes(pipe)) goto disconnected;
                 break;
 
-            case UiMessageType::ForgetUnavailableVolume: {
-                if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
-                ffprotocol::ForgetUnavailableVolumePayload payload{};
-                std::memcpy(&payload, frame->payload.data(), sizeof(payload));
-                if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(pipe, payload.volumeRowId)) {
-                    goto disconnected;
-                }
-                break;
-            }
+    case UiMessageType::ForgetUnavailableVolume: {
+        if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
+        ffprotocol::ForgetUnavailableVolumePayload payload{};
+        std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+        if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(pipe, payload.volumeRowId)) {
+            goto disconnected;
+        }
+        break;
+    }
 
-            default:
-                goto disconnected; // reply-only types are illegal from a client
+    case UiMessageType::RequestFolderAggregate: {
+        if (frame->payload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) goto disconnected;
+        HandleRequestFolderAggregate(pipe, frame->payload);
+        break;
+    }
+
+    default:
+        goto disconnected; // reply-only types are illegal from a client
         }
     }
 

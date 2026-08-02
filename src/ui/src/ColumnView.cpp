@@ -49,18 +49,21 @@ void ColumnView::Initialize(EngineClient* engineClient) {
 
 void ColumnView::TruncateAfter(int columnIndex) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (columnIndex + 1 < static_cast<int>(columns_.size())) {
-        columns_.resize(columnIndex + 1);
+    auto& columns = ActiveColumns();
+    if (columnIndex + 1 < static_cast<int>(columns.size())) {
+        columns.resize(columnIndex + 1);
     }
 }
 
 void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
         Column column;
         column.path = path;
-        columns_.push_back(std::move(column));
-        focusedColumnIndex_ = static_cast<int>(columns_.size()) - 1;
+        columns.push_back(std::move(column));
+        focusedIndex = static_cast<int>(columns.size()) - 1;
     }
     if (engineClient_) {
         engineClient_->RequestDirectory(path);
@@ -84,10 +87,12 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
     bool isDirectory = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        if (columnIndex < 0 || columnIndex >= static_cast<int>(columns_.size())) {
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
             return;
         }
-        Column& column = columns_[columnIndex];
+        Column& column = columns[columnIndex];
         if (itemIndex < 0 || itemIndex >= static_cast<int>(column.items.size())) {
             return;
         }
@@ -104,14 +109,14 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
 
     if (control || shift) {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        focusedColumnIndex_ = columnIndex;
+        ActiveFocusedColumnIndex() = columnIndex;
         return;
     }
 
     TruncateAfter(columnIndex);
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        focusedColumnIndex_ = columnIndex;
+        ActiveFocusedColumnIndex() = columnIndex;
     }
 
     if (isDirectory) {
@@ -127,11 +132,13 @@ void ColumnView::OnKeyDown(int virtualKey) {
 
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        if (columns_.empty()) {
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        if (columns.empty()) {
             return;
         }
-        focusedColumnIndex_ = std::clamp(focusedColumnIndex_, 0, static_cast<int>(columns_.size()) - 1);
-        Column& focused = columns_[focusedColumnIndex_];
+        focusedIndex = std::clamp(focusedIndex, 0, static_cast<int>(columns.size()) - 1);
+        Column& focused = columns[focusedIndex];
 
         switch (virtualKey) {
             case VK_UP:
@@ -145,13 +152,13 @@ void ColumnView::OnKeyDown(int virtualKey) {
                 }
                 break;
             case VK_LEFT:
-                focusedColumnIndex_ = std::max(0, focusedColumnIndex_ - 1);
+                focusedIndex = std::max(0, focusedIndex - 1);
                 break;
             case VK_RIGHT:
-                focusedColumnIndex_ = std::min(static_cast<int>(columns_.size()) - 1, focusedColumnIndex_ + 1);
+                focusedIndex = std::min(static_cast<int>(columns.size()) - 1, focusedIndex + 1);
                 break;
             case VK_RETURN:
-                activateColumnIndex = focusedColumnIndex_;
+                activateColumnIndex = focusedIndex;
                 activateItemIndex = focused.focusIndex;
                 break;
             case 'A':
@@ -176,11 +183,21 @@ void ColumnView::OnKeyDown(int virtualKey) {
     }
 }
 
-void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, bool control, bool shift) {
+void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth, bool control, bool shift) {
     if (clientPoint.y < kBadgeHeight) {
         return;
     }
-    const int columnIndex = static_cast<int>((clientPoint.x + scrollOffset) / kColumnWidth);
+    
+    if (dualPane_) {
+        const float paneWidth = viewportWidth / 2.0f;
+        const int clickedPane = clientPoint.x < paneWidth ? 0 : 1;
+        if (clickedPane != activePane_) {
+            ActivatePane(clickedPane);
+        }
+    }
+    
+    const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
+    const int columnIndex = static_cast<int>((clientPoint.x + effectiveScrollOffset) / kColumnWidth);
     const int itemIndex = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
     ActivateItem(columnIndex, itemIndex, control, shift);
 }
@@ -188,10 +205,12 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, bool
 std::vector<std::wstring> ColumnView::ActiveSelectionPaths() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     std::vector<std::wstring> paths;
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+    const auto& columns = ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
         return paths;
     }
-    const Column& column = columns_[focusedColumnIndex_];
+    const Column& column = columns[focusedIndex];
     for (int index : column.selectedIndices) {
         if (index >= 0 && index < static_cast<int>(column.items.size())) {
             paths.push_back(JoinPath(column.path, column.items[index].name));
@@ -203,8 +222,10 @@ std::vector<std::wstring> ColumnView::ActiveSelectionPaths() const {
 std::vector<SelectionItem> ColumnView::ActiveSelectionItems() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     std::vector<SelectionItem> items;
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return items;
-    const Column& column = columns_[focusedColumnIndex_];
+    const auto& columns = ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return items;
+    const Column& column = columns[focusedIndex];
     for (int index : column.selectedIndices) {
         if (index >= 0 && index < static_cast<int>(column.items.size())) {
             items.push_back({JoinPath(column.path, column.items[index].name), column.items[index].isDirectory});
@@ -215,8 +236,10 @@ std::vector<SelectionItem> ColumnView::ActiveSelectionItems() const {
 
 void ColumnView::SelectAll() {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return;
-    Column& column = columns_[focusedColumnIndex_];
+    auto& columns = ActiveColumns();
+    int& focusedIndex = ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
+    Column& column = columns[focusedIndex];
     SelectAllItems(column.selectedIndices, column.selectionAnchor, column.focusIndex,
                    static_cast<int>(column.items.size()));
 }
@@ -230,11 +253,13 @@ void ColumnView::NavigateToPath(const std::wstring& path, const std::wstring& se
     if (path.empty()) return;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        columns_.clear();
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        columns.clear();
         Column column;
         column.path = path;
-        columns_.push_back(std::move(column));
-        focusedColumnIndex_ = 0;
+        columns.push_back(std::move(column));
+        focusedIndex = 0;
         pendingSelectionName_ = selectName;
     }
     if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
@@ -267,13 +292,15 @@ void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirect
     }
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        columns_.clear();
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        columns.clear();
         for (const auto& path : paths) {
             Column column;
             column.path = path;
-            columns_.push_back(std::move(column));
+            columns.push_back(std::move(column));
         }
-        focusedColumnIndex_ = static_cast<int>(columns_.size()) - 1;
+        focusedIndex = static_cast<int>(columns.size()) - 1;
         pendingSelectionName_ = selectedName;
     }
     for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
@@ -311,21 +338,28 @@ void ColumnView::NavigateToHierarchy(const std::vector<std::wstring>& segments, 
 
 int ColumnView::FocusedItemIndex() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) return -1;
-    return columns_[focusedColumnIndex_].focusIndex;
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return -1;
+    return columns[focusedIndex].focusIndex;
 }
 
 std::wstring ColumnView::ActivePanePath() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
         return {};
     }
-    return columns_[focusedColumnIndex_].path;
+    return columns[focusedIndex].path;
 }
 
 std::wstring ColumnView::RootPath() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (const auto& column : columns_) {
+        if (!column.path.empty()) return column.path;
+    }
+    for (const auto& column : columns2_) {
         if (!column.path.empty()) return column.path;
     }
     return {};
@@ -354,7 +388,9 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
     column.items.clear();
     column.items.reserve(directory.entries.size());
     for (const auto& entry : directory.entries) {
-        column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes, entry.attributes});
+        column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes, entry.attributes,
+                                static_cast<uint64_t>(entry.fileIdLow), static_cast<uint64_t>(entry.fileIdHigh),
+                                entry.volumeRowId});
     }
     std::sort(column.items.begin(), column.items.end(), [](const ColumnItem& a, const ColumnItem& b) {
         if (a.isDirectory != b.isDirectory) {
@@ -397,11 +433,25 @@ void ColumnView::OnSnapshotUpdated() {
         }
         RefreshColumnFromSnapshot(column, *snapshot);
     }
+    for (auto& column : columns2_) {
+        if (column.path.empty()) {
+            continue;
+        }
+        RefreshColumnFromSnapshot(column, *snapshot);
+    }
 }
 
 void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (auto& column : columns_) {
+        if (column.path == path) {
+            column.error = reason == ffprotocol::DirectoryErrorReason::AccessDenied
+                ? ColumnErrorState::AccessDenied
+                : ColumnErrorState::NoLongerAvailable;
+            column.items.clear();
+        }
+    }
+    for (auto& column : columns2_) {
         if (column.path == path) {
             column.error = reason == ffprotocol::DirectoryErrorReason::AccessDenied
                 ? ColumnErrorState::AccessDenied
@@ -437,12 +487,20 @@ void ColumnView::SetDarkTheme(bool dark) {
 
 float ColumnView::ContentWidth() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    return kColumnWidth * static_cast<float>(columns_.size());
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    return kColumnWidth * static_cast<float>(columns.size());
+}
+
+float ColumnView::PaneContentWidth(int paneIndex) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto& columns = paneIndex == 0 ? columns_ : columns2_;
+    return kColumnWidth * static_cast<float>(columns.size());
 }
 
 int ColumnView::FocusedColumnIndex() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    return focusedColumnIndex_;
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    return focusedIndex;
 }
 
 std::optional<FileDescriptor> ColumnView::CurrentSelection() const {
@@ -456,16 +514,19 @@ std::optional<FileDescriptor> ColumnView::CurrentSelection() const {
 SelectionSummary ColumnView::CurrentSelectionSummary() const {
     SelectionSummary summary;
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (focusedColumnIndex_ < 0 || focusedColumnIndex_ >= static_cast<int>(columns_.size())) {
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
         return summary;
     }
-    const Column& column = columns_[focusedColumnIndex_];
+    const Column& column = columns[focusedIndex];
     for (int index : column.selectedIndices) {
         if (index < 0 || index >= static_cast<int>(column.items.size())) {
             continue;
         }
         const ColumnItem& item = column.items[index];
-        summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes, item.attributes, item.isDirectory});
+        summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes, item.attributes, item.isDirectory,
+                                  item.fileIdLow, item.fileIdHigh, item.volumeRowId});
         if (!item.isDirectory) summary.knownSizeBytes += item.sizeBytes;
     }
     return summary;
@@ -502,7 +563,7 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
     resourcesCreated_ = true;
 }
 
-void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset) {
+void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
     EnsureCreated(context, dwriteFactory);
 
     context->Clear(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF));
@@ -515,57 +576,95 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect, textBrush_.Get());
 
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    for (int i = 0; i < static_cast<int>(columns_.size()); ++i) {
-        const float x = i * kColumnWidth - scrollOffset;
-        if (x + kColumnWidth < 0 || x > viewportSize.width) {
-            continue; // culled
-        }
-        const Column& column = columns_[i];
 
-        D2D1_RECT_F columnRect = D2D1::RectF(x, kBadgeHeight, x + kColumnWidth, viewportSize.height);
-        context->FillRectangle(columnRect, backgroundBrush_.Get());
-        context->DrawLine(D2D1::Point2F(x + kColumnWidth, kBadgeHeight), D2D1::Point2F(x + kColumnWidth, viewportSize.height),
-                           borderBrush_.Get(), 1.0f);
+    auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll) {
+        for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
+            const float x = paneX + i * kColumnWidth - paneScroll;
+            if (x + kColumnWidth < paneX || x > paneX + paneWidth) {
+                continue; // culled
+            }
+            const Column& column = columns[i];
 
-        if (column.error != ColumnErrorState::None) {
-            const wchar_t* message = column.error == ColumnErrorState::AccessDenied
-                ? L"You don't have permission to view this folder."
-                : L"This folder is no longer available.";
-            D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
-            context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), messageRect, errorBrush_.Get());
-            continue;
-        }
+            D2D1_RECT_F columnRect = D2D1::RectF(x, kBadgeHeight, x + kColumnWidth, viewportSize.height);
+            context->FillRectangle(columnRect, backgroundBrush_.Get());
+            context->DrawLine(D2D1_POINT_2F{x + kColumnWidth, kBadgeHeight}, D2D1_POINT_2F{x + kColumnWidth, viewportSize.height},
+                               borderBrush_.Get(), 1.0f);
 
-        for (int r = 0; r < static_cast<int>(column.items.size()); ++r) {
-            const float y = kBadgeHeight + r * kRowHeight;
-            if (y + kRowHeight < kBadgeHeight || y > viewportSize.height) {
+            if (column.error != ColumnErrorState::None) {
+                const wchar_t* message = column.error == ColumnErrorState::AccessDenied
+                    ? L"You don't have permission to view this folder."
+                    : L"This folder is no longer available.";
+                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
+                context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), messageRect, errorBrush_.Get());
                 continue;
             }
 
-            if (column.selectedIndices.contains(r)) {
-                D2D1_RECT_F selectionRect = D2D1::RectF(x, y, x + kColumnWidth, y + kRowHeight);
-                // Task 5.6: the deepest active selection (the focused
-                // column) is visually distinct from remembered selections
-                // in ancestor columns.
-                const float opacity = (i == focusedColumnIndex_) ? 1.0f : 0.35f;
-                selectionBrush_->SetOpacity(opacity);
-                context->FillRectangle(selectionRect, selectionBrush_.Get());
-                selectionBrush_->SetOpacity(1.0f);
-            }
+            for (int r = 0; r < static_cast<int>(column.items.size()); ++r) {
+                const float y = kBadgeHeight + r * kRowHeight;
+                if (y + kRowHeight < kBadgeHeight || y > viewportSize.height) {
+                    continue;
+                }
 
-            // Task 5.5: files vs folders are visually distinguished by a
-            // colored glyph plus a trailing separator on folder names.
-            D2D1_RECT_F glyphRect = D2D1::RectF(x + 8, y + kRowHeight / 2 - 4, x + 16, y + kRowHeight / 2 + 4);
-            context->FillRectangle(glyphRect, column.items[r].isDirectory ? folderGlyphBrush_.Get() : fileGlyphBrush_.Get());
+                if (column.selectedIndices.contains(r)) {
+                    D2D1_RECT_F selectionRect = D2D1::RectF(x, y, x + kColumnWidth, y + kRowHeight);
+                    const float opacity = (i == (activePane_ == 0 ? focusedColumnIndex_ : focusedColumnIndex2_)) ? 1.0f : 0.35f;
+                    selectionBrush_->SetOpacity(opacity);
+                    context->FillRectangle(selectionRect, selectionBrush_.Get());
+                    selectionBrush_->SetOpacity(1.0f);
+                }
 
-            std::wstring label = column.items[r].name;
-            if (column.items[r].isDirectory && (label.empty() || label.back() != L'\\')) {
-                label += L'\\';
+                D2D1_RECT_F glyphRect = D2D1::RectF(x + 8, y + kRowHeight / 2 - 4, x + 16, y + kRowHeight / 2 + 4);
+                context->FillRectangle(glyphRect, column.items[r].isDirectory ? folderGlyphBrush_.Get() : fileGlyphBrush_.Get());
+
+                std::wstring label = column.items[r].name;
+                if (column.items[r].isDirectory && (label.empty() || label.back() != L'\\')) {
+                    label += L'\\';
+                }
+                D2D1_RECT_F textRect = D2D1::RectF(x + 24, y, x + kColumnWidth - 4, y + kRowHeight);
+                context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
             }
-            D2D1_RECT_F textRect = D2D1::RectF(x + 24, y, x + kColumnWidth - 4, y + kRowHeight);
-            context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
         }
+    };
+
+    if (dualPane_) {
+        const float paneWidth = viewportSize.width / 2.0f;
+        RenderPane(columns_, 0.0f, paneWidth, scrollOffset);
+        context->DrawLine(D2D1_POINT_2F{paneWidth, kBadgeHeight}, D2D1_POINT_2F{paneWidth, viewportSize.height},
+                           borderBrush_.Get(), 2.0f);
+        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2);
+    } else {
+        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset);
     }
 }
 
-} // namespace ffui
+void ColumnView::SetDualPane(bool enabled) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    dualPane_ = enabled;
+    if (!enabled) {
+        columns2_.clear();
+        activePane_ = 0;
+    }
+}
+
+void ColumnView::ActivatePane(int paneIndex) {
+    if (paneIndex == 0 || (dualPane_ && paneIndex == 1)) {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        activePane_ = paneIndex;
+    }
+}
+
+std::vector<Column>& ColumnView::ActiveColumns() {
+    return activePane_ == 0 ? columns_ : columns2_;
+}
+
+const std::vector<Column>& ColumnView::ActiveColumns() const {
+    return activePane_ == 0 ? columns_ : columns2_;
+}
+
+int& ColumnView::ActiveFocusedColumnIndex() {
+    return activePane_ == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+}
+
+float& ColumnView::ActiveScrollOffset() {
+    return activePane_ == 0 ? scrollOffset_ : scrollOffset2_;
+}

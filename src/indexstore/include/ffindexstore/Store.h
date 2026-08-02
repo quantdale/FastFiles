@@ -122,6 +122,17 @@ public:
 
     uint64_t CountEntries(VolumeRowId volumeRowId);
 
+    // file-preview-and-properties §6.2 / storage-analysis §3.1: recursive
+    // subtree aggregate from the durable store. Returns {itemCount,
+    // totalSizeBytes} for all descendants of `parentFrn` within `volumeRowId`,
+    // or {0, 0} if the root is unknown. Uses a recursive CTE so this works
+    // without rebuilding the projection.
+    struct FolderAggregate {
+        uint64_t itemCount = 0;
+        uint64_t totalSizeBytes = 0;
+    };
+    FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
+
 private:
     sqlite3* db_ = nullptr;
 };

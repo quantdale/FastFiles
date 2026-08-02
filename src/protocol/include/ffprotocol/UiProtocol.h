@@ -24,6 +24,8 @@ enum class UiMessageType : uint16_t {
     UnavailableVolumes = 9, // Engine -> UI: fixed-record list response
     ForgetUnavailableVolume = 10, // UI -> Engine: explicit destructive action by durable row id
     ForgetUnavailableVolumeResult = 11, // Engine -> UI: explicit outcome for the requested row
+    RequestFolderAggregate = 12, // UI -> Engine: async subtree size/count request
+    FolderAggregateResult = 13,  // Engine -> UI: subtree aggregate response
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -101,9 +103,34 @@ struct ForgetUnavailableVolumeResultPayload {
     ForgetUnavailableVolumeStatus status;
 };
 
+// file-preview-and-properties §6 / storage-analysis §1.2: request identity
+// lets the UI reject stale results that arrive after the user has navigated
+// or selected a different folder.
+struct RequestFolderAggregatePayload {
+    uint64_t requestId;
+    int64_t volumeRowId;
+    uint64_t parentFrnLow;
+    uint64_t parentFrnHigh;
+};
+
+enum class FolderAggregateStatus : uint16_t {
+    Resolved = 1,  // itemCount + totalSizeBytes are valid
+    Pending = 2,   // engine is computing asynchronously; result follows later
+    NotFound = 3,  // the requested folder is not known to the index
+};
+
+struct FolderAggregateResultPayload {
+    uint64_t requestId;
+    FolderAggregateStatus status;
+    uint64_t itemCount;
+    uint64_t totalSizeBytes;
+};
+
 #pragma pack(pop)
 
 bool IsUiPathLengthValid(uint16_t lengthChars) noexcept;
+bool IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus status) noexcept;
+bool IsFolderAggregateStatusValid(FolderAggregateStatus status) noexcept;
 
 enum class UiFrameValidationResult {
     Valid,

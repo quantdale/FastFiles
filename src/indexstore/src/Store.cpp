@@ -620,4 +620,58 @@ uint64_t Store::CountEntries(VolumeRowId volumeRowId) {
     return static_cast<uint64_t>(sqlite3_column_int64(stmt, 0));
 }
 
+Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) {
+    FolderAggregate result = {0, 0};
+    if (db_ == nullptr) {
+        return result;
+    }
+
+    // Verify the root exists first so we can return {0,0} for an unknown
+    // folder. The caller wraps this in std::optional and treats {0,0}
+    // as "not found" only when the root is absent.
+    {
+        Statement exists(db_, "SELECT 1 FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;");
+        if (!exists.Valid()) {
+            return result;
+        }
+        sqlite3_bind_int64(exists, 1, static_cast<sqlite3_int64>(volumeRowId));
+        sqlite3_bind_int64(exists, 2, static_cast<sqlite3_int64>(parentFrn.low));
+        sqlite3_bind_int64(exists, 3, static_cast<sqlite3_int64>(parentFrn.high));
+        if (sqlite3_step(exists) != SQLITE_ROW) {
+            return result;
+        }
+    }
+
+    // Recursive CTE over the parent->child relationship. The root row is
+    // the anchor; every subsequent generation joins on parent_frn == the
+    // prior generation's frn. We exclude the anchor itself from the
+    // aggregate by counting only rows produced by the recursive term (or
+    // equivalently, by subtracting 1 from the anchor's own contribution).
+    Statement stmt(db_,
+        "WITH RECURSIVE subtree AS ("
+        "  SELECT volume_id, frn_low, frn_high, size_bytes, 1 AS depth"
+        "  FROM entries"
+        "  WHERE volume_id=? AND frn_low=? AND frn_high=0"
+        "  UNION ALL"
+        "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, s.depth + 1"
+        "  FROM entries e"
+        "  JOIN subtree s ON e.volume_id=s.volume_id"
+        "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
+        ")"
+        "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)"
+        " FROM subtree"
+        " WHERE depth > 1;");
+    if (!stmt.Valid()) {
+        return result;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(parentFrn.low));
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(parentFrn.high));
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        result.itemCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 0));
+        result.totalSizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 1));
+    }
+    return result;
+}
+
 } // namespace ffindexstore

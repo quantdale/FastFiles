@@ -1,7 +1,7 @@
 ## 1. Foundations & Cross-Capability Contracts
 
 - [ ] 1.1 Document the read-side contract this change assumes from `filesystem-index-store`: per-node logical size, allocated (on-disk) size, aggregate-known/pending status, and parent/hierarchy references — as a coordination note for `index-storage-and-scanning`, not a spec change owned here — **contract design required**; the index projection already exposes `sizeBytes`, `parentFrn`, and `ChildIndices`, but aggregate-known/pending status and allocated-size are not yet modeled.
-- [ ] 1.2 Define the async "size not yet known" request/subscribe pattern (immediate "pending" response, later "resolved" notification) shared by all storage views — **protocol message definitions required**; `RequestFolderAggregate`/`FolderAggregateResult` are the draft contract pending implementation in `file-preview-and-properties` §6.
+- [x] 1.2 Define the async "size not yet known" request/subscribe pattern (immediate "pending" response, later "resolved" notification) shared by all storage views — **complete**. `RequestFolderAggregate`/`FolderAggregateResult` protocol messages with `FolderAggregateStatus::Pending`/`Resolved`/`NotFound` are implemented in `ffprotocol::UiProtocol.h`. The engine handler (`UiServer::HandleRequestFolderAggregate`) computes from the projection and returns `Resolved` for known subtrees or `NotFound` for unknown ones. The UI side (`EngineClient::RequestFolderAggregate`, `WindowShell` stale-result gating via `pendingAggregateRequestId_`) consumes the contract.
 - [ ] 1.3 Define the on-disk, user-editable schema for the extension-to-category mapping (category id, display name, ordered extension pattern list, "Other/Uncategorized" fallback) and decide its storage location — **`Settings::storageCategories` exists** as a vector of (name, extensions) pairs; the richer schema and persistence format remain.
 - [ ] 1.4 Author the shipped default mapping covering video, image, document, archive, executable, development-files, VM-images, games, and other representative categories — **blocked on 1.3**.
 
@@ -16,7 +16,7 @@
 
 ## 3. Hierarchical Drill-Down
 
-- [ ] 3.1 Implement the drill-down list view consuming pre-aggregated sizes from the index projection, with the async "Calculating…" fallback for pending nodes — **folder aggregate contract required** (blocked on `file-preview-and-properties` §6); `ChildIndices` + `entries_` provide the data once aggregates are available.
+- [ ] 3.1 Implement the drill-down list view consuming pre-aggregated sizes from the index projection, with the async "Calculating…" fallback for pending nodes — **folder aggregate contract implemented** (`Projection::GetFolderAggregate`, `Store::GetFolderAggregate`, `RequestFolderAggregate`/`FolderAggregateResult` protocol messages, engine handler, UI stale-result gating); `ChildIndices` + `entries_` provide the data; storage-analysis-specific drill-down UI remains.
 - [ ] 3.2 Implement percentage-of-parent and percentage-of-volume computation at every drill-down level, recalculated as the user descends — **blocked on 3.1**.
 - [ ] 3.3 Implement in-place update of size and dependent percentages when a pending "Calculating…" value resolves, without requiring manual refresh — **blocked on 3.1 + folder aggregate async pattern**.
 - [ ] 3.4 Implement the largest-folders view (descending size rank) for a volume or chosen subtree scope — **blocked on 3.1**.

@@ -36,12 +36,14 @@ public:
     void MarkStateDirty() { stateDirty_ = true; }
     bool FlushState();
     const WorkspaceState& State() const { return state_; } WorkspaceState& State() { return state_; }
-    static std::vector<std::wstring> EnumerateDrives(); static std::vector<Bookmark> EnumerateKnownFolders();
+    static std::vector<std::wstring> EnumerateDrives(); std::vector<Bookmark> EnumerateKnownFolders();
+    void ReResolveKnownFolders();
     static bool LoadState(WorkspaceState& state); static bool SaveState(const WorkspaceState& state);
 private:
     struct Tab { std::vector<NavigationContext> panes; size_t activePane = 0; };
     static NavigationContext MakeContext(const std::wstring& path); static std::wstring StateFilePath(); Tab& ActiveTab(); const Tab& ActiveTab() const;
     std::wstring defaultPath_; std::vector<Tab> tabs_; size_t activeTab_ = 0; WorkspaceState state_; bool stateDirty_ = false;
+    std::vector<Bookmark> knownFoldersCache_; bool knownFoldersDirty_ = true;
 };
 struct ParsedPath { std::wstring path; std::wstring error; };
 ParsedPath ParseNavigationPath(const std::wstring& input);
