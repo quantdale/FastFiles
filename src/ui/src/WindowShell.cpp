@@ -217,8 +217,16 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"item.copy-path") {
                 CopyPathsToClipboard(hwnd_, paths);
             } else if (commandId == L"item.copy-relative-path") {
+                // Base folder: the other pane's current location when dual-pane
+                // mode is active, else the current view's root (leftmost)
+                // column location (spec, "Copy Relative Path Action").
+                // PathsRelativeTo falls back to the absolute path when no
+                // relative path exists (cross-volume), surfaced to the user
+                // via the notification below.
+                const std::optional<std::wstring> otherPane = navigationWorkspace_.OtherPanePath();
+                const std::wstring base = otherPane ? *otherPane : columnView_.RootPath();
                 bool fallback = false;
-                const auto relative = PathsRelativeTo(paths, columnView_.RootPath(), fallback);
+                const auto relative = PathsRelativeTo(paths, base, fallback);
                 CopyPathsToClipboard(hwnd_, relative);
                 if (fallback) MessageBoxW(hwnd_, L"A relative path was not possible; the absolute path was copied instead.", L"Copy relative path", MB_OK | MB_ICONINFORMATION);
             } else if (commandId == L"item.open-containing-folder" && paths.size() == 1) {

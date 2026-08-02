@@ -82,7 +82,21 @@ bool AppendDiagnostic(const DiagnosticEvent& event) {
            << L" privilegeHeld=" << (event.privilegeHeld ? 1 : 0)
            << L" privilegeEnabled=" << (event.privilegeEnabled ? 1 : 0)
            << L" error=0x" << std::hex << event.errorCode << std::dec
-           << L" items=" << event.itemCount << L"\n";
+           << L" items=" << event.itemCount;
+    // Matrix-only fields: emitted solely for candidate-matrix rows (those
+    // that set candidateId), so non-matrix events keep their exact prior
+    // line format and any existing log parser stays unaffected.
+    if (!event.candidateId.empty()) {
+        output << L" candidate=" << SafeField(event.candidateId)
+               << L" privilegeName=" << SafeField(event.privilegeName)
+               << L" group=" << SafeField(event.groupContext)
+               << L" journalQueried=" << (event.journalQueried ? 1 : 0)
+               << L" journalError=0x" << std::hex << event.journalQueryError << std::dec
+               << L" journalRead=" << (event.journalRead ? 1 : 0)
+               << L" journalReadError=0x" << std::hex << event.journalReadError << std::dec
+               << L" regOrder=" << event.registrationOrder;
+    }
+    output << L"\n";
     output.flush();
     return static_cast<bool>(output);
 }

@@ -84,9 +84,22 @@ void TestWorkspacePersistenceFallback() {
     if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
     else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());
 }
+void TestCopyRelativePathBaseResolution() {
+    using namespace ffui;
+    NavigationWorkspace workspace(L"C:\\");
+    Check(!workspace.OtherPanePath().has_value(), "single pane exposes no other-pane base");
+    workspace.EnableDualPane();
+    Check(workspace.OtherPanePath().value_or(L"") == L"C:\\", "dual pane exposes the other pane's location");
+    workspace.ActivatePane(1); workspace.Navigate(L"D:\\Destination");
+    Check(workspace.OtherPanePath().value_or(L"") == L"C:\\", "other pane path tracks pane switching");
+    workspace.ActivatePane(0);
+    Check(workspace.OtherPanePath().value_or(L"") == L"D:\\Destination", "other pane is the inactive pane");
+    workspace.DisableDualPane();
+    Check(!workspace.OtherPanePath().has_value(), "single pane after disable exposes no other-pane base");
+}
 }
 int main() {
     TestPathParsing(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
-    TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback();
+    TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestCopyRelativePathBaseResolution();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

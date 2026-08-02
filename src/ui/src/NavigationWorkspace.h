@@ -26,6 +26,11 @@ public:
     bool NavigateBreadcrumb(size_t segmentIndex);
     void OpenTab(const std::optional<std::wstring>& path = std::nullopt); bool CloseActiveTab(); bool SwitchTab(size_t index); bool ReopenClosedTab();
     void EnableDualPane(); void DisableDualPane(); void ActivatePane(size_t paneIndex);
+    // Returns the other (inactive) pane's current location in dual-pane mode
+    // (the base folder Copy Relative Path resolves against per the
+    // shell-integration-and-commands spec), or nullopt when only a single
+    // pane exists.
+    std::optional<std::wstring> OtherPanePath() const;
     void AddBookmark(const std::wstring& path, std::wstring displayName = {}); bool RenameBookmark(size_t index, const std::wstring& displayName); bool ReorderBookmark(size_t from, size_t to); bool RemoveBookmark(size_t index);
     bool HasPendingStateSave() const { return stateDirty_; }
     void MarkStateDirty() { stateDirty_ = true; }

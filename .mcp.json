@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "lighthouse": {
+      "command": "npx",
+      "args": ["-y", "@danielsogl/lighthouse-mcp@latest"]
+    },
+    "fetch": {
+      "command": "python",
+      "args": ["-m", "mcp_server_fetch"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      }
+    }
+  }
+}

@@ -245,6 +245,14 @@ void NavigationWorkspace::ActivatePane(size_t index) {
     if (index < ActiveTab().panes.size()) ActiveTab().activePane = index;
 }
 
+std::optional<std::wstring> NavigationWorkspace::OtherPanePath() const {
+    const auto& tab = ActiveTab();
+    if (tab.panes.size() != 2) return std::nullopt;
+    // activePane is always < panes.size() (ActivatePane clamps), so the
+    // inactive pane index is 0 or 1.
+    return tab.panes[1 - tab.activePane].currentPath;
+}
+
 void NavigationWorkspace::AddBookmark(const std::wstring& path, std::wstring name) {
     state_.bookmarks.push_back({path, name.empty() ? DefaultBookmarkName(path) : std::move(name)});
     stateDirty_ = true;

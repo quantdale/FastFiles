@@ -139,6 +139,10 @@ void TestQuickActions() {
     const auto relative = ffui::PathsRelativeTo({L"C:\\base\\folder\\file.txt"}, L"C:\\base", fallback);
     Check(!fallback && relative.size() == 1 && relative.front() == L"folder\\file.txt",
           "relative paths use the configured base");
+    bool crossVolumeFallback = false;
+    const auto absolute = ffui::PathsRelativeTo({L"D:\\other\\file.txt"}, L"C:\\base", crossVolumeFallback);
+    Check(crossVolumeFallback && absolute.size() == 1 && absolute.front() == L"D:\\other\\file.txt",
+          "cross-volume selection falls back to the absolute path");
 }
 } // namespace
 

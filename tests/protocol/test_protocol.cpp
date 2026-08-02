@@ -185,6 +185,56 @@ void TestIndexHealthPrecedence() {
     conditions.privilegedConnectionActive = false;
     Check(DeriveIndexHealth(conditions) == IndexHealth::Unavailable, "unavailable connection has highest precedence");
 }
+// Task 7.2: the per-volume detail view surfaces every applicable condition,
+// not just the headline, so a volume that is both mid-scan and whose
+// connection just dropped still shows the in-progress scan condition beneath
+// the Unavailable headline (spec "Status Precedence When Multiple Conditions
+// Apply" / scenario "Unavailable outranks an in-progress scan"; design D7).
+void TestIndexConditionDetailView() {
+    // A healthy volume yields exactly one condition: FullyIndexed.
+    VolumeIndexConditions healthy{true, true, false, false, false};
+    const auto healthyConditions = ApplicableIndexConditions(healthy);
+    Check(healthyConditions.size() == 1 && healthyConditions[0] == IndexCondition::FullyIndexed,
+          "healthy volume's detail view shows only Fully Indexed");
+
+    // The spec's headline-vs-detail scenario: connection dropped mid-scan.
+    // The headline is Unavailable (highest precedence), but the in-progress
+    // scan condition must remain visible in the detail view, not lost.
+    VolumeIndexConditions droppedMidScan{false, true, true, false, false};
+    const auto droppedConditions = ApplicableIndexConditions(droppedMidScan);
+    Check(droppedConditions.size() == 2 &&
+          droppedConditions[0] == IndexCondition::Unavailable &&
+          droppedConditions[1] == IndexCondition::CurrentlyIndexing,
+          "unavailable + mid-scan shows both conditions, Unavailable first");
+    Check(DeriveIndexHealth(droppedMidScan) == IndexHealth::Unavailable,
+          "headline for unavailable + mid-scan is Unavailable");
+
+    // Unreachable volume that is also partially indexed and needs
+    // reconciliation: every adverse condition applies, in precedence order.
+    VolumeIndexConditions many{false, false, false, true, true};
+    const auto manyConditions = ApplicableIndexConditions(many);
+    Check(manyConditions.size() == 3 &&
+          manyConditions[0] == IndexCondition::Unavailable &&
+          manyConditions[1] == IndexCondition::NeedsReconciliation &&
+          manyConditions[2] == IndexCondition::PartiallyIndexed,
+          "multiple adverse conditions are listed in precedence order, Fully Indexed omitted");
+
+    // A reachable, active, scanning volume that is also partially indexed:
+    // Currently Indexing precedes Partially Indexed; Unavailable does not
+    // appear (the connection is active and the volume is reachable).
+    VolumeIndexConditions scanningPartial{true, true, true, false, true};
+    const auto scanningConditions = ApplicableIndexConditions(scanningPartial);
+    Check(scanningConditions.size() == 2 &&
+          scanningConditions[0] == IndexCondition::CurrentlyIndexing &&
+          scanningConditions[1] == IndexCondition::PartiallyIndexed,
+          "active scan + partial scope lists both, scan first, no Unavailable");
+
+    Check(std::wstring(IndexConditionName(IndexCondition::CurrentlyIndexing)) == L"Currently Indexing",
+          "detail condition has a stable display name");
+    Check(std::wstring(IndexHealthName(IndexHealth::Unavailable)) == L"Unavailable",
+          "headline status has a stable display name");
+}
+
 
 void TestPrefixRulePrecedence() {
     VolumeSetting volume;
@@ -267,6 +317,7 @@ int main() {
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestVersionCompatibility();
     TestIndexHealthPrecedence();
+    TestIndexConditionDetailView();
     TestPrefixRulePrecedence();
     TestSettingsUtf8RoundTripAndCorruptionRecovery();
 
