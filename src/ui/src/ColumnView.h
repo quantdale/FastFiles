@@ -101,6 +101,10 @@ public:
     void SetScrollOffset2(float offset) { scrollOffset2_ = offset; }
     float ScrollOffset2() const { return scrollOffset2_; }
 
+    // task 1.3: save/restore per-pane column state for multi-context tab switching.
+    void SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, int& outFocusedIndex, float& outScrollOffset) const;
+    void RestoreActivePaneState(const std::vector<std::wstring>& columnPaths, int focusedIndex, float scrollOffset);
+
     // Dual-pane support
     void SetDualPane(bool enabled);
     bool IsDualPane() const { return dualPane_; }

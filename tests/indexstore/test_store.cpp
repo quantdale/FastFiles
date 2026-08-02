@@ -260,17 +260,15 @@ void TestGetFolderAggregateFromStore() {
     });
 
     auto rootAgg = store.GetFolderAggregate(*vol, FileId{5, 0});
-    Check(rootAgg.has_value(), "store root aggregate is present");
-    Check(rootAgg->itemCount == 6, "store root aggregate counts all descendants");
-    Check(rootAgg->totalSizeBytes == 0, "store root aggregate sums to zero size");
+    Check(rootAgg.itemCount == 6, "store root aggregate counts all descendants");
+    Check(rootAgg.totalSizeBytes == 0, "store root aggregate sums to zero size");
 
     auto usersAgg = store.GetFolderAggregate(*vol, FileId{100, 0});
-    Check(usersAgg.has_value(), "store Users aggregate is present");
-    Check(usersAgg->itemCount == 3, "store Users aggregate has three descendants");
-    Check(usersAgg->totalSizeBytes == 0, "store Users aggregate size is zero");
+    Check(usersAgg.itemCount == 3, "store Users aggregate has three descendants");
+    Check(usersAgg.totalSizeBytes == 0, "store Users aggregate size is zero");
 
     auto unknown = store.GetFolderAggregate(*vol, FileId{999, 0});
-    Check(!unknown.has_value(), "unknown folder returns nullopt");
+    Check(unknown.itemCount == 0 && unknown.totalSizeBytes == 0, "unknown folder returns zeroed aggregate");
 }
 
 } // namespace

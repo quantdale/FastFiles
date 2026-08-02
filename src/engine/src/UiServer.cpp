@@ -205,9 +205,6 @@ bool UiServer::SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprot
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResult),
                              &payload, sizeof(payload));
 }
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult),
-                             &payload, sizeof(payload));
-}
 
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
     if (engineActive_ != privilegedPathActive) {

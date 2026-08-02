@@ -651,7 +651,7 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
         "WITH RECURSIVE subtree AS ("
         "  SELECT volume_id, frn_low, frn_high, size_bytes, 1 AS depth"
         "  FROM entries"
-        "  WHERE volume_id=? AND frn_low=? AND frn_high=0"
+        "  WHERE volume_id=? AND frn_low=? AND frn_high=?"
         "  UNION ALL"
         "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, s.depth + 1"
         "  FROM entries e"

@@ -17,6 +17,7 @@
 #include "NavigationWorkspace.h"
 #include "NavigationChrome.h"
 #include "NavigationSidebar.h"
+#include "StorageAnalysis.h"
 
 namespace ffui {
 
@@ -71,6 +72,7 @@ private:
     ShortcutMap shortcuts_;
     CommandPalette commandPalette_;
     SearchPanel searchPanel_;
+    StorageAnalysis storageAnalysis_;
     bool engineActive_ = false;
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;

@@ -44,6 +44,7 @@ constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
 constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
 constexpr UINT WM_APP_FOLDER_AGGREGATE = WM_APP + 6;
 constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
+constexpr UINT WM_APP_STORAGE_AGGREGATE = WM_APP + 8;
 constexpr UINT kContextCommandBase = 20000;
 constexpr int kNavigationChromeHeight = 72;
 constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
@@ -249,7 +250,8 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"search.focus") {
                 searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_);
             } else if (commandId == L"storage.analyze") {
-                MessageBoxW(hwnd_, L"Storage analysis is not available yet.", L"Analyze storage", MB_OK | MB_ICONINFORMATION);
+                storageAnalysis_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_);
+                RequestRepaint();
             } else if (commandId == L"app.settings") {
                 DrawMenuBar(hwnd_);
                 MessageBoxW(hwnd_, L"Use the Settings menu to adjust FastFiles.", L"Settings", MB_OK | MB_ICONINFORMATION);
@@ -540,6 +542,14 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         })) return false;
     if (!fileOperations_.Start(hwnd_)) return false;
     if (!InitializeCommands()) return false;
+    if (!storageAnalysis_.Initialize(hwnd_, &engineClient_,
+        [this](const std::wstring& path) {
+            if (!path.empty()) navigationWorkspace_.Navigate(path);
+        },
+        [this]() {
+            storageAnalysis_.Hide();
+            RequestRepaint();
+        })) return false;
     IDropTarget* dropTarget = nullptr;
     if (FAILED(CreateFileDropTarget(
             [this] { return columnView_.ActivePanePath(); },
@@ -572,6 +582,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     engineClient_.Start(
         [this] {
             columnView_.OnSnapshotUpdated();
+            storageAnalysis_.OnSnapshotUpdated();
             PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
         },
         [this](bool active) {
@@ -840,6 +851,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             navigationSidebar_.Reposition();
             commandPalette_.Reposition();
             searchPanel_.Reposition();
+            storageAnalysis_.Reposition();
             RequestRepaint();
             return 0;
         }
@@ -992,6 +1004,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 RequestRepaint();
             }
             delete payload;
+            return 0;
+        }
+
+        case WM_APP_STORAGE_AGGREGATE: {
+            storageAnalysis_.HandleCompletion(lParam);
             return 0;
         }
 
@@ -1192,6 +1209,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_COMMAND:
             if (searchPanel_.HandleOwnerCommand(wParam, lParam)) return 0;
+            if (storageAnalysis_.HandleOwnerCommand(wParam, lParam)) return 0;
             if (commandPalette_.HandleOwnerCommand(wParam, lParam)) return 0;
             switch (LOWORD(wParam)) {
                 case kMenuThemeLight: settings_.theme = ffprotocol::ThemePreference::Light; break;

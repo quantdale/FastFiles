@@ -8,7 +8,7 @@
 namespace ffui {
 enum class AddressBarMode { Breadcrumb, EditableText };
 enum class PathCommitResult { Navigated, Invalid, NotFound };
-struct NavigationContext { std::wstring currentPath; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<std::wstring> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; };
+struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<std::wstring> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
 struct BreadcrumbSegment { std::wstring label; std::wstring path; };
 struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
