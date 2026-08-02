@@ -8,7 +8,11 @@
 // openspec/changes/establish-architecture-foundation.
 #include <windows.h>
 #include <cstdio>
+#include <cstdlib>
+#include <cwchar>
+#include <fstream>
 #include <iterator>
+#include <sstream>
 #include <string>
 
 #include "ffipc/PipeListener.h"
@@ -41,6 +45,118 @@ std::wstring GetOwnDirectory() {
     std::wstring fullPath(path, length);
     const size_t lastSlash = fullPath.find_last_of(L"\\/");
     return lastSlash == std::wstring::npos ? L"" : fullPath.substr(0, lastSlash);
+}
+
+// Helpers for the diagnostic candidate-matrix mode (resolve-raw-volume-
+// privilege-insufficiency task 1.3). In matrix mode the binary is started by
+// the SCM under a reconfigured service token, captures one candidate row,
+// writes the evidence to a fixed JSON file, and exits. A runner script stops
+// the service, applies each candidate configuration, restarts the binary with
+// these arguments, collects the evidence, and restores the original config.
+
+std::wstring EscapeJsonString(const std::wstring& value) {
+    std::wstring result;
+    result.reserve(value.size());
+    for (wchar_t ch : value) {
+        switch (ch) {
+            case L'\\': result += L"\\\\"; break;
+            case L'"': result += L"\\\""; break;
+            case L'\b': result += L"\\b"; break;
+            case L'\f': result += L"\\f"; break;
+            case L'\n': result += L"\\n"; break;
+            case L'\r': result += L"\\r"; break;
+            case L'\t': result += L"\\t"; break;
+            default: result.push_back(ch); break;
+        }
+    }
+    return result;
+}
+
+std::string ToUtf8(const std::wstring& value) {
+    if (value.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string result(size - 1, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.c_str(), -1, result.data(), size, nullptr, nullptr);
+    return result;
+}
+
+bool WriteMatrixRowJson(const std::wstring& path, const ffindexsvc::CandidateMatrixRow& row) {
+    std::wostringstream json;
+    json << L"{\n";
+    json << L"  \"candidateId\": \"" << EscapeJsonString(row.candidateId) << L"\",\n";
+    json << L"  \"privilegeName\": \"" << EscapeJsonString(row.privilegeName) << L"\",\n";
+    json << L"  \"volumePath\": \"" << EscapeJsonString(row.volumePath) << L"\",\n";
+    json << L"  \"accountName\": \"" << EscapeJsonString(row.tokenState.accountName) << L"\",\n";
+    json << L"  \"accountSid\": \"" << EscapeJsonString(row.tokenState.accountSid) << L"\",\n";
+    json << L"  \"groupContext\": \"" << EscapeJsonString(ffindexsvc::FormatGroupContext(row.tokenState.groups)) << L"\",\n";
+    json << L"  \"privilegeHeld\": " << (row.privilegeHeld ? L"true" : L"false") << L",\n";
+    json << L"  \"privilegeEnabled\": " << (row.privilegeEnabled ? L"true" : L"false") << L",\n";
+    json << L"  \"volumeOpened\": " << (row.volumeOpened ? L"true" : L"false") << L",\n";
+    json << L"  \"volumeOpenError\": " << row.volumeOpenError << L",\n";
+    json << L"  \"journalQueried\": " << (row.journalQueried ? L"true" : L"false") << L",\n";
+    json << L"  \"journalQueryError\": " << row.journalQueryError << L",\n";
+    json << L"  \"journalRead\": " << (row.journalRead ? L"true" : L"false") << L",\n";
+    json << L"  \"journalReadError\": " << row.journalReadError << L",\n";
+    json << L"  \"registrationOrder\": " << row.registrationOrder << L",\n";
+    json << L"  \"outcome\": \"" << ffindexsvc::CandidateMatrixOutcomeName(row.outcome) << L"\"\n";
+    json << L"}\n";
+
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+    const std::string utf8 = ToUtf8(json.str());
+    out.write(utf8.data(), utf8.size());
+    return static_cast<bool>(out);
+}
+
+// Returns true if the process was invoked in matrix mode. If true, the caller
+// must not start the service control dispatcher.
+bool RunCandidateMatrix(int argc, wchar_t* argv[]) {
+    int matrixIndex = -1;
+    int outputIndex = -1;
+    for (int i = 1; i < argc; ++i) {
+        if (std::wcscmp(argv[i], L"--run-candidate-matrix") == 0) {
+            matrixIndex = i;
+        } else if (std::wcscmp(argv[i], L"--matrix-output") == 0) {
+            outputIndex = i;
+        }
+    }
+    if (matrixIndex < 0) {
+        return false;
+    }
+
+    if (matrixIndex + 4 >= argc || (outputIndex >= 0 && outputIndex + 1 >= argc)) {
+        std::fwprintf(stderr,
+            L"FastFilesIndexSvc: usage: --run-candidate-matrix <candidateId> <privilegeName> <driveLetter> <regOrder> [--matrix-output <path>]\n");
+        return true;
+    }
+
+    const std::wstring candidateId = argv[matrixIndex + 1];
+    const std::wstring privilegeName = argv[matrixIndex + 2];
+    const wchar_t driveLetter = argv[matrixIndex + 3][0];
+    const uint32_t regOrder = static_cast<uint32_t>(std::wcstoul(argv[matrixIndex + 4], nullptr, 10));
+
+    // Apply the same hardening the normal service path uses, but stay in the
+    // matrix-mode code path so we never start listeners or accept clients.
+    ffindexsvc::HardenDllSearchPath();
+    ffindexsvc::EnsureAdminOnlyLogDirectory();
+
+    const ffindexsvc::CandidateMatrixRow row = ffindexsvc::CaptureCandidateMatrixRow(
+        candidateId, privilegeName, driveLetter, regOrder);
+    ffindexsvc::LogCandidateMatrixRow(row);
+
+    if (outputIndex >= 0) {
+        const std::wstring outputPath = argv[outputIndex + 1];
+        if (!WriteMatrixRowJson(outputPath, row)) {
+            std::fwprintf(stderr, L"FastFilesIndexSvc: failed to write matrix output to %ls\n", outputPath.c_str());
+        }
+    }
+
+    std::fwprintf(stderr,
+        L"FastFilesIndexSvc: candidate=%ls privilege=%ls outcome=%ls volumeOpenError=0x%lX journalQueryError=0x%lX journalReadError=0x%lX\n",
+        candidateId.c_str(), privilegeName.c_str(), ffindexsvc::CandidateMatrixOutcomeName(row.outcome),
+        row.volumeOpenError, row.journalQueryError, row.journalReadError);
+    return true;
 }
 
 void SetStatus(DWORD state, DWORD exitCode = NO_ERROR) {
@@ -133,7 +249,11 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 
 } // namespace
 
-int wmain() {
+int wmain(int argc, wchar_t* argv[]) {
+    if (RunCandidateMatrix(argc, argv)) {
+        return 0;
+    }
+
     SERVICE_TABLE_ENTRYW table[] = {
         {const_cast<LPWSTR>(ffsetup::kServiceName), ServiceMain},
         {nullptr, nullptr},
