@@ -36,6 +36,12 @@ ffipc::PipeListener g_ctrlListener;
 ffipc::PipeListener g_dataListener;
 ffsetup::OwnedSecurityDescriptor g_pipeSecurityDescriptor;
 
+// Saved command-line arguments so ServiceMain can detect --run-candidate-matrix
+// when the SCM starts the process. ServiceMain receives only the service start
+// parameters (empty for sc.exe start), not the ImagePath command-line arguments.
+int g_argc = 0;
+wchar_t** g_argv = nullptr;
+
 std::wstring GetOwnDirectory() {
     wchar_t path[MAX_PATH * 4];
     const DWORD length = GetModuleFileNameW(nullptr, path, static_cast<DWORD>(std::size(path)));
@@ -191,6 +197,26 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
     g_status.dwControlsAccepted = 0;
     SetStatus(SERVICE_START_PENDING);
 
+    // Matrix mode: the SCM started us with --run-candidate-matrix in the
+    // ImagePath. Report SERVICE_RUNNING BEFORE running the matrix (which takes
+    // 1-2 seconds) so the SCM and Start-Service see the service in the Running
+    // state before it stops. Reporting SERVICE_RUNNING after the matrix causes
+    // Start-Service to see an instantaneous Running→Stopped transition and
+    // throw "Cannot start service".
+    bool matrixMode = false;
+    for (int i = 1; i < g_argc; ++i) {
+        if (std::wcscmp(g_argv[i], L"--run-candidate-matrix") == 0) {
+            matrixMode = true;
+            break;
+        }
+    }
+    if (matrixMode) {
+        SetStatus(SERVICE_RUNNING);
+        RunCandidateMatrix(g_argc, g_argv);
+        SetStatus(SERVICE_STOPPED, NO_ERROR);
+        return;
+    }
+
     // Task 3.3: before any LoadLibrary call in this process.
     ffindexsvc::HardenDllSearchPath();
 
@@ -250,13 +276,27 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
-    if (RunCandidateMatrix(argc, argv)) {
-        return 0;
-    }
+    g_argc = argc;
+    g_argv = argv;
 
     SERVICE_TABLE_ENTRYW table[] = {
         {const_cast<LPWSTR>(ffsetup::kServiceName), ServiceMain},
         {nullptr, nullptr},
     };
-    return StartServiceCtrlDispatcherW(table) ? 0 : 1;
+
+    // When started by the SCM, StartServiceCtrlDispatcherW blocks until
+    // ServiceMain returns. ServiceMain detects --run-candidate-matrix via
+    // g_argc/g_argv and runs the matrix row with a proper SCM handshake
+    // (SERVICE_START_PENDING -> SERVICE_RUNNING -> SERVICE_STOPPED).
+    if (StartServiceCtrlDispatcherW(table)) {
+        return 0;
+    }
+
+    // Console mode (not started by the SCM): if in matrix mode, run directly
+    // so the smoke test (--run-candidate-matrix from the command line) works.
+    if (RunCandidateMatrix(argc, argv)) {
+        return 0;
+    }
+
+    return 1;
 }

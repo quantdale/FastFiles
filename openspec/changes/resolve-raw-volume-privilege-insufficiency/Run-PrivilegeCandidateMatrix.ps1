@@ -119,12 +119,12 @@ function Grant-Privilege {
     $buf = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni($Privilege)
     $rights = [PrivilegeMatrixApi+LSA_UNICODE_STRING[]]::new(1)
     $rights[0] = [PrivilegeMatrixApi+LSA_UNICODE_STRING]@{
-        Length = [ushort]($Privilege.Length * 2)
-        MaximumLength = [ushort](($Privilege.Length + 1) * 2)
+        Length = [uint16]($Privilege.Length * 2)
+        MaximumLength = [uint16](($Privilege.Length + 1) * 2)
         Buffer = $buf
     }
     $attrs = [PrivilegeMatrixApi+LSA_OBJECT_ATTRIBUTES]@{
-        Length = [uint][System.Runtime.InteropServices.Marshal]::SizeOf([PrivilegeMatrixApi+LSA_OBJECT_ATTRIBUTES])
+        Length = [uint32]48  # sizeof(LSA_OBJECT_ATTRIBUTES) on x64
     }
     $policy = [IntPtr]::Zero
     $status = [PrivilegeMatrixApi]::LsaOpenPolicy([IntPtr]::Zero, [ref]$attrs,
@@ -144,12 +144,12 @@ function Revoke-Privilege {
     $buf = [System.Runtime.InteropServices.Marshal]::StringToHGlobalUni($Privilege)
     $rights = [PrivilegeMatrixApi+LSA_UNICODE_STRING[]]::new(1)
     $rights[0] = [PrivilegeMatrixApi+LSA_UNICODE_STRING]@{
-        Length = [ushort]($Privilege.Length * 2)
-        MaximumLength = [ushort](($Privilege.Length + 1) * 2)
+        Length = [uint16]($Privilege.Length * 2)
+        MaximumLength = [uint16](($Privilege.Length + 1) * 2)
         Buffer = $buf
     }
     $attrs = [PrivilegeMatrixApi+LSA_OBJECT_ATTRIBUTES]@{
-        Length = [uint][System.Runtime.InteropServices.Marshal]::SizeOf([PrivilegeMatrixApi+LSA_OBJECT_ATTRIBUTES])
+        Length = [uint32]48  # sizeof(LSA_OBJECT_ATTRIBUTES) on x64
     }
     $policy = [IntPtr]::Zero
     $status = [PrivilegeMatrixApi]::LsaOpenPolicy([IntPtr]::Zero, [ref]$attrs,
@@ -271,13 +271,21 @@ function Start-ServiceAndWait {
 
 function Start-ServiceMatrixRun {
     param([string]$Name, [int]$TimeoutSeconds = 60)
-    Start-Service -Name $Name -ErrorAction Stop
+    # The diagnostic matrix binary now does a proper SCM handshake
+    # (StartServiceCtrlDispatcher in ServiceMain), so Start-Service should
+    # succeed (the service briefly reaches SERVICE_RUNNING before stopping).
+    # The try/catch is a safety net; the JSON output file is the source of
+    # truth for the candidate row.
+    try {
+        Start-Service -Name $Name -ErrorAction Stop
+    } catch {
+        Write-Host "Start-Service reported: $($_.Exception.Message)"
+    }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
-        $s = Get-Service -Name $Name
-        if ($s.Status -eq 'Stopped') {
-            $exit = (Get-CimInstance Win32_Service -Filter "Name='$Name'").ExitCode
-            if ($exit -ne 0) { throw "Matrix service $Name exited with code $exit" }
+        $s = Get-Service -Name $Name -ErrorAction SilentlyContinue
+        if ($s -and $s.Status -eq 'Stopped') {
+            Start-Sleep -Seconds 1  # Allow filesystem flush
             return
         }
         Start-Sleep -Milliseconds 200
@@ -354,6 +362,15 @@ $results = [System.Collections.Generic.List[object]]::new()
 $addedPrivileges = [System.Collections.Generic.List[string]]::new()
 $addedGroups = [System.Collections.Generic.List[string]]::new()
 
+# Save and disable service recovery actions for the duration of the matrix
+# run.  The matrix binary exits immediately without a StartServiceCtrlDispatcher
+# handshake; without this, the SCM auto-restarts it in a tight loop before the
+# runner can restore the original ImagePath, which corrupts the service config.
+Write-Host "Saving and disabling service recovery actions for matrix run..."
+$originalFailureConfig = sc.exe qfailure $ServiceName 2>&1 | Out-String
+Write-Host "Original recovery config:`n$originalFailureConfig"
+$null = sc.exe failure $ServiceName actions= restart/999999999 reset= 0 2>&1
+
 try {
     Stop-ServiceAndWait -Name $ServiceName
 
@@ -413,7 +430,13 @@ try {
             $addedGroups.Remove($c.GroupName)
         }
 
-        # Collect the row.
+        # Collect the row.  Wait for the JSON output file to appear (the
+        # matrix binary may still be writing it when the service reports
+        # Stopped, especially when the SCM takes time to release the process).
+        $jsonWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-Path -LiteralPath $outputPath) -and $jsonWait.Elapsed.TotalSeconds -lt 15) {
+            Start-Sleep -Milliseconds 500
+        }
         if (Test-Path -LiteralPath $outputPath) {
             $row = Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json
             $results.Add($row)
@@ -454,6 +477,13 @@ try {
         Start-ServiceAndWait -Name $ServiceName -TimeoutSeconds 120
         Write-Host "Service restarted normally."
     } catch { Write-Warning "Failed to restart service: $_" }
+
+    # Restore the original service recovery actions (RESTART/5000ms,
+    # RESTART/30000ms, reset period 86400s).
+    try {
+        $null = sc.exe failure $ServiceName actions= restart/5000/restart/30000 reset= 86400 2>&1
+        Write-Host "Service recovery actions restored."
+    } catch { Write-Warning "Failed to restore recovery actions: $_" }
 }
 
 # Clean up the diagnostic matrix binary; it is only needed for the run.
