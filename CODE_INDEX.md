@@ -223,24 +223,29 @@ Internal headers in `src/ui/src/`. Namespace `ffui`. `WIN32` GUI target. Entry
 IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 
 - `WindowShell` — HWND creation, message loop, top-level wiring; composes all
-  the panels below. Owns `EngineClient`, `ColumnView`, `NavigationWorkspace`,
-  `Renderer`, `SearchPanel`, `CommandPalette`, `FileOperations`, `Preview`,
-  `StorageAnalysis`.
+   the panels below. Owns `EngineClient`, `ColumnView`, `NavigationWorkspace`,
+   `Renderer`, `SearchPanel`, `CommandPalette`, `FileOperations`, `Preview`,
+   `StorageAnalysis`, `SettingsDialog`, `CategoryEngine`, `TreemapView`.
 - `EngineClient` — UI-side client to the engine control pipe. Subscribes to
-  generation notifications, requests directory enumeration/watching, maps and
-  reads the shared-memory snapshot directly (`ReadSnapshot`), implements the
-  "lazy start" (launches `FastFilesEngine.exe` directly if unreachable).
+   generation notifications, requests directory enumeration/watching, maps and
+   reads the shared-memory snapshot directly (`ReadSnapshot`), implements the
+   "lazy start" (launches `FastFilesEngine.exe` directly if unreachable).
 - `ColumnView` — Finder-style multi-column model + Direct2D/DirectWrite
-  rendering; keyboard/mouse navigation; dual-pane; per-pane state save/restore.
+   rendering; keyboard/mouse navigation; dual-pane; per-pane state save/restore.
 - `NavigationWorkspace` — tabs, dual-pane, back/forward history, address bar
-  (breadcrumb/editable), bookmarks, known-folder enumeration/re-resolution.
-  Plain UI state (no engine handles) — all contexts share the one
-  `EngineClient` snapshot.
+   (breadcrumb/editable), bookmarks, known-folder enumeration/re-resolution.
+   Plain UI state (no engine handles) — all contexts share the one
+   `EngineClient` snapshot.
 - `NavigationChrome`, `NavigationSidebar`, `SearchPanel`, `CommandSystem`,
-  `CommandPalette`, `QuickActions`, `Preview`, `Renderer`, `OleDragDrop`,
-  `FileOperations`, `FileOperationPolicy`, `ConflictDialog`, `SelectionModel`,
-  `StorageAnalysis` — the rest of the shell surface (storage-analysis drill
-  view consumes `RequestFolderAggregate` via `EngineClient`).
+   `CommandPalette`, `QuickActions`, `Preview`, `Renderer`, `OleDragDrop`,
+   `FileOperations`, `FileOperationPolicy`, `ConflictDialog`, `SelectionModel`,
+   `StorageAnalysis`, `SettingsDialog`, `CategoryEngine`, `TreemapView`, `Util`
+   — the rest of the shell surface (storage-analysis drill
+   view consumes `RequestFolderAggregate` via `EngineClient`).
+- `SettingsDialog` — settings/appearance configuration dialog.
+- `CategoryEngine` — drives the category/treemap view mode.
+- `TreemapView` — treemap visualization rendering.
+- `Util` — shared UI utility functions.
 
 ## `FastFilesSetup` (installer) & `fftest` (probe)
 

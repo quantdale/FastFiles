@@ -106,12 +106,6 @@ public:
     void RestoreActivePaneState(const std::vector<std::wstring>& columnPaths, int focusedIndex, float scrollOffset);
 
     // Dual-pane support
-    void SetDualPane(bool enabled);
-    bool IsDualPane() const { return dualPane_; }
-    void ActivatePane(int paneIndex);
-    int ActivePane() const { return activePane_; }
-    std::vector<Column>& ActiveColumns();
-    const std::vector<Column>& ActiveColumns() const;
     int& ActiveFocusedColumnIndex();
     float& ActiveScrollOffset();
 
@@ -160,6 +154,7 @@ private:
     bool resourcesCreated_ = false;
     bool darkTheme_ = false;
     std::wstring pendingSelectionName_;
+    float scrollOffset_ = 0.0f;
     float scrollOffset2_ = 0.0f;
 };
 

@@ -18,6 +18,8 @@
 #include "NavigationChrome.h"
 #include "NavigationSidebar.h"
 #include "StorageAnalysis.h"
+#include "SettingsDialog.h"
+#include "Util.h"
 
 namespace ffui {
 
@@ -73,6 +75,7 @@ private:
     CommandPalette commandPalette_;
     SearchPanel searchPanel_;
     StorageAnalysis storageAnalysis_;
+    SettingsDialog settingsDialog_;
     bool engineActive_ = false;
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;

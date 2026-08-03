@@ -1,4 +1,5 @@
 #include "SearchPanel.h"
+#include "Util.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -94,11 +95,6 @@ LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
-std::wstring JoinPath(const std::wstring& folder, const std::wstring& name) {
-    if (folder.empty()) return name;
-    return folder.back() == L'\\' ? folder + name : folder + L"\\" + name;
-}
-
 std::wstring LeafName(const std::wstring& path) {
     if (path.size() == 3 && path[1] == L':') return path;
     const size_t slash = path.find_last_of(L"\\/");
@@ -114,12 +110,6 @@ std::wstring ParentPath(const std::wstring& path) {
 int64_t VolumeFor(const std::wstring& path) {
     if (path.size() >= 2 && path[1] == L':') return static_cast<int64_t>(towupper(path[0]));
     return static_cast<int64_t>(std::hash<std::wstring>{}(path.substr(0, path.find(L'\\', 2))));
-}
-
-std::wstring FormatSize(uint64_t bytes) {
-    if (bytes >= 1024 * 1024) return std::to_wstring(bytes / (1024 * 1024)) + L" MB";
-    if (bytes >= 1024) return std::to_wstring(bytes / 1024) + L" KB";
-    return std::to_wstring(bytes) + L" B";
 }
 
 std::wstring FormatFileTime(uint64_t ticks) {
@@ -339,7 +329,7 @@ bool SearchPanel::HandleNotify(LPARAM lParam) {
             case 0: text = candidate.name; break;
             case 1: text = candidate.isDirectory ? L"Folder" : L"File"; break;
             case 2: text = candidate.folder; break;
-            case 3: text = candidate.isDirectory ? L"—" : FormatSize(candidate.sizeBytes); break;
+            case 3: text = candidate.isDirectory ? L"—" : ffui::FormatSize(candidate.sizeBytes); break;
             case 4: text = FormatFileTime(candidate.modifiedTime); break;
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);

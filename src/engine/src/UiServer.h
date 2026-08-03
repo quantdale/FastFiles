@@ -3,10 +3,12 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 #include <windows.h>
 
+#include "ffindexstore/Projection.h"
 #include "ffipc/PipeListener.h"
 #include "ffsetup/SecurityDescriptors.h"
 #include "ffprotocol/SnapshotFormat.h"

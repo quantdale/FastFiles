@@ -17,6 +17,10 @@ add_executable(FastFiles WIN32
   src/QuickActions.cpp
   src/SearchPanel.cpp
   src/StorageAnalysis.cpp
+  src/SettingsDialog.cpp
+  src/CategoryEngine.cpp
+  src/TreemapView.cpp
+  src/Util.cpp
 )
 
 target_link_libraries(FastFiles PRIVATE

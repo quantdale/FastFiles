@@ -15,9 +15,20 @@ void Check(bool condition, const char* description) {
     } else {
         std::printf("ok: %s\n", description);
     }
+    std::fflush(stdout);
+    std::fflush(stderr);
 }
 
 using namespace ffindexstore;
+
+EntryRecord MakeEntry(uint64_t id, uint64_t parent, std::u16string name, uint32_t attributes = 0) {
+    EntryRecord r;
+    r.id = FileId{id, 0};
+    r.parentId = FileId{parent, 0};
+    r.name = std::move(name);
+    r.attributes = attributes;
+    return r;
+}
 
 std::string FreshDbPath(const char* name) {
     auto path = std::filesystem::temp_directory_path() / name;
@@ -259,15 +270,15 @@ void TestGetFolderAggregateFromStore() {
         {EntryChangeKind::Upsert, MakeEntry(300, 200, u"notes.txt", 0)},
     });
 
-    auto rootAgg = store.GetFolderAggregate(*vol, FileId{5, 0});
+    auto rootAgg = store.GetFolderAggregate(vol, FileId{5, 0});
     Check(rootAgg.itemCount == 6, "store root aggregate counts all descendants");
     Check(rootAgg.totalSizeBytes == 0, "store root aggregate sums to zero size");
 
-    auto usersAgg = store.GetFolderAggregate(*vol, FileId{100, 0});
+    auto usersAgg = store.GetFolderAggregate(vol, FileId{100, 0});
     Check(usersAgg.itemCount == 3, "store Users aggregate has three descendants");
     Check(usersAgg.totalSizeBytes == 0, "store Users aggregate size is zero");
 
-    auto unknown = store.GetFolderAggregate(*vol, FileId{999, 0});
+    auto unknown = store.GetFolderAggregate(vol, FileId{999, 0});
     Check(unknown.itemCount == 0 && unknown.totalSizeBytes == 0, "unknown folder returns zeroed aggregate");
 }
 

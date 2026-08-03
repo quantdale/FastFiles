@@ -1,6 +1,10 @@
 #include "StorageAnalysis.h"
 
+#include "TreemapView.h"
+#include "Util.h"
+
 #include <commctrl.h>
+#include <windowsx.h>
 #include <algorithm>
 
 namespace ffui {
@@ -10,26 +14,32 @@ constexpr int kListId = 7201;
 constexpr int kStatusId = 7202;
 constexpr int kBackId = 7203;
 constexpr int kUpId = 7204;
-constexpr UINT_PTR kRefreshTimer = 7205;
+constexpr int kDrillDownId = 7205;
+constexpr int kLargestFoldersId = 7206;
+constexpr int kLargestFilesId = 7207;
+constexpr int kByCategoryId = 7208;
+constexpr int kTreemapId = 7209;
+constexpr UINT_PTR kRefreshTimer = 7210;
 constexpr int kRefreshDelayMs = 50;
 
-std::wstring FormatSize(uint64_t bytes) {
-    if (bytes >= 1024ULL * 1024ULL * 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
-        return buffer;
+void SetSortIndicator(HWND list, int column, bool ascending) {
+    HWND header = ListView_GetHeader(list);
+    if (header == nullptr) return;
+    for (int i = 0; i < 16; ++i) {
+        HDITEM hd{};
+        hd.mask = HDI_FORMAT;
+        if (Header_GetItem(header, i, &hd)) {
+            hd.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+            Header_SetItem(header, i, &hd);
+        }
     }
-    if (bytes >= 1024ULL * 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-        return buffer;
+    HDITEM hd{};
+    hd.mask = HDI_FORMAT;
+    if (Header_GetItem(header, column, &hd)) {
+        hd.fmt &= ~(HDF_SORTUP | HDF_SORTDOWN);
+        hd.fmt |= ascending ? HDF_SORTUP : HDF_SORTDOWN;
+        Header_SetItem(header, column, &hd);
     }
-    if (bytes >= 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f KB", static_cast<double>(bytes) / 1024.0);
-        return buffer;
-    }
-    return std::to_wstring(bytes) + L" B";
 }
 
 std::wstring FormatPercent(uint64_t part, uint64_t whole) {
@@ -52,11 +62,13 @@ StorageAnalysis::~StorageAnalysis() {
 
 bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                                  std::function<void(const std::wstring& path)> navigate,
-                                 std::function<void()> close) {
+                                 std::function<void()> close,
+                                 std::function<void(const std::wstring& commandId, const std::vector<std::wstring>& paths)> invokeCommand) {
     owner_ = owner;
     engine_ = engine;
     navigate_ = std::move(navigate);
     close_ = std::move(close);
+    invokeCommand_ = std::move(invokeCommand);
 
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&controls);
@@ -70,8 +82,18 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
+    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDrillDownId)), nullptr, nullptr);
+    largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", WS_CHILD | BS_AUTORADIOBUTTON,
+                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFoldersId)), nullptr, nullptr);
+    largestFiles_ = CreateWindowExW(0, L"BUTTON", L"Largest Files", WS_CHILD | BS_AUTORADIOBUTTON,
+                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFilesId)), nullptr, nullptr);
+    byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", WS_CHILD | BS_AUTORADIOBUTTON,
+                                  0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kByCategoryId)), nullptr, nullptr);
+    treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", WS_CHILD | BS_AUTORADIOBUTTON,
+                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
 
-    if (!back_ || !up_ || !status_ || !list_) return false;
+    if (!back_ || !up_ || !status_ || !list_ || !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"Modified"};
     const int widths[] = {260, 80, 100, 120, 100, 145};
@@ -83,6 +105,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         ListView_InsertColumn(list_, i, &column);
     }
     ListView_SetExtendedListViewStyle(list_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    SetSortIndicator(list_, sortColumn_, sortAscending_);
 
     worker_ = std::thread(&StorageAnalysis::WorkerMain, this);
     return true;
@@ -92,7 +115,9 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
-    for (HWND c : {back_, up_, list_, status_}) ShowWindow(c, SW_SHOW);
+    for (HWND c : {back_, up_, list_, status_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_SHOW);
+    CheckRadioButton(owner_, kDrillDownId, kTreemapId, kDrillDownId);
+    viewMode_ = ViewMode::DrillDown;
     RefreshData();
     Reposition();
     SetFocus(list_);
@@ -102,7 +127,7 @@ void StorageAnalysis::Hide() {
     if (!visible_) return;
     visible_ = false;
     KillTimer(owner_, kRefreshTimer);
-    for (HWND c : {back_, up_, list_, status_}) ShowWindow(c, SW_HIDE);
+    for (HWND c : {back_, up_, list_, status_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
     items_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
 }
@@ -117,7 +142,12 @@ void StorageAnalysis::Reposition() {
     const int buttonHeight = 28;
     SetWindowPos(back_, HWND_TOP, 12, top, 80, buttonHeight, SWP_SHOWWINDOW);
     SetWindowPos(up_, HWND_TOP, 96, top, 80, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, 180, top + 4, width - 200, 20, SWP_SHOWWINDOW);
+    SetWindowPos(drillDown_, HWND_TOP, 180, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFolders_, HWND_TOP, 294, top, 120, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFiles_, HWND_TOP, 418, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(byCategory_, HWND_TOP, 532, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(treemap_, HWND_TOP, 646, top, 90, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(status_, HWND_TOP, 738, top + 4, width - 748, 20, SWP_SHOWWINDOW);
     SetWindowPos(list_, HWND_TOP, 12, top + buttonHeight + 8, width - 24,
                  std::max(80, height - top - buttonHeight - 20), SWP_SHOWWINDOW);
 }
@@ -126,7 +156,7 @@ void StorageAnalysis::RefreshData() {
     if (!visible_ || !engine_) return;
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) {
-        SetWindowTextW(status_, L"Waiting for index data…");
+        SetWindowTextW(status_, engineActive_ ? L"Waiting for index data…" : L"Degraded mode — browsing via FindFirstFileEx");
         return;
     }
 
@@ -135,7 +165,7 @@ void StorageAnalysis::RefreshData() {
 
     auto it = snapshot->find(targetPath);
     if (it == snapshot->end()) {
-        SetWindowTextW(status_, L"Folder not yet indexed.");
+        SetWindowTextW(status_, engineActive_ ? L"Folder not yet indexed." : L"Degraded mode — folder not yet browsed");
         items_.clear();
         ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         return;
@@ -143,7 +173,7 @@ void StorageAnalysis::RefreshData() {
 
     const auto& directory = it->second;
     if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) {
-        SetWindowTextW(status_, L"This folder is not accessible.");
+        SetWindowTextW(status_, engineActive_ ? L"This folder is not accessible." : L"Degraded mode — folder not accessible");
         items_.clear();
         ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         return;
@@ -169,7 +199,42 @@ void StorageAnalysis::RefreshData() {
         items_.push_back(item);
     }
 
-    SetWindowTextW(status_, std::to_wstring(items_.size()) + L" items");
+    std::wstring statusText = std::to_wstring(items_.size()) + L" items";
+    if (!engineActive_) {
+        statusText += L" (degraded mode — partial coverage)";
+    }
+    SetWindowTextW(status_, statusText.c_str());
+
+    // Filter based on view mode
+    if (viewMode_ == ViewMode::LargestFolders) {
+        items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                    [](const DrillItem& item) { return !item.isDirectory; }),
+                     items_.end());
+    } else if (viewMode_ == ViewMode::LargestFiles) {
+        items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                    [](const DrillItem& item) { return item.isDirectory; }),
+                     items_.end());
+    } else if (viewMode_ == ViewMode::ByCategory) {
+        std::map<std::wstring, DrillItem> categoryMap;
+        for (const auto& item : items_) {
+            if (item.isDirectory) continue;
+            auto match = categoryEngine_.Match(item.name);
+            std::wstring catName = match.matched ? match.categoryName : L"Other";
+            auto& catItem = categoryMap[catName];
+            catItem.name = catName;
+            catItem.isDirectory = false;
+            catItem.totalSizeBytes += item.sizeBytes;
+            catItem.calculating = false;
+        }
+        items_.clear();
+        for (auto& [name, item] : categoryMap) {
+            items_.push_back(std::move(item));
+        }
+    }
+
+    const bool showList = viewMode_ != ViewMode::Treemap;
+    ShowWindow(list_, showList ? SW_SHOW : SW_HIDE);
+    ShowWindow(status_, showList ? SW_SHOW : SW_HIDE);
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
 
@@ -182,13 +247,7 @@ void StorageAnalysis::RefreshData() {
         }
     }
 
-    // Sort: folders first, then by name
-    std::sort(items_.begin(), items_.end(), [](const DrillItem& a, const DrillItem& b) {
-        if (a.isDirectory != b.isDirectory) return a.isDirectory > b.isDirectory;
-        return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
-    });
-    ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
-    InvalidateRect(list_, nullptr, FALSE);
+    SortItems(sortColumn_, sortAscending_);
 }
 
 void StorageAnalysis::RequestAggregateForItem(size_t index) {
@@ -207,20 +266,13 @@ void StorageAnalysis::RequestAggregateForItem(size_t index) {
         [this, requestId](uint64_t reqId, ffprotocol::FolderAggregateStatus status,
                           uint64_t itemCount, uint64_t totalSizeBytes) {
             if (reqId != requestId) return;
-            auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(
-                ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
-            const HWND target = owner_;
-            if (target != nullptr
-                && PostMessageW(target, WM_APP_STORAGE_AGGREGATE, 0,
-                                reinterpret_cast<LPARAM>(payload.get()))) {
-                payload.release();
-            }
+            ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE, requestId, status, itemCount, totalSizeBytes);
         });
 }
 
 void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
                                             ffprotocol::FolderAggregateStatus status,
-                                            uint64_t itemCount, uint64_t totalSizeBytes) {
+                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes) {
     std::lock_guard<std::mutex> lock(pendingMutex_);
     auto it = std::find_if(pending_.begin(), pending_.end(),
                            [requestId](const PendingRequest& r) { return r.requestId == requestId; });
@@ -243,6 +295,43 @@ void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
     InvalidateRect(list_, nullptr, FALSE);
 }
 
+void StorageAnalysis::SortItems(int column, bool ascending) {
+    if (column < 0 || column >= 6) return;
+    sortColumn_ = column;
+    sortAscending_ = ascending;
+    SetSortIndicator(list_, column, ascending);
+
+    auto getSortKey = [this](const DrillItem& item, int col) -> std::pair<int, uint64_t> {
+        switch (col) {
+            case 0: return {item.isDirectory ? 0 : 1, 0}; // name: folders first, then name
+            case 1: return {item.isDirectory ? 0 : 1, 0}; // type: folders first
+            case 2: return {item.isDirectory ? 0 : 1, item.sizeBytes}; // size
+            case 3: return {item.isDirectory ? 0 : 1, item.totalSizeBytes}; // subtree size
+            case 4: {
+                uint64_t parentTotal = 0;
+                for (const auto& sibling : items_) {
+                    if (sibling.isDirectory) parentTotal += sibling.totalSizeBytes;
+                }
+                return {item.isDirectory ? 0 : 1, parentTotal > 0 ? (item.totalSizeBytes * 1000000ULL / parentTotal) : 0};
+            }
+            case 5: return {0, item.lastModifiedTime}; // modified
+            default: return {0, 0};
+        }
+    };
+
+    std::sort(items_.begin(), items_.end(), [this, column, ascending, getSortKey](const DrillItem& a, const DrillItem& b) {
+        const auto keyA = getSortKey(a, column);
+        const auto keyB = getSortKey(b, column);
+        if (keyA.first != keyB.first) return ascending ? keyA.first < keyB.first : keyA.first > keyB.first;
+        if (keyA.second != keyB.second) return ascending ? keyA.second < keyB.second : keyA.second > keyB.second;
+        // tie-break on name
+        return ascending ? _wcsicmp(a.name.c_str(), b.name.c_str()) < 0 : _wcsicmp(a.name.c_str(), b.name.c_str()) > 0;
+    });
+
+    ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+    InvalidateRect(list_, nullptr, FALSE);
+}
+
 void StorageAnalysis::WorkerMain() {
     while (!stopping_) {
         std::unique_lock<std::mutex> lock(workMutex_);
@@ -256,6 +345,14 @@ void StorageAnalysis::OnSnapshotUpdated() {
     ++generation_;
     currentGeneration_ = generation_;
     RefreshData();
+    treemapView_.OnSnapshotUpdated();
+}
+
+void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize) {
+    if (viewMode_ != ViewMode::Treemap) return;
+    treemapView_.EnsureCreated(context, dwriteFactory);
+    treemapView_.SetDarkTheme(engineActive_);
+    treemapView_.Render(context, dwriteFactory, viewportSize);
 }
 
 bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
@@ -278,7 +375,38 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
         }
         return true;
     }
+    if (id == kDrillDownId) {
+        SetViewMode(ViewMode::DrillDown);
+        return true;
+    }
+    if (id == kLargestFoldersId) {
+        SetViewMode(ViewMode::LargestFolders);
+        return true;
+    }
+    if (id == kLargestFilesId) {
+        SetViewMode(ViewMode::LargestFiles);
+        return true;
+    }
+    if (id == kByCategoryId) {
+        SetViewMode(ViewMode::ByCategory);
+        return true;
+    }
+    if (id == kTreemapId) {
+        SetViewMode(ViewMode::Treemap);
+        return true;
+    }
     return false;
+}
+
+void StorageAnalysis::SetViewMode(ViewMode mode) {
+    if (viewMode_ == mode) return;
+    viewMode_ = mode;
+    CheckRadioButton(owner_, kDrillDownId, kTreemapId,
+                     mode == ViewMode::DrillDown ? kDrillDownId :
+                     mode == ViewMode::LargestFolders ? kLargestFoldersId :
+                     mode == ViewMode::LargestFiles ? kLargestFilesId :
+                     mode == ViewMode::ByCategory ? kByCategoryId : kTreemapId);
+    RefreshData();
 }
 
 bool StorageAnalysis::HandleNotify(LPARAM lParam) {
@@ -301,13 +429,13 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 text = item.isDirectory ? L"Folder" : L"File";
                 break;
             case 2:
-                text = item.isDirectory ? L"—" : FormatSize(item.sizeBytes);
+                text = item.isDirectory ? L"—" : ffui::FormatSize(item.sizeBytes);
                 break;
             case 3:
                 if (item.isDirectory) {
-                    text = item.calculating ? L"Calculating…" : FormatSize(item.totalSizeBytes);
+                    text = item.calculating ? L"Calculating…" : ffui::FormatSize(item.totalSizeBytes);
                 } else {
-                    text = FormatSize(item.totalSizeBytes);
+                    text = ffui::FormatSize(item.totalSizeBytes);
                 }
                 break;
             case 4: {
@@ -350,18 +478,24 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
         if (selected >= 0 && static_cast<size_t>(selected) < items_.size()) {
             const DrillItem& item = items_[static_cast<size_t>(selected)];
             if (item.isDirectory) {
-                std::wstring childPath = currentPath_;
-                if (!childPath.empty() && childPath.back() != L'\\') childPath += L'\\';
-                childPath += item.name;
+                std::wstring childPath = ffui::JoinPath(currentPath_, item.name);
                 currentPath_ = childPath;
                 RefreshData();
                 if (navigate_) navigate_(currentPath_);
             } else if (navigate_) {
-                std::wstring filePath = currentPath_;
-                if (!filePath.empty() && filePath.back() != L'\\') filePath += L'\\';
-                filePath += item.name;
+                std::wstring filePath = ffui::JoinPath(currentPath_, item.name);
                 navigate_(filePath);
             }
+        }
+        return true;
+    }
+
+    if (header->code == LVN_COLUMNCLICK) {
+        auto* info = reinterpret_cast<NMLISTVIEW*>(lParam);
+        if (info->iSubItem == sortColumn_) {
+            SortItems(sortColumn_, !sortAscending_);
+        } else {
+            SortItems(info->iSubItem, true);
         }
         return true;
     }
@@ -385,6 +519,57 @@ bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
 
 void StorageAnalysis::SetEngineActive(bool active) {
     engineActive_ = active;
+}
+
+bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {
+    if (!visible_ || !invokeCommand_) return false;
+    const int selected = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+    if (selected < 0 || static_cast<size_t>(selected) >= items_.size()) return false;
+
+    const DrillItem& item = items_[static_cast<size_t>(selected)];
+    std::vector<std::wstring> paths;
+    paths.push_back(ffui::JoinPath(currentPath_, item.name));
+
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return false;
+
+    AppendMenuW(menu, MF_STRING, 1, item.isDirectory ? L"Open" : L"Open");
+    AppendMenuW(menu, MF_STRING, 2, L"Copy Path");
+    AppendMenuW(menu, MF_STRING, 4, L"Move…");
+    if (!item.isDirectory) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, 3, L"Delete");
+    }
+
+    const int cmd = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                      GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), owner_, nullptr);
+    DestroyMenu(menu);
+
+    switch (cmd) {
+        case 1:
+            invokeCommand_(L"item.open", paths);
+            return true;
+        case 2:
+            invokeCommand_(L"item.copy-path", paths);
+            return true;
+        case 3:
+            invokeCommand_(L"file.delete", paths);
+            return true;
+        case 4:
+            invokeCommand_(L"file.cut", paths);
+            return true;
+    }
+    return false;
+}
+
+bool StorageAnalysis::HandleMouseMove(WPARAM wParam, LPARAM lParam) {
+    (void)wParam;
+    return treemapView_.HandleMouseMove(wParam, lParam);
+}
+
+bool StorageAnalysis::HandleLButtonDown(WPARAM wParam, LPARAM lParam) {
+    (void)wParam;
+    return treemapView_.HandleLButtonDown(wParam, lParam);
 }
 
 } // namespace ffui

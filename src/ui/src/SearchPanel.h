@@ -13,6 +13,7 @@
 #include "EngineClient.h"
 #include "ffsearch/Search.h"
 #include "ffsearch/History.h"
+#include "Util.h"
 
 namespace ffui {
 

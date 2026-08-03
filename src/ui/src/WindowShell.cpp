@@ -1,6 +1,7 @@
 #include "WindowShell.h"
 
 #include "ConflictDialog.h"
+#include "Util.h"
 
 #include <commctrl.h>
 #include <utility>
@@ -42,20 +43,11 @@ constexpr size_t kMaxForgetDriveMenuItems = 1000;
 constexpr UINT WM_APP_PREVIEW_READY = WM_APP + 3;
 constexpr UINT WM_APP_UNAVAILABLE_VOLUMES = WM_APP + 4;
 constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
-constexpr UINT WM_APP_FOLDER_AGGREGATE = WM_APP + 6;
+constexpr UINT WM_APP_FOLDER_AGGREGATE = WM_APP + 9;
 constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
-constexpr UINT WM_APP_STORAGE_AGGREGATE = WM_APP + 8;
 constexpr UINT kContextCommandBase = 20000;
 constexpr int kNavigationChromeHeight = 72;
 constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
-
-std::wstring FormatSize(uint64_t bytes) {
-    wchar_t buffer[64]{};
-    if (bytes >= 1024 * 1024) swprintf_s(buffer, L"%.1f MB", static_cast<double>(bytes) / (1024 * 1024));
-    else if (bytes >= 1024) swprintf_s(buffer, L"%.1f KB", static_cast<double>(bytes) / 1024);
-    else swprintf_s(buffer, L"%llu bytes", static_cast<unsigned long long>(bytes));
-    return buffer;
-}
 
 std::wstring FileNameOf(const std::wstring& path) {
     const size_t slash = path.find_last_of(L"\\/");
@@ -254,7 +246,7 @@ bool WindowShell::InitializeCommands() {
                 RequestRepaint();
             } else if (commandId == L"app.settings") {
                 DrawMenuBar(hwnd_);
-                MessageBoxW(hwnd_, L"Use the Settings menu to adjust FastFiles.", L"Settings", MB_OK | MB_ICONINFORMATION);
+                settingsDialog_.Show();
             } else if (commandId == L"app.command-palette") {
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
@@ -276,11 +268,27 @@ bool WindowShell::InitializeCommands() {
                 const size_t count = navigationWorkspace_.TabCount();
                 if (count > 1) {
                     const size_t current = navigationWorkspace_.ActiveTabIndex();
+                    std::vector<std::wstring> savedPaths;
+                    int savedFocus = 0;
+                    float savedScroll = 0.0f;
+                    columnView_.SaveActivePaneState(savedPaths, savedFocus, savedScroll);
+                    auto& currentContext = navigationWorkspace_.ActiveContext();
+                    currentContext.columnPaths = savedPaths;
+                    currentContext.columnSelections = {savedFocus};
+                    currentContext.columnScrollOffsets = {savedScroll};
+                    
                     const size_t next = commandId == L"navigation.next-tab"
                         ? (current + 1) % count
                         : (current + count - 1) % count;
                     if (navigationWorkspace_.SwitchTab(next)) {
-                        columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                        const auto& newContext = navigationWorkspace_.ActiveContext();
+                        if (!newContext.columnPaths.empty()) {
+                            columnView_.RestoreActivePaneState(newContext.columnPaths,
+                                newContext.columnSelections.empty() ? 0 : newContext.columnSelections[0],
+                                newContext.columnScrollOffsets.empty() ? 0.0f : newContext.columnScrollOffsets[0]);
+                        } else {
+                            columnView_.NavigateToPath(newContext.currentPath);
+                        }
                         RefreshSelectionPresentation();
                         navigationChrome_.Refresh();
                         RequestRepaint();
@@ -549,6 +557,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         [this]() {
             storageAnalysis_.Hide();
             RequestRepaint();
+        },
+        [this](const std::wstring& commandId, const std::vector<std::wstring>& /*paths*/) {
+            InvokeCommand(commandId);
+        })) return false;
+    if (!settingsDialog_.Initialize(hwnd_, &settings_, &navigationWorkspace_,
+        [this]() {
+            SaveAndNotifySettings();
+            ApplyTheme();
+            navigationChrome_.Refresh();
+            RequestRepaint();
         })) return false;
     IDropTarget* dropTarget = nullptr;
     if (FAILED(CreateFileDropTarget(
@@ -595,13 +613,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         });
 
     engineClient_.RequestFolderAggregate(0, 0, 0, [this](uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
-        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
-        const HWND target = hwnd_;
-        if (target != nullptr
-            && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
-                            reinterpret_cast<LPARAM>(payload.get()))) {
-            payload.release();
-        }
+        ffui::PostFolderAggregateResult(hwnd_, WM_APP_FOLDER_AGGREGATE, requestId, status, itemCount, totalSizeBytes);
     });
 
     ShowWindow(hwnd_, showCommand);
@@ -614,6 +626,7 @@ int WindowShell::RunMessageLoop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
         if (commandPalette_.HandleMessage(msg)) continue;
+        if (settingsDialog_.HandleMessage(msg)) continue;
         if (DispatchShortcut(msg, ShortcutScope::Global)) continue;
         if (!commandPalette_.Visible() && msg.hwnd != inlineRename_ && DispatchShortcut(msg, ShortcutScope::ActiveView)) continue;
         TranslateMessage(&msg);
@@ -660,7 +673,11 @@ void WindowShell::Render() {
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
     context->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(navigationSidebar_.Width()), static_cast<float>(kNavigationChromeHeight)));
-    columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
+    if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+        storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize);
+    } else {
+        columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
+    }
     RenderDetails(context, viewportSize);
     context->SetTransform(D2D1::Matrix3x2F::Identity());
     renderer_.EndFrame();
@@ -732,7 +749,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
     if (summary.items.empty()) info += L"No selection";
     else if (summary.items.size() > 1) {
         info += L"Items: " + std::to_wstring(summary.items.size()) + L"\n";
-        info += L"Known total size: " + FormatSize(summary.knownSizeBytes);
+        info += L"Known total size: " + ffui::FormatSize(summary.knownSizeBytes);
     }
     else {
         WIN32_FILE_ATTRIBUTE_DATA data{};
@@ -770,13 +787,13 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
                 info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
             } else if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Resolved) {
                 info += L"Type: Folder\nItems: " + std::to_wstring(pendingAggregateItemCount_) + L"\n";
-                info += L"Total size: " + FormatSize(pendingAggregateTotalSize_);
+                info += L"Total size: " + ffui::FormatSize(pendingAggregateTotalSize_);
             } else {
                 info += L"Type: Folder\nItems: —\nTotal size: —";
             }
         } else {
             info += L"Type: " + typeLabel + L"\n";
-            info += L"Size: " + FormatSize(selection->sizeBytes) + L"\n";
+            info += L"Size: " + ffui::FormatSize(selection->sizeBytes) + L"\n";
             info += L"Created: " + FormatTime(data.ftCreationTime) + L"\n";
             info += L"Modified: " + FormatTime(data.ftLastWriteTime) + L"\n";
             info += L"Accessed: " + FormatTime(data.ftLastAccessTime) + L"\n";
@@ -805,7 +822,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
             D2D1::RectF(left + 8, previewTop, viewportSize.width - 8, viewportSize.height - kStatusHeight - 8), detailsTextBrush_.Get());
     }
     const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +
-        FormatSize(summary.knownSizeBytes) + L"  •  " + columnView_.CurrentPath();
+        ffui::FormatSize(summary.knownSizeBytes) + L"  •  " + columnView_.CurrentPath();
     context->FillRectangle(D2D1::RectF(0, viewportSize.height - kStatusHeight, viewportSize.width, viewportSize.height), detailsBrush_.Get());
     context->DrawText(status.c_str(), static_cast<UINT32>(status.size()), detailsTextFormat_.Get(),
         D2D1::RectF(8, viewportSize.height - kStatusHeight, viewportSize.width - 8, viewportSize.height), detailsTextBrush_.Get());
@@ -1088,6 +1105,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_LBUTTONDOWN: {
+            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+                const int x = GET_X_LPARAM(lParam);
+                const int y = GET_Y_LPARAM(lParam);
+                if (storageAnalysis_.HandleLButtonDown(wParam, MAKELPARAM(x, y))) {
+                    return 0;
+                }
+            }
             D2D1_POINT_2F point = D2D1::Point2F(
                 static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
                 static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
@@ -1109,6 +1133,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_MOUSEMOVE:
+            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+                const int x = GET_X_LPARAM(lParam);
+                const int y = GET_Y_LPARAM(lParam);
+                if (storageAnalysis_.HandleMouseMove(wParam, MAKELPARAM(x, y))) {
+                    RequestRepaint();
+                    return 0;
+                }
+            }
             if (dragArmed_ && (wParam & MK_LBUTTON) != 0 &&
                 (std::abs(GET_X_LPARAM(lParam) - dragOrigin_.x) >= GetSystemMetrics(SM_CXDRAG) ||
                  std::abs(GET_Y_LPARAM(lParam) - dragOrigin_.y) >= GetSystemMetrics(SM_CYDRAG))) {
@@ -1170,6 +1202,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 const int item = columnView_.FocusedItemIndex();
                 point = {static_cast<LONG>(navigationSidebar_.Width() + column * ColumnView::kColumnWidth - scrollOffset_ + 24),
                          static_cast<LONG>(kNavigationChromeHeight + ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight)};
+                ClientToScreen(hwnd_, &point);
+            }
+            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {
+                ScreenToClient(hwnd_, &point);
+                if (storageAnalysis_.HandleContextMenu(wParam, MAKELPARAM(point.x, point.y))) {
+                    return 0;
+                }
                 ClientToScreen(hwnd_, &point);
             }
             ShowContextMenu(point);

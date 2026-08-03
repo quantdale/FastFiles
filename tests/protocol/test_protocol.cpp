@@ -158,7 +158,7 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "RequestUnavailableVolumes is part of the closed UI command surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult)).has_value(),
           "ForgetUnavailableVolumeResult is part of the closed UI command surface");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult) + 1).has_value(),
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResult) + 1).has_value(),
           "the first unassigned UI message after volume lifecycle commands is rejected");
     Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
           "forget request carries only the durable volume row id");

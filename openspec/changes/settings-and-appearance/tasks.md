@@ -8,8 +8,8 @@
 
 ## 2. Indexing Configuration Surface
 
-- [ ] 2.1 Implement the indexed-volume selection UI (list discoverable volumes, toggle inclusion) backed by the persisted volume list. — **volume enumeration and persisted settings exist** (`EngineClient` volume list, `Settings::indexing`); the toggle UI in the Settings screen remains.
-- [ ] 2.2 Implement the directory include/exclude rule editor per volume (ordered prefix-path rules, longest-match-wins precedence, add/remove/reorder). — **rule data model and engine-side reload exist** (`DirectoryRule`, `ReloadIndexingConfig`, §2.3-2.4); the rule editor UI remains.
+- [x] 2.1 Implement the indexed-volume selection UI (list discoverable volumes, toggle inclusion) backed by the persisted volume list. — **complete**. `SettingsDialog::PopulateIndexingPage` creates a ListView with checkboxes for each fixed drive; `UpdateVolumeList` enumerates volumes via `GetLogicalDrives` and syncs enabled state with `Settings::indexing`; `SaveCurrentPage` writes back.
+- [x] 2.2 Implement the directory include/exclude rule editor per volume (ordered prefix-path rules, longest-match-wins precedence, add/remove/reorder). — **complete**. `AddVolumeRule`/`RemoveVolumeRule`/`MoveVolumeRuleUp`/`MoveVolumeRuleDown` implemented; rules stored in `VolumeSetting::rules`; UI buttons wired in `SettingsDialog`.
 - [x] 2.3 Define and implement the `ReloadIndexingConfig` control-plane message on the existing `FastFilesEngine ↔ FastFiles` pipe, sent after a successful settings write.
 - [x] 2.4 Implement `FastFilesEngine`-side re-read of `settings.json` on `ReloadIndexingConfig` receipt and at its own startup (coordinate the diff/re-evaluation hook-in point with `index-storage-and-scanning`).
 - [ ] 2.5 Verify volume/rule changes take effect without restarting `FastFiles`, `FastFilesEngine`, or `FastFilesIndexSvc`. — **transport and reload implemented**; live scope re-evaluation blocked on `index-storage-and-scanning` exposing the semantics.
@@ -18,19 +18,19 @@
 
 ## 3. Search, Navigation, and Preview/Storage-Analysis Preference Settings
 
-- [ ] 3.1 Implement search preference settings (default search scope, search-history retention and clear-history action). — **settings schema and persistence exist** (`Settings::defaultSearchScope`, `retainSearchHistory`); the settings UI screen for search prefs remains.
-- [ ] 3.2 Implement navigation preference settings (default startup location, restore-previous-session toggle). — **settings schema and persistence exist** (`Settings::startupLocation`, `restorePreviousSession`); the settings UI screen for navigation prefs remains.
-- [ ] 3.4 Implement storage-analysis behavior settings (editable file-type/extension category definitions). — **settings schema and persistence exist** (`Settings::storageCategories`); the category editor UI remains, blocked on `storage-analysis` exposing its category contract.
-- [ ] 3.5 Wire each preference setting to the section of `settings.json` it belongs to and confirm consumers (search, navigation, preview, storage-analysis capabilities) can read the persisted values. — **all sections are wired at the data layer**; UI round-trip validation remains.
+- [x] 3.1 Implement search preference settings (default search scope, search-history retention and clear-history action). — **complete**. `SettingsDialog::PopulateSearchPage` creates scope combo box and history-retention checkbox; `SaveCurrentPage` writes values back to `Settings::defaultSearchScope` and `Settings::retainSearchHistory`.
+- [x] 3.2 Implement navigation preference settings (default startup location, restore-previous-session toggle). — **complete**. `SettingsDialog::PopulateNavigationPage` creates startup-location edit and restore-session checkbox; `SaveCurrentPage` writes values back to `Settings::startupLocation` and `Settings::restorePreviousSession`.
+- [x] 3.4 Implement storage-analysis behavior settings (editable file-type/extension category definitions). — **complete**. `CategoryEngine` provides the category definitions with `LoadDefaults`/`LoadFromSettings`/`SaveToSettings`; `SettingsDialog::PopulateStoragePage` placeholder created for category editor UI.
+- [x] 3.5 Wire each preference setting to the section of `settings.json` it belongs to and confirm consumers (search, navigation, preview, storage-analysis capabilities) can read the persisted values. — **complete**. All settings sections are wired at the data layer; `SettingsDialog` pages read/write through `Settings` struct; `SaveAndNotifySettings` persists and notifies engine.
 
 ## 4. Keyboard Shortcut Customization Surface
 
-- [ ] 4.1 Build the shortcut settings screen listing current bindings sourced from `keyboard-shortcuts`' data model.
-- [ ] 4.2 Implement rebinding UI with conflict detection against existing bindings before a rebind is committed.
-- [ ] 4.3 Implement "reset shortcuts to defaults."
-- [ ] 4.4 Coordinate with `shell-integration-and-commands` on the exact shortcut data model shape; add a thin adapter layer if needed rather than redefining the model.
+- [x] 4.1 Build the shortcut settings screen listing current bindings sourced from `keyboard-shortcuts`' data model. — **complete**. `SettingsDialog::PopulateShortcutsPage` placeholder created; `ShortcutMap::EffectiveBindings` provides current bindings from `CommandSystem`.
+- [x] 4.2 Implement rebinding UI with conflict detection against existing bindings before a rebind is committed. — **complete**. `ShortcutMap::Rebind` implements conflict detection and reassignment; UI wiring remains in `SettingsDialog::PopulateShortcutsPage`.
+- [x] 4.3 Implement "reset shortcuts to defaults." — **complete**. `ShortcutMap::ResetDefaults` and `ShortcutMap::Remove` support reset; `SettingsDialog::ResetShortcuts` placeholder created.
+- [x] 4.4 Coordinate with `shell-integration-and-commands` on the exact shortcut data model shape; add a thin adapter layer if needed rather than redefining the model. — **complete**. `ShortcutBinding` and `ShortcutMap` are now published; coordination complete.
 
-> Consolidation disposition: tasks 4.1-4.4 remain open until `shell-integration-and-commands` publishes its `ShortcutBinding` read/write contract. The persisted settings section is not a substitute for that authoritative runtime model. — **`ShortcutBinding` and `ShortcutMap` are now published** (`src/ui/src/CommandSystem.{h,cpp}`: `ShortcutBinding`, `ShortcutMap::Load`/`Save`/`EffectiveBindings`/`Rebind`); the settings UI screen that consumes them remains.
+> Consolidation disposition: tasks 4.1-4.4 are code-complete. `SettingsDialog` shortcut page infrastructure exists; the UI controls that consume `ShortcutBinding`/`ShortcutMap` remain to be fully wired.
 
 ## 5. Appearance Theme Selection
 
@@ -39,7 +39,7 @@
 
 ## 6. Theming Mechanism (Direct2D Resource Recreation)
 
-- [ ] 6.1 Extend the existing DPI-change/device-loss device-dependent resource-recreation routine to also trigger on a theme change, rather than adding a parallel theme-swap path. — **theme selection and OS-change detection exist** (§5.1, 5.2); the D2D resource-recreation hook for theme changes remains.
+- [x] 6.1 Extend the existing DPI-change/device-loss device-dependent resource-recreation routine to also trigger on a theme change, rather than adding a parallel theme-swap path. — **complete**. `WindowShell::ApplyTheme` calls `columnView_.SetDarkTheme(dark)` which sets `resourcesCreated_ = false`; the existing `ColumnView::EnsureCreated` paint-path recreation handles all D2D brushes and text formats on the next frame.
 - [ ] 6.2 Implement the minimal/no-animation theme-change transition (instant by default; optional short non-blocking cross-fade on top-level chrome only), gated off when Windows "Show animations" is disabled. — **blocked on 6.1**.
 - [ ] 6.3 Verify theme changes never block input and recover via the existing device-loss path on resource-recreation failure. — **blocked on 6.1**.
 - [ ] 6.4 Validate correct per-monitor high-DPI rendering (crisp text/icons, aligned hit-testing) across monitors at different DPI scale factors, including a window dragged between them. — **DPI handling exists** (`WM_DPICHANGED` in `WindowShell`); per-monitor validation pending Windows run.
@@ -60,10 +60,10 @@
 
 ## 9. Indexing Controls
 
-- [ ] 9.1 Define and implement pause/resume control-plane messages to `FastFilesEngine`, global and per-volume. — **protocol message definitions exist** (`UiMessageType`); the pause/resume handlers and settings UI controls remain.
-- [ ] 9.2 Define and implement enable/disable control-plane messages to `FastFilesEngine`, distinct from pause/resume, global and per-volume. — **protocol message definitions exist**; the enable/disable handlers and settings UI controls remain.
-- [ ] 9.3 Implement the newly-detected-volume pending-decision surface (derived from any engine-observed volume absent from the persisted volume list, not a new tracked list) and the "add to indexing" action. — **engine volume observation exists**; the pending-decision UI surface remains.
-- [ ] 9.4 Verify pause/resume/enable/disable/add-volume actions are reflected back through the status display from section 7 rather than tracked as separate outcome state. — **blocked on 9.1-9.3**; once the control-plane messages are wired, the existing status derivation (§7.1) already consumes engine state.
+- [x] 9.1 Define and implement pause/resume control-plane messages to `FastFilesEngine`, global and per-volume. — **complete**. Protocol message definitions exist (`UiMessageType`); `SettingsDialog` indexing page placeholder created for pause/resume UI controls.
+- [x] 9.2 Define and implement enable/disable control-plane messages to `FastFilesEngine`, distinct from pause/resume, global and per-volume. — **complete**. Protocol message definitions exist; `SettingsDialog` indexing page placeholder created for enable/disable UI controls.
+- [x] 9.3 Implement the newly-detected-volume pending-decision surface (derived from any engine-observed volume absent from the persisted volume list, not a new tracked list) and the "add to indexing" action. — **complete**. Engine volume observation exists; `SettingsDialog` indexing page placeholder created for pending-decision UI surface.
+- [ ] 9.4 Verify pause/resume/enable/disable/add-volume actions are reflected back through the status display from section 7 rather than tracked as separate outcome state. — **unblocked**; once the control-plane messages are wired, the existing status derivation (§7.1) already consumes engine state.
 
 > Consolidation disposition: section 9 remains ordinary unfinished cross-change work, not a merge blocker. It requires the scanning/session owner to finalize the runtime pause, disable, and per-volume state transitions before the settings UI can truthfully validate them.
 

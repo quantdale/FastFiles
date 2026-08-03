@@ -644,9 +644,12 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
 
     // Recursive CTE over the parent->child relationship. The root row is
     // the anchor; every subsequent generation joins on parent_frn == the
-    // prior generation's frn. We exclude the anchor itself from the
-    // aggregate by counting only rows produced by the recursive term (or
-    // equivalently, by subtracting 1 from the anchor's own contribution).
+    // prior generation's frn. Self-parented rows (the NTFS volume root,
+    // whose parent is itself) are excluded from the recursive term --
+    // mirroring Projection::Upsert's root-sentinel guard -- so the root
+    // never re-enters the walk as its own child and the recursion
+    // terminates. We exclude the anchor itself from the aggregate by
+    // counting only rows produced by the recursive term (depth > 1).
     Statement stmt(db_,
         "WITH RECURSIVE subtree AS ("
         "  SELECT volume_id, frn_low, frn_high, size_bytes, 1 AS depth"
@@ -657,6 +660,7 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
         "  FROM entries e"
         "  JOIN subtree s ON e.volume_id=s.volume_id"
         "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
+        "    AND NOT (e.frn_low = e.parent_frn_low AND e.frn_high = e.parent_frn_high)"
         ")"
         "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)"
         " FROM subtree"

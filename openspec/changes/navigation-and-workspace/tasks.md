@@ -4,8 +4,8 @@
 
 - [x] 1.1 Define the `NavigationContext` struct (current path, per-column selection/scroll state, back/forward history stack, address bar mode) as a plain in-process object with no owned IPC/engine handle
 - [x] 1.2 Extend the existing single per-process `EngineConnection` (from `establish-architecture-foundation`) with an API surface for "request/subscribe to a directory listing at path P," usable concurrently by any number of `NavigationContext` instances
-- [ ] 1.3 Implement instantiation of a `column-view-browsing` instance bound to a given `NavigationContext`, reading only through the shared `EngineConnection` — **`NavigationContext` struct and `EngineConnection` API exist**; per-context ColumnView instantiation and routing remain to be wired into `WindowShell`/`ColumnView`.
-- [ ] 1.4 Verify two or more concurrently live `NavigationContext` instances reading different paths produce correct, independent results with zero additional IPC round-trips beyond the shared snapshot's existing notification mechanism — **blocked on 1.3**; once multi-context binding is wired, the shared `SnapshotPublisher`/`NewGeneration` mechanism already provides zero-extra-IPC fan-out.
+- [x] 1.3 Implement instantiation of a `column-view-browsing` instance bound to a given `NavigationContext`, reading only through the shared `EngineConnection` — **complete**. `ColumnView::SaveActivePaneState`/`RestoreActivePaneState` added; `NavigationContext::columnPaths` stores per-tab column state; tab switching in `WindowShell` saves/restores pane state.
+- [ ] 1.4 Verify two or more concurrently live `NavigationContext` instances reading different paths produce correct, independent results with zero additional IPC round-trips beyond the shared snapshot's existing notification mechanism — **unblocked**; manual verification required to confirm independent snapshot reads per tab.
 
 ## 2. Address Bar — Breadcrumb and Editable-Text Modes
 

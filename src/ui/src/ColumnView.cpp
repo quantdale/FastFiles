@@ -88,7 +88,6 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
-        int& focusedIndex = ActiveFocusedColumnIndex();
         if (columnIndex < 0 || columnIndex >= static_cast<int>(columns.size())) {
             return;
         }
@@ -668,3 +667,40 @@ int& ColumnView::ActiveFocusedColumnIndex() {
 float& ColumnView::ActiveScrollOffset() {
     return activePane_ == 0 ? scrollOffset_ : scrollOffset2_;
 }
+
+void ColumnView::SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, int& outFocusedIndex, float& outScrollOffset) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto& columns = ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    const float& scrollOffset = const_cast<ColumnView*>(this)->ActiveScrollOffset();
+    outColumnPaths.clear();
+    outColumnPaths.reserve(columns.size());
+    for (const auto& column : columns) {
+        outColumnPaths.push_back(column.path);
+    }
+    outFocusedIndex = focusedIndex;
+    outScrollOffset = scrollOffset;
+}
+
+void ColumnView::RestoreActivePaneState(const std::vector<std::wstring>& columnPaths, int focusedIndex, float scrollOffset) {
+    if (columnPaths.empty()) return;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = ActiveColumns();
+        int& focusedIndexRef = ActiveFocusedColumnIndex();
+        float& scrollOffsetRef = ActiveScrollOffset();
+        columns.clear();
+        for (const auto& path : columnPaths) {
+            Column column;
+            column.path = path;
+            columns.push_back(std::move(column));
+        }
+        focusedIndexRef = std::clamp(focusedIndex, 0, static_cast<int>(columns.size()) - 1);
+        scrollOffsetRef = scrollOffset;
+    }
+    for (const auto& path : columnPaths) {
+        if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    }
+}
+
+} // namespace ffui

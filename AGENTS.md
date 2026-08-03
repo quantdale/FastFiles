@@ -35,7 +35,9 @@ These are enumerated in the foundation `design.md` (D4 + Risks); the code exists
 - **Never forward file content.** The MFT parser reads/forwards only `$STANDARD_INFORMATION` and `$FILE_NAME` — never `$DATA` (small files store content resident in the MFT record).
 - **DLL hardening.** `SetDefaultDllDirectories` before any `LoadLibrary`; fully-qualified paths or static linking. Direct fix for the DLL-search-order LPE class (Everything's CVE-2020-24567).
 
-## Build, test, and development
+## Kilo configuration
+
+`kilo.json` already has `"permission": { "bash": "allow" }` — bash commands are enabled for this project. No additional setup is needed.
 
 Run from a Visual Studio developer PowerShell on Windows. Set `FASTFILES_NINJA_EXE` (the VS-bundled Ninja) **before configuring** — the presets read it for `CMAKE_MAKE_PROGRAM`.
 

@@ -6,6 +6,10 @@
 
 namespace ffindexstore {
 
+namespace {
+constexpr uint32_t kFileAttributeDirectory = 0x00000010;
+} // namespace
+
 void Projection::Reserve(size_t expectedEntryCount) {
     entries_.reserve(expectedEntryCount);
     idToIndex_.reserve(expectedEntryCount);

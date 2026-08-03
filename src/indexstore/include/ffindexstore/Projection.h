@@ -76,6 +76,10 @@ public:
     // count (all descendants, excluding the root itself) and the total
     // sizeBytes sum across every entry in that subtree. Returns std::nullopt
     // if the root is unknown, distinguishing "not indexed" from "empty folder".
+    struct FolderAggregate {
+        uint64_t itemCount = 0;
+        uint64_t totalSizeBytes = 0;
+    };
     std::optional<FolderAggregate> GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) const;
     const ProjectionEntry& EntryAt(uint32_t index) const { return entries_[index]; }
 
@@ -119,7 +123,7 @@ private:
     NamePool namePool_;
     std::vector<ProjectionEntry> entries_; // dense array; freed slots reused via freeList_
     std::vector<uint32_t> freeList_;
-    FlatHashMap<EntryKey, uint32_t> idToIndex_;
+    FlatHashMap<EntryKey, uint32_t, EntryKeyHash> idToIndex_;
     FlatChildrenMap parentToChildren_;
 };
 
