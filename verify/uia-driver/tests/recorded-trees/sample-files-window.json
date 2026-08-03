@@ -1,0 +1,16 @@
+{
+  "root": "w1",
+  "nodes": [
+    { "id": "w1", "name": "FastFiles", "automationId": "MainWindow", "controlType": "Window", "className": "FFMainWindowClass", "processId": 4242, "clickablePoint": { "x": 100, "y": 40 }, "patterns": ["Window"], "children": ["p1", "search", "btn1", "scroll", "status"] },
+    { "id": "p1", "name": "Column View", "automationId": "ColumnViewContainer", "controlType": "Pane", "className": "FFColumnView", "processId": 4242, "children": ["list1", "badge"] },
+    { "id": "list1", "name": "Entries", "automationId": "EntryList", "controlType": "List", "className": "FFEntryList", "processId": 4242, "patterns": ["Selection"], "children": ["item1", "item2", "item3"] },
+    { "id": "item1", "name": "Docs", "automationId": "Nav0", "controlType": "ListItem", "className": "FFNavItem", "processId": 4242, "clickablePoint": { "x": 100, "y": 60 }, "patterns": ["SelectionItem"], "children": [] },
+    { "id": "item2", "name": "Pictures", "automationId": "Nav1", "controlType": "ListItem", "className": "FFNavItem", "processId": 4242, "clickablePoint": { "x": 100, "y": 80 }, "patterns": ["SelectionItem"], "children": [] },
+    { "id": "item3", "name": "Music", "automationId": "Nav2", "controlType": "ListItem", "className": "FFNavItem", "processId": 4242, "clickablePoint": { "x": 100, "y": 100 }, "patterns": ["SelectionItem", "Invoke"], "children": [] },
+    { "id": "search", "name": "Search", "automationId": "SearchBox", "controlType": "Edit", "className": "FFSearchBox", "processId": 4242, "clickablePoint": { "x": 50, "y": 80 }, "patterns": ["Value"], "children": [] },
+    { "id": "badge", "name": "Connection: Degraded", "automationId": "ConnectionBadge", "controlType": "Pane", "className": "FFBadge", "processId": 4242, "clickablePoint": { "x": 90, "y": 30 }, "children": [] },
+    { "id": "btn1", "name": "New Column", "automationId": "NewColumnButton", "controlType": "Button", "className": "FFToolbarButton", "processId": 4242, "clickablePoint": { "x": 180, "y": 40 }, "patterns": ["Invoke"], "children": [] },
+    { "id": "scroll", "name": "Scroll", "automationId": "EntryScrollBar", "controlType": "ScrollBar", "className": "FFScrollBar", "processId": 4242, "patterns": ["Scroll"], "children": [] },
+    { "id": "status", "name": "Ready", "automationId": "StatusBar", "controlType": "StatusBar", "className": "FFStatusBar", "processId": 4242, "children": [] }
+  ]
+}

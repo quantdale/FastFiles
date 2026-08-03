@@ -12,10 +12,10 @@
 
 ## 2. UIA Driver (closes autonomous-runtime-verification 8.1)
 
-- [ ] 2.1 Create `verify/uia-driver/` module (PowerShell) wrapping `UIAutomationClient`/`UIAutomationTypes` COM + `SendInput`: element identity (Name/AutomationId/ControlType/ClassName/process), tree traversal (Raw/Control), pattern selection (Invoke/Selection/Scroll/Value/Window/Drag), property read/assert, event subscriptions, input abstraction, timeouts, diagnostic tree dumps (JSON + indented text)
-- [ ] 2.2 Implement availability probe (interactive UIA context + UIA provider presence) and precise `SKIPPED(reason)` for missing context/provider — no pixel fallback
-- [ ] 2.3 Implement headless unit tests with mock UIA providers / recorded trees for identity/tree/pattern/property/timeout logic; register as a CTest-equivalent PowerShell test
-- [ ] 2.4 Implement diagnostic tree-dump format and the "fail clearly when semantic target missing" contract
+- [x] 2.1 Create `verify/uia-driver/` module (PowerShell) wrapping `UIAutomationClient`/`UIAutomationTypes` COM + `SendInput`: element identity (Name/AutomationId/ControlType/ClassName/process), tree traversal (Raw/Control), pattern selection (Invoke/Selection/Scroll/Value/Window/Drag), property read/assert, event subscriptions, input abstraction, timeouts, diagnostic tree dumps (JSON + indented text)
+- [x] 2.2 Implement availability probe (interactive UIA context + UIA provider presence) and precise `SKIPPED(reason)` for missing context/provider — no pixel fallback
+- [x] 2.3 Implement headless unit tests with mock UIA providers / recorded trees for identity/tree/pattern/property/timeout logic; register as a CTest-equivalent PowerShell test
+- [x] 2.4 Implement diagnostic tree-dump format and the "fail clearly when semantic target missing" contract
 
 ## 3. UIA End-To-End Validation (closes arv 8.2/8.3, file-operations 8.7-8.9, instant-search 7.6/8.5/10.6, shell-integration-and-commands 2.14, storage-analysis 7.1-7.4)
 
