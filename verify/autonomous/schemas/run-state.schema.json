@@ -1,0 +1,114 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://fastfiles.local/verify/autonomous/schemas/run-state.schema.json",
+  "title": "FastFiles autonomous run state",
+  "description": "Persistent state for verify/intake.ps1 autonomous runs. Written to verify/runs/autonomous/<run-id>/state.json and validated on save/load.",
+  "type": "object",
+  "required": [
+    "schemaVersion", "runId", "createdAt", "updatedAt", "sourceCommit",
+    "provider", "phases", "currentPhase", "completedSteps", "incompleteSteps",
+    "stepTimeoutsSeconds", "iteration", "maxIterations", "failures", "escalated",
+    "externalBlockers", "evidence", "openTaskCount", "lastOutcome"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "runId": { "type": "string", "pattern": "^[0-9]{8}-[0-9]{6}$" },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "sourceCommit": { "type": ["string", "null"] },
+    "provider": { "type": "string" },
+    "phases": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 15,
+      "maxItems": 15
+    },
+    "currentPhase": { "type": "string" },
+    "completedSteps": { "type": "array", "items": { "type": "string" } },
+    "incompleteSteps": { "type": "array", "items": { "type": "string" } },
+    "stepTimeoutsSeconds": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" }
+    },
+    "history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "startedAt", "outcome", "retries"],
+        "properties": {
+          "step": { "type": "string" },
+          "startedAt": { "type": "string" },
+          "finishedAt": { "type": ["string", "null"] },
+          "outcome": { "enum": ["PASS", "FAIL", "SKIPPED", "REQUIRED-BUT-UNAVAILABLE", "RUNNING"] },
+          "retries": { "type": "integer" },
+          "class": { "enum": ["ClassA", "ClassB", "external", null] },
+          "notes": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "iteration": { "type": "integer", "minimum": 1 },
+    "maxIterations": { "type": "integer", "minimum": 1 },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "iteration", "class", "signature", "message"],
+        "properties": {
+          "step": { "type": "string" },
+          "iteration": { "type": "integer" },
+          "class": { "enum": ["ClassA", "ClassB", "external"] },
+          "signature": { "type": "string" },
+          "message": { "type": "string" },
+          "diagnosticsRef": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "escalated": { "type": "boolean" },
+    "externalBlockers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "evidence"],
+        "properties": {
+          "id": { "type": "string" },
+          "evidence": { "type": "string" },
+          "detail": { "type": ["string", "null"] },
+          "taskIds": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["taskId", "status", "ref"],
+        "properties": {
+          "taskId": { "type": "string" },
+          "status": { "enum": ["PASS", "SKIPPED", "REQUIRED-BUT-UNAVAILABLE"] },
+          "ref": { "type": "string" },
+          "reason": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "openTaskCount": {
+      "type": "object",
+      "required": ["total", "byChange"],
+      "properties": {
+        "total": { "type": "integer" },
+        "byChange": {
+          "type": "object",
+          "additionalProperties": { "type": "integer" }
+        }
+      }
+    },
+    "lastOutcome": {
+      "type": "object",
+      "required": ["status", "exitCode"],
+      "properties": {
+        "status": { "enum": ["RUNNING", "COMPLETE", "FAIL", "SKIPPED", "REQUIRED-BUT-UNAVAILABLE", "ESCALATED", "TIMEOUT"] },
+        "exitCode": { "type": "integer" },
+        "updatedAt": { "type": "string" }
+      }
+    }
+  }
+}

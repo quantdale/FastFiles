@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "repository": "FastFiles",
+  "entryPoint": {
+    "path": "verify/intake.ps1",
+    "verb": "autonomous",
+    "statusVerb": "status",
+    "archiveGateVerb": "archive-gate",
+    "doc": "Runs: `pwsh ./verify/intake.ps1 autonomous [-RunId <id>] [-Fresh] [-Provider <id>] [-Configuration <cfg>] [-MaxIterations <n>] [-TimeoutSeconds <n>] [-ImplementScript <path>] [-AllowPush] [-SkipCommit]\nStatus: `pwsh ./verify/intake.ps1 status [-RunId <id>]`\nArchive gate: `pwsh ./verify/intake.ps1 archive-gate [-RunId <id>]`"
+  },
+  "stateFile": "verify/runs/autonomous/<run-id>/state.json",
+  "stateSchema": "verify/autonomous/schemas/run-state.schema.json",
+  "runPhases": [
+    "discover", "plan", "provision", "implement", "build", "test",
+    "diagnose", "repair", "re-test", "validate", "collect-evidence",
+    "update-tasks", "commit", "sync", "archive"
+  ],
+  "futureAgentIntakeSteps": [
+    "Inspect persisted run state and decide resume vs new run",
+    "Convert the request into an OpenSpec change (proposal/design/specs/tasks)",
+    "Implement the product edit",
+    "Provision the environment provider",
+    "Generate/update tests for the change",
+    "Run focused verification",
+    "Run full verification",
+    "Diagnose failures and classify (Class A / Class B / external)",
+    "Repair (Class A auto-applied; Class B surfaced with root cause + diff for review)",
+    "Update evidence and task checkboxes with recorded verification",
+    "Commit with evidence references",
+    "Push when an authenticated remote is available and operator opted in",
+    "Sync/archive and leave resumable state if interrupted"
+  ],
+  "dependencyGraph": {
+    "discover": [],
+    "plan": ["discover"],
+    "provision": ["plan"],
+    "implement": ["provision"],
+    "build": ["implement"],
+    "test": ["build"],
+    "diagnose": ["test"],
+    "repair": ["diagnose"],
+    "re-test": ["repair"],
+    "validate": ["re-test", "test"],
+    "collect-evidence": ["validate"],
+    "update-tasks": ["collect-evidence"],
+    "commit": ["update-tasks"],
+    "sync": ["commit"],
+    "archive": ["sync"]
+  },
+  "exitCodes": {
+    "0": "PASS",
+    "1": "FAIL",
+    "2": "SKIPPED",
+    "3": "HARNESS-ERROR",
+    "10": "NOT-YET-IMPLEMENTED"
+  },
+  "archiveGateStates": ["PASS", "FAIL", "SKIPPED", "REQUIRED-BUT-UNAVAILABLE"],
+  "failureClasses": {
+    "ClassA": "harness/config/environment - auto-fixable by the orchestrator",
+    "ClassB": "product source - surfaced with root cause + diff for review, never auto-accepted",
+    "external": "physical/legal/commercial/secret impossibility - recorded with machine evidence, never fabricated"
+  },
+  "boundedRetries": 3,
+  "resumeProtocol": "On re-invocation without -Fresh, the latest incomplete run under verify/runs/autonomous/ is loaded and resumed at the first incomplete phase. Completed phases are never re-run. If the run is escalated or retries are exhausted, the orchestrator refuses to continue and reports deterministically.",
+  "capabilities": [
+    "crash-analysis",
+    "diagnostics",
+    "test-code-signing",
+    "windows-build-validation",
+    "windows-engine-service-validation",
+    "windows-filesystem-validation",
+    "windows-install-service-validation",
+    "windows-ipc-validation",
+    "windows-object-security-validation",
+    "windows-performance-baselines",
+    "windows-privilege-validation",
+    "windows-protocol-robustness",
+    "windows-resource-leak-validation",
+    "windows-stress-validation",
+    "windows-ui-automation-validation"
+  ]
+}

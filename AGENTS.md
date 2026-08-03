@@ -73,6 +73,18 @@ pwsh ./verify/verify.ps1 build     # windows-build-validation capability
 pwsh ./verify/verify.ps1 doctor   # inspect VS toolchain / prerequisites
 ```
 
+## Autonomous engineering loop
+
+`verify/intake.ps1` is the **single resumable autonomous entry point** (see `AUTONOMOUS.md` and `verify/autonomous/contract.json`). It drives the full lifecycle `discover -> plan -> provision -> implement -> build -> test -> diagnose -> repair -> re-test -> validate -> collect-evidence -> update-tasks -> commit -> sync -> archive` non-interactively, with persistent state at `verify/runs/autonomous/<run-id>/state.json` (schema-validated on save) and resume on re-invocation.
+
+```powershell
+pwsh ./verify/intake.ps1 autonomous          # run/resume the loop
+pwsh ./verify/intake.ps1 status              # machine-readable status (JSON, curated)
+pwsh ./verify/intake.ps1 archive-gate        # re-resolve the terminal archive gate
+```
+
+Exit codes match `verify.ps1` (`0`/`1`/`2`/`3`/`10`). Failures are classified Class A (harness — auto-fixed), Class B (product — surfaced for review, never auto-accepted), or external (recorded as `REQUIRED-BUT-UNAVAILABLE` with machine evidence, never fabricated). Retries are bounded (≤ 3) and a recurring normalized failure signature escalates the loop. `commit` stages only the loop's own tracked-source delta; `sync` (push) is opt-in via `-AllowPush`. The flaky-test policy (`verify/core/FlakyTestPolicy.psm1`) never treats a "passed on retry" as terminal without a root-cause fix or a documented bound.
+
 ## Workflow: OpenSpec (spec-driven)
 
 Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. The foundation change is `establish-architecture-foundation`; later product pillars (instant-search, storage-analysis, file-operations, navigation-and-workspace, etc.) are separate changes, mostly still specs/design without code. Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
