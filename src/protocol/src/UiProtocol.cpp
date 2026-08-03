@@ -19,6 +19,9 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::ForgetUnavailableVolumeResult:
         case UiMessageType::RequestFolderAggregate:
         case UiMessageType::FolderAggregateResult:
+        case UiMessageType::RequestVolumeStatus:
+        case UiMessageType::VolumeStatus:
+        case UiMessageType::SetIndexingPaused:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;

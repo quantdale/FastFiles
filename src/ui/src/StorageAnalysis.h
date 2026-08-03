@@ -41,7 +41,7 @@ public:
     void OnSnapshotUpdated();
     void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize);
 
-    enum class ViewMode { DrillDown, LargestFolders, LargestFiles, ByCategory, Treemap };
+    enum class ViewMode { Overview, DrillDown, LargestFolders, LargestFiles, ByCategory, Treemap };
     void SetViewMode(ViewMode mode);
     ViewMode GetViewMode() const { return viewMode_; }
 
@@ -63,6 +63,16 @@ private:
         uint64_t requestId = 0;
     };
 
+    // storage-analysis 2.1-2.4: one row of the storage overview.
+    struct VolumeItem {
+        std::wstring rootPath;   // "C:\"
+        bool unavailable = false; // volume vanished; figures below are stale
+        bool fullyIndexed = false;
+        uint64_t totalBytes = 0;
+        uint64_t freeBytes = 0;
+        uint64_t usedBytes = 0;
+    };
+
     struct PendingRequest {
         uint64_t requestId = 0;
         size_t itemIndex = 0;
@@ -70,16 +80,22 @@ private:
 
     void WorkerMain();
     void RefreshData();
+    void RefreshOverview();
     void RequestAggregateForItem(size_t index);
     void HandleAggregateResult(uint64_t requestId, ffprotocol::FolderAggregateStatus status,
                                uint64_t itemCount, uint64_t totalSizeBytes);
     void SortItems(int column, bool ascending);
+    void PopulateCategoryFilter();
+    void ApplyCategoryFilter();
 
     HWND owner_ = nullptr;
     HWND list_ = nullptr;
+    HWND overview_ = nullptr;
+    HWND categoryFilter_ = nullptr; // storage-analysis 5.4: category filter combo
     HWND status_ = nullptr;
     HWND back_ = nullptr;
     HWND up_ = nullptr;
+    HWND overviewButton_ = nullptr;
     HWND drillDown_ = nullptr;
     HWND largestFolders_ = nullptr;
     HWND largestFiles_ = nullptr;
@@ -94,11 +110,12 @@ private:
     TreemapView treemapView_;
 
     std::vector<DrillItem> items_;
+    std::vector<VolumeItem> volumes_;    // storage-overview rows
     std::wstring currentPath_;
     bool visible_ = false;
     bool engineActive_ = false;
     uint64_t generation_ = 0;
-    ViewMode viewMode_ = ViewMode::DrillDown;
+    ViewMode viewMode_ = ViewMode::Overview;
 
     int sortColumn_ = 3; // default: sort by Subtree Size descending
     bool sortAscending_ = false;

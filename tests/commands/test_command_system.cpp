@@ -130,6 +130,46 @@ void TestPersistence() {
     std::filesystem::remove(path.parent_path(), error);
 }
 
+void TestBaselinePaletteCoverage() {
+    // shell-integration-and-commands task 3.7: the 9 baseline commands
+    // (New Folder, Copy Path, Open Terminal Here, Search, Analyze Storage,
+    // Toggle Column View, Toggle Dual Pane, Refresh, Settings) must each be
+    // discoverable through the command palette and invocable. SearchCommands
+    // is the exact query the palette runs against the registry, so asserting
+    // every baseline command is a top-ranked palette result for a query that
+    // unambiguously names it proves palette discoverability headlessly.
+    int invocations = 0;
+    std::wstring lastCommand;
+    ffui::CommandRegistry registry;
+    ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand));
+    ffui::ShortcutMap shortcuts;
+    shortcuts.ResetDefaults(registry);
+
+    struct BaselineCase { const wchar_t* id; const wchar_t* query; ffui::SelectionKind kind; };
+    const BaselineCase cases[] = {
+        {L"file.new-folder", L"New Folder", ffui::SelectionKind::Empty},
+        {L"item.copy-path", L"Copy Path", ffui::SelectionKind::SingleFile},
+        {L"item.open-terminal", L"Open Terminal Here", ffui::SelectionKind::SingleFolder},
+        {L"search.focus", L"Search", ffui::SelectionKind::Empty},
+        {L"storage.analyze", L"Analyze Storage", ffui::SelectionKind::Empty},
+        {L"navigation.toggle-column-view", L"Toggle Column View", ffui::SelectionKind::Empty},
+        {L"navigation.toggle-dual-pane", L"Toggle Dual Pane", ffui::SelectionKind::Empty},
+        {L"navigation.refresh", L"Refresh", ffui::SelectionKind::Empty},
+        {L"app.settings", L"Settings", ffui::SelectionKind::Empty},
+    };
+
+    for (const BaselineCase& testCase : cases) {
+        const ffui::CommandContext context{testCase.kind, false};
+        const auto results = ffui::SearchCommands(registry, shortcuts, context, testCase.query);
+        Check(!results.empty() && results.front().command->commandId == testCase.id,
+              "palette discovers the baseline command by name");
+        const bool invoked = registry.Invoke(testCase.id, context, {});
+        Check(invoked, "baseline command is invocable");
+        Check(invocations == 1 && lastCommand == testCase.id, "invocation reaches the registered handler");
+        invocations = 0;
+    }
+}
+
 void TestQuickActions() {
     const auto launch = ffui::BuildTerminalLaunchSpec(L"C:\\folder & name", L"powershell.exe");
     Check(launch.currentDirectory == L"C:\\folder & name", "terminal target is passed as current directory");
@@ -150,6 +190,7 @@ int main() {
     TestRegistryAndSelection();
     TestShortcutsAndPalette();
     TestPersistence();
+    TestBaselinePaletteCoverage();
     TestQuickActions();
     if (failures == 0) std::cout << "All command-system tests passed\n";
     return failures == 0 ? 0 : 1;

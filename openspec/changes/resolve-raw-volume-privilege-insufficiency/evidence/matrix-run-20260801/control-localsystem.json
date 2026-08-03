@@ -1,0 +1,18 @@
+{
+  "candidateId": "control-localsystem",
+  "privilegeName": "SeBackupPrivilege",
+  "volumePath": "\\\\.\\C:",
+  "accountName": "NT AUTHORITY\\SYSTEM",
+  "accountSid": "S-1-5-18",
+  "groupContext": "admins=1;system=0;backupOps=0;authUsers=1",
+  "privilegeHeld": true,
+  "privilegeEnabled": true,
+  "volumeOpened": true,
+  "volumeOpenError": 0,
+  "journalQueried": true,
+  "journalQueryError": 0,
+  "journalRead": true,
+  "journalReadError": 0,
+  "registrationOrder": 8,
+  "outcome": "open-succeeded-journal-succeeded"
+}

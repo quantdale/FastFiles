@@ -52,6 +52,17 @@ public:
     std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
     using OnRequestFolderAggregate = std::function<std::optional<ffindexstore::Projection::FolderAggregate>(ffindexstore::VolumeRowId, ffindexstore::FileId)>;
     OnRequestFolderAggregate onRequestFolderAggregate;
+    // settings-and-appearance §7.3: supplies the per-volume condition
+    // report (VolumeStatusRecords) on demand; the engine derives it from
+    // its own connection/scan/reconciliation state. Empty vector == no
+    // volumes configured.
+    using OnRequestVolumeStatus = std::function<std::vector<ffprotocol::VolumeStatusRecord>()>;
+    OnRequestVolumeStatus onRequestVolumeStatus;
+    // settings-and-appearance §9.1 (design.md D9): control-plane
+    // pause/resume, global (scope == 0) or per-volume (uppercase drive
+    // letter). The engine acknowledges by updating the state the status
+    // report reads; there is no separate ack/outcome message.
+    std::function<void(uint8_t scope, bool paused)> onSetIndexingPaused;
 
 private:
     void HandleConnection(HANDLE pipe);
@@ -64,6 +75,7 @@ private:
     bool SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId);
     bool SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
                                    uint64_t itemCount, uint64_t totalSizeBytes);
+    bool SendVolumeStatus(HANDLE pipe);
 
     ffipc::PipeListener listener_;
     ffsetup::OwnedSecurityDescriptor securityDescriptor_;

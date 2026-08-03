@@ -62,14 +62,107 @@ VolumeSessionManager::~VolumeSessionManager() {
 }
 
 void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes) {
+    std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toStop;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         configuredVolumes_ = std::move(volumes);
+        // settings-and-appearance §9.2: a volume that was disabled (or
+        // removed from the persisted selection) while a session was live
+        // is torn down immediately -- no waiting for an engine restart.
+        // The volume stays marked available (disabling is not
+        // unavailability); only the session, its privileged-path work,
+        // and its published directories go away.
+        for (auto it = sessionsByEphemeralId_.begin(); it != sessionsByEphemeralId_.end();) {
+            const wchar_t letter = static_cast<wchar_t>(towupper(it->second.driveLetter));
+            const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [letter](const auto& volume) {
+                return !volume.key.empty() && static_cast<wchar_t>(towupper(volume.key.front())) == letter;
+            });
+            if (configured != configuredVolumes_.end() && configured->enabled) {
+                ++it;
+                continue;
+            }
+            toStop.emplace_back(ffprotocol::VolumeId{it->first}, it->second);
+            it = sessionsByEphemeralId_.erase(it);
+        }
+    }
+    for (const auto& [ephemeralId, session] : toStop) {
+        if (active_.load()) {
+            const ffprotocol::StopVolumeScanRequest stop{ephemeralId};
+            connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan), &stop, sizeof(stop));
+            const ffprotocol::CloseUsnJournalRequest close{ephemeralId};
+            connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::CloseUsnJournal), &close, sizeof(close));
+        }
+        // The unavailable callback's contract is "withdraw this drive's
+        // published directories" -- which is exactly what disabling needs.
+        if (onVolumeUnavailable_) {
+            onVolumeUnavailable_(session.durableId, session.driveLetter);
+        }
     }
     // Re-enumeration makes newly enabled volumes enter the normal session
     // start path without waiting for an engine restart.
     if (active_.load()) {
         connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes));
+    }
+}
+
+void VolumeSessionManager::SetIndexingPaused(uint8_t scope, bool paused) {
+    std::vector<wchar_t> affectedLetters;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (scope == 0) {
+            paused_ = paused;
+            for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
+                affectedLetters.push_back(static_cast<wchar_t>(towupper(session.driveLetter)));
+            }
+            if (!paused) {
+                pausedVolumes_.clear(); // global resume clears any per-volume pauses too
+            }
+        } else {
+            const wchar_t letter = static_cast<wchar_t>(towupper(static_cast<wchar_t>(scope)));
+            if (letter < L'A' || letter > L'Z') {
+                return;
+            }
+            if (paused) {
+                pausedVolumes_.insert(letter);
+            } else {
+                pausedVolumes_.erase(letter);
+            }
+            affectedLetters.push_back(letter);
+        }
+    }
+    // On resume, re-issue scan/journal work for every affected session
+    // from its stored (last-applied) position -- the "continue from where
+    // it left off" half of §9.1's resume scenario. While still paused the
+    // re-issue is a no-op (StartOrResumeVolume gates on pause state).
+    if (!paused) {
+        ResumeAffectedSessions(affectedLetters);
+    }
+}
+
+bool VolumeSessionManager::IsPausedLocked(wchar_t driveLetter) const {
+    if (paused_.load()) {
+        return true;
+    }
+    return pausedVolumes_.find(static_cast<wchar_t>(towupper(driveLetter))) != pausedVolumes_.end();
+}
+
+void VolumeSessionManager::ResumeAffectedSessions(const std::vector<wchar_t>& affectedLetters) {
+    std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toResume;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
+            if (std::find(affectedLetters.begin(), affectedLetters.end(),
+                          static_cast<wchar_t>(towupper(session.driveLetter))) == affectedLetters.end()) {
+                continue;
+            }
+            if (IsPausedLocked(session.driveLetter)) {
+                continue; // still paused (e.g. individually paused while global was resumed)
+            }
+            toResume.emplace_back(ffprotocol::VolumeId{ephemeralValue}, session);
+        }
+    }
+    for (const auto& [ephemeralId, session] : toResume) {
+        StartOrResumeVolume(ephemeralId, session);
     }
 }
 
@@ -127,6 +220,15 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
         std::lock_guard<std::mutex> lock(mutex_);
         std::vector<uint32_t> seenEphemeral;
         seenEphemeral.reserve(volumes.size());
+
+        // settings-and-appearance §9.3: every drive letter the engine
+        // observes in the current poll, whether configured or not --
+        // pending-decision is derived from this set against the persisted
+        // selection, never stored as separate state.
+        observedLetters_.clear();
+        for (const auto& info : volumes) {
+            observedLetters_.insert(static_cast<wchar_t>(towupper(info.driveLetter)));
+        }
 
         for (const auto& info : volumes) {
             seenEphemeral.push_back(info.id.value);
@@ -187,6 +289,8 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
             return !volume.key.empty() && towupper(volume.key.front()) == key.front();
         });
         if (configured != configuredVolumes_.end() && !configured->enabled) return;
+        // settings-and-appearance §9.1: paused volumes are never (re)started.
+        if (IsPausedLocked(session.driveLetter)) return;
     }
     auto meta = pipeline_.GetVolumeMetadata(session.durableId);
 
@@ -233,6 +337,12 @@ void VolumeSessionManager::OnScanBatch(
         }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
+        // settings-and-appearance §9.1: while paused, batches are dropped
+        // without applying and without advancing the stored cursor, so
+        // resume re-issues the scan from the last-applied position.
+        if (IsPausedLocked(driveLetter)) {
+            return;
+        }
     }
 
     if (!pipeline_.ApplyMftBatch(durableId, records)) {
@@ -304,6 +414,11 @@ void VolumeSessionManager::OnJournalBatch(
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
         journalId = it->second.journalId;
+        // settings-and-appearance §9.1: same drop-without-advancing rule
+        // as scan batches; the stored ResumeUsn is the resume point.
+        if (IsPausedLocked(driveLetter)) {
+            return;
+        }
     }
 
     if (!pipeline_.ApplyUsnBatch(durableId, records)) {
@@ -355,6 +470,72 @@ void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId
     onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshot(durableId, prefix));
 }
 
+std::vector<ffprotocol::VolumeStatusRecord> VolumeSessionManager::CollectVolumeStatus() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<ffprotocol::VolumeStatusRecord> records;
+    records.reserve(configuredVolumes_.size());
+    for (const auto& volume : configuredVolumes_) {
+        if (volume.key.empty() || !volume.enabled) {
+            continue; // disabled volumes are not reported; the UI derives the disabled annotation itself
+        }
+        const wchar_t letter = static_cast<wchar_t>(towupper(volume.key.front()));
+        if (letter < L'A' || letter > L'Z') {
+            continue;
+        }
+
+        ffprotocol::VolumeStatusRecord record{};
+        record.driveLetter = static_cast<uint8_t>(letter);
+
+        const auto sessionIt = std::find_if(sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
+            [letter](const auto& entry) { return static_cast<wchar_t>(towupper(entry.second.driveLetter)) == letter; });
+        if (sessionIt == sessionsByEphemeralId_.end()) {
+            // Configured but absent from the current volume list: either
+            // the volume is unreachable right now or the engine is not
+            // connected to the privileged path. Both read as
+            // "Unavailable" once the UI folds in the connection state.
+            records.push_back(record);
+            continue;
+        }
+
+        record.flags |= ffprotocol::VolumeStatusReachable;
+        const auto meta = pipeline_.GetVolumeMetadata(sessionIt->second.durableId);
+        const bool reconciliationActive = pipeline_.IsReconciliationPassActive(sessionIt->second.durableId);
+        if ((meta && !meta->scanComplete) || reconciliationActive) {
+            record.flags |= ffprotocol::VolumeStatusScanning;
+        }
+        if (reconciliationActive) {
+            record.flags |= ffprotocol::VolumeStatusNeedsReconciliation;
+        }
+        // settings-and-appearance §9.1: the pause state is read back
+        // through this same report (D9: status converges through D7's
+        // derivation, no parallel outcome state).
+        if (IsPausedLocked(letter)) {
+            record.flags |= ffprotocol::VolumeStatusPaused;
+        }
+        records.push_back(record);
+    }
+
+    // settings-and-appearance §9.3: observed-but-unselected volumes are
+    // pending a user decision -- derived from the last EnumerateVolumes
+    // poll against the persisted selection, never a tracked list.
+    for (const wchar_t letter : observedLetters_) {
+        if (letter < L'A' || letter > L'Z') {
+            continue;
+        }
+        const auto configured = std::find_if(configuredVolumes_.begin(), configuredVolumes_.end(), [letter](const auto& volume) {
+            return !volume.key.empty() && static_cast<wchar_t>(towupper(volume.key.front())) == letter;
+        });
+        if (configured != configuredVolumes_.end()) {
+            continue; // selected (enabled or disabled) -- not pending
+        }
+        ffprotocol::VolumeStatusRecord record{};
+        record.driveLetter = static_cast<uint8_t>(letter);
+        record.flags = ffprotocol::VolumeStatusReachable | ffprotocol::VolumeStatusPendingDecision;
+        records.push_back(record);
+    }
+    return records;
+}
+
 void VolumeSessionManager::ReconciliationSchedulerLoop() {
     while (running_.load()) {
         {
@@ -389,6 +570,9 @@ void VolumeSessionManager::ReconciliationSchedulerLoop() {
                 auto meta = pipeline_.GetVolumeMetadata(session.durableId);
                 if (!meta || !meta->available || !meta->scanComplete) {
                     continue; // an in-progress initial scan already covers the same ground
+                }
+                if (IsPausedLocked(session.driveLetter)) {
+                    continue; // settings-and-appearance §9.1: no reconciliation while paused
                 }
                 if (now - meta->lastReconciliationTime >= kReconciliationIntervalFileTime) {
                     due.emplace_back(ffprotocol::VolumeId{ephemeralValue}, session.durableId);

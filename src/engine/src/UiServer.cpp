@@ -206,6 +206,27 @@ bool UiServer::SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprot
                              &payload, sizeof(payload));
 }
 
+bool UiServer::SendVolumeStatus(HANDLE pipe) {
+    const auto records = onRequestVolumeStatus
+        ? onRequestVolumeStatus()
+        : std::vector<ffprotocol::VolumeStatusRecord>{};
+    if (records.size() > (ffprotocol::kMaxFrameSize - sizeof(ffprotocol::FrameHeader)
+                          - sizeof(ffprotocol::VolumeStatusHeader))
+            / sizeof(ffprotocol::VolumeStatusRecord)) {
+        return false;
+    }
+    std::vector<uint8_t> payload(sizeof(ffprotocol::VolumeStatusHeader)
+                                 + records.size() * sizeof(ffprotocol::VolumeStatusRecord));
+    const ffprotocol::VolumeStatusHeader header{static_cast<uint32_t>(records.size())};
+    std::memcpy(payload.data(), &header, sizeof(header));
+    if (!records.empty()) {
+        std::memcpy(payload.data() + sizeof(header), records.data(),
+                    records.size() * sizeof(ffprotocol::VolumeStatusRecord));
+    }
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::VolumeStatus), payload.data(),
+                             static_cast<uint32_t>(payload.size()));
+}
+
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
     if (engineActive_ != privilegedPathActive) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
@@ -347,6 +368,21 @@ void UiServer::HandleConnection(HANDLE pipe) {
     case UiMessageType::RequestFolderAggregate: {
         if (frame->payload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) goto disconnected;
         HandleRequestFolderAggregate(pipe, frame->payload);
+        break;
+    }
+
+    case UiMessageType::RequestVolumeStatus:
+        if (!frame->payload.empty() || !SendVolumeStatus(pipe)) goto disconnected;
+        break;
+
+    case UiMessageType::SetIndexingPaused: {
+        if (frame->payload.size() != sizeof(ffprotocol::SetIndexingPausedPayload)) goto disconnected;
+        ffprotocol::SetIndexingPausedPayload payload{};
+        std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+        const wchar_t letter = static_cast<wchar_t>(towupper(static_cast<wchar_t>(payload.scope)));
+        if (payload.scope != 0 && (letter < L'A' || letter > L'Z')) goto disconnected;
+        if (payload.paused > 1) goto disconnected;
+        if (onSetIndexingPaused) onSetIndexingPaused(payload.scope, payload.paused != 0);
         break;
     }
 

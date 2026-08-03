@@ -1,0 +1,18 @@
+{
+  "candidateId": "se-security",
+  "privilegeName": "SeSecurityPrivilege",
+  "volumePath": "\\\\.\\C:",
+  "accountName": "NT SERVICE\\FastFilesIndexSvc",
+  "accountSid": "S-1-5-80-2770246295-1174983333-1227338532-1625611241-2685571913",
+  "groupContext": "admins=0;system=0;backupOps=0;authUsers=1",
+  "privilegeHeld": true,
+  "privilegeEnabled": true,
+  "volumeOpened": false,
+  "volumeOpenError": 5,
+  "journalQueried": false,
+  "journalQueryError": 0,
+  "journalRead": false,
+  "journalReadError": 0,
+  "registrationOrder": 5,
+  "outcome": "open-denied"
+}

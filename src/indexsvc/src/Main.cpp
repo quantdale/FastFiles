@@ -233,6 +233,12 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
     // tool -- see PrivilegeVerification.h for why.
     ffindexsvc::VerifyBackupPrivilegeSufficiency();
 
+    // Task 2.3: record the verified token (account, groups, privilege state)
+    // that this process's raw-volume calls run under, so an installer-driven
+    // restart with a freshly granted token is auditable in the diagnostic
+    // record rather than assumed.
+    ffindexsvc::LogStartupTokenDiagnostic();
+
     const std::wstring installDir = GetOwnDirectory();
 
     auto clientGroupSid = ffsetup::LookupAccountSid(ffsetup::kAuthorizedClientGroupName);

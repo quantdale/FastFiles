@@ -98,8 +98,66 @@ void TestCopyRelativePathBaseResolution() {
     Check(!workspace.OtherPanePath().has_value(), "single pane after disable exposes no other-pane base");
 }
 }
+void TestConcurrentIndependentContextsReadDifferentPaths() {
+    using namespace ffui;
+    // Task 1.4: two or more concurrently live NavigationContext instances
+    // reading different paths produce correct, independent results with zero
+    // IPC round-trips. NavigationWorkspace holds plain UI state over the
+    // shared in-process index snapshot (static audit: no pipe/mapped-file/
+    // window-message primitive exists in NavigationWorkspace.cpp), so
+    // "concurrently live" here means three contexts alive at once -- tab 0
+    // pane 0 (C:\), tab 0 pane 1 (D:\), tab 1 (E:\) -- each with its own
+    // path, columns, history, and breadcrumbs; interleaved navigation must
+    // never bleed state across contexts.
+    NavigationWorkspace workspace(L"C:\\Alpha");
+    workspace.Navigate(L"C:\\Alpha\\A1");
+    workspace.Navigate(L"C:\\Alpha\\A2");
+    workspace.EnableDualPane();
+    workspace.ActivatePane(1);
+    workspace.Navigate(L"D:\\Beta");
+    workspace.Navigate(L"D:\\Beta\\B1");
+    workspace.OpenTab();
+    workspace.Navigate(L"E:\\Gamma");
+    workspace.Navigate(L"E:\\Gamma\\G1\\G2");
+
+    Check(workspace.TabCount() == 2, "three concurrent contexts are live: two tabs");
+    workspace.SwitchTab(0);
+    Check(workspace.IsDualPane(), "dual pane is still live on tab 0");
+    workspace.ActivatePane(0);
+    Check(workspace.ActiveContext().currentPath == L"C:\\Alpha\\A2" &&
+          workspace.ActiveContext().history.size() == 3,
+          "context 1 keeps its path and full history");
+    Check(workspace.GoBack() && workspace.ActiveContext().currentPath == L"C:\\Alpha\\A1",
+          "context 1 back-navigates within its own history");
+    workspace.ActivatePane(1);
+    Check(workspace.ActiveContext().currentPath == L"D:\\Beta\\B1",
+          "context 2 keeps its path while context 1 moved");
+    Check(workspace.GoBack() && workspace.ActiveContext().currentPath == L"D:\\Beta",
+          "context 2 history is independent of context 1");
+    workspace.SwitchTab(1);
+    Check(workspace.ActiveContext().currentPath == L"E:\\Gamma\\G1\\G2",
+          "context 3 keeps its path after both tab-0 panes navigated");
+    Check(workspace.Breadcrumbs().size() == 5 && workspace.Breadcrumbs().back().label == L"G2",
+          "context 3 breadcrumbs derive from its own path only");
+    workspace.GoBack();
+    Check(workspace.ActiveContext().currentPath == L"E:\\Gamma", "context 3 back works");
+    workspace.SwitchTab(0);
+    Check(workspace.ActiveContext().currentPath == L"D:\\Beta",
+          "context 2 untouched by context 3 navigation");
+    workspace.ActivatePane(0);
+    Check(workspace.ActiveContext().currentPath == L"C:\\Alpha\\A1",
+          "context 1 untouched by context 3 navigation");
+    workspace.SwitchTab(1);
+    workspace.Navigate(L"E:\\Gamma\\G1\\G2\\Deep");
+    workspace.SwitchTab(0);
+    workspace.ActivatePane(1);
+    Check(workspace.ActiveContext().currentPath == L"D:\\Beta",
+          "forward navigation in context 3 leaves tab-0 panes at their paths");
+    Check(workspace.CanGoForward(), "context 3 forward history intact after interleave");
+}
 int main() {
     TestPathParsing(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestCopyRelativePathBaseResolution();
+    TestConcurrentIndependentContextsReadDifferentPaths();
     return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -249,6 +249,33 @@ void EngineClient::ReaderLoop() {
                 break;
             }
 
+            case UiMessageType::VolumeStatus: {
+                if (frame->payload.size() < sizeof(ffprotocol::VolumeStatusHeader)) {
+                    break;
+                }
+                ffprotocol::VolumeStatusHeader header{};
+                std::memcpy(&header, frame->payload.data(), sizeof(header));
+                const size_t expected = sizeof(header)
+                    + static_cast<size_t>(header.count) * sizeof(ffprotocol::VolumeStatusRecord);
+                if (expected != frame->payload.size()) {
+                    break;
+                }
+                std::vector<ffprotocol::VolumeStatusRecord> records(header.count);
+                if (!records.empty()) {
+                    std::memcpy(records.data(), frame->payload.data() + sizeof(header),
+                                records.size() * sizeof(ffprotocol::VolumeStatusRecord));
+                }
+                VolumeStatusCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);
+                    callback = std::move(onVolumeStatus_);
+                }
+                if (callback) {
+                    callback(std::move(records));
+                }
+                break;
+            }
+
             default:
                 break; // ignore anything unexpected rather than tearing down the UI
         }
@@ -449,8 +476,7 @@ void EngineClient::ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailabl
     }
 }
 
-void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {
-    {
+void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {    {
         std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
         onFolderAggregate_ = std::move(callback);
     }
@@ -486,6 +512,48 @@ void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFr
         }
         if (failed) {
             failed(payload.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        }
+    }
+}
+
+void EngineClient::SetIndexingPaused(uint8_t scope, bool paused) {
+    HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) return;
+    const ffprotocol::SetIndexingPausedPayload payload{scope, paused ? 1u : 0u};
+    std::lock_guard<std::mutex> lock(writeMutex_);
+    ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::SetIndexingPaused), &payload, sizeof(payload));
+}
+
+void EngineClient::RequestVolumeStatus(VolumeStatusCallback callback) {
+    {
+        std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);
+        onVolumeStatus_ = std::move(callback);
+    }
+    HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) {
+        VolumeStatusCallback failed;
+        {
+            std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);
+            failed = std::move(onVolumeStatus_);
+        }
+        if (failed) {
+            failed({});
+        }
+        return;
+    }
+    bool sent = false;
+    {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestVolumeStatus));
+    }
+    if (!sent) {
+        VolumeStatusCallback failed;
+        {
+            std::lock_guard<std::mutex> callbackLock(volumeStatusCallbackMutex_);
+            failed = std::move(onVolumeStatus_);
+        }
+        if (failed) {
+            failed({});
         }
     }
 }

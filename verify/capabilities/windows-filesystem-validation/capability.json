@@ -1,0 +1,14 @@
+{
+  "id": "windows-filesystem-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Filesystem Validation",
+  "description": "Runs the engine + indexstore component scenario batteries behind the four-state contract: volume enumeration, NTFS traversal/ingestion, USN journal handling, incremental indexing, rescan/staleness detection, and index change/recovery (create/delete/rename/move, journal recovery, stale-index recovery).",
+  "entryModule": "FilesystemValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-FilesystemValidationAvailability",
+    "run": "Invoke-FilesystemValidationCapability",
+    "diagnostics": "Get-FilesystemValidationDiagnostics"
+  }
+}

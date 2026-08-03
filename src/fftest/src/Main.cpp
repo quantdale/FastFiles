@@ -160,6 +160,184 @@ int RunMappingProbe(const wchar_t* mappingName) {
     return readable ? kProbePass : kProbeFail;
 }
 
+
+
+struct FileIdentity {
+    DWORD volumeSerial = 0;
+    DWORD indexHigh = 0;
+    DWORD indexLow = 0;
+    bool operator==(const FileIdentity& other) const {
+        return volumeSerial == other.volumeSerial && indexHigh == other.indexHigh
+            && indexLow == other.indexLow;
+    }
+};
+
+struct WalkFrame {
+    std::wstring path;
+    uint32_t depth = 0;
+    std::vector<FileIdentity> ancestors;
+};
+
+// Walks a directory tree with the exact FindFirstFileExW(FindExInfoBasic)
+// call the product's degraded-mode enumerator uses (metadata only - never
+// file data). Reparse-point directories (junctions/symlinks) are followed
+// but bounded: a directory whose NTFS file id already appears among its
+// ancestors is a cycle and is severed via the loop guard, so a junction-to-
+// ancestor fixture terminates instead of hanging or overflowing the path
+// buffer. Iterative DFS avoids the known nesting limits of FindFirstFileEx.
+// `listed` is capped so a huge tree still aggregates without serializing
+// every entry.
+int RunWalkProbe(const wchar_t* rootPath) {
+    constexpr uint32_t kMaxDepth = 32;
+    constexpr size_t kMaxListed = 512;
+
+    uint64_t entries = 0;
+    uint64_t directories = 0;
+    uint64_t reparsePoints = 0;
+    uint64_t loopGuards = 0;
+    uint64_t accessDenied = 0;
+    uint32_t maxDepthSeen = 0;
+    std::vector<std::wstring> listed;
+    std::vector<std::wstring> deniedPaths;
+
+    std::vector<WalkFrame> work;
+    work.push_back({rootPath, 0, {}});
+    while (!work.empty()) {
+        WalkFrame frame = std::move(work.back());
+        work.pop_back();
+        if (frame.depth > maxDepthSeen) maxDepthSeen = frame.depth;
+
+        std::wstring searchPath = frame.path;
+        if (!searchPath.empty() && searchPath.back() != L'\\' && searchPath.back() != L'/') {
+            searchPath += L'\\';
+        }
+        searchPath += L'*';
+
+        WIN32_FIND_DATAW findData{};
+        HANDLE handle = FindFirstFileExW(searchPath.c_str(), FindExInfoBasic, &findData,
+                                         FindExSearchNameMatch, nullptr, 0);
+        if (handle == INVALID_HANDLE_VALUE) {
+            const DWORD error = GetLastError();
+            if (error == ERROR_ACCESS_DENIED) {
+                ++accessDenied;
+                if (deniedPaths.size() < 16) deniedPaths.push_back(frame.path);
+            }
+            continue;
+        }
+
+        do {
+            const std::wstring name(findData.cFileName);
+            if (name == L"." || name == L"..") {
+                continue;
+            }
+            ++entries;
+            const uint32_t attributes = findData.dwFileAttributes;
+            const bool isDirectory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            const bool isReparse = (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+            if (isDirectory) ++directories;
+            if (isReparse) ++reparsePoints;
+            if (listed.size() < kMaxListed) {
+                std::wstring marker = isDirectory ? L"D" : L"F";
+                if (isReparse) marker += L"R";
+                marker += name;
+                listed.push_back(marker);
+            }
+
+            std::wstring childPath = frame.path;
+            if (!childPath.empty() && childPath.back() != L'\\' && childPath.back() != L'/') {
+                childPath += L'\\';
+            }
+            childPath += name;
+
+            const bool descend = isDirectory && frame.depth + 1 <= kMaxDepth;
+            if (!descend) continue;
+
+            bool cycle = false;
+            if (isReparse) {
+                HANDLE dirHandle = CreateFileW(childPath.c_str(), FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+                if (dirHandle != INVALID_HANDLE_VALUE) {
+                    BY_HANDLE_FILE_INFORMATION info{};
+                    if (GetFileInformationByHandle(dirHandle, &info)) {
+                        const FileIdentity fileId{info.dwVolumeSerialNumber, info.nFileIndexHigh,
+                                                 info.nFileIndexLow};
+                        for (const FileIdentity& ancestorId : frame.ancestors) {
+                            if (ancestorId == fileId) {
+                                cycle = true;
+                                ++loopGuards;
+                                break;
+                            }
+                        }
+                        if (!cycle && frame.depth < kMaxDepth) {
+                            WalkFrame child;
+                            child.path = childPath;
+                            child.depth = frame.depth + 1;
+                            child.ancestors = frame.ancestors;
+                            child.ancestors.push_back(fileId);
+                            work.push_back(std::move(child));
+                        }
+                    } else {
+                        // Identity unreadable under this token: keep the
+                        // walk bounded rather than risk an aliased loop.
+                        cycle = true;
+                        ++loopGuards;
+                    }
+                    CloseHandle(dirHandle);
+                    if (cycle) continue;
+                }
+            } else {
+                if (frame.depth + 1 <= kMaxDepth) {
+                    WalkFrame child = frame;
+                    child.path = childPath;
+                    child.depth = frame.depth + 1;
+                    work.push_back(std::move(child));
+                }
+            }
+        } while (FindNextFileW(handle, &findData));
+        FindClose(handle);
+    }
+
+    std::printf(
+        "{\"tool\":\"fftest\",\"probe\":\"walk\",\"status\":\"PASS\",\"root\":\"%s\","
+        "\"entries\":%llu,\"directories\":%llu,\"reparsePoints\":%llu,"
+        "\"loopGuards\":%llu,\"accessDenied\":%llu,\"maxDepth\":%u,\"list\":[",
+        JsonEscape(WideToUtf8(rootPath)).c_str(), entries, directories, reparsePoints,
+        loopGuards, accessDenied, maxDepthSeen);
+    for (size_t i = 0; i < listed.size(); ++i) {
+        if (i != 0) std::printf(",");
+        std::printf("\"%s\"", JsonEscape(WideToUtf8(listed[i])).c_str());
+    }
+    std::printf("]}\n");
+    return kProbePass;
+}
+
+constexpr int kMaxListedStreamProbe = 64;
+
+int RunStreamsProbe(const wchar_t* filePath) {
+    std::vector<std::wstring> streams;
+    WIN32_FIND_STREAM_DATA streamData{};
+    HANDLE handle = FindFirstStreamW(filePath, FindStreamInfoStandard, &streamData, 0);
+    if (handle == INVALID_HANDLE_VALUE) {
+        std::printf("{\"tool\":\"fftest\",\"probe\":\"streams\",\"status\":\"FAIL\",\"path\":\"%s\",\"error\":%lu}\n",
+                    JsonEscape(WideToUtf8(filePath)).c_str(), GetLastError());
+        return kProbeFail;
+    }
+    do {
+        streams.push_back(std::wstring(streamData.cStreamName));
+    } while (FindNextStreamW(handle, &streamData));
+    FindClose(handle);
+
+    std::printf("{\"tool\":\"fftest\",\"probe\":\"streams\",\"status\":\"PASS\",\"path\":\"%s\",\"streams\":[",
+                JsonEscape(WideToUtf8(filePath)).c_str());
+    for (size_t i = 0; i < streams.size() && i < kMaxListedStreamProbe; ++i) {
+        if (i != 0) std::printf(",");
+        std::printf("\"%s\"", JsonEscape(WideToUtf8(streams[i])).c_str());
+    }
+    std::printf("]}\n");
+    return kProbePass;
+}
+
 int RunHandshakeImpostorProbe(const wchar_t* installDirectory) {
     const std::wstring pipeName = L"\\\\.\\pipe\\FastFiles.Verify.Handshake."
         + std::to_wstring(GetCurrentProcessId());
@@ -200,7 +378,7 @@ int RunHandshakeImpostorProbe(const wchar_t* installDirectory) {
 }
 
 void PrintUsage() {
-    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|handshake-impostor <install-dir>>\n");
+    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|walk <root>|streams <file>|handshake-impostor <install-dir>>\n");
 }
 
 } // namespace
@@ -214,6 +392,8 @@ int wmain(int argc, wchar_t** argv) {
     if (_wcsicmp(argv[1], L"token") == 0 && argc == 2) return RunTokenProbe();
     if (_wcsicmp(argv[1], L"acl") == 0 && argc == 3) return RunAclProbe(argv[2]);
     if (_wcsicmp(argv[1], L"mapping") == 0 && argc == 3) return RunMappingProbe(argv[2]);
+    if (_wcsicmp(argv[1], L"walk") == 0 && argc == 3) return RunWalkProbe(argv[2]);
+    if (_wcsicmp(argv[1], L"streams") == 0 && argc == 3) return RunStreamsProbe(argv[2]);
     if (_wcsicmp(argv[1], L"handshake-impostor") == 0 && argc == 3) return RunHandshakeImpostorProbe(argv[2]);
     PrintUsage();
     return kUsageError;

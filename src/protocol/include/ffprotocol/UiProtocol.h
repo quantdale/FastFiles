@@ -26,6 +26,9 @@ enum class UiMessageType : uint16_t {
     ForgetUnavailableVolumeResult = 11, // Engine -> UI: explicit outcome for the requested row
     RequestFolderAggregate = 12, // UI -> Engine: async subtree size/count request
     FolderAggregateResult = 13,  // Engine -> UI: subtree aggregate response
+    RequestVolumeStatus = 14,    // UI -> Engine: request the per-volume index-health report
+    VolumeStatus = 15,           // Engine -> UI: fixed-record per-volume condition report
+    SetIndexingPaused = 16,      // UI -> Engine: pause/resume indexing, global (scope=0) or per-volume
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -124,6 +127,42 @@ struct FolderAggregateResultPayload {
     FolderAggregateStatus status;
     uint64_t itemCount;
     uint64_t totalSizeBytes;
+};
+
+// Per-volume index-health condition report (settings-and-appearance §7.3).
+// The engine owns the underlying scan/reconciliation state and reports the
+// discrete conditions (IndexHealth.h's VolumeIndexConditions) per volume
+// over the UI seam; the UI applies the existing pure derivation
+// (DeriveIndexHealth / ApplicableIndexConditions) to present the headline
+// status and detail conditions. A single record carries a drive letter and
+// one byte of condition flags.
+enum VolumeStatusFlags : uint8_t {
+    VolumeStatusReachable = 1 << 0,              // volume currently mounted/present
+    VolumeStatusScanning = 1 << 1,               // initial scan or catch-up in progress
+    VolumeStatusNeedsReconciliation = 1 << 2,    // reconciliation sweep required/pending
+    VolumeStatusPartiallyIndexed = 1 << 3,       // some configured subtrees complete, not all
+    VolumeStatusPaused = 1 << 4,                 // indexing paused for this volume (or globally)
+    VolumeStatusPendingDecision = 1 << 5,        // engine observed the volume; not yet in the persisted list
+};
+
+struct VolumeStatusHeader {
+    uint32_t count;
+};
+
+struct VolumeStatusRecord {
+    uint8_t driveLetter; // 'C', 'D', ... 0 == unknown
+    uint8_t flags;       // bitwise OR of VolumeStatusFlags
+};
+
+// settings-and-appearance §9.1/D9: pause/resume indexing control-plane
+// request. scope == 0 means global (all volumes); otherwise it is an
+// uppercase drive letter ('C'...'Z') limiting the action to one volume.
+// Pause is transient engine state, deliberately never persisted (resume
+// continues from the engine's last-applied cursor/USN position -- the
+// spec's "continue from where it left off, without restarting from zero").
+struct SetIndexingPausedPayload {
+    uint8_t scope;   // 0 == global, otherwise a drive letter
+    uint8_t paused;  // 0 == resume, 1 == pause
 };
 
 #pragma pack(pop)

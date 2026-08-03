@@ -158,8 +158,16 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "RequestUnavailableVolumes is part of the closed UI command surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::ForgetUnavailableVolumeResult)).has_value(),
           "ForgetUnavailableVolumeResult is part of the closed UI command surface");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResult) + 1).has_value(),
-          "the first unassigned UI message after volume lifecycle commands is rejected");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::RequestVolumeStatus)).has_value(),
+          "RequestVolumeStatus is part of the closed UI command surface");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::VolumeStatus)).has_value(),
+          "VolumeStatus is part of the closed UI command surface");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::SetIndexingPaused)).has_value(),
+          "SetIndexingPaused (settings-and-appearance 9.1 control-plane pause/resume) is part of the closed UI command surface");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::SetIndexingPaused) + 1).has_value(),
+          "the first unassigned UI message after the pause/resume command is rejected");
+    Check(sizeof(SetIndexingPausedPayload) == sizeof(uint8_t) + sizeof(uint8_t),
+          "pause/resume request carries only a scope and a pause flag");
     Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
           "forget request carries only the durable volume row id");
     Check(sizeof(ForgetUnavailableVolumeResultPayload)
@@ -171,6 +179,10 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "a defined forget result status is accepted");
     Check(!IsForgetUnavailableVolumeStatusValid(static_cast<ForgetUnavailableVolumeStatus>(0xFFFF)),
           "an undefined forget result status is rejected");
+    Check(sizeof(VolumeStatusRecord) == sizeof(uint8_t) + sizeof(uint8_t),
+          "volume-status records carry only a drive letter and condition flags");
+    Check(sizeof(VolumeStatusHeader) == sizeof(uint32_t),
+          "volume-status report is a count-prefixed fixed-record list");
 }
 
 void TestIndexHealthPrecedence() {

@@ -37,4 +37,5 @@ target_link_libraries(FastFiles PRIVATE
   shell32
   ole32
   comctl32
+  comdlg32
 )

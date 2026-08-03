@@ -7,10 +7,13 @@
 #include <werapi.h>
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <iterator>
 #include <string>
 #include <utility>
 
+#include "ffprotocol/Diagnostics.h"
 #include "ffsetup/GroupSetup.h"
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/InstallDirAcl.h"
@@ -245,6 +248,191 @@ void RemoveDiagnosticState() {
     }
 }
 
+// --- Transactional upgrade (resolve-raw-volume-privilege-insufficiency
+// task 3.2 / spec "Failed upgrade restores the prior service") ------------
+//
+// Before any binary is replaced, the current binaries and the service's
+// current account configuration are snapshotted into <installDir>\Backup.
+// If the post-install startup verification fails, RestoreServiceState puts
+// the old binaries and account configuration back and restarts the service,
+// so an upgrade never leaves the machine with a broken half-installed
+// service.
+
+constexpr wchar_t kBackupDirName[] = L"Backup";
+constexpr wchar_t kBackupStateFileName[] = L"install-state.txt";
+constexpr wchar_t kInstallerExeName[] = L"FastFilesSetup.exe";
+constexpr wchar_t kUiExeName[] = L"FastFiles.exe";
+
+std::wstring BackupDirectory(const std::wstring& installDir) {
+    return installDir + L"\\" + kBackupDirName;
+}
+
+// Snapshot the installed binaries + SCM account configuration before an
+// upgrade touches anything. Fails closed: an unreadable prior state aborts
+// the upgrade while the machine is still untouched.
+bool BackupServiceState(const std::wstring& installDir,
+                        const ffsetup::ServiceAccountOptions& priorAccount) {
+    const std::wstring backupDir = BackupDirectory(installDir);
+    if (!CreateDirectoryW(backupDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        return false;
+    }
+
+    const wchar_t* binaries[] = {
+        ffsetup::kIndexSvcExeName, ffsetup::kEngineExeName, kUiExeName, kInstallerExeName,
+    };
+    for (const wchar_t* exeName : binaries) {
+        if (!CopyFileW((installDir + L"\\" + exeName).c_str(), (backupDir + L"\\" + exeName).c_str(), FALSE)) {
+            return false;
+        }
+    }
+
+    std::wofstream stateFile(backupDir + L"\\" + kBackupStateFileName, std::ios::trunc);
+    if (!stateFile) {
+        return false;
+    }
+    stateFile << L"type=" << static_cast<int>(priorAccount.type) << L"\n";
+    stateFile << L"name=" << priorAccount.userName << L"\n";
+    return static_cast<bool>(stateFile);
+}
+
+std::optional<ffsetup::ServiceAccountOptions> ReadBackupServiceAccount(const std::wstring& installDir) {
+    std::wifstream stateFile(BackupDirectory(installDir) + L"\\" + kBackupStateFileName);
+    if (!stateFile) {
+        return std::nullopt;
+    }
+    ffsetup::ServiceAccountOptions options;
+    std::wstring line;
+    bool sawType = false;
+    while (std::getline(stateFile, line)) {
+        if (line.rfind(L"type=", 0) == 0 && line.size() > 5) {
+            try {
+                options.type = static_cast<ffsetup::ServiceAccountType>(std::stoi(line.substr(5)));
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+            sawType = true;
+        } else if (line.rfind(L"name=", 0) == 0 && line.size() > 5) {
+            options.userName = line.substr(5);
+        }
+    }
+    if (!sawType || options.type == ffsetup::ServiceAccountType::NamedUser) {
+        return std::nullopt;
+    }
+    return options;
+}
+
+// Restores the prior known-good state captured by BackupServiceState:
+// removes the (possibly half-configured) new registration, restores the old
+// binaries and account configuration, and restarts the service. Returns true
+// when the prior state is running again.
+bool RestoreServiceState(const std::wstring& installDir, PSID clientGroupSid) {
+    std::fwprintf(stderr, L"FastFilesSetup: rolling back upgrade to prior known-good state\n");
+    const std::optional<ffsetup::ServiceAccountOptions> priorAccount = ReadBackupServiceAccount(installDir);
+    if (!priorAccount) {
+        std::fwprintf(stderr, L"FastFilesSetup: rollback aborted -- prior account state unreadable\n");
+        return false;
+    }
+
+    if (!ffsetup::UnregisterIndexService().success) {
+        std::fwprintf(stderr, L"FastFilesSetup: rollback failed to remove the new service registration\n");
+        return false;
+    }
+
+    const wchar_t* binaries[] = {
+        ffsetup::kIndexSvcExeName, ffsetup::kEngineExeName, kUiExeName, kInstallerExeName,
+    };
+    for (const wchar_t* exeName : binaries) {
+        if (!CopyFileW((BackupDirectory(installDir) + L"\\" + exeName).c_str(),
+                       (installDir + L"\\" + exeName).c_str(), FALSE)) {
+            std::fwprintf(stderr, L"FastFilesSetup: rollback failed to restore %ls\n", exeName);
+            return false;
+        }
+    }
+
+    const std::wstring servicePath = installDir + L"\\" + ffsetup::kIndexSvcExeName;
+    if (!ffsetup::RegisterIndexService(servicePath, clientGroupSid, *priorAccount).success) {
+        std::fwprintf(stderr, L"FastFilesSetup: rollback failed to re-register the prior service\n");
+        return false;
+    }
+    StartIndexService();
+    return true;
+}
+
+bool ServiceIsRunning() {
+    SC_HANDLE scm = OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT);
+    if (scm == nullptr) {
+        return false;
+    }
+    SC_HANDLE service = OpenServiceW(scm, ffsetup::kServiceName, SERVICE_QUERY_STATUS);
+    if (service == nullptr) {
+        CloseServiceHandle(scm);
+        return false;
+    }
+    SERVICE_STATUS status{};
+    const bool running = QueryServiceStatus(service, &status) != FALSE && status.dwCurrentState == SERVICE_RUNNING;
+    CloseServiceHandle(service);
+    CloseServiceHandle(scm);
+    return running;
+}
+
+bool WaitForServiceRunning(DWORD timeoutMs) {
+    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    do {
+        if (ServiceIsRunning()) {
+            return true;
+        }
+        Sleep(200);
+    } while (GetTickCount64() < deadline);
+    return ServiceIsRunning();
+}
+
+// Startup verification (task 3.2): the service must reach RUNNING and stay
+// up past a settle window (a crash-on-start binary would trigger SCM's
+// failure actions and be back down here), and the service's own startup-token
+// diagnostic -- written after the fresh token is in place (task 2.3) -- must
+// not report a missing/disabled backup privilege. A missing diagnostic line
+// is tolerated (the log can be unavailable), but an explicit privilege
+// failure is not.
+bool VerifyServiceStartedFresh() {
+    const std::wstring diagPath = ffprotocol::DiagnosticLogPath();
+    std::error_code fileError;
+    const ULONGLONG logBytesBefore = diagPath.empty() ? 0
+        : static_cast<ULONGLONG>(std::filesystem::file_size(std::filesystem::path(diagPath), fileError));
+
+    StartIndexService();
+    if (!WaitForServiceRunning(30000)) {
+        std::fwprintf(stderr, L"FastFilesSetup: verification failed -- service did not reach RUNNING\n");
+        return false;
+    }
+    Sleep(2500); // settle: a crash-on-start binary restarts and is down again
+    if (!ServiceIsRunning()) {
+        std::fwprintf(stderr, L"FastFilesSetup: verification failed -- service did not stay running\n");
+        return false;
+    }
+
+    if (!diagPath.empty() && logBytesBefore != 0) {
+        std::wifstream log(diagPath, std::ios::binary);
+        log.seekg(static_cast<std::streamoff>(logBytesBefore));
+        std::wstring line;
+        while (std::getline(log, line)) {
+            if (line.find(L"state=startup-token") != std::wstring::npos) {
+                if (line.find(L"privilegeEnabled=0") != std::wstring::npos) {
+                    std::fwprintf(stderr, L"FastFilesSetup: verification failed -- fresh token lacks SeBackupPrivilege\n");
+                    return false;
+                }
+                std::fwprintf(stderr, L"FastFilesSetup: verification passed -- fresh token has the raw-volume privilege\n");
+                return true;
+            }
+        }
+        std::fwprintf(stderr, L"FastFilesSetup: startup-token diagnostic not found -- proceeding (log unavailable)\n");
+    }
+    return true;
+}
+
+void RemoveBackupState(const std::wstring& installDir) {
+    DeleteKnownTree(BackupDirectory(installDir));
+}
+
 } // namespace
 
 int RunInstall() {
@@ -265,17 +453,31 @@ int RunInstall() {
 
     const bool isUpgrade = ServiceIsRegistered();
 
-    if (isUpgrade && !StopIndexService()) {
-        std::fwprintf(stderr, L"FastFilesSetup: failed to stop FastFilesIndexSvc for upgrade\n");
-        return 1;
-    }
+    // Selected production model (evidence/matrix-execution-and-selection.md):
+    // the constrained privileged broker -- FastFilesIndexSvc under LocalSystem
+    // with SeBackupPrivilege and the existing narrow closed command surface.
+    const ffsetup::ServiceAccountOptions brokerOptions{ffsetup::ServiceAccountType::LocalSystem};
 
-    if (!StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kIndexSvcExeName) ||
-        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kEngineExeName) ||
-        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFiles.exe") ||
-        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFilesSetup.exe")) {
-        std::fwprintf(stderr, L"FastFilesSetup: failed to stage/install binaries\n");
-        return 1;
+    // Task 2.3: an identity/right change must force a fresh service start
+    // before verification -- stop now so the re-registration below starts the
+    // service on a freshly granted token. Task 3.2: snapshot the prior
+    // binaries and account configuration before any replacement so a failed
+    // verification can roll back.
+    std::optional<ffsetup::ServiceAccountOptions> priorAccount;
+    if (isUpgrade) {
+        if (!StopIndexService()) {
+            std::fwprintf(stderr, L"FastFilesSetup: failed to stop FastFilesIndexSvc for upgrade\n");
+            return 1;
+        }
+        priorAccount = ffsetup::QueryIndexServiceAccount();
+        if (!priorAccount) {
+            std::fwprintf(stderr, L"FastFilesSetup: could not read the prior service account configuration -- aborting\n");
+            return 1;
+        }
+        if (!BackupServiceState(installDir, *priorAccount)) {
+            std::fwprintf(stderr, L"FastFilesSetup: failed to back up the prior service state -- aborting upgrade\n");
+            return 1;
+        }
     }
 
     const std::wstring userName = GetCurrentUserSamName();
@@ -290,41 +492,68 @@ int RunInstall() {
         return 1;
     }
 
+    auto rollback = [&]() {
+        if (isUpgrade) {
+            RestoreServiceState(installDir, clientGroupSid->Get());
+        } else {
+            ffsetup::UnregisterIndexService();
+        }
+    };
+
+    if (!StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kIndexSvcExeName) ||
+        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, ffsetup::kEngineExeName) ||
+        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFiles.exe") ||
+        !StageAndInstallBinary(*scratchDir, sourceDir, installDir, L"FastFilesSetup.exe")) {
+        std::fwprintf(stderr, L"FastFilesSetup: failed to stage/install binaries\n");
+        rollback();
+        return 1;
+    }
+
     const std::wstring servicePath = installDir + L"\\" + ffsetup::kIndexSvcExeName;
     if (isUpgrade) {
-        // Task 6.3: reapply security on every upgrade, not just first
-        // install.
-        const ffsetup::SetupResult securityResult = ffsetup::ReapplyIndexServiceSecurity(clientGroupSid->Get());
-        if (!securityResult.success) {
-            std::fwprintf(stderr, L"FastFilesSetup: failed to reapply service security on upgrade (error %lu)\n",
-                          securityResult.errorCode);
+        // Full re-registration: moves the service to the selected broker
+        // identity (the fresh token is what task 2.3 verifies) and reapplies
+        // the descriptor/failure actions (task 6.3) in one transaction.
+        if (!ffsetup::UnregisterIndexService().success) {
+            std::fwprintf(stderr, L"FastFilesSetup: failed to remove the prior service registration for upgrade\n");
+            rollback();
             return 1;
         }
-    } else {
-        if (!ffsetup::RegisterIndexService(servicePath, clientGroupSid->Get()).success) {
-            std::fwprintf(stderr, L"FastFilesSetup: failed to register FastFilesIndexSvc\n");
-            return 1;
-        }
+    }
+    if (!ffsetup::RegisterIndexService(servicePath, clientGroupSid->Get(), brokerOptions).success) {
+        std::fwprintf(stderr, L"FastFilesSetup: failed to register FastFilesIndexSvc\n");
+        rollback();
+        return 1;
     }
 
     if (!ffsetup::ApplyInstallDirectorySecurity(installDir).success) {
         std::fwprintf(stderr, L"FastFilesSetup: failed to ACL the install directory\n");
+        rollback();
         return 1;
     }
 
     const std::wstring enginePath = installDir + L"\\" + ffsetup::kEngineExeName;
     if (!ffsetup::RegisterEngineScheduledTask(enginePath).success) {
         std::fwprintf(stderr, L"FastFilesSetup: failed to register the FastFilesEngine scheduled task\n");
+        rollback();
         return 1;
     }
 
     const std::wstring installerPath = installDir + L"\\FastFilesSetup.exe";
     if (!RegisterUninstallMetadata(installerPath, installDir)) {
         std::fwprintf(stderr, L"FastFilesSetup: failed to register uninstall metadata\n");
+        rollback();
         return 1;
     }
 
-    StartIndexService();
+    // Task 3.2 / spec "Failed upgrade restores the prior service": the
+    // post-install startup verification decides whether the upgrade stays.
+    if (!VerifyServiceStartedFresh()) {
+        rollback();
+        return 1;
+    }
+
+    RemoveBackupState(installDir);
     return 0;
 }
 

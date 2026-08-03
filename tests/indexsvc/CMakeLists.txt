@@ -6,3 +6,7 @@ add_test(NAME ffmftparser_tests COMMAND ffmftparser_tests)
 add_executable(ffprivilege_diagnostics_tests test_privilege_diagnostics.cpp)
 target_link_libraries(ffprivilege_diagnostics_tests PRIVATE ffindexsvcprobes)
 add_test(NAME ffprivilege_diagnostics_tests COMMAND ffprivilege_diagnostics_tests)
+
+add_executable(ffcommand_surface_tests test_command_surface.cpp)
+target_link_libraries(ffcommand_surface_tests PRIVATE ffindexsvcprobes)
+add_test(NAME ffcommand_surface_tests COMMAND ffcommand_surface_tests)

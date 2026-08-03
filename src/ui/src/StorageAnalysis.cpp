@@ -14,13 +14,20 @@ constexpr int kListId = 7201;
 constexpr int kStatusId = 7202;
 constexpr int kBackId = 7203;
 constexpr int kUpId = 7204;
-constexpr int kDrillDownId = 7205;
-constexpr int kLargestFoldersId = 7206;
-constexpr int kLargestFilesId = 7207;
-constexpr int kByCategoryId = 7208;
-constexpr int kTreemapId = 7209;
-constexpr UINT_PTR kRefreshTimer = 7210;
+constexpr int kOverviewId = 7205;
+constexpr int kDrillDownId = 7206;
+constexpr int kLargestFoldersId = 7207;
+constexpr int kLargestFilesId = 7208;
+constexpr int kByCategoryId = 7209;
+constexpr int kTreemapId = 7210;
+constexpr int kOverviewListId = 7211;
+constexpr int kCategoryFilterId = 7212;
+constexpr UINT_PTR kRefreshTimer = 7220;
 constexpr int kRefreshDelayMs = 50;
+
+// storage-analysis 2.4: a volume that disappeared keeps its last-known
+// capacity figures (labeled stale) instead of being silently dropped.
+constexpr wchar_t kStaleSuffix[] = L" (stale)";
 
 void SetSortIndicator(HWND list, int column, bool ascending) {
     HWND header = ListView_GetHeader(list);
@@ -82,7 +89,15 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
-    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+    overview_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+                                WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
+                                0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
+    overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewId)), nullptr, nullptr);
+    categoryFilter_ = CreateWindowExW(0, WC_COMBOBOXW, L"",
+                                      WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
+                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCategoryFilterId)), nullptr, nullptr);
+    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | BS_AUTORADIOBUTTON,
                                  0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDrillDownId)), nullptr, nullptr);
     largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", WS_CHILD | BS_AUTORADIOBUTTON,
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFoldersId)), nullptr, nullptr);
@@ -91,9 +106,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", WS_CHILD | BS_AUTORADIOBUTTON,
                                   0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kByCategoryId)), nullptr, nullptr);
     treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", WS_CHILD | BS_AUTORADIOBUTTON,
-                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
+                                   0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
 
-    if (!back_ || !up_ || !status_ || !list_ || !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
+    if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
+        !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"Modified"};
     const int widths[] = {260, 80, 100, 120, 100, 145};
@@ -107,29 +123,81 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     ListView_SetExtendedListViewStyle(list_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     SetSortIndicator(list_, sortColumn_, sortAscending_);
 
+    // storage-overview columns: volume, capacity trio, coverage, availability.
+    const wchar_t* overviewColumns[] = {L"Volume", L"Total", L"Used", L"Free", L"% Used", L"Index Coverage"};
+    const int overviewWidths[] = {120, 110, 110, 110, 80, 220};
+    for (int i = 0; i < 6; ++i) {
+        LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
+        column.pszText = const_cast<wchar_t*>(overviewColumns[i]);
+        column.cx = overviewWidths[i];
+        column.iSubItem = i;
+        ListView_InsertColumn(overview_, i, &column);
+    }
+    ListView_SetExtendedListViewStyle(overview_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    PopulateCategoryFilter();
+
     worker_ = std::thread(&StorageAnalysis::WorkerMain, this);
     return true;
+}
+
+void StorageAnalysis::PopulateCategoryFilter() {
+    if (!categoryFilter_) return;
+    ComboBox_ResetContent(categoryFilter_);
+    // storage-analysis 5.4: "All categories" plus one entry per shipped/user
+    // category definition; directories are never filtered out.
+    ComboBox_AddString(categoryFilter_, L"All categories");
+    const auto& categories = categoryEngine_.GetCategories();
+    for (const auto& cat : categories) {
+        ComboBox_AddString(categoryFilter_, const_cast<wchar_t*>(cat.displayName.c_str()));
+    }
+    ComboBox_SetCurSel(categoryFilter_, 0);
+}
+
+void StorageAnalysis::ApplyCategoryFilter() {
+    // storage-analysis 5.4: scope the displayed items to the selected
+    // category, recalculating percentages relative to the filtered scope.
+    // Directories stay (they can be drilled into); files whose category does
+    // not match the filter are removed from the list.
+    if (!categoryFilter_) return;
+    const int sel = ComboBox_GetCurSel(categoryFilter_);
+    if (sel <= 0) return; // index 0 = "All categories"
+    wchar_t buffer[128]{};
+    ComboBox_GetLBText(categoryFilter_, sel, buffer);
+    const std::wstring catName = buffer;
+    items_.erase(std::remove_if(items_.begin(), items_.end(),
+                                [this, &catName](const DrillItem& item) {
+                                    if (item.isDirectory) return false;
+                                    auto match = categoryEngine_.Match(item.name);
+                                    return match.matched ? match.categoryName != catName : catName != L"Other";
+                                }),
+                 items_.end());
 }
 
 void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineActive) {
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
-    for (HWND c : {back_, up_, list_, status_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_SHOW);
-    CheckRadioButton(owner_, kDrillDownId, kTreemapId, kDrillDownId);
-    viewMode_ = ViewMode::DrillDown;
+    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
+                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_SHOW);
+    // Open on the storage overview (2.1): the volume list is the entry point
+    // for capacity figures and per-volume analysis.
+    CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
+    viewMode_ = ViewMode::Overview;
     RefreshData();
     Reposition();
-    SetFocus(list_);
+    SetFocus(overview_);
 }
 
 void StorageAnalysis::Hide() {
     if (!visible_) return;
     visible_ = false;
     KillTimer(owner_, kRefreshTimer);
-    for (HWND c : {back_, up_, list_, status_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
+    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
+                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
     items_.clear();
+    volumes_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
+    ListView_DeleteAllItems(overview_);
 }
 
 void StorageAnalysis::Reposition() {
@@ -142,18 +210,145 @@ void StorageAnalysis::Reposition() {
     const int buttonHeight = 28;
     SetWindowPos(back_, HWND_TOP, 12, top, 80, buttonHeight, SWP_SHOWWINDOW);
     SetWindowPos(up_, HWND_TOP, 96, top, 80, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(drillDown_, HWND_TOP, 180, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFolders_, HWND_TOP, 294, top, 120, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFiles_, HWND_TOP, 418, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(byCategory_, HWND_TOP, 532, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(treemap_, HWND_TOP, 646, top, 90, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, 738, top + 4, width - 748, 20, SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, 12, top + buttonHeight + 8, width - 24,
-                 std::max(80, height - top - buttonHeight - 20), SWP_SHOWWINDOW);
+    SetWindowPos(overviewButton_, HWND_TOP, 180, top, 100, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(drillDown_, HWND_TOP, 284, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFolders_, HWND_TOP, 398, top, 120, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFiles_, HWND_TOP, 522, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(byCategory_, HWND_TOP, 636, top, 110, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(treemap_, HWND_TOP, 750, top, 90, buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(categoryFilter_, HWND_TOP, 844, top, (std::max)(140, width - 1084), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(status_, HWND_TOP, (std::max)(988, width - 200), top + 4, (std::max)(100, width - 992), 20, SWP_SHOWWINDOW);
+    const int listTop = top + buttonHeight + 8;
+    const int listHeight = (std::max)(80, height - top - buttonHeight - 20);
+    SetWindowPos(list_, HWND_TOP, 12, listTop, width - 24, listHeight, SWP_SHOWWINDOW);
+    SetWindowPos(overview_, HWND_TOP, 12, listTop, width - 24, listHeight, SWP_SHOWWINDOW);
+}
+
+void StorageAnalysis::RefreshOverview() {
+    std::vector<VolumeItem> prior = std::move(volumes_);
+    volumes_.clear();
+
+    // Storage-overview 2.1: fixed local volume enumeration, independent of
+    // the filesystem index (GetDiskFreeSpaceEx needs no privileged path).
+    const DWORD driveMask = GetLogicalDrives();
+    const auto snapshot = engine_ ? engine_->ReadSnapshot() : std::nullopt;
+
+    for (wchar_t letter = L'A'; letter <= L'Z'; ++letter) {
+        if ((driveMask & (1u << (letter - L'A'))) == 0) continue;
+        wchar_t rootPath[] = {letter, L':', L'\\', L'\0'};
+        if (GetDriveTypeW(rootPath) != DRIVE_FIXED) continue;
+
+        VolumeItem vol;
+        vol.rootPath = rootPath;
+
+        // 2.2: total/used/free/percentage from the OS's own reporting.
+        ULARGE_INTEGER total{}, freeAvail{};
+        if (GetDiskFreeSpaceExW(rootPath, &freeAvail, &total, nullptr)) {
+            vol.totalBytes = total.QuadPart;
+            vol.freeBytes = freeAvail.QuadPart;
+            vol.usedBytes = total.QuadPart > freeAvail.QuadPart
+                                ? total.QuadPart - freeAvail.QuadPart
+                                : 0;
+        }
+
+        // 2.3: indexed-coverage indicator -- whole-volume analysis available
+        // only when the engine's snapshot covers the volume root.
+        vol.fullyIndexed = false;
+        if (engineActive_ && snapshot) {
+            auto it = snapshot->find(rootPath);
+            if (it != snapshot->end() &&
+                it->second.status == ffprotocol::DirectoryEnumerationStatus::Success) {
+                vol.fullyIndexed = true;
+            }
+        }
+
+        // 2.4: stale/unavailable handling -- a volume that fails capacity
+        // retrieval keeps its last-known figures from the previous pass,
+        // clearly labeled stale, with live drill-down disabled.
+        if (vol.totalBytes == 0 && vol.freeBytes == 0) {
+            vol.unavailable = true;
+            for (const auto& p : prior) {
+                if (p.rootPath == vol.rootPath && p.totalBytes > 0) {
+                    vol.totalBytes = p.totalBytes;
+                    vol.freeBytes = p.freeBytes;
+                    vol.usedBytes = p.usedBytes;
+                    break;
+                }
+            }
+        }
+
+        volumes_.push_back(std::move(vol));
+    }
+
+    // A volume that has vanished from GetLogicalDrives entirely is retained
+    // from the previous pass, labeled stale, with live drill-down disabled.
+    for (const auto& p : prior) {
+        if (p.totalBytes == 0) continue;
+        bool stillPresent = false;
+        for (const auto& vol : volumes_) {
+            if (vol.rootPath == p.rootPath) { stillPresent = true; break; }
+        }
+        if (!stillPresent) {
+            VolumeItem stale = p;
+            stale.unavailable = true;
+            volumes_.push_back(std::move(stale));
+        }
+    }
+
+    ListView_DeleteAllItems(overview_);
+    for (size_t i = 0; i < volumes_.size(); ++i) {
+        const VolumeItem& vol = volumes_[i];
+        LVITEMW item{};
+        item.iItem = static_cast<int>(i);
+        item.mask = LVIF_TEXT;
+        std::wstring name = vol.rootPath;
+        if (vol.unavailable) name += kStaleSuffix;
+        item.pszText = const_cast<wchar_t*>(name.c_str());
+        ListView_InsertItem(overview_, &item);
+
+        wchar_t buffer[64]{};
+        const std::wstring total = vol.unavailable && vol.totalBytes == 0
+                                       ? L"—"
+                                       : ffui::FormatSize(vol.totalBytes);
+        const std::wstring used = vol.unavailable && vol.usedBytes == 0
+                                      ? L"—"
+                                      : ffui::FormatSize(vol.usedBytes);
+        const std::wstring free = vol.unavailable && vol.freeBytes == 0
+                                      ? L"—"
+                                      : ffui::FormatSize(vol.freeBytes);
+        std::wstring pct = L"—";
+        if (vol.totalBytes > 0) {
+            swprintf_s(buffer, L"%.1f%%",
+                       static_cast<double>(vol.usedBytes) / static_cast<double>(vol.totalBytes) * 100.0);
+            pct = buffer;
+        }
+        ListView_SetItemText(overview_, static_cast<int>(i), 1, const_cast<wchar_t*>(total.c_str()));
+        ListView_SetItemText(overview_, static_cast<int>(i), 2, const_cast<wchar_t*>(used.c_str()));
+        ListView_SetItemText(overview_, static_cast<int>(i), 3, const_cast<wchar_t*>(free.c_str()));
+        ListView_SetItemText(overview_, static_cast<int>(i), 4, const_cast<wchar_t*>(pct.c_str()));
+        ListView_SetItemText(overview_, static_cast<int>(i), 5,
+                             const_cast<wchar_t*>(vol.fullyIndexed ? L"Fully indexed — whole-volume analysis" : L"Partial — browsed/pinned only"));
+    }
+
+    std::wstring statusText = std::to_wstring(volumes_.size()) + L" fixed volumes";
+    if (!engineActive_) statusText += L" (degraded mode — capacity from OS only, coverage partial)";
+    SetWindowTextW(status_, statusText.c_str());
 }
 
 void StorageAnalysis::RefreshData() {
-    if (!visible_ || !engine_) return;
+    if (!visible_) return;
+
+    // storage-analysis 2.1: the overview is the entry point; list mode views
+    // are skipped entirely while it is active.
+    if (viewMode_ == ViewMode::Overview) {
+        RefreshOverview();
+        ShowWindow(list_, SW_HIDE);
+        ShowWindow(overview_, SW_SHOW);
+        ShowWindow(categoryFilter_, SW_HIDE);
+        ShowWindow(status_, SW_SHOW);
+        return;
+    }
+    if (!engine_) return;
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) {
         SetWindowTextW(status_, engineActive_ ? L"Waiting for index data…" : L"Degraded mode — browsing via FindFirstFileEx");
@@ -232,8 +427,16 @@ void StorageAnalysis::RefreshData() {
         }
     }
 
+    // storage-analysis 5.4: category filter applies to the drill-down,
+    // largest-folders, and largest-files listings (not the aggregate
+    // by-category view, which already groups by category).
+    if (viewMode_ != ViewMode::ByCategory) {
+        ApplyCategoryFilter();
+    }
+
     const bool showList = viewMode_ != ViewMode::Treemap;
     ShowWindow(list_, showList ? SW_SHOW : SW_HIDE);
+    ShowWindow(overview_, SW_HIDE);
     ShowWindow(status_, showList ? SW_SHOW : SW_HIDE);
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
@@ -358,6 +561,10 @@ void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory*
 bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam);
+    if (id == kCategoryFilterId && HIWORD(wParam) == CBN_SELCHANGE) {
+        RefreshData();
+        return true;
+    }
     if (id == kBackId) {
         if (close_) close_();
         return true;
@@ -373,6 +580,10 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
                 if (navigate_) navigate_(currentPath_);
             }
         }
+        return true;
+    }
+    if (id == kOverviewId) {
+        SetViewMode(ViewMode::Overview);
         return true;
     }
     if (id == kDrillDownId) {
@@ -401,7 +612,8 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
 void StorageAnalysis::SetViewMode(ViewMode mode) {
     if (viewMode_ == mode) return;
     viewMode_ = mode;
-    CheckRadioButton(owner_, kDrillDownId, kTreemapId,
+    CheckRadioButton(owner_, kOverviewId, kTreemapId,
+                     mode == ViewMode::Overview ? kOverviewId :
                      mode == ViewMode::DrillDown ? kDrillDownId :
                      mode == ViewMode::LargestFolders ? kLargestFoldersId :
                      mode == ViewMode::LargestFiles ? kLargestFilesId :
@@ -412,7 +624,29 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
 bool StorageAnalysis::HandleNotify(LPARAM lParam) {
     if (!visible_) return false;
     auto* header = reinterpret_cast<NMHDR*>(lParam);
-    if (header == nullptr || header->hwndFrom != list_) return false;
+    if (header == nullptr) return false;
+
+    // storage-analysis 2.5: selecting a volume from the overview opens the
+    // drill-down scoped to that volume's root; an unavailable (stale)
+    // volume keeps live drill-down disabled.
+    if (header->hwndFrom == overview_) {
+        if (header->code == NM_DBLCLK || header->code == LVN_ITEMACTIVATE) {
+            const int selected = ListView_GetNextItem(overview_, -1, LVNI_SELECTED);
+            if (selected >= 0 && static_cast<size_t>(selected) < volumes_.size()) {
+                const VolumeItem& vol = volumes_[static_cast<size_t>(selected)];
+                if (vol.unavailable) {
+                    SetWindowTextW(status_, L"Volume unavailable — capacity figures are stale; drill-down disabled until it reconnects.");
+                    return true;
+                }
+                currentPath_ = vol.rootPath;
+                SetViewMode(ViewMode::DrillDown);
+                if (navigate_) navigate_(currentPath_);
+            }
+            return true;
+        }
+        return false;
+    }
+    if (header->hwndFrom != list_) return false;
 
     if (header->code == LVN_GETDISPINFOW) {
         auto* info = reinterpret_cast<NMLVDISPINFOW*>(lParam);

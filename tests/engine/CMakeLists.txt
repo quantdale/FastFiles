@@ -17,3 +17,18 @@ add_executable(ffengine_volume_session_manager_tests
 target_include_directories(ffengine_volume_session_manager_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_volume_session_manager_tests PRIVATE ffindexstore ffprotocol ffipc ffsetup Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_volume_session_manager_tests COMMAND ffengine_volume_session_manager_tests)
+
+add_executable(ffengine_authenticode_verification_tests
+  test_authenticode_verification.cpp
+)
+target_include_directories(ffengine_authenticode_verification_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_authenticode_verification_tests PRIVATE ffsetup)
+add_test(NAME ffengine_authenticode_verification_tests COMMAND ffengine_authenticode_verification_tests)
+
+add_executable(ffengine_degraded_special_files_tests
+  test_degraded_special_files.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
+)
+target_include_directories(ffengine_degraded_special_files_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_degraded_special_files_tests PRIVATE shell32)
+add_test(NAME ffengine_degraded_special_files_tests COMMAND ffengine_degraded_special_files_tests)

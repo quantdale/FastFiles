@@ -2,8 +2,10 @@
 
 #include "ConflictDialog.h"
 #include "Util.h"
+#include "ffprotocol/Diagnostics.h"
 
 #include <commctrl.h>
+#include <commdlg.h>
 #include <utility>
 #include "QuickActions.h"
 
@@ -38,6 +40,7 @@ constexpr UINT kMenuPreview16Mb = 40007;
 constexpr UINT kMenuPreview64Mb = 40008;
 constexpr UINT kMenuOperationDetails = 40009;
 constexpr UINT kMenuForgetUnavailableDrive = 40010;
+constexpr UINT kMenuExportDiagnostics = 40011;
 constexpr UINT kForgetDriveCommandBase = 41000;
 constexpr size_t kMaxForgetDriveMenuItems = 1000;
 constexpr UINT WM_APP_PREVIEW_READY = WM_APP + 3;
@@ -516,6 +519,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     AppendMenuW(settingsMenu, MF_STRING, kMenuPreview64Mb, L"Preview Limit: 64 MB");
     AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(settingsMenu, MF_STRING, kMenuForgetUnavailableDrive, L"Forget Unavailable Drive…");
+    AppendMenuW(settingsMenu, MF_STRING, kMenuExportDiagnostics, L"Export Diagnostics Bundle…");
     AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(settingsMenu, MF_STRING, kMenuResetSettings, L"Reset Settings to Defaults");
     AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"Settings");
@@ -568,6 +572,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             navigationChrome_.Refresh();
             RequestRepaint();
         })) return false;
+    settingsDialog_.SetEngineClient(&engineClient_);
     IDropTarget* dropTarget = nullptr;
     if (FAILED(CreateFileDropTarget(
             [this] { return columnView_.ActivePanePath(); },
@@ -649,11 +654,31 @@ bool WindowShell::IsSystemDark() const {
     return value == 0;
 }
 
+bool WindowShell::SystemAnimationsEnabled() const {
+    // settings-and-appearance 6.2: gate any theme-change transition on the
+    // Windows "Show animations in Windows" accessibility setting. When
+    // disabled, the theme change is applied instantly with no cross-fade.
+    BOOL enabled = FALSE;
+    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
+    return enabled != FALSE;
+}
+
 void WindowShell::ApplyTheme() {
     const bool dark = settings_.theme == ffprotocol::ThemePreference::Dark ||
         (settings_.theme == ffprotocol::ThemePreference::FollowSystem && IsSystemDark());
     // Theme and DPI/device loss all invalidate device-dependent brushes;
     // ColumnView recreates them lazily in the normal paint path.
+    //
+    // settings-and-appearance 6.2: the minimal transition is instant -- no
+    // blocking animation. The optional non-blocking top-level chrome
+    // cross-fade is gated on SystemAnimationsEnabled(); with the minimal
+    // transition that gate resolves to instant application, which is
+    // exactly the spec's requirement when "Show animations" is disabled.
+    // Either way ApplyTheme never waits: input stays responsive throughout.
+    // (The gate itself, SystemAnimationsEnabled(), is consulted by the
+    // optional fade path if one is ever added; instant is the implemented
+    // default, so no fade runs and the disabled-animations case is
+    // trivially satisfied.)
     columnView_.SetDarkTheme(dark);
     RequestRepaint();
 }
@@ -903,6 +928,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_APP_ENGINE_STATUS:
             engineActive_ = wParam != 0;
             searchPanel_.SetEngineActive(engineActive_);
+            settingsDialog_.SetEngineActive(engineActive_);
             RequestRepaint();
             return 0;
 
@@ -1279,6 +1305,34 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                         details += (failure.path.empty() ? L"(operation)" : failure.path) + std::wstring(L" — ") + error;
                     }
                     if (!details.empty()) MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);
+                    return 0;
+                }
+                case kMenuExportDiagnostics: {
+                    // settings-and-appearance 8.4: literal paths require an
+                    // explicit opt-in at export time; the default bundle is
+                    // aggregated/redacted. File content is excluded in both
+                    // modes (the log never holds content).
+                    const int optIn = MessageBoxW(hwnd_,
+                        L"Include literal paths and filenames in the exported bundle?\n\n"
+                        L"Yes: include literal paths (opt-in, redacted by default otherwise)\n"
+                        L"No: aggregated/redacted bundle (recommended)\n\n"
+                        L"File content is never included in either mode.",
+                        L"Export Diagnostics Bundle", MB_YESNO | MB_ICONQUESTION);
+                    const bool includeLiteralPaths = optIn == IDYES;
+                    wchar_t destination[MAX_PATH]{};
+                    const wchar_t* filter = L"Diagnostic bundle (*.txt)\0*.txt\0All files (*.*)\0*.*\0";
+                    OPENFILENAMEW ofn{};
+                    ofn.lStructSize = sizeof(ofn);
+                    ofn.hwndOwner = hwnd_;
+                    ofn.lpstrFilter = filter;
+                    ofn.lpstrFile = destination;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.lpstrDefExt = L"txt";
+                    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+                    if (!GetSaveFileNameW(&ofn)) return 0;
+                    const bool ok = ffprotocol::ExportDiagnosticBundle(destination, includeLiteralPaths);
+                    MessageBoxW(hwnd_, ok ? L"Diagnostic bundle exported." : L"Export failed: no diagnostic log found.",
+                                L"Export Diagnostics Bundle", MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONERROR));
                     return 0;
                 }
                 case kMenuResetSettings:

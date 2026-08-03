@@ -7,14 +7,18 @@
 #include <windows.h>
 
 #include "ffprotocol/Settings.h"
+#include "ffprotocol/UiProtocol.h"
 #include "NavigationWorkspace.h"
 
 namespace ffui {
 
+class EngineClient;
+
 struct VolumeToggle {
     std::wstring path;
     std::wstring displayName;
-    bool indexed = true;
+    bool indexed = false;     // checkbox state (as persisted via SaveCurrentPage)
+    bool inSelection = false; // true when the persisted volume list has an entry for this drive
 };
 
 class SettingsDialog {
@@ -29,6 +33,15 @@ public:
     void Hide();
     bool Visible() const { return visible_; }
     bool HandleMessage(MSG& msg);
+
+    // settings-and-appearance §7.3: the engine client used to fetch the
+    // per-volume index-health report for the Indexing page's status
+    // column and explanation text.
+    void SetEngineClient(EngineClient* client) { engineClient_ = client; }
+    // Privileged-path connection state (from the engine's status badge
+    // stream); folded into the per-volume derivation the same way the
+    // headline badge does it, so status display and badge never diverge.
+    void SetEngineActive(bool active);
 
 private:
     static LRESULT CALLBACK WndProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -50,14 +63,29 @@ private:
     void MoveVolumeRuleDown();
     void ResetShortcuts();
     void CenterWindow(HWND child, HWND parent);
+    // §7.3: requests the engine's per-volume condition report and
+    // re-renders the Indexing page's status column + explanation text.
+    void RefreshVolumeStatuses();
+    void ApplyVolumeStatuses(const std::vector<ffprotocol::VolumeStatusRecord>& records);
+    std::wstring StatusTextForVolume(size_t volumeIndex) const;
+    void UpdateStatusExplanation(size_t volumeIndex);
+    // §9.1: sends the control-plane pause/resume request (global or
+    // per-volume, for the currently selected volume) and re-reads status.
+    void ToggleSelectedVolumePause();
+    void ToggleGlobalPause(bool paused);
+    // §9.3: persists the selected pending volume into the volume selection
+    // and notifies the engine, without an application restart.
+    void AddPendingVolumeToIndexing();
 
     HWND owner_ = nullptr;
     HWND dialog_ = nullptr;
     HWND tabControl_ = nullptr;
     ffprotocol::Settings* settings_ = nullptr;
     NavigationWorkspace* navigationWorkspace_ = nullptr;
+    EngineClient* engineClient_ = nullptr;
     std::function<void()> onChanged_;
     bool visible_ = false;
+    bool engineActive_ = false;
     int currentPage_ = 0;
 
     // Search page controls
@@ -70,11 +98,20 @@ private:
 
     // Indexing page controls
     HWND volumeList_ = nullptr;
+    HWND statusDetail_ = nullptr; // §7.3: headline + conditions explanation text
     HWND addRuleButton_ = nullptr;
     HWND removeRuleButton_ = nullptr;
     HWND moveUpButton_ = nullptr;
     HWND moveDownButton_ = nullptr;
+    HWND pauseAllCheck_ = nullptr;   // §9.1: global pause/resume
+    HWND pauseResumeButton_ = nullptr; // §9.1: per-volume pause/resume
+    HWND addToIndexingButton_ = nullptr; // §9.3: add pending volume to the selection
     std::vector<VolumeToggle> volumes_;
+    // drive letter ('C', ...) -> engine-reported condition flags
+    std::map<uint8_t, uint8_t> volumeStatusFlags_;
+    // §9.1: last global pause request sent to the engine (transient, not
+    // persisted); drives the checkbox state across page re-population.
+    bool globalPaused_ = false;
 
     // Storage page controls
     HWND categoryList_ = nullptr;

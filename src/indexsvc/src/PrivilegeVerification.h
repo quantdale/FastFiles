@@ -159,4 +159,13 @@ BackupPrivilegeProbeResult ProbeBackupPrivilegeSufficiency();
 // this assumption becomes load-bearing).
 void VerifyBackupPrivilegeSufficiency();
 
+// Task 2.3 (resolve-raw-volume-privilege-insufficiency): emits a startup
+// diagnostic record describing the verified token -- account name/SID, group
+// context, and SeBackupPrivilege held/enabled state -- that every subsequent
+// raw-volume scan/journal call in this process runs under. The spec scenario
+// "Restart uses the newly granted token" requires the diagnostic record to
+// describe the token used by the raw-volume call, so the installer restart
+// (fresh token) plus this record makes the evidence auditable end-to-end.
+void LogStartupTokenDiagnostic();
+
 } // namespace ffindexsvc

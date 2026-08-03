@@ -43,6 +43,11 @@ private:
     void RequestRepaint();
     void ApplyTheme();
     bool IsSystemDark() const;
+    // settings-and-appearance 6.2: "Show animations in Windows" gate --
+    // theme changes apply instantly (the minimal no-animation transition);
+    // when system animations are enabled a short non-blocking cross-fade on
+    // top-level chrome *may* run, and is skipped entirely when disabled.
+    bool SystemAnimationsEnabled() const;
     void SaveAndNotifySettings();
     void RefreshSelectionPresentation();
     void RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize);

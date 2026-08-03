@@ -394,4 +394,22 @@ void VerifyBackupPrivilegeSufficiency() {
     }
 }
 
+void LogStartupTokenDiagnostic() {
+    const TokenPrivilegeState tokenState = CaptureTokenPrivilegeState();
+    ffprotocol::DiagnosticEvent event;
+    event.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+    event.state = L"startup-token";
+    event.outcome = tokenState.backupPrivilegeEnabled ? L"backup-privilege-ready" : L"backup-privilege-unavailable";
+    event.accountName = tokenState.accountName;
+    event.accountSid = tokenState.accountSid;
+    event.privilegeHeld = tokenState.backupPrivilegeHeld;
+    event.privilegeEnabled = tokenState.backupPrivilegeEnabled;
+    event.groupContext = FormatGroupContext(tokenState.groups);
+    ffprotocol::AppendDiagnostic(event);
+    std::fwprintf(stderr, L"FastFilesIndexSvc: [startup-token] account=%ls sid=%ls backup=%ls groups=[%ls]\n",
+                  tokenState.accountName.c_str(), tokenState.accountSid.c_str(),
+                  tokenState.backupPrivilegeEnabled ? L"held-enabled" : L"not-enabled",
+                  FormatGroupContext(tokenState.groups).c_str());
+}
+
 } // namespace ffindexsvc

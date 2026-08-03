@@ -2,7 +2,11 @@
 
 #include <commctrl.h>
 #include <filesystem>
+#include <memory>
 #include <shlwapi.h>
+
+#include "EngineClient.h"
+#include "ffprotocol/IndexHealth.h"
 
 #pragma comment(lib, "shlwapi.lib")
 
@@ -10,6 +14,7 @@ namespace ffui {
 namespace {
 
 constexpr UINT WM_APP_SETTINGS_CHANGED = WM_APP + 20;
+constexpr UINT WM_APP_VOLUME_STATUS = WM_APP + 21;
 constexpr int kDialogWidth = 620;
 constexpr int kDialogHeight = 520;
 constexpr int kTabControlHeight = 28;
@@ -105,6 +110,10 @@ void SettingsDialog::Show() {
         ShowWindow(dialog_, SW_SHOW);
         SetForegroundWindow(dialog_);
         visible_ = true;
+        if (volumeList_) {
+            UpdateVolumeList();
+            RefreshVolumeStatuses();
+        }
     }
 }
 
@@ -169,6 +178,21 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                     MoveVolumeRuleDown();
                     return 0;
                 }
+                if (lParam == reinterpret_cast<LPARAM>(pauseAllCheck_)) {
+                    // §9.1: global pause/resume control-plane request.
+                    ToggleGlobalPause(SendMessageW(pauseAllCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                    return 0;
+                }
+                if (lParam == reinterpret_cast<LPARAM>(pauseResumeButton_)) {
+                    // §9.1: per-volume pause/resume for the selection.
+                    ToggleSelectedVolumePause();
+                    return 0;
+                }
+                if (lParam == reinterpret_cast<LPARAM>(addToIndexingButton_)) {
+                    // §9.3: persist + notify without an application restart.
+                    AddPendingVolumeToIndexing();
+                    return 0;
+                }
                 if (lParam == reinterpret_cast<LPARAM>(addCategoryButton_)) {
                     // Add category placeholder
                     if (settings_) {
@@ -193,6 +217,14 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         case WM_CLOSE:
             Hide();
             return 0;
+        case WM_APP_VOLUME_STATUS: {
+            std::unique_ptr<std::vector<ffprotocol::VolumeStatusRecord>> records(
+                reinterpret_cast<std::vector<ffprotocol::VolumeStatusRecord>*>(lParam));
+            if (records) {
+                ApplyVolumeStatuses(*records);
+            }
+            return 0;
+        }
         case WM_NOTIFY: {
             auto* hdr = reinterpret_cast<NMHDR*>(lParam);
             if (hdr->hwndFrom == tabControl_ && hdr->code == TCN_SELCHANGE) {
@@ -205,8 +237,17 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                     if (state == 1 || state == 2) { // unchecked or checked
                         if (info->iItem >= 0 && info->iItem < static_cast<int>(volumes_.size())) {
                             volumes_[info->iItem].indexed = (state == 2);
+                            // Checking a previously unselected drive is the
+                            // §9.3 "add to indexing" decision (persisted on
+                            // OK via SaveCurrentPage); unchecking is the
+                            // §9.2 disable decision.
+                            volumes_[info->iItem].inSelection = true;
+                            UpdateStatusExplanation(static_cast<size_t>(info->iItem));
                         }
                     }
+                }
+                if ((info->uChanged & LVIF_STATE) && (info->uNewState & LVIS_SELECTED)) {
+                    UpdateStatusExplanation(static_cast<size_t>(info->iItem));
                 }
             }
             break;
@@ -286,7 +327,8 @@ void SettingsDialog::SwitchPage(int pageIndex) {
     currentPage_ = pageIndex;
     // Hide all page-specific controls
     for (HWND c : {searchScopeCombo_, retainHistoryCheck_, startupPathEdit_, restoreSessionCheck_,
-                   volumeList_, addRuleButton_, removeRuleButton_, moveUpButton_, moveDownButton_,
+                   volumeList_, statusDetail_, addRuleButton_, removeRuleButton_, moveUpButton_, moveDownButton_,
+                   pauseAllCheck_, pauseResumeButton_, addToIndexingButton_,
                    categoryList_, addCategoryButton_, removeCategoryButton_,
                    shortcutList_, resetShortcutsButton_}) {
         if (c) ShowWindow(c, SW_HIDE);
@@ -304,11 +346,16 @@ void SettingsDialog::SwitchPage(int pageIndex) {
             break;
         case 3: // Indexing
             if (volumeList_) ShowWindow(volumeList_, SW_SHOW);
+            if (statusDetail_) ShowWindow(statusDetail_, SW_SHOW);
             if (addRuleButton_) ShowWindow(addRuleButton_, SW_SHOW);
             if (removeRuleButton_) ShowWindow(removeRuleButton_, SW_SHOW);
             if (moveUpButton_) ShowWindow(moveUpButton_, SW_SHOW);
             if (moveDownButton_) ShowWindow(moveDownButton_, SW_SHOW);
+            if (pauseAllCheck_) ShowWindow(pauseAllCheck_, SW_SHOW);
+            if (pauseResumeButton_) ShowWindow(pauseResumeButton_, SW_SHOW);
+            if (addToIndexingButton_) ShowWindow(addToIndexingButton_, SW_SHOW);
             UpdateVolumeList();
+            RefreshVolumeStatuses();
             break;
         case 4: // Storage
             if (categoryList_) ShowWindow(categoryList_, SW_SHOW);
@@ -332,7 +379,10 @@ void SettingsDialog::UpdateVolumeList() {
     for (wchar_t letter = L'A'; letter <= L'Z'; ++letter) {
         if ((driveMask & (1u << (letter - L'A'))) == 0) continue;
         wchar_t rootPath[] = {letter, L':', L'\\', L'\0'};
-        if (GetDriveTypeW(rootPath) != DRIVE_FIXED) continue;
+        // §9.3: removable volumes are listed too -- a newly attached
+        // external drive is exactly the pending-decision case.
+        const UINT driveType = GetDriveTypeW(rootPath);
+        if (driveType != DRIVE_FIXED && driveType != DRIVE_REMOVABLE) continue;
         
         VolumeToggle vol;
         vol.path = rootPath;
@@ -342,6 +392,7 @@ void SettingsDialog::UpdateVolumeList() {
         for (const auto& vs : settings_->indexing) {
             if (vs.key == rootPath) {
                 vol.indexed = vs.enabled;
+                vol.inSelection = true;
                 break;
             }
         }
@@ -357,9 +408,180 @@ void SettingsDialog::UpdateVolumeList() {
         item.mask = LVIF_TEXT;
         item.pszText = const_cast<wchar_t*>(volumes_[i].displayName.c_str());
         ListView_InsertItem(volumeList_, &item);
-        
+
         ListView_SetCheckState(volumeList_, static_cast<int>(i), volumes_[i].indexed);
+        const std::wstring statusText = StatusTextForVolume(i);
+        if (!statusText.empty()) {
+            ListView_SetItemText(volumeList_, static_cast<int>(i), 1,
+                                 const_cast<wchar_t*>(statusText.c_str()));
+        }
     }
+    UpdateStatusExplanation(0);
+}
+
+void SettingsDialog::SetEngineActive(bool active) {
+    engineActive_ = active;
+    // The headline badge and the per-volume status column share the same
+    // connection-state input; re-derive whenever it changes.
+    if (volumeList_ && IsWindowVisible(volumeList_)) {
+        UpdateVolumeList();
+    }
+}
+
+void SettingsDialog::ToggleGlobalPause(bool paused) {
+    globalPaused_ = paused;
+    if (engineClient_) {
+        engineClient_->SetIndexingPaused(0, paused);
+    }
+    // Read the new state back through the §7.3 status report so the
+    // per-volume column flips to "Paused" (D9: status flows back through
+    // the derivation, not a separate outcome field).
+    RefreshVolumeStatuses();
+}
+
+void SettingsDialog::ToggleSelectedVolumePause() {
+    if (!volumeList_ || !engineClient_) return;
+    const int selected = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    if (selected < 0 || selected >= static_cast<int>(volumes_.size())) return;
+    const std::wstring& path = volumes_[selected].path;
+    if (path.empty()) return;
+    const uint8_t letter = static_cast<uint8_t>(towupper(path.front()));
+    const auto it = volumeStatusFlags_.find(letter);
+    const bool paused = (it != volumeStatusFlags_.end()) && (it->second & ffprotocol::VolumeStatusPaused) != 0;
+    engineClient_->SetIndexingPaused(letter, !paused);
+    RefreshVolumeStatuses();
+}
+
+void SettingsDialog::AddPendingVolumeToIndexing() {
+    if (!settings_ || !volumeList_) return;
+    const int selected = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    if (selected < 0 || selected >= static_cast<int>(volumes_.size())) return;
+    VolumeToggle& volume = volumes_[selected];
+    if (volume.inSelection) return; // already decided; not pending
+
+    // Persist inclusion and notify the engine (onChanged_ -> atomic
+    // settings write + ReloadIndexingConfig), which then starts scanning
+    // the volume through its normal session path -- no restart anywhere.
+    ffprotocol::VolumeSetting vs;
+    vs.key = volume.path;
+    vs.enabled = true;
+    settings_->indexing.push_back(std::move(vs));
+    volume.inSelection = true;
+    volume.indexed = true;
+    ListView_SetCheckState(volumeList_, selected, TRUE);
+    if (onChanged_) onChanged_();
+    UpdateVolumeList();
+}
+
+void SettingsDialog::RefreshVolumeStatuses() {
+    if (!engineClient_) {
+        // No engine client (or engine not started yet): the status column
+        // falls back to the connection-independent text below.
+        UpdateVolumeList();
+        return;
+    }
+    engineClient_->RequestVolumeStatus([this](std::vector<ffprotocol::VolumeStatusRecord> records) {
+        auto owned = std::make_unique<std::vector<ffprotocol::VolumeStatusRecord>>(std::move(records));
+        const HWND target = dialog_;
+        if (target != nullptr
+            && PostMessageW(target, WM_APP_VOLUME_STATUS, 0, reinterpret_cast<LPARAM>(owned.get()))) {
+            owned.release();
+        }
+    });
+}
+
+void SettingsDialog::ApplyVolumeStatuses(const std::vector<ffprotocol::VolumeStatusRecord>& records) {
+    volumeStatusFlags_.clear();
+    for (const auto& record : records) {
+        volumeStatusFlags_[record.driveLetter] = record.flags;
+    }
+    UpdateVolumeList();
+}
+
+std::wstring SettingsDialog::StatusTextForVolume(size_t volumeIndex) const {
+    if (volumeIndex >= volumes_.size()) {
+        return {};
+    }
+    const std::wstring& path = volumes_[volumeIndex].path;
+    if (path.empty()) {
+        return {};
+    }
+    const uint8_t letter = static_cast<uint8_t>(towupper(path.front()));
+    auto it = volumeStatusFlags_.find(letter);
+    const uint8_t flags = it == volumeStatusFlags_.end() ? 0 : it->second;
+
+    // §9.3: an observed/unselected drive is pending a user decision.
+    if (!volumes_[volumeIndex].inSelection) {
+        return L"Pending decision";
+    }
+    // §9.2: a selected-but-disabled volume shows "Disabled", never
+    // "Paused" (spec: distinct from a temporary suspension).
+    if (!volumes_[volumeIndex].indexed) {
+        return L"Disabled";
+    }
+    // §9.1: paused state is read back through the engine's status flags.
+    if ((flags & ffprotocol::VolumeStatusPaused) != 0) {
+        return L"Paused";
+    }
+
+    ffprotocol::VolumeIndexConditions conditions;
+    conditions.privilegedConnectionActive = engineActive_;
+    conditions.reachable = (flags & ffprotocol::VolumeStatusReachable) != 0;
+    conditions.scanning = (flags & ffprotocol::VolumeStatusScanning) != 0;
+    conditions.needsReconciliation = (flags & ffprotocol::VolumeStatusNeedsReconciliation) != 0;
+    conditions.partiallyIndexed = (flags & ffprotocol::VolumeStatusPartiallyIndexed) != 0;
+    return ffprotocol::IndexHealthName(ffprotocol::DeriveIndexHealth(conditions));
+}
+
+void SettingsDialog::UpdateStatusExplanation(size_t volumeIndex) {
+    if (!statusDetail_ || volumeIndex >= volumes_.size()) {
+        return;
+    }
+    const std::wstring status = StatusTextForVolume(volumeIndex);
+    if (status.empty()) {
+        SetWindowTextW(statusDetail_, L"Status unavailable while the engine is starting.");
+        return;
+    }
+    if (status == L"Pending decision") {
+        SetWindowTextW(statusDetail_, L"This volume has no entry in the indexing configuration. Check the box or press \"Add to Indexing\" to include it.");
+        return;
+    }
+    if (status == L"Disabled") {
+        SetWindowTextW(statusDetail_, L"Indexing is disabled for this volume. Unchecking it stopped scanning; re-enable it to start again.");
+        return;
+    }
+    if (status == L"Paused") {
+        SetWindowTextW(statusDetail_, L"Indexing is paused for this volume. Resume continues from where it left off, without restarting from zero.");
+        return;
+    }
+
+    const std::wstring& path = volumes_[volumeIndex].path;
+    const uint8_t letter = static_cast<uint8_t>(towupper(path.front()));
+    auto it = volumeStatusFlags_.find(letter);
+    uint8_t flags = 0;
+    if (it != volumeStatusFlags_.end()) {
+        flags = it->second;
+    }
+    ffprotocol::VolumeIndexConditions conditions;
+    conditions.privilegedConnectionActive = engineActive_;
+    conditions.reachable = (flags & ffprotocol::VolumeStatusReachable) != 0;
+    conditions.scanning = (flags & ffprotocol::VolumeStatusScanning) != 0;
+    conditions.needsReconciliation = (flags & ffprotocol::VolumeStatusNeedsReconciliation) != 0;
+    conditions.partiallyIndexed = (flags & ffprotocol::VolumeStatusPartiallyIndexed) != 0;
+
+    const auto applicable = ffprotocol::ApplicableIndexConditions(conditions);
+    std::wstring message;
+    if (status == ffprotocol::IndexHealthName(ffprotocol::IndexHealth::FullyIndexed)) {
+        message = L"Fully indexed: search results on this volume are current.";
+    } else {
+        message = L"Search results on this volume may be missing or stale: ";
+        for (size_t i = 0; i < applicable.size(); ++i) {
+            if (i > 0) message += L", ";
+            message += ffprotocol::IndexConditionName(applicable[i]);
+        }
+        message += L".";
+    }
+    SetWindowTextW(statusDetail_, message.c_str());
 }
 
 void SettingsDialog::AddVolumeRule() {
@@ -397,27 +619,50 @@ void SettingsDialog::MoveVolumeRuleDown() {
 
 void SettingsDialog::PopulateIndexingPage() {
     if (!volumeList_) {
+        constexpr int kRightColumnX = kDialogWidth - 2 * kPagePadding - 100;
+        constexpr int kRightColumnWidth = 100;
         volumeList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
-                                       kPagePadding, kPagePadding + 30, kDialogWidth - 2 * kPagePadding - 100, 200,
+                                       kPagePadding, kPagePadding + 30, kDialogWidth - 2 * kPagePadding - 100, 180,
                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         ListView_SetExtendedListViewStyle(volumeList_, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
-        InsertColumn(volumeList_, 0, kDialogWidth - 2 * kPagePadding - 140, L"Volume");
-        
+        // §7.3: Status column shows the derived per-volume index health.
+        InsertColumn(volumeList_, 0, kDialogWidth - 2 * kPagePadding - 240, L"Volume");
+        InsertColumn(volumeList_, 1, 130, L"Status");
+
+        statusDetail_ = CreateWindowExW(0, L"STATIC", L"",
+                                        WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                        kPagePadding, kPagePadding + 214, kDialogWidth - 2 * kPagePadding - 100, 44,
+                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        // §9.1/§9.3: control-plane actions. Pause is transient engine
+        // state; the button label toggles from the status flags.
+        pauseAllCheck_ = CreateWindowExW(0, L"BUTTON", L"Pause indexing (all volumes)",
+                                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                                         kPagePadding, kPagePadding + 264, 220, 20,
+                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+
         addRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Add Rule", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                          kDialogWidth - 90, kPagePadding + 30, 80, 24,
+                                          kRightColumnX, kPagePadding + 30, kRightColumnWidth, 24,
                                           dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                             kDialogWidth - 90, kPagePadding + 60, 80, 24,
+                                             kRightColumnX, kPagePadding + 62, kRightColumnWidth, 24,
                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveUpButton_ = CreateWindowExW(0, L"BUTTON", L"Up", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                         kDialogWidth - 90, kPagePadding + 90, 80, 24,
+                                         kRightColumnX, kPagePadding + 94, kRightColumnWidth, 24,
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveDownButton_ = CreateWindowExW(0, L"BUTTON", L"Down", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                           kDialogWidth - 90, kPagePadding + 120, 80, 24,
+                                           kRightColumnX, kPagePadding + 126, kRightColumnWidth, 24,
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        pauseResumeButton_ = CreateWindowExW(0, L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                              kRightColumnX, kPagePadding + 158, kRightColumnWidth, 24,
+                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        addToIndexingButton_ = CreateWindowExW(0, L"BUTTON", L"Add to Indexing", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                                                kRightColumnX, kPagePadding + 190, kRightColumnWidth, 24,
+                                                dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     UpdateVolumeList();
+    RefreshVolumeStatuses();
 }
 
 void SettingsDialog::PopulateStoragePage() {
@@ -506,13 +751,16 @@ void SettingsDialog::SaveCurrentPage() {
     }
 
     if (currentPage_ == 3 && volumeList_) {
+        // Preserve existing directory rules while rebuilding the selection
+        // from the checkbox list -- rules are owned per-volume in the
+        // persisted settings and must survive an unrelated enable/disable.
+        const std::vector<ffprotocol::VolumeSetting> previous = settings_->indexing;
         settings_->indexing.clear();
         for (size_t i = 0; i < volumes_.size(); ++i) {
             ffprotocol::VolumeSetting vs;
             vs.key = volumes_[i].path;
             vs.enabled = ListView_GetCheckState(volumeList_, static_cast<int>(i)) != FALSE;
-            // Preserve existing directory rules for this volume
-            for (const auto& existing : settings_->indexing) {
+            for (const auto& existing : previous) {
                 if (existing.key == vs.key) {
                     vs.rules = existing.rules;
                     break;

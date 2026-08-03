@@ -46,4 +46,14 @@ struct DiagnosticEvent {
 std::wstring DiagnosticLogPath();
 bool AppendDiagnostic(const DiagnosticEvent& event);
 
+// settings-and-appearance 8.3/8.4: diagnostic bundle export for sharing with
+// support. By default the bundle is aggregated/redacted -- per-category and
+// per-error-code counts plus directory-structure summaries, never literal
+// paths or filenames. Passing includeLiteralPaths=true is the explicit
+// opt-in that includes literal paths; file content is excluded in both
+// modes (the log itself never holds content).
+//
+// Writes the bundle to `destinationPath` and returns true on success.
+bool ExportDiagnosticBundle(const std::wstring& destinationPath, bool includeLiteralPaths);
+
 } // namespace ffprotocol

@@ -165,7 +165,7 @@ void TestRapidRequestsDropSupersededAndDoNotBlock() {
     files.reserve(kBurst);
     for (int i = 0; i < kBurst; ++i) {
         auto path = root / (L"file-" + std::to_wstring(i) + L".txt");
-        std::ofstream(path) << L"body-" << i;
+        std::wofstream(path) << L"body-" << i;
         files.push_back(path);
     }
     std::mutex mutex;

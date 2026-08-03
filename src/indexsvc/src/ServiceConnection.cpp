@@ -14,6 +14,7 @@
 #include "ffprotocol/Version.h"
 
 #include "ClientAuthentication.h"
+#include "CommandSurface.h"
 #include "StalenessMonitor.h"
 #include "UsnJournalReader.h"
 #include "VolumeEnumeration.h"
@@ -182,6 +183,15 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
             break; // I/O error or clean disconnect
         }
 
+        // Task 2.5 / CommandSurface.h: single, explicit allowlist gate. Any
+        // message type outside the documented volume/journal/heartbeat
+        // surface -- a reply-only type, a second Handshake, an unknown
+        // value -- closes the connection before any work is performed.
+        if (!IsAllowedClientRequest(frame->header.messageType)) {
+            disconnect = true;
+            break;
+        }
+
         switch (static_cast<MessageType>(frame->header.messageType)) {
             case MessageType::EnumerateVolumes: {
                 std::lock_guard<std::mutex> lock(writeMutex);
@@ -330,9 +340,11 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
             }
 
             default:
-                // Any other known-but-unexpected message type on an
-                // established connection (a reply-only type sent by a
-                // client, or a second Handshake) is a protocol violation.
+                // Safety net: unreachable for any type IsAllowedClientRequest
+                // accepts today (every allowed type has an explicit case
+                // above). If a future maintainer widens the allowlist without
+                // adding a handler here, the connection closes instead of
+                // silently ignoring the request.
                 disconnect = true;
                 break;
         }

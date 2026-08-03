@@ -180,6 +180,12 @@ int wmain() {
     uiServer.onRequestFolderAggregate = [&indexPipeline](ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) -> std::optional<ffindexstore::Projection::FolderAggregate> {
         return indexPipeline.GetFolderAggregate(volumeId, parentFrn);
     };
+    uiServer.onRequestVolumeStatus = [&volumeSessions] {
+        return volumeSessions.CollectVolumeStatus();
+    };
+    uiServer.onSetIndexingPaused = [&volumeSessions](uint8_t scope, bool paused) {
+        volumeSessions.SetIndexingPaused(scope, paused);
+    };
     const auto initialSettings = ffprotocol::LoadSettings(false);
     volumeSessions.ReloadConfiguration(initialSettings.indexing);
 

@@ -1,0 +1,14 @@
+{
+  "id": "windows-resource-leak-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Resource-Leak Validation",
+  "description": "Measures handle/thread/private-memory deltas across engine start/stop cycles with a configurable tolerance, with the Application Verifier page-heap provider in force during the cycles (enabled, verified, then disabled).",
+  "entryModule": "ResourceLeakValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-ResourceLeakValidationAvailability",
+    "run": "Invoke-ResourceLeakValidationCapability",
+    "diagnostics": "Get-ResourceLeakValidationDiagnostics"
+  }
+}

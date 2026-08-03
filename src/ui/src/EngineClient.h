@@ -38,6 +38,7 @@ public:
         std::function<void(ffprotocol::ForgetUnavailableVolumeResultPayload)>;
     using FolderAggregateCallback =
         std::function<void(uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes)>;
+    using VolumeStatusCallback = std::function<void(std::vector<ffprotocol::VolumeStatusRecord>)>;
 
     void Start(GenerationCallback onNewGeneration, StatusCallback onStatus, DirectoryErrorCallback onDirectoryError);
     void Stop();
@@ -50,6 +51,14 @@ public:
     void RequestUnavailableVolumes(UnavailableVolumesCallback callback);
     void ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailableVolumeCallback callback);
     void RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback);
+    // settings-and-appearance §7.3: requests the engine's current
+    // per-volume index-health condition report for the settings UI's
+    // Indexing page.
+    void RequestVolumeStatus(VolumeStatusCallback callback);
+    // settings-and-appearance §9.1: control-plane pause/resume, global
+    // (scope == 0) or per-volume (uppercase drive letter). Fire-and-forget:
+    // the resulting state is read back through RequestVolumeStatus.
+    void SetIndexingPaused(uint8_t scope, bool paused);
     uint64_t LastRequestId() const { return lastRequestId_; }
 
     // Reads the most recently published snapshot directly out of the
@@ -90,6 +99,8 @@ private:
     ForgetUnavailableVolumeCallback onForgetUnavailableVolume_;
     std::mutex aggregateCallbackMutex_;
     FolderAggregateCallback onFolderAggregate_;
+    std::mutex volumeStatusCallbackMutex_;
+    VolumeStatusCallback onVolumeStatus_;
 };
 
 } // namespace ffui

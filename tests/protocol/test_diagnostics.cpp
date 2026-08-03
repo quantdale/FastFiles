@@ -50,6 +50,31 @@ int main() {
     Check(ffprotocol::DiagnosticLogPath().find(fallbackAppData.wstring()) != std::wstring::npos,
           "machine-scope fallback path is selected when LOCALAPPDATA is unavailable");
 
+    // settings-and-appearance 8.3/8.4: redacted bundle export omits literal
+    // paths; opt-in mode includes them; both modes never contain content.
+    SetEnvironmentVariableW(L"PROGRAMDATA", fallbackAppData.c_str());
+    SetEnvironmentVariableW(L"LOCALAPPDATA", fallbackAppData.c_str());
+    const std::filesystem::path bundleRedacted = fallbackAppData / L"bundle-redacted.txt";
+    const std::filesystem::path bundleLiteral = fallbackAppData / L"bundle-literal.txt";
+    Check(ffprotocol::ExportDiagnosticBundle(bundleRedacted.wstring(), false),
+          "redacted bundle export succeeds");
+    std::wifstream redactedInput(bundleRedacted);
+    std::wstring redacted((std::istreambuf_iterator<wchar_t>(redactedInput)), {});
+    Check(redacted.find(L"Per-category event counts") != std::wstring::npos, "bundle contains category aggregates");
+    Check(redacted.find(L"inaccessible-directory") != std::wstring::npos, "bundle contains category names");
+    Check(redacted.find(L"C:\\private\\folder") == std::wstring::npos,
+          "redacted bundle omits literal paths");
+    Check(redacted.find(L"access-denied") != std::wstring::npos, "bundle retains state metadata");
+
+    Check(ffprotocol::ExportDiagnosticBundle(bundleLiteral.wstring(), true),
+          "literal-path bundle export succeeds");
+    std::wifstream literalInput(bundleLiteral);
+    std::wstring literal((std::istreambuf_iterator<wchar_t>(literalInput)), {});
+    Check(literal.find(L"C:\\private\\folder") != std::wstring::npos,
+          "opt-in bundle includes literal paths");
+    Check(literal.find(L"secret file contents") == std::wstring::npos,
+          "literal-path bundle still excludes file content");
+
     std::filesystem::remove_all(localAppData, error);
     std::filesystem::remove_all(fallbackAppData, error);
     if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
