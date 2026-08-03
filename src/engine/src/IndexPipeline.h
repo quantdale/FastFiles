@@ -12,6 +12,7 @@
 #include "ffindexstore/Projection.h"
 #include "ffindexstore/Store.h"
 #include "ffprotocol/Records.h"
+#include "ffprotocol/Settings.h"
 #include "ffprotocol/SnapshotFormat.h"
 
 namespace ffengine {
@@ -55,6 +56,17 @@ public:
     ffindexstore::VolumeRowId ResolveVolume(const ffindexstore::VolumeKey& key);
     std::optional<ffindexstore::VolumeMetadata> GetVolumeMetadata(ffindexstore::VolumeRowId id);
     std::vector<ffindexstore::VolumeMetadata> GetAllVolumes();
+
+    // zero-touch-autonomous-engineering (settings-and-appearance 2.5 /
+    // subtree gating): stores the per-volume include/exclude rules + drive-
+    // letter prefix the ingestion pipeline uses to decide IsPathIncluded.
+    // A volume with no rules (or not yet configured) includes everything,
+    // preserving the behavior prior to this change. Called by
+    // VolumeSessionManager whenever a session is established or the persisted
+    // configuration changes (ReloadConfiguration), so rule changes take effect
+    // on subsequent ingestion and the next reconciliation pass without an
+    // engine restart.
+    void SetVolumeRules(ffindexstore::VolumeRowId volumeId, const ffprotocol::VolumeSetting& setting);
 
     // tasks.md 3.3/3.4/6.2: commits the batch to the durable store first;
     // only applies it to the projection once that commit succeeds. On a
@@ -114,6 +126,19 @@ private:
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
     std::string dbPathUtf8_; // remembered from Open() for RunStoreMaintenance's WAL-size check
+
+    // zero-touch-autonomous-engineering (subtree gating): per-volume rules +
+    // drive-letter prefix (VolumeSetting.key, e.g. "C:") used to evaluate
+    // ffprotocol::IsPathIncluded against reconstructed canonical paths.
+    std::unordered_map<ffindexstore::VolumeRowId, ffprotocol::VolumeSetting> volumeRules_;
+
+    // Returns true if the entry should be kept (included) under the volume's
+    // configured rules. Caller MUST hold mutex_. Returns true (include) when
+    // no rules are configured for the volume (preserves pre-change behavior),
+    // or when the entry's parent chain cannot yet be resolved in the
+    // projection (deferred: decided on the next reconciliation pass rather
+    // than risk dropping a record whose inclusion is genuinely undecided).
+    bool IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn);
 
     struct FileIdHash {
         size_t operator()(const ffindexstore::FileId& id) const noexcept {

@@ -78,6 +78,11 @@ void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSet
                 return !volume.key.empty() && static_cast<wchar_t>(towupper(volume.key.front())) == letter;
             });
             if (configured != configuredVolumes_.end() && configured->enabled) {
+                // zero-touch-autonomous-engineering (subtree gating): push the
+                // (possibly updated) rules for this surviving session so the
+                // ingestion pipeline picks up rule changes without waiting for
+                // the next EnumerateVolumes poll (settings-and-appearance 2.5).
+                pipeline_.SetVolumeRules(it->second.durableId, *configured);
                 ++it;
                 continue;
             }
@@ -250,6 +255,11 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
                 continue;
             }
             pipeline_.SetVolumeAvailable(durableId, true, NowAsFileTime());
+            // zero-touch-autonomous-engineering (subtree gating): push this
+            // volume's configured include/exclude rules into the ingestion
+            // pipeline so ApplyMftBatch/ApplyUsnBatch/reconciliation/rebuild
+            // honor them (settings-and-appearance 2.5).
+            pipeline_.SetVolumeRules(durableId, *configured);
 
             VolumeSession session;
             session.durableId = durableId;

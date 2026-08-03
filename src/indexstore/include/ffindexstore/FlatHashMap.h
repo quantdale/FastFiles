@@ -192,6 +192,20 @@ public:
         }
         size_t idx = find_slot(key);
         if (idx < keys_.size() && states_[idx] == 1) {
+            // zero-touch-autonomous-engineering: a multi-child directory's
+            // slice must stay contiguous so find() returns exactly its
+            // children. Appending via push_back to the tail is only valid
+            // when the slice already ends at the tail; otherwise the new
+            // child would be non-contiguous and find() would read adjacent
+            // slices' elements (a latent corruption exposed by rule-honoring
+            // ingestion of multi-child volumes). Relocate the slice to the
+            // tail first when it is not already there.
+            const size_t off = offsets_[idx];
+            const size_t cnt = counts_[idx];
+            if (off + cnt != values_.size()) {
+                values_.insert(values_.end(), values_.begin() + off, values_.begin() + off + cnt);
+                offsets_[idx] = values_.size() - cnt;
+            }
             values_.push_back(childIndex);
             ++counts_[idx];
             return;

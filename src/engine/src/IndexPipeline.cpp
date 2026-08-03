@@ -92,6 +92,26 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& meta : store_.GetAllVolumes()) {
             projection_.RebuildVolumeFromStore(store_, meta.rowId, meta.entryCount);
+            // zero-touch-autonomous-engineering (subtree gating): after the
+            // projection is rebuilt from the durable store (parent chains
+            // fully present), prune any excluded subtrees from store +
+            // projection so the rebuilt index honors the configured rules.
+            // This mirrors the ingestion prune and the reconciliation catch-
+            // all, ensuring rules are honored on every equivalent ingestion
+            // path (initial scan, USN deltas, reconciliation, rebuild).
+            if (volumeRules_.find(meta.rowId) != volumeRules_.end()) {
+                std::vector<ffindexstore::EntryChange> ruleExcluded;
+                store_.ForEachEntry(meta.rowId, [&](const ffindexstore::EntryRecord& record) {
+                    if (!IsEntryIncludedLocked(meta.rowId, record.id)) {
+                        ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, record});
+                    }
+                });
+                if (!ruleExcluded.empty() && store_.ApplyBatch(meta.rowId, ruleExcluded)) {
+                    for (const auto& removal : ruleExcluded) {
+                        projection_.Remove(meta.rowId, removal.record.id);
+                    }
+                }
+            }
             volumeIds.push_back(meta.rowId);
         }
     }
@@ -121,6 +141,42 @@ std::vector<ffindexstore::VolumeMetadata> IndexPipeline::GetAllVolumes() {
     return store_.GetAllVolumes();
 }
 
+void IndexPipeline::SetVolumeRules(ffindexstore::VolumeRowId volumeId, const ffprotocol::VolumeSetting& setting) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    volumeRules_[volumeId] = setting;
+}
+
+bool IndexPipeline::IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn) {
+    const auto ruleIt = volumeRules_.find(volumeId);
+    if (ruleIt == volumeRules_.end()) {
+        return true; // no rules configured for this volume -> include everything
+    }
+    const auto& setting = ruleIt->second;
+    // No rules and enabled -> include everything (preserves pre-change behavior).
+    if (setting.rules.empty()) {
+        return setting.enabled;
+    }
+    // Reconstruct the canonical path from the FRN parent chain. The path comes
+    // back as a backslash-joined name string WITHOUT the drive-letter prefix
+    // (ExportDirectorySnapshot prepends rootPathPrefix separately); IsPathIncluded
+    // matches against full canonical paths like "C:\Work", so prepend the
+    // volume's key (e.g. "C:") + a separator.
+    const auto pathResult = projection_.ReconstructPath(volumeId, frn);
+    if (!pathResult.reachedRoot) {
+        // Parent chain not yet resolvable (e.g. parent arrives in a later
+        // batch). Defer: include for now and let the reconciliation pass
+        // decide once the chain resolves -- never silently drop an undecided
+        // record (design.md "decide-on-reconciliation fallback").
+        return true;
+    }
+    std::wstring prefix = setting.key;
+    if (!prefix.empty() && prefix.back() != L'\\') {
+        prefix.push_back(L'\\');
+    }
+    std::wstring canonical = prefix + ToWString(pathResult.path);
+    return ffprotocol::IsPathIncluded(setting, canonical);
+}
+
 bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV1>& records) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<ffindexstore::EntryChange> changes;
@@ -140,7 +196,34 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
     auto reconciling = reconciliationSeen_.find(volumeId);
     if (reconciling != reconciliationSeen_.end()) {
         for (const auto& change : changes) {
-            reconciling->second.insert(change.record.id);
+            // zero-touch-autonomous-engineering (subtree gating): only mark an
+            // entry "observed" by the reconciliation pass when its configured
+            // rules include it, so a previously-included-but-now-excluded
+            // entry is reconciled away by FinishReconciliationPass. Records
+            // whose path cannot yet be resolved are marked observed (deferred)
+            // to preserve the existing orphan-tolerant reconciliation behavior.
+            if (IsEntryIncludedLocked(volumeId, change.record.id)) {
+                reconciling->second.insert(change.record.id);
+            }
+        }
+    }
+
+    // zero-touch-autonomous-engineering (subtree gating): prune any record in
+    // this batch whose parent chain now resolves and which the configured
+    // rules exclude. Records whose chain did not resolve are left in place
+    // and decided on the next reconciliation pass (IsEntryIncludedLocked
+    // returns true for them). Removals are committed to the durable store
+    // then the projection, preserving the commit-before-apply invariant.
+    std::vector<ffindexstore::EntryChange> ruleExcluded;
+    for (const auto& change : changes) {
+        if (!IsEntryIncludedLocked(volumeId, change.record.id)) {
+            ffindexstore::EntryChange removal{ffindexstore::EntryChangeKind::Remove, change.record};
+            ruleExcluded.push_back(removal);
+        }
+    }
+    if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
+        for (const auto& removal : ruleExcluded) {
+            projection_.Remove(volumeId, removal.record.id);
         }
     }
     return true;
@@ -165,6 +248,23 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Upsert(volumeId, change.record);
         } else {
             projection_.Remove(volumeId, change.record.id);
+        }
+    }
+
+    // zero-touch-autonomous-engineering (subtree gating): prune upserted
+    // USN records whose parent chain now resolves and which the configured
+    // rules exclude (deletes are already no-ops against excluded subtrees).
+    // Deferred records are decided on the next reconciliation pass.
+    std::vector<ffindexstore::EntryChange> ruleExcluded;
+    for (const auto& change : changes) {
+        if (change.kind == ffindexstore::EntryChangeKind::Upsert && !IsEntryIncludedLocked(volumeId, change.record.id)) {
+            ffindexstore::EntryChange removal{ffindexstore::EntryChangeKind::Remove, change.record};
+            ruleExcluded.push_back(removal);
+        }
+    }
+    if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
+        for (const auto& removal : ruleExcluded) {
+            projection_.Remove(volumeId, removal.record.id);
         }
     }
     return true;
@@ -229,7 +329,15 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 
     std::vector<ffindexstore::EntryChange> removals;
     for (const auto& existingId : store_.ListEntryIds(id)) {
-        if (seen.find(existingId) == seen.end()) {
+        // zero-touch-autonomous-engineering (subtree gating): remove an entry
+        // when it was not observed by this pass OR when the configured rules
+        // now exclude it. The latter is the catch-all that prunes records
+        // deferred during ingestion (whose parent chain resolved only later)
+        // and any previously-included-but-now-excluded subtree, so rule
+        // changes take full effect on the next reconciliation without a restart.
+        const bool notSeen = seen.find(existingId) == seen.end();
+        const bool excluded = !IsEntryIncludedLocked(id, existingId);
+        if (notSeen || excluded) {
             ffindexstore::EntryRecord marker;
             marker.id = existingId;
             removals.push_back({ffindexstore::EntryChangeKind::Remove, marker});

@@ -32,3 +32,14 @@ add_executable(ffengine_degraded_special_files_tests
 target_include_directories(ffengine_degraded_special_files_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_degraded_special_files_tests PRIVATE shell32)
 add_test(NAME ffengine_degraded_special_files_tests COMMAND ffengine_degraded_special_files_tests)
+
+# zero-touch-autonomous-engineering: subtree-gating unit tests (closes
+# settings-and-appearance 2.5). Compiles IndexPipeline.cpp directly so the
+# engine's rule-honoring ingestion is testable without the GUI/service.
+add_executable(ffengine_subtree_gating_tests
+  test_subtree_gating.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+)
+target_include_directories(ffengine_subtree_gating_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_subtree_gating_tests PRIVATE ffindexstore ffprotocol)
+add_test(NAME ffengine_subtree_gating_tests COMMAND ffengine_subtree_gating_tests)
