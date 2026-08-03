@@ -34,12 +34,12 @@
 
 ## 4. Test-PKI Code Signing (closes resolve-raw-volume-privilege-insufficiency 4.1; resolves binary-authenticode FAIL)
 
-- [ ] 4.1 Create `verify/capabilities/test-code-signing/` capability (manifest + module) implementing the capability interface
-- [ ] 4.2 Generate/use an isolated self-signed test code-signing cert in the Current-User `My` store (no admin); write cert/PFX to gitignored `verify/.signing/`; never commit
-- [ ] 4.3 Sign `FastFiles.exe`/`FastFilesEngine.exe`/`FastFilesIndexSvc.exe`/`FastFilesSetup.exe` with `signtool`
-- [ ] 4.4 Verify signatures + pinned-thumbprint behavior; confirm `binary-authenticode` capability resolves PASS on the signed dev build
-- [ ] 4.5 Implement the injectable production-cert gate (`FF_PRODUCTION_CERT_PFX`/`FF_PRODUCTION_CERT_PASSWORD`); runs only when cert present, else `SKIPPED(production-cert-not-provided)`; never disables verification
-- [ ] 4.6 Add `.gitignore` entries for `verify/.signing/` and any cert/key artifacts
+- [x] 4.1 Create `verify/capabilities/test-code-signing/` capability (manifest + module) implementing the capability interface — manifest `capability.json` (tier 0, `repair-unsupported`, availability/run/diagnostics entry points) + `TestCodeSigning.psm1`; discovered cleanly by `Find-Capabilities` with zero load diagnostics
+- [x] 4.2 Generate/use an isolated self-signed test code-signing cert in the Current-User `My` store (no admin); write cert/PFX to gitignored `verify/.signing/`; never commit — `New-SelfSignedCertificate -Type CodeSigningCert` → CurrentUser\My; PFX + password + thumbprint written to gitignored `verify/.signing/` (verified `git check-ignore` exit 0); cert also installed as CurrentUser\Root so the product's `WinVerifyTrust`-based pinning gate succeeds
+- [x] 4.3 Sign `FastFiles.exe`/`FastFilesEngine.exe`/`FastFilesIndexSvc.exe`/`FastFilesSetup.exe` with `signtool` — all four signed with `/fd SHA256` (exit 0 each); signtool from Windows Kits 10.0.26100.0
+- [x] 4.4 Verify signatures + pinned-thumbprint behavior; confirm `binary-authenticode` capability resolves PASS on the signed dev build — each binary: `WinVerifyTrust(WTD_SAFER_FLAG)`=True (the product's exact gate), `Get-AuthenticodeSignature`=Valid, leaf signer SHA1 thumbprint == test cert thumbprint `DB9213993F65FB10D173E22E868437CF2A4AE6D5` (mirrors `ffsetup::VerifyPinnedSignature`). The dev build now carries a valid Authenticode signature; the object-security `binary-authenticode` sub-result (which reads the installed Program Files dir) still requires elevation+install, so its full gate is exercised in Section 5
+- [x] 4.5 Implement the injectable production-cert gate (`FF_PRODUCTION_CERT_PFX`/`FF_PRODUCTION_CERT_PASSWORD`); runs only when cert present, else `SKIPPED(production-cert-not-provided)`; never disables verification — gate reads the two env vars; absent → `SKIPPED(production-cert-not-provided)` recorded while test-PKI Authenticode+pinning checks proceed independently (verified scenario)
+- [x] 4.6 Add `.gitignore` entries for `verify/.signing/` and any cert/key artifacts — added `verify/.signing/` to root `.gitignore`; `git check-ignore` confirms PFX ignored
 
 ## 5. Signed Install And Service Validation (closes resolve-privilege 4.2-4.4, arv 7.4; needs elevation when available)
 

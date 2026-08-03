@@ -7,3 +7,4 @@ CMakeUserPresets.json
 # are evidence of a specific execution, not source — never checked in.
 verify/runs/
 verify/baselines/
+verify/.signing/
