@@ -1,0 +1,14 @@
+{
+  "requiredCapabilities": [
+    { "id": "windows-build-validation", "requiredTiers": [0] },
+    { "id": "windows-protocol-robustness", "requiredTiers": [0] },
+    { "id": "windows-install-service-validation", "requiredTiers": [1] },
+    { "id": "windows-privilege-validation", "requiredTiers": [1] },
+    { "id": "windows-object-security-validation", "requiredTiers": [1] },
+    { "id": "windows-engine-service-validation", "requiredTiers": [1] },
+    { "id": "windows-ipc-validation", "requiredTiers": [1] }
+  ],
+  "acceptableSkipReasons": [],
+  "performanceRegressionsGate": false,
+  "productSourcePaths": ["src", "tests", "CMakeLists.txt", "cmake"]
+}

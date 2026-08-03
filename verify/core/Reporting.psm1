@@ -330,7 +330,7 @@ function Test-RunReportFidelity {
     $actual = @{}
     foreach ($cap in @($json.index.capabilities)) { $actual[$cap.capabilityId] = [pscustomobject]@{ status = $cap.status; reason = $cap.reason } }
     if ($actual.Count -ne $expected.Count) { $errors.Add("JSON report has $($actual.Count) capability verdicts; envelopes have $($expected.Count)") }
-    foreach ($id in $expected.Keys) {
+    foreach ($id in @($expected.Keys)) {
         if (-not $actual.ContainsKey($id)) { $errors.Add("JSON report omitted '$id'") }
         elseif ($actual[$id].status -ne $expected[$id].status) { $errors.Add("JSON report changed '$id' from $($expected[$id].status) to $($actual[$id].status)") }
         elseif ([string]$actual[$id].reason -cne [string]$expected[$id].reason) { $errors.Add("JSON report changed the reason for '$id'") }
@@ -339,7 +339,7 @@ function Test-RunReportFidelity {
     $markdown = Get-Content -Raw (Join-Path $RunContext.RunPath 'report.md')
     $markdownSections = [regex]::Matches($markdown, '(?m)^### ').Count
     if ($markdownSections -ne $expected.Count) { $errors.Add("Markdown report has $markdownSections capability sections; envelopes have $($expected.Count)") }
-    foreach ($id in $expected.Keys) {
+    foreach ($id in @($expected.Keys)) {
         $heading = "### $id — $($expected[$id].status)"
         if (-not $markdown.Contains($heading)) { $errors.Add("Markdown report omitted or changed '$id'") }
         if ($expected[$id].reason -and -not $markdown.Contains("- Reason: $($expected[$id].reason)")) { $errors.Add("Markdown report changed the reason for '$id'") }
@@ -348,7 +348,7 @@ function Test-RunReportFidelity {
     $html = Get-Content -Raw (Join-Path $RunContext.RunPath 'report.html')
     $htmlRows = [regex]::Matches($html, '<tr data-capability-id=').Count
     if ($htmlRows -ne $expected.Count) { $errors.Add("HTML report has $htmlRows capability rows; envelopes have $($expected.Count)") }
-    foreach ($id in $expected.Keys) {
+    foreach ($id in @($expected.Keys)) {
         $marker = 'data-capability-id="{0}" data-status="{1}" data-reason="{2}"' -f
             (ConvertTo-HtmlText $id), (ConvertTo-HtmlText $expected[$id].status), (ConvertTo-HtmlText $expected[$id].reason)
         if (-not $html.Contains($marker)) { $errors.Add("HTML report omitted or changed '$id'") }
@@ -367,7 +367,7 @@ function Test-RunReportFidelity {
         elseif ($status -eq 'SKIPPED' -and [string]$case.skipped.message -cne [string]$expected[$case.name].reason) { $errors.Add("JUnit report changed the reason for '$($case.name)'") }
         $seenTestCases[[string]$case.name] = $true
     }
-    foreach ($id in $expected.Keys) {
+    foreach ($id in @($expected.Keys)) {
         if (-not $seenTestCases.ContainsKey([string]$id)) { $errors.Add("JUnit report omitted '$id'") }
     }
     return [pscustomobject]@{ Valid = ($errors.Count -eq 0); Errors = $errors }

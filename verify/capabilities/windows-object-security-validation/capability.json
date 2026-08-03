@@ -1,0 +1,14 @@
+{
+  "id": "windows-object-security-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Object Security Validation",
+  "description": "Validates install-dir ACLs, binary Authenticode signatures, and the control-plane pipe and snapshot-mapping DACLs against the hardened object-security expectations.",
+  "entryModule": "ObjectSecurityValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-ObjectSecurityValidationAvailability",
+    "run": "Invoke-ObjectSecurityValidationCapability",
+    "diagnostics": "Get-ObjectSecurityValidationDiagnostics"
+  }
+}

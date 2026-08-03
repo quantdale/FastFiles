@@ -1,0 +1,11 @@
+{
+  "requiredCapabilities": [
+    { "id": "windows-build-validation", "requiredTiers": [0] },
+    { "id": "windows-protocol-robustness", "requiredTiers": [0] },
+    { "id": "diagnostics", "requiredTiers": [0] },
+    { "id": "crash-analysis", "requiredTiers": [0] }
+  ],
+  "acceptableSkipReasons": [],
+  "performanceRegressionsGate": false,
+  "productSourcePaths": ["src", "tests", "CMakeLists.txt", "cmake"]
+}

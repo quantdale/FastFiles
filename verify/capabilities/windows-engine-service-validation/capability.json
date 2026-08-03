@@ -1,0 +1,14 @@
+{
+  "id": "windows-engine-service-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Engine Service Validation",
+  "description": "Validates the engine-service boundary: mutual-auth handshake with Authenticode pinning (impostor rejection), service account/start configuration, and binary version parity.",
+  "entryModule": "EngineServiceValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-EngineServiceValidationAvailability",
+    "run": "Invoke-EngineServiceValidationCapability",
+    "diagnostics": "Get-EngineServiceValidationDiagnostics"
+  }
+}

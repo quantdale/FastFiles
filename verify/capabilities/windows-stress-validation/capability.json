@@ -1,0 +1,14 @@
+{
+  "id": "windows-stress-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 3,
+  "displayName": "Windows Stress Validation",
+  "description": "Startup/shutdown/reconnect/pipe/snapshot/large-fs/long-indexing/memory/CPU-pressure stress scenarios. Tier-3 gated: SKIPPED(context-absent) until a disposable Tier-3 execution context exists.",
+  "entryModule": "StressValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-StressValidationAvailability",
+    "run": "Invoke-StressValidationCapability",
+    "diagnostics": "Get-StressValidationDiagnostics"
+  }
+}

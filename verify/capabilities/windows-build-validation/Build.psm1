@@ -243,4 +243,46 @@ function Invoke-BuildCapability {
     }
 }
 
-Export-ModuleMember -Function Test-BuildCapabilityAvailability, Invoke-BuildCapability, Get-BuildCapabilityDiagnostics
+function Invoke-BuildCapabilityRepair {
+    <#
+        Repair entry point (task 9.3, Class A - harness/environment): a failed
+        build is retried from a clean tree to rule out stale incremental state.
+        Never touches product source (Class B fixes are flagged, not applied).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $RunContext,
+        [Parameter(Mandatory)] $Fingerprint,
+        [Parameter(Mandatory)] [string] $ArtifactsDir,
+        [Parameter(Mandatory)] [hashtable] $Options
+    )
+
+    $repoRoot = $Options.RepoRoot
+    $configurations = if ($Options.Configurations) { @($Options.Configurations) } else { @('debug', 'release') }
+    $runAnalyze = -not [bool]$Options.SkipAnalyze
+    $toolchain = $Fingerprint.Toolchain
+    if (-not $toolchain) {
+        return [pscustomobject]@{ rootCause = 'vs-toolchain-not-found'; fixClass = 'environment'; action = 'install VS VC.Tools.x86.x64 and re-run'; outcome = 'failed'; reason = 'vs-toolchain-not-found' }
+    }
+
+    Enter-DevEnvironment -Toolchain $toolchain
+    $failures = @()
+    foreach ($config in $configurations) {
+        $pipeline = Invoke-ConfigurationPipeline -Toolchain $toolchain -RepoRoot $repoRoot -ArtifactsDir $ArtifactsDir -Config $config -Clean $true -RunTests $false
+        if (@($pipeline.SubResults | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0) { $failures += $config }
+    }
+    if ($runAnalyze) {
+        $pipeline = Invoke-ConfigurationPipeline -Toolchain $toolchain -RepoRoot $repoRoot -ArtifactsDir $ArtifactsDir -Config 'analyze' -Clean $true -RunTests $false
+        if (@($pipeline.SubResults | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0) { $failures += 'analyze' }
+    }
+
+    [pscustomobject]@{
+        rootCause = 'incremental-build-state-corruption'
+        fixClass  = 'harness'
+        action    = "clean rebuild of configurations: $($configurations -join '/')$(if ($runAnalyze) { ' +analyze' })"
+        outcome   = if ($failures.Count -eq 0) { 'applied' } else { 'failed' }
+        reason    = if ($failures.Count -eq 0) { $null } else { "clean rebuild still failed for: $($failures -join ', ')" }
+    }
+}
+
+Export-ModuleMember -Function Test-BuildCapabilityAvailability, Invoke-BuildCapability, Get-BuildCapabilityDiagnostics, Invoke-BuildCapabilityRepair

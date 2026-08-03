@@ -6,10 +6,11 @@
   "description": "MSVC/CMake toolchain discovery, Debug/Release/static-analysis builds, and the ctest unit+fuzz suites.",
   "entryModule": "Build.psm1",
   "dependsOn": [],
-  "repairPosture": "repair-unsupported",
+  "repairPosture": "repair-supported",
   "entryPoints": {
     "availability": "Test-BuildCapabilityAvailability",
     "run": "Invoke-BuildCapability",
-    "diagnostics": "Get-BuildCapabilityDiagnostics"
+    "diagnostics": "Get-BuildCapabilityDiagnostics",
+    "repair": "Invoke-BuildCapabilityRepair"
   }
 }

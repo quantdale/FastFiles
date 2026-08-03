@@ -1,0 +1,14 @@
+{
+  "id": "windows-privilege-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Privilege Validation",
+  "description": "Runs the fftest privilege and token probes to validate the SeBackup-only posture: backup privilege sufficiency against a real volume and the elevated token's integrity level and privilege set.",
+  "entryModule": "PrivilegeValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-PrivilegeValidationAvailability",
+    "run": "Invoke-PrivilegeValidationCapability",
+    "diagnostics": "Get-PrivilegeValidationDiagnostics"
+  }
+}

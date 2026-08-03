@@ -12,10 +12,9 @@
       0  PASS               every executed capability/check passed
       1  FAIL                at least one executed capability/check failed
       2  SKIPPED             nothing failed, but nothing required could run either
-                             (e.g. only Tier-1 capabilities were requested, unelevated)
+                            (e.g. only Tier-1 capabilities were requested, unelevated)
       3  HARNESS ERROR        invalid usage or an internal harness exception
-      10 NOT-YET-IMPLEMENTED  the verb is scaffolded but its capability lands in a
-                              later phase of this change (install/repair/gate)
+      10 NOT-YET-IMPLEMENTED  reserved for future scaffolded verbs
 #>
 
 [CmdletBinding()]
@@ -54,6 +53,8 @@ Import-Module (Join-Path $VerifyRoot 'core\RunTree.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Registry.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\CapabilityRunner.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Reporting.psm1') -Force
+Import-Module (Join-Path $VerifyRoot 'core\Repair.psm1') -Force
+Import-Module (Join-Path $VerifyRoot 'core\Gate.psm1') -Force
 
 function ConvertTo-ProcessArgument {
     param([Parameter(Mandatory)] [string] $Value)
@@ -64,7 +65,7 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     # This is deliberately opt-in: UAC approval is the one-time authorization for
     # Tier-1 local validation. The child retains the ordinary non-interactive verbs.
     $childArgs = @('-NoProfile', '-File', $PSCommandPath, $Verb, '-Change', $Change, '-Provider', $Provider, '-ElevatedChild')
-    foreach ($id in $Capability) { $childArgs += @('-Capability', $id) }
+    if ($Capability -and $Capability.Count -gt 0) { $childArgs += @('-Capability', ($Capability -join ',')) }
     foreach ($config in $Configuration) { $childArgs += @('-Configuration', $config) }
     if ($Clean) { $childArgs += '-Clean' }
     if ($SkipAnalyze) { $childArgs += '-SkipAnalyze' }
@@ -154,7 +155,7 @@ function Invoke-VerificationRun {
     $fidelity = Test-RunReportFidelity -RunContext $runContext
     if (-not $fidelity.Valid) { throw "Report fidelity check failed: $($fidelity.Errors -join '; ')" }
 
-    [pscustomobject]@{ RunContext = $runContext; Envelopes = $envelopes }
+    [pscustomobject]@{ RunContext = $runContext; Envelopes = $envelopes; Fingerprint = $fingerprint }
 }
 
 function Get-VerbExitCode {
@@ -219,13 +220,24 @@ switch ($Verb) {
         exit (Get-VerbExitCode -Envelopes $result.Envelopes)
     }
     'install' {
-        $result = Invoke-VerificationRun -CapabilityFilter @('windows-install-service-validation')
+        # Tier-1 install validation plus the §6.2-6.5 harnesses that validate the
+        # privileged boundary against the freshly installed product. Each one
+        # availability-gates itself; unelevated runs SKIP with a reason.
+        $result = Invoke-VerificationRun -CapabilityFilter @(
+            'windows-install-service-validation',
+            'windows-privilege-validation',
+            'windows-object-security-validation',
+            'windows-engine-service-validation',
+            'windows-ipc-validation')
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
         exit (Get-VerbExitCode -Envelopes $result.Envelopes)
     }
     'run' {
-        $result = Invoke-VerificationRun -CapabilityFilter $Capability
+        # pwsh -File passes -Capability as literal strings; accept a comma-joined
+        # list as well as a single id so multi-capability runs work non-interactively.
+        $filter = @($Capability | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+        $result = Invoke-VerificationRun -CapabilityFilter $filter
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
         exit (Get-VerbExitCode -Envelopes $result.Envelopes)
@@ -285,8 +297,58 @@ switch ($Verb) {
         Write-InspectionOutput -Value $inventory
         exit $ExitPass
     }
-    default {
-        Write-Warning "Verb '$Verb' is scaffolded (exposed per task 1.1) but its capability lands in a later phase of autonomous-runtime-verification: install/service work needs Tier-1 elevation (tasks 5-6), repair needs the repair-loop driver (task 9), and gate needs the four-state archive gate (task 10)."
-        exit $ExitNotImplemented
+    'repair' {
+        # Task 9: run, repair failures through the coordinator loop (Class A fixes
+        # auto-applied; Class B flagged), re-run repaired capabilities, re-report.
+        $result = Invoke-VerificationRun -CapabilityFilter $Capability
+        $discovery = Find-Capabilities -CapabilitiesRoot (Join-Path $VerifyRoot 'capabilities') `
+            -ManifestSchemaPath (Join-Path $VerifyRoot 'schemas\capability-manifest.schema.json')
+        $options = @{
+            RepoRoot       = $RepoRoot
+            Configurations = $Configuration
+            Clean          = $Clean.IsPresent
+            SkipAnalyze    = $SkipAnalyze.IsPresent
+            SkipTests      = $SkipTests.IsPresent
+        }
+        $loop = Invoke-RepairLoop -RunContext $result.RunContext -Fingerprint $result.Fingerprint `
+            -Discovery $discovery -Envelopes $result.Envelopes -Options $options
+        Write-RunReports -RunContext $result.RunContext | Out-Null
+        Write-Host ''
+        Write-Host "Run tree: $($result.RunContext.RunPath)"
+        if ($loop.Escalation) {
+            Write-Host "Repair loop escalated: $($loop.Escalation.reason) (capability $($loop.Escalation.capabilityId))"
+            exit $ExitFail
+        }
+        $remainingFailures = @($loop.Envelopes | Where-Object { $_.status -eq 'FAIL' }).Count
+        if ($remainingFailures -gt 0) {
+            Write-Host "Repair loop finished with $remainingFailures unrepaired failure(s); see repair-log.jsonl"
+            exit $ExitFail
+        }
+        Write-Host "Repair loop finished cleanly after $($loop.Iterations) iteration(s); repaired: $($loop.RepairedIds -join ', ')"
+        exit $ExitPass
+    }
+    'gate' {
+        # Task 10: resolve required capabilities to PASS/FAIL/SKIPPED/
+        # REQUIRED-BUT-UNAVAILABLE against the per-change policy, and refuse a
+        # run that does not represent current product-source state.
+        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
+        if (-not (Test-Path -LiteralPath $runContext.ManifestPath)) { throw "Run manifest not found: $($runContext.ManifestPath)" }
+        $fingerprint = Get-Content -LiteralPath $runContext.ManifestPath -Raw | ConvertFrom-Json
+        $policy = Get-GatePolicy -Change $Change
+        $verdict = Resolve-GateVerdict -RunContext $runContext -Fingerprint $fingerprint -Policy $policy -RepoRoot $RepoRoot
+
+        $verdictPath = Join-Path $runContext.RunPath 'gate-verdict.json'
+        $verdict | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $verdictPath -Encoding utf8
+
+        foreach ($v in $verdict.Verdicts) {
+            $marker = if ($v.verdict -eq 'PASS') { '[PASS]' } elseif ($v.verdict -eq 'SKIPPED') { '[SKIP]' } else { "[$($v.verdict)]" }
+            Write-Host "$marker $($v.capabilityId)$(if ($v.reason) { " -> $($v.reason)" })"
+        }
+        if ($verdict.UnrepresentedEdits.Count -gt 0) {
+            Write-Host "[FAIL] unrepresented product-source edits: $($verdict.UnrepresentedEdits.path -join ', ')"
+        }
+        Write-Host "Gate policy: $($verdict.Policy.Path)"
+        Write-Host "Gate verdict: $(if ($verdict.Passed) { 'PASS' } else { 'FAIL' })"
+        exit $(if ($verdict.Passed) { $ExitPass } else { $ExitFail })
     }
 }
