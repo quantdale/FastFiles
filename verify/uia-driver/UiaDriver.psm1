@@ -89,6 +89,6 @@ Export-ModuleMember -Function `
     Get-UiaRootElement, Find-UiaElement, Get-UiaChildren, Get-UiaParent, `
     Get-UiaElementProperty, Get-UiaElementIdentity, `
     Get-UiaPattern, Invoke-UiaPattern, Test-UiaPatternAvailable, Invoke-UiaElementAction, `
-    Get-UiaClickablePoint, Send-UiaInput, Send-UiaMouseInput, `
+    Get-UiaClickablePoint, Send-UiaInput, Send-UiaMouseInput, Send-UiaText, Set-UiaForeground, `
     Register-UiaEvent, Wait-UiaEvent, Unregister-UiaEvent, `
     Wait-UiaCondition, Get-UiaTreeDump, Export-UiaTreeDump, New-UiaTargetNotFoundError

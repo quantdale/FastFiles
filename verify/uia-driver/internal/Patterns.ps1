@@ -3,9 +3,43 @@
     invocation. Live targets use the managed pattern classes (Invoke, SelectionItem,
     Selection, Scroll, Value, Window). Drag is not exposed by this host's
     UIAutomationClient, so it is reported unsupported and callers use the SendInput
-    mouse fallback (recorded, never pixel-verified). Mock elements resolve pattern
+    mouse fallback (recorded, never pixel-verified).     Mock elements resolve pattern
     availability from the recorded tree and record invocations.
 #>
+
+if (-not ('FfButtonDefault' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class FfButtonDefault
+{
+    public const uint BM_CLICK = 0x00F5;
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
+
+    public static bool IsButton(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        StringBuilder sb = new StringBuilder(128);
+        GetClassName(hWnd, sb, 128);
+        string name = sb.ToString();
+        return string.Equals(name, "Button", StringComparison.Ordinal)
+            || name.StartsWith("Button", StringComparison.Ordinal);
+    }
+
+    public static bool Click(IntPtr hWnd)
+    {
+        return SendMessage(hWnd, BM_CLICK, IntPtr.Zero, IntPtr.Zero) != IntPtr.Zero;
+    }
+}
+'@
+}
 
 function Get-UiaPattern {
     param($Driver, $Element, [Parameter(Mandatory)][string] $PatternName)
@@ -146,6 +180,17 @@ function Invoke-UiaElementAction {
     if ($Action -eq 'Select' -and (Test-UiaPatternAvailable -Driver $Driver -Element $Element -PatternName 'SelectionItem')) {
         $null = Invoke-UiaPattern -Driver $Driver -Element $Element -PatternName 'SelectionItem' -Method 'Select'
         return [pscustomobject]@{ used = 'SelectionItemPattern'; fallback = $false }
+    }
+    if (-not (Test-UiaMockElement $Element)) {
+        try {
+            $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
+            if ($hwnd -ne [IntPtr]::Zero -and [FfButtonDefault]::IsButton($hwnd)) {
+                $null = [FfButtonDefault]::Click($hwnd)
+                return [pscustomobject]@{ used = 'ButtonDefaultAction(BM_CLICK)'; fallback = $true }
+            }
+        } catch {
+            # Not a real button HWND; fall through to clickable-point SendInput.
+        }
     }
     $point = Get-UiaClickablePoint -Driver $Driver -Element $Element
     if (-not $point) {

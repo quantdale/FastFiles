@@ -58,6 +58,19 @@ $like = Find-UiaElement -Driver $mock -NameLike 'Pict*'
 Check ($like -ne $null) 'find by NameLike wildcard'
 $all = @(Find-UiaElement -Driver $mock -ControlType 'ListItem' -All)
 Check ($all.Count -eq 3) "find -All ListItems returns 3, got $($all.Count)"
+$entryListAnchor = Find-UiaElement -Driver $mock -AutomationId 'EntryList'
+$fromList = @(Find-UiaElement -Driver $mock -ControlType 'ListItem' -FromElement $entryListAnchor -All)
+Check ($fromList.Count -eq 3) "find -FromElement returns subtree-only matches, got $($fromList.Count)"
+$buttonAnchor = Find-UiaElement -Driver $mock -AutomationId 'NewColumnButton'
+$fromButton = Find-UiaElement -Driver $mock -AutomationId 'NewColumnButton' -FromElement $buttonAnchor
+Check ($fromButton -ne $null) 'find -FromElement finds the anchor itself'
+$missingFrom = $false
+try {
+    $null = Find-UiaElement -Driver $mock -AutomationId 'SearchBox' -FromElement $entryListAnchor -TimeoutMs 300
+} catch {
+    $missingFrom = $true
+}
+Check $missingFrom 'find -FromElement excludes elements outside the subtree'
 
 Write-Host "== traversal + parent (2.1) =="
 $rootKids = @(Get-UiaChildren -Driver $mock -Element $root)
@@ -157,8 +170,19 @@ $cond2 = Wait-UiaCondition -Driver $mock -TimeoutMs 500 -ScriptBlock { return $f
 Check $cond2 'condition met returns true'
 $kb = Send-UiaInput -Driver $mock -Keys '{ENTER}{DOWN}' -NoSend
 Check ($kb.used -eq 'SendInput' -and $kb.dryRun) 'keyboard dry-run records SendInput fallback'
+$chord = Send-UiaInput -Driver $mock -Keys '{CTRL}{SHIFT}p' -NoSend
+$chordVks = @($chord.sequence | ForEach-Object { [int]$_.vk })
+$expect = @(17, 16, 80, 80, 16, 17)
+Check (($chordVks -join ',') -eq ($expect -join ',')) "modifier chord applies ctrl+shift to bare key, got $($chordVks -join ',')"
+$ctrlL = Send-UiaInput -Driver $mock -Keys '{CTRL}l' -NoSend
+$ctrlLVks = @($ctrlL.sequence | ForEach-Object { [int]$_.vk })
+Check (($ctrlLVks -join ',') -eq '17,76,76,17') 'single-char token after CTRL receives the modifier'
+$plain = Send-UiaInput -Driver $mock -Keys 'abc' -NoSend
+Check ($plain.sequence.Count -eq 6) "plain text has no stray modifier keys, got $($plain.sequence.Count)"
 $ms = Send-UiaMouseInput -Driver $mock -X 10 -Y 10 -Action 'Click' -NoSend
 Check ($ms.used -eq 'SendInput' -and $ms.dryRun) 'mouse dry-run records SendInput fallback'
+$tx = Send-UiaText -Driver $mock -Text 'C:\Temp\sub dir' -NoSend
+Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15) 'unicode text dry-run records char count'
 
 Write-Host ""
 if ($script:failures -gt 0) {

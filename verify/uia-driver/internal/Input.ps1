@@ -18,6 +18,12 @@ public static class FfNativeInput
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int nIndex);
 
+    [DllImport("user32.dll")]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr GetForegroundWindow();
+
     [StructLayout(LayoutKind.Sequential)]
     public struct INPUT
     {
@@ -57,6 +63,7 @@ public static class FfNativeInput
     public const uint INPUT_MOUSE = 0;
     public const uint KEYEVENTF_KEYUP = 0x0002;
     public const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
+    public const uint KEYEVENTF_UNICODE = 0x0004;
     public const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
     public const uint MOUSEEVENTF_MOVE = 0x0001;
     public const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
@@ -80,6 +87,23 @@ public static class FfNativeInput
         input[0].u.ki.wVk = vk;
         input[0].u.ki.dwFlags = KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
         return SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1;
+    }
+
+    public static int TypeText(string text)
+    {
+        int sent = 0;
+        foreach (char c in text)
+        {
+            INPUT[] input = new INPUT[2];
+            input[0].type = INPUT_KEYBOARD;
+            input[0].u.ki.wScan = (ushort)c;
+            input[0].u.ki.dwFlags = KEYEVENTF_UNICODE;
+            input[1].type = INPUT_KEYBOARD;
+            input[1].u.ki.wScan = (ushort)c;
+            input[1].u.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+            if (SendInput(2, input, Marshal.SizeOf(typeof(INPUT))) == 2) sent++;
+        }
+        return sent;
     }
 
     public static bool MouseMove(int x, int y)
@@ -135,6 +159,19 @@ function Get-UiaVk {
     return 0
 }
 
+function Set-UiaForeground {
+    param($Driver, $Element)
+    if (Test-UiaMockElement $Element) { return $false }
+    Initialize-UiaManagedApi
+    try {
+        $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
+        if ($hwnd -eq [IntPtr]::Zero) { return $false }
+        return [FfNativeInput]::SetForegroundWindow($hwnd)
+    } catch {
+        return $false
+    }
+}
+
 function Send-UiaInput {
     param($Driver, [Parameter(Mandatory)][string] $Keys, [switch] $NoSend)
     $seq = [System.Collections.ArrayList]::new()
@@ -144,6 +181,18 @@ function Send-UiaInput {
     }
     $tokens = [regex]::Matches($Keys, '\{[A-Za-z0-9]+\}|[a-zA-Z0-9\s\.\-]')
     $mods = [ordered]@{ ctrl = $false; alt = $false; shift = $false }
+    $pushMods = {
+        param($down)
+        if ($down) {
+            if ($mods.ctrl) { & $push 0x11 $true }
+            if ($mods.alt) { & $push 0x12 $true }
+            if ($mods.shift) { & $push 0x10 $true }
+        } else {
+            if ($mods.shift) { & $push 0x10 $false }
+            if ($mods.alt) { & $push 0x12 $false }
+            if ($mods.ctrl) { & $push 0x11 $false }
+        }
+    }
     foreach ($m in $tokens) {
         $token = $m.Value
         if ($token.StartsWith('{')) {
@@ -154,29 +203,36 @@ function Send-UiaInput {
             }
             $vk = Get-UiaVk -Token $name
             if ($vk -eq 0) { throw "Unknown key token '$token'" }
-            if ($mods.ctrl) { & $push 0x11 $true }
-            if ($mods.alt) { & $push 0x12 $true }
-            if ($mods.shift) { & $push 0x10 $true }
+            & $pushMods $true
             & $push $vk $true
             & $push $vk $false
-            if ($mods.shift) { & $push 0x10 $false }
-            if ($mods.alt) { & $push 0x12 $false }
-            if ($mods.ctrl) { & $push 0x11 $false }
+            & $pushMods $false
             $mods.ctrl = $false; $mods.alt = $false; $mods.shift = $false
             continue
         }
+        & $pushMods $true
         foreach ($ch in $token.ToCharArray()) {
-            $vk = [uint16][int][char]$ch.ToUpperInvariant()
+            $vk = [uint16][int][char]::ToUpperInvariant($ch)
             & $push $vk $true
             & $push $vk $false
         }
+        & $pushMods $false
+        $mods.ctrl = $false; $mods.alt = $false; $mods.shift = $false
     }
     if (-not $NoSend) {
         foreach ($item in $seq) {
             if ($item.down) { [void][FfNativeInput]::KeyDown($item.vk) } else { [void][FfNativeInput]::KeyUp($item.vk) }
         }
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; keys = $Keys; dryRun = $NoSend }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; keys = $Keys; dryRun = $NoSend; sequence = @($seq) }
+}
+
+function Send-UiaText {
+    param($Driver, [Parameter(Mandatory)][string] $Text, [switch] $NoSend)
+    if (-not $NoSend) {
+        [void][FfNativeInput]::TypeText($Text)
+    }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'unicode-text'; chars = $Text.Length; dryRun = $NoSend }
 }
 
 function Send-UiaMouseInput {

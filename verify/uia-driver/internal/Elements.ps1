@@ -137,9 +137,10 @@ function Find-UiaElement {
         [int] $ProcessId,
         [string] $View,
         [int] $TimeoutMs,
+        $FromElement,
         [switch] $All
     )
-    $root = Get-UiaRootElement -Driver $Driver
+    $root = if ($FromElement) { $FromElement } else { Get-UiaRootElement -Driver $Driver }
     $criteria = @{}
     if ($AutomationId) { $criteria['AutomationId'] = $AutomationId }
     if ($Name) { $criteria['Name'] = $Name }
