@@ -258,7 +258,7 @@ bool Store::CheckpointPassive() {
     return sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_PASSIVE, nullptr, nullptr) == SQLITE_OK;
 }
 
-bool Store::CheckpointIfWalExceeds(const std::string& /*dbPathUtf8*/, uint64_t thresholdBytes) {
+bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     if (db_ == nullptr) {
         return false;
     }

@@ -2,6 +2,8 @@
 
 #include <filesystem>
 
+#include "UITheme.h"
+
 namespace ffui {
 
 namespace {
@@ -15,6 +17,10 @@ constexpr int kApplyAll = 1004;
 struct DialogState {
     ConflictDecision result;
     HWND applyAll = nullptr;
+    // §5.4: themed dialog background brush (GetUiTheme(gUiDarkTheme).back-
+    // ground), returned from WM_CTLCOLORDLG/WM_CTLCOLORSTATIC. Created per
+    // dialog in ShowConflictDialog and freed after the modal loop.
+    HBRUSH themeBrush = nullptr;
 };
 
 LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -40,6 +46,17 @@ LRESULT CALLBACK DialogProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         state->result = {ConflictChoice::Cancel, false};
         DestroyWindow(window);
         return 0;
+    }
+    // §5.4: themed dialog background (WM_CTLCOLORDLG) and message-text colors
+    // (WM_CTLCOLORSTATIC) so the conflict dialog is never blinding-white in
+    // dark mode. Channeled through gUiDarkTheme, which WindowShell publishes.
+    // Buttons stay stock (themed surfaces are out of scope for the modal).
+    if ((message == WM_CTLCOLORDLG || message == WM_CTLCOLORSTATIC) && state != nullptr) {
+        HDC hdc = reinterpret_cast<HDC>(wParam);
+        const UiTheme theme = GetUiTheme(gUiDarkTheme);
+        SetTextColor(hdc, ToColorRef(theme.text));
+        SetBkColor(hdc, ToColorRef(theme.background));
+        return reinterpret_cast<LRESULT>(state->themeBrush);
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
@@ -74,6 +91,19 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
                                   WS_POPUP | WS_CAPTION | WS_SYSMENU, x, y, width, height,
                                   owner, nullptr, GetModuleHandleW(nullptr), &state);
     if (dialog == nullptr) return {};
+    // §5.4: themed dialog surface + immersive dark title bar. The class's
+    // hbrBackground is a stable system brush (the class is registered once and
+    // reused across calls, so a per-call brush must not live there); the live
+    // themed background is delivered per-paint by WM_CTLCOLORDLG below.
+    state.themeBrush = CreateSolidBrush(ToColorRef(GetUiTheme(gUiDarkTheme).background));
+    if (HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll")) {
+        using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+        auto dwmSetAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+        if (dwmSetAttribute) {
+            const BOOL useDark = gUiDarkTheme ? TRUE : FALSE;
+            dwmSetAttribute(dialog, 20, &useDark, sizeof(useDark));  // DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+        }
+    }
     const std::wstring sourceName = std::filesystem::path(source).filename().wstring();
     const std::wstring text = L"The destination already contains ‘" + sourceName + L"’.\r\n\r\n" + destination;
     HWND label = CreateWindowExW(0, L"STATIC", text.c_str(), WS_CHILD | WS_VISIBLE,
@@ -104,6 +134,10 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
     }
     EnableWindow(owner, TRUE);
     SetForegroundWindow(owner);
+    if (state.themeBrush) {
+        DeleteObject(state.themeBrush);
+        state.themeBrush = nullptr;
+    }
     return state.result;
 }
 

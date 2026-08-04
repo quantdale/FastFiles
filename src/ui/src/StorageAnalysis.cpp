@@ -1,6 +1,7 @@
 #include "StorageAnalysis.h"
 
 #include "TreemapView.h"
+#include "UITheme.h"
 #include "Util.h"
 
 #include <commctrl.h>
@@ -24,6 +25,11 @@ constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
 constexpr UINT_PTR kRefreshTimer = 7220;
 constexpr int kRefreshDelayMs = 50;
+
+// Scale a DIP metric to physical pixels for Win32 control layout.
+int Scaled(int dipValue) {
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
 
 // storage-analysis 2.4: a volume that disappeared keeps its last-known
 // capacity figures (labeled stale) instead of being silently dropped.
@@ -61,10 +67,6 @@ std::wstring FormatPercent(uint64_t part, uint64_t whole) {
 
 StorageAnalysis::~StorageAnalysis() {
     Hide();
-    stopping_ = true;
-    currentGeneration_.fetch_add(1);
-    workCv_.notify_all();
-    if (worker_.joinable()) worker_.join();
 }
 
 bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
@@ -136,7 +138,14 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     ListView_SetExtendedListViewStyle(overview_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
     PopulateCategoryFilter();
 
-    worker_ = std::thread(&StorageAnalysis::WorkerMain, this);
+    // Wire the treemap into the storage panel so it renders the current folder
+    // when the Treemap view mode is selected. Treemap navigation updates the
+    // panel's current path and rebuilds the tree, then delegates to the shell.
+    treemapView_.Initialize(owner_, engine_, [this](const std::wstring& path) {
+        currentPath_ = path;
+        treemapView_.ShowAndFocus(path);
+        if (navigate_) navigate_(path);
+    });
     return true;
 }
 
@@ -183,6 +192,7 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
     viewMode_ = ViewMode::Overview;
+    treemapView_.Hide();
     RefreshData();
     Reposition();
     SetFocus(overview_);
@@ -194,6 +204,7 @@ void StorageAnalysis::Hide() {
     KillTimer(owner_, kRefreshTimer);
     for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
                    largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
+    treemapView_.Hide();
     items_.clear();
     volumes_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
@@ -206,22 +217,22 @@ void StorageAnalysis::Reposition() {
     GetClientRect(owner_, &client);
     const int width = static_cast<int>(client.right);
     const int height = static_cast<int>(client.bottom);
-    const int top = 72; // below navigation chrome
-    const int buttonHeight = 28;
-    SetWindowPos(back_, HWND_TOP, 12, top, 80, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(up_, HWND_TOP, 96, top, 80, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overviewButton_, HWND_TOP, 180, top, 100, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(drillDown_, HWND_TOP, 284, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFolders_, HWND_TOP, 398, top, 120, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFiles_, HWND_TOP, 522, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(byCategory_, HWND_TOP, 636, top, 110, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(treemap_, HWND_TOP, 750, top, 90, buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(categoryFilter_, HWND_TOP, 844, top, (std::max)(140, width - 1084), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, (std::max)(988, width - 200), top + 4, (std::max)(100, width - 992), 20, SWP_SHOWWINDOW);
-    const int listTop = top + buttonHeight + 8;
-    const int listHeight = (std::max)(80, height - top - buttonHeight - 20);
-    SetWindowPos(list_, HWND_TOP, 12, listTop, width - 24, listHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overview_, HWND_TOP, 12, listTop, width - 24, listHeight, SWP_SHOWWINDOW);
+    const int top = Scaled(static_cast<int>(ffui::UiMetrics::kChromeHeight)); // below navigation chrome
+    const int buttonHeight = Scaled(28);
+    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, SWP_SHOWWINDOW);
+    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), SWP_SHOWWINDOW);
+    const int listTop = top + buttonHeight + Scaled(8);
+    const int listHeight = (std::max)(Scaled(80), height - top - buttonHeight - Scaled(20));
+    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
+    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
 }
 
 void StorageAnalysis::RefreshOverview() {
@@ -535,26 +546,16 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
     InvalidateRect(list_, nullptr, FALSE);
 }
 
-void StorageAnalysis::WorkerMain() {
-    while (!stopping_) {
-        std::unique_lock<std::mutex> lock(workMutex_);
-        workCv_.wait(lock, [this] { return stopping_ || !currentPath_.empty(); });
-        if (stopping_) break;
-    }
-}
-
 void StorageAnalysis::OnSnapshotUpdated() {
     if (!visible_) return;
-    ++generation_;
-    currentGeneration_ = generation_;
     RefreshData();
     treemapView_.OnSnapshotUpdated();
 }
 
-void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize) {
+void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
     if (viewMode_ != ViewMode::Treemap) return;
     treemapView_.EnsureCreated(context, dwriteFactory);
-    treemapView_.Render(context, dwriteFactory, viewportSize);
+    treemapView_.Render(context, dwriteFactory, viewportSize, offsetX, offsetY);
 }
 
 bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
@@ -610,6 +611,7 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
 
 void StorageAnalysis::SetViewMode(ViewMode mode) {
     if (viewMode_ == mode) return;
+    const bool leavingTreemap = viewMode_ == ViewMode::Treemap;
     viewMode_ = mode;
     CheckRadioButton(owner_, kOverviewId, kTreemapId,
                      mode == ViewMode::Overview ? kOverviewId :
@@ -617,6 +619,11 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
                      mode == ViewMode::LargestFolders ? kLargestFoldersId :
                      mode == ViewMode::LargestFiles ? kLargestFilesId :
                      mode == ViewMode::ByCategory ? kByCategoryId : kTreemapId);
+    if (mode == ViewMode::Treemap) {
+        treemapView_.ShowAndFocus(currentPath_);
+    } else if (leavingTreemap) {
+        treemapView_.Hide();
+    }
     RefreshData();
 }
 
@@ -773,7 +780,7 @@ bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {
 
     AppendMenuW(menu, MF_STRING, 1, item.isDirectory ? L"Open" : L"Open");
     AppendMenuW(menu, MF_STRING, 2, L"Copy Path");
-    AppendMenuW(menu, MF_STRING, 4, L"Move…");
+    AppendMenuW(menu, MF_STRING, 4, L"Cut");
     if (!item.isDirectory) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, 3, L"Delete");

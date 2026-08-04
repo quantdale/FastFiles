@@ -1,4 +1,5 @@
 #include "CommandPalette.h"
+#include "UITheme.h"
 
 #include <algorithm>
 
@@ -6,6 +7,39 @@ namespace ffui {
 namespace {
 constexpr int kPaletteEditId = 6301;
 constexpr int kPaletteListId = 6302;
+
+// Scale a DIP metric to physical pixels for Win32 control layout.
+int Scaled(int dipValue) {
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
+// Lazily creates (once) a GDI brush for a theme color. Cached brushes are
+// invalidated on theme changes (SetDarkTheme) and freed by the destructor so
+// each theme color holds at most one live brush.
+HBRUSH LazyThemeBrush(D2D1_COLOR_F color, HBRUSH& cache) {
+    if (cache == nullptr) {
+        cache = CreateSolidBrush(ffui::ToColorRef(color));
+    }
+    return cache;
+}
+
+// Deletes a cached GDI brush and resets the cache slot.
+void DeleteBrush(HBRUSH& brush) {
+    if (brush != nullptr) {
+        DeleteObject(brush);
+        brush = nullptr;
+    }
+}
+}
+
+CommandPalette::~CommandPalette() {
+    DeleteBrush(ctlEditBrush_);
+    DeleteBrush(ctlListBrush_);
+    DeleteBrush(ctlAccentBrush_);
+    if (paletteFont_ != nullptr) {
+        DeleteObject(paletteFont_);
+        paletteFont_ = nullptr;
+    }
 }
 
 bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, const ShortcutMap* shortcuts,
@@ -17,12 +51,21 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     edit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteEditId)), nullptr, nullptr);
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
-                            WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
+                            WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteListId)), nullptr, nullptr);
     if (edit_ == nullptr || list_ == nullptr) return false;
-    const auto font = reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT));
-    SendMessageW(edit_, WM_SETFONT, font, TRUE);
-    SendMessageW(list_, WM_SETFONT, font, TRUE);
+    // Task 5.3 theming: Segoe UI 14 DIP body font for both controls plus a
+    // fixed owner-draw row height so items match the app's dense row metric.
+    const UINT dpi = static_cast<UINT>(ffui::UiDpiScale() * 96.0f + 0.5f);
+    const int fontSize = static_cast<int>(ffui::UiMetrics::kFontSizeBody);
+    paletteFont_ = CreateFontW(-MulDiv(fontSize, static_cast<int>(dpi), 72), 0, 0, 0, FW_NORMAL,
+                               FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Segoe UI");
+    const HFONT font = paletteFont_ != nullptr ? paletteFont_
+                                               : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    SendMessageW(edit_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    SendMessageW(list_, LB_SETITEMHEIGHT, 0, static_cast<LPARAM>(Scaled(static_cast<int>(ffui::UiMetrics::kRowHeight))));
     return true;
 }
 
@@ -51,12 +94,12 @@ void CommandPalette::Reposition() {
     GetClientRect(owner_, &client);
     const int clientWidth = static_cast<int>(client.right - client.left);
     const int clientHeight = static_cast<int>(client.bottom - client.top);
-    const int width = (std::min)(560, (std::max)(240, clientWidth - 40));
-    const int height = (std::min)(360, (std::max)(140, clientHeight - 80));
+    const int width = (std::min)(Scaled(560), (std::max)(Scaled(240), clientWidth - Scaled(40)));
+    const int height = (std::min)(Scaled(360), (std::max)(Scaled(140), clientHeight - Scaled(80)));
     const int left = (client.right - width) / 2;
-    const int top = (std::max)(20, (clientHeight - height) / 4);
-    SetWindowPos(edit_, HWND_TOP, left, top, width, 30, SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, left, top + 32, width, height - 32, SWP_SHOWWINDOW);
+    const int top = (std::max)(Scaled(20), (clientHeight - height) / 4);
+    SetWindowPos(edit_, HWND_TOP, left, top, width, Scaled(30), SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, left, top + Scaled(32), width, height - Scaled(32), SWP_SHOWWINDOW);
 }
 
 void CommandPalette::RefreshResults() {
@@ -121,6 +164,74 @@ bool CommandPalette::HandleOwnerCommand(WPARAM wParam, LPARAM lParam) {
         return true;
     }
     return false;
+}
+
+void CommandPalette::SetDarkTheme(bool dark) {
+    if (darkTheme_ == dark) return;
+    darkTheme_ = dark;
+    DeleteBrush(ctlEditBrush_);
+    DeleteBrush(ctlListBrush_);
+    DeleteBrush(ctlAccentBrush_);
+    if (edit_ != nullptr) InvalidateRect(edit_, nullptr, FALSE);
+    if (list_ != nullptr) InvalidateRect(list_, nullptr, FALSE);
+}
+
+bool CommandPalette::HandleDrawItem(LPARAM lParam) {
+    const auto* item = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+    if (item == nullptr || item->hwndItem != list_ || item->itemID == static_cast<UINT>(-1)) return false;
+    wchar_t text[1024]{};
+    if (SendMessageW(list_, LB_GETTEXT, item->itemID, reinterpret_cast<LPARAM>(text)) == LB_ERR) return true;
+    const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    const bool enabled = item->itemID < results_.size() && results_[item->itemID].enabled;
+    if (ffui::UiSystemHighContrast()) {
+        FillRect(item->hDC, &item->rcItem, GetSysColorBrush(selected && enabled ? COLOR_HIGHLIGHT : COLOR_WINDOW));
+        SetTextColor(item->hDC,
+                     GetSysColor(!enabled ? COLOR_GRAYTEXT : selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
+    } else {
+        const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+        const bool emphasized = selected && enabled;
+        const HBRUSH backgroundBrush = LazyThemeBrush(emphasized ? theme.accent : theme.background,
+                                                      emphasized ? ctlAccentBrush_ : ctlListBrush_);
+        FillRect(item->hDC, &item->rcItem, backgroundBrush);
+        SetTextColor(item->hDC, ffui::ToColorRef(!enabled ? theme.textSecondary
+                                                          : emphasized ? theme.textOnAccent : theme.text));
+    }
+    SetBkMode(item->hDC, TRANSPARENT);
+    RECT textRect = item->rcItem;
+    textRect.left += Scaled(8);
+    textRect.right -= Scaled(8);
+    DrawTextW(item->hDC, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(item->hDC, &item->rcItem);
+    return true;
+}
+
+LRESULT CommandPalette::HandleCtlColor(UINT message, WPARAM wParam, LPARAM lParam) {
+    const HDC dc = reinterpret_cast<HDC>(wParam);
+    const HWND control = reinterpret_cast<HWND>(lParam);
+    if (dc == nullptr || control == nullptr) return 0;
+    if (message == WM_CTLCOLOREDIT && control == edit_) {
+        if (ffui::UiSystemHighContrast()) {
+            SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+            SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+            return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+        }
+        const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+        SetBkColor(dc, ffui::ToColorRef(theme.surfaceElevated));
+        SetTextColor(dc, ffui::ToColorRef(theme.text));
+        return reinterpret_cast<LRESULT>(LazyThemeBrush(theme.surfaceElevated, ctlEditBrush_));
+    }
+    if (message == WM_CTLCOLORLISTBOX && control == list_) {
+        if (ffui::UiSystemHighContrast()) {
+            SetBkColor(dc, GetSysColor(COLOR_WINDOW));
+            SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
+            return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_WINDOW));
+        }
+        const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+        SetBkColor(dc, ffui::ToColorRef(theme.background));
+        SetTextColor(dc, ffui::ToColorRef(theme.text));
+        return reinterpret_cast<LRESULT>(LazyThemeBrush(theme.background, ctlListBrush_));
+    }
+    return 0;
 }
 
 } // namespace ffui

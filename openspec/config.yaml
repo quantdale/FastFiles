@@ -3,18 +3,48 @@ schema: spec-driven
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  FastFiles is a Windows-only C++20 native file manager built around a persistent
+  NTFS index. It is assembled from three executables over shared static libs:
+  FastFilesIndexSvc (privileged Windows service), FastFilesEngine (unprivileged,
+  per-logon-session index owner), and FastFiles (Direct2D/DirectComposition
+  desktop shell). The product rests on a three-process privileged/unprivileged
+  split so raw MFT/USN access (which needs elevation on every DeviceIoControl)
+  never forces the app to run as admin for normal use. CMake FATAL_ERRORs on
+  non-Windows; there is no cross-platform layer (Win32/COM/Direct2D/NTFS only).
+
+  Tech stack: C++20, CMake (presets debug/release/analyze), MSVC with
+  /W4 /WX - warnings are errors, named-pipe IPC (ffipc/ffprotocol), vendored
+  SQLite (ffindexstore), PowerShell verification harness (verify/verify.ps1,
+  verify/intake.ps1). Tests are plain C++ executables registered with CTest
+  (no gtest/catch), using a hand-rolled Check() helper.
+
+  Security model: the privileged service runs as LocalSystem as a deliberately
+  constrained privileged broker (see openspec/changes/resolve-raw-volume-
+  privilege-insufficiency/evidence/matrix-execution-and-selection.md). It is
+  stateless with a closed command protocol, symmetric mutually-authenticated
+  signed-peer pins, and query-only SCM rights for the client group. The
+  constrained-broker architecture is the authoritative 'why' record in
+  openspec/changes/establish-architecture-foundation/design.md (decisions
+  D1-D6 + an adversarial Risks section).
+
+  Workflow convention: work is organized as changes under
+  openspec/changes/<name>/ with proposal.md, design.md, specs/<capability>/spec.md,
+  and tasks.md. tasks.md files are the source of truth for built vs. deferred;
+  code comments frequently cite task numbers (e.g. '// Task 4.10:'). Consult the
+  relevant tasks.md before implementing a feature and check off items as done.
 
 # Per-artifact rules (optional)
 # Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+rules:
+  proposal:
+    - Keep proposals focused and scoped to one capability; state goals, non-goals, and open questions.
+    - Reference the foundation design (establish-architecture-foundation) when the change touches process boundaries, IPC, or the security model.
+  design:
+    - Record decisions as numbered D1..Dn with explicit 'Why' and any accepted trade-offs.
+    - When a later change supersedes an earlier decision, mark the superseded text and point to the new decision evidence rather than silently deleting it.
+  spec:
+    - Define testable, acceptance-style requirements per capability; enumerate success, malformed-input, recovery, and boundary cases.
+  tasks:
+    - Number tasks by capability section (e.g. 5.1, 5.2) and keep the numbering contiguous; renumber when a gap is introduced.
+    - Mark completed items [x] with a brief note of the implementing code/symbol and any residual validation that is still pending.

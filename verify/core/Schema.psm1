@@ -58,9 +58,22 @@ function Test-JsonSchemaNode {
         }
         if ($Schema.properties) {
             foreach ($propName in $Schema.properties.PSObject.Properties.Name) {
-                $propValue = Get-PropertyValue -Data $Data -Name $propName
-                if ($null -ne $propValue) {
-                    Test-JsonSchemaNode -Data $propValue -Schema $Schema.properties.$propName -Path "$Path.$propName" -Errors $Errors
+                $propSchema = $Schema.properties.$propName
+                # Distinguish "property absent" from "property present with a null value".
+                # A present-but-null value must be validated (or explicitly allowed via the
+                # schema, e.g. type ["string","null"]) — never silently skipped.
+                $hasProp = $false
+                $propValue = $null
+                if ($Data -is [System.Collections.IDictionary]) {
+                    $hasProp = $Data.Contains($propName)
+                    if ($hasProp) { $propValue = $Data[$propName] }
+                } else {
+                    $prop = $Data.PSObject.Properties[$propName]
+                    $hasProp = $null -ne $prop
+                    if ($hasProp) { $propValue = $prop.Value }
+                }
+                if ($hasProp) {
+                    Test-JsonSchemaNode -Data $propValue -Schema $propSchema -Path "$Path.$propName" -Errors $Errors
                 }
             }
         }
@@ -73,24 +86,6 @@ function Test-JsonSchemaNode {
             $i++
         }
     }
-}
-
-function Get-PropertyValue {
-    # Note the unary-comma wrapping on every non-null return: PowerShell enumerates
-    # (unrolls) any collection written to a function's output pipeline, so a
-    # single-element array value would otherwise come back to the caller as its
-    # bare scalar element and an empty array would come back as $null — silently
-    # destroying "is this an array" information the schema's array-type check
-    # depends on. Wrapping with ",<value>" makes the pipeline unroll the wrapper
-    # by exactly one level, handing the caller the original value untouched.
-    param($Data, [string]$Name)
-    if ($Data -is [System.Collections.IDictionary]) {
-        if ($Data.Contains($Name)) { return , $Data[$Name] }
-        return $null
-    }
-    $prop = $Data.PSObject.Properties[$Name]
-    if ($prop) { return , $prop.Value }
-    return $null
 }
 
 function Test-JsonType {

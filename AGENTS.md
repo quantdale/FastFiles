@@ -8,12 +8,14 @@ FastFiles is a Windows-only C++20 native file manager built around a persistent 
 
 Three executables over shared static libs; each `src/<name>/` is one CMake target. Public headers live in each component's `include/ff*` directory; implementation files in `src/`.
 
-- **FastFilesIndexSvc** (`src/indexsvc/`) — the **privileged** Windows service. Runs under a virtual service account with **`SeBackupPrivilege` only** (never LocalSystem/admin). Intentionally **stateless**: a thin, narrow relay for raw MFT/USN bytes — no index, no query parsing.
+- **FastFilesIndexSvc** (`src/indexsvc/`) — the **privileged** Windows service. Runs under **LocalSystem** as a deliberately *constrained privileged broker* — the evidence-backed decision of `resolve-raw-volume-privilege-insufficiency` (see `openspec/changes/resolve-raw-volume-privilege-insufficiency/evidence/matrix-execution-and-selection.md`), because no narrow user right or group membership opens a raw volume device on modern Windows. Intentionally **stateless**: a thin, narrow relay for raw MFT/USN bytes — no index, no query parsing. The compensating mitigations that keep it a *constrained broker* rather than "the whole product as admin": stateless and closed command surface, symmetric signed-peer authentication, an SCM object granting the client group query-only rights, and startup privilege-set verification.
 - **FastFilesEngine** (`src/engine/`) — the **unprivileged**, per-logon-session process that *owns* the index and the privileged-connection lifecycle. Entry: `src/engine/src/Main.cpp`.
 - **FastFiles** (`src/ui/`) — the desktop shell (`WIN32` GUI). Direct2D/DirectComposition Column View (`d3d11 dxgi d2d1 dwrite dcomp`).
 - **FastFilesSetup** (`src/installer/`) — installer/setup entry point driving `ffsetup`.
 
 Shared libs: `ffprotocol` (wire protocol — depended on by everything), `ffipc` (named-pipe framing/listener), `ffindexstore` (SQLite store + in-memory projection), `ffsearch` (query parsing/history), `ffsetup` (privileged install-time ops: service/group/ACL/task registration, Authenticode verification), `fftest` (privilege-diagnostics probe binary).
+
+**UI presentation layer** (`src/ui/src/`, part of the `FastFiles` target): a single Fluent-style design-token set in `UITheme.h` (`GetUiTheme(bool dark)` + `UiMetrics`; `ToColorRef`/`ToD2DColor` for GDI chrome; `gUiDarkTheme` global published by `WindowShell::ApplyTheme`; `UiSystemHighContrast()` gates token overlays), plus shared helpers `UiStyle.h` (rounded-rect fill/stroke, solid-brush ensure, `UiLerpColor`), `UiAnimation.h` (`SystemAnimationsEnabled()` + `FloatAnimation` ease-out lerp, gated and snap-instant when animations are off), and `IconCache.h` (bounded, DPI-aware, off-thread system image-list icons keyed by extension/folder, posted to the owner via `WM_APP_ICON_READY`). Every surface — Direct2D and owner-drawn Win32 chrome — sources colors/radii/spacing from this token set; new UI code must not hardcode `RGB`/`GetSysColor` literals (except High-Contrast fallbacks). Device loss (`D2DERR_RECREATE_TARGET`) is recovered by `Renderer` and fanned out to consumers via the same `ApplyTheme`-style dirty-marking.
 
 **Two IPC seams, both named pipes only** — the only kernel-object type on purpose (one thing to ACL correctly; reference impls Everything and Docker Desktop shipped LPE/DoS CVEs from object-ACL mistakes here). 1) Engine↔Service = the elevation boundary (hardened hard). 2) Engine↔UI = same-privilege control plane only.
 
@@ -21,7 +23,7 @@ Shared libs: `ffprotocol` (wire protocol — depended on by everything), `ffipc`
 
 ## Current state: degraded mode is the active path
 
-**The privileged MFT/USN scan calls are currently stubbed.** Column View browses entirely through the degraded path today: unprivileged `FindFirstFileEx` tree walks + one `ReadDirectoryChangesW` watch per browsed/pinned root (`DegradedModeEnumerator`, `DirectoryWatcher`), shown as a small non-modal status badge. Degraded mode is a first-class, permanent state — not an error path — so any UI/engine work must keep working without the service. Do not assume MFT/USN scanning works end-to-end.
+**The privileged MFT/USN scan is implemented** (`VolumeScanner.cpp`, `UsnJournalReader.cpp`, `MftParser.cpp`, wired into `ServiceConnection.cpp`). Degraded mode remains the active/safe path today because the mutual-auth signature pins are placeholder and live-service operational validation is pending. Column View browses through the degraded path: unprivileged `FindFirstFileEx` tree walks + one `ReadDirectoryChangesW` watch per browsed/pinned root (`DegradedModeEnumerator`, `DirectoryWatcher`), shown as a small non-modal status badge. Degraded mode is a first-class, permanent state — not an error path — so any UI/engine work must keep working without the service. Do not assume the privileged scan path is production-validated end-to-end.
 
 ## Security invariants — do not regress
 

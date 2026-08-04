@@ -1,9 +1,13 @@
 #include "ColumnView.h"
 #include "SelectionModel.h"
 #include "UITheme.h"
+#include "UiAnimation.h"
+#include "UiStyle.h"
+#include "IconCache.h"
 
 #include <algorithm>
 #include <cwchar>
+#include <functional>
 #include <windows.h>
 
 namespace ffui {
@@ -18,6 +22,20 @@ std::wstring JoinPath(const std::wstring& base, const std::wstring& name) {
         return base + name;
     }
     return base + L'\\' + name;
+}
+
+// Task 3.2: extension of a display name (L"report.pdf" -> L"pdf"), used to
+// key the shared type-icon cache; IconKeyForExtension normalizes the leading
+// dot. Dotfiles, extensionless names, and the "C:\" drive rows all yield the
+// empty string, which maps to the generic file icon.
+std::wstring FileExtensionOf(const std::wstring& fileName) {
+    const size_t nameStart = fileName.find_last_of(L"\\/");
+    const size_t nameIndex = nameStart == std::wstring::npos ? 0 : nameStart + 1;
+    const size_t dot = fileName.find_last_of(L'.');
+    if (dot == std::wstring::npos || dot < nameIndex || dot + 1 >= fileName.size()) {
+        return {};
+    }
+    return fileName.substr(dot + 1);
 }
 
 } // namespace
@@ -200,6 +218,50 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
     const int columnIndex = static_cast<int>((clientPoint.x + effectiveScrollOffset) / kColumnWidth);
     const int itemIndex = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
     ActivateItem(columnIndex, itemIndex, control, shift);
+}
+
+void ColumnView::SetIconCache(IconCache* iconCache) {
+    iconCache_ = iconCache;
+}
+
+void ColumnView::SetRepaintCallback(std::function<void()> repaint) {
+    repaint_ = std::move(repaint);
+}
+
+void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth) {
+    if (clientPoint.y < kBadgeHeight) {
+        return; // over the status badge: not hovering any row
+    }
+    if (dualPane_) {
+        const float paneWidth = viewportWidth / 2.0f;
+        const int hoveredPane = clientPoint.x < paneWidth ? 0 : 1;
+        if (hoveredPane != activePane_) {
+            ActivatePane(hoveredPane); // keep hover coords in the active pane, as OnMouseDown does
+        }
+    }
+    const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
+    hoverColumn_ = static_cast<int>((clientPoint.x + effectiveScrollOffset) / kColumnWidth);
+    hoverItem_ = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
+    hoverActive_ = true;
+    hoverEnterMs_ = static_cast<uint64_t>(GetTickCount64());
+    hoverOpacity_.AnimateTo(1.0f, kUiAnimationDefaultMs, hoverEnterMs_);
+    if (repaint_) {
+        repaint_();
+    }
+}
+
+void ColumnView::OnMouseLeave() {
+    hoverActive_ = false;
+    hoverLeaveMs_ = static_cast<uint64_t>(GetTickCount64());
+    hoverOpacity_.AnimateTo(0.0f, kUiAnimationDefaultMs, hoverLeaveMs_);
+    if (repaint_) {
+        repaint_();
+    }
+}
+
+bool ColumnView::HoverAnimating() const {
+    return hoverActive_ ||
+           (hoverLeaveMs_ != 0 && (GetTickCount64() - hoverLeaveMs_) < static_cast<uint64_t>(kUiAnimationDefaultMs));
 }
 
 std::vector<std::wstring> ColumnView::ActiveSelectionPaths() const {
@@ -484,6 +546,7 @@ void ColumnView::SetDarkTheme(bool dark) {
         folderGlyphBrush_.Reset(); fileGlyphBrush_.Reset(); errorBrush_.Reset();
         badgeActiveBrush_.Reset(); badgeActiveTextBrush_.Reset();
         badgeDegradedBrush_.Reset(); badgeDegradedTextBrush_.Reset();
+        selectionSoftBrush_.Reset(); dividerBrush_.Reset(); hoverOverlayBrush_.Reset();
     }
 }
 
@@ -557,6 +620,9 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
     context->CreateSolidColorBrush(theme.badgeActiveText, &badgeActiveTextBrush_);
     context->CreateSolidColorBrush(theme.badgeDegradedBg, &badgeDegradedBrush_);
     context->CreateSolidColorBrush(theme.badgeDegradedText, &badgeDegradedTextBrush_);
+    context->CreateSolidColorBrush(theme.selectionSoft, &selectionSoftBrush_);
+    context->CreateSolidColorBrush(theme.dividerSubtle, &dividerBrush_);
+    context->CreateSolidColorBrush(theme.hoverOverlay, &hoverOverlayBrush_);
 
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -573,19 +639,36 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
     EnsureCreated(context, dwriteFactory);
 
-    context->Clear(ffui::GetUiTheme(darkTheme_).background);
+    const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+    context->Clear(theme.background);
 
-    // Task 5.9: non-modal engine-connection-state status badge.
-    D2D1_RECT_F badgeRect = D2D1::RectF(0, 0, viewportSize.width, kBadgeHeight);
-    context->FillRectangle(badgeRect, engineActive_ ? badgeActiveBrush_.Get() : badgeDegradedBrush_.Get());
+    // Task 3.6: engine-connection-status text as a rounded chip (paint-only,
+    // deliberately non-interactive).
+    D2D1_RECT_F badgeRect = D2D1::RectF(8.0f, 4.0f, viewportSize.width - 8.0f, kBadgeHeight - 4.0f);
+    ffui::UiFillRoundedRect(context, badgeRect,
+                            engineActive_ ? badgeActiveBrush_.Get() : badgeDegradedBrush_.Get(),
+                            ffui::UiMetrics::kRadiusSmall);
     const wchar_t* badgeText = engineActive_ ? L"Instant search: enabled" : L"Instant search: basic — click to enable";
-    D2D1_RECT_F badgeTextRect = D2D1::RectF(10, 0, viewportSize.width - 10, kBadgeHeight);
+    D2D1_RECT_F badgeTextRect = D2D1::RectF(16.0f, 4.0f, viewportSize.width - 16.0f, kBadgeHeight - 4.0f);
     context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect,
                       engineActive_ ? badgeActiveTextBrush_.Get() : badgeDegradedTextBrush_.Get());
 
+    // High Contrast: drive every selection through the system highlight
+    // (UiEnsureSolidBrush compares colors and reuses the cached brush) and
+    // suppress the token hover overlay in the row loop below.
+    const bool highContrast = ffui::UiSystemHighContrast();
+    if (highContrast) {
+        ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHT)), &selectionBrush_);
+    }
+
+    const uint64_t nowMs = static_cast<uint64_t>(GetTickCount64());
+    // Task 3.4: there is a single hover target, so the fade advances once per
+    // frame; the shell only repaints while HoverAnimating() holds.
+    hoverOpacity_.Tick(nowMs);
+
     std::lock_guard<std::mutex> lock(columnsMutex_);
 
-    auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll) {
+    auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll, bool isActivePane) {
         for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
             const float x = paneX + i * kColumnWidth - paneScroll;
             if (x + kColumnWidth < paneX || x > paneX + paneWidth) {
@@ -595,8 +678,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
             D2D1_RECT_F columnRect = D2D1::RectF(x, kBadgeHeight, x + kColumnWidth, viewportSize.height);
             context->FillRectangle(columnRect, backgroundBrush_.Get());
+            // Task 3.6: subtle 1-DIP hairline between columns.
             context->DrawLine(D2D1_POINT_2F{x + kColumnWidth, kBadgeHeight}, D2D1_POINT_2F{x + kColumnWidth, viewportSize.height},
-                               borderBrush_.Get(), 1.0f);
+                              dividerBrush_.Get(), 1.0f);
 
             if (column.error != ColumnErrorState::None) {
                 const wchar_t* message = column.error == ColumnErrorState::AccessDenied
@@ -620,38 +704,79 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     continue;
                 }
 
+                const ColumnItem& item = column.items[r];
                 const bool isSelected = column.selectedIndices.contains(r);
-                if (isSelected) {
-                    D2D1_RECT_F selectionRect = D2D1::RectF(x, y, x + kColumnWidth, y + kRowHeight);
-                    const float opacity = (i == (activePane_ == 0 ? focusedColumnIndex_ : focusedColumnIndex2_)) ? 1.0f : 0.35f;
-                    selectionBrush_->SetOpacity(opacity);
-                    context->FillRectangle(selectionRect, selectionBrush_.Get());
-                    selectionBrush_->SetOpacity(1.0f);
+                const bool isFocusedColumn = (i == (activePane_ == 0 ? focusedColumnIndex_ : focusedColumnIndex2_));
+                // Task 3.4: hover tracks the active pane only; the lingering
+                // fade-out window (150 ms after OnMouseLeave) keeps the pill
+                // visible while it dims. Overlay is skipped in High Contrast.
+                const bool lingerFade = hoverLeaveMs_ != 0 && (nowMs - hoverLeaveMs_) < static_cast<uint64_t>(kUiAnimationDefaultMs);
+                const bool hoverRow = isActivePane && hoverColumn_ == i && hoverItem_ == r && !isSelected && (hoverActive_ || lingerFade);
+                if (hoverRow && !highContrast) {
+                    const float alpha = hoverOpacity_.Value();
+                    if (alpha > 0.001f) {
+                        D2D1_RECT_F hoverRect = D2D1::RectF(x + 4, y + 2, x + kColumnWidth - 4, y + kRowHeight - 2);
+                        D2D1_COLOR_F transparentOverlay = theme.hoverOverlay;
+                        transparentOverlay.a = 0.0f;
+                        const D2D1_COLOR_F overlayColor = ffui::UiLerpColor(transparentOverlay, theme.hoverOverlay, alpha);
+                        ffui::UiFillHoverOverlay(context, hoverRect, ffui::UiMetrics::kRadiusSmall, overlayColor, &hoverOverlayBrush_);
+                    }
                 }
 
-                D2D1_RECT_F glyphRect = D2D1::RectF(x + 8, y + kRowHeight / 2 - 4, x + 16, y + kRowHeight / 2 + 4);
-                context->FillRectangle(glyphRect, column.items[r].isDirectory ? folderGlyphBrush_.Get() : fileGlyphBrush_.Get());
+                // Task 3.3: rounded selection pill; the focused column uses the
+                // full accent (text flips to textOnAccent), elsewhere the soft
+                // translucent fill keeps body text legible.
+                if (isSelected) {
+                    D2D1_RECT_F selectionRect = D2D1::RectF(x + 4, y + 2, x + kColumnWidth - 4, y + kRowHeight - 2);
+                    ID2D1SolidColorBrush* selectionBrush = (highContrast || isFocusedColumn) ? selectionBrush_.Get() : selectionSoftBrush_.Get();
+                    ffui::UiFillRoundedRect(context, selectionRect, selectionBrush, ffui::UiMetrics::kRadiusSmall);
+                }
 
-                std::wstring label = column.items[r].name;
-                if (column.items[r].isDirectory && (label.empty() || label.back() != L'\\')) {
+                // Task 3.2: type icon from the shared cache; the themed glyph
+                // rectangle stays as the placeholder until the bitmap arrives.
+                std::wstring iconKey = item.isDirectory ? std::wstring(ffui::FolderKey())
+                                                        : ffui::IconKeyForExtension(FileExtensionOf(item.name));
+                if (iconCache_ != nullptr) {
+                    iconCache_->Prefetch(iconKey); // cheap: dedupes against cache/pending/queued
+                }
+                ID2D1Bitmap1* icon = nullptr;
+                if (iconCache_ != nullptr && iconCache_->Get(context, iconKey, &icon) && icon != nullptr) {
+                    const float iconY = y + (kRowHeight - ffui::UiMetrics::kIconSize) / 2.0f;
+                    context->DrawBitmap(icon,
+                                        D2D1::RectF(x + 8, iconY, x + 8 + ffui::UiMetrics::kIconSize, iconY + ffui::UiMetrics::kIconSize),
+                                        1.0f, D2D1_INTERPOLATION_MODE_LINEAR);
+                } else {
+                    D2D1_RECT_F glyphRect = D2D1::RectF(x + 8, y + kRowHeight / 2 - 4, x + 16, y + kRowHeight / 2 + 4);
+                    context->FillRectangle(glyphRect, item.isDirectory ? folderGlyphBrush_.Get() : fileGlyphBrush_.Get());
+                }
+
+                std::wstring label = item.name;
+                if (item.isDirectory && (label.empty() || label.back() != L'\\')) {
                     label += L'\\';
                 }
                 D2D1_RECT_F textRect = D2D1::RectF(x + 24, y, x + kColumnWidth - 4, y + kRowHeight);
-                // White text on the accent selection for contrast in both themes.
+                // White text on the accent selection for contrast in both
+                // themes; soft (unfocused) selections keep the normal text
+                // brush so body text stays legible on the translucent fill.
                 context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect,
-                                  isSelected ? textOnAccentBrush_.Get() : textBrush_.Get());
+                                  isSelected && isFocusedColumn ? textOnAccentBrush_.Get() : textBrush_.Get());
+                // Task 3.3: folder chevron affordance at the right edge.
+                if (item.isDirectory) {
+                    D2D1_RECT_F chevronRect = D2D1::RectF(x + kColumnWidth - 16, y, x + kColumnWidth - 4, y + kRowHeight);
+                    context->DrawText(L"\u203A", 1, textFormat_.Get(), chevronRect, textSecondaryBrush_.Get());
+                }
             }
         }
     };
 
     if (dualPane_) {
         const float paneWidth = viewportSize.width / 2.0f;
-        RenderPane(columns_, 0.0f, paneWidth, scrollOffset);
+        RenderPane(columns_, 0.0f, paneWidth, scrollOffset, activePane_ == 0);
         context->DrawLine(D2D1_POINT_2F{paneWidth, kBadgeHeight}, D2D1_POINT_2F{paneWidth, viewportSize.height},
                            borderBrush_.Get(), 2.0f);
-        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2);
+        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2, activePane_ == 1);
     } else {
-        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset);
+        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset, true);
     }
 }
 

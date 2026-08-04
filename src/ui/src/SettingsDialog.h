@@ -42,10 +42,22 @@ public:
     // stream); folded into the per-volume derivation the same way the
     // headline badge does it, so status display and badge never diverge.
     void SetEngineActive(bool active);
+    // settings-and-appearance §5.4: dark/light theme for the dialog. Called by
+    // WindowShell::ApplyTheme (which also publishes gUiDarkTheme); stores the
+    // flag, re-creates the themed background brush, re-applies the DWM dark
+    // title bar, and repaints the dialog + its controls.
+    void SetDarkTheme(bool dark);
 
 private:
     static LRESULT CALLBACK WndProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
+    // §5.4: rebuilds themeBrush_ from the active theme's background token.
+    void UpdateThemeBrush();
+    // §5.4: applies (or removes) the Win11 immersive dark title bar on dialog_.
+    void ApplyDwmDarkTitleBar();
+    // §5.4: shared WM_CTLCOLOR* helper — sets DC text/bk colors from the active
+    // theme and returns the themed background brush for the control/dialog.
+    HBRUSH ThemeControlColor(HDC hdc);
 
     void CreateControls(HWND hwnd);
     void PopulateGeneralPage();
@@ -87,6 +99,12 @@ private:
     bool visible_ = false;
     bool engineActive_ = false;
     int currentPage_ = 0;
+    // §5.4: active theme flag (mirrors gUiDarkTheme, which WindowShell owns)
+    // and the dialog background brush created from GetUiTheme(darkTheme_).back-
+    // ground; returned from WM_CTLCOLORDLG/WM_CTLCOLOR* so statics/edits/list-
+    // boxes are never blinding-white in dark mode. Freed in ~SettingsDialog.
+    bool darkTheme_ = false;
+    HBRUSH themeBrush_ = nullptr;
 
     // Search page controls
     HWND searchScopeCombo_ = nullptr;

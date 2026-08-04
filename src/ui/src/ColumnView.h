@@ -1,7 +1,13 @@
 #pragma once
+// Design tokens/metrics; kColumnWidth/kRowHeight/kBadgeHeight alias UiMetrics
+// constants at the bottom of the class so they cannot diverge from the shared
+// ramp (see modernize-ui-appearance foundation).
+#include "UITheme.h"
+#include "UiAnimation.h"
 #include <atomic>
 #include <d2d1_1.h>
 #include <dwrite.h>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -18,6 +24,10 @@
 #include "CommandSystem.h"
 
 namespace ffui {
+
+// Provided by the shared type-icon cache (IconCache.h); forward-declared here
+// because ColumnView only stores the pointer and never needs the complete type.
+class IconCache;
 
 struct ColumnItem {
     std::wstring name;
@@ -71,6 +81,17 @@ public:
     // a column/item index and calls ActivateItem).
     void OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth, bool control, bool shift);
 
+    // Task 3 restyle: paint-only hover tracking (reuses OnMouseDown's hit-test
+    // math minus the activation — hovering never selects), the repaint bridge
+    // that wakes the shell while the fade is in flight, and the shared
+    // type-icon cache. WindowShell keeps its animation timer alive while
+    // HoverAnimating() returns true so Render can advance the fade each frame.
+    void SetIconCache(IconCache* iconCache);
+    void SetRepaintCallback(std::function<void()> repaint);
+    void OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth);
+    void OnMouseLeave();
+    bool HoverAnimating() const;
+
     // Dual-pane (task 6.1/6.4): enable/disable the second navigation
     // surface and switch active pane. When disabled, only pane 0 is used.
     void SetDualPane(bool enabled);
@@ -117,9 +138,11 @@ public:
     std::optional<FileDescriptor> CurrentSelection() const;
     SelectionSummary CurrentSelectionSummary() const;
     std::wstring CurrentPath() const;
-    static constexpr float kColumnWidth = 240.0f;
-    static constexpr float kRowHeight = 24.0f;
-    static constexpr float kBadgeHeight = 28.0f;
+    // Aliased to the shared UiMetrics ramp (UITheme.h) so the render and any
+    // consumers referencing ColumnView::k* constants cannot drift.
+    static constexpr float kColumnWidth = UiMetrics::kColumnWidth;
+    static constexpr float kRowHeight = UiMetrics::kRowHeight;
+    static constexpr float kBadgeHeight = UiMetrics::kBadgeHeight;
 
 private:
     void TruncateAfter(int columnIndex);
@@ -153,8 +176,22 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeActiveTextBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedTextBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selectionSoftBrush_;  // unfocused-selection soft fill
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;        // subtle 1-DIP column hairline
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hoverOverlayBrush_;   // hover overlay (alpha faded per frame)
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
+    // Task 3 restyle: hover overlay state (see OnMouseMove/OnMouseLeave/
+    // HoverAnimating). hoverOpacity_ is advanced by Render every frame the
+    // shell repaints under the HoverAnimating() contract.
+    IconCache* iconCache_ = nullptr;
+    std::function<void()> repaint_;
+    int hoverItem_ = -1;
+    int hoverColumn_ = -1;
+    bool hoverActive_ = false;
+    uint64_t hoverEnterMs_ = 0;
+    uint64_t hoverLeaveMs_ = 0;
+    ffui::FloatAnimation hoverOpacity_;
     bool resourcesCreated_ = false;
     bool darkTheme_ = false;
     std::wstring pendingSelectionName_;

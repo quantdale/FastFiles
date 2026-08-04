@@ -6,6 +6,8 @@
 
 #include "ffprotocol/Commands.h"
 
+#include "WriteDeadline.h"
+
 namespace ffindexsvc {
 
 // Why a journal stream ended -- lets the caller (ServiceConnection)
@@ -25,9 +27,9 @@ enum class JournalStreamOutcome {
     ResumePositionInvalid,
 };
 
-// index-storage-and-scanning tasks.md 5.1/5.2/5.4: replaces the
-// NotYetImplemented OpenUsnJournal stub with real
-// FSCTL_QUERY_USN_JOURNAL/FSCTL_READ_USN_JOURNAL-based streaming.
+// index-storage-and-scanning tasks.md 5.1/5.2/5.4: implements real
+// FSCTL_QUERY_USN_JOURNAL/FSCTL_READ_USN_JOURNAL-based streaming for
+// OpenUsnJournal.
 //
 // Immediately sends a MessageType::UsnJournalOpened frame carrying the
 // volume's current JournalId (tasks.md 5.2/spec "USN Journal Identity
@@ -61,6 +63,7 @@ JournalStreamOutcome RunUsnJournalStream(
     ffprotocol::VolumeId volumeId,
     wchar_t driveLetter,
     uint64_t resumeUsn,
-    const std::atomic<bool>& shouldStop);
+    const std::atomic<bool>& shouldStop,
+    WriteDeadlineState* deadline);
 
 } // namespace ffindexsvc

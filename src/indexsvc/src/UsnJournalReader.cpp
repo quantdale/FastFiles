@@ -12,6 +12,7 @@
 
 #include "MftParser.h"
 #include "PrivilegeVerification.h"
+#include "WriteDeadline.h"
 
 namespace ffindexsvc {
 
@@ -24,14 +25,16 @@ constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
 constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
 
 bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
-                        uint64_t currentUsn) {
+                        uint64_t currentUsn, WriteDeadlineState* deadline) {
     ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
+    WriteDeadlineGuard deadlineGuard(deadline);
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                       const std::vector<ffprotocol::UsnDeltaV1>& records, uint64_t latestUsn) {
+                       const std::vector<ffprotocol::UsnDeltaV1>& records, uint64_t latestUsn,
+                       WriteDeadlineState* deadline) {
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaBatch(records);
 
     ffprotocol::JournalRecordBatchHeader header{};
@@ -46,6 +49,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
+    WriteDeadlineGuard deadlineGuard(deadline);
     return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
                               payload.data(), static_cast<uint32_t>(payload.size()));
 }
@@ -113,7 +117,8 @@ bool QueryOrCreateUsnJournal(HANDLE volumeHandle, USN_JOURNAL_DATA_V0& journalDa
 
 JournalStreamOutcome RunUsnJournalStream(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter, uint64_t resumeUsn,
-    const std::atomic<bool>& shouldStop) {
+    const std::atomic<bool>& shouldStop,
+    WriteDeadlineState* deadline) {
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
 
     // SeBackupPrivilege must be explicitly enabled (not just held) for
@@ -138,7 +143,7 @@ JournalStreamOutcome RunUsnJournalStream(
     }
 
     if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID),
-                            static_cast<uint64_t>(journalData.NextUsn))) {
+                            static_cast<uint64_t>(journalData.NextUsn), deadline)) {
         CloseHandle(volumeHandle);
         return JournalStreamOutcome::Ended;
     }
@@ -229,6 +234,18 @@ JournalStreamOutcome RunUsnJournalStream(
                 // tasks.md 5.3/5.4 still require forwarding the change.
                 delta.fixed.sizeBytes = 0;
                 delta.fixed.fileAttributes = record->FileAttributes;
+                // FileNameOffset/FileNameLength are untrusted on-disk bytes.
+                // The outer loop only bounds RecordLength against the read
+                // buffer; the name range must also be verified to lie within
+                // RecordLength before it is copied, or an out-of-range pair
+                // would read past the record. Reject the whole record (skip
+                // forwarding; the offset below still advances) rather than
+                // forward a truncated/garbage name -- consistent with the
+                // reject-whole-record discipline.
+                if (static_cast<DWORD>(record->FileNameOffset) + record->FileNameLength > record->RecordLength) {
+                    offset += record->RecordLength;
+                    continue;
+                }
                 const auto* nameStart =
                     reinterpret_cast<const char16_t*>(reinterpret_cast<const uint8_t*>(record) + record->FileNameOffset);
                 delta.fileName.assign(nameStart, record->FileNameLength / sizeof(char16_t));
@@ -246,7 +263,7 @@ JournalStreamOutcome RunUsnJournalStream(
         startUsn = nextUsn;
 
         if (!batch.empty()) {
-            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch)) {
+            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch, deadline)) {
                 break;
             }
             batch.clear();

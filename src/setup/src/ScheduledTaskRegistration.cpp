@@ -60,6 +60,19 @@ SetupResult FromHResult(HRESULT hr) noexcept {
 
 _variant_t Empty() noexcept { return _variant_t(); }
 
+// kEngineTaskFolder ("\FastFiles\") is the root-relative folder path; the
+// folder name itself is that path with the surrounding backslashes trimmed,
+// so the three call sites here can never disagree with the constant.
+std::wstring EngineTaskFolderName() {
+    const std::wstring path(kEngineTaskFolder);
+    const size_t first = path.find(L'\\');
+    const size_t last = path.find_last_of(L'\\');
+    if (first != std::wstring::npos && last != std::wstring::npos && last > first) {
+        return path.substr(first + 1, last - first - 1);
+    }
+    return path;
+}
+
 SetupResult GetOrCreateFastFilesFolder(ComPtr<ITaskService>& service, ComPtr<ITaskFolder>& outFolder) noexcept {
     ComPtr<ITaskFolder> rootFolder;
     HRESULT hr = service->GetFolder(_bstr_t(L"\\"), &rootFolder);
@@ -69,7 +82,7 @@ SetupResult GetOrCreateFastFilesFolder(ComPtr<ITaskService>& service, ComPtr<ITa
 
     // Trim the trailing backslash from kEngineTaskFolder ("\FastFiles\")
     // for the folder name itself.
-    _bstr_t folderName(L"FastFiles");
+    _bstr_t folderName(EngineTaskFolderName().c_str());
     ComPtr<ITaskFolder> targetFolder;
     hr = rootFolder->GetFolder(folderName, &targetFolder);
     if (SUCCEEDED(hr)) {
@@ -213,7 +226,7 @@ SetupResult UnregisterEngineScheduledTask() noexcept {
     }
 
     ComPtr<ITaskFolder> folder;
-    hr = rootFolder->GetFolder(_bstr_t(L"FastFiles"), &folder);
+    hr = rootFolder->GetFolder(_bstr_t(EngineTaskFolderName().c_str()), &folder);
     if (FAILED(hr)) {
         // Folder already gone: nothing to uninstall.
         return SetupResult::Ok();
@@ -224,7 +237,7 @@ SetupResult UnregisterEngineScheduledTask() noexcept {
         return FromHResult(hr);
     }
 
-    rootFolder->DeleteFolder(_bstr_t(L"FastFiles"), 0);
+    rootFolder->DeleteFolder(_bstr_t(EngineTaskFolderName().c_str()), 0);
     return SetupResult::Ok();
 }
 

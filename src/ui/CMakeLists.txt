@@ -21,7 +21,12 @@ add_executable(FastFiles WIN32
   src/CategoryEngine.cpp
   src/TreemapView.cpp
   src/Util.cpp
+  src/UiStyle.cpp
+  src/UiAnimation.cpp
+  src/IconCache.cpp
 )
+
+target_include_directories(FastFiles PRIVATE include)
 
 target_link_libraries(FastFiles PRIVATE
   ffprotocol

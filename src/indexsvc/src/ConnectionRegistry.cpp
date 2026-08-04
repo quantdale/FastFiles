@@ -2,9 +2,14 @@
 
 namespace ffindexsvc {
 
-void ConnectionRegistry::MarkVolumeScanStarted(ConnectionId owner, ffprotocol::VolumeId volumeId) {
+bool ConnectionRegistry::TryMarkVolumeScanStarted(ConnectionId owner, ffprotocol::VolumeId volumeId) {
     std::lock_guard<std::mutex> lock(mutex_);
+    auto it = volumeScanOwners_.find(volumeId.value);
+    if (it != volumeScanOwners_.end() && it->second != owner) {
+        return false;  // another live connection owns the scan on this volume
+    }
     volumeScanOwners_[volumeId.value] = owner;
+    return true;
 }
 
 bool ConnectionRegistry::TryStopVolumeScan(ConnectionId requester, ffprotocol::VolumeId volumeId) {
@@ -17,9 +22,14 @@ bool ConnectionRegistry::TryStopVolumeScan(ConnectionId requester, ffprotocol::V
     return true;
 }
 
-void ConnectionRegistry::MarkUsnJournalOpened(ConnectionId owner, ffprotocol::VolumeId volumeId) {
+bool ConnectionRegistry::TryMarkUsnJournalOpened(ConnectionId owner, ffprotocol::VolumeId volumeId) {
     std::lock_guard<std::mutex> lock(mutex_);
+    auto it = usnJournalOwners_.find(volumeId.value);
+    if (it != usnJournalOwners_.end() && it->second != owner) {
+        return false;  // another live connection owns the journal on this volume
+    }
     usnJournalOwners_[volumeId.value] = owner;
+    return true;
 }
 
 bool ConnectionRegistry::TryCloseUsnJournal(ConnectionId requester, ffprotocol::VolumeId volumeId) {

@@ -45,8 +45,7 @@ bool Renderer::Initialize(HWND hwnd) {
     }
 
     ComPtr<IDXGIAdapter> adapter;
-    ComPtr<IDXGIFactory2> dxgiFactory;
-    if (FAILED(dxgiDevice_->GetAdapter(&adapter)) || FAILED(adapter->GetParent(IID_PPV_ARGS(&dxgiFactory)))) {
+    if (FAILED(dxgiDevice_->GetAdapter(&adapter)) || FAILED(adapter->GetParent(IID_PPV_ARGS(&dxgiFactory_)))) {
         return false;
     }
 
@@ -60,7 +59,7 @@ bool Renderer::Initialize(HWND hwnd) {
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
     swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
 
-    if (FAILED(dxgiFactory->CreateSwapChainForComposition(dxgiDevice_.Get(), &swapChainDesc, nullptr, &swapChain_))) {
+    if (FAILED(dxgiFactory_->CreateSwapChainForComposition(dxgiDevice_.Get(), &swapChainDesc, nullptr, &swapChain_))) {
         return false;
     }
 
@@ -110,24 +109,70 @@ void Renderer::Resize(UINT width, UINT height) {
     height_ = height;
 
     d2dContext_->SetTarget(nullptr);
-    swapChain_->ResizeBuffers(0, width_, height_, DXGI_FORMAT_UNKNOWN, 0);
+    const HRESULT hrResize = swapChain_->ResizeBuffers(0, width_, height_, DXGI_FORMAT_UNKNOWN, 0);
+    if (FAILED(hrResize)) {
+        // The swap chain is broken (device removed/reset or render target
+        // recreated); rebuild it from scratch in the new size rather than
+        // presenting stale buffers.
+        RecreateSwapChainAndTarget();
+        return;
+    }
     ApplyDpi();
     CreateTargetBitmap();
 }
 
+bool Renderer::RecreateSwapChainAndTarget() {
+    // Detach the (now stale) target bitmap before replacing the swap chain.
+    d2dContext_->SetTarget(nullptr);
+
+    DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
+    swapChainDesc.Width = width_;
+    swapChainDesc.Height = height_;
+    swapChainDesc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    swapChainDesc.SampleDesc.Count = 1;
+    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    swapChainDesc.BufferCount = 2;
+    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+
+    ComPtr<IDXGISwapChain1> newSwapChain;
+    if (FAILED(dxgiFactory_->CreateSwapChainForComposition(dxgiDevice_.Get(), &swapChainDesc, nullptr, &newSwapChain))) {
+        return false;
+    }
+    swapChain_ = newSwapChain;
+
+    // The composition visual must point at the replacement swap chain; the
+    // commit is required for the new content to take effect.
+    if (FAILED(dcompVisual_->SetContent(swapChain_.Get()))) {
+        return false;
+    }
+    dcompDevice_->Commit();
+
+    if (!CreateTargetBitmap()) {
+        return false;
+    }
+
+    deviceRecreated_ = true;
+    return true;
+}
+
 void Renderer::ApplyDpi() {
     // The D2D device context defaults to 96 DPI. With per-monitor DPI awareness
-    // enabled, set it to the system DPI so all DIP-based drawing (columns, rows,
-    // fonts, treemap) scales correctly on high-DPI displays. At 100% scaling
-    // (96 DPI) this is a no-op.
+    // enabled, set it to the DPI of the window the renderer is bound to so all
+    // DIP-based drawing (columns, rows, fonts, treemap) scales correctly on
+    // high-DPI displays. Querying the window rather than the system handles
+    // per-monitor differences correctly when the window is moved across
+    // monitors of different scales. At 100% scaling (96 DPI) this is a no-op.
     if (d2dContext_) {
         UINT dpi = 96;
-        HMODULE user32 = GetModuleHandleW(L"user32.dll");
-        if (user32) {
-            using GetDpiForSystemFn = UINT(WINAPI*)();
-            auto getDpi = reinterpret_cast<GetDpiForSystemFn>(GetProcAddress(user32, "GetDpiForSystem"));
-            if (getDpi) {
-                dpi = getDpi();
+        if (hwnd_ != nullptr) {
+            HMODULE user32 = GetModuleHandleW(L"user32.dll");
+            if (user32) {
+                using GetDpiForWindowFn = UINT(WINAPI*)(HWND);
+                auto getDpi = reinterpret_cast<GetDpiForWindowFn>(GetProcAddress(user32, "GetDpiForWindow"));
+                if (getDpi) {
+                    dpi = getDpi(hwnd_);
+                }
             }
         }
         const float scale = static_cast<float>(dpi) / 96.0f;
@@ -141,8 +186,26 @@ ID2D1DeviceContext* Renderer::BeginFrame() {
 }
 
 void Renderer::EndFrame() {
-    d2dContext_->EndDraw();
-    swapChain_->Present(1, 0);
+    // Device-loss hardening: a failed EndDraw (e.g. D2DERR_RECREATE_TARGET
+    // after a mode change) or a failed Present (target recreated, or the
+    // device was removed/reset) invalidates the swap chain. Rebuild it and
+    // the target bitmap so the next frame can render again. When EndDraw
+    // failed, skip Present -- there is nothing ready to show, and Present on
+    // a stale/broken chain would only produce a second spurious failure.
+    const HRESULT hrEnd = d2dContext_->EndDraw();
+    if (FAILED(hrEnd)) {
+        RecreateSwapChainAndTarget();
+        return;
+    }
+    if (FAILED(swapChain_->Present(1, 0))) {
+        RecreateSwapChainAndTarget();
+    }
+}
+
+bool Renderer::ConsumeDeviceRecreated() {
+    const bool recreated = deviceRecreated_;
+    deviceRecreated_ = false;
+    return recreated;
 }
 
 } // namespace ffui

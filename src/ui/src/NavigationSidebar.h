@@ -40,6 +40,7 @@ private:
     NavigateHandler navigate_;
     std::vector<Row> rows_;
     bool darkTheme_ = false;
+    int hoveredRow_ = -1;
 };
 
 } // namespace ffui

@@ -125,7 +125,6 @@ private:
     std::mutex mutex_;
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
-    std::string dbPathUtf8_; // remembered from Open() for RunStoreMaintenance's WAL-size check
 
     // zero-touch-autonomous-engineering (subtree gating): per-volume rules +
     // drive-letter prefix (VolumeSetting.key, e.g. "C:") used to evaluate

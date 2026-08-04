@@ -40,7 +40,7 @@ public:
     void SetEngineActive(bool active);
     void SetDarkTheme(bool dark);
     void OnSnapshotUpdated();
-    void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize);
+    void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
 
     enum class ViewMode { Overview, DrillDown, LargestFolders, LargestFiles, ByCategory, Treemap };
     void SetViewMode(ViewMode mode);
@@ -79,7 +79,6 @@ private:
         size_t itemIndex = 0;
     };
 
-    void WorkerMain();
     void RefreshData();
     void RefreshOverview();
     void RequestAggregateForItem(size_t index);
@@ -116,17 +115,10 @@ private:
     bool visible_ = false;
     bool engineActive_ = false;
     bool darkTheme_ = false;
-    uint64_t generation_ = 0;
     ViewMode viewMode_ = ViewMode::Overview;
 
     int sortColumn_ = 3; // default: sort by Subtree Size descending
     bool sortAscending_ = false;
-
-    std::thread worker_;
-    std::mutex workMutex_;
-    std::condition_variable workCv_;
-    std::atomic<bool> stopping_{false};
-    std::atomic<uint64_t> currentGeneration_{0};
 
     std::vector<PendingRequest> pending_;
     std::mutex pendingMutex_;

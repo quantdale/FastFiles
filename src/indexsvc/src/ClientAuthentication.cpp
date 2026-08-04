@@ -24,10 +24,11 @@ std::optional<std::wstring> GetProcessImagePath(HANDLE processHandle) {
 }
 
 HANDLE OpenImpersonatedClientProcess(HANDLE pipeHandle, ULONG clientPid) noexcept {
-    // The service runs as a restricted virtual account and deliberately
-    // does not hold SeDebugPrivilege. Query the client process while
-    // impersonating that same pipe client so its normal process DACL
-    // permits PROCESS_QUERY_LIMITED_INFORMATION, then immediately revert.
+    // Impersonate the pipe client so the client process is queried under
+    // that client's own token: its own process DACL always permits
+    // PROCESS_QUERY_LIMITED_INFORMATION. This keeps the query scoped to
+    // what the client itself may open regardless of the service identity,
+    // then immediately revert.
     if (!ImpersonateNamedPipeClient(pipeHandle)) {
         return nullptr;
     }

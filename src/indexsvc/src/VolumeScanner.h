@@ -7,13 +7,13 @@
 #include <vector>
 
 #include "ffprotocol/Commands.h"
+#include "WriteDeadline.h"
 
 namespace ffindexsvc {
 
-// index-storage-and-scanning tasks.md 4.1/4.4/4.5: replaces the
-// NotYetImplemented StartVolumeScan stub with a real raw-volume MFT
-// enumeration, streaming ScanRecordBatch frames (and a final
-// ScanComplete) over `pipe`.
+// index-storage-and-scanning tasks.md 4.1/4.4/4.5: implements the real
+// raw-volume MFT enumeration for StartVolumeScan, streaming
+// ScanRecordBatch frames (and a final ScanComplete) over `pipe`.
 //
 // Enumeration is driven by FSCTL_ENUM_USN_DATA (64 KB buffers), which
 // returns only in-use files, in MFT order -- one DeviceIoControl per
@@ -45,6 +45,7 @@ void RunVolumeScan(
     wchar_t driveLetter,
     const std::vector<uint8_t>& resumeCursor,
     bool lowPriority,
-    const std::atomic<bool>& shouldStop);
+    const std::atomic<bool>& shouldStop,
+    WriteDeadlineState* deadline);
 
 } // namespace ffindexsvc

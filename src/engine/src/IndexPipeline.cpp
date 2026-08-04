@@ -67,14 +67,12 @@ bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed
     if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
         return false;
     }
-    dbPathUtf8_ = dbPathUtf8;
     return true;
 }
 
 void IndexPipeline::Close() {
     std::lock_guard<std::mutex> lock(mutex_);
     store_.Close();
-    dbPathUtf8_.clear();
 }
 
 void IndexPipeline::RunStoreMaintenance() {
@@ -83,7 +81,7 @@ void IndexPipeline::RunStoreMaintenance() {
         return;
     }
     store_.CheckpointPassive();
-    store_.CheckpointIfWalExceeds(dbPathUtf8_, kWalForceCheckpointThresholdBytes);
+    store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
 }
 
 void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {

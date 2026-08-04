@@ -19,6 +19,9 @@
 #include "NavigationSidebar.h"
 #include "StorageAnalysis.h"
 #include "SettingsDialog.h"
+#include "IconCache.h"
+#include "UiAnimation.h"
+#include "UiStyle.h"
 #include "Util.h"
 
 namespace ffui {
@@ -42,12 +45,9 @@ private:
     void EnsureColumnVisible(int columnIndex, float viewportWidth);
     void RequestRepaint();
     void ApplyTheme();
+    void MarkDeviceDirty();
+    void HandleAnimationTimer(bool ensureRunning);
     bool IsSystemDark() const;
-    // settings-and-appearance 6.2: "Show animations in Windows" gate --
-    // theme changes apply instantly (the minimal no-animation transition);
-    // when system animations are enabled a short non-blocking cross-fade on
-    // top-level chrome *may* run, and is skipped entirely when disabled.
-    bool SystemAnimationsEnabled() const;
     void SaveAndNotifySettings();
     void RefreshSelectionPresentation();
     void RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize);
@@ -67,6 +67,10 @@ private:
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;
+    // Owns the bounded type-icon cache; the column view resolves icons through
+    // it (SetIconCache) and the shell repaints on WM_APP_ICON_READY. Created in
+    // Initialize once hwnd_ exists because the cache posts to its owner HWND.
+    std::unique_ptr<ffui::IconCache> iconCache_;
     NavigationWorkspace navigationWorkspace_{L"C:\\"};
     NavigationChrome navigationChrome_;
     NavigationSidebar navigationSidebar_;
@@ -90,6 +94,11 @@ private:
     HWND inlineRename_ = nullptr;
     std::wstring inlineRenamePath_;
     float scrollOffset_ = 0.0f;
+    // Animated scroll offsets: the FloatAnimation value IS the authoritative
+    // offset; the render/hit-test paths sync from them (see Render).
+    ffui::FloatAnimation scrollAnim_;
+    ffui::FloatAnimation scrollAnim2_;
+    uint64_t lastAnimTickMs_ = 0;
     ffprotocol::Settings settings_;
     std::mutex previewMutex_;
     PreviewResult preview_;
@@ -103,7 +112,15 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> progressBrush_;
     bool darkTheme_ = false;
+    bool frameRendered_ = false;
+    bool crossFadeActive_ = false;
+    uint64_t crossFadeStartMs_ = 0;
+    Microsoft::WRL::ComPtr<ID2D1Bitmap1> crossFadeBitmap_;
+    bool fileOpInProgress_ = false;
+    float fileOpProgress_ = 0.0f;
     uint64_t pendingAggregateRequestId_ = 0;
     ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
     uint64_t pendingAggregateItemCount_ = 0;

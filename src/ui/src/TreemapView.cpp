@@ -1,9 +1,9 @@
 #include "TreemapView.h"
 #include "UITheme.h"
+#include "UiStyle.h"
 
 #include <algorithm>
 #include <cmath>
-#include <numeric>
 #include <shlwapi.h>
 #include <windowsx.h>
 
@@ -12,14 +12,9 @@
 namespace ffui {
 namespace {
 
-constexpr float kMinRectSize = 4.0f;
 constexpr float kBorderWidth = 1.0f;
+constexpr float kHoverRingAlpha = 0.5f;  // subtle accent ring on the hovered tile
 constexpr int kPadding = 2;
-
-float AspectRatio(float side1, float side2) {
-    if (side1 < 0.001f || side2 < 0.001f) return 1.0f;
-    return std::max(side1 / side2, side2 / side1);
-}
 
 } // namespace
 
@@ -54,10 +49,6 @@ void TreemapView::Reposition() {
     // Treemap renders in the full viewport area; no HWND repositioning needed
 }
 
-void TreemapView::SetEngineActive(bool active) {
-    engineActive_ = active;
-}
-
 void TreemapView::OnSnapshotUpdated() {
     if (!visible_) return;
     BuildTree(currentPath_);
@@ -69,7 +60,7 @@ void TreemapView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwr
     context->CreateSolidColorBrush(theme.background, &backgroundBrush_);
     context->CreateSolidColorBrush(theme.text, &textBrush_);
     context->CreateSolidColorBrush(theme.border, &borderBrush_);
-    context->CreateSolidColorBrush(theme.accent, &hoverBrush_);
+    context->CreateSolidColorBrush(theme.hoverOverlay, &hoverOverlayBrush_);
     context->CreateSolidColorBrush(theme.treemapCalculating, &calculatingBrush_);
     dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -85,6 +76,7 @@ void TreemapView::SetDarkTheme(bool dark) {
     textBrush_.Reset();
     borderBrush_.Reset();
     hoverBrush_.Reset();
+    hoverOverlayBrush_.Reset();
     calculatingBrush_.Reset();
 }
 
@@ -129,119 +121,30 @@ void TreemapView::BuildTree(const std::wstring& path) {
     }
 }
 
-void TreemapView::LayoutTreemap(std::vector<TreemapRect>& rects, float x, float y, float width, float height,
-                                const std::vector<TreemapNode*>& nodes, int depth) {
-    if (nodes.empty() || width < kMinRectSize || height < kMinRectSize) return;
-
-    if (nodes.size() == 1) {
-        TreemapRect rect;
-        rect.x = x;
-        rect.y = y;
-        rect.width = std::max(kMinRectSize, width);
-        rect.height = std::max(kMinRectSize, height);
-        rect.node = nodes[0];
-        rects.push_back(rect);
-        return;
-    }
-
-    Squarify(rects, x, y, width, height, nodes, depth);
-}
-
-void TreemapView::Squarify(std::vector<TreemapRect>& rects, float x, float y, float width, float height,
-                           const std::vector<TreemapNode*>& nodes, int /*depth*/) {
-    if (nodes.empty()) return;
-
-    const bool horizontal = width >= height;
-    const float totalSize = std::max(1.0f, static_cast<float>(std::accumulate(nodes.begin(), nodes.end(), 0ULL,
-                                                                              [](uint64_t sum, TreemapNode* n) {
-                                                                                  return sum + n->totalSizeBytes;
-                                                                              })));
-
-    float currentPos = 0.0f;
-    size_t startIdx = 0;
-
-    while (startIdx < nodes.size()) {
-        float currentSum = 0.0f;
-        size_t endIdx = startIdx;
-        float bestAspect = 1e10f;
-
-        for (size_t i = startIdx; i < nodes.size(); ++i) {
-            float newSum = currentSum + static_cast<float>(nodes[i]->totalSizeBytes) / totalSize;
-            float newAspect;
-
-            if (horizontal) {
-                float side1 = newSum * width;
-                float side2 = height;
-                newAspect = AspectRatio(side1, side2);
-            } else {
-                float side1 = newSum * height;
-                float side2 = width;
-                newAspect = AspectRatio(side1, side2);
-            }
-
-            if (newAspect <= bestAspect || i == startIdx) {
-                bestAspect = newAspect;
-                currentSum = newSum;
-                endIdx = i + 1;
-            } else {
-                break;
-            }
-        }
-
-        const float sliceSize = currentSum * (horizontal ? width : height);
-
-        for (size_t i = startIdx; i < endIdx; ++i) {
-            TreemapRect rect;
-            if (horizontal) {
-                float rectWidth = (static_cast<float>(nodes[i]->totalSizeBytes) / totalSize) * width / currentSum;
-                rect.x = x + currentPos;
-                rect.y = y;
-                rect.width = std::max(kMinRectSize, rectWidth);
-                rect.height = std::max(kMinRectSize, height);
-                rect.node = nodes[i];
-                rects.push_back(rect);
-            } else {
-                float rectHeight = (static_cast<float>(nodes[i]->totalSizeBytes) / totalSize) * height / currentSum;
-                rect.x = x;
-                rect.y = y + currentPos;
-                rect.width = std::max(kMinRectSize, width);
-                rect.height = std::max(kMinRectSize, rectHeight);
-                rect.node = nodes[i];
-                rects.push_back(rect);
-            }
-        }
-
-        if (horizontal) {
-            currentPos += sliceSize;
-            x += sliceSize;
-            width -= sliceSize;
-        } else {
-            currentPos += sliceSize;
-            y += sliceSize;
-            height -= sliceSize;
-        }
-
-        startIdx = endIdx;
-    }
-}
-
-TreemapNode* TreemapView::HitTest(float x, float y) const {
-    for (auto it = layout_.rbegin(); it != layout_.rend(); ++it) {
-        if (x >= it->x && x < it->x + it->width && y >= it->y && y < it->y + it->height) {
-            return it->node;
-        }
-    }
-    return nullptr;
-}
-
-void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize) {
+void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
     if (!visible_ || layout_.empty()) return;
 
     EnsureCreated(context, dwriteFactory);
-    context->Clear(ffui::GetUiTheme(darkTheme_).background);
+    const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+    context->Clear(theme.background);
+
+    // Capture the same offset/scale the shell applies to draw the treemap so
+    // HandleMouseMove can convert client coordinates back into normalized
+    // 0..100 treemap space.
+    viewportSize_ = viewportSize;
+    offsetX_ = offsetX;
+    offsetY_ = offsetY;
 
     const float scaleX = viewportSize.width / 100.0f;
     const float scaleY = viewportSize.height / 100.0f;
+
+    // Rounded tiles use the shared small radius; UiFillRoundedRect clamps it to
+    // half the smaller tile side so tiny tiles never produce malformed geometry.
+    constexpr float tileRadius = ffui::UiMetrics::kRadiusSmall;
+
+    // High Contrast suppresses the translucent interaction overlays so the
+    // user's system colors are never layered over (see UITheme.h).
+    const bool hoverLiftEnabled = hoveredNode_ != nullptr && !ffui::UiSystemHighContrast();
 
     for (const auto& rect : layout_) {
         const float rx = rect.x * scaleX;
@@ -253,12 +156,24 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
             continue;
         }
 
-        D2D1_RECT_F drawRect = D2D1::RectF(rx, ry, rx + rw, ry + rh);
-        context->FillRectangle(drawRect, rect.node->calculating ? calculatingBrush_.Get() : backgroundBrush_.Get());
-        context->DrawRectangle(drawRect, borderBrush_.Get(), kBorderWidth);
+        // Draw each tile inset by ~1 DIP per side, leaving a ~2 DIP gutter
+        // between adjacent tiles. Layout computation is untouched; only the
+        // drawing rect is inset, shrinking on tiny tiles so it never inverts.
+        const float inset = std::min(1.0f, std::min(rw, rh) * 0.25f);
+        D2D1_RECT_F drawRect = D2D1::RectF(rx + inset, ry + inset, rx + rw - inset, ry + rh - inset);
+        ffui::UiFillRoundedRect(context, drawRect, rect.node->calculating ? calculatingBrush_.Get() : backgroundBrush_.Get(), tileRadius);
+        ffui::UiDrawRoundedRect(context, drawRect, borderBrush_.Get(), tileRadius, kBorderWidth);
 
-        if (rect.node == hoveredNode_) {
-            context->DrawRectangle(drawRect, hoverBrush_.Get(), 2.0f);
+        if (hoverLiftEnabled && rect.node == hoveredNode_) {
+            // Token-coherent hover lift: elevated fill on top of the base tile,
+            // plus a subtle accent ring at reduced alpha (replaces the old 2px
+            // accent outline).
+            ffui::UiFillHoverOverlay(context, drawRect, tileRadius, theme.hoverOverlay, &hoverOverlayBrush_);
+            D2D1_COLOR_F hoverRing = theme.accent;
+            hoverRing.a *= kHoverRingAlpha;
+            if (SUCCEEDED(ffui::UiEnsureSolidBrush(context, hoverRing, &hoverBrush_))) {
+                ffui::UiDrawRoundedRect(context, drawRect, hoverBrush_.Get(), tileRadius, kBorderWidth);
+            }
         }
 
         if (rw > 40.0f && rh > 20.0f) {
@@ -279,9 +194,15 @@ bool TreemapView::HandleNotify(LPARAM lParam) {
 
 bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
     if (!visible_) return false;
-    const float x = static_cast<float>(GET_X_LPARAM(lParam));
-    const float y = static_cast<float>(GET_Y_LPARAM(lParam));
-    TreemapNode* node = HitTest(x, y);
+    // lParam holds raw client coordinates; the treemap is drawn under the
+    // shell's Translate(sidebar, chrome) transform and scaled by viewport/100,
+    // so translate back into normalized 0..100 treemap space before hit-testing.
+    const float clientX = static_cast<float>(GET_X_LPARAM(lParam));
+    const float clientY = static_cast<float>(GET_Y_LPARAM(lParam));
+    if (viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) return false;
+    const auto [x, y] = TreemapClientToNormalized(clientX, clientY, offsetX_, offsetY_,
+                                                  viewportSize_.width, viewportSize_.height);
+    TreemapNode* node = HitTest(layout_, x, y);
     if (node != hoveredNode_) {
         hoveredNode_ = node;
         return true;

@@ -128,6 +128,21 @@ int main() {
           "disabled recording preserves existing entries without adding new ones");
     Check(reloaded.Clear(historyPath) && reloaded.Queries().empty() && !std::filesystem::exists(historyPath),
           "clear history removes entries and persisted file");
+
+    // Non-ASCII round-trip (workstream E): the history file must persist
+    // wide characters as UTF-8, not truncate them to one byte via the
+    // default-C-locale wofstream path.
+    const auto unicodeHistoryPath = std::filesystem::temp_directory_path() / L"fastfiles-search-tests" / L"history-unicode.txt";
+    ffsearch::SearchHistory unicodeHistory;
+    Check(unicodeHistory.Record(L"résumé データ", unicodeHistoryPath)
+              && unicodeHistory.Record(L"café", unicodeHistoryPath),
+          "unicode history records locally");
+    ffsearch::SearchHistory unicodeReloaded;
+    Check(unicodeReloaded.Load(unicodeHistoryPath) && unicodeReloaded.Queries().size() == 2
+              && unicodeReloaded.Queries().front() == L"café"
+              && unicodeReloaded.Queries().back() == L"résumé データ",
+          "non-ASCII history round-trips through UTF-8 without truncation");
+
     std::error_code cleanupError;
     std::filesystem::remove(historyPath.parent_path(), cleanupError);
     return failures == 0 ? 0 : 1;

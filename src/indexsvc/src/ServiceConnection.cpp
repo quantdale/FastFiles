@@ -19,6 +19,7 @@
 #include "UsnJournalReader.h"
 #include "VolumeEnumeration.h"
 #include "VolumeScanner.h"
+#include "WriteDeadline.h"
 
 namespace ffindexsvc {
 
@@ -233,7 +234,15 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     break;
                 }
 
-                registry.MarkVolumeScanStarted(connectionId, request.volumeId);
+                if (!registry.TryMarkVolumeScanStarted(connectionId, request.volumeId)) {
+                    // Connection-scoped handles: a Start that would supersede
+                    // another live connection's scan on this volume is rejected
+                    // -- there is no dedicated rejection reply, so reject by
+                    // closing the connection, consistent with an unauthorized
+                    // Stop/Close.
+                    disconnect = true;
+                    break;
+                }
                 StopAndJoin(activeScans, request.volumeId.value); // supersede any prior scan of the same volume
 
                 ActiveWorker worker;
@@ -243,7 +252,9 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const bool lowPriority = (request.flags & ffprotocol::kStartVolumeScanLowPriority) != 0;
                 const auto stopFlag = worker.stopFlag;
                 worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, stopFlag] {
-                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag);
+                    RunWithWriteDeadline([&](WriteDeadlineState* deadline) {
+                        RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag, deadline);
+                    });
                 });
                 activeScans.push_back(std::move(worker));
                 break;
@@ -283,7 +294,15 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     break;
                 }
 
-                registry.MarkUsnJournalOpened(connectionId, request.volumeId);
+                if (!registry.TryMarkUsnJournalOpened(connectionId, request.volumeId)) {
+                    // Connection-scoped handles: an Open that would supersede
+                    // another live connection's journal on this volume is
+                    // rejected -- there is no dedicated rejection reply, so
+                    // reject by closing the connection, consistent with an
+                    // unauthorized Stop/Close.
+                    disconnect = true;
+                    break;
+                }
                 StopAndJoin(activeJournals, request.volumeId.value);
 
                 ActiveWorker worker;
@@ -293,18 +312,21 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const auto resumeUsn = request.resumeUsn;
                 const auto stopFlag = worker.stopFlag;
                 worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn, stopFlag] {
-                    const JournalStreamOutcome outcome =
-                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
-                    if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
-                        // D6/task 7.6: tell the engine its ResumeUsn aged
-                        // out of the journal's retained range before this
-                        // worker tears down, so it falls back to a
-                        // reconciliation sweep instead of a blind resume.
-                        ffprotocol::JournalResumeInvalidPayload payload{volumeId};
-                        std::lock_guard<std::mutex> lock(writeMutex);
-                        ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
-                                           &payload, sizeof(payload));
-                    }
+                    RunWithWriteDeadline([&](WriteDeadlineState* deadline) {
+                        const JournalStreamOutcome outcome =
+                            RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag, deadline);
+                        if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
+                            // D6/task 7.6: tell the engine its ResumeUsn aged
+                            // out of the journal's retained range before this
+                            // worker tears down, so it falls back to a
+                            // reconciliation sweep instead of a blind resume.
+                            ffprotocol::JournalResumeInvalidPayload payload{volumeId};
+                            std::lock_guard<std::mutex> lock(writeMutex);
+                            WriteDeadlineGuard deadlineGuard(deadline);
+                            ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
+                                               &payload, sizeof(payload));
+                        }
+                    });
                 });
                 activeJournals.push_back(std::move(worker));
                 break;

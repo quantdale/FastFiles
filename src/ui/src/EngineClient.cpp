@@ -241,7 +241,11 @@ void EngineClient::ReaderLoop() {
                 FolderAggregateCallback callback;
                 {
                     std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
-                    callback = std::move(onFolderAggregate_);
+                    auto it = aggregateCallbacks_.find(payload.requestId);
+                    if (it != aggregateCallbacks_.end()) {
+                        callback = std::move(it->second);
+                        aggregateCallbacks_.erase(it);
+                    }
                 }
                 if (callback) {
                     callback(payload.requestId, payload.status, payload.itemCount, payload.totalSizeBytes);
@@ -476,24 +480,30 @@ void EngineClient::ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailabl
     }
 }
 
-void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {    {
+void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {
+    const uint64_t requestId = ++lastRequestId_;
+    {
         std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
-        onFolderAggregate_ = std::move(callback);
+        aggregateCallbacks_[requestId] = std::move(callback);
     }
     HANDLE pipe = pipe_.load();
     if (pipe == INVALID_HANDLE_VALUE) {
         FolderAggregateCallback failed;
         {
             std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
-            failed = std::move(onFolderAggregate_);
+            auto it = aggregateCallbacks_.find(requestId);
+            if (it != aggregateCallbacks_.end()) {
+                failed = std::move(it->second);
+                aggregateCallbacks_.erase(it);
+            }
         }
         if (failed) {
-            failed(0, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+            failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
         }
         return;
     }
     ffprotocol::RequestFolderAggregatePayload payload{};
-    payload.requestId = ++lastRequestId_;
+    payload.requestId = requestId;
     payload.volumeRowId = volumeRowId;
     payload.parentFrnLow = parentFrnLow;
     payload.parentFrnHigh = parentFrnHigh;
@@ -508,10 +518,14 @@ void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFr
         FolderAggregateCallback failed;
         {
             std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
-            failed = std::move(onFolderAggregate_);
+            auto it = aggregateCallbacks_.find(requestId);
+            if (it != aggregateCallbacks_.end()) {
+                failed = std::move(it->second);
+                aggregateCallbacks_.erase(it);
+            }
         }
         if (failed) {
-            failed(payload.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+            failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
         }
     }
 }

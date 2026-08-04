@@ -1,4 +1,5 @@
 #include "WindowShell.h"
+#include "IconCache.h"
 #include "UITheme.h"
 
 #include "ConflictDialog.h"
@@ -52,6 +53,12 @@ constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
 constexpr UINT kContextCommandBase = 20000;
 constexpr int kNavigationChromeHeight = 72;
 constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
+constexpr UINT_PTR kUiScrollAnimTimer = 0xF1F2;
+
+// Scale a DIP metric to physical pixels for Win32 control layout.
+int Scaled(int dipValue) {
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
 
 std::wstring FileNameOf(const std::wstring& path) {
     const size_t slash = path.find_last_of(L"\\/");
@@ -381,11 +388,11 @@ LRESULT CALLBACK WindowShell::InlineRenameProc(HWND hwnd, UINT message, WPARAM w
 void WindowShell::BeginInlineRename(const std::wstring& path) {
     FinishInlineRename(false);
     inlineRenamePath_ = path;
-    const int x = navigationSidebar_.Width() + static_cast<int>(columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f);
+    const int x = static_cast<int>(ffui::UiScale(navigationSidebar_.Width() + columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f));
     const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
-    const int y = kNavigationChromeHeight + static_cast<int>(ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight);
+    const int y = static_cast<int>(ffui::UiScale(kNavigationChromeHeight + ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight));
     inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
-                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, 205, 24, hwnd_,
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, Scaled(205), Scaled(24), hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
     if (inlineRename_ == nullptr) {
         inlineRenamePath_.clear();
@@ -533,6 +540,11 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     settings_ = ffprotocol::LoadSettings();
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
+    // The icon cache posts WM_APP_ICON_READY to hwnd_ when a type icon resolves;
+    // the shell repaints on that message. The column view draws the cached
+    // bitmap (16 DIP) with a themed glyph placeholder until it arrives.
+    iconCache_ = std::make_unique<ffui::IconCache>(hwnd_);
+    columnView_.SetIconCache(iconCache_.get());
     if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const std::wstring& path) {
             columnView_.NavigateToPath(path);
             RefreshSelectionPresentation();
@@ -655,42 +667,18 @@ bool WindowShell::IsSystemDark() const {
     return value == 0;
 }
 
-bool WindowShell::SystemAnimationsEnabled() const {
-    // settings-and-appearance 6.2: gate any theme-change transition on the
-    // Windows "Show animations in Windows" accessibility setting. When
-    // disabled, the theme change is applied instantly with no cross-fade.
-    BOOL enabled = FALSE;
-    SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &enabled, 0);
-    return enabled != FALSE;
-}
-
 void WindowShell::ApplyTheme() {
     const bool dark = settings_.theme == ffprotocol::ThemePreference::Dark ||
         (settings_.theme == ffprotocol::ThemePreference::FollowSystem && IsSystemDark());
-    // Theme and DPI/device loss all invalidate device-dependent brushes;
-    // ColumnView recreates them lazily in the normal paint path.
-    //
-    // settings-and-appearance 6.2: the minimal transition is instant -- no
-    // blocking animation. The optional non-blocking top-level chrome
-    // cross-fade is gated on SystemAnimationsEnabled(); with the minimal
-    // transition that gate resolves to instant application, which is
-    // exactly the spec's requirement when "Show animations" is disabled.
-    // Either way ApplyTheme never waits: input stays responsive throughout.
-    // (The gate itself, SystemAnimationsEnabled(), is consulted by the
-    // optional fade path if one is ever added; instant is the implemented
-    // default, so no fade runs and the disabled-animations case is
-    // trivially satisfied.)
-    columnView_.SetDarkTheme(dark);
+    ffui::gUiDarkTheme = dark;
     darkTheme_ = dark;
-    storageAnalysis_.SetDarkTheme(dark);
-    searchPanel_.SetDarkTheme(dark);
-    navigationSidebar_.SetDarkTheme(dark);
-    // Reset the details-pane brushes/text-formats so they are recreated with the
-    // active theme on the next paint (the old brushes are light-only).
-    detailsBrush_.Reset();
-    detailsTextBrush_.Reset();
-    detailsTextFormat_.Reset();
-    previewTextFormat_.Reset();
+    // Theme and device-loss both invalidate device-dependent resources; the
+    // MarkDeviceDirty fan-out marks every surface dirty so each recreates its
+    // brushes/text-formats lazily in its own paint path. settings-and-appearance
+    // 6.2 posture: the transition is non-blocking -- ApplyTheme never waits,
+    // input stays responsive throughout; the chrome cross-fade below is the only
+    // animation and it is gated on the Windows "Show animations" setting.
+    MarkDeviceDirty();
     // Win11 immersive dark mode for the title bar / window chrome; harmless no-op
     // on systems without the attribute.
     if (HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll")) {
@@ -699,9 +687,63 @@ void WindowShell::ApplyTheme() {
         if (dwmSetAttribute) {
             const BOOL useDark = dark ? TRUE : FALSE;
             dwmSetAttribute(hwnd_, 20, &useDark, sizeof(useDark));  // DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+            // Win11 rounded corners + Mica backdrop; attribute ids are unsupported
+            // on Windows 10, where the HRESULT failure is simply ignored.
+            const DWORD cornerPreference = 2;  // DWMWCP_ROUND
+            dwmSetAttribute(hwnd_, 33, &cornerPreference, sizeof(cornerPreference));  // DWMWA_WINDOW_CORNER_PREFERENCE (33)
+            const DWORD backdropType = 2;      // DWMWA_SYSTEMBACKDROP_TYPE_MICA
+            dwmSetAttribute(hwnd_, 38, &backdropType, sizeof(backdropType));  // DWMWA_SYSTEMBACKDROP_TYPE (38)
         }
     }
+    // Cross-fade the pre-change frame out over the newly themed scene (~150 ms).
+    // Skipped entirely when system animations are off or before the first frame
+    // exists (first launch paints the theme directly instead of fading from a
+    // blank canvas). ApplyTheme never blocks; the animation timer drives the
+    // repaints and stops itself once the fade completes.
+    if (ffui::SystemAnimationsEnabled() && frameRendered_) {
+        crossFadeActive_ = true;
+        crossFadeStartMs_ = GetTickCount64();
+        HandleAnimationTimer(true);
+    }
     RequestRepaint();
+}
+
+void WindowShell::MarkDeviceDirty() {
+    // Same dirty-marking as a theme change, using the current theme so no
+    // re-theme occurs. Each surface recreates its device-dependent resources
+    // lazily in its own paint path (the existing EnsureCreated pattern).
+    columnView_.SetDarkTheme(darkTheme_);
+    storageAnalysis_.SetDarkTheme(darkTheme_);
+    searchPanel_.SetDarkTheme(darkTheme_);
+    navigationSidebar_.SetDarkTheme(darkTheme_);
+    navigationChrome_.SetDarkTheme(darkTheme_);
+    commandPalette_.SetDarkTheme(darkTheme_);
+    settingsDialog_.SetDarkTheme(darkTheme_);
+    // Details-pane resources are (re)created lazily in RenderDetails; the text
+    // formats are device-independent but reset for symmetry with ApplyTheme.
+    detailsBrush_.Reset();
+    detailsTextBrush_.Reset();
+    detailsTextFormat_.Reset();
+    previewTextFormat_.Reset();
+    dividerBrush_.Reset();
+    progressBrush_.Reset();
+    // Any in-flight cross-fade captured buffers on the old device; cancel it so
+    // the next paint renders the current theme directly.
+    crossFadeActive_ = false;
+    crossFadeBitmap_.Reset();
+    // Icon bitmaps are device-dependent; re-resolve them on demand after a
+    // device-loss recovery (design D5) rather than reusing stale bitmaps.
+    if (iconCache_) {
+        iconCache_->Flush();
+    }
+}
+
+void WindowShell::HandleAnimationTimer(bool ensureRunning) {
+    if (ensureRunning) {
+        SetTimer(hwnd_, kUiScrollAnimTimer, 16, nullptr);
+    } else {
+        KillTimer(hwnd_, kUiScrollAnimTimer);
+    }
 }
 
 void WindowShell::SaveAndNotifySettings() {
@@ -713,20 +755,80 @@ void WindowShell::SaveAndNotifySettings() {
 void WindowShell::Render() {
     RECT clientRect{};
     GetClientRect(hwnd_, &clientRect);
+    const float clientWidth = static_cast<float>((std::max)(0L, clientRect.right - clientRect.left));
+    const float clientHeight = static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top));
     D2D1_SIZE_F viewportSize = D2D1::SizeF(
         NavigationViewportWidth(),
         static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top - kNavigationChromeHeight)));
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
+
+    // Cross-fade capture: on the first frame after a theme change the swap-chain
+    // back buffer still holds the previous frame (the D2D command list is only
+    // flushed at EndDraw). Snapshot it before drawing the new theme so the fade
+    // can composite the old frame over the new one. Any failure degrades to an
+    // instant theme switch (the fade simply does not run).
+    if (crossFadeActive_ && !crossFadeBitmap_) {
+        if (SUCCEEDED(context->CreateBitmap(
+                D2D1::SizeU(static_cast<UINT32>(clientWidth), static_cast<UINT32>(clientHeight)), nullptr, 0,
+                D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE,
+                    D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
+                &crossFadeBitmap_))) {
+            if (FAILED(crossFadeBitmap_->CopyFromRenderTarget(nullptr, context, nullptr))) {
+                crossFadeBitmap_.Reset();
+                crossFadeActive_ = false;
+            }
+        } else {
+            crossFadeBitmap_.Reset();
+            crossFadeActive_ = false;
+        }
+    }
+
+    // The eased scroll animations are the authoritative offsets; sync the values
+    // the render/hit-test paths read so paints always reflect the eased position.
+    // Pane 1's offset lives in ColumnView and is only touched mid-flight so its
+    // idle state (tab restore, direct writes) is preserved untouched.
+    scrollOffset_ = scrollAnim_.Value();
+    if (scrollAnim2_.IsAnimating()) {
+        columnView_.SetScrollOffset2(scrollAnim2_.Value());
+    }
+
     context->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(navigationSidebar_.Width()), static_cast<float>(kNavigationChromeHeight)));
     if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
-        storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize);
+        storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize,
+                                       static_cast<float>(navigationSidebar_.Width()),
+                                       static_cast<float>(kNavigationChromeHeight));
     } else {
         columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
     }
     RenderDetails(context, viewportSize);
     context->SetTransform(D2D1::Matrix3x2F::Identity());
+
+    // Cross-fade composite: draw the captured previous frame over the freshly
+    // themed scene, fading it out over ~150 ms.
+    if (crossFadeActive_ && crossFadeBitmap_) {
+        const float t = std::clamp(static_cast<float>(GetTickCount64() - crossFadeStartMs_) / kUiAnimationDefaultMs, 0.0f, 1.0f);
+        if (t >= 1.0f) {
+            crossFadeActive_ = false;
+            crossFadeBitmap_.Reset();
+        } else {
+            context->DrawBitmap(crossFadeBitmap_.Get(),
+                D2D1::RectF(0.0f, 0.0f, clientWidth, clientHeight),
+                1.0f - t, D2D1_INTERPOLATION_MODE_LINEAR);
+        }
+    }
+
     renderer_.EndFrame();
+    frameRendered_ = true;
+
+    // Device-loss fan-out: the renderer recreated its swap chain / target
+    // bitmap during this frame; mark every surface dirty so the next paint
+    // recreates device-dependent resources lazily (the same fan-out as a theme
+    // change, without re-theming).
+    if (renderer_.ConsumeDeviceRecreated()) {
+        MarkDeviceDirty();
+        RequestRepaint();
+    }
 }
 
 void WindowShell::RefreshSelectionPresentation() {
@@ -778,18 +880,42 @@ std::wstring WindowShell::FileTypeFor(const std::wstring& path) const {
 void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize) {
     constexpr float kPanelWidth = 300.0f;
     constexpr float kStatusHeight = 26.0f;
+    constexpr float kProgressHeight = 3.0f;
     const float left = std::max(0.0f, viewportSize.width - kPanelWidth);
-    if (!detailsBrush_) {
-        const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
-        context->CreateSolidColorBrush(theme.surface, &detailsBrush_);
-        context->CreateSolidColorBrush(theme.text, &detailsTextBrush_);
+    // Elevated details card: the pane floats ~8 DIP inside the viewport as a
+    // rounded surfaceElevated card; the status bar stays a full-width strip
+    // below it, separated by a subtle divider.
+    const float inset = ffui::UiMetrics::kSpaceS;
+    const float statusTop = viewportSize.height - kStatusHeight;
+    const float cardLeft = left + inset;
+    const float cardRight = viewportSize.width - inset;
+    const float cardTop = ColumnView::kBadgeHeight + inset;
+    const float cardBottom = statusTop - inset;
+    const float pad = inset;
+    const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+    const bool highContrast = ffui::UiSystemHighContrast();
+    // Text formats are device-independent; recreate only after ApplyTheme reset
+    // them (brushes are handled by UiEnsureSolidBrush below, which also tracks
+    // theme/device changes without an explicit reset).
+    if (!detailsTextFormat_) {
         renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"en-us", &detailsTextFormat_);
         renderer_.DWriteFactory()->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-us", &previewTextFormat_);
         previewTextFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     }
-    context->FillRectangle(D2D1::RectF(left, ColumnView::kBadgeHeight, viewportSize.width, viewportSize.height - kStatusHeight), detailsBrush_.Get());
+    if (highContrast) {
+        // High contrast: suppress the rounded-token styling and fall back to
+        // system colors so the user's accessibility palette is never overridden.
+        ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOW)), &detailsBrush_);
+        ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOWTEXT)), &detailsTextBrush_);
+        context->FillRectangle(D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get());
+    } else {
+        ffui::UiEnsureSolidBrush(context, theme.surfaceElevated, &detailsBrush_);
+        ffui::UiEnsureSolidBrush(context, theme.text, &detailsTextBrush_);
+        ffui::UiEnsureSolidBrush(context, theme.dividerSubtle, &dividerBrush_);
+        ffui::UiFillRoundedRect(context, D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get(), ffui::UiMetrics::kRadiusMedium);
+    }
     const SelectionSummary summary = columnView_.CurrentSelectionSummary();
     const auto selection = summary.items.size() == 1 ? std::optional<FileDescriptor>(summary.items.front()) : std::nullopt;
     std::wstring info = L"Properties\n\n";
@@ -848,60 +974,85 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
         }
     }
     context->DrawText(info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(left + 8, ColumnView::kBadgeHeight + 8, viewportSize.width - 8, ColumnView::kBadgeHeight + 120), detailsTextBrush_.Get());
+        D2D1::RectF(cardLeft + pad, cardTop + pad, cardRight - pad, cardTop + 120), detailsTextBrush_.Get());
     PreviewResult preview;
     { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
-    const float previewTop = ColumnView::kBadgeHeight + 135;
+    const float previewTop = cardTop + 135;
     if (!settings_.previewEnabled) {
         const std::wstring text = L"Preview disabled";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(left + 8, previewTop, viewportSize.width - 8, viewportSize.height - kStatusHeight - 8), detailsTextBrush_.Get());
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
     } else if (preview.kind == PreviewKind::Image) {
         if (!previewBitmap_ && !preview.pixels.empty()) {
             const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
             context->CreateBitmap(D2D1::SizeU(preview.width, preview.height), preview.pixels.data(), preview.width * 4, &properties, &previewBitmap_);
         }
-        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(left + 8, previewTop, viewportSize.width - 8, viewportSize.height - kStatusHeight - 8));
+        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad));
     } else {
         std::wstring text = preview.kind == PreviewKind::Text ? preview.text : (selection && !selection->isDirectory ? L"No preview available" : L"");
         if (preview.truncated) text += L"\n\n[Preview truncated]";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(left + 8, previewTop, viewportSize.width - 8, viewportSize.height - kStatusHeight - 8), detailsTextBrush_.Get());
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
     }
     const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +
         ffui::FormatSize(summary.knownSizeBytes) + L"  •  " + columnView_.CurrentPath();
-    context->FillRectangle(D2D1::RectF(0, viewportSize.height - kStatusHeight, viewportSize.width, viewportSize.height), detailsBrush_.Get());
+    // Status bar: full-width strip under the card, separated by a subtle
+    // divider and carrying the slim file-operation progress bar (the primary
+    // progress surface; the window title keeps its textual progress too).
+    context->FillRectangle(D2D1::RectF(0, statusTop, viewportSize.width, viewportSize.height), detailsBrush_.Get());
+    if (!highContrast) {
+        context->DrawLine(D2D1::Point2F(0, statusTop), D2D1::Point2F(viewportSize.width, statusTop), dividerBrush_.Get(), 1.0f);
+    }
+    if (fileOpInProgress_) {
+        const float progressWidth = viewportSize.width * std::clamp(fileOpProgress_, 0.0f, 1.0f);
+        const D2D1_RECT_F progressRect = D2D1::RectF(0, statusTop + kStatusHeight - kProgressHeight, progressWidth, statusTop + kStatusHeight);
+        if (highContrast) {
+            ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHT)), &progressBrush_);
+            context->FillRectangle(progressRect, progressBrush_.Get());
+        } else {
+            ffui::UiEnsureSolidBrush(context, theme.accent, &progressBrush_);
+            ffui::UiFillRoundedRect(context, progressRect, progressBrush_.Get(), ffui::UiMetrics::kRadiusSmall);
+        }
+    }
     context->DrawText(status.c_str(), static_cast<UINT32>(status.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(8, viewportSize.height - kStatusHeight, viewportSize.width - 8, viewportSize.height), detailsTextBrush_.Get());
+        D2D1::RectF(8, statusTop, viewportSize.width - 8, viewportSize.height), detailsTextBrush_.Get());
 }
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
     const float columnLeft = columnIndex * ColumnView::kColumnWidth;
     const float columnRight = columnLeft + ColumnView::kColumnWidth;
+    const uint64_t now = GetTickCount64();
     if (columnView_.IsDualPane()) {
         const float paneWidth = viewportWidth / 2.0f;
         const int pane = columnView_.ActivePane();
-        const float paneScroll = pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2();
+        const float paneScroll = pane == 0 ? scrollAnim_.Value()
+            : (scrollAnim2_.IsAnimating() ? scrollAnim2_.Value() : columnView_.ScrollOffset2());
+        float newScroll = paneScroll;
         if (columnLeft < paneScroll) {
-            if (pane == 0) scrollOffset_ = columnLeft;
-            else columnView_.SetScrollOffset2(columnLeft);
+            newScroll = columnLeft;
         } else if (columnRight > paneScroll + paneWidth) {
-            const float newScroll = columnRight - paneWidth;
-            if (pane == 0) scrollOffset_ = newScroll;
-            else columnView_.SetScrollOffset2(newScroll);
+            newScroll = columnRight - paneWidth;
         }
         const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
-        const float clamped = std::clamp(pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2(), 0.0f, maxScroll);
-        if (pane == 0) scrollOffset_ = clamped;
-        else columnView_.SetScrollOffset2(clamped);
+        newScroll = std::clamp(newScroll, 0.0f, maxScroll);
+        if (pane == 0) {
+            scrollAnim_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
+        } else {
+            if (!scrollAnim2_.IsAnimating()) scrollAnim2_.Snap(columnView_.ScrollOffset2());
+            scrollAnim2_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
+        }
+        HandleAnimationTimer(true);
     } else {
-        if (columnLeft < scrollOffset_) {
-            scrollOffset_ = columnLeft;
-        } else if (columnRight > scrollOffset_ + viewportWidth) {
-            scrollOffset_ = columnRight - viewportWidth;
+        const float paneScroll = scrollAnim_.Value();
+        float newScroll = paneScroll;
+        if (columnLeft < paneScroll) {
+            newScroll = columnLeft;
+        } else if (columnRight > paneScroll + viewportWidth) {
+            newScroll = columnRight - viewportWidth;
         }
         const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-        scrollOffset_ = std::clamp(scrollOffset_, 0.0f, maxScroll);
+        scrollAnim_.AnimateTo(std::clamp(newScroll, 0.0f, maxScroll), kUiAnimationDefaultMs, now);
+        HandleAnimationTimer(true);
     }
 }
 
@@ -925,6 +1076,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                          suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             renderer_.Resize(static_cast<UINT>(suggested->right - suggested->left), static_cast<UINT>(suggested->bottom - suggested->top));
+            // Type icons are bitmap-resolution-dependent; drop the cached
+            // bitmaps so they re-resolve at the new DPI scale on the next paint.
+            if (iconCache_) {
+                iconCache_->Flush();
+            }
             RequestRepaint();
             return 0;
         }
@@ -951,6 +1107,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             engineActive_ = wParam != 0;
             searchPanel_.SetEngineActive(engineActive_);
             settingsDialog_.SetEngineActive(engineActive_);
+            storageAnalysis_.SetEngineActive(engineActive_);
             RequestRepaint();
             return 0;
 
@@ -961,6 +1118,27 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_TIMER:
             if (wParam == kWorkspaceSaveTimer) {
                 navigationWorkspace_.FlushState();
+                return 0;
+            }
+            if (wParam == kUiScrollAnimTimer) {
+                const uint64_t now = GetTickCount64();
+                lastAnimTickMs_ = now;
+                scrollAnim_.Tick(now);
+                const bool wasAnimating2 = scrollAnim2_.IsAnimating();
+                scrollAnim2_.Tick(now);
+                // Flush the settled pane-1 offset exactly once; Render only
+                // syncs ColumnView's offset mid-flight so idle/restored state
+                // survives without an animation running.
+                if (wasAnimating2 && !scrollAnim2_.IsAnimating()) {
+                    columnView_.SetScrollOffset2(scrollAnim2_.Value());
+                }
+                RequestRepaint();
+                // Keep the timer alive only while an animation is in flight
+                // (scroll, hover, or the theme cross-fade); once everything
+                // settles it must not run while idle.
+                if (!crossFadeActive_ && !scrollAnim_.IsAnimating() && !scrollAnim2_.IsAnimating() && !columnView_.HoverAnimating()) {
+                    HandleAnimationTimer(false);
+                }
                 return 0;
             }
             if (searchPanel_.HandleTimer(wParam)) return 0;
@@ -975,6 +1153,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return DefWindowProcW(hwnd, message, wParam, lParam);
 
         case WM_APP_PREVIEW_READY:
+            RequestRepaint();
+            return 0;
+
+        case WM_APP_ICON_READY:
             RequestRepaint();
             return 0;
 
@@ -1095,6 +1277,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (!event) return 0;
             if (event->kind == FileOperationEventKind::Queued || event->kind == FileOperationEventKind::Started) {
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
+                fileOpInProgress_ = true;
+                fileOpProgress_ = 0.0f;
+                RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Progress) {
                 std::wstring title = L"FastFiles — ";
                 if (!event->currentItem.empty()) title += event->currentItem + L" — ";
@@ -1109,6 +1294,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 lastOperationFailures_ = event->failures;
                 EnableMenuItem(GetMenu(hwnd_), kMenuOperationDetails,
                                MF_BYCOMMAND | (lastOperationFailures_.empty() ? MF_GRAYED : MF_ENABLED));
+                fileOpProgress_ = std::clamp(static_cast<float>(event->percent) / 100.0f, 0.0f, 1.0f);
+                RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Completed || event->kind == FileOperationEventKind::Cancelled) {
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
@@ -1145,6 +1332,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     const std::wstring parent = std::filesystem::path(affected).parent_path().wstring();
                     if (!parent.empty()) engineClient_.RequestDirectory(parent);
                 }
+                fileOpInProgress_ = false;
                 columnView_.OnSnapshotUpdated();
                 navigationChrome_.Refresh();
                 RequestRepaint();
@@ -1180,8 +1368,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
-        case WM_MOUSEMOVE:
-            if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+        case WM_MOUSEMOVE: {
+            const bool inTreemap = storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap;
+            if (inTreemap) {
                 const int x = GET_X_LPARAM(lParam);
                 const int y = GET_Y_LPARAM(lParam);
                 if (storageAnalysis_.HandleMouseMove(wParam, MAKELPARAM(x, y))) {
@@ -1196,7 +1385,32 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 BeginFileDrag(columnView_.ActiveSelectionPaths());
                 return 0;
             }
+            // Route hover into the column view (paint-only; hit-testing is
+            // unchanged) so rows can animate a hover overlay. TME_LEAVE is
+            // re-armed so the leave that must cancel the hover is observed.
+            if (!inTreemap) {
+                D2D1_POINT_2F point = D2D1::Point2F(
+                    static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
+                    static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
+                columnView_.OnMouseMove(point, scrollOffset_, NavigationViewportWidth());
+                if (columnView_.HoverAnimating()) {
+                    HandleAnimationTimer(true);
+                }
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
+                TrackMouseEvent(&tme);
+                RequestRepaint();
+            }
             return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+
+        case WM_MOUSELEAVE: {
+            columnView_.OnMouseLeave();
+            if (columnView_.HoverAnimating()) {
+                HandleAnimationTimer(true);
+            }
+            RequestRepaint();
+            return 0;
+        }
 
         case WM_LBUTTONUP:
             dragArmed_ = false;
@@ -1223,22 +1437,30 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             ScreenToClient(hwnd_, &pt);
             const float effectiveX = pt.x - static_cast<float>(navigationSidebar_.Width());
-            
+            const uint64_t now = GetTickCount64();
+
             if (columnView_.IsDualPane()) {
                 const float paneWidth = viewportWidth / 2.0f;
                 const int pane = effectiveX < paneWidth ? 0 : 1;
-                const float paneScroll = pane == 0 ? scrollOffset_ : columnView_.ScrollOffset2();
+                // Base the target on the currently displayed offset (the eased
+                // value mid-flight, the stored offset when idle) so re-targets
+                // never jump.
+                const float paneScroll = pane == 0 ? scrollAnim_.Value()
+                    : (scrollAnim2_.IsAnimating() ? scrollAnim2_.Value() : columnView_.ScrollOffset2());
                 const float maxScroll = std::max(0.0f, columnView_.PaneContentWidth(pane) - paneWidth);
                 const float newScroll = std::clamp(paneScroll - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
                 if (pane == 0) {
-                    scrollOffset_ = newScroll;
+                    scrollAnim_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
                 } else {
-                    columnView_.SetScrollOffset2(newScroll);
+                    if (!scrollAnim2_.IsAnimating()) scrollAnim2_.Snap(columnView_.ScrollOffset2());
+                    scrollAnim2_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
                 }
             } else {
                 const float maxScroll = std::max(0.0f, columnView_.ContentWidth() - viewportWidth);
-                scrollOffset_ = std::clamp(scrollOffset_ - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
+                const float newScroll = std::clamp(scrollAnim_.Value() - static_cast<float>(delta) / 2.0f, 0.0f, maxScroll);
+                scrollAnim_.AnimateTo(newScroll, kUiAnimationDefaultMs, now);
             }
+            HandleAnimationTimer(true);
             RequestRepaint();
             return 0;
         }
@@ -1248,8 +1470,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (point.x == -1 && point.y == -1) {
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
-                point = {static_cast<LONG>(navigationSidebar_.Width() + column * ColumnView::kColumnWidth - scrollOffset_ + 24),
-                         static_cast<LONG>(kNavigationChromeHeight + ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight)};
+                point = {static_cast<LONG>(ffui::UiScale(navigationSidebar_.Width() + column * ColumnView::kColumnWidth - scrollOffset_ + 24.0f)),
+                         static_cast<LONG>(ffui::UiScale(kNavigationChromeHeight + ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight))};
                 ClientToScreen(hwnd_, &point);
             }
             if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {
@@ -1370,6 +1592,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_DESTROY:
             KillTimer(hwnd_, kWorkspaceSaveTimer);
+            KillTimer(hwnd_, kUiScrollAnimTimer);
             navigationWorkspace_.FlushState();
             if (inlineRename_ != nullptr) FinishInlineRename(false);
             RevokeDragDrop(hwnd);

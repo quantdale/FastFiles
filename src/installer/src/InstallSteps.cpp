@@ -1,6 +1,7 @@
 #include "InstallSteps.h"
 
 #include <windows.h>
+#include <aclapi.h>
 #define SECURITY_WIN32
 #include <security.h>
 #include <shlobj.h>
@@ -390,9 +391,11 @@ bool WaitForServiceRunning(DWORD timeoutMs) {
 // up past a settle window (a crash-on-start binary would trigger SCM's
 // failure actions and be back down here), and the service's own startup-token
 // diagnostic -- written after the fresh token is in place (task 2.3) -- must
-// not report a missing/disabled backup privilege. A missing diagnostic line
-// is tolerated (the log can be unavailable), but an explicit privilege
-// failure is not.
+// not report a missing/disabled backup privilege. The token line is read from
+// the byte offset recorded before the start, so a fresh install (offset 0)
+// is verified from the beginning of the log rather than skipped. A missing
+// diagnostic line is tolerated (the log can be unavailable), but an explicit
+// privilege failure is not.
 bool VerifyServiceStartedFresh() {
     const std::wstring diagPath = ffprotocol::DiagnosticLogPath();
     std::error_code fileError;
@@ -410,7 +413,7 @@ bool VerifyServiceStartedFresh() {
         return false;
     }
 
-    if (!diagPath.empty() && logBytesBefore != 0) {
+    if (!diagPath.empty()) {
         std::wifstream log(diagPath, std::ios::binary);
         log.seekg(static_cast<std::streamoff>(logBytesBefore));
         std::wstring line;
@@ -431,6 +434,30 @@ bool VerifyServiceStartedFresh() {
 
 void RemoveBackupState(const std::wstring& installDir) {
     DeleteKnownTree(BackupDirectory(installDir));
+}
+
+// Fresh-install rollback (workstream E): a later install step may have
+// already applied the restrictive install-dir ACL (ApplyInstallDirectorySecurity
+// sets a protected, non-inheriting DACL) and staged binaries. Reset the ACL so
+// the parent's inherited ACEs (e.g. Program Files) propagate back, returning
+// the directory to its default state before the staged binaries are removed.
+void ResetInstallDirectoryAcl(const std::wstring& path) {
+    ACL emptyAcl;
+    if (!InitializeAcl(&emptyAcl, sizeof(emptyAcl), ACL_REVISION)) {
+        return;
+    }
+    SetNamedSecurityInfoW(const_cast<wchar_t*>(path.c_str()), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, &emptyAcl, nullptr);
+}
+
+void DeleteInstalledBinaries(const std::wstring& installDir) {
+    const wchar_t* binaries[] = {
+        ffsetup::kIndexSvcExeName, ffsetup::kEngineExeName, kUiExeName, kInstallerExeName,
+    };
+    for (const wchar_t* exeName : binaries) {
+        DeleteFileW((installDir + L"\\" + exeName).c_str());
+    }
 }
 
 } // namespace
@@ -496,7 +523,16 @@ int RunInstall() {
         if (isUpgrade) {
             RestoreServiceState(installDir, clientGroupSid->Get());
         } else {
+            // Fresh install: undo every step that may have run so far, not
+            // just the service registration. A later step failing at the
+            // scheduled task (536), uninstall metadata (543), or startup
+            // verification (551) would otherwise leave the scheduled task,
+            // uninstall metadata, restrictive ACL, and staged binaries behind.
             ffsetup::UnregisterIndexService();
+            ffsetup::UnregisterEngineScheduledTask();
+            UnregisterUninstallMetadata();
+            ResetInstallDirectoryAcl(installDir);
+            DeleteInstalledBinaries(installDir);
         }
     };
 

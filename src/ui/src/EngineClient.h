@@ -98,7 +98,10 @@ private:
     UnavailableVolumesCallback onUnavailableVolumes_;
     ForgetUnavailableVolumeCallback onForgetUnavailableVolume_;
     std::mutex aggregateCallbackMutex_;
-    FolderAggregateCallback onFolderAggregate_;
+    // Storage-analysis issues overlapping subtree requests concurrently; the
+    // callback for each in-flight request is keyed by its request id so a
+    // later request no longer overwrites an earlier one's callback.
+    std::map<uint64_t, FolderAggregateCallback> aggregateCallbacks_;
     std::mutex volumeStatusCallbackMutex_;
     VolumeStatusCallback onVolumeStatus_;
 };

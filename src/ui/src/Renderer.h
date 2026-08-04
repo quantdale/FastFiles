@@ -27,11 +27,18 @@ public:
     ID2D1DeviceContext* BeginFrame();
     void EndFrame();
 
+    // Device-loss hardening: returns true exactly once if the swap chain and
+    // render target were recreated since the last call (EndDraw/Present
+    // failure, or a failed ResizeBuffers). WindowShell calls this right after
+    // EndFrame() to fan out dirty marks so the next frame repaints everything.
+    bool ConsumeDeviceRecreated();
+
     ID2D1Factory1* D2DFactory() const noexcept { return d2dFactory_.Get(); }
     IDWriteFactory* DWriteFactory() const noexcept { return dwriteFactory_.Get(); }
 
 private:
     bool CreateTargetBitmap();
+    bool RecreateSwapChainAndTarget();
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice_;
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice_;
@@ -40,6 +47,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1DeviceContext> d2dContext_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwriteFactory_;
 
+    Microsoft::WRL::ComPtr<IDXGIFactory2> dxgiFactory_;
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain_;
     Microsoft::WRL::ComPtr<IDCompositionDevice> dcompDevice_;
     Microsoft::WRL::ComPtr<IDCompositionTarget> dcompTarget_;
@@ -48,6 +56,7 @@ private:
     HWND hwnd_ = nullptr;
     UINT width_ = 0;
     UINT height_ = 0;
+    bool deviceRecreated_ = false;
 };
 
 } // namespace ffui

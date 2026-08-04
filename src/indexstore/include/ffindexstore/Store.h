@@ -71,7 +71,7 @@ public:
     // for unbounded WAL growth under sustained write bursts (design.md
     // "Risks"). Returns false only on an I/O/database error; a WAL file
     // under the threshold is a normal, successful no-op.
-    bool CheckpointIfWalExceeds(const std::string& dbPathUtf8, uint64_t thresholdBytes);
+    bool CheckpointIfWalExceeds(uint64_t thresholdBytes);
 
     // --- Volume metadata (tasks.md 1.3, section 7/8's persistence needs) ---
 

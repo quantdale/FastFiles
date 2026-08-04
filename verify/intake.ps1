@@ -184,7 +184,7 @@ function Get-LatestIncompleteRun {
         Sort-Object Name -Descending | Select-Object -First 1
     if (-not $latest) { return $null }
     $state = Get-Content -LiteralPath (Join-Path $latest.FullName 'state.json') -Raw | ConvertFrom-Json
-    if ($state.lastOutcome.status -in @('COMPLETE', 'FAIL', 'ESCALATED', 'TIMEOUT')) { return $null }
+    if ($state.lastOutcome.status -in @('COMPLETE', 'FAIL', 'ESCALATED', 'TIMEOUT', 'PASS', 'SKIPPED', 'REQUIRED-BUT-UNAVAILABLE')) { return $null }
     return $state
 }
 
@@ -497,11 +497,10 @@ function Invoke-PhaseDiagnose {
     [CmdletBinding()]
     param([pscustomobject] $State, [string] $RunPath)
     $lastFailure = $State.failures | Select-Object -Last 1
-    $class = 'ClassB'; $signature = 'unknown'; $message = ''
     if ($lastFailure) {
-        $signature = $lastFailure.signature
-        $class = $lastFailure.class
-        $message = $lastFailure.message
+        $class = $lastFailure.class; $signature = $lastFailure.signature; $message = $lastFailure.message
+    } else {
+        $class = 'none'; $signature = 'no-failures'; $message = 'no failures recorded in this run'
     }
     $diagDir = Join-Path $RunPath 'diagnostics'
     New-Item -ItemType Directory -Path $diagDir -Force | Out-Null
@@ -594,6 +593,41 @@ function Invoke-PhaseReTest {
 
 }
 
+function Resolve-ValidateGateOutcome {
+    <#
+    .SYNOPSIS
+        Classifies a resolved gate verdict into a validate-phase outcome. A gate
+        Passed=$false ALWAYS fails the phase — whether because of blocking FAIL verdicts
+        or because of unrepresented product-source edits (Gate.psm1 sets Passed=false for
+        both). Only REQUIRED-BUT-UNAVAILABLE verdicts are non-blocking: they are recorded
+        as external evidence and do not fail the phase.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [pscustomobject] $Verdict,
+        [string] $VerdictPath,
+        [string] $RunTree
+    )
+    $failVerdicts = @(if ($Verdict.Verdicts) { $Verdict.Verdicts | Where-Object { $_.verdict -eq 'FAIL' } } else { @() })
+    $rbuVerdicts = @(if ($Verdict.Verdicts) { $Verdict.Verdicts | Where-Object { $_.verdict -eq 'REQUIRED-BUT-UNAVAILABLE' } } else { @() })
+    $passed = [bool]$Verdict.Passed
+
+    if (-not $passed) {
+        $failCause = if ($failVerdicts.Count -gt 0) {
+            "blocking FAIL verdict(s): $((@($failVerdicts | ForEach-Object { $_.capabilityId }) -join ', '))"
+        } elseif ($Verdict.UnrepresentedEdits.Count -gt 0) {
+            "unrepresented product-source edit(s): $((@($Verdict.UnrepresentedEdits | ForEach-Object { $_.path }) -join ', '))"
+        } else {
+            'gate Passed=false'
+        }
+        return [pscustomobject]@{ ok = $false; class = 'ClassB'; summary = "archive gate FAIL: $failCause ($VerdictPath)" }
+    }
+    if ($rbuVerdicts.Count -gt 0) {
+        return [pscustomobject]@{ ok = $true; external = $true; summary = "validate: gate resolved with $($rbuVerdicts.Count) REQUIRED-BUT-UNAVAILABLE verdict(s) recorded as external evidence ($VerdictPath)" }
+    }
+    return [pscustomobject]@{ ok = $true; summary = "validate: gate PASS (run $RunTree)" }
+}
+
 function Invoke-PhaseValidate {
     [CmdletBinding()]
     param([pscustomobject] $State, [string] $RunPath)
@@ -644,13 +678,10 @@ function Invoke-PhaseValidate {
     }
     Set-NoteProperty $State 'validate' ([pscustomobject]@{ runTree = $runTree; gateExit = $gateRes.exitCode; gatePassed = $passed; verdictPath = $verdictPath; failVerdicts = @($failVerdicts | ForEach-Object { $_.capabilityId }); rbuVerdicts = @($rbuVerdicts | ForEach-Object { $_.capabilityId }) })
     Save-IntakeState -State $State -RunPath $RunPath
-    if (-not $passed -and $failVerdicts.Count -gt 0) {
-        return [pscustomobject]@{ ok = $false; class = 'ClassB'; summary = "archive gate FAIL: $((@($failVerdicts | ForEach-Object { $_.capabilityId }) -join ', ')) ($verdictPath)" }
+    if ($null -eq $verdict) {
+        return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "validate: no gate verdict available ($verdictPath)" }
     }
-    if ($rbuVerdicts.Count -gt 0) {
-        return [pscustomobject]@{ ok = $true; external = $true; summary = "validate: gate resolved with $($rbuVerdicts.Count) REQUIRED-BUT-UNAVAILABLE verdict(s) recorded as external evidence ($verdictPath)" }
-    }
-    return [pscustomobject]@{ ok = $true; summary = "validate: gate PASS (run $runTree)" }
+    return Resolve-ValidateGateOutcome -Verdict $verdict -VerdictPath $verdictPath -RunTree $runTree
 }
 
 function Invoke-PhaseCollectEvidence {
@@ -683,16 +714,17 @@ function Invoke-PhaseCollectEvidence {
 function Invoke-PhaseUpdateTasks {
     [CmdletBinding()]
     param([pscustomobject] $State, [string] $RunPath)
-    # Only PASS evidence produced by this run may close tasks (7.6: never on narrative
-    # alone). Orchestrator phases are tracked in state.json; per-change tasks.md closings
-    # are applied by the task-closing sweep with evidence references.
+    # This phase does NOT close per-change tasks.md files. Task closing is an external
+    # concern (the task-closing sweep, tasks.md 7.6): it marks each task [x] only against
+    # PASS evidence this run produced, never on narrative alone. The phase only records
+    # the orchestrator phases' PASS evidence that a closing sweep would consume.
     $passEvidence = @($State.evidence | Where-Object { $_.status -eq 'PASS' })
     Set-NoteProperty $State 'updateTasks' ([pscustomobject]@{
         updated = $passEvidence.Count
-        note = 'orchestrator phases tracked in state.json; tasks.md closings applied by the task-closing sweep with evidence refs'
+        note = 'task-closing is external (task-closing sweep); this phase records orchestrator-phase PASS evidence only'
     })
     Save-IntakeState -State $State -RunPath $RunPath
-    return [pscustomobject]@{ ok = $true; summary = "update-tasks: $($passEvidence.Count) orchestrator-phase evidence records (no narrative-only closings)" }
+    return [pscustomobject]@{ ok = $true; summary = "update-tasks: recorded $($passEvidence.Count) orchestrator-phase PASS evidence record(s); tasks.md closing is external (see tasks.md 7.6)" }
 }
 
 function Invoke-PhaseCommit {
@@ -865,6 +897,7 @@ function Invoke-AutonomousRun {
             $result = $retest
             $attemptClass = if ($retest.class) { $retest.class } else { 'ClassB' }
             $state.iteration++
+            if ($state.iteration -gt $state.maxIterations) { $state.escalated = $true; break }
             Save-IntakeState -State $state -RunPath $runPath
         }
 
@@ -918,8 +951,13 @@ function Invoke-ArchiveGate {
     exit $ExitFail
 }
 
-switch ($Verb) {
-    'autonomous' { Invoke-AutonomousRun }
-    'status'     { Invoke-StatusQuery -RequestedRunId $RunId }
-    'archive-gate' { Invoke-ArchiveGate -RequestedRunId $RunId }
+# Dispatch only when invoked as a script. When dot-sourced (`. intake.ps1`, e.g. a test
+# importing the phase functions), the definition-only body above is loaded and this
+# switch is skipped so the functions can be exercised without starting a run.
+if ($MyInvocation.InvocationName -ne '.') {
+    switch ($Verb) {
+        'autonomous' { Invoke-AutonomousRun }
+        'status'     { Invoke-StatusQuery -RequestedRunId $RunId }
+        'archive-gate' { Invoke-ArchiveGate -RequestedRunId $RunId }
+    }
 }

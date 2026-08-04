@@ -1,5 +1,6 @@
 #include "NavigationSidebar.h"
 #include "UITheme.h"
+#include "UiStyle.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -14,15 +15,36 @@ constexpr int kChromeHeight = 72;
 constexpr int kHeaderHeight = 28;
 constexpr int kItemHeight = 26;
 
+// Scale a DIP metric to physical pixels for Win32 control layout.
+int Scaled(int dipValue) {
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
 // App-theme state for the GDI-painted sidebar (module-level, shared by DrawLabel/Draw).
 bool gSidebarDark = false;
+
+// Fills a rounded pill (CreateRoundRectRgn + FillRgn) with the given color,
+// deleting both GDI objects. right/bottom are passed +1 so the region's
+// excluded bottom/right edges do not shave a pixel off the pill.
+void FillPill(HDC dc, const RECT& rect, int radius, COLORREF color) {
+    HRGN region = CreateRoundRectRgn(rect.left, rect.top, rect.right + 1, rect.bottom + 1, radius, radius);
+    if (!region) return;
+    HBRUSH brush = CreateSolidBrush(color);
+    if (brush) {
+        FillRgn(dc, region, brush);
+        DeleteObject(brush);
+    }
+    DeleteObject(region);
+}
 
 void DrawLabel(HDC dc, const std::wstring& text, RECT rect, bool header, bool disabled = false) {
     const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
     COLORREF textColor;
-    if (disabled) textColor = gSidebarDark ? RGB(0x9A, 0xA0, 0xA6) : GetSysColor(COLOR_GRAYTEXT);
-    else if (header) textColor = gSidebarDark ? RGB(0x9A, 0xA0, 0xA6) : GetSysColor(COLOR_WINDOWTEXT);
-    else textColor = gSidebarDark ? RGB(0xF1, 0xF3, 0xF4) : GetSysColor(COLOR_BTNTEXT);
+    if (ffui::UiSystemHighContrast()) {
+        textColor = (header || disabled) ? GetSysColor(COLOR_GRAYTEXT) : GetSysColor(COLOR_WINDOWTEXT);
+    } else {
+        textColor = ffui::ToColorRef((header || disabled) ? theme.textSecondary : theme.text);
+    }
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, textColor);
     DrawTextW(dc, text.c_str(), -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
@@ -41,7 +63,7 @@ bool NavigationSidebar::Initialize(HWND owner, NavigationWorkspace* workspace, N
     windowClass.lpszClassName = kWindowClass;
     RegisterClassW(&windowClass);
     window_ = CreateWindowExW(0, kWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                              0, kChromeHeight, kExpandedWidth, 0, owner_, nullptr,
+                              0, Scaled(kChromeHeight), Scaled(kExpandedWidth), 0, owner_, nullptr,
                               windowClass.hInstance, this);
     if (!window_) return false;
     RebuildRows();
@@ -57,8 +79,8 @@ void NavigationSidebar::Reposition() {
     if (!window_) return;
     RECT client{};
     GetClientRect(owner_, &client);
-    const int height = (std::max)(0L, client.bottom - kChromeHeight);
-    SetWindowPos(window_, HWND_TOP, 0, kChromeHeight, Width(), height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    const int height = (std::max)(0L, client.bottom - Scaled(kChromeHeight));
+    SetWindowPos(window_, HWND_TOP, 0, Scaled(kChromeHeight), Scaled(Width()), height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(window_, nullptr, FALSE);
 }
 
@@ -77,6 +99,7 @@ void NavigationSidebar::SetDarkTheme(bool dark) {
 
 void NavigationSidebar::RebuildRows() {
     rows_.clear();
+    hoveredRow_ = -1;
     if (!workspace_ || workspace_->State().sidebarCollapsed) return;
     const auto addSection = [this](int section, const wchar_t* label, bool collapsed) {
         rows_.push_back({RowKind::Section, section, 0, {}, std::wstring(collapsed ? L"▸ " : L"▾ ") + label, {}});
@@ -101,8 +124,10 @@ void NavigationSidebar::RebuildRows() {
 
 void NavigationSidebar::Draw(HDC dc, const RECT& client) {
     const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
-    const COLORREF bg = gSidebarDark ? RGB(static_cast<int>(theme.background.r * 255), static_cast<int>(theme.background.g * 255), static_cast<int>(theme.background.b * 255)) : GetSysColor(COLOR_WINDOW);
-    const COLORREF headerBg = gSidebarDark ? RGB(0x29, 0x2B, 0x2F) : GetSysColor(COLOR_BTNFACE);
+    const bool highContrast = ffui::UiSystemHighContrast();
+    const bool pillsEnabled = !highContrast;
+    const COLORREF bg = highContrast ? GetSysColor(COLOR_WINDOW) : ffui::ToColorRef(theme.background);
+    const COLORREF headerBg = highContrast ? GetSysColor(COLOR_BTNFACE) : ffui::ToColorRef(theme.surfaceSubtle);
     HBRUSH bgBrush = CreateSolidBrush(bg);
     FillRect(dc, &client, bgBrush);
     DeleteObject(bgBrush);
@@ -112,20 +137,56 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
         DrawLabel(dc, L"»", text, true);
         return;
     }
+    // True when the row's path is the location currently being browsed (or an
+    // ancestor of it), so the item gets the Fluent selection pill.
+    const auto isCurrentRow = [this](const Row& row) -> bool {
+        if (row.path.empty()) return false;
+        const auto normalized = [](const std::wstring& value) -> std::wstring {
+            std::wstring result = value;
+            std::replace(result.begin(), result.end(), L'/', L'\\');
+            while (!result.empty() && result.back() == L'\\') result.pop_back();
+            return result;
+        };
+        const std::wstring current = normalized(workspace_->ActiveContext().currentPath);
+        const std::wstring item = normalized(row.path);
+        if (current == item) return true;
+        return current.size() > item.size() && current.compare(0, item.size(), item) == 0 &&
+               current[item.size()] == L'\\';
+    };
+    const int pillRadius = Scaled(4);
+    const int pillInsetX = Scaled(4);
+    const int pillInsetY = Scaled(2);
     int y = 0;
-    for (auto& row : rows_) {
+    for (size_t index = 0; index < rows_.size(); ++index) {
+        Row& row = rows_[index];
         row.bounds = {0, y, client.right, y + (row.kind == RowKind::Section ? kHeaderHeight : kItemHeight)};
         if (row.kind == RowKind::Section) {
             HBRUSH hb = CreateSolidBrush(headerBg);
             FillRect(dc, &row.bounds, hb);
             DeleteObject(hb);
             DrawLabel(dc, row.label, {8, y, client.right - 8, y + kHeaderHeight}, true);
-            y += kHeaderHeight;
         } else {
             const bool unavailable = row.path.empty();
+            const bool hovered = pillsEnabled && static_cast<int>(index) == hoveredRow_;
+            const bool selected = pillsEnabled && isCurrentRow(row);
+            if (selected || hovered) {
+                RECT pill = row.bounds;
+                pill.left += pillInsetX;
+                pill.right -= pillInsetX;
+                pill.top += pillInsetY;
+                pill.bottom -= pillInsetY;
+                if (selected) {
+                    FillPill(dc, pill, pillRadius, ffui::ToColorRef(theme.surfaceSubtle));
+                }
+                if (hovered) {
+                    const D2D1_COLOR_F base = selected ? theme.surfaceSubtle : theme.background;
+                    FillPill(dc, pill, pillRadius,
+                             ffui::ToColorRef(ffui::UiLerpColor(base, theme.hoverOverlay, theme.hoverOverlay.a)));
+                }
+            }
             DrawLabel(dc, row.label, {8, y, client.right - 8, y + kItemHeight}, false, unavailable);
-            y += kItemHeight;
         }
+        y += row.kind == RowKind::Section ? kHeaderHeight : kItemHeight;
     }
 }
 
@@ -162,6 +223,34 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             EndPaint(hwnd, &paint);
             return 0;
         }
+        case WM_MOUSEMOVE: {
+            if (!workspace_) return 0;
+            int newHoveredRow = -1;
+            if (!workspace_->State().sidebarCollapsed) {
+                const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                for (size_t index = 0; index < rows_.size(); ++index) {
+                    const Row& row = rows_[index];
+                    if (row.kind == RowKind::Item && PtInRect(&row.bounds, point)) {
+                        newHoveredRow = static_cast<int>(index);
+                        break;
+                    }
+                }
+            }
+            if (newHoveredRow != hoveredRow_) {
+                hoveredRow_ = newHoveredRow;
+                InvalidateRect(window_, nullptr, FALSE);
+            }
+            TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&tme);
+            return 0;
+        }
+        case WM_MOUSELEAVE: {
+            if (hoveredRow_ != -1) {
+                hoveredRow_ = -1;
+                InvalidateRect(window_, nullptr, FALSE);
+            }
+            return 0;
+        }
         case WM_LBUTTONDOWN:
         case WM_MBUTTONDOWN: {
             if (!workspace_) return 0;
@@ -178,6 +267,7 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                     ToggleSection(row.section);
                 } else if (navigate_) {
                     navigate_({row.path, row.label, message == WM_MBUTTONDOWN});
+                    InvalidateRect(window_, nullptr, FALSE);
                 }
                 return 0;
             }

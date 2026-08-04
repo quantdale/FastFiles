@@ -13,27 +13,74 @@
     "artifacts"
   ],
   "properties": {
-    "capabilityId": { "type": "string" },
-    "interfaceVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-    "tier": { "type": "integer" },
-    "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED"] },
-    "reason": { "type": "string" },
-    "requiredContext": { "type": "object" },
-    "startedAtUtc": { "type": "string" },
-    "finishedAtUtc": { "type": "string" },
-    "durationMs": { "type": "number" },
-    "summary": { "type": "string" },
+    "capabilityId": {
+      "type": "string"
+    },
+    "interfaceVersion": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "tier": {
+      "type": "integer"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "SKIPPED"
+      ]
+    },
+    "reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "requiredContext": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "startedAtUtc": {
+      "type": "string"
+    },
+    "finishedAtUtc": {
+      "type": "string"
+    },
+    "durationMs": {
+      "type": "number"
+    },
+    "summary": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "artifacts": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["path", "type"],
+        "required": [
+          "path",
+          "type"
+        ],
         "properties": {
-          "path": { "type": "string" },
-          "type": { "type": "string" }
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
         }
       }
     },
-    "subResults": { "type": "array" }
+    "subResults": {
+      "type": [
+        "array",
+        "null"
+      ]
+    }
   }
 }

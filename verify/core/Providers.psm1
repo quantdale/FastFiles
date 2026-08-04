@@ -99,7 +99,6 @@ function Get-EnvironmentProvider {
                 activate        = 'Invoke-LocalProviderActivate'
                 collectLogs     = 'Invoke-LocalProviderCollectLogs'
                 cleanup         = 'Invoke-LocalProviderCleanup'
-                snapshotRestore = $null
             }
     } else {
         $manifestPath = Join-Path $providersRoot "$ProviderId\provider.json"

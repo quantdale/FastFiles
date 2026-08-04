@@ -6,6 +6,7 @@
 #include <shlwapi.h>
 
 #include "EngineClient.h"
+#include "UITheme.h"
 #include "ffprotocol/IndexHealth.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -22,6 +23,11 @@ constexpr int kPageTop = 36;
 constexpr int kPagePadding = 12;
 constexpr int kControlHeight = 24;
 constexpr int kControlSpacing = 32;
+
+// Scale a DIP metric to physical pixels for Win32 control layout.
+int Scaled(int dipValue) {
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
 
 constexpr wchar_t const* kPageNames[] = {
     L"General",
@@ -52,6 +58,10 @@ void InsertColumn(HWND list, int index, int width, const wchar_t* text) {
 
 SettingsDialog::~SettingsDialog() {
     Hide();
+    if (themeBrush_) {
+        DeleteObject(themeBrush_);
+        themeBrush_ = nullptr;
+    }
 }
 
 bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
@@ -75,15 +85,23 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
 
     dialog_ = CreateWindowExW(WS_EX_DLGMODALFRAME, L"FastFilesSettingsDialog", L"FastFiles Settings",
                               WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                              0, 0, kDialogWidth, kDialogHeight,
+                              0, 0, Scaled(kDialogWidth), Scaled(kDialogHeight),
                               owner_, nullptr, GetModuleHandleW(nullptr), this);
     if (!dialog_) return false;
+
+    // §5.4: themed dialog background + immersive dark title bar. Inner controls
+    // (tab control, listviews, combos, buttons) intentionally stay stock — the
+    // themed-brush WM_CTLCOLOR* handling below covers the dialog background,
+    // statics, edits, and listboxes, so the dialog is never blinding-white in
+    // dark mode; fully custom-painted controls are out of scope for the dialog.
+    UpdateThemeBrush();
+    ApplyDwmDarkTitleBar();
 
     CenterWindow(dialog_, owner_);
 
     tabControl_ = CreateWindowExW(0, WC_TABCONTROLW, L"",
                                   WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-                                  kPagePadding, kPagePadding, kDialogWidth - 2 * kPagePadding, kTabControlHeight,
+                                  Scaled(kPagePadding), Scaled(kPagePadding), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding), Scaled(kTabControlHeight),
                                   dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     for (int i = 0; i < 6; ++i) {
         TCITEMW item{TCIF_TEXT};
@@ -122,6 +140,49 @@ void SettingsDialog::Hide() {
         ShowWindow(dialog_, SW_HIDE);
         visible_ = false;
     }
+}
+
+void SettingsDialog::SetDarkTheme(bool dark) {
+    darkTheme_ = dark;
+    // The class background stays a stable system brush; the live background is
+    // delivered by the WM_CTLCOLORDLG/WM_CTLCOLOR* handlers from themeBrush_.
+    UpdateThemeBrush();
+    ApplyDwmDarkTitleBar();
+    if (dialog_) {
+        // Repaint the dialog and all children so the themed brush/text colors
+        // (WM_CTLCOLOR*) take effect without recreating any control.
+        RedrawWindow(dialog_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
+}
+
+void SettingsDialog::UpdateThemeBrush() {
+    if (themeBrush_) {
+        DeleteObject(themeBrush_);
+        themeBrush_ = nullptr;
+    }
+    themeBrush_ = CreateSolidBrush(ToColorRef(GetUiTheme(darkTheme_).background));
+}
+
+void SettingsDialog::ApplyDwmDarkTitleBar() {
+    if (!dialog_) return;
+    // Win11 immersive dark mode for the title bar / window chrome (attribute
+    // 20); harmless no-op on systems without the attribute (same pattern as
+    // WindowShell::ApplyTheme).
+    if (HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll")) {
+        using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+        auto dwmSetAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+        if (dwmSetAttribute) {
+            const BOOL useDark = darkTheme_ ? TRUE : FALSE;
+            dwmSetAttribute(dialog_, 20, &useDark, sizeof(useDark));  // DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+        }
+    }
+}
+
+HBRUSH SettingsDialog::ThemeControlColor(HDC hdc) {
+    const UiTheme theme = GetUiTheme(darkTheme_);
+    SetTextColor(hdc, ToColorRef(theme.text));
+    SetBkColor(hdc, ToColorRef(theme.background));
+    return themeBrush_;
 }
 
 bool SettingsDialog::HandleMessage(MSG& msg) {
@@ -252,6 +313,15 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             }
             break;
         }
+        // §5.4: themed backgrounds/text for the dialog + statics/edits/list-
+        // boxes so dark mode never produces blinding-white chrome. Buttons and
+        // the tab control stay stock (documented trade-off; the dialog surface,
+        // statics, edit fields, and listview/listbox bodies are themed here).
+        case WM_CTLCOLORDLG:
+        case WM_CTLCOLORSTATIC:
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORLISTBOX:
+            return reinterpret_cast<LRESULT>(ThemeControlColor(reinterpret_cast<HDC>(wParam)));
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
@@ -260,10 +330,10 @@ void SettingsDialog::CreateControls(HWND hwnd) {
     (void)hwnd;
     // OK/Cancel buttons
     CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                    kDialogWidth - 180, kDialogHeight - 36, 80, 24,
+                    Scaled(kDialogWidth) - Scaled(180), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
                     dialog_, reinterpret_cast<HMENU>(IDOK), GetModuleHandleW(nullptr), nullptr);
     CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                    kDialogWidth - 90, kDialogHeight - 36, 80, 24,
+                    Scaled(kDialogWidth) - Scaled(90), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
                     dialog_, reinterpret_cast<HMENU>(IDCANCEL), GetModuleHandleW(nullptr), nullptr);
 }
 
@@ -274,7 +344,7 @@ void SettingsDialog::PopulateSearchPage() {
     if (!searchScopeCombo_) {
         searchScopeCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
                                              WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                             kPagePadding + 100, kPagePadding + 30, 200, 200,
+                                             Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(200), Scaled(200),
                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Current Folder"));
         SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Current Folder + Subfolders"));
@@ -284,7 +354,7 @@ void SettingsDialog::PopulateSearchPage() {
     if (!retainHistoryCheck_) {
         retainHistoryCheck_ = CreateWindowExW(0, L"BUTTON", L"Retain search history",
                                               WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                                              kPagePadding + 100, kPagePadding + 60, 200, 20,
+                                              Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(60), Scaled(200), Scaled(20),
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
 
@@ -303,17 +373,17 @@ void SettingsDialog::PopulateSearchPage() {
 void SettingsDialog::PopulateNavigationPage() {
     if (!startupPathEdit_) {
         CreateWindowExW(0, L"STATIC", L"Startup location:", WS_CHILD | WS_VISIBLE,
-                        kPagePadding + 100, kPagePadding + 30, 100, 20,
+                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(100), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         startupPathEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                                           kPagePadding + 100, kPagePadding + 55, 300, 24,
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(55), Scaled(300), Scaled(24),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     if (!restoreSessionCheck_) {
         restoreSessionCheck_ = CreateWindowExW(0, L"BUTTON", L"Restore previous session on startup",
                                                WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                                               kPagePadding + 100, kPagePadding + 85, 250, 20,
+                                               Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(85), Scaled(250), Scaled(20),
                                                dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
 
@@ -619,11 +689,11 @@ void SettingsDialog::MoveVolumeRuleDown() {
 
 void SettingsDialog::PopulateIndexingPage() {
     if (!volumeList_) {
-        constexpr int kRightColumnX = kDialogWidth - 2 * kPagePadding - 100;
-        constexpr int kRightColumnWidth = 100;
+        const int rightColumnX = Scaled(kDialogWidth - 2 * kPagePadding - 100);
+        const int rightColumnWidth = Scaled(100);
         volumeList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
-                                       kPagePadding, kPagePadding + 30, kDialogWidth - 2 * kPagePadding - 100, 180,
+                                       Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(180),
                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         ListView_SetExtendedListViewStyle(volumeList_, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
         // §7.3: Status column shows the derived per-volume index health.
@@ -632,33 +702,33 @@ void SettingsDialog::PopulateIndexingPage() {
 
         statusDetail_ = CreateWindowExW(0, L"STATIC", L"",
                                         WS_CHILD | WS_VISIBLE | SS_LEFT,
-                                        kPagePadding, kPagePadding + 214, kDialogWidth - 2 * kPagePadding - 100, 44,
+                                        Scaled(kPagePadding), Scaled(kPagePadding + 214), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(44),
                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
 
         // §9.1/§9.3: control-plane actions. Pause is transient engine
         // state; the button label toggles from the status flags.
         pauseAllCheck_ = CreateWindowExW(0, L"BUTTON", L"Pause indexing (all volumes)",
                                          WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                                         kPagePadding, kPagePadding + 264, 220, 20,
+                                         Scaled(kPagePadding), Scaled(kPagePadding + 264), Scaled(220), Scaled(20),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
 
         addRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Add Rule", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                          kRightColumnX, kPagePadding + 30, kRightColumnWidth, 24,
+                                          rightColumnX, Scaled(kPagePadding + 30), rightColumnWidth, Scaled(24),
                                           dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                             kRightColumnX, kPagePadding + 62, kRightColumnWidth, 24,
+                                             rightColumnX, Scaled(kPagePadding + 62), rightColumnWidth, Scaled(24),
                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveUpButton_ = CreateWindowExW(0, L"BUTTON", L"Up", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                         kRightColumnX, kPagePadding + 94, kRightColumnWidth, 24,
+                                         rightColumnX, Scaled(kPagePadding + 94), rightColumnWidth, Scaled(24),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveDownButton_ = CreateWindowExW(0, L"BUTTON", L"Down", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                           kRightColumnX, kPagePadding + 126, kRightColumnWidth, 24,
+                                           rightColumnX, Scaled(kPagePadding + 126), rightColumnWidth, Scaled(24),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         pauseResumeButton_ = CreateWindowExW(0, L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                              kRightColumnX, kPagePadding + 158, kRightColumnWidth, 24,
+                                              rightColumnX, Scaled(kPagePadding + 158), rightColumnWidth, Scaled(24),
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         addToIndexingButton_ = CreateWindowExW(0, L"BUTTON", L"Add to Indexing", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                kRightColumnX, kPagePadding + 190, kRightColumnWidth, 24,
+                                                rightColumnX, Scaled(kPagePadding + 190), rightColumnWidth, Scaled(24),
                                                 dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     UpdateVolumeList();
@@ -669,17 +739,17 @@ void SettingsDialog::PopulateStoragePage() {
     if (!categoryList_) {
         categoryList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                          WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
-                                         kPagePadding, kPagePadding + 30, kDialogWidth - 2 * kPagePadding - 100, 200,
+                                         Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(200),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         InsertColumn(categoryList_, 0, 150, L"Category");
         InsertColumn(categoryList_, 1, kDialogWidth - 2 * kPagePadding - 260, L"Extensions");
         ListView_SetExtendedListViewStyle(categoryList_, LVS_EX_FULLROWSELECT);
         
         addCategoryButton_ = CreateWindowExW(0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                              kDialogWidth - 90, kPagePadding + 30, 80, 24,
+                                              Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeCategoryButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                 kDialogWidth - 90, kPagePadding + 60, 80, 24,
+                                                 Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 60), Scaled(80), Scaled(24),
                                                  dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     
@@ -703,14 +773,14 @@ void SettingsDialog::PopulateShortcutsPage() {
     if (!shortcutList_) {
         shortcutList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                          WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
-                                         kPagePadding, kPagePadding + 30, kDialogWidth - 2 * kPagePadding - 100, 200,
+                                         Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(200),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         InsertColumn(shortcutList_, 0, 200, L"Command");
         InsertColumn(shortcutList_, 1, 150, L"Shortcut");
         ListView_SetExtendedListViewStyle(shortcutList_, LVS_EX_FULLROWSELECT);
         
         resetShortcutsButton_ = CreateWindowExW(0, L"BUTTON", L"Reset Defaults", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                 kDialogWidth - 90, kPagePadding + 30, 80, 24,
+                                                 Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
                                                  dialog_, reinterpret_cast<HMENU>(40001), GetModuleHandleW(nullptr), nullptr);
     }
     

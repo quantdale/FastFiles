@@ -1,11 +1,12 @@
 // FastFilesIndexSvc: the privileged, stateless Windows Service.
 //
-// Ships as a protocol/security skeleton in this change: Handshake, mutual
-// authentication, volume enumeration, and connection-scoped bookkeeping
-// are fully implemented; StartVolumeScan/OpenUsnJournal reply with an
-// explicit "not yet implemented" status rather than performing real
-// MFT/USN parsing, which lands in a follow-up change. See
-// openspec/changes/establish-architecture-foundation.
+// Runs as a constrained privileged broker under LocalSystem (see
+// openspec/changes/resolve-raw-volume-privilege-insufficiency/evidence/
+// matrix-execution-and-selection.md). The full protocol surface is
+// implemented: Handshake, mutual authentication, volume enumeration,
+// connection-scoped bookkeeping, and real MFT/USN scan/journal streaming
+// (VolumeScanner / UsnJournalReader / MftParser, wired into
+// ServiceConnection). See openspec/changes/establish-architecture-foundation.
 #include <windows.h>
 #include <cstdio>
 #include <cstdlib>

@@ -10,3 +10,9 @@ add_test(NAME ffprivilege_diagnostics_tests COMMAND ffprivilege_diagnostics_test
 add_executable(ffcommand_surface_tests test_command_surface.cpp)
 target_link_libraries(ffcommand_surface_tests PRIVATE ffindexsvcprobes)
 add_test(NAME ffcommand_surface_tests COMMAND ffcommand_surface_tests)
+
+add_executable(ffconnection_registry_tests test_connection_registry.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src/ConnectionRegistry.cpp)
+target_link_libraries(ffconnection_registry_tests PRIVATE ffprotocol)
+target_include_directories(ffconnection_registry_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
+add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
