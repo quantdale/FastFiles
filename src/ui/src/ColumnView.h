@@ -143,12 +143,16 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> backgroundBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textSecondaryBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textOnAccentBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selectionBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> folderGlyphBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> fileGlyphBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> errorBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeActiveBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeActiveTextBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedTextBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
     bool resourcesCreated_ = false;

@@ -1,0 +1,13 @@
+{
+  "id": "hyperv",
+  "interfaceVersion": "1.0.0",
+  "displayName": "Disposable Hyper-V Windows guest",
+  "supportsSnapshotRestore": true,
+  "entryPoints": {
+    "provision": "Invoke-HyperVProviderProvision",
+    "activate": "Invoke-HyperVProviderActivate",
+    "collectLogs": "Invoke-HyperVProviderCollectLogs",
+    "cleanup": "Invoke-HyperVProviderCleanup",
+    "snapshotRestore": "Invoke-HyperVProviderSnapshotRestore"
+  }
+}

@@ -28,6 +28,7 @@ public:
                     bool retainHistory);
     void ShowAndFocus(const std::wstring& currentPath, bool engineActive);
     void Hide();
+    void SetDarkTheme(bool dark);
     bool Visible() const { return visible_; }
     void Reposition();
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);

@@ -1,4 +1,5 @@
 #include "WindowShell.h"
+#include "UITheme.h"
 
 #include "ConflictDialog.h"
 #include "Util.h"
@@ -680,6 +681,26 @@ void WindowShell::ApplyTheme() {
     // default, so no fade runs and the disabled-animations case is
     // trivially satisfied.)
     columnView_.SetDarkTheme(dark);
+    darkTheme_ = dark;
+    storageAnalysis_.SetDarkTheme(dark);
+    searchPanel_.SetDarkTheme(dark);
+    navigationSidebar_.SetDarkTheme(dark);
+    // Reset the details-pane brushes/text-formats so they are recreated with the
+    // active theme on the next paint (the old brushes are light-only).
+    detailsBrush_.Reset();
+    detailsTextBrush_.Reset();
+    detailsTextFormat_.Reset();
+    previewTextFormat_.Reset();
+    // Win11 immersive dark mode for the title bar / window chrome; harmless no-op
+    // on systems without the attribute.
+    if (HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll")) {
+        using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+        auto dwmSetAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+        if (dwmSetAttribute) {
+            const BOOL useDark = dark ? TRUE : FALSE;
+            dwmSetAttribute(hwnd_, 20, &useDark, sizeof(useDark));  // DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+        }
+    }
     RequestRepaint();
 }
 
@@ -759,8 +780,9 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
     constexpr float kStatusHeight = 26.0f;
     const float left = std::max(0.0f, viewportSize.width - kPanelWidth);
     if (!detailsBrush_) {
-        context->CreateSolidColorBrush(D2D1::ColorF(0xF1F3F5), &detailsBrush_);
-        context->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &detailsTextBrush_);
+        const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+        context->CreateSolidColorBrush(theme.surface, &detailsBrush_);
+        context->CreateSolidColorBrush(theme.text, &detailsTextBrush_);
         renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"en-us", &detailsTextFormat_);
         renderer_.DWriteFactory()->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,

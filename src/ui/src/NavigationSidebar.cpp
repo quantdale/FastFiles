@@ -1,4 +1,5 @@
 #include "NavigationSidebar.h"
+#include "UITheme.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -13,9 +14,17 @@ constexpr int kChromeHeight = 72;
 constexpr int kHeaderHeight = 28;
 constexpr int kItemHeight = 26;
 
+// App-theme state for the GDI-painted sidebar (module-level, shared by DrawLabel/Draw).
+bool gSidebarDark = false;
+
 void DrawLabel(HDC dc, const std::wstring& text, RECT rect, bool header, bool disabled = false) {
+    const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
+    COLORREF textColor;
+    if (disabled) textColor = gSidebarDark ? RGB(0x9A, 0xA0, 0xA6) : GetSysColor(COLOR_GRAYTEXT);
+    else if (header) textColor = gSidebarDark ? RGB(0x9A, 0xA0, 0xA6) : GetSysColor(COLOR_WINDOWTEXT);
+    else textColor = gSidebarDark ? RGB(0xF1, 0xF3, 0xF4) : GetSysColor(COLOR_BTNTEXT);
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, disabled ? GetSysColor(COLOR_GRAYTEXT) : GetSysColor(header ? COLOR_WINDOWTEXT : COLOR_BTNTEXT));
+    SetTextColor(dc, textColor);
     DrawTextW(dc, text.c_str(), -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
 }
 }
@@ -60,6 +69,12 @@ void NavigationSidebar::Refresh() {
     InvalidateRect(window_, nullptr, FALSE);
 }
 
+void NavigationSidebar::SetDarkTheme(bool dark) {
+    darkTheme_ = dark;
+    gSidebarDark = dark;
+    if (window_) InvalidateRect(window_, nullptr, FALSE);
+}
+
 void NavigationSidebar::RebuildRows() {
     rows_.clear();
     if (!workspace_ || workspace_->State().sidebarCollapsed) return;
@@ -85,7 +100,12 @@ void NavigationSidebar::RebuildRows() {
 }
 
 void NavigationSidebar::Draw(HDC dc, const RECT& client) {
-    FillRect(dc, &client, GetSysColorBrush(COLOR_WINDOW));
+    const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
+    const COLORREF bg = gSidebarDark ? RGB(static_cast<int>(theme.background.r * 255), static_cast<int>(theme.background.g * 255), static_cast<int>(theme.background.b * 255)) : GetSysColor(COLOR_WINDOW);
+    const COLORREF headerBg = gSidebarDark ? RGB(0x29, 0x2B, 0x2F) : GetSysColor(COLOR_BTNFACE);
+    HBRUSH bgBrush = CreateSolidBrush(bg);
+    FillRect(dc, &client, bgBrush);
+    DeleteObject(bgBrush);
     if (!workspace_) return;
     if (workspace_->State().sidebarCollapsed) {
         RECT text{0, 8, client.right, 32};
@@ -96,7 +116,9 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
     for (auto& row : rows_) {
         row.bounds = {0, y, client.right, y + (row.kind == RowKind::Section ? kHeaderHeight : kItemHeight)};
         if (row.kind == RowKind::Section) {
-            FillRect(dc, &row.bounds, GetSysColorBrush(COLOR_BTNFACE));
+            HBRUSH hb = CreateSolidBrush(headerBg);
+            FillRect(dc, &row.bounds, hb);
+            DeleteObject(hb);
             DrawLabel(dc, row.label, {8, y, client.right - 8, y + kHeaderHeight}, true);
             y += kHeaderHeight;
         } else {

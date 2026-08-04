@@ -1,5 +1,6 @@
 #include "ColumnView.h"
 #include "SelectionModel.h"
+#include "UITheme.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -478,9 +479,11 @@ void ColumnView::SetDarkTheme(bool dark) {
     if (darkTheme_ != dark) {
         darkTheme_ = dark;
         resourcesCreated_ = false; // recreated together with the next paint
-        backgroundBrush_.Reset(); borderBrush_.Reset(); textBrush_.Reset(); selectionBrush_.Reset();
+        backgroundBrush_.Reset(); borderBrush_.Reset(); textBrush_.Reset(); textSecondaryBrush_.Reset(); textOnAccentBrush_.Reset();
+        selectionBrush_.Reset();
         folderGlyphBrush_.Reset(); fileGlyphBrush_.Reset(); errorBrush_.Reset();
-        badgeActiveBrush_.Reset(); badgeDegradedBrush_.Reset();
+        badgeActiveBrush_.Reset(); badgeActiveTextBrush_.Reset();
+        badgeDegradedBrush_.Reset(); badgeDegradedTextBrush_.Reset();
     }
 }
 
@@ -540,15 +543,20 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
     if (resourcesCreated_) {
         return;
     }
-    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF), &backgroundBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0x50535A : 0xD8D8D8), &borderBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(darkTheme_ ? 0xF1F3F4 : 0x000000), &textBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0x2B6CDA), &selectionBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0x5B8FE0), &folderGlyphBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0x9AA0A6), &fileGlyphBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xB00020), &errorBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xDDEFDD), &badgeActiveBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xFFF3CD), &badgeDegradedBrush_);
+    const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+    context->CreateSolidColorBrush(theme.background, &backgroundBrush_);
+    context->CreateSolidColorBrush(theme.border, &borderBrush_);
+    context->CreateSolidColorBrush(theme.text, &textBrush_);
+    context->CreateSolidColorBrush(theme.textSecondary, &textSecondaryBrush_);
+    context->CreateSolidColorBrush(theme.textOnAccent, &textOnAccentBrush_);
+    context->CreateSolidColorBrush(theme.accent, &selectionBrush_);
+    context->CreateSolidColorBrush(theme.folderGlyph, &folderGlyphBrush_);
+    context->CreateSolidColorBrush(theme.fileGlyph, &fileGlyphBrush_);
+    context->CreateSolidColorBrush(theme.error, &errorBrush_);
+    context->CreateSolidColorBrush(theme.badgeActiveBg, &badgeActiveBrush_);
+    context->CreateSolidColorBrush(theme.badgeActiveText, &badgeActiveTextBrush_);
+    context->CreateSolidColorBrush(theme.badgeDegradedBg, &badgeDegradedBrush_);
+    context->CreateSolidColorBrush(theme.badgeDegradedText, &badgeDegradedTextBrush_);
 
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -565,14 +573,15 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
     EnsureCreated(context, dwriteFactory);
 
-    context->Clear(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF));
+    context->Clear(ffui::GetUiTheme(darkTheme_).background);
 
     // Task 5.9: non-modal engine-connection-state status badge.
     D2D1_RECT_F badgeRect = D2D1::RectF(0, 0, viewportSize.width, kBadgeHeight);
     context->FillRectangle(badgeRect, engineActive_ ? badgeActiveBrush_.Get() : badgeDegradedBrush_.Get());
     const wchar_t* badgeText = engineActive_ ? L"Instant search: enabled" : L"Instant search: basic — click to enable";
     D2D1_RECT_F badgeTextRect = D2D1::RectF(10, 0, viewportSize.width - 10, kBadgeHeight);
-    context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect, textBrush_.Get());
+    context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect,
+                      engineActive_ ? badgeActiveTextBrush_.Get() : badgeDegradedTextBrush_.Get());
 
     std::lock_guard<std::mutex> lock(columnsMutex_);
 
@@ -598,13 +607,21 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 continue;
             }
 
+            if (column.items.empty()) {
+                const wchar_t* emptyMessage = L"This folder is empty";
+                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
+                context->DrawText(emptyMessage, static_cast<UINT32>(wcslen(emptyMessage)), textFormat_.Get(), messageRect, textSecondaryBrush_.Get());
+                continue;
+            }
+
             for (int r = 0; r < static_cast<int>(column.items.size()); ++r) {
                 const float y = kBadgeHeight + r * kRowHeight;
                 if (y + kRowHeight < kBadgeHeight || y > viewportSize.height) {
                     continue;
                 }
 
-                if (column.selectedIndices.contains(r)) {
+                const bool isSelected = column.selectedIndices.contains(r);
+                if (isSelected) {
                     D2D1_RECT_F selectionRect = D2D1::RectF(x, y, x + kColumnWidth, y + kRowHeight);
                     const float opacity = (i == (activePane_ == 0 ? focusedColumnIndex_ : focusedColumnIndex2_)) ? 1.0f : 0.35f;
                     selectionBrush_->SetOpacity(opacity);
@@ -620,7 +637,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     label += L'\\';
                 }
                 D2D1_RECT_F textRect = D2D1::RectF(x + 24, y, x + kColumnWidth - 4, y + kRowHeight);
-                context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
+                // White text on the accent selection for contrast in both themes.
+                context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect,
+                                  isSelected ? textOnAccentBrush_.Get() : textBrush_.Get());
             }
         }
     };

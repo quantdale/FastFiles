@@ -103,6 +103,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
+    bool darkTheme_ = false;
     uint64_t pendingAggregateRequestId_ = 0;
     ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
     uint64_t pendingAggregateItemCount_ = 0;

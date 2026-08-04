@@ -1,4 +1,5 @@
 #include "TreemapView.h"
+#include "UITheme.h"
 
 #include <algorithm>
 #include <cmath>
@@ -64,11 +65,12 @@ void TreemapView::OnSnapshotUpdated() {
 
 void TreemapView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory) {
     if (resourcesCreated_) return;
-    context->CreateSolidColorBrush(D2D1::ColorF(0xF1F3F4), &backgroundBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0x000000), &textBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xD8D8D8), &borderBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0x2B6CDA), &hoverBrush_);
-    context->CreateSolidColorBrush(D2D1::ColorF(0xFFF3CD), &calculatingBrush_);
+    const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
+    context->CreateSolidColorBrush(theme.background, &backgroundBrush_);
+    context->CreateSolidColorBrush(theme.text, &textBrush_);
+    context->CreateSolidColorBrush(theme.border, &borderBrush_);
+    context->CreateSolidColorBrush(theme.accent, &hoverBrush_);
+    context->CreateSolidColorBrush(theme.treemapCalculating, &calculatingBrush_);
     dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                      12.0f, L"en-us", &textFormat_);
@@ -236,7 +238,7 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
     if (!visible_ || layout_.empty()) return;
 
     EnsureCreated(context, dwriteFactory);
-    context->Clear(D2D1::ColorF(darkTheme_ ? 0x202124 : 0xFFFFFF));
+    context->Clear(ffui::GetUiTheme(darkTheme_).background);
 
     const float scaleX = viewportSize.width / 100.0f;
     const float scaleY = viewportSize.height / 100.0f;

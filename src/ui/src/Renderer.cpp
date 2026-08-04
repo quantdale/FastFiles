@@ -38,6 +38,7 @@ bool Renderer::Initialize(HWND hwnd) {
     if (FAILED(d2dDevice_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &d2dContext_))) {
         return false;
     }
+    ApplyDpi();
     if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                     reinterpret_cast<IUnknown**>(dwriteFactory_.GetAddressOf())))) {
         return false;
@@ -110,7 +111,28 @@ void Renderer::Resize(UINT width, UINT height) {
 
     d2dContext_->SetTarget(nullptr);
     swapChain_->ResizeBuffers(0, width_, height_, DXGI_FORMAT_UNKNOWN, 0);
+    ApplyDpi();
     CreateTargetBitmap();
+}
+
+void Renderer::ApplyDpi() {
+    // The D2D device context defaults to 96 DPI. With per-monitor DPI awareness
+    // enabled, set it to the system DPI so all DIP-based drawing (columns, rows,
+    // fonts, treemap) scales correctly on high-DPI displays. At 100% scaling
+    // (96 DPI) this is a no-op.
+    if (d2dContext_) {
+        UINT dpi = 96;
+        HMODULE user32 = GetModuleHandleW(L"user32.dll");
+        if (user32) {
+            using GetDpiForSystemFn = UINT(WINAPI*)();
+            auto getDpi = reinterpret_cast<GetDpiForSystemFn>(GetProcAddress(user32, "GetDpiForSystem"));
+            if (getDpi) {
+                dpi = getDpi();
+            }
+        }
+        const float scale = static_cast<float>(dpi) / 96.0f;
+        d2dContext_->SetDpi(96.0f * scale, 96.0f * scale);
+    }
 }
 
 ID2D1DeviceContext* Renderer::BeginFrame() {

@@ -554,7 +554,6 @@ void StorageAnalysis::OnSnapshotUpdated() {
 void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize) {
     if (viewMode_ != ViewMode::Treemap) return;
     treemapView_.EnsureCreated(context, dwriteFactory);
-    treemapView_.SetDarkTheme(engineActive_);
     treemapView_.Render(context, dwriteFactory, viewportSize);
 }
 
@@ -753,6 +752,11 @@ bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
 
 void StorageAnalysis::SetEngineActive(bool active) {
     engineActive_ = active;
+}
+
+void StorageAnalysis::SetDarkTheme(bool dark) {
+    darkTheme_ = dark;
+    treemapView_.SetDarkTheme(dark);
 }
 
 bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {

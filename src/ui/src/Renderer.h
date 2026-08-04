@@ -20,6 +20,7 @@ class Renderer {
 public:
     bool Initialize(HWND hwnd);
     void Resize(UINT width, UINT height);
+    void ApplyDpi();
 
     // Returns the device context to draw into, having already called
     // BeginDraw(). Caller must call EndFrame() when done.

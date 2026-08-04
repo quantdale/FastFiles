@@ -38,6 +38,7 @@ public:
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
     bool HandleLButtonDown(WPARAM wParam, LPARAM lParam);
     void SetEngineActive(bool active);
+    void SetDarkTheme(bool dark);
     void OnSnapshotUpdated();
     void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize);
 
@@ -114,6 +115,7 @@ private:
     std::wstring currentPath_;
     bool visible_ = false;
     bool engineActive_ = false;
+    bool darkTheme_ = false;
     uint64_t generation_ = 0;
     ViewMode viewMode_ = ViewMode::Overview;
 

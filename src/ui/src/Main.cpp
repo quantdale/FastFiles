@@ -10,6 +10,18 @@
 #include "WindowShell.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
+    // Enables per-monitor DPI awareness so the Direct2D content renders crisply
+    // at non-100% scaling and WM_DPICHANGED actually fires. Fall back safely on
+    // older builds (< Windows 10 1703) where the API does not exist.
+    HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    if (user32) {
+        using SetDpiAwarenessContextFn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
+        auto setDpiAwareness = reinterpret_cast<SetDpiAwarenessContextFn>(GetProcAddress(user32, "SetProcessDpiAwarenessContext"));
+        if (setDpiAwareness) {
+            setDpiAwareness(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        }
+    }
+
     if (FAILED(OleInitialize(nullptr))) {
         return 1;
     }

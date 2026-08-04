@@ -1,4 +1,5 @@
 #include "SearchPanel.h"
+#include "UITheme.h"
 #include "Util.h"
 
 #include <algorithm>
@@ -21,6 +22,10 @@ constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
 
 using Microsoft::WRL::ComPtr;
+
+// App-theme state for the custom-painted search edit (module-level because
+// PaintSearchEdit is a free paint proc shared with the subclassed edit).
+bool gSearchPanelDark = false;
 
 void PaintSearchEdit(HWND hwnd) {
     PAINTSTRUCT paint{};
@@ -46,11 +51,12 @@ void PaintSearchEdit(HWND hwnd) {
                                                       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
                                                       14.0f, L"en-us", &format))) {
             target->BeginDraw();
-            target->Clear(D2D1::ColorF(D2D1::ColorF::White));
+            const ffui::UiTheme theme = ffui::GetUiTheme(gSearchPanelDark);
+            target->Clear(theme.background);
             ComPtr<ID2D1SolidColorBrush> border;
             ComPtr<ID2D1SolidColorBrush> textBrush;
-            target->CreateSolidColorBrush(D2D1::ColorF(0x7A8AA0), &border);
-            target->CreateSolidColorBrush(D2D1::ColorF(0x1B2430), &textBrush);
+            target->CreateSolidColorBrush(theme.searchBorder, &border);
+            target->CreateSolidColorBrush(theme.searchText, &textBrush);
             const auto bounds = D2D1::RectF(0.5f, 0.5f,
                                              static_cast<float>(client.right) - 0.5f,
                                              static_cast<float>(client.bottom) - 0.5f);
@@ -63,7 +69,7 @@ void PaintSearchEdit(HWND hwnd) {
             if (text.empty()) {
                 text = L"Search indexed locations…";
                 textBrush.Reset();
-                target->CreateSolidColorBrush(D2D1::ColorF(0x6B7785), &textBrush);
+                target->CreateSolidColorBrush(theme.searchPlaceholder, &textBrush);
             }
             const auto textRect = D2D1::RectF(10.0f, 3.0f,
                                               static_cast<float>(client.right) - 10.0f,
@@ -199,18 +205,24 @@ void SearchPanel::Hide() {
     for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_HIDE);
 }
 
+void SearchPanel::SetDarkTheme(bool dark) {
+    gSearchPanelDark = dark;
+    if (query_) InvalidateRect(query_, nullptr, FALSE);
+}
+
 void SearchPanel::Reposition() {
     if (!visible_) return;
     RECT client{}; GetClientRect(owner_, &client);
     const int width = static_cast<int>(client.right);
     const int height = static_cast<int>(client.bottom);
-    SetWindowPos(query_, HWND_TOP, 12, 44, (std::max)(180, width - 700), 300, SWP_SHOWWINDOW);
-    SetWindowPos(scope_, HWND_TOP, (std::max)(194, width - 508), 44, 210, 300, SWP_SHOWWINDOW);
-    SetWindowPos(sort_, HWND_TOP, (std::max)(406, width - 296), 44, 126, 300, SWP_SHOWWINDOW);
-    SetWindowPos(sortDirection_, HWND_TOP, width - 158, 44, 146, 26, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, 12, 76, width - 150, 24, SWP_SHOWWINDOW);
-    SetWindowPos(clearHistory_, HWND_TOP, width - 126, 72, 114, 26, SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, 12, 104, width - 24, (std::max)(80, height - 116), SWP_SHOWWINDOW);
+    const int top = static_cast<int>(ffui::UiMetrics::kChromeHeight); // below navigation chrome
+    SetWindowPos(query_, HWND_TOP, 12, top, (std::max)(180, width - 700), 300, SWP_SHOWWINDOW);
+    SetWindowPos(scope_, HWND_TOP, (std::max)(194, width - 508), top, 210, 300, SWP_SHOWWINDOW);
+    SetWindowPos(sort_, HWND_TOP, (std::max)(406, width - 296), top, 126, 300, SWP_SHOWWINDOW);
+    SetWindowPos(sortDirection_, HWND_TOP, width - 158, top, 146, 26, SWP_SHOWWINDOW);
+    SetWindowPos(status_, HWND_TOP, 12, top + 32, width - 150, 24, SWP_SHOWWINDOW);
+    SetWindowPos(clearHistory_, HWND_TOP, width - 126, top + 28, 114, 26, SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, 12, top + 60, width - 24, (std::max)(80, height - top - 72), SWP_SHOWWINDOW);
 }
 
 bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {

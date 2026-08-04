@@ -22,6 +22,7 @@ public:
     void Reposition();
     void Refresh();
     int Width() const;
+    void SetDarkTheme(bool dark);
 
 private:
     enum class RowKind { Section, Item };
@@ -38,6 +39,7 @@ private:
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;
     std::vector<Row> rows_;
+    bool darkTheme_ = false;
 };
 
 } // namespace ffui

@@ -24,6 +24,9 @@ public static class FfNativeInput
     [DllImport("user32.dll")]
     public static extern IntPtr GetForegroundWindow();
 
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
     [StructLayout(LayoutKind.Sequential)]
     public struct INPUT
     {
@@ -166,7 +169,21 @@ function Set-UiaForeground {
     try {
         $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
         if ($hwnd -eq [IntPtr]::Zero) { return $false }
-        return [FfNativeInput]::SetForegroundWindow($hwnd)
+        # Windows foreground-lock rules let a background process lose the fight for
+        # foreground ownership, which makes SendInput-based input land in the wrong
+        # window (flaky). Robust sequence: restore minimized windows, set foreground,
+        # tap ALT once (releases the foreground lock per user32 docs), retry, and
+        # poll-verify GetForegroundWindow == target before returning.
+        for ($i = 0; $i -lt 5; $i++) {
+            $null = [FfNativeInput]::ShowWindow($hwnd, 9)      # SW_RESTORE (unminimize)
+            $null = [FfNativeInput]::SetForegroundWindow($hwnd)
+            $null = [FfNativeInput]::KeyDown(0x12)             # ALT down/up releases the lock
+            $null = [FfNativeInput]::KeyUp(0x12)
+            $null = [FfNativeInput]::SetForegroundWindow($hwnd)
+            Start-Sleep -Milliseconds 200
+            if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) { return $true }
+        }
+        return $false
     } catch {
         return $false
     }

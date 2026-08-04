@@ -78,34 +78,56 @@ function Test-EnvironmentProviderDescriptor {
 
 function Get-EnvironmentProvider {
     <#
-        Resolves the active provider selection. This first milestone exposes only the
-        local descriptor; provider adapters and their lifecycle implementations land
-        in tasks 2.2 and 2.3. Rejecting an unregistered provider prevents an arbitrary
-        target name from being written into a run manifest as if it had been used.
+        Resolves the active provider selection from verify/providers/<id>/. The
+        built-in 'local' provider is a well-known fallback. Other providers (e.g.
+        'hyperv') are loaded from their provider.json manifest + entry module, so
+        adding a disposable target is dropping in a conforming provider directory —
+        the core never special-cases a provider id beyond 'local'.
     #>
     [CmdletBinding()]
     param([string] $ProviderId = 'local')
 
-    if ($ProviderId -ne 'local') {
-        throw "Environment provider '$ProviderId' is not registered. Available providers: local."
-    }
+    $providersRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'providers'
 
-    $modulePath = Join-Path (Split-Path $PSScriptRoot -Parent) 'providers\local\Local.psm1'
-    Import-Module $modulePath -Force -Global -ErrorAction Stop
-
-    $provider = New-EnvironmentProviderDescriptor -Id 'local' -InterfaceVersion '1.0.0' `
-        -DisplayName 'Local Windows host' -TargetIdentity "$($env:COMPUTERNAME):local" `
-        -EntryPoints @{
-            provision       = 'Invoke-LocalProviderProvision'
-            activate        = 'Invoke-LocalProviderActivate'
-            collectLogs     = 'Invoke-LocalProviderCollectLogs'
-            cleanup         = 'Invoke-LocalProviderCleanup'
-            snapshotRestore = $null
+    if ($ProviderId -eq 'local') {
+        $modulePath = Join-Path $providersRoot 'local\Local.psm1'
+        Import-Module $modulePath -Force -Global -ErrorAction Stop
+        $provider = New-EnvironmentProviderDescriptor -Id 'local' -InterfaceVersion '1.0.0' `
+            -DisplayName 'Local Windows host' -TargetIdentity "$($env:COMPUTERNAME):local" `
+            -EntryPoints @{
+                provision       = 'Invoke-LocalProviderProvision'
+                activate        = 'Invoke-LocalProviderActivate'
+                collectLogs     = 'Invoke-LocalProviderCollectLogs'
+                cleanup         = 'Invoke-LocalProviderCleanup'
+                snapshotRestore = $null
+            }
+    } else {
+        $manifestPath = Join-Path $providersRoot "$ProviderId\provider.json"
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw "Environment provider '$ProviderId' is not registered. Available providers: local, hyperv."
         }
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $moduleName = [IO.Path]::GetFileNameWithoutExtension($manifest.entryModule)
+        $modulePath = Join-Path $providersRoot "$ProviderId\$($manifest.entryModule)"
+        if (-not (Test-Path -LiteralPath $modulePath)) {
+            throw "Environment provider '$ProviderId' declares entry module '$($manifest.entryModule)' which does not exist."
+        }
+        Import-Module $modulePath -Force -Global -ErrorAction Stop
+        $provider = New-EnvironmentProviderDescriptor -Id $manifest.id -InterfaceVersion $manifest.interfaceVersion `
+            -DisplayName $manifest.displayName -TargetIdentity "$($env:COMPUTERNAME):$($manifest.id)" `
+            -SupportsSnapshotRestore ([bool]$manifest.supportsSnapshotRestore) `
+            -EntryPoints @{
+                provision       = $manifest.entryPoints.provision
+                activate        = $manifest.entryPoints.activate
+                collectLogs     = $manifest.entryPoints.collectLogs
+                cleanup         = $manifest.entryPoints.cleanup
+                snapshotRestore = $manifest.entryPoints.snapshotRestore
+            }
+    }
 
     $validation = Test-EnvironmentProviderDescriptor -Provider $provider
     if (-not $validation.Valid) {
-        throw "Built-in environment provider is invalid: $($validation.Errors -join '; ')"
+        throw "Environment provider '$ProviderId' is invalid: $($validation.Errors -join '; ')"
     }
     return $provider
 }
