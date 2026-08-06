@@ -7,13 +7,9 @@
 
 #include "PrivilegeVerification.h"
 #include "ffprotocol/Diagnostics.h"
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
-void Check(bool value, const char* message) {
-    if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); ++failures; }
-}
-}
+using namespace fftest;
 
 int main() {
     using namespace ffindexsvc;
@@ -112,5 +108,5 @@ int main() {
               "startup-token: the record exposes SeBackupPrivilege held/enabled state for the verification step");
     }
 
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

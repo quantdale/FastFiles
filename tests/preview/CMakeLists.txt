@@ -5,3 +5,4 @@ add_executable(ffpreview_tests
 target_include_directories(ffpreview_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffpreview_tests PRIVATE windowscodecs ole32)
 add_test(NAME ffpreview_tests COMMAND ffpreview_tests)
+set_tests_properties(ffpreview_tests PROPERTIES TIMEOUT 120)

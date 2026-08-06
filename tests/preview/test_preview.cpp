@@ -14,16 +14,11 @@
 #include <vector>
 #include <windows.h>
 #include <objbase.h>
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-void Check(bool value, const char* message) {
-    if (!value) {
-        std::fprintf(stderr, "%s\n", message);
-        std::exit(1);
-    }
-}
-
 class StubProvider final : public ffui::IPreviewProvider {
 public:
     StubProvider(ffui::MatchResult priority, std::wstring text, int* calls, bool throws = false)
@@ -229,4 +224,5 @@ int main() {
     TestLatestControllerRequestWins();
     TestRapidRequestsDropSupersededAndDoNotBlock();
     CoUninitialize();
+    return fftest::FailureCount();
 }

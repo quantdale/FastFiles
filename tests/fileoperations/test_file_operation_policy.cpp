@@ -8,17 +8,10 @@
 #include <thread>
 #include <windows.h>
 #include <shellapi.h>
+#include "../TestSupport.h"
 
-namespace {
+using namespace fftest;
 
-void Check(bool value, const char* message) {
-    if (!value) {
-        std::cerr << message << '\n';
-        std::exit(1);
-    }
-}
-
-} // namespace
 
 int main() {
     using namespace ffui;
@@ -112,4 +105,5 @@ int main() {
 
     std::cout << "file operation policy tests passed\n";
     OleUninitialize();
+    return fftest::FailureCount();
 }

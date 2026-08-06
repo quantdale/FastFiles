@@ -146,8 +146,10 @@ Public headers in `src/setup/include/ffsetup/`. Namespace `ffsetup`.
 
 - `Identifiers.h` — the single source of truth for names shared across all
   three processes + installer: service name (`FastFilesIndexSvc`), virtual
-  account (`NT SERVICE\FastFilesIndexSvc`), client group (`FastFilesUsers`),
-  pipe names (`kCtrlPipeName`/`kDataPipeName` machine-wide;
+  account name (`NT SERVICE\FastFilesIndexSvc`) kept for the non-production
+  registration path (the production model runs the service under LocalSystem
+  — see `src/installer/src/InstallSteps.cpp`), client group (`FastFilesUsers`),
+  pipe names (`kCtrlPipeName` machine-wide;
   `kUiCtrlPipeNameFormat` per-session `%u`), snapshot section name
   (`Local\FastFiles.IndexSnapshot.%u`), scheduled-task name, exe names used
   for image-path verification.
@@ -173,10 +175,12 @@ static libs so they can be unit-tested without the Windows-only service exe.
   closed-command dispatch), `ConnectionRegistry` (connection-scoped handle
   tracking), `VolumeScanner`, `UsnJournalReader`, `StalenessMonitor`
   (self-directed binary-hash staleness check + SCM failure-action restart),
-  `DllHardening` (`SetDefaultDllDirectories`), `DiagnosticsHardening`. Per
-  `Main.cpp`: Handshake/auth/enumeration are implemented; StartVolumeScan/
-  OpenUsnJournal currently reply "not yet implemented" — real MFT/USN parsing
-  is stubbed at the service level.
+  `DllHardening` (`SetDefaultDllDirectories`), `DiagnosticsHardening`.
+  `ServiceConnection` dispatches StartVolumeScan/OpenUsnJournal to real
+  `VolumeScanner`/`UsnJournalReader` worker threads; the privileged path is
+  inert in practice only because the Authenticode pins in
+  `src/setup/include/ffsetup/PinnedSignatures.h` are all-zero placeholders —
+  mutual auth fails closed, so degraded mode remains the active path.
 
 ## `FastFilesEngine` — unprivileged per-session index owner
 
@@ -222,6 +226,15 @@ Internal headers in `src/ui/src/`. Namespace `ffui`. `WIN32` GUI target. Entry
 `src/ui/src/Main.cpp`. Reads the index only through the mapped snapshot (zero
 IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 
+- `UITheme.h`, `UiStyle.h`, `UiAnimation.h`, `IconCache.h` — the design-token
+  system every UI surface must use: `UITheme.h` (`GetUiTheme(bool dark)` +
+  `UiMetrics`, `ToColorRef`/`ToD2DColor` for GDI chrome, `gUiDarkTheme`,
+  `UiSystemHighContrast()` gating overlays) is the single token set;
+  `UiStyle.h` provides rounded-rect fill/stroke and solid-brush helpers;
+  `UiAnimation.h` serves `SystemAnimationsEnabled()` + `FloatAnimation`
+  ease-out lerp (snap-instant when animations are off); `IconCache.h` is the
+  bounded, DPI-aware, off-thread icon cache. No hardcoded `RGB`/`GetSysColor`
+  literals except High-Contrast fallbacks.
 - `WindowShell` — HWND creation, message loop, top-level wiring; composes all
    the panels below. Owns `EngineClient`, `ColumnView`, `NavigationWorkspace`,
    `Renderer`, `SearchPanel`, `CommandPalette`, `FileOperations`, `Preview`,
@@ -260,8 +273,11 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
    scan/journal requests on `PrivilegedConnection`; the service streams
    `ScanRecordBatch`/`JournalRecordBatch` frames back on the same Ctrl pipe.
    `IndexPipeline` commits each batch to `Store` then applies to `Projection`.
-   Today this is stubbed at the service (`Main.cpp`), so the index is not
-   populated from MFT/USN yet.
+   The scan/journal are implemented — dispatched to real
+   `VolumeScanner`/`UsnJournalReader` worker threads — but inert in practice:
+   placeholder signature pins (`PinnedSignatures.h`) make mutual auth fail
+   closed, so the index is not populated from MFT/USN yet and degraded mode
+   remains the active path.
 2. **Engine→UI snapshot (zero IPC per read).** `IndexPipeline.ExportDirectorySnapshot`
    → `UiServer.MergeIndexDirectories` → `SnapshotPublisher.Publish` flips a
    generation in the mapped section. `EngineClient.ReadSnapshot` maps the
@@ -275,8 +291,9 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 
 Plain C++ executables registered with CTest (`Check(condition, description)`
 helper, non-zero exit on failure — no gtest/catch). Test dirs mirror
-components under `tests/`. Files named `test_<behavior>.cpp`; benchmarks
-`bench_<behavior>.cpp`.
+components under `tests/`: `{protocol, ipc, indexstore, search, indexsvc,
+engine, navigation, commands, fileoperations, preview, ui, uia-driver}`.
+Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 
 | Test target (`-R` matches this) | Source |
 | --- | --- |
@@ -284,13 +301,18 @@ components under `tests/`. Files named `test_<behavior>.cpp`; benchmarks
 | `ffipc_framing_tests` | `tests/ipc/test_pipe_framing.cpp` |
 | `ffindexstore_store_tests`, `ffindexstore_projection_tests` | `tests/indexstore/test_store.cpp`, `test_projection.cpp` |
 | `ffindexstore_bench_projection_memory` | `bench_projection_memory.cpp` (informational only, **not** `add_test`-registered) |
-| `ffmftparser_tests`, `ffprivilege_diagnostics_tests` | `tests/indexsvc/test_mft_parser.cpp`, `test_privilege_diagnostics.cpp` |
-| `ffengine_index_pipeline_tests`, `ffengine_volume_session_manager_tests` | `tests/engine/` |
+| `ffmftparser_tests`, `ffprivilege_diagnostics_tests`, `ffcommand_surface_tests`, `ffconnection_registry_tests` | `tests/indexsvc/test_mft_parser.cpp`, `test_privilege_diagnostics.cpp`, `test_command_surface.cpp`, `test_connection_registry.cpp` |
+| `ffengine_index_pipeline_tests`, `ffengine_volume_session_manager_tests`, `ffengine_authenticode_verification_tests`, `ffengine_degraded_special_files_tests`, `ffengine_subtree_gating_tests` | `tests/engine/` |
 | `ffsearch_tests`, `ffsearch_scan_tests` | `tests/search/test_query.cpp`, `test_search.cpp` |
 | `ffnavigation_tests` | `tests/navigation/test_navigation_workspace.cpp` |
 | `ffcommand_tests` | `tests/commands/test_command_system.cpp` |
 | `fffileoperations_tests`, `fffileoperations_e2e_tests`, `ffselection_tests` | `tests/fileoperations/` |
 | `ffpreview_tests` | `tests/preview/test_preview.cpp` |
+| `fftreemap_layout_tests`, `ffui_style_tests` | `tests/ui/test_treemap_layout.cpp`, `test_ui_style.cpp` |
+| `ffuia_driver_ps_tests`, `ffintake_gate_ps_tests` | PowerShell; registered in `tests/uia-driver/CMakeLists.txt` → `verify/uia-driver/tests/*.ps1` |
+
+The two PowerShell tests are registered only when `find_program(pwsh)` finds
+`pwsh`, so the total test count varies by environment.
 
 Notable test pattern: `ffengine_*`, `fffileoperations_*`, `ffnavigation_tests`,
 `ffcommand_tests`, and `ffpreview_tests` compile

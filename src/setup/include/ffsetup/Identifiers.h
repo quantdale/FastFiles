@@ -10,9 +10,12 @@ namespace ffsetup {
 constexpr wchar_t kServiceName[] = L"FastFilesIndexSvc";
 constexpr wchar_t kServiceDisplayName[] = L"FastFiles Index Service";
 
-// Virtual service account the service runs under (task 3.1). Windows
-// resolves "NT SERVICE\<ServiceName>" to a per-service virtual account with
-// no password to manage; LsaAddAccountRights grants it privileges directly.
+// Virtual service account name retained for the non-production registration
+// path (task 3.1). The production model runs FastFilesIndexSvc under
+// LocalSystem as a constrained privileged broker (see InstallSteps.cpp and
+// resolve-raw-volume-privilege-insufficiency). Windows resolves
+// "NT SERVICE\<ServiceName>" to a per-service virtual account with no
+// password to manage; LsaAddAccountRights grants it privileges directly.
 constexpr wchar_t kServiceVirtualAccountName[] = L"NT SERVICE\\FastFilesIndexSvc";
 
 // Local group added at install time; membership is the coarse knob for
@@ -24,7 +27,6 @@ constexpr wchar_t kAuthorizedClientGroupName[] = L"FastFilesUsers";
 // service instance, not per-session -- the service is a machine-wide
 // singleton (design.md D2).
 constexpr wchar_t kCtrlPipeName[] = L"\\\\.\\pipe\\FastFiles.Svc.Ctrl";
-constexpr wchar_t kDataPipeName[] = L"\\\\.\\pipe\\FastFiles.Svc.Data";
 
 // Same-privilege control seam (FastFiles UI <-> FastFilesEngine). Per
 // logon-session, since each session runs its own FastFilesEngine (task 4.8).

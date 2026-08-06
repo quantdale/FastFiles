@@ -19,6 +19,7 @@ add_library(ffsetup STATIC
   src/ServiceRegistration.cpp
   src/GroupSetup.cpp
   src/InstallDirAcl.cpp
+  src/PeerImageMatch.cpp
   src/ScheduledTaskRegistration.cpp
   src/AuthenticodeVerification.cpp
 )

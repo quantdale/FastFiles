@@ -3,20 +3,11 @@
 #include <vector>
 
 #include "MftParser.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    } else {
-        std::printf("ok: %s\n", description);
-    }
-}
-
 using namespace ffindexsvc;
 
 void WriteU16(std::vector<uint8_t>& buf, size_t offset, uint16_t v) { std::memcpy(buf.data() + offset, &v, 2); }
@@ -294,8 +285,8 @@ int main() {
     TestOversizedAttributeLengthIsRejectedNotOverread();
     TestMissingStandardInformationRejected();
 
-    if (g_failures > 0) {
-        std::fprintf(stderr, "%d test(s) failed\n", g_failures);
+    if (fftest::FailureCount() > 0) {
+        std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;
     }
     std::printf("All tests passed.\n");

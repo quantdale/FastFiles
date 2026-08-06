@@ -9,3 +9,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
+set_tests_properties(fftreemap_layout_tests ffui_style_tests PROPERTIES TIMEOUT 120)

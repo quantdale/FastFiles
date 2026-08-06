@@ -10,19 +10,11 @@
 #include "ffipc/PipeFraming.h"
 #include "ffprotocol/Commands.h"
 #include "ffprotocol/Frame.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    } else {
-        std::printf("ok: %s\n", description);
-    }
-}
 
 struct AnonymousPipe {
     HANDLE read = nullptr;
@@ -114,5 +106,5 @@ int main() {
     TestMaximumValidPayloadRoundTrips();
     TestOversizedWriteRejectedBeforeIo();
     TestMalformedHeadersRejectedWithoutPayloadRead();
-    return g_failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

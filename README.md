@@ -19,7 +19,7 @@ FastFiles splits into three executables plus an installer, over shared static li
 
 | Process | Target | Role |
 | --- | --- | --- |
-| **FastFilesIndexSvc** | `src/indexsvc/` | The **privileged** Windows service. Runs under a dedicated virtual service account with **`SeBackupPrivilege` only** (never LocalSystem/admin). Intentionally **stateless**: it holds no index and parses no queries — a thin, narrow relay for raw MFT/USN bytes, keeping the privileged binary small and auditable. |
+| **FastFilesIndexSvc** | `src/indexsvc/` | The **privileged** Windows service. Runs under **LocalSystem** as a deliberately *constrained privileged broker* (evidence: `openspec/changes/resolve-raw-volume-privilege-insufficiency/evidence/matrix-execution-and-selection.md`). Intentionally **stateless**: it holds no index and parses no queries — a thin, narrow relay for raw MFT/USN bytes, keeping the privileged binary small and auditable. |
 | **FastFilesEngine** | `src/engine/` | The **unprivileged**, per-logon-session process that *owns* the index. Manages the privileged-connection lifecycle (connect/handshake/heartbeat/reconnect/degrade), serves UI clients, and provides the degraded-mode directory browsing path. Entry: `src/engine/src/Main.cpp`. |
 | **FastFiles** | `src/ui/` | The UI shell (`WIN32` GUI target). Direct2D/DirectComposition compositor (`d3d11 dxgi d2d1 dwrite dcomp`) rendering the Column View; any number of windows. |
 | **FastFilesSetup** | `src/installer/` | Installer/setup entry point driving `ffsetup`. |
@@ -107,7 +107,7 @@ Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
 ## Runtime verification
 
-`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked.
+`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked.
 
 ```powershell
 pwsh ./verify/verify.ps1

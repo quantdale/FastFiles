@@ -6,17 +6,11 @@
 #include <fstream>
 #include <iostream>
 #include <windows.h>
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-int failures = 0;
-
-void Check(bool condition, const char* message) {
-    if (!condition) {
-        std::cerr << "FAIL: " << message << '\n';
-        ++failures;
-    }
-}
-
 ffui::BaselineHandlers CountingHandlers(int& invocations, std::wstring& lastCommand) {
     return {[&](const std::wstring& id) {
         return [&invocations, &lastCommand, id](const std::vector<std::wstring>&) {
@@ -192,6 +186,6 @@ int main() {
     TestPersistence();
     TestBaselinePaletteCoverage();
     TestQuickActions();
-    if (failures == 0) std::cout << "All command-system tests passed\n";
-    return failures == 0 ? 0 : 1;
+    if (fftest::FailureCount() == 0) std::cout << "All command-system tests passed\n";
+    return fftest::FailureCount() == 0 ? 0 : 1;
 }

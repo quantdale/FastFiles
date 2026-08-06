@@ -6,13 +6,9 @@
 #include <windows.h>
 
 #include "ffprotocol/Diagnostics.h"
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
-void Check(bool value, const char* message) {
-    if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); ++failures; }
-}
-}
+using namespace fftest;
 
 int main() {
     wchar_t temp[MAX_PATH]{};
@@ -81,5 +77,5 @@ int main() {
     else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());
     if (oldProgramDataLength == 0) SetEnvironmentVariableW(L"PROGRAMDATA", nullptr);
     else SetEnvironmentVariableW(L"PROGRAMDATA", oldProgramData.c_str());
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

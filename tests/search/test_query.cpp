@@ -1,11 +1,10 @@
 #include <cstdio>
 
 #include "ffsearch/Query.h"
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
-void Check(bool value, const char* message) { if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); ++failures; } }
-}
+using namespace fftest;
+
 
 int main() {
     const auto registry = ffsearch::FilterRegistry::WithDefaults();
@@ -40,5 +39,5 @@ int main() {
     auto extended = ffsearch::FilterRegistry::WithDefaults();
     extended.Register(L"owner", {[](std::wstring_view value) -> std::optional<ffsearch::FilterValue> { return std::wstring(value); }, [](const ffsearch::FilterValue&) { return [](const ffsearch::Candidate&) { return true; }; }});
     Check(ffsearch::ParseQuery(L"ext:pdf", extended).Matches(report), "registering a new key leaves existing filters unchanged");
-    return failures == 0 ? 0 : 1;
+    return fftest::FailureCount() == 0 ? 0 : 1;
 }

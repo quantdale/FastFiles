@@ -1,20 +1,17 @@
-# FastFiles build, test, commit, and push script
-# Run this from the FastFiles repo root in Visual Studio Developer PowerShell
+# FastFiles build, test, and (opt-in) commit/push script
+# Run this from the FastFiles repo root in Visual Studio Developer PowerShell.
+# Git mutation is never performed by default. To commit and push, pass
+# -Commit together with -CommitMessage (required when -Commit is used).
+# Examples:
+#   ./build_and_deploy.ps1                                     # build + test only
+#   ./build_and_deploy.ps1 -SkipTests                          # build only
+#   ./build_and_deploy.ps1 -Commit -CommitMessage "fix: ..."   # build + test + commit + push
 
 param(
     [switch]$SkipBuild,
     [switch]$SkipTests,
-    [switch]$SkipCommit,
-    [string]$CommitMessage = "fix(ui): resolve compile-breaking issues and extract shared utilities
-
-- Merge duplicate WM_MOUSEMOVE/WM_LBUTTONDOWN handlers in WindowShell
-- Remove duplicate PopulateStoragePage/PopulateShortcutsPage/SaveCurrentPage definitions
-- Fix undefined totalSum -> totalSize in TreemapView squarify
-- Fix shadowed treemap_ member in StorageAnalysis
-- Preserve DirectoryRule data when saving indexing settings
-- Replace hardcoded path.substr(0,3) with std::filesystem::path
-- Extract shared FormatSize, JoinPath, PostFolderAggregateResult into Util.h/cpp
-- Update all call sites to use shared utilities"
+    [switch]$Commit,
+    [string]$CommitMessage = ""
 )
 
 Set-StrictMode -Version Latest
@@ -65,8 +62,12 @@ if (-not $SkipTests) {
     Write-Host "`n[3/4] Skipping tests (--SkipTests)" -ForegroundColor DarkGray
 }
 
-# Step 4: Commit and push
-if (-not $SkipCommit) {
+# Step 4: Commit and push (opt-in; never runs unless -Commit is passed)
+if ($Commit) {
+    if (-not $CommitMessage) {
+        Write-Error "A commit message is required: pass -CommitMessage when using -Commit."
+    }
+
     Write-Host "`n[4/4] Committing and pushing..." -ForegroundColor Yellow
     
     # Check git status
@@ -92,7 +93,7 @@ if (-not $SkipCommit) {
     
     Write-Host "Commit and push successful." -ForegroundColor Green
 } else {
-    Write-Host "`n[4/4] Skipping commit/push (--SkipCommit)" -ForegroundColor DarkGray
+    Write-Host "`n[4/4] Skipping commit/push (not requested; pass -Commit to enable)" -ForegroundColor DarkGray
 }
 
 Write-Host "`n=== Done ===" -ForegroundColor Cyan

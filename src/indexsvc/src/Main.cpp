@@ -34,7 +34,6 @@ SERVICE_STATUS_HANDLE g_statusHandle = nullptr;
 
 ffindexsvc::ConnectionRegistry g_registry;
 ffipc::PipeListener g_ctrlListener;
-ffipc::PipeListener g_dataListener;
 ffsetup::OwnedSecurityDescriptor g_pipeSecurityDescriptor;
 
 // Saved command-line arguments so ServiceMain can detect --run-candidate-matrix
@@ -174,7 +173,6 @@ void SetStatus(DWORD state, DWORD exitCode = NO_ERROR) {
 
 void StopEverything() {
     g_ctrlListener.Stop();
-    g_dataListener.Stop();
     ffindexsvc::StopStalenessMonitor();
 }
 
@@ -265,11 +263,7 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
         ffsetup::kCtrlPipeName, &g_pipeSecurityDescriptor.attributes,
         [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); });
 
-    const bool dataStarted = g_dataListener.Start(
-        ffsetup::kDataPipeName, &g_pipeSecurityDescriptor.attributes,
-        [](HANDLE pipeHandle) { ffindexsvc::RunDataConnection(pipeHandle); });
-
-    if (!ctrlStarted || !dataStarted) {
+    if (!ctrlStarted) {
         StopEverything();
         SetStatus(SERVICE_STOPPED, ERROR_SERVICE_SPECIFIC_ERROR);
         return;

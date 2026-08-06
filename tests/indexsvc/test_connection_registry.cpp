@@ -3,19 +3,10 @@
 
 #include "ConnectionRegistry.h"
 #include "ffprotocol/Commands.h"
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
+using namespace fftest;
 
-void Check(bool value, const char* message) {
-    if (!value) {
-        std::fprintf(stderr, "FAIL: %s\n", message);
-        ++failures;
-    } else {
-        std::printf("ok: %s\n", message);
-    }
-}
-}  // namespace
 
 int main() {
     using ffindexsvc::ConnectionRegistry;
@@ -103,5 +94,5 @@ int main() {
               "per-volume: connB is still rejected on volume1");
     }
 
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 # C is enabled solely to compile the vendored SQLite amalgamation
 # (third_party/sqlite); all first-party FastFiles code is C++20.
 project(FastFiles LANGUAGES CXX C)

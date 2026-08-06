@@ -2,15 +2,10 @@
 
 #include <cstdlib>
 #include <iostream>
+#include "../TestSupport.h"
 
-namespace {
-void Check(bool condition, const char* message) {
-    if (!condition) {
-        std::cerr << message << '\n';
-        std::exit(1);
-    }
-}
-}
+using namespace fftest;
+
 
 int main() {
     std::set<int> firstPane;
@@ -30,4 +25,5 @@ int main() {
     ffui::SelectAllItems(firstPane, firstAnchor, firstFocus, 6);
     Check(firstPane.size() == 6 && secondPane == std::set<int>{1}, "Ctrl+A leaked across panes");
     std::cout << "selection model tests passed\n";
+    return fftest::FailureCount();
 }

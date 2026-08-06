@@ -4,20 +4,11 @@
 
 #include "ffindexstore/Projection.h"
 #include "ffindexstore/Store.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    } else {
-        std::printf("ok: %s\n", description);
-    }
-}
-
 using namespace ffindexstore;
 
 EntryRecord MakeEntry(uint64_t id, uint64_t parent, std::u16string name, uint32_t attributes = 0) {
@@ -182,6 +173,29 @@ void TestFolderAggregateCountsSubtree() {
     Check(!unknown.has_value(), "unknown root returns nullopt");
 }
 
+// Regression (FlatHashMap.h FlatChildrenMap): the live key count_ was
+// never incremented on insert, so the children map never grew past its
+// initial 8 buckets and the 9th distinct parent key sent find_slot()'s
+// probe loop into an infinite spin (bench_projection_memory.cpp hung
+// here; the insert/grow/remove count bookkeeping is now fixed). Inserting
+// well past that threshold must resolve normally.
+void TestManyDistinctParentsDoNotStallGrowth() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    uint64_t nextId = 1000;
+    for (uint64_t p = 0; p < 12; ++p) {
+        std::u16string dirName = u"dir";
+        dirName.push_back(static_cast<char16_t>(u'0' + p));
+        const uint64_t parent = 100 + p;
+        proj.Upsert(1, MakeEntry(parent, 5, dirName, 0x10));
+        for (uint64_t c = 0; c < 3; ++c) {
+            proj.Upsert(1, MakeEntry(nextId++, parent, u"file", 0));
+        }
+    }
+    Check(proj.EntryCount() == 1 + 12 + 36, "all entries present past the old 8-bucket stall point");
+    const auto children = proj.ChildIndices(1, FileId{100, 0});
+    Check(children.size() == 3, "first directory still lists exactly its own children");
+}
 } // namespace
 
 int main() {
@@ -195,9 +209,10 @@ int main() {
     TestVolumesAreIsolatedFromEachOther();
     TestRebuildFromStoreMatchesPersistedData();
     TestFolderAggregateCountsSubtree();
+    TestManyDistinctParentsDoNotStallGrowth();
 
-    if (g_failures > 0) {
-        std::fprintf(stderr, "%d test(s) failed\n", g_failures);
+    if (fftest::FailureCount() > 0) {
+        std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;
     }
     std::printf("All tests passed.\n");

@@ -5,10 +5,11 @@
 #include <windows.h>
 
 #include "NavigationWorkspace.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-int failures = 0;
-void Check(bool value, const char* text) { if (!value) { std::fprintf(stderr, "FAIL: %s\n", text); ++failures; } }
 void TestPathParsing() {
     using namespace ffui;
     Check(ParseNavigationPath(L"  \"C:/Windows/\"  ").path == L"C:\\Windows", "quoted forward-slash path is normalized");
@@ -159,5 +160,5 @@ int main() {
     TestPathParsing(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestCopyRelativePathBaseResolution();
     TestConcurrentIndependentContextsReadDifferentPaths();
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

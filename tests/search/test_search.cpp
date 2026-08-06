@@ -5,11 +5,10 @@
 #include <chrono>
 #include <filesystem>
 #include <windows.h>
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
-void Check(bool value, const char* message) { if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); ++failures; } }
-}
+using namespace fftest;
+
 
 int main() {
     const auto registry = ffsearch::FilterRegistry::WithDefaults();
@@ -145,5 +144,5 @@ int main() {
 
     std::error_code cleanupError;
     std::filesystem::remove(historyPath.parent_path(), cleanupError);
-    return failures == 0 ? 0 : 1;
+    return fftest::FailureCount() == 0 ? 0 : 1;
 }

@@ -27,20 +27,14 @@
 #include "ffprotocol/Records.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
 
 constexpr uint32_t kSeed = 0xF457F17E;
 constexpr int kIterationsPerFuzzer = 20000;
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    }
-}
 
 std::vector<uint8_t> RandomBytes(std::mt19937& rng, size_t size) {
     std::uniform_int_distribution<int> byteDist(0, 255);
@@ -196,8 +190,8 @@ int main() {
     FuzzUsnDeltaBatchParsing(rng);
     FuzzSnapshotParsing(rng);
 
-    if (g_failures > 0) {
-        std::fprintf(stderr, "\n%d fuzz check(s) failed\n", g_failures);
+    if (fftest::FailureCount() > 0) {
+        std::fprintf(stderr, "\n%d fuzz check(s) failed\n", fftest::FailureCount());
         return EXIT_FAILURE;
     }
     std::printf("all fuzz checks passed (%d iterations/fuzzer, seed 0x%08X)\n", kIterationsPerFuzzer, kSeed);

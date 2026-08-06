@@ -217,12 +217,14 @@ public:
             offsets_.push_back(values_.size());
             counts_.push_back(1);
             values_.push_back(childIndex);
+            ++count_;
         } else {
             keys_[idx] = key;
             states_[idx] = 1;
             offsets_[idx] = values_.size();
             counts_[idx] = 1;
             values_.push_back(childIndex);
+            ++count_;
         }
     }
 
@@ -238,6 +240,7 @@ public:
                 --counts_[idx];
                 if (counts_[idx] == 0) {
                     states_[idx] = 2; // tombstone
+                    --count_;
                 }
                 return;
             }
@@ -283,6 +286,7 @@ private:
         states_.assign(new_buckets, 0);
         offsets_.assign(new_buckets, 0);
         counts_.assign(new_buckets, 0);
+        count_ = 0;
         for (size_t i = 0; i < old_keys.size(); ++i) {
             if (old_states[i] == 1) {
                 EntryKey key = old_keys[i];
@@ -296,12 +300,14 @@ private:
                     offsets_.push_back(values_.size());
                     counts_.push_back(cnt);
                     values_.insert(values_.end(), old_values.begin() + off, old_values.begin() + off + cnt);
+                    ++count_;
                 } else {
                     keys_[idx] = key;
                     states_[idx] = 1;
                     offsets_[idx] = values_.size();
                     counts_[idx] = cnt;
                     values_.insert(values_.end(), old_values.begin() + off, old_values.begin() + off + cnt);
+                    ++count_;
                 }
             }
         }

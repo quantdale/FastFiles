@@ -33,18 +33,11 @@
 
 #include "ffsetup/AuthenticodeVerification.h"
 #include "ffsetup/PinnedSignatures.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++failures;
-    }
-}
-
 ffsetup::Thumbprint ThumbprintWithByte(size_t index, uint8_t value) {
     ffsetup::Thumbprint thumbprint{};
     thumbprint[index] = value;
@@ -182,5 +175,5 @@ int main() {
     TestUnsignedBinaryRejectedWithConfiguredPin();
     TestMismatchedPinRejectsSignedBinary();
     TestMatchingPinAcceptsSignedBinary();
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

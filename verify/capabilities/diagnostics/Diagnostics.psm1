@@ -66,7 +66,7 @@ function Get-DiagnosticToolInventory {
     $inventory += New-DiagnosticToolResult -Id 'pageheap' -CommandNames @('gflags') -Detail 'PageHeap configuration is exposed by gflags'
     $inventory += New-DiagnosticToolResult -Id 'windbg-cdb' -CommandNames @('cdb', 'windbg') -Detail 'Windows debugger command-line interface'
 
-    $wer = [pscustomobject]@{ id = 'wer-local-dumps'; status = 'PASS'; reason = $null; path = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'; version = $null; discovery = 'windows-error-reporting'; detail = 'CrashCapture configures per-executable WER dumps in an admin-only run-local directory and restores prior registry state.' }
+    $wer = [pscustomobject]@{ id = 'wer-local-dumps'; status = 'PASS'; reason = $null; path = 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting\LocalDumps'; version = $null; discovery = 'windows-error-reporting'; detail = 'Windows Error Reporting persists per-executable crash dumps under LocalDumps; crash-analysis consumes dumps and crash-context records present in the run tree.' }
     $inventory += $wer
     $inventory += [pscustomobject]@{ id = 'installer-msi-logs'; status = 'SKIPPED'; reason = 'no-installer-operation-in-run'; path = $null; version = $null; discovery = $null; detail = 'Installer capability supplies MSI logs when an install operation runs.' }
     $inventory += [pscustomobject]@{ id = 'ipc-traces'; status = 'SKIPPED'; reason = 'no-ipc-trace-provider-registered'; path = $null; version = $null; discovery = $null; detail = 'IPC capability supplies its trace artifact when implemented.' }

@@ -3,6 +3,9 @@
 #include <string>
 
 #include "IndexPipeline.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 // This test deliberately exercises the session manager's callback path,
 // rather than duplicating its resume-vs-reconcile decision in a helper.
 #define private public
@@ -10,26 +13,6 @@
 #undef private
 
 namespace {
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    } else {
-        std::printf("ok: %s\n", description);
-    }
-}
-
-std::string FreshDbPath(const char* name) {
-    auto path = std::filesystem::temp_directory_path() / name;
-    std::filesystem::remove(path);
-    std::filesystem::remove(path.string() + "-wal");
-    std::filesystem::remove(path.string() + "-shm");
-    return path.string();
-}
-
 void AddSession(ffengine::VolumeSessionManager& manager, ffindexstore::VolumeRowId volumeId) {
     manager.sessionsByEphemeralId_.emplace(7, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
 }
@@ -365,5 +348,5 @@ int main() {
     TestDisableTearsDownSessionLive();
     TestPauseShownInStatusAndDropsBatchesWithoutAdvancing();
     TestPendingDecisionForObservedUnselectedVolume();
-    return g_failures == 0 ? 0 : 1;
+    return fftest::FailureCount() == 0 ? 0 : 1;
 }

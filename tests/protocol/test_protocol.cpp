@@ -14,20 +14,11 @@
 #include "ffprotocol/Records.h"
 #include "ffprotocol/UiProtocol.h"
 #include "ffprotocol/Version.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int g_failures = 0;
-
-void Check(bool condition, const char* description) {
-    if (!condition) {
-        std::fprintf(stderr, "FAIL: %s\n", description);
-        ++g_failures;
-    } else {
-        std::printf("ok: %s\n", description);
-    }
-}
-
 using namespace ffprotocol;
 
 void TestOversizedFrameRejectedBeforeAllocation() {
@@ -333,8 +324,8 @@ int main() {
     TestPrefixRulePrecedence();
     TestSettingsUtf8RoundTripAndCorruptionRecovery();
 
-    if (g_failures > 0) {
-        std::fprintf(stderr, "\n%d check(s) failed\n", g_failures);
+    if (fftest::FailureCount() > 0) {
+        std::fprintf(stderr, "\n%d check(s) failed\n", fftest::FailureCount());
         return EXIT_FAILURE;
     }
     std::printf("\nall checks passed\n");

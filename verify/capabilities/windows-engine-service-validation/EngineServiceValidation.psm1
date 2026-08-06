@@ -7,6 +7,8 @@
     Interactive-session runtime paths SKIP with a reason - never a silent pass.
 #>
 
+Import-Module (Join-Path $PSScriptRoot '..\..\core\Probe.psm1') -Force -Global
+
 $script:ProbeBin = 'build\debug\src\fftest\fftest.exe'
 $script:InstallDir = Join-Path $env:ProgramFiles 'FastFiles'
 $script:ServiceName = 'FastFilesIndexSvc'
@@ -36,26 +38,6 @@ function Test-EngineServiceValidationAvailability {
 
 function Get-EngineServiceValidationDiagnostics {
     return @('service-identity-and-start', 'handshake-impostor-rejection', 'binary-version-parity', 'snapshot-publication', 'interactive-session-sequencing')
-}
-
-function Invoke-FFTestProbe {
-    param([string] $FftestExe, [string[]] $Arguments, [string] $LogPath)
-    $started = Get-Date
-    $output = & $FftestExe @Arguments 2>&1 | ForEach-Object ToString
-    $exitCode = $LASTEXITCODE
-    $finished = Get-Date
-    $jsonLine = $output | Where-Object { $_ -match '^\{' } | Select-Object -First 1
-    $record = $null
-    if ($jsonLine) {
-        try { $record = $jsonLine | ConvertFrom-Json } catch { $record = $null }
-    }
-    $output | Set-Content -LiteralPath $LogPath -Encoding utf8
-    [pscustomobject]@{
-        ExitCode = $exitCode
-        Record = $record
-        DurationMs = [math]::Round(($finished - $started).TotalMilliseconds, 0)
-        Output = $output
-    }
 }
 
 function Invoke-EngineServiceValidationCapability {

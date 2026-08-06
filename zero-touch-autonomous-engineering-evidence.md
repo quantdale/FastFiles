@@ -1,3 +1,10 @@
+> **Historical snapshot (2026-08-03/04) — not verification evidence.** This file is a
+> stale machine-generated OpenCode goal-loop report ("Turns: 3, No-progress: 3/8"),
+> kept for history only. It is not a verification-evidence document. The
+> authoritative validation evidence for this work lives in
+> `codebase-audit/sessions/20260804-180500-v7k4p2/` and under `verify/runs/`
+> (untracked).
+
 # OpenCode Loop Goal Report
 
 Status: active

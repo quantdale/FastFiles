@@ -19,7 +19,7 @@ Fixed, non-interactive verb set:
 | `run` | Execute a capability suite; write the run tree | only via Tier-1 capabilities (elevated) |
 | `diagnose` | On-failure diagnostics for a run | no |
 | `report` | Project a run tree to MD/HTML/JSON/JUnit + performance/failure summaries | no |
-| `repair` | Bounded autonomous repair loop over a failing run | yes (Class A fixes) |
+| `repair` | Bounded autonomous repair loop: starts a fresh run, repairs its failures (Class A auto-applied, Class B flagged), re-runs repaired capabilities | yes (Class A fixes) |
 | `gate` | Resolve the change's gate policy against the latest run | no |
 | `list` | Enumerate discovered capabilities (incl. rejected ones) | no |
 | `doctor` | Probe environment readiness; never provisions anything | no |
@@ -91,7 +91,10 @@ the local provider must always remain safe to run on a developer machine.
    writes payloads under `artifacts/<capability>/`; the core indexes envelopes only and
    never parses capability-specific formats.
 4. `repair(RunContext, ...)` (only with `repairPosture: repair-supported`) owns that
-   capability's fix; the orchestrator only coordinates. Return `{ Applied, Reason }`.
+   capability's fix; the orchestrator only coordinates. Return
+   `{ fixClass, rootCause, action, outcome, reason }` — `fixClass` is
+   `harness`/`config`/`environment`/`product-source`; a `product-source` fix is
+   surfaced for review (`flagged-for-review`), never auto-applied.
 5. Register new CTest executables in the component's `CMakeLists.txt` (test names equal
    target names, e.g. `ffprotocol_tests`); wire suites as Tier-0 capabilities emitting
    JUnit-compatible results.
@@ -128,3 +131,16 @@ pwsh ./verify/verify.ps1 gate -Change <change-id>
 ```
 
 `verify/runs/` and `verify/baselines/` are execution evidence — untracked, not source.
+
+## Which command when
+
+- `ctest --test-dir build/debug -R <name> --output-on-failure` — fast iteration on a
+  single test/target.
+- `pwsh ./verify/verify.ps1 build` — the full multi-config gate; long-running.
+- `-SkipAnalyze` / `-SkipTests` / `-Configuration <cfg>` — quick-path levers for
+  `build` (and `repair`).
+- `pwsh ./verify/verify.ps1 gate` verdicts are time-dependent: unrepresented-edit
+  detection compares live file mtimes against run start, so re-gating an old run
+  later can change the verdict.
+- `pwsh ./verify/intake.ps1 autonomous` can exit 0 with a gate FAIL recorded as an
+  external blocker — check the run's gate verdict, not just the exit code.

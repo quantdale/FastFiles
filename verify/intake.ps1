@@ -67,7 +67,6 @@ Import-Module (Join-Path $VerifyRoot 'core\Repair.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Gate.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Toolchain.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Schema.psm1') -Force
-Import-Module (Join-Path $VerifyRoot 'core\FlakyTestPolicy.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'capabilities\diagnostics\Diagnostics.psm1') -Force -Global
 
 $script:RunPhases = @(
@@ -325,22 +324,30 @@ function Invoke-PhasePlan {
         $open = if ($byChange -is [System.Collections.IDictionary]) { $byChange[$changeName] } else { $byChange.$changeName }
         $worklist += [pscustomobject]@{ change = $changeName; openTasks = $open; handled = ($open -gt 0) }
     }
+    # The capability worklist is driven by the contract
+    # (verify/autonomous/contract.json "capabilities") - the single authoritative
+    # inventory of registered capabilities. This used to be a hardcoded 10-item
+    # subset that silently omitted 5 contract capabilities (windows-filesystem-,
+    # windows-install-service-, windows-ipc-, windows-object-security-,
+    # windows-privilege-validation). The previously omitted capabilities are
+    # availability-gated (elevation/install required) and SKIP with a recorded
+    # reason in unelevated runs, so including them does not fail the run; the
+    # gate policy decides what is actually required. There is no tier filter:
+    # the contract lists every capability, and each availability-gates itself.
+    $contractPath = Join-Path $VerifyRoot 'autonomous\contract.json'
+    if (-not (Test-Path -LiteralPath $contractPath)) {
+        throw "Contract not found: $contractPath (expected verify/autonomous/contract.json)"
+    }
+    $contract = Get-Content -LiteralPath $contractPath -Raw | ConvertFrom-Json
+    $capabilityWorklist = @($contract.capabilities | Where-Object { $_ })
+    if ($capabilityWorklist.Count -eq 0) {
+        throw "Contract $contractPath declares no capabilities (expected a non-empty 'capabilities' array)"
+    }
     $plan = [pscustomobject]@{
         provider = $State.provider
         configurations = @($Configuration)
         worklist = @($worklist)
-        capabilityWorklist = @(
-            'windows-build-validation',
-            'windows-protocol-robustness',
-            'windows-resource-leak-validation',
-            'windows-stress-validation',
-            'windows-performance-baselines',
-            'windows-engine-service-validation',
-            'windows-ui-automation-validation',
-            'test-code-signing',
-            'diagnostics',
-            'crash-analysis'
-        )
+        capabilityWorklist = $capabilityWorklist
         implementScript = $ImplementScript
     }
     $plan | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $RunPath 'plan.json') -Encoding utf8
@@ -733,7 +740,6 @@ function Invoke-PhaseCommit {
     if ($SkipCommit) { return [pscustomobject]@{ ok = $true; summary = 'commit skipped (-SkipCommit)' } }
     $paths = @(
         'verify/intake.ps1',
-        'verify/core/FlakyTestPolicy.psm1',
         'verify/autonomous/contract.json',
         'verify/autonomous/schemas/run-state.schema.json',
         'AUTONOMOUS.md',
@@ -743,7 +749,7 @@ function Invoke-PhaseCommit {
     if ($existing.Count -eq 0) { return [pscustomobject]@{ ok = $true; summary = 'nothing new to commit' } }
     $add = Invoke-BoundedProcess -FilePath 'git' -ArgumentList @('add', '--', $existing) -WorkingDirectory $RepoRoot -TimeoutSeconds 60 -LogPath (Join-Path $RunPath 'log-commit-add.txt')
     if ($add.exitCode -ne 0) { return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "git add failed: $($add.output)" } }
-    $msg = "autonomous: add intake orchestrator + flaky policy + contract (run $($State.runId))"
+    $msg = "autonomous: add intake orchestrator + contract (run $($State.runId))"
     $commit = Invoke-BoundedProcess -FilePath 'git' -ArgumentList @('commit', '-m', $msg) -WorkingDirectory $RepoRoot -TimeoutSeconds 60 -LogPath (Join-Path $RunPath 'log-commit.txt')
     if ($commit.exitCode -ne 0) {
         if ($commit.output -match 'nothing to commit|no changes added') { return [pscustomobject]@{ ok = $true; summary = 'nothing to commit (already clean)' } }
@@ -956,7 +962,17 @@ function Invoke-ArchiveGate {
 # switch is skipped so the functions can be exercised without starting a run.
 if ($MyInvocation.InvocationName -ne '.') {
     switch ($Verb) {
-        'autonomous' { Invoke-AutonomousRun }
+        'autonomous' {
+            # Fail early on a bad -Change: every autonomous run's validate phase
+            # gates runs for this change, so a misspelled change name would only
+            # surface (cryptically) after a full build/test cycle.
+            $changeTasksPath = Join-Path $RepoRoot "openspec\changes\$Change\tasks.md"
+            if (-not (Test-Path -LiteralPath $changeTasksPath)) {
+                Write-Host "[ERROR] -Change '$Change' does not name an existing OpenSpec change (expected $changeTasksPath). Use -Change <name> with a directory under openspec/changes/." -ForegroundColor Red
+                exit $ExitError
+            }
+            Invoke-AutonomousRun
+        }
         'status'     { Invoke-StatusQuery -RequestedRunId $RunId }
         'archive-gate' { Invoke-ArchiveGate -RequestedRunId $RunId }
     }

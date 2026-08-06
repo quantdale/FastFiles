@@ -14,7 +14,6 @@ std::optional<MessageType> ToMessageType(uint16_t raw) noexcept {
         case MessageType::StopVolumeScan:
         case MessageType::OpenUsnJournal:
         case MessageType::CloseUsnJournal:
-        case MessageType::NotYetImplemented:
         case MessageType::Heartbeat:
         case MessageType::HeartbeatAck:
         case MessageType::ScanRecordBatch:

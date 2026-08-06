@@ -11,7 +11,7 @@ FastFiles keeps a strict, evidence-gated verification harness (`verify/`) and a 
 OpenSpec *changes* with `tasks.md` files that are the source of truth for what is built and
 what is deferred. The autonomous loop (`verify/intake.ps1`) drives a full lifecycle non-
 interactively, persists its state so it can be resumed across sessions, classifies failures,
-bounds retries, and never closes a task on narrative proof alone.
+bounds retries, and never edits tasks.md itself — task closing is an external sweep that marks a task `[x]` only against recorded PASS evidence (never narrative).
 
 ## The one entry point
 
@@ -30,6 +30,15 @@ Companion verbs:
 pwsh ./verify/intake.ps1 status [-RunId <id>]      # machine-readable status (JSON)
 pwsh ./verify/intake.ps1 archive-gate [-RunId <id>] # re-resolve the terminal archive gate
 ```
+
+## The `.opencode/opencode-loop/` goal loop (historical)
+
+A separate OpenCode goal-loop ran on 2026-08-03 and drove a slice of the same
+change-completion work. Its state and logs live in `.opencode/opencode-loop/`
+(`loop.log` plus `ses_*.json` session files). Those files are execution evidence —
+untracked, not product source — and carry no verification authority.
+`verify/intake.ps1` remains the **single supported entry point** for autonomous
+engineering per this document; the `.opencode` goal loop is not one.
 
 ## Exit codes (deterministic)
 
@@ -73,7 +82,7 @@ re-test -> validate -> collect-evidence -> update-tasks -> commit -> sync -> arc
 | re-test | re-run the failed build/test step after a repair |
 | validate | run the harness `verify.ps1 run` + `gate` and resolve the four-state archive gate |
 | collect-evidence | copy logs/reports into `artifacts/` and write `evidence.json` |
-| update-tasks | close tasks only for PASS evidence produced by this run (7.6) |
+| update-tasks | record orchestrator-phase PASS evidence for the external task-closing sweep; never edits tasks.md |
 | commit | stage and commit the orchestrator's own tracked-source delta |
 | sync | push only when an authenticated remote is available *and* `-AllowPush` |
 | archive | resolve the terminal four-state archive gate and write `ARCHIVED.json` |
@@ -109,7 +118,9 @@ phases on top.
 7. **Run full verification** — full `ctest --preset debug` + the archive gate.
 8. **Diagnose failures and classify** — Class A / Class B / external.
 9. **Repair** — Class A auto-applied; Class B surfaced with root cause + diff for review.
-10. **Update evidence and task checkboxes** — only with recorded verification (never narrative).
+10. **Record evidence** — the loop records verification results only; it never edits
+    tasks.md. Tasks.md checkboxes are closed by the reviewing agent/maintainer against
+    that evidence (never narrative).
 11. **Commit** with evidence references.
 12. **Push** when an authenticated remote is available and the operator opted in.
 13. **Sync/archive and leave resumable state** if interrupted.
@@ -125,9 +136,10 @@ validate → collect-evidence → update-tasks → commit → sync → archive
 ## Flaky-test policy
 
 On any intermittent failure the loop preserves the initial output, reproduces under stress,
-captures timing / resource / thread / process / environment data, and classifies the outcome
-(`verify/core/FlakyTestPolicy.psm1`). A "passed on retry" is **never** the terminal state
-without a root-cause fix or a documented non-determinism bound.
+captures timing / resource / thread / process / environment data, and classifies the outcome.
+A "passed on retry" is **never** the terminal state without a root-cause fix or a documented
+non-determinism bound. (This is a policy the loop and its operators follow; the former
+`verify/core/FlakyTestPolicy.psm1` helper module was removed as unused.)
 
 ## Scope and guardrails
 

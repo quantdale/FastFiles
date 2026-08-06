@@ -6,7 +6,7 @@ FastFiles is a Windows-only C++20 native file manager built around a persistent 
 
 ## Architecture
 
-Three executables over shared static libs; each `src/<name>/` is one CMake target. Public headers live in each component's `include/ff*` directory; implementation files in `src/`.
+Three executables over shared static libs; each `src/<name>/` is one CMake target. Public headers live in each component's `include/ff*` directory; implementation files in `src/`. Known exception: `src/indexsvc/` hosts three targets (`ffmftparser`, `ffindexsvcprobes`, `FastFilesIndexSvc`) whose internal headers live in `src/indexsvc/src/`.
 
 - **FastFilesIndexSvc** (`src/indexsvc/`) — the **privileged** Windows service. Runs under **LocalSystem** as a deliberately *constrained privileged broker* — the evidence-backed decision of `resolve-raw-volume-privilege-insufficiency` (see `openspec/changes/resolve-raw-volume-privilege-insufficiency/evidence/matrix-execution-and-selection.md`), because no narrow user right or group membership opens a raw volume device on modern Windows. Intentionally **stateless**: a thin, narrow relay for raw MFT/USN bytes — no index, no query parsing. The compensating mitigations that keep it a *constrained broker* rather than "the whole product as admin": stateless and closed command surface, symmetric signed-peer authentication, an SCM object granting the client group query-only rights, and startup privilege-set verification.
 - **FastFilesEngine** (`src/engine/`) — the **unprivileged**, per-logon-session process that *owns* the index and the privileged-connection lifecycle. Entry: `src/engine/src/Main.cpp`.
@@ -29,7 +29,7 @@ Shared libs: `ffprotocol` (wire protocol — depended on by everything), `ffipc`
 
 These are enumerated in the foundation `design.md` (D4 + Risks); the code exists to enforce them.
 
-- **Closed command protocol.** Engine→service is a fixed tiny enum (`Handshake / EnumerateVolumes / StartVolumeScan / OpenUsnJournal / StopVolumeScan / CloseUsnJournal / Heartbeat`). There is deliberately **no** generic "open this path/handle" primitive — do not add one.
+- **Closed command protocol.** Engine→service is a fixed tiny enum — the client→service commands (`Handshake / EnumerateVolumes / StartVolumeScan / OpenUsnJournal / StopVolumeScan / CloseUsnJournal / Heartbeat`) plus the additive service→client index-storage-and-scanning messages (`ScanRecordBatch / ScanComplete / UsnJournalOpened / JournalRecordBatch / JournalResumeInvalid`); `src/protocol/include/ffprotocol/Commands.h` is the source of truth. There is deliberately **no** generic "open this path/handle" primitive — do not add one.
 - **Connection-scoped opaque handles.** `VolumeId`/`JournalId` are service-assigned, opaque, and scoped to the creating connection; `Stop`/`Close` from another connection is rejected.
 - **Frame/parser hardening.** One protocol-wide max frame size (`kMaxFrameSize`, 1 MiB in `Frame.h`), checked **before any allocation** in `u64`/`size_t` arithmetic — never the `u32` field width (prevents integer-overflow-to-buffer-overflow). Batch record counts are cross-validated against bytes received before parsing any record. Out-of-range length-prefixed fields **reject the whole record**, never silently clamped. Treat raw on-disk NTFS attribute bytes as fully untrusted (a plugged-in USB/VHD reaches the parser with no admin action).
 - **Symmetric mutual authentication.** Both directions verify the peer's image path (under the ACL-locked install dir) *and* a pinned Authenticode signature thumbprint — not just group membership — re-validated periodically on long-lived connections, not only at handshake.
@@ -61,9 +61,11 @@ Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl 
 
 Tests are **plain C++ executables registered with CTest — no gtest/catch**. They use a hand-rolled `Check(condition, description)` helper that increments a failure counter and returns non-zero exit on failure (see `tests/protocol/test_protocol.cpp`). `test_fuzz.cpp` feeds malformed frames/records at the parsers — keep it updated when protocol parsing changes.
 
-- Test dirs mirror components: `tests/{protocol,ipc,indexstore,search,indexsvc,engine,navigation,commands,fileoperations,preview}`.
-- File naming: `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`. Register new executables with CTest in the component's `CMakeLists.txt`.
+- Test dirs mirror components: `tests/{protocol,ipc,indexstore,search,indexsvc,engine,navigation,commands,fileoperations,preview,ui,setup,uia-driver}` plus `tests/drift` (the doc-drift/line-ending guard). See `tests/README.md` for the test-directory overview.
+- File naming: `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`. Register new executables with CTest in the component's `CMakeLists.txt`. The shared helper header is `tests/TestSupport.h` (`fftest::Check` / `fftest::FailureCount`) — use it in new tests instead of copy-pasting a local `Check`.
 - CTest `-R` matches the **test name**, which equals the target name — e.g. `ffprotocol_tests`, `ffprotocol_fuzz_tests`, `ffprotocol_diagnostics_tests`. Use `-R <substring>` (e.g. `-R indexstore`) to run one component's tests.
+- Single-target fast loop: `cmake --build --preset debug --target <test-target>`, then `ctest --test-dir build/debug -R <name> --output-on-failure`. Note there is no `analyze` test preset (CTest presets exist for `debug` and `release` only).
+- `ffdoc_drift_tests` (pwsh-gated) checks the guidance docs for superseded claims and `src/`/`tests/` for mixed line endings — run it after editing root docs. The `asan` preset (configure/build only, no test preset) builds ASan-instrumented binaries for the fuzz/parser tests: `cmake --preset asan && cmake --build --preset asan --target ffprotocol_fuzz_tests`.
 - Cover success, malformed-input, recovery, and boundary cases where relevant. Run the focused test first, then `ctest --preset debug` before submitting.
 
 ## Runtime verification
@@ -75,6 +77,14 @@ pwsh ./verify/verify.ps1 build     # windows-build-validation capability
 pwsh ./verify/verify.ps1 doctor   # inspect VS toolchain / prerequisites
 ```
 
+## Which verification command when
+
+- `ctest --test-dir build/debug -R <name> --output-on-failure` — fast iteration on one test/target.
+- `pwsh ./verify/verify.ps1 build` — the full multi-config build gate.
+- `pwsh ./verify/verify.ps1 doctor` — VS toolchain / prerequisite diagnostics.
+
+**Never read or glob `verify/runs/`, `verify/baselines/`, or `verify/.signing/`** — execution evidence and signing material: huge and sensitive.
+
 ## Autonomous engineering loop
 
 `verify/intake.ps1` is the **single resumable autonomous entry point** (see `AUTONOMOUS.md` and `verify/autonomous/contract.json`). It drives the full lifecycle `discover -> plan -> provision -> implement -> build -> test -> diagnose -> repair -> re-test -> validate -> collect-evidence -> update-tasks -> commit -> sync -> archive` non-interactively, with persistent state at `verify/runs/autonomous/<run-id>/state.json` (schema-validated on save) and resume on re-invocation.
@@ -85,11 +95,11 @@ pwsh ./verify/intake.ps1 status              # machine-readable status (JSON, cu
 pwsh ./verify/intake.ps1 archive-gate        # re-resolve the terminal archive gate
 ```
 
-Exit codes match `verify.ps1` (`0`/`1`/`2`/`3`/`10`). Failures are classified Class A (harness — auto-fixed), Class B (product — surfaced for review, never auto-accepted), or external (recorded as `REQUIRED-BUT-UNAVAILABLE` with machine evidence, never fabricated). Retries are bounded (≤ 3) and a recurring normalized failure signature escalates the loop. `commit` stages only the loop's own tracked-source delta; `sync` (push) is opt-in via `-AllowPush`. The flaky-test policy (`verify/core/FlakyTestPolicy.psm1`) never treats a "passed on retry" as terminal without a root-cause fix or a documented bound.
+Exit codes match `verify.ps1` (`0`/`1`/`2`/`3`/`10`). Failures are classified Class A (harness — auto-fixed), Class B (product — surfaced for review, never auto-accepted), or external (recorded as `REQUIRED-BUT-UNAVAILABLE` with machine evidence, never fabricated). Retries are bounded (≤ 3) and a recurring normalized failure signature escalates the loop. `commit` stages only the loop's own tracked-source delta; `sync` (push) is opt-in via `-AllowPush`. The flaky-test policy (see `AUTONOMOUS.md`) never treats a "passed on retry" as terminal without a root-cause fix or a documented bound.
 
 ## Workflow: OpenSpec (spec-driven)
 
-Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. The foundation change is `establish-architecture-foundation`; later product pillars (instant-search, storage-analysis, file-operations, navigation-and-workspace, etc.) are separate changes, mostly still specs/design without code. Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
+Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **12 of 15 changes are fully closed**; the current open work is `openspec/changes/close-independent-validation-gaps/tasks.md` (all tasks open) — that is the current open-work source of truth. Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
 
 ## Coding style
 

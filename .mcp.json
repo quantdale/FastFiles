@@ -1,13 +1,5 @@
 {
   "mcpServers": {
-    "playwright": {
-      "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"]
-    },
-    "lighthouse": {
-      "command": "npx",
-      "args": ["-y", "@danielsogl/lighthouse-mcp@latest"]
-    },
     "fetch": {
       "command": "python",
       "args": ["-m", "mcp_server_fetch"]

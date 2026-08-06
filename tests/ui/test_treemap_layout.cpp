@@ -11,10 +11,11 @@
 #include <cwchar>
 #include <memory>
 #include <vector>
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-int failures = 0;
-void Check(bool value, const char* text) { if (!value) { std::fprintf(stderr, "FAIL: %s\n", text); ++failures; } }
 
 bool NearlyEqual(float a, float b) { return std::fabs(a - b) < 0.001f; }
 
@@ -126,5 +127,5 @@ int main() {
     TestLayoutCoversAreaWithoutOverlap();
     TestHitTest();
     TestClientToNormalized();
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

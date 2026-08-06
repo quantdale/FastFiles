@@ -3,13 +3,10 @@
 
 #include "CommandSurface.h"
 #include "ffprotocol/Commands.h"
+#include "../TestSupport.h"
 
-namespace {
-int failures = 0;
-void Check(bool value, const char* message) {
-    if (!value) { std::fprintf(stderr, "FAIL: %s\n", message); ++failures; }
-}
-}
+using namespace fftest;
+
 
 int main() {
     using namespace ffindexsvc;
@@ -47,8 +44,6 @@ int main() {
           "allowlist: reply-only IncompatibleVersion is rejected");
     Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::VolumeList)),
           "allowlist: reply-only VolumeList is rejected");
-    Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::NotYetImplemented)),
-          "allowlist: reply-only NotYetImplemented is rejected");
     Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::HeartbeatAck)),
           "allowlist: reply-only HeartbeatAck is rejected");
     Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::ScanRecordBatch)),
@@ -90,5 +85,5 @@ int main() {
     }
     Check(allowedCount == 6, "allowlist: exactly six client request types are accepted");
 
-    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

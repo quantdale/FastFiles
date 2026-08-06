@@ -9,6 +9,9 @@
 #include <winioctl.h>
 #include <objbase.h>
 #include <aclapi.h>
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
 
@@ -42,14 +45,6 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
     }
     return DefWindowProcW(window, message, wParam, lParam);
 }
-
-void Check(bool value, const char* message) {
-    if (!value) {
-        std::cerr << message << '\n';
-        std::exit(1);
-    }
-}
-
 std::unique_ptr<ffui::FileOperationEvent> Run(ffui::FileOperations& operations, ffui::FileOperationRequest request) {
     lastEvent.reset();
     operations.Enqueue(std::move(request));
@@ -291,4 +286,5 @@ int main() {
     std::filesystem::remove_all(root, cleanupError);
     Check(!cleanupError, "temporary test directory cleanup failed");
     std::cout << "file operations end-to-end tests passed\n";
+    return fftest::FailureCount();
 }

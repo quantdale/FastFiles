@@ -9,6 +9,7 @@
 #include "ffprotocol/Version.h"
 #include "ffsetup/AuthenticodeVerification.h"
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/PeerImageMatch.h"
 #include "ffsetup/PinnedSignatures.h"
 
 namespace ffengine {
@@ -155,25 +156,7 @@ bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
         return false;
     }
 
-    wchar_t canonicalPath[MAX_PATH * 4];
-    wchar_t canonicalInstallDir[MAX_PATH * 4];
-    if (GetFullPathNameW(imagePath->c_str(), static_cast<DWORD>(std::size(canonicalPath)), canonicalPath, nullptr) == 0
-        || GetFullPathNameW(installDir_.c_str(), static_cast<DWORD>(std::size(canonicalInstallDir)), canonicalInstallDir, nullptr) == 0) {
-        return false;
-    }
-
-    std::wstring fullPath(canonicalPath);
-    std::wstring dir(canonicalInstallDir);
-    if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) {
-        dir.pop_back();
-    }
-    const size_t lastSlash = fullPath.find_last_of(L"\\/");
-    if (lastSlash == std::wstring::npos) {
-        return false;
-    }
-    const std::wstring fileDir = fullPath.substr(0, lastSlash);
-    const std::wstring fileName = fullPath.substr(lastSlash + 1);
-    if (_wcsicmp(fileDir.c_str(), dir.c_str()) != 0 || _wcsicmp(fileName.c_str(), ffsetup::kIndexSvcExeName) != 0) {
+    if (!ffsetup::IsExpectedInstalledBinary(*imagePath, installDir_, ffsetup::kIndexSvcExeName)) {
         return false;
     }
 

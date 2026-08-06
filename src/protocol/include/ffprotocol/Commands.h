@@ -19,12 +19,11 @@ enum class MessageType : uint16_t {
     StopVolumeScan = 8,
     OpenUsnJournal = 9,
     CloseUsnJournal = 10,
-    NotYetImplemented = 11,
     Heartbeat = 12,
     HeartbeatAck = 13,
 
     // index-storage-and-scanning: additive extensions replacing the
-    // NotYetImplemented stub replies for StartVolumeScan/OpenUsnJournal
+    // stub replies for StartVolumeScan/OpenUsnJournal
     // (design.md "Migration Plan" -- greenfield, no deployed clients to
     // stay wire-compatible with yet, so these are plain new values rather
     // than a versioned/negotiated extension). Streamed asynchronously by
@@ -132,10 +131,6 @@ struct OpenUsnJournalRequest {
 
 struct CloseUsnJournalRequest {
     VolumeId volumeId;
-};
-
-struct NotYetImplementedPayload {
-    uint16_t requestMessageType;
 };
 
 // ScanRecordBatch payload: this fixed header, `resumeCursorLengthBytes`

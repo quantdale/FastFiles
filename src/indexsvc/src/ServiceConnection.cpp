@@ -29,13 +29,22 @@ using ffprotocol::MessageType;
 
 constexpr std::chrono::milliseconds kInboundPollInterval{2};
 
+// A client that stops sending frames would otherwise pin this connection --
+// and any scan/journal worker threads it owns -- indefinitely. Conservative:
+// far beyond the engine's ~20s heartbeat cadence, so only genuinely silent
+// connections are reaped (the timeout closes via the same teardown path as
+// any other disconnect).
+constexpr std::chrono::milliseconds kInboundIdleTimeout{300000};
+
 // A synchronous named-pipe handle serializes an outstanding blocking
 // ReadFile with writes issued by scan/journal worker threads on that same
 // handle.  Do not park the control thread inside ReadFrame while workers
 // may have asynchronous results to publish.  PeekNamedPipe is nonblocking;
 // once a complete header is present, the client is already in WriteFrame
-// and will immediately supply the (bounded) payload.
-std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle) {
+// and will immediately supply the (bounded) payload.  If no frame arrives
+// before idleDeadline, returns nullopt -- the caller closes the connection
+// (reject-by-close, same as an I/O error or disconnect).
+std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle, std::chrono::steady_clock::time_point idleDeadline) {
     for (;;) {
         DWORD bytesAvailable = 0;
         if (!PeekNamedPipe(pipeHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr)) {
@@ -43,6 +52,9 @@ std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle) {
         }
         if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
             return ffipc::ReadFrame(pipeHandle);
+        }
+        if (std::chrono::steady_clock::now() >= idleDeadline) {
+            return std::nullopt; // no frame received within the idle window
         }
         std::this_thread::sleep_for(kInboundPollInterval);
     }
@@ -178,11 +190,16 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
     std::vector<ActiveWorker> activeJournals;
 
     bool disconnect = false;
+    auto idleDeadline = std::chrono::steady_clock::now() + kInboundIdleTimeout;
     while (!disconnect) {
-        auto frame = ReadActiveFrame(pipeHandle);
+        auto frame = ReadActiveFrame(pipeHandle, idleDeadline);
         if (!frame) {
-            break; // I/O error or clean disconnect
+            break; // I/O error, clean disconnect, or inbound idle timeout
         }
+        // Any inbound frame resets the idle window: the engine heartbeats
+        // every ~20s, so only a peer silent for the full kInboundIdleTimeout
+        // is reaped.
+        idleDeadline = std::chrono::steady_clock::now() + kInboundIdleTimeout;
 
         // Task 2.5 / CommandSurface.h: single, explicit allowlist gate. Any
         // message type outside the documented volume/journal/heartbeat
@@ -376,10 +393,6 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
     StopAndJoinAll(activeJournals);
     registry.TeardownConnection(connectionId);
     CloseClientIdentity(*identity);
-    CloseHandle(pipeHandle);
-}
-
-void RunDataConnection(HANDLE pipeHandle) {
     CloseHandle(pipeHandle);
 }
 

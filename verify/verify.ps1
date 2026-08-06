@@ -119,11 +119,26 @@ function Invoke-VerificationRun {
         SkipAnalyze    = $SkipAnalyze.IsPresent
         SkipTests      = $SkipTests.IsPresent
     }
+    # Presence of CapabilityFilter in the options marks a -Capability-filtered run
+    # (partial capability set). Consumers such as windows-performance-baselines use
+    # it to avoid updating the persistent baseline store from a partial run.
+    if ($CapabilityFilter -and @($CapabilityFilter).Count -gt 0) {
+        $options.CapabilityFilter = @($CapabilityFilter)
+    }
 
     $envelopes = @()
     $providerProvisioned = $false
     try {
-        Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase provision -ProviderContext $providerContext | Out-Null
+        # Match intake.ps1 (Invoke-PhaseProvision): a provider that cannot provision
+        # (e.g. -Provider hyperv without a provisionable Hyper-V target) must NOT fall
+        # back to running capabilities on the local host - that would validate the
+        # wrong environment and silently produce a different result than requested.
+        $provision = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase provision -ProviderContext $providerContext
+        if (-not $provision.Ready) {
+            Write-Host "[ERROR] Environment provider '$($activeProvider.Id)' is not ready: $($provision.Reason)" -ForegroundColor Red
+            Write-Host "        Refusing to run capabilities on the local host instead of the requested provider."
+            exit $ExitError
+        }
         $providerProvisioned = $true
         Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase activate -ProviderContext $providerContext | Out-Null
 

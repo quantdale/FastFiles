@@ -1,3 +1,9 @@
+> **Historical snapshot (2026-08-03) — stale test count.** This file is a dated
+> machine-generated OpenCode goal-loop report, kept for history only. Its
+> "21/21 ctest PASS" is outdated: the suite has since grown (27/27 as of 2026-08-04)
+> and the count varies (25/26/27) with pwsh availability. For the current count run
+> `ctest --preset debug`.
+
 # OpenCode Loop Goal Report
 
 Status: completed

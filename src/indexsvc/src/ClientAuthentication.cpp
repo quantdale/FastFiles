@@ -8,6 +8,7 @@
 #include "ffsetup/AuthenticodeVerification.h"
 #include "ffsetup/GroupSetup.h"
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/PeerImageMatch.h"
 #include "ffsetup/PinnedSignatures.h"
 
 namespace ffindexsvc {
@@ -37,36 +38,9 @@ HANDLE OpenImpersonatedClientProcess(HANDLE pipeHandle, ULONG clientPid) noexcep
     return processHandle;
 }
 
-// Case-insensitive check that `path`'s directory is exactly `installDir`
-// (after canonicalizing both) and its filename matches `expectedExeName`.
-// A prefix-only check (e.g. "C:\FastFiles" matching "C:\FastFilesEvil...")
-// would be a bypass, so this requires an exact directory match.
-bool IsExpectedInstalledBinary(const std::wstring& path, const std::wstring& installDir, const wchar_t* expectedExeName) {
-    wchar_t canonicalPath[MAX_PATH * 4];
-    wchar_t canonicalInstallDir[MAX_PATH * 4];
-    if (GetFullPathNameW(path.c_str(), static_cast<DWORD>(std::size(canonicalPath)), canonicalPath, nullptr) == 0) {
-        return false;
-    }
-    if (GetFullPathNameW(installDir.c_str(), static_cast<DWORD>(std::size(canonicalInstallDir)), canonicalInstallDir, nullptr) == 0) {
-        return false;
-    }
-
-    std::wstring fullPath(canonicalPath);
-    std::wstring dir(canonicalInstallDir);
-    if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) {
-        dir.pop_back();
-    }
-
-    const size_t lastSlash = fullPath.find_last_of(L"\\/");
-    if (lastSlash == std::wstring::npos) {
-        return false;
-    }
-    const std::wstring fileDir = fullPath.substr(0, lastSlash);
-    const std::wstring fileName = fullPath.substr(lastSlash + 1);
-
-    return _wcsicmp(fileDir.c_str(), dir.c_str()) == 0 && _wcsicmp(fileName.c_str(), expectedExeName) == 0;
-}
-
+// Case-insensitive peer image-path check (design.md D4 "Symmetric Mutual
+// Authentication"): ffsetup::IsExpectedInstalledBinary (PeerImageMatch.h)
+// is the single implementation both the service and the engine call.
 std::optional<std::vector<uint8_t>> GetImpersonatedClientUserSid(HANDLE pipeHandle) {
     if (!ImpersonateNamedPipeClient(pipeHandle)) {
         return std::nullopt;
@@ -121,7 +95,7 @@ std::optional<ClientIdentity> VerifyClientAtHandshake(
     }
 
     auto imagePath = GetProcessImagePath(processHandle);
-    if (!imagePath || !IsExpectedInstalledBinary(*imagePath, installDir, ffsetup::kEngineExeName)) {
+    if (!imagePath || !ffsetup::IsExpectedInstalledBinary(*imagePath, installDir, ffsetup::kEngineExeName)) {
         CloseHandle(processHandle);
         outRejectReasonIfFailed = ffprotocol::HandshakeRejectReason::UnverifiedImagePath;
         return std::nullopt;
@@ -158,7 +132,7 @@ bool RevalidateClient(const ClientIdentity& identity, const std::wstring& instal
     }
 
     auto imagePath = GetProcessImagePath(identity.processHandle);
-    if (!imagePath || !IsExpectedInstalledBinary(*imagePath, installDir, ffsetup::kEngineExeName)) {
+    if (!imagePath || !ffsetup::IsExpectedInstalledBinary(*imagePath, installDir, ffsetup::kEngineExeName)) {
         return false;
     }
     if (!ffsetup::VerifyPinnedSignature(*imagePath, ffsetup::kExpectedEngineSignatureThumbprint)) {

@@ -8,3 +8,13 @@ CMakeUserPresets.json
 verify/runs/
 verify/baselines/
 verify/.signing/
+
+# Build artifact output.
+dist/
+
+# Merged audit dump (superseded by codebase-audit/).
+all-edit-with-results-*.md
+
+# OpenCode loop execution state (transient session/journal files; goal .md files stay tracked).
+.opencode/opencode-loop/loop.log
+.opencode/opencode-loop/ses_*.json

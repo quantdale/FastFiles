@@ -9,18 +9,11 @@
 #include <vector>
 
 #include "DegradedModeEnumerator.h"
+#include "../TestSupport.h"
+
+using namespace fftest;
 
 namespace {
-
-int failures = 0;
-
-void Check(bool value, const char* text) {
-    if (!value) {
-        std::fprintf(stderr, "FAIL: %s\n", text);
-        ++failures;
-    }
-}
-
 std::filesystem::path MakeFixtureRoot() {
     wchar_t tempPath[MAX_PATH]{};
     Check(GetTempPathW(MAX_PATH, tempPath) != 0, "temporary path is available");
@@ -222,8 +215,8 @@ int main() {
     TestSpecialEntriesSurfaceInDegradedEnumeration();
     TestLongPathEnumeration();
     TestJunctionLoopBoundedByDepth();
-    if (failures != 0) {
-        std::fprintf(stderr, "%d special-file scenario check(s) FAILED\n", failures);
+    if (fftest::FailureCount() != 0) {
+        std::fprintf(stderr, "%d special-file scenario check(s) FAILED\n", fftest::FailureCount());
         return EXIT_FAILURE;
     }
     std::printf("ffengine_degraded_special_files_tests: all special-file scenarios passed\n");

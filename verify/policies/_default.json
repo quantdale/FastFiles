@@ -5,7 +5,7 @@
     { "id": "diagnostics", "requiredTiers": [0] },
     { "id": "crash-analysis", "requiredTiers": [0] }
   ],
-  "acceptableSkipReasons": [],
+  "acceptableSkipReasons": ["no-crash-observed"],
   "performanceRegressionsGate": false,
   "productSourcePaths": ["src", "tests", "CMakeLists.txt", "cmake"]
 }

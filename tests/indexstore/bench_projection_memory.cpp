@@ -5,15 +5,26 @@
 // reality rather than assuming it.
 //
 // Last measured result (5M entries, 10 recurring names, ~32 entries/dir):
-// ~161 bytes/entry -- WORSE than design.md's own ~100-byte naive-full-
-// path-per-entry estimate this design is supposed to beat. Root cause:
-// idToIndex_ (std::unordered_map<EntryKey, uint32_t>) duplicates the full
-// 24-byte EntryKey per entry plus std::unordered_map's per-node
-// allocation overhead, roughly doubling entries_'s own footprint. Fixing
-// this means replacing idToIndex_/parentToChildren_ with an open-
-// addressing (flat, no per-node heap allocation) hash structure -- not
-// done in this change; re-run this benchmark after that follow-up to
-// confirm the target is actually met.
+//   Windows x64 release, 2026-08-06 (GetProcessMemoryInfo working set):
+//   Entries: 5,000,000; RSS delta: 969,736 KB; ~198.6 bytes/entry.
+//   Still above design.md's ~100-byte naive-full-path-per-entry estimate
+//   this design is supposed to beat. idToIndex_/parentToChildren_ were
+//   since converted to the flat open-addressing maps (FlatHashMap.h), but
+//   the measured footprint barely moved: the dominant costs are now the
+//   eager reserves -- idToIndex_'s 16.7M bucket arrays (~486 MB at the
+//   5M-entry reserve hint) plus entries_' 5M x ~80-byte ProjectionEntry
+//   array (~400 MB) and the 60M-char name arena. Re-run after a
+//   memory-tuning follow-up (e.g. sizing reserves from the actual entry
+//   count and shrinking the arena hint) to confirm the target.
+//
+//   Also note: running this benchmark on Windows exposed a FlatChildrenMap
+//   live-count bug (count_ was never incremented on insert, so the table
+//   never grew past its initial 8 buckets and find_slot() spun forever on
+//   the 9th distinct parent key). Fixed in FlatHashMap.h; regression-
+//   covered by ffindexstore_projection_tests (many-distinct-parents case).
+#include <windows.h>
+#include <psapi.h>
+
 #include <cstdio>
 #include <random>
 #include <vector>
@@ -22,19 +33,16 @@
 
 using namespace ffindexstore;
 
-// Reports process RSS via /proc/self/status (Linux-only, this benchmark
-// harness is not part of the shipped Windows product -- just used here to
-// sanity-check the projection's real memory footprint at scale).
+// Reports process working-set size in KB via GetProcessMemoryInfo
+// (psapi.h) -- Windows-native measurement of the same live-memory signal
+// the benchmark needs to sanity-check the projection's real footprint at
+// scale (this benchmark harness is not part of the shipped Windows
+// product -- just used here to verify the projection's memory claims).
 long GetRssKb() {
-    FILE* f = nullptr;
-    if (fopen_s(&f, "/proc/self/status", "r") != 0 || !f) return -1;
-    char line[256];
-    long rss = -1;
-    while (std::fgets(line, sizeof(line), f)) {
-        if (sscanf_s(line, "VmRSS: %ld kB", &rss) == 1) break;
-    }
-    std::fclose(f);
-    return rss;
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters))) return -1;
+    return static_cast<long>(counters.WorkingSetSize / 1024);
 }
 
 int main() {

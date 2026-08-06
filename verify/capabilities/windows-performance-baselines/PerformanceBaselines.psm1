@@ -72,10 +72,22 @@ function Invoke-PerformanceBaselinesCapability {
         }
     }
 
-    # The store is updated from the CURRENT run's envelopes only (this capability
-    # is discovered last, so every other capability has already saved its result):
-    # exactly one sample per capability per run, no double counting.
-    if (Test-Path -LiteralPath $RunContext.ArtifactsRoot) {
+    # The store is updated from the CURRENT run's envelopes only: exactly one sample
+    # per capability per run, no double counting. Two structural caveats, both
+    # inherent to the capability framework and not fixable inside this capability:
+    #  1. ORDERING: the update reads each capability's already-written
+    #     artifacts/result.json, so it relies on every capability having run before
+    #     this one. Capabilities discovered AFTER this one in directory order have
+    #     not run yet when this executes, so their samples are not updated here; the
+    #     run index (the complete result set) is only built after all capabilities
+    #     finish, which is after this capability ran.
+    #  2. FILTERING: under a -Capability-filtered run the artifact set is a partial
+    #     run - updating the persistent store would contaminate baselines with a
+    #     subset of the capability suite, so the store update is skipped entirely
+    #     when options.CapabilityFilter is present (set by verify.ps1 only for
+    #     filtered runs).
+    $isFilteredRun = $null -ne $Options -and $Options.ContainsKey('CapabilityFilter') -and @($Options.CapabilityFilter).Count -gt 0
+    if (-not $isFilteredRun -and (Test-Path -LiteralPath $RunContext.ArtifactsRoot)) {
         Get-ChildItem -Path $RunContext.ArtifactsRoot -Directory | ForEach-Object {
             $resultPath = Join-Path $_.FullName 'result.json'
             if (Test-Path -LiteralPath $resultPath) {
@@ -88,6 +100,7 @@ function Invoke-PerformanceBaselinesCapability {
     }
 
     $summaryParts = @()
+    if ($isFilteredRun) { $summaryParts += "baseline store update skipped (-Capability-filtered run)" }
     if ($previousIndex) {
         $summaryParts += "$compared metrics compared against baseline"
         if ($seeded.Count -gt 0) { $summaryParts += "$($seeded.Count) metrics awaiting their first baseline (no prior samples)" }
