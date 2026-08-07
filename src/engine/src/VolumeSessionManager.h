@@ -78,6 +78,11 @@ public:
     std::vector<ffprotocol::VolumeStatusRecord> CollectVolumeStatus();
 
 private:
+    // Tracks an active volume session from the privileged service. Maps the ephemeral
+    // ffprotocol::VolumeId (connection-scoped identifier) to the durable volumeRowId that
+    // IndexPipeline persists across reconnections. The journalId identifies the USN journal
+    // state on the volume, and journalIdKnown gates resume-vs-restart logic after
+    // disconnection and reconnection.
     struct VolumeSession {
         ffindexstore::VolumeRowId durableId = 0;
         wchar_t driveLetter = L'\0';
