@@ -1,4 +1,6 @@
 #include "SearchPanel.h"
+
+#include "ffsearch/Path.h"
 #include "IconCache.h"
 #include "UITheme.h"
 #include "Util.h"
@@ -25,6 +27,7 @@ constexpr int kClearHistoryId = 7105;
 constexpr int kSortDirectionId = 7107;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
+constexpr size_t kMaxUiSearchResults = 10000;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -133,23 +136,6 @@ LRESULT CALLBACK StatusProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
-std::wstring LeafName(const std::wstring& path) {
-    if (path.size() == 3 && path[1] == L':') return path;
-    const size_t slash = path.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? path : path.substr(slash + 1);
-}
-
-std::wstring ParentPath(const std::wstring& path) {
-    if (path.size() <= 3) return {};
-    const size_t slash = path.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? std::wstring{} : path.substr(0, slash);
-}
-
-int64_t VolumeFor(const std::wstring& path) {
-    if (path.size() >= 2 && path[1] == L':') return static_cast<int64_t>(towupper(path[0]));
-    return static_cast<int64_t>(std::hash<std::wstring>{}(path.substr(0, path.find(L'\\', 2))));
-}
-
 std::wstring FormatFileTime(uint64_t ticks) {
     if (ticks == 0) return L"—";
     ULARGE_INTEGER value{};
@@ -203,8 +189,7 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
         SetWindowSubclass(queryEdit_, SearchEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     }
     SetWindowSubclass(status_, StatusProc, 2, reinterpret_cast<DWORD_PTR>(this));
-    for (const wchar_t* text : {L"Current Folder", L"Current Folder + Subfolders", L"Current Drive", L"All Indexed Locations"})
-        SendMessageW(scope_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    RefreshScopeLabels();
     for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created"})
         SendMessageW(sort_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     SendMessageW(sort_, CB_SETCURSEL, 0, 0);
@@ -226,6 +211,16 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     LoadHistory();
     worker_ = std::thread(&SearchPanel::WorkerMain, this);
     return true;
+}
+
+void SearchPanel::SetDefaultScope(const std::wstring& scopeName) {
+    if (!scope_) return;
+    int index = 3; // "Everywhere" maps to all locations present in the snapshot.
+    if (scopeName == L"Current Folder") index = 0;
+    else if (scopeName == L"Current Folder + Subfolders") index = 1;
+    else if (scopeName == L"Current Drive") index = 2;
+    else if (scopeName == L"All Indexed Locations" || scopeName == L"Everywhere") index = 3;
+    SendMessageW(scope_, CB_SETCURSEL, index, 0);
 }
 
 void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActive) {
@@ -291,10 +286,6 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
         return true;
     }
     if (id == kScopeId && notification == CBN_SELCHANGE) {
-        if (!engineActive_ && SendMessageW(scope_, CB_GETCURSEL, 0, 0) >= 2) {
-            SendMessageW(scope_, CB_SETCURSEL, 1, 0);
-            UpdateStatus(L"Current Drive and All Indexed Locations require the active index service.");
-        }
         Dispatch();
         return true;
     }
@@ -322,7 +313,7 @@ bool SearchPanel::HandleTimer(UINT_PTR timerId) {
     return true;
 }
 
-void SearchPanel::Dispatch() {
+void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     wchar_t queryText[1024]{};
     GetWindowTextW(query_, queryText, static_cast<int>(std::size(queryText)));
     ++generation_;
@@ -336,15 +327,51 @@ void SearchPanel::Dispatch() {
     }
     Work work;
     work.generation = generation_;
-    PopulateCandidates(work.candidates);
     work.request.query = ffsearch::ParseQuery(queryText, ffsearch::FilterRegistry::WithDefaults());
     work.request.scope = static_cast<ffsearch::SearchScope>((std::max)(0, static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0))));
     work.request.scopePath = currentPath_;
     work.request.sortField = static_cast<ffsearch::SortField>((std::max)(0, static_cast<int>(SendMessageW(sort_, CB_GETCURSEL, 0, 0))));
     work.request.descending = descending_;
+    work.request.maxResults = kMaxUiSearchResults;
+    // Once the snapshot contains durable index rows, every scope whose label
+    // promises indexed descendants must exclude browsed-only records. The
+    // current-folder scope deliberately remains an "available data" view so
+    // degraded browsing is still useful when the folder has no indexed rows.
+    work.request.persistentOnly = persistentCoverage_ &&
+        static_cast<int>(work.request.scope) >= static_cast<int>(ffsearch::SearchScope::CurrentFolderAndSubfolders);
     currentPrimaryTerm_ = work.request.query.primaryTerm;
-    UpdateStatus(L"Searching…", StatusKind::Searching);
-    RecordHistory(queryText);
+    if (recordHistory) RecordHistory(queryText);
+
+    const bool broadIndexedScope = static_cast<int>(work.request.scope) >=
+        static_cast<int>(ffsearch::SearchScope::CurrentFolderAndSubfolders);
+    if (!forceSnapshot && persistentCoverage_ && broadIndexedScope && engine_ != nullptr) {
+        snapshotFallback_ = false;
+        UpdateStatus(L"Searching indexed locations…", StatusKind::Searching);
+        ffprotocol::IndexedSearchRequest indexedRequest;
+        indexedRequest.scope = static_cast<uint8_t>(work.request.scope);
+        indexedRequest.sortField = static_cast<uint8_t>(work.request.sortField);
+        indexedRequest.descending = work.request.descending;
+        indexedRequest.maxResults = static_cast<uint32_t>(work.request.maxResults);
+        indexedRequest.query = queryText;
+        indexedRequest.scopePath = currentPath_;
+        engine_->RequestIndexedSearch(
+            indexedRequest.query, indexedRequest.scope, indexedRequest.scopePath,
+            indexedRequest.sortField, indexedRequest.descending, indexedRequest.maxResults,
+            [this, generation = work.generation](ffprotocol::IndexedSearchResponse response) {
+                if (stopping_) return;
+                auto completion = std::make_unique<IndexedCompletion>(
+                    IndexedCompletion{generation, std::move(response)});
+                if (PostMessageW(owner_, WM_APP_INDEXED_SEARCH_COMPLETE, 0,
+                                 reinterpret_cast<LPARAM>(completion.get()))) {
+                    completion.release();
+                }
+            });
+        return;
+    }
+
+    snapshotFallback_ = forceSnapshot && persistentCoverage_ && broadIndexedScope;
+    UpdateStatus(snapshotFallback_ ? L"Indexed search unavailable; searching browsed snapshot…"
+                                   : L"Searching…", StatusKind::Searching);
     {
         std::lock_guard<std::mutex> lock(workMutex_);
         pendingWork_ = std::move(work);
@@ -362,6 +389,11 @@ void SearchPanel::WorkerMain() {
             work = std::move(*pendingWork_);
             pendingWork_.reset();
         }
+        // Snapshot traversal can be large in degraded mode. Keep candidate
+        // construction off the UI thread just like query execution so a
+        // keystroke never stalls painting or navigation.
+        PopulateCandidates(work.candidates);
+        if (stopping_ || currentGeneration_.load() != work.generation) continue;
         auto response = ffsearch::ExecuteSearch(work.candidates, work.request, [this, generation = work.generation] {
             return stopping_ || currentGeneration_.load() != generation;
         });
@@ -377,8 +409,57 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
     results_ = std::move(completion->response.results);
     candidates_ = std::move(completion->candidates);
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
-    UpdateStatus(results_.empty() ? L"No results" : std::to_wstring(results_.size()) + L" results",
-                 results_.empty() ? StatusKind::NoResults : StatusKind::Info);
+    if (completion->response.truncated) {
+        const std::wstring prefix = snapshotFallback_ ? L"Browsed snapshot: " : L"";
+        UpdateStatus(prefix + L"showing the first " + std::to_wstring(results_.size()) + L" results", StatusKind::Info);
+    } else {
+        const std::wstring prefix = snapshotFallback_ ? L"Browsed snapshot: " : L"";
+        UpdateStatus(results_.empty() ? prefix + L"no results" : prefix + std::to_wstring(results_.size()) + L" results",
+                     results_.empty() ? StatusKind::NoResults : StatusKind::Info);
+    }
+    InvalidateRect(list_, nullptr, FALSE);
+    return true;
+}
+
+bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
+    std::unique_ptr<IndexedCompletion> completion(reinterpret_cast<IndexedCompletion*>(lParam));
+    if (!completion || completion->generation != currentGeneration_) return true;
+    if (completion->response.status != ffprotocol::IndexedSearchStatus::Completed) {
+        // A disconnected/unavailable index must not strand the user's query.
+        // Re-enter the existing worker path once, with an explicit source
+        // notice; the broad scope remains labelled according to its data.
+        Dispatch(false, true);
+        return true;
+    }
+
+    snapshotFallback_ = false;
+    candidates_.clear();
+    candidates_.reserve(completion->response.candidates.size());
+    results_.clear();
+    results_.reserve(completion->response.candidates.size());
+    for (auto& candidate : completion->response.candidates) {
+        ffsearch::Candidate searchCandidate{};
+        searchCandidate.name = candidate.name;
+        searchCandidate.folder = candidate.folder;
+        searchCandidate.sizeBytes = candidate.sizeBytes;
+        searchCandidate.modifiedTime = candidate.modifiedTime;
+        searchCandidate.isDirectory = candidate.isDirectory;
+        searchCandidate.createdTime = candidate.createdTime;
+        searchCandidate.volumeId = candidate.volumeId;
+        searchCandidate.id = candidate.id;
+        searchCandidate.parentId = candidate.parentId;
+        searchCandidate.persistentIndexed = candidate.persistentIndexed;
+        candidates_.push_back(searchCandidate);
+        results_.push_back({searchCandidate, ffsearch::ClassifyMatch(searchCandidate, currentPrimaryTerm_)});
+    }
+    ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
+    if (completion->response.truncated) {
+        UpdateStatus(L"Showing the first " + std::to_wstring(results_.size()) + L" indexed results", StatusKind::Info);
+    } else {
+        UpdateStatus(results_.empty() ? L"No indexed results" :
+                     std::to_wstring(results_.size()) + L" indexed results",
+                     results_.empty() ? StatusKind::NoResults : StatusKind::Info);
+    }
     InvalidateRect(list_, nullptr, FALSE);
     return true;
 }
@@ -566,15 +647,13 @@ void SearchPanel::DrawComboItem(const DRAWITEMSTRUCT* item) {
     const RECT rect = item->rcItem;
     const bool highContrast = ffui::UiSystemHighContrast();
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
-    const bool disabled = (item->hwndItem == scope_) && !engineActive_ && item->itemID >= 2;
-    const bool selected = (item->itemState & ODS_SELECTED) != 0 && !disabled;
+    const bool selected = (item->itemState & ODS_SELECTED) != 0;
 
     COLORREF background = selected ? ffui::ToColorRef(theme.accent) : ffui::ToColorRef(theme.background);
     COLORREF text = selected ? ffui::ToColorRef(theme.textOnAccent) : ffui::ToColorRef(theme.text);
-    if (disabled) text = ffui::ToColorRef(theme.textSecondary);
     if (highContrast) {
         background = GetSysColor(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW);
-        text = GetSysColor(disabled ? COLOR_GRAYTEXT : selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
+        text = GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
     }
 
     HBRUSH backgroundBrush = CreateSolidBrush(background);
@@ -735,7 +814,73 @@ void SearchPanel::PaintStatus(HWND hwnd) {
     EndPaint(hwnd, &paint);
 }
 
-void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidates) const {
+void SearchPanel::OnSnapshotUpdated() {
+    // Invalidate an in-flight query as well as its materialized candidates.
+    // Otherwise a worker that started against the previous mapping can post a
+    // result after the new generation is already visible in the browser.
+    ++generation_;
+    currentGeneration_ = generation_;
+    candidateCacheEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard<std::mutex> lock(candidateCacheMutex_);
+        candidateCache_.reset();
+    }
+    bool hasPersistentCoverage = false;
+    if (engine_ != nullptr) {
+        const auto snapshot = engine_->ReadSnapshot();
+        if (snapshot) {
+            for (const auto& [path, directory] : *snapshot) {
+                if (directory.volumeRowId != 0) {
+                    hasPersistentCoverage = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (persistentCoverage_ != hasPersistentCoverage) {
+        persistentCoverage_ = hasPersistentCoverage;
+        RefreshScopeLabels();
+    }
+    // A visible search should follow the new snapshot generation without
+    // requiring the user to type another character. Suppress history writes:
+    // this is a data refresh, not a new query execution.
+    if (visible_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
+        Dispatch(false);
+    }
+}
+
+void SearchPanel::RefreshScopeLabels() {
+    if (scope_ == nullptr) return;
+    const int selected = static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0));
+    SendMessageW(scope_, CB_RESETCONTENT, 0, 0);
+    if (persistentCoverage_) {
+        for (const wchar_t* text : {L"Current Folder — Available Data",
+                                    L"Current Folder + Indexed Subfolders",
+                                    L"Current Drive — Indexed Coverage",
+                                    L"All Indexed Locations"})
+            SendMessageW(scope_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    } else {
+        for (const wchar_t* text : {L"Current Folder", L"Current Folder + Browsed Subfolders",
+                                    L"Current Drive — Browsed Folders Only", L"All Browsed Locations"})
+            SendMessageW(scope_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+    }
+    const int count = static_cast<int>(SendMessageW(scope_, CB_GETCOUNT, 0, 0));
+    const int next = selected >= 0 && selected < count ? selected : 3;
+    SendMessageW(scope_, CB_SETCURSEL, next, 0);
+    InvalidateRect(scope_, nullptr, TRUE);
+}
+
+void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidates) {
+    {
+        std::lock_guard<std::mutex> lock(candidateCacheMutex_);
+        if (candidateCache_) {
+            candidates = *candidateCache_;
+            return;
+        }
+    }
+
+    const uint64_t cacheEpoch = candidateCacheEpoch_.load(std::memory_order_acquire);
+    std::vector<ffsearch::Candidate> built;
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) return;
     std::unordered_map<std::wstring, uint64_t> directoryIds;
@@ -746,13 +891,14 @@ void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidate
     }
     std::unordered_map<std::wstring, size_t> directoryIndexes;
     for (const auto& [path, id] : directoryIds) {
-        const std::wstring parent = ParentPath(path);
+        const std::wstring parent = ffsearch::ParentPath(path);
         const auto parentId = directoryIds.find(parent);
         const auto& directory = snapshot->at(path);
-        candidates.push_back({LeafName(path), parent, 0, 0, true, 0,
-                              directory.volumeRowId != 0 ? directory.volumeRowId : VolumeFor(path), id,
-                              directory.parentIdLow != 0 ? directory.parentIdLow : (parentId == directoryIds.end() ? id : parentId->second)});
-        directoryIndexes.emplace(path, candidates.size() - 1);
+            built.push_back({ffsearch::LeafName(path), parent, 0, 0, true, 0,
+                              directory.volumeRowId != 0 ? directory.volumeRowId : ffsearch::VolumeId(path), id,
+                              directory.parentIdLow != 0 ? directory.parentIdLow : (parentId == directoryIds.end() ? id : parentId->second),
+                              directory.volumeRowId != 0});
+        directoryIndexes.emplace(path, built.size() - 1);
     }
     for (const auto& [path, directory] : *snapshot) {
         if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) continue;
@@ -760,18 +906,37 @@ void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidate
         for (const auto& entry : directory.entries) {
             const std::wstring fullPath = JoinPath(path, entry.name);
             if (entry.isDirectory && directoryIndexes.contains(fullPath)) {
-                auto& candidate = candidates[directoryIndexes.at(fullPath)];
+                auto& candidate = built[directoryIndexes.at(fullPath)];
                 candidate.sizeBytes = entry.sizeBytes;
                 candidate.createdTime = entry.creationTime;
                 candidate.modifiedTime = entry.lastModifiedTime;
                 continue;
             }
             const uint64_t id = entry.isDirectory && directoryIds.contains(fullPath) ? directoryIds.at(fullPath) : nextId++;
-            candidates.push_back({entry.name, path, entry.sizeBytes, entry.lastModifiedTime, entry.isDirectory,
-                                  entry.creationTime, entry.volumeRowId != 0 ? entry.volumeRowId : VolumeFor(path),
+            built.push_back({entry.name, path, entry.sizeBytes, entry.lastModifiedTime, entry.isDirectory,
+                                  entry.creationTime, entry.volumeRowId != 0 ? entry.volumeRowId : ffsearch::VolumeId(path),
                                   entry.fileIdLow != 0 ? entry.fileIdLow : id,
-                                  entry.parentIdLow != 0 ? entry.parentIdLow : parentId});
+                                  entry.parentIdLow != 0 ? entry.parentIdLow : parentId,
+                                  directory.volumeRowId != 0 || entry.volumeRowId != 0});
         }
+    }
+
+    std::shared_ptr<const std::vector<ffsearch::Candidate>> cache;
+    {
+        std::lock_guard<std::mutex> lock(candidateCacheMutex_);
+        if (candidateCacheEpoch_.load(std::memory_order_acquire) == cacheEpoch) {
+            candidateCache_ = std::make_shared<const std::vector<ffsearch::Candidate>>(std::move(built));
+            cache = candidateCache_;
+        } else if (candidateCache_) {
+            cache = candidateCache_;
+        }
+    }
+    if (cache) {
+        candidates = *cache;
+    } else {
+        // A generation changed while this search was being materialized. Keep
+        // the current query useful, but do not retain that stale projection.
+        candidates = std::move(built);
     }
 }
 
@@ -782,12 +947,15 @@ void SearchPanel::SetEngineActive(bool active) {
 }
 
 void SearchPanel::UpdateScopeAvailability(bool showFallbackNotice) {
-    if (!engineActive_) {
-        const int selected = static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0));
-        if (selected < 0 || selected >= 2) SendMessageW(scope_, CB_SETCURSEL, 1, 0);
-        if (showFallbackNotice) UpdateStatus(L"Index service disconnected; scope narrowed to Current Folder + Subfolders.");
-    } else if (SendMessageW(scope_, CB_GETCURSEL, 0, 0) < 0) {
+    // Every advertised scope is backed by the in-process snapshot, including
+    // degraded mode. Broad scopes mean "browsed locations" rather than a
+    // privileged whole-volume index, so disconnecting the service must not
+    // silently rewrite the user's selected scope.
+    if (SendMessageW(scope_, CB_GETCURSEL, 0, 0) < 0) {
         SendMessageW(scope_, CB_SETCURSEL, 3, 0);
+    }
+    if (showFallbackNotice && !engineActive_) {
+        UpdateStatus(L"Index service disconnected; searching the browsed snapshot.");
     }
     InvalidateRect(scope_, nullptr, TRUE);
 }

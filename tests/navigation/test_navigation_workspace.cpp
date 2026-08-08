@@ -16,9 +16,56 @@ void TestPathParsing() {
     Check(ParseNavigationPath(L"C:\\Windows\\System32\\..\\").path == L"C:\\Windows", "embedded dot-dot is canonicalized");
     Check(ParseNavigationPath(L"%SystemRoot%\\").error.empty(), "environment variables expand");
     Check(ParseNavigationPath(L"\\\\server\\share\\folder\\").error.empty(), "UNC path is accepted");
+    Check(ParseNavigationPath(L"\\\\?\\C:\\Windows\\").error.empty(), "extended-length drive path is accepted");
+    Check(ParseNavigationPath(L"\\\\?\\UNC\\server\\share\\folder\\").error.empty(), "extended-length UNC path is accepted");
+    Check(!ParseNavigationPath(L"\\\\.\\PhysicalDrive0").error.empty(), "device namespace paths are rejected");
+    Check(!ParseNavigationPath(L"\\\\?\\C:\\bad?name").error.empty(), "wildcards remain rejected after an extended prefix");
     Check(!ParseNavigationPath(L"relative\\path").error.empty(), "relative path is rejected");
     Check(!ParseNavigationPath(L"C:\\bad<name>").error.empty(), "reserved characters are rejected");
     Check(!ParseNavigationPath(L" \t ").error.empty(), "empty input is rejected");
+    const auto thisPc = ParseNavigationPath(L"  This PC  ");
+    Check(thisPc.error.empty() && thisPc.path.empty(), "logical This PC label resolves to the synthetic root");
+}
+void TestParentNavigationPath() {
+    using namespace ffui;
+    Check(ParentNavigationPath(L"C:\\Users\\Alice").value_or(L"") == L"C:\\Users",
+          "Up returns the immediate drive-directory parent");
+    Check(ParentNavigationPath(L"C:\\").has_value() && ParentNavigationPath(L"C:\\")->empty(),
+          "Up from a drive root returns the synthetic This PC target");
+    Check(ParentNavigationPath(L"\\\\server\\share\\folder").value_or(L"") == L"\\\\server\\share",
+          "Up returns the immediate UNC parent");
+    Check(ParentNavigationPath(L"\\\\server\\share").has_value() && ParentNavigationPath(L"\\\\server\\share")->empty(),
+          "Up from a UNC share root returns the synthetic This PC target");
+    Check(ParentNavigationPath(L"\\\\?\\C:\\Users\\Alice").value_or(L"") == L"\\\\?\\C:\\Users",
+          "Up preserves the extended drive namespace");
+    Check(ParentNavigationPath(L"\\\\?\\C:\\").has_value() && ParentNavigationPath(L"\\\\?\\C:\\")->empty(),
+          "Up from an extended drive root returns the synthetic This PC target");
+    Check(ParentNavigationPath(L"\\\\?\\UNC\\server\\share\\folder").value_or(L"") == L"\\\\?\\UNC\\server\\share",
+          "Up preserves the extended UNC namespace");
+    Check(!ParentNavigationPath(L"").has_value(),
+          "Up from the synthetic This PC root has no parent");
+}
+void TestSyntheticRootContext() {
+    using namespace ffui;
+    NavigationWorkspace workspace(L"");
+    Check(workspace.ActiveContext().currentPath.empty(),
+          "an empty workspace path represents the synthetic This PC root");
+    Check(workspace.Breadcrumbs().size() == 1 && workspace.Breadcrumbs().front().label == L"This PC" &&
+          workspace.Breadcrumbs().front().path.empty(),
+          "the synthetic root exposes a non-clickable This PC breadcrumb");
+    NavigationWorkspace extendedWorkspace(L"");
+    extendedWorkspace.Navigate(L"\\\\?\\C:\\Users\\Alice");
+    const auto extendedBreadcrumbs = extendedWorkspace.Breadcrumbs();
+    Check(extendedBreadcrumbs.size() == 4 && extendedBreadcrumbs[1].label == L"C:" &&
+          extendedBreadcrumbs.back().path == L"\\\\?\\C:\\Users\\Alice",
+          "extended drive breadcrumbs preserve their real navigation paths");
+    workspace.BeginAddressBarEdit();
+    Check(workspace.ActiveContext().addressBarText == L"This PC",
+          "editing the synthetic root presents its logical This PC label");
+    workspace.Navigate(L"C:\\");
+    Check(CommitAddressBarPath(workspace, L"This PC") == PathCommitResult::Navigated &&
+          workspace.ActiveContext().currentPath.empty(),
+          "committing This PC returns to the synthetic root");
 }
 void TestIndependentContextsAndHistory() {
     using namespace ffui;
@@ -72,7 +119,8 @@ void TestWorkspacePersistenceFallback() {
     WorkspaceState loaded{};
     Check(NavigationWorkspace::LoadState(loaded) && loaded.bookmarks.size() == 1 &&
           loaded.bookmarks.front().displayName == L"Projects" && loaded.bookmarks.front().path == L"C:\\Projects" &&
-          loaded.sidebarCollapsed && loaded.bookmarksCollapsed, "workspace state persists bookmarks and sidebar state");
+          loaded.sidebarCollapsed && loaded.bookmarksCollapsed && loaded.lastLocation == L"C:\\",
+          "workspace state persists bookmarks, location, and sidebar state");
 
     const auto stateFile = localAppData / L"FastFiles" / L"workspace-state.json";
     {
@@ -97,6 +145,33 @@ void TestCopyRelativePathBaseResolution() {
     Check(workspace.OtherPanePath().value_or(L"") == L"D:\\Destination", "other pane is the inactive pane");
     workspace.DisableDualPane();
     Check(!workspace.OtherPanePath().has_value(), "single pane after disable exposes no other-pane base");
+}
+void TestPerTabPaneContexts() {
+    using namespace ffui;
+    NavigationWorkspace workspace(L"C:\\Left");
+    // This test exercises bookmark identity, not persistence from a user's
+    // real profile. Clear any loaded profile entries so the assertion remains
+    // deterministic after an interactive UI run has saved a bookmark.
+    workspace.State().bookmarks.clear();
+    workspace.AddBookmark(L"C:\\Left", L"Left");
+    workspace.AddBookmark(L"c:\\left", L"Duplicate");
+    Check(workspace.State().bookmarks.size() == 1 && workspace.State().bookmarks.front().displayName == L"Left",
+          "bookmark insertion is case-insensitively idempotent for Windows paths");
+    workspace.EnableDualPane();
+    workspace.ActivatePane(1);
+    workspace.Navigate(L"D:\\Right");
+    workspace.PaneContext(0).columnPaths = {L"C:\\", L"C:\\Left"};
+    workspace.PaneContext(1).columnPaths = {L"D:\\", L"D:\\Right"};
+    Check(workspace.ActivePaneCount() == 2 && workspace.ActivePaneIndex() == 1,
+          "dual-pane tab exposes both contexts and the selected active pane");
+    workspace.OpenTab(L"E:\\Single");
+    Check(workspace.ActivePaneCount() == 1 && workspace.ActiveContext().currentPath == L"E:\\Single",
+          "new tab has an independent single-pane context");
+    workspace.SwitchTab(0);
+    Check(workspace.ActivePaneCount() == 2 && workspace.PaneContext(0).columnPaths.size() == 2 &&
+          workspace.PaneContext(1).columnPaths.back() == L"D:\\Right" &&
+          workspace.ActivePaneIndex() == 1,
+          "switching tabs preserves both dual-pane contexts and active-pane identity");
 }
 }
 void TestConcurrentIndependentContextsReadDifferentPaths() {
@@ -157,8 +232,9 @@ void TestConcurrentIndependentContextsReadDifferentPaths() {
     Check(workspace.CanGoForward(), "context 3 forward history intact after interleave");
 }
 int main() {
-    TestPathParsing(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
+    TestPathParsing(); TestParentNavigationPath(); TestSyntheticRootContext(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestCopyRelativePathBaseResolution();
+    TestPerTabPaneContexts();
     TestConcurrentIndependentContextsReadDifferentPaths();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

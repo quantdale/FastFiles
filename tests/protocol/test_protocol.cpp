@@ -155,8 +155,12 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "VolumeStatus is part of the closed UI command surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::SetIndexingPaused)).has_value(),
           "SetIndexingPaused (settings-and-appearance 9.1 control-plane pause/resume) is part of the closed UI command surface");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::SetIndexingPaused) + 1).has_value(),
-          "the first unassigned UI message after the pause/resume command is rejected");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::RequestIndexedSearch)).has_value(),
+          "RequestIndexedSearch is part of the closed UI command surface");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResult)).has_value(),
+          "IndexedSearchResult is part of the closed UI response surface");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResult) + 1).has_value(),
+          "the first unassigned UI message after indexed search is rejected");
     Check(sizeof(SetIndexingPausedPayload) == sizeof(uint8_t) + sizeof(uint8_t),
           "pause/resume request carries only a scope and a pause flag");
     Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
@@ -174,6 +178,61 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "volume-status records carry only a drive letter and condition flags");
     Check(sizeof(VolumeStatusHeader) == sizeof(uint32_t),
           "volume-status report is a count-prefixed fixed-record list");
+}
+
+void TestIndexedSearchWireBoundsAndRoundTrip() {
+    IndexedSearchRequest request;
+    request.requestId = 41;
+    request.scope = 3;
+    request.sortField = 2;
+    request.descending = true;
+    request.maxResults = 10000;
+    request.query = L"name:report ext:txt";
+    request.scopePath = L"C:\\Users";
+    const auto requestPayload = SerializeIndexedSearchRequest(request);
+    const auto parsedRequest = ParseIndexedSearchRequest(requestPayload.data(), requestPayload.size());
+    Check(parsedRequest.has_value() && parsedRequest->requestId == request.requestId &&
+              parsedRequest->query == request.query && parsedRequest->scopePath == request.scopePath &&
+              parsedRequest->descending && parsedRequest->maxResults == request.maxResults,
+          "indexed-search request round-trips its bounded variable-length fields");
+
+    IndexedSearchResponse response;
+    response.requestId = request.requestId;
+    response.status = IndexedSearchStatus::Completed;
+    response.candidates.push_back({L"report.txt", L"C:\\Users", 42, 20, false, 10, 1, 101, 100, true});
+    response.candidates.push_back({L"reports", L"C:\\Users", 0, 30, true, 11, 1, 102, 100, true});
+    bool serializerTruncated = false;
+    const auto responsePayload = SerializeIndexedSearchResponse(response, &serializerTruncated);
+    const auto parsedResponse = ParseIndexedSearchResponse(responsePayload.data(), responsePayload.size());
+    Check(parsedResponse.has_value() && !serializerTruncated && parsedResponse->candidates.size() == 2 &&
+              parsedResponse->candidates[0].name == L"report.txt" &&
+              parsedResponse->candidates[1].isDirectory,
+          "indexed-search candidate response round-trips names, folders, and flags");
+
+    auto malformed = responsePayload;
+    malformed.push_back(0xAA);
+    Check(!ParseIndexedSearchResponse(malformed.data(), malformed.size()),
+          "indexed-search response rejects trailing bytes instead of accepting an ambiguous frame");
+
+    IndexedSearchResponse large;
+    large.requestId = 7;
+    large.status = IndexedSearchStatus::Completed;
+    const std::wstring longFolder(32767, L'X');
+    for (int index = 0; index != 32; ++index) {
+        large.candidates.push_back({L"x.txt", longFolder, 1, 0, false, 0, 1,
+                                    static_cast<uint64_t>(index + 1), 5, true});
+    }
+    const auto boundedPayload = SerializeIndexedSearchResponse(large, &serializerTruncated);
+    const auto boundedResponse = ParseIndexedSearchResponse(boundedPayload.data(), boundedPayload.size());
+    Check(serializerTruncated && boundedResponse.has_value() && boundedResponse->truncated &&
+              boundedResponse->candidates.size() < large.candidates.size(),
+          "indexed-search response serialization enforces the frame budget and reports truncation");
+
+    auto invalidRequest = requestPayload;
+    auto* requestHeader = reinterpret_cast<IndexedSearchRequestHeader*>(invalidRequest.data());
+    requestHeader->maxResults = 0;
+    Check(!ParseIndexedSearchRequest(invalidRequest.data(), invalidRequest.size()),
+          "indexed-search request rejects zero result limits before allocation");
 }
 
 void TestIndexHealthPrecedence() {
@@ -316,6 +375,7 @@ int main() {
     TestUnrecognizedMessageTypeRejected();
     TestUnsupportedStructVersionRejected();
     TestUiVolumeLifecycleMessagesAreClosedAndFixedSize();
+    TestIndexedSearchWireBoundsAndRoundTrip();
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestVersionCompatibility();

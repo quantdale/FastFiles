@@ -19,9 +19,9 @@ namespace ffengine {
 // collide.
 //
 // Double-buffering: Publish() writes a full new serialization into the
-// currently-INACTIVE slot, then flips the header's activeSlot/generation
-// fields as the last step (a single aligned write, atomic on x64) so a
-// reader never observes a torn generation.
+// currently-INACTIVE slot, then publishes the slot descriptor and selection
+// with Windows interlocked stores. The interlocked operations provide the
+// required cross-process ordering; a reader never observes a torn descriptor.
 class SnapshotPublisher {
 public:
     ~SnapshotPublisher();
@@ -31,7 +31,7 @@ public:
 
     // Replaces the full published view and flips to a new generation.
     // Returns the new generation ID, or 0 on failure (e.g. serialized size
-    // exceeds slot capacity).
+    // exceeds the bounded 64 MiB slot capacity).
     uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories);
 
     const std::wstring& SectionName() const noexcept { return sectionName_; }

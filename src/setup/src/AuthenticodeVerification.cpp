@@ -78,7 +78,7 @@ bool VerifyPinnedSignature(const std::wstring& filePath, const Thumbprint& expec
         return false; // fail closed: pin not yet configured
     }
     auto actual = VerifyAuthenticodeAndGetThumbprint(filePath);
-    return actual.has_value() && *actual == expected;
+    return actual.has_value() && ConstantTimeThumbprintEqual(*actual, expected);
 #endif
 }
 

@@ -555,8 +555,18 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
         }
     }
 
-    ExecSql(db_, ok ? "COMMIT;" : "ROLLBACK;");
-    return ok;
+    if (!ok) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
+    // The commit result is part of the operation's contract. Returning true
+    // after a failed COMMIT would let IndexPipeline apply changes to the
+    // in-memory projection that never became durable.
+    if (!ExecSql(db_, "COMMIT;")) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
+    return true;
 }
 
 bool Store::ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor) {

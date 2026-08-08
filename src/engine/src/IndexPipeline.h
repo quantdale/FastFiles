@@ -14,6 +14,8 @@
 #include "ffprotocol/Records.h"
 #include "ffprotocol/Settings.h"
 #include "ffprotocol/SnapshotFormat.h"
+#include "ffprotocol/UiProtocol.h"
+#include "ffsearch/Search.h"
 
 namespace ffengine {
 
@@ -120,6 +122,13 @@ public:
     // subtree aggregate for `parentFrn` from the in-memory projection if
     // the folder is known, or std::nullopt if it is not.
     std::optional<ffindexstore::Projection::FolderAggregate> GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn);
+
+    // Executes a bounded query against the durable in-memory projection. The
+    // returned candidates carry reconstructed parent folders so the UI can
+    // navigate a result without requiring the entire index over IPC. The
+    // projection lock is held only while copying candidate data; matching and
+    // sorting happen after the lock is released.
+    ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request);
 
 private:
     std::mutex mutex_;

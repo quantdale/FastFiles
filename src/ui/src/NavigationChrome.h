@@ -11,10 +11,16 @@ namespace ffui {
 
 class NavigationChrome {
 public:
-    using NavigateHandler = std::function<void(const std::wstring&)>;
+    // The second argument is true only when a tab transition should restore
+    // the target tab's saved ColumnView state instead of treating the path as
+    // a fresh navigation.  Address, breadcrumb, drive, and history changes
+    // remain ordinary path navigations.
+    using NavigateHandler = std::function<void(const std::wstring&, bool restoreTabState)>;
+    using BeforeTabChangeHandler = std::function<void()>;
 
     ~NavigationChrome();
-    bool Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate);
+    bool Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate,
+                    BeforeTabChangeHandler beforeTabChange = {});
     void Reposition();
     void Refresh();
     void FocusAddressBar();
@@ -33,7 +39,7 @@ private:
     void CommitAddressEdit();
     void CancelAddressEdit();
     void HandleAddressFocusLost();
-    void NavigateTo(const std::wstring& path);
+    void NavigateTo(const std::wstring& path, bool restoreTabState = false);
     void RebuildDrives();
     void DrawBreadcrumbs(HDC dc, const RECT& client);
     void RebuildTabs();
@@ -56,6 +62,7 @@ private:
     HWND newTab_ = nullptr;
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;
+    BeforeTabChangeHandler beforeTabChange_;
     std::vector<std::wstring> drivePaths_;
     std::vector<RECT> breadcrumbRects_;
     std::vector<HWND> tabButtons_;

@@ -1,4 +1,5 @@
 #include "ffsearch/Search.h"
+#include "ffsearch/Path.h"
 
 #include <algorithm>
 #include <cwctype>
@@ -19,12 +20,12 @@ bool OrdinalStartsWith(std::wstring_view value, std::wstring_view prefix) {
         prefix.data(), static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
 }
 
-bool InScope(const Candidate& candidate, SearchScope scope, const std::wstring& root) {
+bool InScope(const Candidate& candidate, SearchScope scope, const std::wstring& root, bool persistentOnly) {
+    if (persistentOnly && !candidate.persistentIndexed) return false;
     if (scope == SearchScope::AllIndexedLocations) return true;
     if (scope == SearchScope::CurrentFolder) return OrdinalEqual(candidate.folder, root);
     if (scope == SearchScope::CurrentDrive) {
-        if (root.size() < 2 || candidate.folder.size() < 2) return false;
-        return towupper(root[0]) == towupper(candidate.folder[0]) && root[1] == L':' && candidate.folder[1] == L':';
+        return SameVolume(root, candidate.folder);
     }
     if (OrdinalEqual(candidate.folder, root)) return true;
     if (!OrdinalStartsWith(candidate.folder, root)) return false;
@@ -92,9 +93,13 @@ SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const Sea
         }
         ++response.candidatesVisited;
         const Candidate& candidate = candidates[index];
-        if (!InScope(candidate, request.scope, request.scopePath)) continue;
+        if (!InScope(candidate, request.scope, request.scopePath, request.persistentOnly)) continue;
         if (!request.query.Matches(candidate)) continue;
         response.results.push_back({candidate, ClassifyMatch(candidate, request.query.primaryTerm)});
+        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
+            response.truncated = true;
+            break;
+        }
     }
     SortResults(response.results, request.sortField, request.descending);
     return response;

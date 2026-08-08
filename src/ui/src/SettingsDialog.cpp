@@ -1,5 +1,6 @@
 #include "SettingsDialog.h"
 
+#include <algorithm>
 #include <commctrl.h>
 #include <filesystem>
 #include <memory>
@@ -118,8 +119,10 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
     PopulateShortcutsPage();
 
     SwitchPage(0);
-    ShowWindow(dialog_, SW_SHOW);
-    visible_ = true;
+    // The dialog is created hidden and shown on demand (Settings menu /
+    // Ctrl+, / app.settings command). Showing it here made it cover the
+    // browser on every launch (recovery-degraded-browsing finding: the
+    // unconditional ShowWindow was a leftover from a compile-health fix).
     return true;
 }
 
@@ -309,6 +312,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                 }
                 if ((info->uChanged & LVIF_STATE) && (info->uNewState & LVIS_SELECTED)) {
                     UpdateStatusExplanation(static_cast<size_t>(info->iItem));
+                    UpdateRuleList();
                 }
             }
             break;
@@ -397,7 +401,7 @@ void SettingsDialog::SwitchPage(int pageIndex) {
     currentPage_ = pageIndex;
     // Hide all page-specific controls
     for (HWND c : {searchScopeCombo_, retainHistoryCheck_, startupPathEdit_, restoreSessionCheck_,
-                   volumeList_, statusDetail_, addRuleButton_, removeRuleButton_, moveUpButton_, moveDownButton_,
+                   volumeList_, ruleList_, statusDetail_, addRuleButton_, excludeRuleCheck_, removeRuleButton_, moveUpButton_, moveDownButton_,
                    pauseAllCheck_, pauseResumeButton_, addToIndexingButton_,
                    categoryList_, addCategoryButton_, removeCategoryButton_,
                    shortcutList_, resetShortcutsButton_}) {
@@ -443,6 +447,12 @@ void SettingsDialog::SwitchPage(int pageIndex) {
 
 void SettingsDialog::UpdateVolumeList() {
     if (!volumeList_ || !settings_) return;
+
+    std::wstring selectedPath;
+    const int oldSelected = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    if (oldSelected >= 0 && oldSelected < static_cast<int>(volumes_.size())) {
+        selectedPath = volumes_[static_cast<size_t>(oldSelected)].path;
+    }
     
     volumes_.clear();
     const DWORD driveMask = GetLogicalDrives();
@@ -480,6 +490,10 @@ void SettingsDialog::UpdateVolumeList() {
         ListView_InsertItem(volumeList_, &item);
 
         ListView_SetCheckState(volumeList_, static_cast<int>(i), volumes_[i].indexed);
+        if (!selectedPath.empty() && volumes_[i].path == selectedPath) {
+            ListView_SetItemState(volumeList_, static_cast<int>(i), LVIS_SELECTED | LVIS_FOCUSED,
+                                  LVIS_SELECTED | LVIS_FOCUSED);
+        }
         const std::wstring statusText = StatusTextForVolume(i);
         if (!statusText.empty()) {
             ListView_SetItemText(volumeList_, static_cast<int>(i), 1,
@@ -487,6 +501,37 @@ void SettingsDialog::UpdateVolumeList() {
         }
     }
     UpdateStatusExplanation(0);
+    UpdateRuleList();
+}
+
+void SettingsDialog::UpdateRuleList() {
+    if (!ruleList_ || !volumeList_ || !settings_) {
+        return;
+    }
+    ListView_DeleteAllItems(ruleList_);
+
+    const int selectedVolume = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size())) {
+        return;
+    }
+    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+                                      [this, selectedVolume](const ffprotocol::VolumeSetting& value) {
+                                          return value.key == volumes_[static_cast<size_t>(selectedVolume)].path;
+                                      });
+    if (setting == settings_->indexing.end()) {
+        return;
+    }
+
+    for (size_t i = 0; i < setting->rules.size(); ++i) {
+        const auto& rule = setting->rules[i];
+        LVITEMW item{};
+        item.iItem = static_cast<int>(i);
+        item.mask = LVIF_TEXT;
+        item.pszText = const_cast<wchar_t*>(rule.include ? L"Include" : L"Exclude");
+        ListView_InsertItem(ruleList_, &item);
+        ListView_SetItemText(ruleList_, static_cast<int>(i), 1,
+                             const_cast<wchar_t*>(rule.path.c_str()));
+    }
 }
 
 void SettingsDialog::SetEngineActive(bool active) {
@@ -658,33 +703,98 @@ void SettingsDialog::AddVolumeRule() {
     if (!settings_ || !navigationWorkspace_) return;
     std::wstring path = navigationWorkspace_->ActiveContext().currentPath;
     if (path.empty()) return;
-    
-    // Add rule to first indexed volume or create new
-    if (settings_->indexing.empty()) {
-        ffprotocol::VolumeSetting vs;
-        vs.key = std::filesystem::path(path).root_path().wstring();
-        vs.enabled = true;
-        settings_->indexing.push_back(vs);
+
+    std::wstring volumeKey;
+    const int selectedVolume = volumeList_ ? ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED) : -1;
+    if (selectedVolume >= 0 && selectedVolume < static_cast<int>(volumes_.size())) {
+        volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
     }
-    
+    if (volumeKey.empty()) {
+        volumeKey = std::filesystem::path(path).root_path().wstring();
+    }
+    if (volumeKey.empty()) return;
+
+    auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+                                [&volumeKey](const ffprotocol::VolumeSetting& value) {
+                                    return value.key == volumeKey;
+                                });
+    if (setting == settings_->indexing.end()) {
+        ffprotocol::VolumeSetting value;
+        value.key = volumeKey;
+        value.enabled = true;
+        settings_->indexing.push_back(std::move(value));
+        setting = std::prev(settings_->indexing.end());
+    }
+
+    const bool include = !excludeRuleCheck_ || SendMessageW(excludeRuleCheck_, BM_GETCHECK, 0, 0) != BST_CHECKED;
+    const auto duplicate = std::find_if(setting->rules.begin(), setting->rules.end(),
+                                        [&path, include](const ffprotocol::DirectoryRule& rule) {
+                                            return rule.path == path && rule.include == include;
+                                        });
+    if (duplicate != setting->rules.end()) {
+        UpdateRuleList();
+        return;
+    }
+
     ffprotocol::DirectoryRule rule;
     rule.path = path;
-    rule.include = true;
-    settings_->indexing.back().rules.push_back(rule);
+    rule.include = include;
+    setting->rules.push_back(std::move(rule));
     
     if (onChanged_) onChanged_();
+    UpdateRuleList();
 }
 
 void SettingsDialog::RemoveVolumeRule() {
-    // Remove selected rule
+    if (!settings_ || !volumeList_ || !ruleList_) return;
+    const int selectedVolume = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
+    if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule < 0) return;
+    const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
+    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+                                      [&volumeKey](const ffprotocol::VolumeSetting& value) {
+                                          return value.key == volumeKey;
+                                      });
+    if (setting == settings_->indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
+    setting->rules.erase(setting->rules.begin() + selectedRule);
+    if (onChanged_) onChanged_();
+    UpdateRuleList();
 }
 
 void SettingsDialog::MoveVolumeRuleUp() {
-    // Move selected rule up
+    if (!settings_ || !volumeList_ || !ruleList_) return;
+    const int selectedVolume = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
+    if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule <= 0) return;
+    const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
+    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+                                      [&volumeKey](const ffprotocol::VolumeSetting& value) {
+                                          return value.key == volumeKey;
+                                      });
+    if (setting == settings_->indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
+    std::iter_swap(setting->rules.begin() + selectedRule, setting->rules.begin() + selectedRule - 1);
+    if (onChanged_) onChanged_();
+    UpdateRuleList();
+    ListView_SetItemState(ruleList_, selectedRule - 1, LVIS_SELECTED | LVIS_FOCUSED,
+                          LVIS_SELECTED | LVIS_FOCUSED);
 }
 
 void SettingsDialog::MoveVolumeRuleDown() {
-    // Move selected rule down
+    if (!settings_ || !volumeList_ || !ruleList_) return;
+    const int selectedVolume = ListView_GetNextItem(volumeList_, -1, LVNI_SELECTED);
+    const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
+    if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule < 0) return;
+    const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
+    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+                                      [&volumeKey](const ffprotocol::VolumeSetting& value) {
+                                          return value.key == volumeKey;
+                                      });
+    if (setting == settings_->indexing.end() || selectedRule + 1 >= static_cast<int>(setting->rules.size())) return;
+    std::iter_swap(setting->rules.begin() + selectedRule, setting->rules.begin() + selectedRule + 1);
+    if (onChanged_) onChanged_();
+    UpdateRuleList();
+    ListView_SetItemState(ruleList_, selectedRule + 1, LVIS_SELECTED | LVIS_FOCUSED,
+                          LVIS_SELECTED | LVIS_FOCUSED);
 }
 
 void SettingsDialog::PopulateIndexingPage() {
@@ -701,9 +811,18 @@ void SettingsDialog::PopulateIndexingPage() {
         InsertColumn(volumeList_, 1, 130, L"Status");
 
         statusDetail_ = CreateWindowExW(0, L"STATIC", L"",
-                                        WS_CHILD | WS_VISIBLE | SS_LEFT,
-                                        Scaled(kPagePadding), Scaled(kPagePadding + 214), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(44),
-                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+                                         WS_CHILD | WS_VISIBLE | SS_LEFT,
+                                         Scaled(kPagePadding), Scaled(kPagePadding + 214), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(44),
+                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+
+        ruleList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+                                    WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
+                                    Scaled(kPagePadding), Scaled(kPagePadding + 292),
+                                    Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(128), Scaled(142),
+                                    dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        ListView_SetExtendedListViewStyle(ruleList_, LVS_EX_FULLROWSELECT);
+        InsertColumn(ruleList_, 0, 70, L"Rule");
+        InsertColumn(ruleList_, 1, kDialogWidth - 2 * kPagePadding - 210, L"Path");
 
         // §9.1/§9.3: control-plane actions. Pause is transient engine
         // state; the button label toggles from the status flags.
@@ -715,6 +834,9 @@ void SettingsDialog::PopulateIndexingPage() {
         addRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Add Rule", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                                           rightColumnX, Scaled(kPagePadding + 30), rightColumnWidth, Scaled(24),
                                           dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        excludeRuleCheck_ = CreateWindowExW(0, L"BUTTON", L"Exclude rule", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                                            rightColumnX, Scaled(kPagePadding + 264), rightColumnWidth + Scaled(16), Scaled(20),
+                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
                                              rightColumnX, Scaled(kPagePadding + 62), rightColumnWidth, Scaled(24),
                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);

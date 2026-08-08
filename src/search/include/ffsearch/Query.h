@@ -21,6 +21,11 @@ struct Candidate {
     int64_t volumeId = 0;
     uint64_t id = 0;
     uint64_t parentId = 0;
+    // True when the candidate came from the durable/index projection rather
+    // than a degraded directory snapshot. Library callers historically build
+    // candidates as indexed records, so the default preserves that contract;
+    // the UI marks degraded-only records false at its snapshot boundary.
+    bool persistentIndexed = true;
 };
 
 struct SizeFilter { enum class Op { Equal, Greater, GreaterEqual, Less, LessEqual, Range }; Op op; uint64_t first; uint64_t second = 0; };

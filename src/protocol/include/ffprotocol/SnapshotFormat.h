@@ -18,13 +18,19 @@ namespace ffprotocol {
 // sides are built from the same source tree, so there is no
 // cross-version compatibility concern the way there is for the named-pipe
 // protocols in Commands.h/UiProtocol.h.
-constexpr size_t kSnapshotSlotCapacityBytes = 8 * 1024 * 1024;
+// A 64 MiB slot keeps ordinary large folders and a useful bounded set of
+// browsed roots usable without changing the zero-IPC format. Publication still
+// fails closed above this explicit bound and the UI surfaces that failure.
+constexpr size_t kSnapshotSlotCapacityBytes = 64 * 1024 * 1024;
 
 #pragma pack(push, 1)
 struct SnapshotSharedHeader {
     uint64_t generation;
     uint32_t activeSlot; // 0 or 1
-    uint32_t activeSlotDataSize;
+    // Each slot owns its descriptor. The writer fills the inactive slot and
+    // publishes its size before flipping activeSlot, so a reader never pairs
+    // an old slot with the new slot's length.
+    uint32_t slotDataSize[2];
 };
 #pragma pack(pop)
 
@@ -32,6 +38,10 @@ enum class DirectoryEnumerationStatus : uint32_t {
     Success = 0,
     AccessDenied = 1,
     NotFound = 2,
+    // The directory exists or was reachable, but enumeration failed with an
+    // I/O/network/device error. This is distinct from a missing path so the
+    // UI never presents a partial listing as a successful empty directory.
+    IoError = 3,
 };
 
 struct SnapshotDirectoryEntry {

@@ -1,6 +1,7 @@
 #include "Preview.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cwctype>
 #include <initializer_list>
 #include <thread>
@@ -234,15 +235,25 @@ uint64_t PreviewController::Request(const FileDescriptor& descriptor) {
         }
         cancellation_ = cancellation;
         requestId = ++requestId_;
-    }
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // A newer selection supersedes every queued preview. Keep only the
+        // latest work item; already-running workers still observe their
+        // cancellation token and perform the final request-identity check
+        // before invoking the UI callback.
+        pendingWork_.clear();
         pendingWork_.push_back([this, descriptor, cancellation, requestId] {
         const HRESULT comResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         PreviewResult result = registry_.CreatePreview(descriptor, CancellationToken(cancellation));
         if (SUCCEEDED(comResult)) {
             CoUninitialize();
         }
+        // Give a rapid selection burst a short coalescing window. Without
+        // this grace period a very fast file can complete between two UI
+        // selection messages and briefly publish an obsolete preview even
+        // though a newer request is already queued by the caller.
+        for (int delay = 0; delay < 25 && !cancellation->load(); ++delay) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+
         bool stillCurrent = false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -263,6 +274,7 @@ void PreviewController::Clear() {
         cancellation_->store(true);
     }
     ++requestId_;
+    pendingWork_.clear();
 }
 
 } // namespace ffui

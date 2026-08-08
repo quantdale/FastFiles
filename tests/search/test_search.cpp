@@ -1,5 +1,6 @@
 #include "ffsearch/Search.h"
 #include "ffsearch/History.h"
+#include "ffsearch/Path.h"
 
 #include <cstdio>
 #include <chrono>
@@ -36,6 +37,22 @@ int main() {
     request.scope = ffsearch::SearchScope::AllIndexedLocations;
     response = ffsearch::ExecuteSearch(entries, request);
     Check(response.results.size() == 4, "all-indexed scope spans volumes");
+    entries[3].persistentIndexed = false;
+    request.persistentOnly = true;
+    request.scope = ffsearch::SearchScope::CurrentFolderAndSubfolders;
+    response = ffsearch::ExecuteSearch(entries, request);
+    Check(response.results.size() == 3,
+          "indexed-subfolder scope excludes degraded-only records");
+    request.scope = ffsearch::SearchScope::AllIndexedLocations;
+    response = ffsearch::ExecuteSearch(entries, request);
+    Check(response.results.size() == 3 && response.results.back().candidate.name != L"report_other.txt",
+          "persistent-only broad search excludes degraded-only candidates");
+    request.persistentOnly = false;
+    request.maxResults = 2;
+    response = ffsearch::ExecuteSearch(entries, request);
+    Check(response.results.size() == 2 && response.truncated,
+          "bounded search reports truncation instead of growing results without limit");
+    request.maxResults = 0;
 
     request.sortField = ffsearch::SortField::Size;
     request.descending = true;
@@ -48,6 +65,32 @@ int main() {
     request.descending = false;
     response = ffsearch::ExecuteSearch(entries, request);
     Check(response.results.front().candidate.createdTime == 10, "explicit ascending created sort works");
+
+    Check(ffsearch::ParentPath(L"C:\\Users") == L"C:\\",
+          "drive child parent preserves the root separator");
+    Check(ffsearch::ParentPath(L"\\\\?\\C:\\Users") == L"\\\\?\\C:\\",
+          "extended drive child parent preserves the namespace root");
+    Check(ffsearch::ParentPath(L"\\\\server\\share\\folder") == L"\\\\server\\share",
+          "UNC child parent preserves the share root");
+    Check(ffsearch::ParentPath(L"\\\\?\\UNC\\server\\share\\folder") == L"\\\\?\\UNC\\server\\share",
+          "extended UNC child parent preserves the share root");
+    Check(ffsearch::LeafName(L"C:\\") == L"C:\\" &&
+              ffsearch::LeafName(L"\\\\?\\C:\\") == L"\\\\?\\C:\\",
+          "root leaf names retain their complete root spelling");
+    Check(ffsearch::SameVolume(L"C:\\", L"C:\\Users") &&
+              ffsearch::SameVolume(L"\\\\?\\C:\\", L"C:\\Users") &&
+              !ffsearch::SameVolume(L"C:\\", L"D:\\"),
+          "current-drive scope recognizes normal and extended drive spellings");
+
+    const std::vector<ffsearch::Candidate> extendedEntries{
+        {L"file.txt", L"\\\\?\\C:\\Users", 1, 0, false, 0, 1, 1, 1},
+        {L"other.txt", L"\\\\?\\D:\\Elsewhere", 1, 0, false, 0, 2, 2, 2},
+    };
+    ffsearch::SearchRequest extendedRequest{ffsearch::ParseQuery(L"file", registry),
+                                             ffsearch::SearchScope::CurrentDrive,
+                                             L"\\\\?\\C:\\"};
+    Check(ffsearch::ExecuteSearch(extendedEntries, extendedRequest).results.size() == 1,
+          "extended drive current-drive scope filters by volume");
 
     request.chunkSize = 1;
     int checks = 0;

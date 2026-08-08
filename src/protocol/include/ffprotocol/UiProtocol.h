@@ -1,6 +1,8 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 #include <string>
 
 #include "ffprotocol/Frame.h"
@@ -29,6 +31,8 @@ enum class UiMessageType : uint16_t {
     RequestVolumeStatus = 14,    // UI -> Engine: request the per-volume index-health report
     VolumeStatus = 15,           // Engine -> UI: fixed-record per-volume condition report
     SetIndexingPaused = 16,      // UI -> Engine: pause/resume indexing, global (scope=0) or per-volume
+    RequestIndexedSearch = 17,   // UI -> Engine: bounded query against the durable projection
+    IndexedSearchResult = 18,    // Engine -> UI: bounded candidate page/result
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -36,6 +40,12 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
 enum class DirectoryErrorReason : uint16_t {
     AccessDenied = 1,
     NoLongerAvailable = 2,
+    // recovery-degraded-browsing 4.1: the enumeration succeeded but the
+    // snapshot publish failed (e.g. slot capacity exceeded); the client must
+    // not keep showing stale data for this path. Additive value -- both
+    // peers ship together and the UI handles it explicitly.
+    PublishFailed = 3,
+    EnumerationFailed = 4,
 };
 
 enum class PrivilegedPathStatus : uint16_t {
@@ -48,6 +58,15 @@ enum class PrivilegedPathStatus : uint16_t {
 // in this protocol (Records.h) -- out-of-range rejects the whole message,
 // never clamps.
 constexpr uint16_t kMaxPathLengthChars = 32767;
+
+// Search requests are typed into a fixed-size Win32 edit control today, but
+// the protocol owns its own bound so a future client cannot turn a pipe frame
+// into an unbounded parser allocation.
+constexpr uint16_t kMaxIndexedSearchQueryLengthChars = 4095;
+constexpr uint32_t kMaxIndexedSearchRequestResults = 10000;
+// A response may be smaller than the UI's display cap because candidate paths
+// are variable-length and every UI frame is capped at kMaxFrameSize.
+constexpr uint32_t kMaxIndexedSearchResultCount = 4096;
 
 #pragma pack(push, 1)
 
@@ -165,11 +184,102 @@ struct SetIndexingPausedPayload {
     uint8_t paused;  // 0 == resume, 1 == pause
 };
 
+// Search scope/sort values intentionally mirror ffsearch's closed enum values
+// without making the wire protocol depend on the search library. Peers must
+// validate the raw values before casting them to an internal enum.
+struct IndexedSearchRequestHeader {
+    uint64_t requestId;
+    uint8_t scope;       // 0..3: CurrentFolder .. AllIndexedLocations
+    uint8_t sortField;   // 0..5: Relevance .. Created
+    uint8_t descending;  // 0 or 1
+    uint8_t reserved;
+    uint16_t queryLengthChars;
+    uint16_t scopePathLengthChars;
+    uint32_t maxResults;
+};
+
+enum class IndexedSearchStatus : uint16_t {
+    Completed = 1,
+    Unavailable = 2,
+    InvalidRequest = 3,
+};
+
+struct IndexedSearchResultHeader {
+    uint64_t requestId;
+    IndexedSearchStatus status;
+    uint8_t truncated;
+    uint8_t reserved;
+    uint32_t count;
+};
+
+struct IndexedSearchCandidateHeader {
+    uint16_t nameLengthChars;
+    uint16_t folderLengthChars;
+    uint8_t flags; // bit 0 = directory, bit 1 = persistent-indexed
+    uint8_t reserved[3];
+    int64_t volumeId;
+    uint64_t id;
+    uint64_t parentId;
+    uint64_t sizeBytes;
+    uint64_t modifiedTime;
+    uint64_t createdTime;
+};
+
 #pragma pack(pop)
+
+struct IndexedSearchRequest {
+    uint64_t requestId = 0;
+    uint8_t scope = 0;
+    uint8_t sortField = 0;
+    bool descending = false;
+    uint32_t maxResults = 0;
+    std::wstring query;
+    std::wstring scopePath;
+};
+
+struct IndexedSearchCandidate {
+    std::wstring name;
+    std::wstring folder;
+    uint64_t sizeBytes = 0;
+    uint64_t modifiedTime = 0;
+    bool isDirectory = false;
+    uint64_t createdTime = 0;
+    int64_t volumeId = 0;
+    uint64_t id = 0;
+    uint64_t parentId = 0;
+    bool persistentIndexed = true;
+};
+
+struct IndexedSearchResponse {
+    uint64_t requestId = 0;
+    IndexedSearchStatus status = IndexedSearchStatus::Unavailable;
+    bool truncated = false;
+    std::vector<IndexedSearchCandidate> candidates;
+};
 
 bool IsUiPathLengthValid(uint16_t lengthChars) noexcept;
 bool IsForgetUnavailableVolumeStatusValid(ForgetUnavailableVolumeStatus status) noexcept;
 bool IsFolderAggregateStatusValid(FolderAggregateStatus status) noexcept;
+bool IsIndexedSearchStatusValid(IndexedSearchStatus status) noexcept;
+bool IsIndexedSearchScopeValid(uint8_t scope) noexcept;
+bool IsIndexedSearchSortValid(uint8_t sortField) noexcept;
+
+// Exact, overflow-checked request parser. The returned strings are copied only
+// after all fixed fields, lengths, and total payload size have been validated.
+std::optional<IndexedSearchRequest> ParseIndexedSearchRequest(const uint8_t* payload,
+                                                              size_t payloadSize);
+
+// Exact response parser used by the UI reader. It bounds count before reserve,
+// validates every candidate's fixed flags/lengths, and rejects trailing bytes.
+std::optional<IndexedSearchResponse> ParseIndexedSearchResponse(const uint8_t* payload,
+                                                                size_t payloadSize);
+
+// Serializes a trusted engine response while enforcing the protocol-wide frame
+// budget. `outTruncated` reports byte/count truncation performed by the
+// serializer in addition to response.truncated.
+std::vector<uint8_t> SerializeIndexedSearchRequest(const IndexedSearchRequest& request);
+std::vector<uint8_t> SerializeIndexedSearchResponse(const IndexedSearchResponse& response,
+                                                    bool* outTruncated = nullptr);
 
 enum class UiFrameValidationResult {
     Valid,

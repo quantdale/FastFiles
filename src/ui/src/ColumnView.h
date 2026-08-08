@@ -7,6 +7,7 @@
 #include <atomic>
 #include <d2d1_1.h>
 #include <dwrite.h>
+#include <cwctype>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -48,6 +49,11 @@ enum class ColumnErrorState {
     None,
     AccessDenied,
     NoLongerAvailable,
+    EnumerationFailed,
+    // recovery-degraded-browsing 4.3: enumeration succeeded but the snapshot
+    // publish failed (e.g. slot capacity); the column shows an error instead
+    // of stale contents.
+    PublishFailed,
 };
 
 struct Column {
@@ -58,6 +64,110 @@ struct Column {
     int focusIndex = -1;
     ColumnErrorState error = ColumnErrorState::None;
 };
+
+// Pure path-chain construction used by direct address/sidebar/startup
+// navigation. Keeping it header-visible lets the Finder-style ancestor
+// contract be regression-tested without creating a renderer or engine.
+inline std::vector<std::wstring> BuildNavigationPathChain(const std::wstring& path) {
+    std::vector<std::wstring> result;
+    if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
+        std::iswalpha(path[4]) && path[5] == L':' && path[6] == L'\\') {
+        std::wstring current = path.substr(0, 7);
+        result.push_back(current);
+        size_t start = 7;
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos
+                                                               ? std::wstring::npos
+                                                               : end - start);
+            if (!component.empty()) {
+                if (current.back() != L'\\') current += L'\\';
+                current += component;
+                result.push_back(current);
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
+
+    if (path.starts_with(L"\\\\?\\UNC\\")) {
+        const size_t serverEnd = path.find(L'\\', 8);
+        const size_t shareEnd = serverEnd == std::wstring::npos
+            ? std::wstring::npos : path.find(L'\\', serverEnd + 1);
+        if (shareEnd == std::wstring::npos) {
+            if (!path.empty()) result.push_back(path);
+            return result;
+        }
+        std::wstring current = path.substr(0, shareEnd);
+        result.push_back(current);
+        size_t start = shareEnd + 1;
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos
+                                                               ? std::wstring::npos
+                                                               : end - start);
+            if (!component.empty()) {
+                if (current.back() != L'\\') current += L'\\';
+                current += component;
+                result.push_back(current);
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
+
+    if (path.size() >= 3 && path[1] == L':' && path[2] == L'\\') {
+        std::wstring current = path.substr(0, 3);
+        result.push_back(current);
+        size_t start = 3;
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos
+                                                               ? std::wstring::npos
+                                                               : end - start);
+            if (!component.empty()) {
+                if (current.back() != L'\\') current += L'\\';
+                current += component;
+                result.push_back(current);
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
+
+    if (path.rfind(L"\\\\", 0) == 0) {
+        const size_t serverEnd = path.find(L'\\', 2);
+        const size_t shareEnd = serverEnd == std::wstring::npos
+            ? std::wstring::npos : path.find(L'\\', serverEnd + 1);
+        if (shareEnd == std::wstring::npos) {
+            if (!path.empty()) result.push_back(path);
+            return result;
+        }
+        std::wstring current = path.substr(0, shareEnd);
+        result.push_back(current);
+        size_t start = shareEnd + 1;
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos
+                                                               ? std::wstring::npos
+                                                               : end - start);
+            if (!component.empty()) {
+                if (current.back() != L'\\') current += L'\\';
+                current += component;
+                result.push_back(current);
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
+
+    if (!path.empty()) result.push_back(path);
+    return result;
+}
 
 // Tasks 5.3-5.10: the Finder-style multi-column navigation model and its
 // Direct2D/DirectWrite rendering, reading directory contents through
@@ -109,7 +219,14 @@ public:
     std::wstring RootPath() const;
     void SelectAll();
     void RefreshActiveColumn();
+    // Re-issue directory requests for every materialized column after an
+    // engine reconnect. The engine's snapshot mapping is process-lifetime
+    // state, so a new engine instance needs the visible columns repopulated.
+    void RefreshAllColumns();
     void NavigateToPath(const std::wstring& path, const std::wstring& selectName = {});
+    // Return the active pane to the synthetic "This PC" drive-root column.
+    // Unlike a filesystem path this state has no engine request behind it.
+    void NavigateToComputerRoot();
     void NavigateToHierarchy(const std::wstring& fullPath, bool isDirectory);
     void NavigateToHierarchy(const std::vector<std::wstring>& segments, bool isDirectory);
     int FocusedItemIndex() const;
@@ -117,14 +234,31 @@ public:
     void OnSnapshotUpdated();
     void OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
     void ShowUnavailableLocation(const std::wstring& displayName);
-    void SetEngineStatus(bool active);
+    // recovery-degraded-browsing D3: `state` is the UI-side connection
+    // lifecycle; `privilegedPathActive` mirrors the engine's index-service
+    // status report. Written from EngineClient's background callback,
+    // read by Render on the UI thread (both atomics).
+    void SetEngineStatus(EngineConnectionState state, bool privilegedPathActive);
+    // recovery-degraded-browsing 3.2: invoked when the user clicks the
+    // status chip in the Unavailable state.
+    void SetRetryEngineCallback(std::function<void()> retryEngine);
     void SetDarkTheme(bool dark);
     void SetScrollOffset2(float offset) { scrollOffset2_ = offset; }
     float ScrollOffset2() const { return scrollOffset2_; }
+    void ScrollVertical(float delta, float viewportHeight);
+    void EnsureFocusedItemVisible(float viewportHeight);
+    float VerticalScrollOffset() const { return verticalScrollOffset_; }
 
     // task 1.3: save/restore per-pane column state for multi-context tab switching.
     void SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, int& outFocusedIndex, float& outScrollOffset) const;
     void RestoreActivePaneState(const std::vector<std::wstring>& columnPaths, int focusedIndex, float scrollOffset);
+    // Save/restore a specific pane without changing which pane receives input.
+    // WindowShell uses this to persist both contexts of a per-tab dual-pane
+    // workspace before switching tabs.
+    void SavePaneState(int paneIndex, std::vector<std::wstring>& outColumnPaths,
+                       int& outFocusedIndex, float& outScrollOffset) const;
+    void RestorePaneState(int paneIndex, const std::vector<std::wstring>& columnPaths,
+                          int focusedIndex, float scrollOffset);
 
     // Dual-pane support
     int& ActiveFocusedColumnIndex();
@@ -145,6 +279,7 @@ public:
     static constexpr float kBadgeHeight = UiMetrics::kBadgeHeight;
 
 private:
+    static Column MakeComputerRootColumn();
     void TruncateAfter(int columnIndex);
     void RequestColumn(int columnIndex, const std::wstring& path);
     void RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot);
@@ -161,7 +296,11 @@ private:
     int focusedColumnIndex2_ = 0;
     int activePane_ = 0;
     bool dualPane_ = false;
-    std::atomic<bool> engineActive_{false}; // written from EngineClient's background callback, read by Render on the UI thread
+    // Written from EngineClient's background callback, read by Render on the
+    // UI thread (recovery-degraded-browsing D3).
+    std::atomic<EngineConnectionState> engineState_{EngineConnectionState::Starting};
+    std::atomic<bool> privilegedPathActive_{false};
+    std::function<void()> retryEngineCallback_;
 
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> backgroundBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush_;
@@ -195,8 +334,66 @@ private:
     bool resourcesCreated_ = false;
     bool darkTheme_ = false;
     std::wstring pendingSelectionName_;
+    std::wstring pendingSelectionPath_;
     float scrollOffset_ = 0.0f;
     float scrollOffset2_ = 0.0f;
+    float verticalScrollOffset_ = 0.0f;
+    float verticalScrollOffset2_ = 0.0f;
 };
+
+// Converts a navigation-surface point into the active pane's local column and
+// row.  The point passed by WindowShell is relative to the whole navigation
+// viewport; in dual-pane mode pane 1 therefore needs its origin removed before
+// horizontal scrolling and column-width division.  Keeping this calculation
+// as a pure seam makes the input contract testable without creating a renderer
+// or an engine process.
+struct ColumnHitTestResult {
+    int columnIndex = -1;
+    int itemIndex = -1;
+};
+
+// A folder is activated by the first click in Finder-style Column View.  The
+// native double-click gesture therefore has one remaining meaning: open the
+// already-selected file with its registered shell association.  Keep this
+// policy pure so the message-routing seam can be regression-tested without a
+// renderer or an engine process.
+inline bool ShouldOpenSelectionOnDoubleClick(std::span<const SelectionItem> selection) {
+    return selection.size() == 1 && !selection.front().isDirectory;
+}
+
+inline ColumnHitTestResult ComputeColumnHitTest(D2D1_POINT_2F clientPoint,
+                                                float horizontalScrollOffset,
+                                                float verticalScrollOffset,
+                                                float viewportWidth,
+                                                bool dualPane,
+                                                int activePane) {
+    if (clientPoint.y < UiMetrics::kBadgeHeight || clientPoint.x < 0.0f || viewportWidth <= 0.0f) {
+        return {};
+    }
+
+    float localX = clientPoint.x;
+    if (dualPane) {
+        const float paneWidth = viewportWidth / 2.0f;
+        if (paneWidth <= 0.0f || activePane < 0 || activePane > 1) {
+            return {};
+        }
+        if (activePane == 1) {
+            if (localX < paneWidth || localX >= viewportWidth) {
+                return {};
+            }
+            localX -= paneWidth;
+        } else if (localX >= paneWidth) {
+            return {};
+        }
+    }
+
+    const float contentX = localX + horizontalScrollOffset;
+    const float contentY = clientPoint.y - UiMetrics::kBadgeHeight + verticalScrollOffset;
+    if (contentX < 0.0f || contentY < 0.0f) {
+        return {};
+    }
+    return {static_cast<int>(contentX / UiMetrics::kColumnWidth),
+            static_cast<int>(contentY / UiMetrics::kRowHeight)};
+}
 
 } // namespace ffui

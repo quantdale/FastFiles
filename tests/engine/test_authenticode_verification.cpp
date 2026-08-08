@@ -167,6 +167,16 @@ void TestMatchingPinAcceptsSignedBinary() {
     }
 }
 
+void TestThumbprintComparison() {
+    const ffsetup::Thumbprint first = ThumbprintWithByte(0, 0x12);
+    const ffsetup::Thumbprint same = ThumbprintWithByte(0, 0x12);
+    const ffsetup::Thumbprint different = ThumbprintWithByte(19, 0x34);
+    Check(ffsetup::ConstantTimeThumbprintEqual(first, same),
+          "thumbprint comparison accepts identical fixed-size digests");
+    Check(!ffsetup::ConstantTimeThumbprintEqual(first, different),
+          "thumbprint comparison rejects a difference at the final byte");
+}
+
 } // namespace
 
 int main() {
@@ -175,5 +185,6 @@ int main() {
     TestUnsignedBinaryRejectedWithConfiguredPin();
     TestMismatchedPinRejectsSignedBinary();
     TestMatchingPinAcceptsSignedBinary();
+    TestThumbprintComparison();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

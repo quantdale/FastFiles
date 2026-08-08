@@ -9,6 +9,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <memory>
 #include <thread>
 #include <vector>
 #include <windows.h>
@@ -22,6 +23,7 @@
 namespace ffui {
 
 constexpr UINT WM_APP_SEARCH_COMPLETE = WM_APP + 6;
+constexpr UINT WM_APP_INDEXED_SEARCH_COMPLETE = WM_APP + 13;
 
 class SearchPanel {
 public:
@@ -30,6 +32,10 @@ public:
     bool Initialize(HWND owner, EngineClient* engine,
                     std::function<void(const ffsearch::Candidate&, const ffsearch::PathReconstruction&)> navigate,
                     bool retainHistory);
+    // Applies the persisted setting after controls are created.  The setting
+    // uses stable semantic names while the combo labels explain degraded
+    // coverage, so this translation belongs at the UI seam.
+    void SetDefaultScope(const std::wstring& scopeName);
     void ShowAndFocus(const std::wstring& currentPath, bool engineActive);
     void Hide();
     void SetDarkTheme(bool dark);
@@ -40,6 +46,10 @@ public:
     bool HandleDrawItem(LPARAM lParam);
     bool HandleTimer(UINT_PTR timerId);
     bool HandleCompletion(LPARAM lParam);
+    bool HandleIndexedCompletion(LPARAM lParam);
+    // Invalidates the candidate materialization after a new snapshot
+    // generation. The next search rebuilds it once on the worker thread.
+    void OnSnapshotUpdated();
     void SetEngineActive(bool active);
     void ClearHistory();
 
@@ -66,10 +76,15 @@ private:
         ffsearch::SearchResponse response;
         std::vector<ffsearch::Candidate> candidates;
     };
+    struct IndexedCompletion {
+        uint64_t generation = 0;
+        ffprotocol::IndexedSearchResponse response;
+    };
 
     void WorkerMain();
-    void Dispatch();
-    void PopulateCandidates(std::vector<ffsearch::Candidate>& candidates) const;
+    void Dispatch(bool recordHistory = true, bool forceSnapshot = false);
+    void PopulateCandidates(std::vector<ffsearch::Candidate>& candidates);
+    void RefreshScopeLabels();
     void UpdateScopeAvailability(bool showFallbackNotice);
     void UpdateStatus(const std::wstring& text, StatusKind kind = StatusKind::Info);
     void LoadHistory();
@@ -102,9 +117,11 @@ private:
     std::wstring currentPrimaryTerm_;
     bool visible_ = false;
     bool engineActive_ = false;
+    bool persistentCoverage_ = false;
     bool retainHistory_ = true;
     bool updatingHistory_ = false;
     bool descending_ = false;
+    bool snapshotFallback_ = false;
     uint64_t generation_ = 0;
 
     std::thread worker_;
@@ -113,6 +130,14 @@ private:
     std::optional<Work> pendingWork_;
     std::atomic<uint64_t> currentGeneration_{0};
     std::atomic<bool> stopping_{false};
+
+    // Candidate construction is the expensive snapshot-to-search projection.
+    // Keep one immutable worker-built copy per published snapshot generation
+    // so typing successive queries does not repeatedly parse and materialize
+    // the entire mapping.
+    std::mutex candidateCacheMutex_;
+    std::shared_ptr<const std::vector<ffsearch::Candidate>> candidateCache_;
+    std::atomic<uint64_t> candidateCacheEpoch_{0};
 
     // Task 5: cached Direct2D/DirectWrite resources for the custom-painted query
     // edit. Created once and reused across paints; torn down and recreated on

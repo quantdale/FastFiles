@@ -1,9 +1,11 @@
 #pragma once
+#include <atomic>
 #include <windows.h>
 #include <filesystem>
 #include <future>
 #include <map>
 
+#include "ffui/DetailsLayout.h"
 #include "ColumnView.h"
 #include "CommandPalette.h"
 #include "CommandSystem.h"
@@ -50,7 +52,7 @@ private:
     bool IsSystemDark() const;
     void SaveAndNotifySettings();
     void RefreshSelectionPresentation();
-    void RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize);
+    void RenderDetails(ID2D1DeviceContext* context, const ffui::DetailsLayout& layout);
     void RequestFileType(const std::wstring& path);
     std::wstring FileTypeFor(const std::wstring& path) const;
     bool InitializeCommands();
@@ -62,7 +64,11 @@ private:
     void FinishInlineRename(bool commit);
     void ShowContextMenu(POINT screenPoint);
     void NavigateWorkspace(const std::wstring& path, const std::wstring& selectName = {});
+    void NavigateColumnViewTo(const std::wstring& path);
+    void SaveActiveTabViewState();
+    void RestoreActiveTabViewState();
     float NavigationViewportWidth() const;
+    ffui::DetailsLayout CurrentDetailsLayout() const;
     std::filesystem::path ShortcutSettingsPath() const;
 
     HWND hwnd_ = nullptr;
@@ -71,7 +77,12 @@ private:
     // it (SetIconCache) and the shell repaints on WM_APP_ICON_READY. Created in
     // Initialize once hwnd_ exists because the cache posts to its owner HWND.
     std::unique_ptr<ffui::IconCache> iconCache_;
-    NavigationWorkspace navigationWorkspace_{L"C:\\"};
+    // The initial ColumnView surface is the synthetic "This PC" drive root,
+    // not C:\\ itself. Keep the workspace sentinel aligned with that model so
+    // the first breadcrumb/address state cannot claim a directory that is not
+    // the surface currently being rendered. A persisted or configured real
+    // path replaces this sentinel during Initialize().
+    NavigationWorkspace navigationWorkspace_{L""};
     NavigationChrome navigationChrome_;
     NavigationSidebar navigationSidebar_;
     ColumnView columnView_;
@@ -86,6 +97,7 @@ private:
     StorageAnalysis storageAnalysis_;
     SettingsDialog settingsDialog_;
     bool engineActive_ = false;
+    std::atomic<bool> snapshotRefreshPosted_{false};
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;
     bool clipboardIsCut_ = false;
@@ -115,6 +127,10 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> progressBrush_;
     bool darkTheme_ = false;
+    // The details surface is user-toggleable.  When hidden the navigation
+    // viewport receives the reclaimed width; narrow windows may still
+    // collapse it to a disclosure rail via DetailsLayout.
+    bool detailsPaneVisible_ = true;
     bool frameRendered_ = false;
     bool crossFadeActive_ = false;
     uint64_t crossFadeStartMs_ = 0;

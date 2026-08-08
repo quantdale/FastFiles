@@ -1,8 +1,8 @@
 <#
     Tier-2 UIA validation capability (zero-touch-autonomous-engineering tasks 3.1-3.12).
 
-    Drives FastFiles with the uia-driver module: launches the UI, closes the startup
-    settings dialog, navigates with keyboard (address bar) and mouse (chrome tabs),
+    Drives FastFiles with the uia-driver module: launches the UI, opens and closes
+    the on-demand settings dialog, navigates with keyboard (address bar) and mouse (chrome tabs),
     runs palette commands (storage.analyze, search.focus), verifies the connection
     badge degraded-state through UIA-visible status text, verifies dialog structure,
     and records per-scenario evidence (UIA tree dumps, screenshots, run log).
@@ -61,11 +61,11 @@ function Get-UiaMainWindowElement {
 }
 
 function Invoke-UiaCloseSettingsDialog {
-    param($Driver, $Main, [string] $ArtifactsDir)
+    param($Driver, $Main, [int] $ProcessId, [string] $ArtifactsDir)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $present = $false
     try {
-        $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -FromElement $Main -TimeoutMs 4000
+        $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 4000
         $present = $null -ne $settings
     } catch { $present = $false }
     if (-not $present) {
@@ -76,15 +76,37 @@ function Invoke-UiaCloseSettingsDialog {
         $action = Invoke-UiaElementAction -Driver $Driver -Element $cancel
         Start-Sleep -Milliseconds 800
         $still = $false
-        try { $null = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -FromElement $Main -TimeoutMs 800; $still = $true } catch { $still = $false }
+        try { $null = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 800; $still = $true } catch { $still = $false }
         return [pscustomobject]@{ Pass = -not $still; Detail = "closed via $($action.used) (fallback=$($action.fallback))" }
     } catch {
         return [pscustomobject]@{ Pass = $false; Detail = "cancel failed: $($_.Exception.Message)" }
     }
 }
 
+function Invoke-UiaOpenSettings {
+    param($Driver, $Main, [int] $ProcessId)
+    $null = Set-UiaForeground -Driver $Driver -Element $Main
+    Start-Sleep -Milliseconds 400
+    $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
+    Start-Sleep -Milliseconds 800
+    try {
+        $edit = Find-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 3000
+        if (-not $edit) { return [pscustomobject]@{ Pass = $false; Detail = 'palette edit did not appear while opening settings' } }
+        $null = Send-UiaText -Driver $Driver -Text 'settings'
+        Start-Sleep -Milliseconds 600
+        $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
+        Start-Sleep -Milliseconds 900
+        # Settings is a WS_POPUP owned by the main window, not a UIA
+        # descendant. Search the desktop tree, constrained to this process.
+        $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 3000
+        return [pscustomobject]@{ Pass = $null -ne $settings; Detail = 'settings opened through the command palette' }
+    } catch {
+        return [pscustomobject]@{ Pass = $false; Detail = "settings open failed: $($_.Exception.Message)" }
+    }
+}
+
 function Invoke-UiaAddressBarNavigate {
-    param($Driver, $Main, [string] $Path, [string] $ExpectedLeaf)
+    param($Driver, $Main, [int] $ProcessId, [string] $Path, [string] $ExpectedLeaf)
     $null = Set-UiaForeground -Driver $Driver -Element $Main
     Start-Sleep -Milliseconds 500
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
@@ -92,6 +114,12 @@ function Invoke-UiaAddressBarNavigate {
     $addr = $null
     try {
         $edits = @(Find-UiaElement -Driver $Driver -ClassName 'Edit' -FromElement $Main -TimeoutMs 3000 -All)
+        if ($edits.Count -eq 0) {
+            # The address edit is a top-level/owned Win32 control in some UIA
+            # providers; retain the process filter rather than assuming it is
+            # a descendant of the DirectComposition main element.
+            $edits = @(Find-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -TimeoutMs 1200 -All)
+        }
         foreach ($e in $edits) {
             $id = Get-UiaElementIdentity -Driver $Driver -Element $e
             # The address bar is a plain Win32 EDIT with no explicit child ID; UIA
@@ -117,7 +145,7 @@ function Invoke-UiaAddressBarNavigate {
 }
 
 function Invoke-UiaPaletteCommand {
-    param($Driver, $Main, [string] $Query, [string[]] $ExpectedNames, [string[]] $ExpectedNameLike = @())
+    param($Driver, $Main, [int] $ProcessId, [string] $Query, [string[]] $ExpectedNames, [string[]] $ExpectedNameLike = @())
     $null = Set-UiaForeground -Driver $Driver -Element $Main
     Start-Sleep -Milliseconds 400
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
@@ -131,10 +159,16 @@ function Invoke-UiaPaletteCommand {
     Start-Sleep -Seconds 2
     $missing = @()
     foreach ($name in $ExpectedNames) {
-        try { $null = Find-UiaElement -Driver $Driver -Name $name -FromElement $Main -TimeoutMs 2500 } catch { $missing += $name }
+        try {
+            try { $null = Find-UiaElement -Driver $Driver -Name $name -FromElement $Main -TimeoutMs 1200 }
+            catch { $null = Find-UiaElement -Driver $Driver -Name $name -ProcessId $ProcessId -TimeoutMs 1300 }
+        } catch { $missing += $name }
     }
     foreach ($nameLike in $ExpectedNameLike) {
-        try { $null = Find-UiaElement -Driver $Driver -NameLike $nameLike -FromElement $Main -TimeoutMs 2500 } catch { $missing += $nameLike }
+        try {
+            try { $null = Find-UiaElement -Driver $Driver -NameLike $nameLike -FromElement $Main -TimeoutMs 1200 }
+            catch { $null = Find-UiaElement -Driver $Driver -NameLike $nameLike -ProcessId $ProcessId -TimeoutMs 1300 }
+        } catch { $missing += $nameLike }
     }
     if ($missing.Count -eq 0) {
         return [pscustomobject]@{ Pass = $true; Detail = "palette '$Query' opened; expected controls all present" }
@@ -286,12 +320,16 @@ function Invoke-UiAutomationValidationCapability {
         & $logFn "3.1 main window title='$title' chrome=$($null -ne $chrome)"
         [void]$subResults.Add((New-UiaVSubResult -Id 'launch-main-window' -Status ($(if ($launchPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($launchPass) { $null } else { 'launch-state-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "title='$title'; chrome present; evidence 3.1-launch.*"))
 
-        # Scenario 3.5 part 1 - settings dialog structure (visible at launch).
+        # Scenario 3.5 part 1 - settings dialog structure. Settings is opened
+        # on demand through the same command-palette path a user can invoke;
+        # it is intentionally not visible during normal startup.
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $dialogDetail = 'no settings dialog'
         $dialogPass = $false
         try {
-            $settings = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -FromElement $main -TimeoutMs 4000
+            $opened = Invoke-UiaOpenSettings -Driver $driver -Main $main -ProcessId $launched.Id
+            if (-not $opened.Pass) { throw $opened.Detail }
+            $settings = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $launched.Id -TimeoutMs 4000
             $hasTab = $null -ne (Find-UiaElement -Driver $driver -ClassName 'SysTabControl32' -FromElement $settings -TimeoutMs 2500)
             $hasOk = $null -ne (Find-UiaElement -Driver $driver -AutomationId '1' -FromElement $settings -TimeoutMs 2500)
             $hasCancel = $null -ne (Find-UiaElement -Driver $driver -AutomationId '2' -FromElement $settings -TimeoutMs 2500)
@@ -303,7 +341,7 @@ function Invoke-UiAutomationValidationCapability {
 
         # Scenario 3.5 part 2 - close settings dialog (responsiveness + driver default action).
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $close = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir
+        $close = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $main -ProcessId $launched.Id -ArtifactsDir $ArtifactsDir
         $sw.Stop()
         [void]$subResults.Add((New-UiaVSubResult -Id 'settings-dialog-close' -Status ($(if ($close.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($close.Pass) { $null } else { 'settings-dialog-did-not-close' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $close.Detail))
 
@@ -313,7 +351,7 @@ function Invoke-UiAutomationValidationCapability {
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $folder 'sample.txt') -Value 'hello' -Encoding utf8
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         $sw.Stop()
         & $logFn "3.2 address-bar navigation pass=$($nav.Pass) detail=$($nav.Detail)"
         $artifacts += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-keyboard-navigation'
@@ -345,7 +383,7 @@ function Invoke-UiAutomationValidationCapability {
         # state. The panel-open controls are the hard assert; the badge state is
         # recorded (PASS when degraded text visible, else SKIPPED with reason).
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -Query 'analyze' -ExpectedNames @('Back', 'Overview', 'Largest Files', 'Drill Down', 'Treemap')
+        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' -ExpectedNames @('Back', 'Overview', 'Largest Files', 'Drill Down', 'Treemap')
         $sw.Stop()
         $degradedVisible = $false
         if ($sa.Pass) {
@@ -364,7 +402,7 @@ function Invoke-UiAutomationValidationCapability {
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
         Start-Sleep -Milliseconds 600
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
+        $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
         $sw.Stop()
         & $logFn "3.11 search pass=$($sp.Pass) detail=$($sp.Detail)"
         $artifacts += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-search-panel'
@@ -376,7 +414,7 @@ function Invoke-UiAutomationValidationCapability {
         # Scenario 3.5 part 3 - in-column error states + UI remains responsive.
         [void]$subResults.Add((New-UiaVSubResult -Id 'in-column-error-state' -Status 'SKIPPED' -Reason 'error-state-drawn-on-d2d-surface' -DurationMs 0 -Detail 'Permission-denied and no-longer-available messages are painted in the ColumnView (D2D, no UIA provider); cannot be confirmed through UIA'))
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        $respProbe = Invoke-UiaPaletteCommand -Driver $driver -Main $main -Query 'analyze' -ExpectedNames @('Back', 'Overview')
+        $respProbe = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' -ExpectedNames @('Back', 'Overview')
         $sw.Stop()
         $respPass = $respProbe.Pass
         [void]$subResults.Add((New-UiaVSubResult -Id 'ui-responsive' -Status ($(if ($respPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($respPass) { $null } else { 'ui-unresponsive' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'After opening/closing dialogs and panels, palette shortcut still dispatches and executes a command (responsive message loop)'))

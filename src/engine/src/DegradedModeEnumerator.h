@@ -18,6 +18,7 @@ enum class EnumerationStatus {
     Success,
     AccessDenied,
     NotFound,
+    IoError,
 };
 
 struct EnumerationResult {

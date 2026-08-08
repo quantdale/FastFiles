@@ -121,11 +121,33 @@ void TestClientToNormalized() {
     Check(NearlyEqual(fractional.first, 12.5f) && NearlyEqual(fractional.second, 33.25f),
           "fractional normalized coords survive the client round trip");
 }
+
+void TestClientHitTestDoesNotRequireHoverEvent() {
+    using namespace ffui;
+    std::vector<std::unique_ptr<TreemapNode>> owned;
+    TreemapNode* tile = MakeNode(1, L"tile", owned);
+    TreemapRect rect;
+    rect.x = 0.0f;
+    rect.y = 0.0f;
+    rect.width = 100.0f;
+    rect.height = 100.0f;
+    rect.node = tile;
+    const std::vector<TreemapRect> layout{rect};
+
+    // The shell paints an 800x600 viewport translated by (120,80) DIPs. A
+    // direct click at the translated center must resolve even when no hover
+    // event was delivered first.
+    Check(HitTestClientPoint(layout, 520.0f, 380.0f, 120.0f, 80.0f, 800.0f, 600.0f) == tile,
+          "client click hit-testing resolves a tile without prior hover");
+    Check(HitTestClientPoint(layout, 80.0f, 80.0f, 120.0f, 80.0f, 800.0f, 600.0f) == nullptr,
+          "client click outside the translated treemap returns no tile");
+}
 } // namespace
 
 int main() {
     TestLayoutCoversAreaWithoutOverlap();
     TestHitTest();
     TestClientToNormalized();
+    TestClientHitTestDoesNotRequireHoverEvent();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

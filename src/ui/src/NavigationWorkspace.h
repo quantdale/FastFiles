@@ -11,12 +11,18 @@ enum class PathCommitResult { Navigated, Invalid, NotFound };
 struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<std::wstring> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
 struct BreadcrumbSegment { std::wstring label; std::wstring path; };
-struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
+struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
 // Plain UI state: no IPC/engine handles. All contexts use the shared EngineClient snapshot.
 class NavigationWorkspace {
 public:
     explicit NavigationWorkspace(std::wstring defaultPath);
     NavigationContext& ActiveContext(); const NavigationContext& ActiveContext() const;
+    // The active tab owns one context per visible pane. These accessors let
+    // the shell persist and restore every pane without changing focus.
+    NavigationContext& PaneContext(size_t paneIndex);
+    const NavigationContext& PaneContext(size_t paneIndex) const;
+    size_t ActivePaneIndex() const;
+    size_t ActivePaneCount() const;
     size_t ActiveTabIndex() const { return activeTab_; } size_t TabCount() const { return tabs_.size(); }
     std::wstring TabPath(size_t index) const;
     bool IsDualPane() const; bool CanGoBack() const; bool CanGoForward() const;
@@ -48,4 +54,8 @@ private:
 struct ParsedPath { std::wstring path; std::wstring error; };
 ParsedPath ParseNavigationPath(const std::wstring& input);
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input);
+// Returns the filesystem parent used by the shell's Up/Backspace command.
+// A value containing an empty string means "This PC" (the synthetic root);
+// nullopt means the current location is already that root or has no parent.
+std::optional<std::wstring> ParentNavigationPath(const std::wstring& path);
 } // namespace ffui

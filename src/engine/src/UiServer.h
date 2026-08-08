@@ -52,6 +52,8 @@ public:
     std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
     using OnRequestFolderAggregate = std::function<std::optional<ffindexstore::Projection::FolderAggregate>(ffindexstore::VolumeRowId, ffindexstore::FileId)>;
     OnRequestFolderAggregate onRequestFolderAggregate;
+    using OnRequestIndexedSearch = std::function<ffprotocol::IndexedSearchResponse(const ffprotocol::IndexedSearchRequest&)>;
+    OnRequestIndexedSearch onRequestIndexedSearch;
     // settings-and-appearance §7.3: supplies the per-volume condition
     // report (VolumeStatusRecords) on demand; the engine derives it from
     // its own connection/scan/reconciliation state. Empty vector == no
@@ -68,13 +70,18 @@ private:
     void HandleConnection(HANDLE pipe);
     void HandleRequestDirectory(HANDLE pipe, const std::wstring& path);
     void HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8_t>& framePayload);
+    bool HandleRequestIndexedSearch(HANDLE pipe, const std::vector<uint8_t>& framePayload);
     void OnDirectoryChanged(const std::wstring& path);
-    void RepublishAndBroadcastGeneration();
+    // recovery-degraded-browsing 4.2: returns false when the publish failed
+    // (e.g. slot capacity exceeded) so the requesting client can be told
+    // instead of silently keeping stale data.
+    bool RepublishAndBroadcastGeneration();
     void BroadcastEngineStatus(HANDLE toSinglePipe = nullptr);
     bool SendUnavailableVolumes(HANDLE pipe);
     bool SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId);
     bool SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
                                    uint64_t itemCount, uint64_t totalSizeBytes);
+    bool SendIndexedSearchResult(HANDLE pipe, const ffprotocol::IndexedSearchResponse& response);
     bool SendVolumeStatus(HANDLE pipe);
 
     ffipc::PipeListener listener_;
@@ -88,6 +95,7 @@ private:
     std::mutex clientsMutex_;
     std::vector<HANDLE> subscribedPipes_;
 
+    std::atomic<bool> running_{false};
     std::atomic<bool> engineActive_{false};
 };
 

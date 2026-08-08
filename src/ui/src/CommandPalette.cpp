@@ -89,7 +89,11 @@ void CommandPalette::Hide() {
 }
 
 void CommandPalette::Reposition() {
-    if (owner_ == nullptr) return;
+    // The controls are created hidden and are shown only by Show().  WM_SIZE
+    // reaches this method while the palette is closed; repositioning with
+    // SWP_SHOWWINDOW in that state made the edit/list overlay appear on every
+    // fresh startup and could steal focus from the file browser.
+    if (owner_ == nullptr || !visible_) return;
     RECT client{};
     GetClientRect(owner_, &client);
     const int clientWidth = static_cast<int>(client.right - client.left);

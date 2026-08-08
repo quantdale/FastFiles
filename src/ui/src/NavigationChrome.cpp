@@ -64,10 +64,12 @@ std::wstring GetControlText(HWND hwnd) {
 
 NavigationChrome::~NavigationChrome() { Cleanup(); }
 
-bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate) {
+bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate,
+                                  BeforeTabChangeHandler beforeTabChange) {
     owner_ = owner;
     workspace_ = workspace;
     navigate_ = std::move(navigate);
+    beforeTabChange_ = std::move(beforeTabChange);
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = &NavigationChrome::WindowProcThunk;
     windowClass.hInstance = GetModuleHandleW(nullptr);
@@ -170,8 +172,8 @@ void NavigationChrome::HandleAddressFocusLost() {
     if (editing_) CancelAddressEdit();
 }
 
-void NavigationChrome::NavigateTo(const std::wstring& path) {
-    if (!path.empty() && navigate_) navigate_(path);
+void NavigationChrome::NavigateTo(const std::wstring& path, bool restoreTabState) {
+    if (navigate_) navigate_(path, restoreTabState);
     Refresh();
 }
 
@@ -198,10 +200,13 @@ void NavigationChrome::RebuildTabs() {
     for (size_t index = 0; index < workspace_->TabCount(); ++index) {
         const std::wstring path = workspace_->TabPath(index);
         std::wstring label = std::to_wstring(index + 1) + L": ";
-        const size_t slash = path.find_last_of(L"\\/");
-        label += slash == std::wstring::npos || slash + 1 >= path.size()
-            ? path : path.substr(slash + 1);
-        if (label.empty()) label = L"(empty)";
+        if (path.empty()) {
+            label += L"This PC";
+        } else {
+            const size_t slash = path.find_last_of(L"\\/");
+            label += slash == std::wstring::npos || slash + 1 >= path.size()
+                ? path : path.substr(slash + 1);
+        }
         HWND tab = CreateWindowExW(0, L"BUTTON", label.c_str(),
                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                    0, 0, Scaled(120), Scaled(27), window_,
@@ -216,7 +221,10 @@ void NavigationChrome::RebuildTabs() {
             tabButtons_.push_back(tab);
             tabCloseButtons_.push_back(close);
             SetWindowSubclass(close, CloseButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
-            EnableWindow(tab, index == workspace_->ActiveTabIndex());
+            // Inactive tabs must remain clickable; the active tab is already
+            // visually distinguished by the owner-draw state and disabling
+            // the others made mouse tab switching impossible.
+            EnableWindow(tab, TRUE);
         } else {
             if (tab != nullptr) DestroyWindow(tab);
             if (close != nullptr) DestroyWindow(close);
@@ -241,10 +249,11 @@ void NavigationChrome::RepositionTabs() {
 
 void NavigationChrome::CloseTab(size_t index) {
     if (!workspace_ || index >= workspace_->TabCount()) return;
+    if (beforeTabChange_) beforeTabChange_();
     if (index != workspace_->ActiveTabIndex()) {
         workspace_->SwitchTab(index);
     }
-    if (workspace_->CloseActiveTab()) NavigateTo(workspace_->ActiveContext().currentPath);
+    if (workspace_->CloseActiveTab()) NavigateTo(workspace_->ActiveContext().currentPath, true);
     else Refresh();
 }
 
@@ -547,13 +556,16 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 return 0;
             }
             if (id == kNewTabId && HIWORD(wParam) == BN_CLICKED && workspace_) {
+                if (beforeTabChange_) beforeTabChange_();
                 workspace_->OpenTab();
-                NavigateTo(workspace_->ActiveContext().currentPath);
+                NavigateTo(workspace_->ActiveContext().currentPath, true);
                 return 0;
             }
             if (HIWORD(wParam) == BN_CLICKED && workspace_ && id >= kTabBaseId && id < kTabBaseId + static_cast<int>(workspace_->TabCount())) {
                 const size_t index = static_cast<size_t>(id - kTabBaseId);
-                if (workspace_->SwitchTab(index)) NavigateTo(workspace_->ActiveContext().currentPath);
+                const bool switching = index != workspace_->ActiveTabIndex();
+                if (switching && beforeTabChange_) beforeTabChange_();
+                if (workspace_->SwitchTab(index)) NavigateTo(workspace_->ActiveContext().currentPath, switching);
                 return 0;
             }
             if (HIWORD(wParam) == BN_CLICKED && workspace_ && id >= kTabCloseBaseId && id < kTabCloseBaseId + static_cast<int>(workspace_->TabCount())) {

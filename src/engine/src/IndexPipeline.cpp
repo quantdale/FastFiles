@@ -1,5 +1,10 @@
 #include "IndexPipeline.h"
 
+#include <algorithm>
+#include <cwctype>
+
+#include "VolumeIdentity.h"
+
 namespace ffengine {
 
 namespace {
@@ -27,6 +32,43 @@ std::wstring ToWString(std::u16string_view text) {
         result.push_back(static_cast<wchar_t>(ch));
     }
     return result;
+}
+
+std::wstring NormalizeVolumePrefix(std::wstring value) {
+    if (value.size() < 2 || value[1] != L':') {
+        return {};
+    }
+    value.resize(2);
+    value[0] = static_cast<wchar_t>(towupper(value[0]));
+    return value;
+}
+
+// Projection::ReconstructPath includes the volume-root entry's stored name.
+// The UI path model replaces that synthetic component with the mounted volume
+// prefix, so remove only the exact root component and preserve every real
+// descendant.  The walk is bounded by the projection's parent chain and is
+// defensive against a malformed/cyclic chain.
+std::wstring StripVolumeRootName(const ffindexstore::Projection& projection,
+                                 ffindexstore::VolumeRowId volumeId,
+                                 ffindexstore::FileId current,
+                                 std::wstring reconstructed) {
+    for (size_t depth = 0; depth <= projection.EntryCount(); ++depth) {
+        const auto* currentEntry = projection.Find(volumeId, current);
+        if (currentEntry == nullptr) break;
+        if (currentEntry->parentFrn == currentEntry->frn) {
+            const std::wstring rootName = ToWString(projection.Names().Get(currentEntry->nameId));
+            if (rootName.empty()) return reconstructed;
+            if (reconstructed == rootName) return {};
+            if (reconstructed.size() > rootName.size() &&
+                reconstructed[rootName.size()] == L'\\' &&
+                _wcsnicmp(reconstructed.c_str(), rootName.c_str(), rootName.size()) == 0) {
+                reconstructed.erase(0, rootName.size() + 1);
+            }
+            return reconstructed;
+        }
+        current = currentEntry->parentFrn;
+    }
+    return reconstructed;
 }
 
 ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
@@ -355,7 +397,6 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
-
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
             return; // only directories become a listing key; files are listed as their parent's entries below
@@ -373,9 +414,14 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         if (entry.parentFrn == entry.frn) {
             fullPath = rootPathPrefix; // this entry IS the volume root
         } else if (pathResult.reachedRoot) {
-            const size_t firstSeparator = reconstructed.find(L'\\');
-            fullPath = rootPathPrefix + L"\\"
-                + (firstSeparator == std::wstring::npos ? reconstructed : reconstructed.substr(firstSeparator + 1));
+            // ReconstructPath includes the root entry's on-disk name at the
+            // front of the string.  That name is commonly empty, but valid
+            // volumes can expose a non-empty synthetic root name (for example
+            // ".").  Strip exactly that root component; stripping through the
+            // first separator would incorrectly turn Users\\Alice into Alice.
+            const std::wstring relative = StripVolumeRootName(projection_, id, entry.frn, reconstructed);
+            fullPath = rootPathPrefix;
+            if (!relative.empty()) fullPath += L"\\" + relative;
         } else {
             // Defensive fallback for a broken/incomplete parent chain --
             // should never happen on a well-formed volume.
@@ -417,6 +463,126 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
 std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
     std::lock_guard<std::mutex> lock(mutex_);
     return projection_.GetFolderAggregate(volumeId, parentFrn);
+}
+
+ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request) {
+    ffprotocol::IndexedSearchResponse result;
+    result.requestId = request.requestId;
+    if (request.requestId == 0 || !ffprotocol::IsIndexedSearchScopeValid(request.scope) ||
+        !ffprotocol::IsIndexedSearchSortValid(request.sortField) || request.query.empty() ||
+        request.query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars ||
+        request.scopePath.size() > ffprotocol::kMaxPathLengthChars || request.maxResults == 0) {
+        result.status = ffprotocol::IndexedSearchStatus::InvalidRequest;
+        return result;
+    }
+
+    std::vector<ffsearch::Candidate> candidates;
+    {
+        // Copy only the candidate fields needed by the query. Matching and
+        // sorting are intentionally outside this lock so a broad query cannot
+        // block ingestion or snapshot publication while a UI pipe is waiting.
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!store_.IsOpen()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            return result;
+        }
+
+        std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
+        prefixes.reserve(volumeRules_.size() + 4);
+        std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
+        disabledVolumes.reserve(volumeRules_.size());
+        for (const auto& [volumeId, setting] : volumeRules_) {
+            if (!setting.enabled) {
+                disabledVolumes.insert(volumeId);
+                continue;
+            }
+            if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
+                prefixes.emplace(volumeId, prefix);
+            }
+        }
+        for (const auto& metadata : store_.GetAllVolumes()) {
+            if (!metadata.available || disabledVolumes.contains(metadata.rowId) || prefixes.contains(metadata.rowId)) {
+                continue;
+            }
+            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadata.key);
+            if (driveLetter != L'\0') {
+                std::wstring prefix;
+                prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
+                prefix.push_back(L':');
+                prefixes.emplace(metadata.rowId, std::move(prefix));
+            }
+        }
+        if (prefixes.empty()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            return result;
+        }
+
+        candidates.reserve(projection_.EntryCount());
+        projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
+                                      const ffindexstore::ProjectionEntry& entry) {
+            const auto prefixIt = prefixes.find(key.volumeRowId);
+            if (prefixIt == prefixes.end()) {
+                return;
+            }
+            const std::wstring rootPath = prefixIt->second + L"\\";
+            ffsearch::Candidate candidate;
+            candidate.volumeId = static_cast<int64_t>(key.volumeRowId);
+            candidate.id = entry.frn.low;
+            candidate.parentId = entry.parentFrn.low;
+            candidate.sizeBytes = entry.sizeBytes;
+            candidate.modifiedTime = entry.lastModifiedTime;
+            candidate.createdTime = entry.creationTime;
+            candidate.isDirectory = (entry.attributes & kFileAttributeDirectory) != 0;
+            candidate.persistentIndexed = true;
+
+            if (entry.parentFrn == entry.frn) {
+                // The root's on-disk name is not user-facing. Use the mounted
+                // drive root exactly as the snapshot/UI path model does.
+                candidate.name = rootPath;
+            } else {
+                const auto parentPath = projection_.ReconstructPath(key.volumeRowId, entry.parentFrn);
+                if (!parentPath.reachedRoot) {
+                    return; // do not expose a candidate with an untrustworthy path
+                }
+                const std::wstring reconstructedParent = StripVolumeRootName(
+                    projection_, key.volumeRowId, entry.parentFrn, ToWString(parentPath.path));
+                // After the synthetic root component is stripped, a direct
+                // child is "Users" and a deeper parent is "Users\\Alice".
+                // Keep the complete relative path here:
+                // dropping everything through the first separator would turn
+                // a nested result into C:\\Alice instead of C:\\Users\\Alice.
+                candidate.folder = rootPath + reconstructedParent;
+                candidate.name = ToWString(projection_.Names().Get(entry.nameId));
+                if (candidate.name.empty()) {
+                    return;
+                }
+            }
+            candidates.push_back(std::move(candidate));
+        });
+    }
+
+    ffsearch::SearchRequest searchRequest;
+    searchRequest.query = ffsearch::ParseQuery(request.query, ffsearch::FilterRegistry::WithDefaults());
+    searchRequest.scope = static_cast<ffsearch::SearchScope>(request.scope);
+    searchRequest.scopePath = request.scopePath;
+    searchRequest.sortField = static_cast<ffsearch::SortField>(request.sortField);
+    searchRequest.descending = request.descending;
+    searchRequest.maxResults = (std::min)(static_cast<size_t>(request.maxResults),
+                                          static_cast<size_t>(ffprotocol::kMaxIndexedSearchResultCount));
+    searchRequest.persistentOnly = true;
+
+    const auto search = ffsearch::ExecuteSearch(candidates, searchRequest);
+    result.status = ffprotocol::IndexedSearchStatus::Completed;
+    result.truncated = search.truncated;
+    result.candidates.reserve(search.results.size());
+    for (const auto& matched : search.results) {
+        const auto& candidate = matched.candidate;
+        result.candidates.push_back({candidate.name, candidate.folder, candidate.sizeBytes,
+                                     candidate.modifiedTime, candidate.isDirectory,
+                                     candidate.createdTime, candidate.volumeId, candidate.id,
+                                     candidate.parentId, candidate.persistentIndexed});
+    }
+    return result;
 }
 
 } // namespace ffengine

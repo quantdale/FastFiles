@@ -22,6 +22,7 @@
 
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Settings.h"
 
 #include "IdleManager.h"
@@ -97,19 +98,25 @@ int wmain() {
     const std::wstring ownPath = GetOwnPath();
     const std::wstring installDir = DirectoryOf(ownPath);
 
-    // Task 4.1: idempotently (re-)ensure the per-user Scheduled Task
-    // registration is current -- best-effort; the installer is the
-    // primary place this happens (task 6.1), but self-healing here means
-    // a manually-copied or repaired install still ends up registered.
-    ffsetup::RegisterEngineScheduledTask(ownPath);
-
     DWORD sessionId = 0;
     ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
 
     ffengine::UiServer uiServer;
     if (!uiServer.Start(sessionId)) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ownPath, {}, L"engine-ui-server-start-failed", GetLastError(), 0});
         return 1;
     }
+
+    // Task 4.1: idempotently (re-)ensure the per-user Scheduled Task
+    // registration is current -- best-effort; the installer is the
+    // primary place this happens (task 6.1), but self-healing here means
+    // a manually-copied or repaired install still ends up registered.
+    // Keep this after UiServer::Start: Task Scheduler COM registration can
+    // take several seconds on a cold desktop, and the UI control pipe must
+    // become reachable immediately so the application does not spend its
+    // bounded connection window retrying a helper that is already running.
+    ffsetup::RegisterEngineScheduledTask(ownPath);
 
     ffengine::IndexPipeline indexPipeline;
     const std::string dbPathUtf8 = GetIndexDatabasePathUtf8();
@@ -180,6 +187,9 @@ int wmain() {
     uiServer.onRequestFolderAggregate = [&indexPipeline](ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) -> std::optional<ffindexstore::Projection::FolderAggregate> {
         return indexPipeline.GetFolderAggregate(volumeId, parentFrn);
     };
+    uiServer.onRequestIndexedSearch = [&indexPipeline](const ffprotocol::IndexedSearchRequest& request) {
+        return indexPipeline.SearchIndexed(request);
+    };
     uiServer.onRequestVolumeStatus = [&volumeSessions] {
         return volumeSessions.CollectVolumeStatus();
     };
@@ -234,6 +244,8 @@ int wmain() {
     // lazily by the UI); it simply runs until the logon session ends.
     HANDLE parkEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (parkEvent == nullptr) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ownPath, {}, L"engine-park-event-failed", GetLastError(), 0});
         return 1;
     }
     WaitForSingleObject(parkEvent, INFINITE);

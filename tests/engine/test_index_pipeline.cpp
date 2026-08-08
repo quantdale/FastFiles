@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -40,9 +41,11 @@ void TestApplyMftBatchAndExportSnapshot() {
     auto vol = pipeline.ResolveVolume(key);
 
     std::vector<ffprotocol::MftRecordV1> batch{
-        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(5, 5, u".", 0x10, 0),
         MakeMftRecord(100, 5, u"Users", 0x10, 0),
         MakeMftRecord(101, 100, u"notes.txt", 0, 42),
+        MakeMftRecord(102, 100, u"Alice", 0x10, 0),
+        MakeMftRecord(103, 102, u"nested.txt", 0, 7),
     };
     Check(pipeline.ApplyMftBatch(vol, batch), "a batch of MFT records applies successfully");
 
@@ -50,9 +53,17 @@ void TestApplyMftBatchAndExportSnapshot() {
     Check(snapshot.count(L"C:") == 1, "the volume root is exported under the caller-supplied drive-letter prefix");
     Check(snapshot[L"C:"].entries.size() == 1, "the root lists its one child directory");
     Check(snapshot.count(L"C:\\Users") == 1, "a subdirectory is exported at its full path");
-    Check(snapshot[L"C:\\Users"].entries.size() == 1 && snapshot[L"C:\\Users"].entries[0].name == L"notes.txt",
-          "a file entry is listed under its parent directory");
-    Check(!snapshot[L"C:\\Users"].entries[0].isDirectory, "a file entry is not marked as a directory");
+    const auto& userEntries = snapshot[L"C:\\Users"].entries;
+    const auto alice = std::find_if(userEntries.begin(), userEntries.end(),
+                                    [](const auto& entry) { return entry.name == L"Alice"; });
+    const auto notes = std::find_if(userEntries.begin(), userEntries.end(),
+                                    [](const auto& entry) { return entry.name == L"notes.txt"; });
+    Check(userEntries.size() == 2 && alice != userEntries.end() && notes != userEntries.end(),
+          "direct children are listed under their parent directory");
+    Check(notes != userEntries.end() && !notes->isDirectory, "a file entry is not marked as a directory");
+    Check(snapshot.count(L"C:\\Users\\Alice") == 1 && snapshot[L"C:\\Users\\Alice"].entries.size() == 1 &&
+              snapshot[L"C:\\Users\\Alice"].entries[0].name == L"nested.txt",
+          "nested directories retain every ancestor component in the published snapshot key");
 }
 
 void TestRebuildAfterRestartMatchesPriorState() {
@@ -177,6 +188,68 @@ void TestForgetVolumePurgesProjection() {
           "another volume's file entries are unaffected by the forget");
 }
 
+void TestIndexedSearchUsesProjectionPathsAndScopes() {
+    IndexPipeline pipeline;
+    pipeline.Open(FreshDbPath("engine_test_indexed_search.db"));
+    VolumeKey key;
+    key.serialNumber = 11;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+                                      MakeMftRecord(5, 5, u".", 0x10, 0),
+                                      MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                      MakeMftRecord(101, 100, u"report.txt", 0, 42),
+                                      MakeMftRecord(102, 100, u"photo.jpg", 0, 99),
+                                      MakeMftRecord(103, 100, u"Alice", 0x10, 0),
+                                      MakeMftRecord(104, 103, u"nested.txt", 0, 7),
+                                  }),
+          "indexed-search fixture is persisted through the normal ingestion path");
+
+    ffprotocol::IndexedSearchRequest all;
+    all.requestId = 1;
+    all.scope = 3; // AllIndexedLocations
+    all.sortField = 0; // Relevance
+    all.maxResults = 100;
+    all.query = L"report";
+    auto result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
+              result.candidates[0].name == L"report.txt" && result.candidates[0].folder == L"C:\\Users" &&
+              result.candidates[0].persistentIndexed,
+          "indexed search returns a durable candidate with its reconstructed parent folder");
+
+    all.requestId = 4;
+    all.query = L"nested.txt";
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
+              result.candidates[0].folder == L"C:\\Users\\Alice",
+          "indexed search preserves every component of a nested reconstructed parent folder");
+
+    all.requestId = 2;
+    all.scope = 1; // CurrentFolderAndSubfolders
+    all.scopePath = L"C:\\Users";
+    all.query = L"*.jpg";
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
+              result.candidates[0].name == L"photo.jpg",
+          "indexed search applies current-folder scope and wildcard matching against the projection");
+
+    all.requestId = 3;
+    all.query = L"report";
+    all.maxResults = 0;
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::InvalidRequest,
+          "indexed search rejects an unbounded zero-result request at the engine boundary");
+
+    all.maxResults = 100;
+    setting.enabled = false;
+    pipeline.SetVolumeRules(volume, setting);
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Unavailable,
+          "disabled volumes are not exposed through the indexed-search scope");
+}
+
 } // namespace
 
 int main() {
@@ -187,6 +260,7 @@ int main() {
     TestUsnDeleteReasonRemovesEntry();
     TestVolumeAvailabilityAndForget();
     TestForgetVolumePurgesProjection();
+    TestIndexedSearchUsesProjectionPathsAndScopes();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

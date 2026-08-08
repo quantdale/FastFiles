@@ -69,6 +69,7 @@ private:
     void SaveCurrentPage();
     void SwitchPage(int pageIndex);
     void UpdateVolumeList();
+    void UpdateRuleList();
     void AddVolumeRule();
     void RemoveVolumeRule();
     void MoveVolumeRuleUp();
@@ -116,8 +117,10 @@ private:
 
     // Indexing page controls
     HWND volumeList_ = nullptr;
+    HWND ruleList_ = nullptr;
     HWND statusDetail_ = nullptr; // §7.3: headline + conditions explanation text
     HWND addRuleButton_ = nullptr;
+    HWND excludeRuleCheck_ = nullptr;
     HWND removeRuleButton_ = nullptr;
     HWND moveUpButton_ = nullptr;
     HWND moveDownButton_ = nullptr;

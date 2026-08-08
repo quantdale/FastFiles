@@ -26,6 +26,11 @@ struct TreemapNode {
     uint64_t sizeBytes = 0;
     uint64_t totalSizeBytes = 0;
     bool calculating = false;
+    bool aggregateResolved = false;
+    bool aggregateFailed = false;
+    int64_t volumeRowId = 0;
+    uint64_t fileIdLow = 0;
+    uint64_t fileIdHigh = 0;
     int depth = 0;
     TreemapNode* parent = nullptr;
     std::vector<std::unique_ptr<TreemapNode>> children;
@@ -164,6 +169,18 @@ inline std::pair<float, float> TreemapClientToNormalized(float clientX, float cl
     const float x = (clientX - offsetX) / scaleX;
     const float y = (clientY - offsetY) / scaleY;
     return {x, y};
+}
+
+// Convert a client-space point through the same shell transform used for
+// painting and resolve the tile directly. Keeping click and hover mapping in
+// one pure seam prevents a click from depending on a preceding WM_MOUSEMOVE.
+inline TreemapNode* HitTestClientPoint(const std::vector<TreemapRect>& layout,
+                                       float clientX, float clientY,
+                                       float offsetX, float offsetY,
+                                       float viewportW, float viewportH) {
+    const auto [x, y] = TreemapClientToNormalized(clientX, clientY, offsetX, offsetY,
+                                                   viewportW, viewportH);
+    return HitTest(layout, x, y);
 }
 
 } // namespace ffui

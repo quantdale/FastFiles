@@ -21,6 +21,14 @@ struct SearchRequest {
     SortField sortField = SortField::Relevance;
     bool descending = false;
     size_t chunkSize = 1024;
+    // Bound UI-visible work and memory for broad searches. Zero means no
+    // explicit limit for headless callers; the desktop panel sets a finite
+    // limit and reports the bounded result count honestly.
+    size_t maxResults = 0;
+    // Broad scopes can require durable index coverage. Current-folder scopes
+    // intentionally remain useful against degraded snapshots; the UI sets
+    // this only when the selected broad scope is advertised as indexed.
+    bool persistentOnly = false;
 };
 
 struct SearchResult {
@@ -31,6 +39,7 @@ struct SearchResult {
 struct SearchResponse {
     std::vector<SearchResult> results;
     bool cancelled = false;
+    bool truncated = false;
     size_t candidatesVisited = 0;
 };
 

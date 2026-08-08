@@ -1,5 +1,6 @@
 #pragma once
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace ffsetup {
@@ -23,6 +24,18 @@ constexpr bool IsPlaceholderThumbprint(const Thumbprint& thumbprint) noexcept {
         }
     }
     return true;
+}
+
+// Compare the fixed-size digest without an early-exit equality operator. The
+// thumbprint is not secret, but keeping the peer-authentication primitive
+// constant-time avoids making timing behavior part of the trust decision.
+inline bool ConstantTimeThumbprintEqual(const Thumbprint& left,
+                                        const Thumbprint& right) noexcept {
+    uint8_t difference = 0;
+    for (size_t index = 0; index < left.size(); ++index) {
+        difference = static_cast<uint8_t>(difference | (left[index] ^ right[index]));
+    }
+    return difference == 0;
 }
 
 } // namespace ffsetup

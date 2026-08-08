@@ -23,11 +23,16 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _I
     }
 
     if (FAILED(OleInitialize(nullptr))) {
+        MessageBoxW(nullptr, L"FastFiles could not initialize Windows shell integration.",
+                    L"FastFiles startup failed", MB_OK | MB_ICONERROR);
         return 1;
     }
 
     ffui::WindowShell shell;
     if (!shell.Initialize(instance, showCommand)) {
+        MessageBoxW(nullptr, L"FastFiles could not initialize its window or renderer.\n\n"
+                            L"Check the diagnostics log under %LOCALAPPDATA%\\FastFiles\\logs.",
+                    L"FastFiles startup failed", MB_OK | MB_ICONERROR);
         OleUninitialize();
         return 1;
     }

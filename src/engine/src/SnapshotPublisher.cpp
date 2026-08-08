@@ -8,6 +8,23 @@
 
 namespace ffengine {
 
+namespace {
+
+uint32_t LoadSharedU32(const uint32_t* value) {
+    return static_cast<uint32_t>(InterlockedCompareExchange(
+        reinterpret_cast<volatile LONG*>(const_cast<uint32_t*>(value)), 0, 0));
+}
+
+void StoreSharedU32(uint32_t* value, uint32_t data) {
+    InterlockedExchange(reinterpret_cast<volatile LONG*>(value), static_cast<LONG>(data));
+}
+
+void StoreSharedU64(uint64_t* value, uint64_t data) {
+    InterlockedExchange64(reinterpret_cast<volatile LONG64*>(value), static_cast<LONG64>(data));
+}
+
+} // namespace
+
 SnapshotPublisher::~SnapshotPublisher() {
     Stop();
 }
@@ -35,9 +52,14 @@ bool SnapshotPublisher::Start(DWORD sessionId) {
     }
 
     auto* header = reinterpret_cast<ffprotocol::SnapshotSharedHeader*>(view_);
+    // A publisher can be stopped and restarted by the engine lifecycle. A
+    // fresh mapping starts at generation zero; keep the local counter in
+    // lockstep so the first publication after restart is generation one.
+    generation_.store(0);
     header->generation = 0;
     header->activeSlot = 0;
-    header->activeSlotDataSize = 0;
+    header->slotDataSize[0] = 0;
+    header->slotDataSize[1] = 0;
     return true;
 }
 
@@ -64,7 +86,8 @@ uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::Sna
     }
 
     auto* header = reinterpret_cast<ffprotocol::SnapshotSharedHeader*>(view_);
-    const uint32_t inactiveSlot = header->activeSlot == 0 ? 1 : 0;
+    const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
+    const uint32_t inactiveSlot = activeSlot == 0 ? 1 : 0;
 
     uint8_t* slotBase = view_ + sizeof(ffprotocol::SnapshotSharedHeader) +
         static_cast<size_t>(inactiveSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
@@ -72,13 +95,15 @@ uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::Sna
 
     const uint64_t newGeneration = generation_.fetch_add(1) + 1;
 
-    // Publish the new slot's size first, then flip activeSlot as the final
-    // step -- a reader that observes the new activeSlot value will also
-    // observe the matching activeSlotDataSize, since x86/x64 doesn't
-    // reorder stores past earlier stores in program order.
-    header->activeSlotDataSize = static_cast<uint32_t>(serialized.size());
-    header->activeSlot = inactiveSlot;
-    header->generation = newGeneration;
+    // Publish the inactive slot's descriptor first, then flip activeSlot as
+    // the final selection step. Readers use the size belonging to the slot
+    // they selected, eliminating the old shared-size torn descriptor race.
+    // Interlocked stores are full barriers and are visible across processes;
+    // this is stronger than relying on the C++ memory model for plain fields
+    // in a shared mapping.
+    StoreSharedU32(&header->slotDataSize[inactiveSlot], static_cast<uint32_t>(serialized.size()));
+    StoreSharedU32(&header->activeSlot, inactiveSlot);
+    StoreSharedU64(&header->generation, newGeneration);
 
     return newGeneration;
 }
