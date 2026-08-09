@@ -1,30 +1,32 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T15:35:10+08:00
+Last updated: 2026-08-09T16:35:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `bf073b2ebe75f73d08c5b7b10e8b5149b39f071c`
+HEAD: `f7b60ca127abff5af699fd637983d576e33bd139`
 Working tree: clean after the focused product and acceptance-evidence commits; runtime artifacts cleaned
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
 ## Current Engineering Slice
 
-Name: Stable selection identity across snapshot / watcher refresh
+Name: Storage Analysis visibility / mode ownership
 
-Objective: Preserve selection, anchor, focus, and operation targets by logical filesystem identity when snapshot rows are rebuilt, sorted, inserted, removed, or renamed.
+Objective: Establish one authoritative visibility policy so exactly the controls owned by the active Storage Analysis mode are visible, and resize/layout/refresh cannot resurrect controls owned by another mode.
 
-Safety / correctness invariant: A refresh must never transfer selection from logical entry A to unrelated entry B because B inherited A's old numeric row index.
+Safety / correctness invariant: For every Storage Analysis mode, exactly that mode's controls are visible; layout and data refresh never independently change semantic visibility.
 
-Non-goals: Storage Analysis, global shortcuts, shortcut persistence, Treemap filtering, watcher shutdown ordering, stale-snapshot UX, search scalability, MFT/USN activation, signature pins, service authentication, and installer work.
+Non-goals: global shortcuts, shortcut persistence, Treemap category-filter semantics/data plumbing, watcher shutdown ordering, stale-snapshot UX, large-index performance, MFT/USN activation, signature pins, service authentication, installer work, and selection identity (complete prior slice).
 
 ## Current Frontier
 
-Implementation, deterministic tests, runtime watcher/reorder acceptance, required validation, scope audit, and focused product commit are complete. A fresh runtime acceptance rerun passed with the existing read-only Debug probe.
+Root cause is confirmed. `StorageAnalysis::RefreshData` and `StorageAnalysis::ShowAndFocus` make semantic HWND visibility decisions, while `StorageAnalysis::Reposition` calls `SetWindowPos` with `SWP_SHOWWINDOW` for every Storage Analysis control. After Overview hides `list_`/`categoryFilter_`, or Treemap hides `list_`/`overview_`/`status_`, a `WM_SIZE` path resurrects them and they overlap the active presentation. `WindowShell::WM_SIZE` is the trigger via `storageAnalysis_.Reposition()`.
+
+Completed frontier: `ffui::StorageVisibility.h` provides the pure mode-to-control policy; `StorageAnalysis::ApplyModeVisibility` is the sole semantic visibility owner; `RefreshData` is data-only; `Reposition` is geometry-only; and headless/runtime tests cover all modes, transitions, idempotence, and resize stability.
 
 ## Established Facts
 
@@ -61,6 +63,7 @@ Implementation, deterministic tests, runtime watcher/reorder acceptance, require
 - Eight focused deterministic regression scenarios in `tests/ui/test_selection_identity.cpp`.
 - CTest registration in `tests/ui/CMakeLists.txt`.
 - `src/ui/include/ffui/SelectionDiagnostics.h`, `ColumnView::CurrentSelectionDiagnostics`, and `tests/ui/selection_identity_runtime_probe.cpp` provide the minimal read-only runtime observation seam.
+- Storage Analysis visibility policy, HWND application point, and focused headless regression tests are complete.
 
 ### In Progress
 
@@ -68,53 +71,53 @@ Implementation, deterministic tests, runtime watcher/reorder acceptance, require
 
 ### Not Started
 
-- Next recommended slice: Storage Analysis visibility/overlap. Do not start it automatically.
+- None for this slice.
 
 ## Files Changed In This Slice
 
-- `src/ui/src/ColumnView.cpp`
-  - Identity-safe refresh, selection/anchor/focus restoration, and safe error clearing.
-- `src/ui/include/ffui/SelectionIdentity.h`
-  - Pure path/index identity and selection-state capture/restore helpers.
-- `tests/ui/test_selection_identity.cpp`
-  - Deterministic insertion, reorder, deletion, focus, degraded, indexed, and operation-target tests.
-- `tests/ui/CMakeLists.txt`
-  - Registers `ffselection_identity_tests`.
-- `src/ui/include/ffui/SelectionDiagnostics.h`, `src/ui/src/ColumnView.h`, `src/ui/src/WindowShell.cpp`
-  - Debug-only read-only WM_COPYDATA state query for runtime acceptance.
-- `tests/ui/selection_identity_runtime_probe.cpp`
-  - Small native query client; not registered as a CTest test.
+- `src/ui/include/ffui/StorageVisibility.h`
+  - Pure Storage mode/control visibility policy.
+- `src/ui/src/StorageAnalysis.h` and `src/ui/src/StorageAnalysis.cpp`
+  - Single `ApplyModeVisibility` owner; refresh is data-only and reposition is geometry-only.
+- `tests/ui/test_storage_visibility.cpp` and `tests/ui/CMakeLists.txt`
+  - Headless mode matrix, transitions, resize-policy stability, and idempotence coverage.
+- `docs/agent/WORKSTATE.md`
+  - Durable frontier and validation checkpoint.
 
 ## Tests Added / Modified
 
-- `ffselection_identity_tests`
-  purpose: Covers all eight required selection-identity scenarios.
-  status: PASS.
+- `ffstorage_visibility_tests`
+  purpose: Covers all six modes, active-mode/exclusive-control visibility, requested transitions, resize stability, and idempotence.
+  status: PASS (focused and full CTest).
 
 ## Validation
 
 Debug: PASS; full `cmake --build --preset debug`.
-Analyze: PASS; full `cmake --preset analyze` and `cmake --build --preset analyze` with `/analyze`.
-CTest: PASS, 37/37 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
-Runtime: PASS. In a fresh disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-*` fixture, real FastFiles/Engine state showed A/B/C with B selected at row 1; external creation of `000-new.txt` produced `000-new.txt|A.txt|B.txt|C.txt`, B at row 2, B identity/path/focus retained, and `ActiveSelectionPaths()` operation target still B. All fixture folders and owned processes were cleaned.
-Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited source; changed files were normalized, final `git diff --check` passed, and the final full CTest passed.
-Product commit: `2d671d107b5f38b5709e32cc2e7edaf5bbe42f28`.
+Analyze: PASS; `cmake --preset analyze` and full `cmake --build --preset analyze` with `/analyze`.
+CTest: PASS, 38/38 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
+Runtime: PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
+Other: OpenSpec CLI is unavailable; checked-in `storage-analysis` artifacts were read manually. Build tools are available under the installed VS 2022 Build Tools instance.
+Product commit: pending until the focused commit is created.
 
 ## Failures / Blockers
 
 - The first full CTest run failed only on the known clean-profile TEMP path issue and the edited source's mixed line endings. The focused rerun with the documented TEMP/TMP override and the final full run both passed.
 - The first probe request deadlocked because `SMTO_BLOCK` prevented the synchronous WM_COPYDATA reply; removing that flag fixed the probe without affecting product state.
 - Hard-coded mouse coordinates hit a breadcrumb at the fresh process's 1.0 DPI scale; deriving click geometry from the live chrome height fixed navigation. This was harness-only and no product behavior changed.
+- `cmake` was initially absent from the plain shell PATH; using `Launch-VsDevShell.ps1` from the installed Build Tools instance resolved the harness setup without changing the repository.
+- Runtime probe: a read-only PowerShell/PInvoke query used the live main HWND and Storage child control IDs; normal command-palette and radio-button commands drove mode transitions. FastFiles remained responsive and the Engine/UI process pair stayed alive.
+- Treemap screenshot capture was limited by the existing degraded empty-layout path (`TreemapView::Render` returns before clearing when `layout_` is empty); no Treemap rendering claim is made from that capture.
 - No active blockers remain for this slice.
 
 ## Deferred / BACKLOG
 
 - Any broader selection-model test depth beyond this slice.
 - Any UIA/provider work for Direct2D-painted ColumnView rows.
+- Storage-specific limitation retained: degraded mode may have no Treemap layout, so visual Treemap tiles were not claimed by this slice; allocated-size metadata remains the existing projection gap.
 
 ## NEXT EXACT ACTION
 
-Slice is COMPLETE. Do not implement the next slice in this session. The single next recommended engineering slice is Storage Analysis visibility/overlap.
+Slice is complete. Do not implement the next slice in this session. The single next recommended engineering slice is global shortcuts while native edit controls own focus.
 
 ## Resume Instructions
 

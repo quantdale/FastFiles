@@ -10,6 +10,7 @@
 
 #include "CategoryEngine.h"
 #include "EngineClient.h"
+#include "ffui/StorageVisibility.h"
 #include "ffui/StoragePercentage.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
@@ -48,7 +49,7 @@ public:
     void OnSnapshotUpdated();
     void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
 
-    enum class ViewMode { Overview, DrillDown, LargestFolders, LargestFiles, ByCategory, Treemap };
+    using ViewMode = StorageViewMode;
     void SetViewMode(ViewMode mode);
     ViewMode GetViewMode() const { return viewMode_; }
 
@@ -88,6 +89,7 @@ private:
 
     void RefreshData();
     void RefreshOverview();
+    void ApplyModeVisibility();
     void RequestAggregateForItem(size_t index);
     void RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory);
     std::pair<uint64_t, bool> CurrentParentTotals() const;

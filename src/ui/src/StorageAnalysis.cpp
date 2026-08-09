@@ -192,13 +192,11 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
-    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
-                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_SHOW);
     // Open on the storage overview (2.1): the volume list is the entry point
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
     viewMode_ = ViewMode::Overview;
-    treemapView_.Hide();
+    ApplyModeVisibility();
     RefreshData();
     Reposition();
     SetFocus(overview_);
@@ -208,9 +206,7 @@ void StorageAnalysis::Hide() {
     if (!visible_) return;
     visible_ = false;
     KillTimer(owner_, kRefreshTimer);
-    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
-                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
-    treemapView_.Hide();
+    ApplyModeVisibility();
     items_.clear();
     volumes_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
@@ -225,20 +221,48 @@ void StorageAnalysis::Reposition() {
     const int height = static_cast<int>(client.bottom);
     const int top = Scaled(static_cast<int>(ffui::UiMetrics::kChromeHeight)); // below navigation chrome
     const int buttonHeight = Scaled(28);
-    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), SWP_SHOWWINDOW);
+    constexpr UINT kLayoutFlags = SWP_NOACTIVATE;
+    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, kLayoutFlags);
+    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, kLayoutFlags);
+    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, kLayoutFlags);
+    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, kLayoutFlags);
+    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, kLayoutFlags);
+    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, kLayoutFlags);
+    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), kLayoutFlags);
     const int listTop = top + buttonHeight + Scaled(8);
     const int listHeight = (std::max)(Scaled(80), height - top - buttonHeight - Scaled(20));
-    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
+    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
+}
+
+void StorageAnalysis::ApplyModeVisibility() {
+    const auto apply = [this](HWND control, StorageControl semanticControl) {
+        if (control == nullptr) return;
+        const bool show = visible_ && StorageControlVisible(viewMode_, semanticControl);
+        ShowWindow(control, show ? SW_SHOW : SW_HIDE);
+    };
+
+    apply(back_, StorageControl::Back);
+    apply(up_, StorageControl::Up);
+    apply(overviewButton_, StorageControl::OverviewButton);
+    apply(drillDown_, StorageControl::DrillDownButton);
+    apply(largestFolders_, StorageControl::LargestFoldersButton);
+    apply(largestFiles_, StorageControl::LargestFilesButton);
+    apply(byCategory_, StorageControl::ByCategoryButton);
+    apply(treemap_, StorageControl::TreemapButton);
+    apply(list_, StorageControl::List);
+    apply(overview_, StorageControl::OverviewList);
+    apply(categoryFilter_, StorageControl::CategoryFilter);
+    apply(status_, StorageControl::Status);
+
+    if (visible_ && StorageControlVisible(viewMode_, StorageControl::TreemapSurface)) {
+        if (!treemapView_.Visible()) treemapView_.ShowAndFocus(currentPath_);
+    } else {
+        treemapView_.Hide();
+    }
 }
 
 void StorageAnalysis::RefreshOverview() {
@@ -371,10 +395,6 @@ void StorageAnalysis::RefreshData() {
     // are skipped entirely while it is active.
     if (viewMode_ == ViewMode::Overview) {
         RefreshOverview();
-        ShowWindow(list_, SW_HIDE);
-        ShowWindow(overview_, SW_SHOW);
-        ShowWindow(categoryFilter_, SW_HIDE);
-        ShowWindow(status_, SW_SHOW);
         return;
     }
     if (!engine_) return;
@@ -485,10 +505,6 @@ void StorageAnalysis::RefreshData() {
         RequestAggregateForParent(directory);
     }
 
-    const bool showList = viewMode_ != ViewMode::Treemap;
-    ShowWindow(list_, showList ? SW_SHOW : SW_HIDE);
-    ShowWindow(overview_, SW_HIDE);
-    ShowWindow(status_, showList ? SW_SHOW : SW_HIDE);
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
 
@@ -718,8 +734,10 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
 }
 
 void StorageAnalysis::SetViewMode(ViewMode mode) {
-    if (viewMode_ == mode) return;
-    const bool leavingTreemap = viewMode_ == ViewMode::Treemap;
+    if (viewMode_ == mode) {
+        ApplyModeVisibility();
+        return;
+    }
     viewMode_ = mode;
     CheckRadioButton(owner_, kOverviewId, kTreemapId,
                      mode == ViewMode::Overview ? kOverviewId :
@@ -727,11 +745,7 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
                      mode == ViewMode::LargestFolders ? kLargestFoldersId :
                      mode == ViewMode::LargestFiles ? kLargestFilesId :
                      mode == ViewMode::ByCategory ? kByCategoryId : kTreemapId);
-    if (mode == ViewMode::Treemap) {
-        treemapView_.ShowAndFocus(currentPath_);
-    } else if (leavingTreemap) {
-        treemapView_.Hide();
-    }
+    ApplyModeVisibility();
     RefreshData();
 }
 
