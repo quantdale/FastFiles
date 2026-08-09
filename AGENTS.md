@@ -97,6 +97,50 @@ pwsh ./verify/intake.ps1 archive-gate        # re-resolve the terminal archive g
 
 Exit codes match `verify.ps1` (`0`/`1`/`2`/`3`/`10`). Failures are classified Class A (harness — auto-fixed), Class B (product — surfaced for review, never auto-accepted), or external (recorded as `REQUIRED-BUT-UNAVAILABLE` with machine evidence, never fabricated). Retries are bounded (≤ 3) and a recurring normalized failure signature escalates the loop. `commit` stages only the loop's own tracked-source delta; `sync` (push) is opt-in via `-AllowPush`. The flaky-test policy (see `AUTONOMOUS.md`) never treats a "passed on retry" as terminal without a root-cause fix or a documented bound.
 
+## Persistent Workstate / Compaction Recovery
+
+Fast Files engineering tasks may exceed one Codex context window. For every
+non-trivial engineering task, use `docs/agent/WORKSTATE.md` as durable,
+project-local execution memory.
+
+At the beginning of every session, read the applicable `AGENTS.md`, read
+`docs/agent/WORKSTATE.md` if it exists, inspect `git status --short`, inspect
+the current branch and HEAD, reconcile WORKSTATE with Git reality, and resume
+the exact current frontier rather than restarting completed investigation.
+Git, source, and tests remain the ultimate source of truth if WORKSTATE is
+stale; update WORKSTATE immediately when reconciliation finds stale data.
+
+After context compaction, or whenever the conversation is incomplete or
+repetitive, do not restart the task. Reread `AGENTS.md` and WORKSTATE, inspect
+Git state, and resume from `NEXT EXACT ACTION`. Do not repeat repository-wide
+exploration unless WORKSTATE explicitly says prior evidence was invalidated.
+
+Update WORKSTATE after meaningful frontier changes: root cause, design
+decision, implementation milestone, important file, test, test/build/runtime
+result, blocker, disproven hypothesis, slice completion, before a long
+verification operation, before expected compaction, and before ending a
+session. As a fallback, checkpoint after roughly 10–20 meaningful
+investigation/implementation operations during substantial work. Do not update
+it after every trivial command.
+
+Before repeating a repository-wide search, inspected subsystem, failing
+command, hypothesis, or runtime experiment, check WORKSTATE. If the same
+attempt fails twice without new evidence, record the blocker and change the
+method, narrow the question, or mark it blocked/not verified rather than
+looping.
+
+Maintain exactly one primary engineering frontier. Keep unrelated discoveries
+under `DEFERRED / BACKLOG` and return to the current slice. WORKSTATE is a
+concise resume checkpoint, not a transcript: keep conclusions, evidence,
+file/symbol references, commands/results, decisions, blockers, and the next
+action; never paste giant outputs, chain-of-thought, or secrets. Never store
+credentials, tokens, API keys, or sensitive authentication material there.
+
+When a slice is finished, record its implementation and validation, commit hash
+if committed, set its status to COMPLETE, and identify exactly one next
+recommended slice. Do not automatically start that next slice unless the user
+instructs continuation.
+
 ## Workflow: OpenSpec (spec-driven)
 
 Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **12 of 15 changes are fully closed**; the current open work is `openspec/changes/close-independent-validation-gaps/tasks.md` (all tasks open) — that is the current open-work source of truth — plus the recovery change `openspec/changes/recovery-degraded-browsing/tasks.md` (engine discovery/launch reliability, connection-state visibility, degraded-browsing hardening). Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
