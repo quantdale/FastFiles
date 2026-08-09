@@ -1,16 +1,16 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T06:47:15+08:00
-Status: BLOCKED
+Last updated: 2026-08-10T06:53:45+08:00
+Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `e9fa6e4`
-Working tree: product shortcut-persistence changes and this WORKSTATE checkpoint are uncommitted; prior routing/bookkeeping commits remain clean at HEAD
+HEAD at product completion: `3ec28db` (`Unify shortcut settings persistence`)
+Working tree: clean after the product commit and WORKSTATE completion bookkeeping
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
-Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
+Product commit: `3ec28db` (`Unify shortcut settings persistence`)
 
 ## Current Engineering Slice
 
@@ -24,7 +24,7 @@ Non-goals: new shortcut customization features, Settings redesign, scope semanti
 
 ## Current Frontier
 
-Reconciled from clean HEAD `e9fa6e4`; the previous routing slice is complete. Source mapping is complete. The broken edge is SettingsDialog's independent `ffprotocol::Settings::shortcuts` vector: it displays/saves `(command text, human binding text)` inside `settings.json`, while WindowShell loads `ShortcutMap` from a separate `shortcuts.json` and never consumes that vector. Settings OK calls `SaveAndNotifySettings`, which saves only `settings.json`; the live map is unchanged, so the UI can report a saved shortcut that routing ignores.
+Reconciled from clean HEAD `e9fa6e4`; the previous routing slice is complete. Source mapping and the shortcut persistence slice are now complete. The broken edge was SettingsDialog's independent `ffprotocol::Settings::shortcuts` vector: it displayed/saved `(command text, human binding text)` inside `settings.json`, while WindowShell loaded `ShortcutMap` from a separate `shortcuts.json` and never consumed that vector. Settings OK called `SaveAndNotifySettings`, which saved only `settings.json`; the live map was unchanged, so the UI could report a saved shortcut that routing ignored.
 
 Data-flow map:
 `CommandSystem` registry defaults (`CommandDescriptor::defaultShortcut` + `scope`) -> `ShortcutMap::ResetDefaults` -> canonical `shortcuts.json` diff load -> WindowShell dispatch / CommandPalette hints.
@@ -43,7 +43,7 @@ Live apply policy: SettingsDialog edits a draft of the shared ShortcutMap; accep
 
 Implementation milestone: `Settings` no longer owns or writes shortcut values; `ffprotocol::ShortcutSettingsPath` is shared by startup and save paths; WindowShell loads canonical data or performs one-shot legacy import; SettingsDialog lists/edits the real command map through a draft; `ShortcutMap` validates canonical JSON, rejects duplicate/conflicting/invalid persisted bindings, preserves registry-derived scope, and saves atomically.
 
-OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts remain the planning context. Source mapping, implementation, actual Settings UI edit/apply/live/restart acceptance, native-edit/global regression, Debug/Analyze builds, and full CTest are complete. Only final staging/commit bookkeeping remains. No product commit was created.
+OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts remain the planning context. Source mapping, implementation, actual Settings UI edit/apply/live/restart acceptance, native-edit/global regression, Debug/Analyze builds, full CTest, and the focused product commit are complete.
 
 ## Established Facts
 
@@ -84,11 +84,11 @@ OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts r
 
 ### In Progress
 
-- Run final Debug/Analyze builds and full serial CTest, audit scope, then create the focused shortcut-persistence product commit and complete bookkeeping.
+- None. The shortcut persistence slice is complete.
 
 ### Not Started
 
-- Product commit and final COMPLETE bookkeeping after all required acceptance passes.
+- None for this slice.
 
 ## Files Changed In Prior Storage Slice
 
@@ -145,7 +145,7 @@ Runtime (shortcut slice): PASS on the rebuilt current Debug UI via direct Win32 
 Runtime (shortcut regression): PASS on a fresh current Debug GUI instance. Real address-edit paste/Enter navigation reached `C:\Windows\Temp` and `C:\Windows`; after each commit the edit hid and focus returned to the main HWND. Ctrl+Shift+P from normal view focus opened the palette `EDIT`/ListBox and Escape closed it; `IsHungAppWindow` reported responsive. No destructive file operation was used.
 Runtime (prior Storage slice): PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
 Other: OpenSpec CLI is unavailable; checked-in `storage-analysis` artifacts were read manually. Build tools are available under the installed VS 2022 Build Tools instance.
-Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior shortcut-routing product commit: `9db73c1fed5c8ed3a96c95e9ef89b463254ce197` (`Preserve global shortcuts while editing text`). Current shortcut-persistence product commit: not created.
+Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior shortcut-routing product commit: `9db73c1fed5c8ed3a96c95e9ef89b463254ce197` (`Preserve global shortcuts while editing text`). Current shortcut-persistence product commit: `3ec28db` (`Unify shortcut settings persistence`).
 
 ## Failures / Blockers
 
@@ -174,11 +174,11 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior 
 - Settings control facts: top-level `FastFilesSettingsDialog`; tab index 5 is Shortcuts; shortcut rows are a native `SysListView32`; `NM_DBLCLK` on subitem 1 creates a temporary native `EDIT`; Enter/blur commits and Escape cancels; IDOK runs `FinishShortcutEdit`, `SaveCurrentPage`, and the real `onChanged_` callback.
 - Test binding: `Search` old `Ctrl+F`, test `F6`. Search is registry row 24 (file operations 9 + navigation/selection 15).
 - Acceptance evidence: canonical `shortcuts.json` has `{"commandId":"search.focus","key":117,"modifiers":""}` and no `Ctrl+F`; physical F6 focused Search query EDIT `5441536`; physical Ctrl+L focused address EDIT `20776946`; physical old Ctrl+F left address EDIT focus unchanged.
-- Completed: normal close, relaunch without rewriting config, F6/old Ctrl+F restart checks, native-edit/global regression, exact user-profile restoration, generated canonical cleanup, and temporary-directory removal. Remaining gate is final repository validation and commit.
+- Completed: normal close, relaunch without rewriting config, F6/old Ctrl+F restart checks, native-edit/global regression, exact user-profile restoration, generated canonical cleanup, temporary-directory removal, final Debug/Analyze builds, full serial CTest, and the focused product commit.
 
 ## NEXT EXACT ACTION
 
-Run final Debug/Analyze builds and full serial CTest, inspect Git scope, stage only shortcut-persistence product/test changes plus WORKSTATE, verify the staged diff, commit `Unify shortcut settings persistence`, then mark this slice COMPLETE and recommend exactly one next slice without implementing it.
+Do not implement the next slice. Preserve this COMPLETE checkpoint; the single next recommended slice is `Treemap category-filter disconnect`.
 
 ## Resume Instructions
 
