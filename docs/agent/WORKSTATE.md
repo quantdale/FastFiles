@@ -1,15 +1,16 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T14:08:00+08:00
-Status: ACTIVE
+Last updated: 2026-08-09T14:18:00+08:00
+Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `4ca9e4097432bfa252161ad62f20c12400d2f5e7`
-Working tree: product slice and narrow debug runtime-observability changes present; memory infrastructure committed separately; runtime artifacts cleaned
+HEAD: `2d671d107b5f38b5709e32cc2e7edaf5bbe42f28`
+Working tree: clean after the focused product commit; runtime artifacts cleaned
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
+Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
 ## Current Engineering Slice
 
@@ -23,7 +24,7 @@ Non-goals: Storage Analysis, global shortcuts, shortcut persistence, Treemap fil
 
 ## Current Frontier
 
-Implementation, deterministic tests, and runtime watcher/reorder acceptance are complete. Final Debug/Analyze/full-CTest rerun, scope audit, product commit, and final WORKSTATE bookkeeping remain.
+Implementation, deterministic tests, runtime watcher/reorder acceptance, required validation, scope audit, and focused product commit are complete.
 
 ## Established Facts
 
@@ -63,11 +64,11 @@ Implementation, deterministic tests, and runtime watcher/reorder acceptance are 
 
 ### In Progress
 
-- Final required build/test rerun, source scope audit, product commit, and WORKSTATE completion.
+- None.
 
 ### Not Started
 
-- Product commit for the selection slice.
+- Next recommended slice: Storage Analysis visibility/overlap. Do not start it automatically.
 
 ## Files Changed In This Slice
 
@@ -92,17 +93,19 @@ Implementation, deterministic tests, and runtime watcher/reorder acceptance are 
 
 ## Validation
 
-Debug: PASS; final changed UI and test targets built successfully.
-Analyze: PASS; final changed UI and test targets built successfully with `/analyze`.
+Debug: PASS; full `cmake --build --preset debug`.
+Analyze: PASS; full `cmake --preset analyze` and `cmake --build --preset analyze` with `/analyze`.
 CTest: PASS, 37/37 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
 Runtime: PASS. In a disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-*` fixture, real FastFiles/Engine state showed A/B/C with B selected at row 1; external creation of `000-new.txt` produced `000-new.txt|A.txt|B.txt|C.txt`, B at row 2, B identity/path/focus retained, and `ActiveSelectionPaths()` operation target still B. All fixture folders and owned processes were cleaned.
 Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited source; changed files were normalized, final `git diff --check` passed, and the final full CTest passed.
+Product commit: `2d671d107b5f38b5709e32cc2e7edaf5bbe42f28`.
 
 ## Failures / Blockers
 
 - The first full CTest run failed only on the known clean-profile TEMP path issue and the edited source's mixed line endings. The focused rerun with the documented TEMP/TMP override and the final full run both passed.
 - The first probe request deadlocked because `SMTO_BLOCK` prevented the synchronous WM_COPYDATA reply; removing that flag fixed the probe without affecting product state.
 - Hard-coded mouse coordinates hit a breadcrumb at the fresh process's 1.0 DPI scale; deriving click geometry from the live chrome height fixed navigation. This was harness-only and no product behavior changed.
+- No active blockers remain for this slice.
 
 ## Deferred / BACKLOG
 
@@ -111,7 +114,7 @@ Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited sou
 
 ## NEXT EXACT ACTION
 
-Run Debug, Analyze, and full serial CTest through the VS developer shell, then audit/stage only this selection slice and create the focused product commit; update this file to COMPLETE and stop.
+Slice is COMPLETE. Do not implement the next slice in this session. The single next recommended engineering slice is Storage Analysis visibility/overlap.
 
 ## Resume Instructions
 
