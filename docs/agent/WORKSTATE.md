@@ -1,14 +1,15 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T13:23:54+08:00
+Last updated: 2026-08-09T14:08:00+08:00
 Status: ACTIVE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `05b7bb14b0e45dc2f5b2e5b42b3d941137eb7635`
-Working tree: product slice changes present; memory infrastructure not yet committed
+HEAD: `4ca9e4097432bfa252161ad62f20c12400d2f5e7`
+Working tree: product slice and narrow debug runtime-observability changes present; memory infrastructure committed separately; runtime artifacts cleaned
+Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 
 ## Current Engineering Slice
 
@@ -22,7 +23,7 @@ Non-goals: Storage Analysis, global shortcuts, shortcut persistence, Treemap fil
 
 ## Current Frontier
 
-Implementation and deterministic tests are complete. Final runtime watcher/reorder acceptance is not yet verified; the interrupted UI experiment used `C:\Windows\Temp\FastFiles-SelectionIdentity-Slice` and did not produce reliable selection evidence.
+Implementation, deterministic tests, and runtime watcher/reorder acceptance are complete. Final Debug/Analyze/full-CTest rerun, scope audit, product commit, and final WORKSTATE bookkeeping remain.
 
 ## Established Facts
 
@@ -34,6 +35,7 @@ Implementation and deterministic tests are complete. Final runtime watcher/reord
 - If both sides have stable indexed identity, matching requires volume row plus FRN. If either side has stable indexed identity and the other does not, no path downgrade is allowed; path matching is used only when neither side has stable identity.
 - Error/missing directory refreshes now clear items, selection, anchor, and focus.
 - Search-result pending selection still uses the existing path/name navigation mechanism; the refreshed column state now uses the same identity-safe remapping once entries are materialized.
+- Debug-only `WM_COPYDATA` observation reads the active path, visible row names, selected/focused identity and row, and the existing `ActiveSelectionPaths()` operation target; it has no selection-control path.
 
 ## Decisions
 
@@ -57,11 +59,11 @@ Implementation and deterministic tests are complete. Final runtime watcher/reord
 - Safe clearing on AccessDenied, NotFound, I/O error, and directory error callbacks.
 - Eight focused deterministic regression scenarios in `tests/ui/test_selection_identity.cpp`.
 - CTest registration in `tests/ui/CMakeLists.txt`.
+- `src/ui/include/ffui/SelectionDiagnostics.h`, `ColumnView::CurrentSelectionDiagnostics`, and `tests/ui/selection_identity_runtime_probe.cpp` provide the minimal read-only runtime observation seam.
 
 ### In Progress
 
-- Disposable runtime watcher/reorder acceptance and final product-slice review.
-- Memory infrastructure installation and isolated infrastructure commit.
+- Final required build/test rerun, source scope audit, product commit, and WORKSTATE completion.
 
 ### Not Started
 
@@ -77,6 +79,10 @@ Implementation and deterministic tests are complete. Final runtime watcher/reord
   - Deterministic insertion, reorder, deletion, focus, degraded, indexed, and operation-target tests.
 - `tests/ui/CMakeLists.txt`
   - Registers `ffselection_identity_tests`.
+- `src/ui/include/ffui/SelectionDiagnostics.h`, `src/ui/src/ColumnView.h`, `src/ui/src/WindowShell.cpp`
+  - Debug-only read-only WM_COPYDATA state query for runtime acceptance.
+- `tests/ui/selection_identity_runtime_probe.cpp`
+  - Small native query client; not registered as a CTest test.
 
 ## Tests Added / Modified
 
@@ -86,16 +92,17 @@ Implementation and deterministic tests are complete. Final runtime watcher/reord
 
 ## Validation
 
-Debug: PASS; changed UI and test targets built successfully.
-Analyze: PASS; changed UI and test targets built successfully with `/analyze`.
+Debug: PASS; final changed UI and test targets built successfully.
+Analyze: PASS; final changed UI and test targets built successfully with `/analyze`.
 CTest: PASS, 37/37 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
-Runtime: FastFiles and FastFilesEngine launched; disposable-folder selection/reorder evidence is NOT VERIFIED. Screenshots were inconclusive for selection, and no user files were touched.
-Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited source; changed files were normalized and the final full CTest passed.
+Runtime: PASS. In a disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-*` fixture, real FastFiles/Engine state showed A/B/C with B selected at row 1; external creation of `000-new.txt` produced `000-new.txt|A.txt|B.txt|C.txt`, B at row 2, B identity/path/focus retained, and `ActiveSelectionPaths()` operation target still B. All fixture folders and owned processes were cleaned.
+Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited source; changed files were normalized, final `git diff --check` passed, and the final full CTest passed.
 
 ## Failures / Blockers
 
 - The first full CTest run failed only on the known clean-profile TEMP path issue and the edited source's mixed line endings. The focused rerun with the documented TEMP/TMP override and the final full run both passed.
-- Runtime UI automation through the current headless/Direct2D environment has not yet yielded reliable row-selection evidence; do not claim runtime selection acceptance without a new proof.
+- The first probe request deadlocked because `SMTO_BLOCK` prevented the synchronous WM_COPYDATA reply; removing that flag fixed the probe without affecting product state.
+- Hard-coded mouse coordinates hit a breadcrumb at the fresh process's 1.0 DPI scale; deriving click geometry from the live chrome height fixed navigation. This was harness-only and no product behavior changed.
 
 ## Deferred / BACKLOG
 
@@ -104,7 +111,7 @@ Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited sou
 
 ## NEXT EXACT ACTION
 
-Complete or explicitly bound the runtime acceptance: use the disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-Slice` folder to select `B.txt`, create `000-new.txt` externally, and verify selection/Copy target; if the environment cannot expose reliable selection evidence after one changed method, record runtime as NOT VERIFIED, clean the owned process/temp artifacts, then perform final diff review and product validation before deciding on the product commit.
+Run Debug, Analyze, and full serial CTest through the VS developer shell, then audit/stage only this selection slice and create the focused product commit; update this file to COMPLETE and stop.
 
 ## Resume Instructions
 

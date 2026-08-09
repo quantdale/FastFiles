@@ -27,6 +27,15 @@ add_executable(ffsnapshot_aggregate_tests test_snapshot_aggregate.cpp)
 target_include_directories(ffsnapshot_aggregate_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
 add_test(NAME ffsnapshot_aggregate_tests COMMAND ffsnapshot_aggregate_tests)
 
+add_executable(ffselection_identity_tests test_selection_identity.cpp)
+target_include_directories(ffselection_identity_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffselection_identity_tests COMMAND ffselection_identity_tests)
+
+# Debug-only read-only state query used by the disposable watcher/reorder
+# acceptance; it is intentionally not registered as a CTest test.
+add_executable(ffselection_identity_runtime_probe selection_identity_runtime_probe.cpp)
+target_include_directories(ffselection_identity_runtime_probe PRIVATE ../../src/ui/include)
+
 # Modernize-ui-appearance foundation seams: token/color conversions, animation
 # easing, and icon-cache keying are plain C++ testable without a renderer.
 # UiAnimation.cpp is compiled in for FloatAnimation/SystemAnimationsEnabled.
@@ -34,4 +43,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests PROPERTIES TIMEOUT 120)

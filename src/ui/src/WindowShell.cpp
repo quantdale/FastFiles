@@ -23,6 +23,10 @@
 #include <windowsx.h>
 #include <winreg.h>
 
+#ifdef _DEBUG
+#include "ffui/SelectionDiagnostics.h"
+#endif
+
 namespace ffui {
 
 namespace {
@@ -117,6 +121,35 @@ std::wstring FormatUnavailableVolume(const ffprotocol::UnavailableVolumeRecord& 
     return std::wstring(guidText) + L"  (serial " + serialText + L", "
         + std::to_wstring(record.entryCount) + L" indexed entries)";
 }
+
+#ifdef _DEBUG
+std::wstring FormatSelectionProbeIdentity(const std::optional<SelectionIdentity>& identity) {
+    if (!identity) return {};
+    if (!identity->hasStableFileId) return L"path:" + identity->path;
+    return L"indexed:" + std::to_wstring(identity->volumeRowId) + L":" +
+           std::to_wstring(identity->fileIdHigh) + L":" + std::to_wstring(identity->fileIdLow);
+}
+
+std::wstring FormatSelectionProbeState(const SelectionDiagnostics& diagnostics) {
+    const std::wstring selectedPath = diagnostics.selectedIdentity
+        ? diagnostics.selectedIdentity->path : std::wstring{};
+    const std::wstring focusedIdentity = FormatSelectionProbeIdentity(diagnostics.focusedIdentity);
+    const std::wstring selectedIdentity = FormatSelectionProbeIdentity(diagnostics.selectedIdentity);
+    std::wstring visibleItems;
+    for (const auto& item : diagnostics.visibleItemNames) {
+        if (!visibleItems.empty()) visibleItems += L"|";
+        visibleItems += item;
+    }
+    return L"ActivePath=" + diagnostics.activePath + L"\n" +
+           L"VisibleItems=" + visibleItems + L"\n" +
+           L"SelectedPath=" + selectedPath + L"\n" +
+           L"SelectedIdentity=" + selectedIdentity + L"\n" +
+           L"SelectedIndex=" + std::to_wstring(diagnostics.selectedIndex) + L"\n" +
+           L"FocusedIdentity=" + focusedIdentity + L"\n" +
+           L"FocusedIndex=" + std::to_wstring(diagnostics.focusedIndex) + L"\n" +
+           L"OperationTarget=" + diagnostics.operationTarget + L"\n";
+}
+#endif
 }
 
 WindowShell::WindowShell() : previewController_([this](uint64_t requestId, PreviewResult result) {
@@ -1221,6 +1254,23 @@ void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+#ifdef _DEBUG
+        case WM_COPYDATA: {
+            const auto* request = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+            if (request == nullptr || request->dwData != ffui::kSelectionDiagnosticsQuery ||
+                wParam == 0 || request->cbData != 0) {
+                return DefWindowProcW(hwnd, message, wParam, lParam);
+            }
+            const std::wstring payload = FormatSelectionProbeState(columnView_.CurrentSelectionDiagnostics());
+            COPYDATASTRUCT response{};
+            response.dwData = ffui::kSelectionDiagnosticsResponse;
+            response.cbData = static_cast<DWORD>((payload.size() + 1) * sizeof(wchar_t));
+            response.lpData = const_cast<wchar_t*>(payload.c_str());
+            SendMessageW(reinterpret_cast<HWND>(wParam), WM_COPYDATA,
+                         reinterpret_cast<WPARAM>(hwnd), reinterpret_cast<LPARAM>(&response));
+            return TRUE;
+        }
+#endif
         case WM_SIZE: {
             const UINT width = LOWORD(lParam);
             const UINT height = HIWORD(lParam);

@@ -4,6 +4,7 @@
 #include "UiAnimation.h"
 #include "UiStyle.h"
 #include "IconCache.h"
+#include "ffui/SelectionIdentity.h"
 #include "ffprotocol/Diagnostics.h"
 
 #include <algorithm>
@@ -545,29 +546,38 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::AccessDenied) {
         column.error = ColumnErrorState::AccessDenied;
         column.items.clear();
+        column.selectedIndices.clear();
+        column.selectionAnchor = -1;
+        column.focusIndex = -1;
         return;
     }
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::NotFound) {
         column.error = ColumnErrorState::NoLongerAvailable;
         column.items.clear();
+        column.selectedIndices.clear();
+        column.selectionAnchor = -1;
+        column.focusIndex = -1;
         return;
     }
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::IoError) {
         column.error = ColumnErrorState::EnumerationFailed;
         column.items.clear();
+        column.selectedIndices.clear();
+        column.selectionAnchor = -1;
+        column.focusIndex = -1;
         return;
     }
 
     column.error = ColumnErrorState::None;
-    std::vector<std::wstring> selectedNames;
-    selectedNames.reserve(column.selectedIndices.size());
-    for (int index : column.selectedIndices) {
-        if (index >= 0 && index < static_cast<int>(column.items.size())) {
-            selectedNames.push_back(column.items[index].name);
-        }
+    std::vector<SelectionIdentity> previousIdentities;
+    previousIdentities.reserve(column.items.size());
+    for (const auto& item : column.items) {
+        previousIdentities.push_back(MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                                           item.fileIdLow, item.fileIdHigh));
     }
-    const std::wstring focusedName = column.focusIndex >= 0 && column.focusIndex < static_cast<int>(column.items.size())
-        ? column.items[column.focusIndex].name : std::wstring{};
+    const SelectionIndexState previousState{column.selectedIndices, column.selectionAnchor, column.focusIndex};
+    const SelectionIdentityState previousSelection =
+        CaptureSelectionIdentityState(previousIdentities, previousState);
     const std::wstring pendingName = pendingSelectionName_;
     const std::wstring pendingPath = pendingSelectionPath_;
     bool pendingApplied = false;
@@ -584,28 +594,23 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
         }
         return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
     });
-    column.selectedIndices.clear();
-    for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
-        const bool wasSelected = std::any_of(selectedNames.begin(), selectedNames.end(),
-            [&column, index](const std::wstring& name) {
-                return _wcsicmp(column.items[index].name.c_str(), name.c_str()) == 0;
-            });
-        if (wasSelected) column.selectedIndices.insert(index);
+    std::vector<SelectionIdentity> refreshedIdentities;
+    refreshedIdentities.reserve(column.items.size());
+    for (const auto& item : column.items) {
+        refreshedIdentities.push_back(MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                                            item.fileIdLow, item.fileIdHigh));
     }
+    const SelectionIndexState restoredState = RestoreSelectionIndexState(refreshedIdentities, previousSelection);
+    column.selectedIndices = restoredState.selectedIndices;
+    column.selectionAnchor = restoredState.selectionAnchor;
+    column.focusIndex = restoredState.focusIndex;
     if (!pendingName.empty() && (pendingPath.empty() || column.path == pendingPath)) {
         for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
             if (_wcsicmp(column.items[index].name.c_str(), pendingName.c_str()) == 0) {
                 column.selectedIndices.insert(index);
+                column.selectionAnchor = index;
                 column.focusIndex = index;
                 pendingApplied = true;
-                break;
-            }
-        }
-    }
-    if (!pendingApplied && !focusedName.empty()) {
-        for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
-            if (_wcsicmp(column.items[index].name.c_str(), focusedName.c_str()) == 0) {
-                column.focusIndex = index;
                 break;
             }
         }
@@ -613,9 +618,6 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
     if (pendingApplied) {
         pendingSelectionName_.clear();
         pendingSelectionPath_.clear();
-    }
-    if (column.focusIndex >= static_cast<int>(column.items.size())) {
-        column.focusIndex = -1;
     }
 }
 
@@ -658,12 +660,18 @@ void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::Director
         if (column.path == path) {
             column.error = errorState;
             column.items.clear();
+            column.selectedIndices.clear();
+            column.selectionAnchor = -1;
+            column.focusIndex = -1;
         }
     }
     for (auto& column : columns2_) {
         if (column.path == path) {
             column.error = errorState;
             column.items.clear();
+            column.selectedIndices.clear();
+            column.selectionAnchor = -1;
+            column.focusIndex = -1;
         }
     }
 }
@@ -747,6 +755,42 @@ SelectionSummary ColumnView::CurrentSelectionSummary() const {
     }
     return summary;
 }
+
+#ifdef _DEBUG
+SelectionDiagnostics ColumnView::CurrentSelectionDiagnostics() const {
+    SelectionDiagnostics diagnostics;
+    const std::vector<std::wstring> operationTargets = ActiveSelectionPaths();
+    if (!operationTargets.empty()) diagnostics.operationTarget = operationTargets.front();
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
+        return diagnostics;
+    }
+
+    const Column& column = columns[focusedIndex];
+    diagnostics.activePath = column.path;
+    diagnostics.visibleItemNames.reserve(column.items.size());
+    for (const auto& item : column.items) diagnostics.visibleItemNames.push_back(item.name);
+    const auto makeIdentity = [&column](int itemIndex) {
+        const ColumnItem& item = column.items[static_cast<size_t>(itemIndex)];
+        return MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                     item.fileIdLow, item.fileIdHigh);
+    };
+    for (const int index : column.selectedIndices) {
+        if (index >= 0 && index < static_cast<int>(column.items.size())) {
+            diagnostics.selectedIndex = index;
+            diagnostics.selectedIdentity = makeIdentity(index);
+            break;
+        }
+    }
+    if (column.focusIndex >= 0 && column.focusIndex < static_cast<int>(column.items.size())) {
+        diagnostics.focusedIndex = column.focusIndex;
+        diagnostics.focusedIdentity = makeIdentity(column.focusIndex);
+    }
+    return diagnostics;
+}
+#endif
 
 std::wstring ColumnView::CurrentPath() const {
     const std::wstring path = ActivePanePath();

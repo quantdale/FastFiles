@@ -20,6 +20,10 @@
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 
+#ifdef _DEBUG
+#include "ffui/SelectionIdentity.h"
+#endif
+
 #include "EngineClient.h"
 #include "Preview.h"
 #include "CommandSystem.h"
@@ -44,6 +48,18 @@ struct SelectionSummary {
     std::vector<FileDescriptor> items;
     uint64_t knownSizeBytes = 0;
 };
+
+#ifdef _DEBUG
+struct SelectionDiagnostics {
+    std::wstring activePath;
+    std::vector<std::wstring> visibleItemNames;
+    std::optional<SelectionIdentity> selectedIdentity;
+    int selectedIndex = -1;
+    std::optional<SelectionIdentity> focusedIdentity;
+    int focusedIndex = -1;
+    std::wstring operationTarget;
+};
+#endif
 
 enum class ColumnErrorState {
     None,
@@ -271,6 +287,9 @@ public:
     int FocusedColumnIndex() const;
     std::optional<FileDescriptor> CurrentSelection() const;
     SelectionSummary CurrentSelectionSummary() const;
+#ifdef _DEBUG
+    SelectionDiagnostics CurrentSelectionDiagnostics() const;
+#endif
     std::wstring CurrentPath() const;
     // Aliased to the shared UiMetrics ramp (UITheme.h) so the render and any
     // consumers referencing ColumnView::k* constants cannot drift.
