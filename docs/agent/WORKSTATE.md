@@ -1,32 +1,36 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T16:50:00+08:00
+Last updated: 2026-08-09T23:32:22+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `412e25b`
-Working tree: clean after the focused Storage visibility product commit; runtime artifacts and owned processes cleaned
+HEAD: `9db73c1`
+Working tree: clean after product commit `9db73c1` and its WORKSTATE bookkeeping commit
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
 ## Current Engineering Slice
 
-Name: Storage Analysis visibility / mode ownership
+Name: Global shortcut routing while native edit controls own focus
 
-Objective: Establish one authoritative visibility policy so exactly the controls owned by the active Storage Analysis mode are visible, and resize/layout/refresh cannot resurrect controls owned by another mode.
+Objective: Keep explicitly global Fast Files shortcuts available from native edit controls while preserving native text-editing ownership and suppressing non-global view/file shortcuts.
 
-Safety / correctness invariant: For every Storage Analysis mode, exactly that mode's controls are visible; layout and data refresh never independently change semantic visibility.
+Safety / correctness invariant: One key press produces one intended semantic action; global application commands dispatch once, native edit commands remain with the edit control, and view-local commands do not accidentally operate on the file view while text is being edited.
 
-Non-goals: global shortcuts, shortcut persistence, Treemap category-filter semantics/data plumbing, watcher shutdown ordering, stale-snapshot UX, large-index performance, MFT/USN activation, signature pins, service authentication, installer work, and selection identity (complete prior slice).
+Non-goals: shortcut persistence/settings source-of-truth, Storage Analysis, selection identity, Treemap category filtering, watcher shutdown ordering, stale snapshot UX, MFT/USN, signing/authentication, installer behavior, or general command-system redesign.
 
 ## Current Frontier
 
-Root cause is confirmed. `StorageAnalysis::RefreshData` and `StorageAnalysis::ShowAndFocus` make semantic HWND visibility decisions, while `StorageAnalysis::Reposition` calls `SetWindowPos` with `SWP_SHOWWINDOW` for every Storage Analysis control. After Overview hides `list_`/`categoryFilter_`, or Treemap hides `list_`/`overview_`/`status_`, a `WM_SIZE` path resurrects them and they overlap the active presentation. `WindowShell::WM_SIZE` is the trigger via `storageAnalysis_.Reposition()`.
+Root cause is confirmed. `WindowShell::RunMessageLoop` first routes palette/settings messages, then computes `textInput` from `msg.hwnd` (`IsNativeTextInput` class checks for `Edit`/`RichEdit20W`, plus `inlineRename_`). Its broad `!textInput` gate skips both `ShortcutScope::Global` and `ShortcutScope::ActiveView` dispatch. Therefore `Ctrl+F`, `Ctrl+L`, and `Ctrl+Shift+P` never reach the command map from the address-bar `EDIT`, even though their registry bindings are Global. The main loop uses `GetMessageW`/`TranslateMessage`/`DispatchMessageW`; it has no `TranslateAccelerator` path. `SettingsDialog::HandleMessage` is an earlier child-message consumer, so Global routing must be checked before it.
 
-Completed frontier: `ffui::StorageVisibility.h` provides the pure mode-to-control policy; `StorageAnalysis::ApplyModeVisibility` is the sole semantic visibility owner; `RefreshData` is data-only; `Reposition` is geometry-only; and headless/runtime tests cover all modes, transitions, idempotence, and resize stability.
+The current registry has Global defaults for `search.focus` (`Ctrl+F`), `navigation.focus-path` (`Ctrl+L`), `app.command-palette` (`Ctrl+Shift+P`), and tab/bookmark commands. Copy/cut/paste/select-all are ActiveView. `file.undo` is the one conflicting default: it binds `Ctrl+Z` as Global even though `Ctrl+Z` is a native edit chord; it must become ActiveView so the edit control retains it.
+
+Decision: retain the existing `Global` / `ActiveView` metadata, add one pure `ShortcutScope` + native-edit-focus eligibility helper, determine native-edit ownership from `GetFocus()` with the queued key message HWND as a fallback (plus inline-rename coverage), and perform Global lookup before palette/settings routing. ActiveView dispatch remains suppressed for native edit focus and palette-visible routing. The `continue` after a successful Global dispatch prevents a second semantic dispatch. `NavigationChrome::EndAddressEdit(false)` now cancels on focus loss without reclaiming focus, so Global search/palette commands can move focus to their own native controls; explicit Escape still restores chrome focus.
+
+OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts remain the planning context. Implementation, focused tests, current-source runtime acceptance, Analyze, full CTest, and the bounded product commit are complete.
 
 ## Established Facts
 
@@ -73,7 +77,7 @@ Completed frontier: `ffui::StorageVisibility.h` provides the pure mode-to-contro
 
 - None for this slice.
 
-## Files Changed In This Slice
+## Files Changed In Prior Storage Slice
 
 - `src/ui/include/ffui/StorageVisibility.h`
   - Pure Storage mode/control visibility policy.
@@ -84,20 +88,38 @@ Completed frontier: `ffui::StorageVisibility.h` provides the pure mode-to-contro
 - `docs/agent/WORKSTATE.md`
   - Durable frontier and validation checkpoint.
 
+## Files Changed In This Slice
+
+- `src/ui/src/CommandSystem.h` and `src/ui/src/CommandSystem.cpp`
+  - Central native-edit eligibility policy; `file.undo` is ActiveView so Ctrl+Z remains native while editing.
+- `src/ui/src/WindowShell.h` and `src/ui/src/WindowShell.cpp`
+  - GetFocus/message-target native-edit routing; Global dispatch runs before child-dialog routing and consumes once.
+- `src/ui/src/NavigationChrome.h` and `src/ui/src/NavigationChrome.cpp`
+  - Focus-loss cancellation no longer steals focus from a Global command's destination edit.
+- `tests/ui/test_shortcut_routing.cpp` and `tests/ui/CMakeLists.txt`
+  - Headless actual-binding matrix, edit suppression, non-edit regression, unknown chord, and no-double-route coverage.
+- `docs/agent/WORKSTATE.md`
+  - Durable routing root cause, validation, and completion checkpoint.
+
 ## Tests Added / Modified
 
 - `ffstorage_visibility_tests`
   purpose: Covers all six modes, active-mode/exclusive-control visibility, requested transitions, resize stability, and idempotence.
   status: PASS (focused and full CTest).
+- `ffshortcut_routing_tests`
+  purpose: Covers Global bindings from native edit focus, native Ctrl+C/V/X/A/Z ownership, view-local suppression, non-edit routing, unknown chords, and one-dispatch behavior.
+  status: PASS (focused).
 
 ## Validation
 
-Debug: PASS; full `cmake --build --preset debug`.
-Analyze: PASS; `cmake --preset analyze` and full `cmake --build --preset analyze` with `/analyze`.
-CTest: PASS, 38/38 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
-Runtime: PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
+Debug: PASS; rebuilt the current worktree with `cmake --build --preset debug`; the current executable is `build/debug/src/ui/FastFiles.exe` (the separate staged copy remained stale and was not used for acceptance).
+Analyze: PASS; `cmake --build --preset analyze` completed with no work after the current-source tree was already analyzed.
+CTest: PASS, 39/39 serial with long-form process-local `TEMP=C:\Users\Michael Roy\AppData\Local\Temp` and `TMP=C:\Users\Michael Roy\AppData\Local\Temp`; `ffshortcut_routing_tests` passed as test 34/39.
+Runtime (shortcut slice): PASS on the rebuilt current Debug UI via direct Win32 `keybd_event` and live HWND state. `Ctrl+L` focused address `EDIT` HWND 264124. Native acceptance used actual typed `probe` text and `WM_GETTEXTLENGTH`/`EM_GETSEL`: Ctrl+A selected all (0..5), Ctrl+C yielded clipboard `probe`, Ctrl+X reduced edit length to 0, Ctrl+V with `PasteProbe` produced length 10, and Ctrl+Z restored length 5; focus remained the address edit throughout. Global acceptance from the edit passed: Ctrl+Shift+P focused the command-palette `EDIT` HWND 133068 with its ListBox visible, Ctrl+F focused the search `EDIT` HWND 133076, and Ctrl+L returned focus to address `EDIT` HWND 264124. F5 while address edit focus remained on HWND 264124, with no view-routing UI change observed. Escape cleanup completed separately. Storage runtime evidence below is from the completed prior slice.
+Runtime (shortcut regression): PASS on a fresh current Debug GUI instance. Real address-edit paste/Enter navigation reached `C:\Windows\Temp` and `C:\Windows`; after each commit the edit hid and focus returned to the main HWND. Ctrl+Shift+P from normal view focus opened the palette `EDIT`/ListBox and Escape closed it; `IsHungAppWindow` reported responsive. No destructive file operation was used.
+Runtime (prior Storage slice): PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
 Other: OpenSpec CLI is unavailable; checked-in `storage-analysis` artifacts were read manually. Build tools are available under the installed VS 2022 Build Tools instance.
-Product commit: `412e25b` (`Fix Storage Analysis mode visibility`).
+Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Current shortcut product commit: `9db73c1fed5c8ed3a96c95e9ef89b463254ce197` (`Preserve global shortcuts while editing text`).
 
 ## Failures / Blockers
 
@@ -107,7 +129,11 @@ Product commit: `412e25b` (`Fix Storage Analysis mode visibility`).
 - `cmake` was initially absent from the plain shell PATH; using `Launch-VsDevShell.ps1` from the installed Build Tools instance resolved the harness setup without changing the repository.
 - Runtime probe: a read-only PowerShell/PInvoke query used the live main HWND and Storage child control IDs; normal command-palette and radio-button commands drove mode transitions. FastFiles remained responsive and the Engine/UI process pair stayed alive.
 - Treemap screenshot capture was limited by the existing degraded empty-layout path (`TreemapView::Render` returns before clearing when `layout_` is empty); no Treemap rendering claim is made from that capture.
-- No active blockers remain for this slice.
+- No active blockers remain for this slice; native-edit, global shortcut, and bounded runtime regression acceptance pass on the rebuilt current executable.
+- Plain-shell `cmake` is unavailable; focused validation succeeded after launching the installed VS 2022 Build Tools developer shell, as documented above.
+- OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts were used as planning context and no unrelated change artifacts were edited.
+- The first runtime probe used a stale staged executable and invalid cross-process `GetWindowText`/`EM_GETSEL` observations; those results are explicitly excluded. The rebuilt run used the source-matching executable, actual key-generated text, `WM_GETTEXTLENGTH`, `EM_GETSEL` return values, and clipboard contents.
+- Full CTest environment evidence: default 8.3 user TEMP passed `ffindexstore_store_tests` but failed unrelated `fffileoperations_e2e_tests`; `C:\Windows\Temp` passed the file-operations test but aborted the index-store test in a Debug CRT dialog; long-form user TEMP/TMP passed both isolated tests and is the selected full-suite environment.
 
 ## Deferred / BACKLOG
 
@@ -117,7 +143,7 @@ Product commit: `412e25b` (`Fix Storage Analysis mode visibility`).
 
 ## NEXT EXACT ACTION
 
-Slice is complete. Do not implement the next slice in this session. The single next recommended engineering slice is global shortcuts while native edit controls own focus.
+This slice is complete. Do not implement the next slice in this session. The single next recommended slice is Shortcut settings persistence / source-of-truth disconnect.
 
 ## Resume Instructions
 
