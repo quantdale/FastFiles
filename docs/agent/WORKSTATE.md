@@ -1,14 +1,14 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T14:18:00+08:00
+Last updated: 2026-08-09T15:35:10+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `2d671d107b5f38b5709e32cc2e7edaf5bbe42f28`
-Working tree: clean after the focused product commit; runtime artifacts cleaned
+HEAD: `bf073b2ebe75f73d08c5b7b10e8b5149b39f071c`
+Working tree: clean after the focused product and acceptance-evidence commits; runtime artifacts cleaned
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
@@ -24,7 +24,7 @@ Non-goals: Storage Analysis, global shortcuts, shortcut persistence, Treemap fil
 
 ## Current Frontier
 
-Implementation, deterministic tests, runtime watcher/reorder acceptance, required validation, scope audit, and focused product commit are complete.
+Implementation, deterministic tests, runtime watcher/reorder acceptance, required validation, scope audit, and focused product commit are complete. A fresh runtime acceptance rerun passed with the existing read-only Debug probe.
 
 ## Established Facts
 
@@ -96,7 +96,7 @@ Implementation, deterministic tests, runtime watcher/reorder acceptance, require
 Debug: PASS; full `cmake --build --preset debug`.
 Analyze: PASS; full `cmake --preset analyze` and `cmake --build --preset analyze` with `/analyze`.
 CTest: PASS, 37/37 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
-Runtime: PASS. In a disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-*` fixture, real FastFiles/Engine state showed A/B/C with B selected at row 1; external creation of `000-new.txt` produced `000-new.txt|A.txt|B.txt|C.txt`, B at row 2, B identity/path/focus retained, and `ActiveSelectionPaths()` operation target still B. All fixture folders and owned processes were cleaned.
+Runtime: PASS. In a fresh disposable `C:\Windows\Temp\FastFiles-SelectionIdentity-*` fixture, real FastFiles/Engine state showed A/B/C with B selected at row 1; external creation of `000-new.txt` produced `000-new.txt|A.txt|B.txt|C.txt`, B at row 2, B identity/path/focus retained, and `ActiveSelectionPaths()` operation target still B. All fixture folders and owned processes were cleaned.
 Other: `ffdoc_drift_tests` initially caught mixed line endings in the edited source; changed files were normalized, final `git diff --check` passed, and the final full CTest passed.
 Product commit: `2d671d107b5f38b5709e32cc2e7edaf5bbe42f28`.
 
