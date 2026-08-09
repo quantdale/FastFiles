@@ -575,8 +575,9 @@ bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     return true;
 }
 
-bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope) {
+bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope, bool nativeEditFocused) {
     if (message.message != WM_KEYDOWN && message.message != WM_SYSKEYDOWN) return false;
+    if (!IsShortcutDispatchAllowed(scope, nativeEditFocused)) return false;
     uint8_t modifiers = ModifierNone;
     if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) modifiers |= ModifierControl;
     if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) modifiers |= ModifierShift;
@@ -820,14 +821,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
 int WindowShell::RunMessageLoop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        const HWND focused = GetFocus();
+        const bool nativeEditFocused = IsNativeTextInput(focused) || IsNativeTextInput(msg.hwnd) ||
+            focused == inlineRename_ || msg.hwnd == inlineRename_;
+        // Global shortcuts are checked before child-control routing. A
+        // successful dispatch consumes this message exactly once, so it can
+        // never fall through to a second command or the native edit.
+        if (DispatchShortcut(msg, ShortcutScope::Global, nativeEditFocused)) continue;
         if (commandPalette_.HandleMessage(msg)) continue;
         if (settingsDialog_.HandleMessage(msg)) continue;
-        // Native edit controls own standard text-editing chords (Ctrl+C/V/X,
-        // Ctrl+A, Backspace, etc.). Do not let the file-manager shortcut map
-        // consume those messages before the control sees them.
-        const bool textInput = IsNativeTextInput(msg.hwnd) || msg.hwnd == inlineRename_;
-        if (!textInput && DispatchShortcut(msg, ShortcutScope::Global)) continue;
-        if (!textInput && !commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView)) continue;
+        if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }

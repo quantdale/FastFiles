@@ -38,6 +38,7 @@ private:
     void BeginAddressEdit();
     void CommitAddressEdit();
     void CancelAddressEdit();
+    void EndAddressEdit(bool restoreFocus);
     void HandleAddressFocusLost();
     void NavigateTo(const std::wstring& path, bool restoreTabState = false);
     void RebuildDrives();

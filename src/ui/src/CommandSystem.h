@@ -36,6 +36,12 @@ constexpr SelectionApplicability operator|(SelectionApplicability left, Selectio
 
 enum class ShortcutScope { Global, ActiveView };
 
+// Global commands remain available while a native edit owns focus. ActiveView
+// commands yield to the edit so Windows can perform ordinary text editing.
+constexpr bool IsShortcutDispatchAllowed(ShortcutScope scope, bool nativeEditFocused) noexcept {
+    return !nativeEditFocused || scope == ShortcutScope::Global;
+}
+
 enum KeyModifier : uint8_t {
     ModifierNone = 0,
     ModifierControl = 1u << 0,

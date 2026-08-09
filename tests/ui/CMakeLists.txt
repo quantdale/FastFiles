@@ -35,6 +35,11 @@ add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)
 target_include_directories(ffstorage_visibility_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_visibility_tests COMMAND ffstorage_visibility_tests)
 
+add_executable(ffshortcut_routing_tests test_shortcut_routing.cpp ../../src/ui/src/CommandSystem.cpp)
+target_include_directories(ffshortcut_routing_tests PRIVATE ../../src/ui/src)
+target_link_libraries(ffshortcut_routing_tests PRIVATE shell32)
+add_test(NAME ffshortcut_routing_tests COMMAND ffshortcut_routing_tests)
+
 # Debug-only read-only state query used by the disposable watcher/reorder
 # acceptance; it is intentionally not registered as a CTest test.
 add_executable(ffselection_identity_runtime_probe selection_identity_runtime_probe.cpp)
@@ -47,4 +52,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffstorage_visibility_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)

@@ -58,7 +58,7 @@ private:
     bool InitializeCommands();
     CommandContext CurrentCommandContext() const;
     bool InvokeCommand(const std::wstring& commandId);
-    bool DispatchShortcut(const MSG& message, ShortcutScope scope);
+    bool DispatchShortcut(const MSG& message, ShortcutScope scope, bool nativeEditFocused);
     bool QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination, FileOperationKind kind);
     void BeginInlineRename(const std::wstring& path);
     void FinishInlineRename(bool commit);

@@ -160,16 +160,20 @@ void NavigationChrome::CommitAddressEdit() {
 }
 
 void NavigationChrome::CancelAddressEdit() {
+    EndAddressEdit(true);
+}
+
+void NavigationChrome::EndAddressEdit(bool restoreFocus) {
     if (!editing_ || !workspace_) return;
     workspace_->CancelAddressBarEdit();
     editing_ = false;
     ShowWindow(addressEdit_, SW_HIDE);
-    SetFocus(window_);
+    if (restoreFocus) SetFocus(window_);
     InvalidateRect(window_, nullptr, FALSE);
 }
 
 void NavigationChrome::HandleAddressFocusLost() {
-    if (editing_) CancelAddressEdit();
+    EndAddressEdit(false);
 }
 
 void NavigationChrome::NavigateTo(const std::wstring& path, bool restoreTabState) {
