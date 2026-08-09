@@ -1,36 +1,49 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T23:32:22+08:00
-Status: COMPLETE
+Last updated: 2026-08-10T06:47:15+08:00
+Status: BLOCKED
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `9db73c1`
-Working tree: clean after product commit `9db73c1` and its WORKSTATE bookkeeping commit
+HEAD: `e9fa6e4`
+Working tree: product shortcut-persistence changes and this WORKSTATE checkpoint are uncommitted; prior routing/bookkeeping commits remain clean at HEAD
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
 ## Current Engineering Slice
 
-Name: Global shortcut routing while native edit controls own focus
+Name: Shortcut settings persistence / single source of truth
 
-Objective: Keep explicitly global Fast Files shortcuts available from native edit controls while preserving native text-editing ownership and suppressing non-global view/file shortcuts.
+Objective: Make Settings persistence and live command routing consume one authoritative shortcut configuration, with deterministic migration, live apply, restart persistence, and no regression of native-edit/global scope behavior.
 
-Safety / correctness invariant: One key press produces one intended semantic action; global application commands dispatch once, native edit commands remain with the edit control, and view-local commands do not accidentally operate on the file view while text is being edited.
+Safety / correctness invariant: Settings changes validate, persist, update the live command model, survive restart, and preserve Global versus ActiveView routing semantics.
 
-Non-goals: shortcut persistence/settings source-of-truth, Storage Analysis, selection identity, Treemap category filtering, watcher shutdown ordering, stale snapshot UX, MFT/USN, signing/authentication, installer behavior, or general command-system redesign.
+Non-goals: new shortcut customization features, Settings redesign, scope semantics changes, Storage Analysis, selection identity, Treemap category filtering, watcher shutdown ordering, stale snapshot UX, MFT/USN, signing/authentication, installer behavior, or general command-system redesign.
 
 ## Current Frontier
 
-Root cause is confirmed. `WindowShell::RunMessageLoop` first routes palette/settings messages, then computes `textInput` from `msg.hwnd` (`IsNativeTextInput` class checks for `Edit`/`RichEdit20W`, plus `inlineRename_`). Its broad `!textInput` gate skips both `ShortcutScope::Global` and `ShortcutScope::ActiveView` dispatch. Therefore `Ctrl+F`, `Ctrl+L`, and `Ctrl+Shift+P` never reach the command map from the address-bar `EDIT`, even though their registry bindings are Global. The main loop uses `GetMessageW`/`TranslateMessage`/`DispatchMessageW`; it has no `TranslateAccelerator` path. `SettingsDialog::HandleMessage` is an earlier child-message consumer, so Global routing must be checked before it.
+Reconciled from clean HEAD `e9fa6e4`; the previous routing slice is complete. Source mapping is complete. The broken edge is SettingsDialog's independent `ffprotocol::Settings::shortcuts` vector: it displays/saves `(command text, human binding text)` inside `settings.json`, while WindowShell loads `ShortcutMap` from a separate `shortcuts.json` and never consumes that vector. Settings OK calls `SaveAndNotifySettings`, which saves only `settings.json`; the live map is unchanged, so the UI can report a saved shortcut that routing ignores.
 
-The current registry has Global defaults for `search.focus` (`Ctrl+F`), `navigation.focus-path` (`Ctrl+L`), `app.command-palette` (`Ctrl+Shift+P`), and tab/bookmark commands. Copy/cut/paste/select-all are ActiveView. `file.undo` is the one conflicting default: it binds `Ctrl+Z` as Global even though `Ctrl+Z` is a native edit chord; it must become ActiveView so the edit control retains it.
+Data-flow map:
+`CommandSystem` registry defaults (`CommandDescriptor::defaultShortcut` + `scope`) -> `ShortcutMap::ResetDefaults` -> canonical `shortcuts.json` diff load -> WindowShell dispatch / CommandPalette hints.
+The broken path was `SettingsDialog` -> `Settings::shortcuts` -> `settings.json`; it bypassed `ShortcutMap` entirely.
 
-Decision: retain the existing `Global` / `ActiveView` metadata, add one pure `ShortcutScope` + native-edit-focus eligibility helper, determine native-edit ownership from `GetFocus()` with the queued key message HWND as a fallback (plus inline-rename coverage), and perform Global lookup before palette/settings routing. ActiveView dispatch remains suppressed for native edit focus and palette-visible routing. The `continue` after a successful Global dispatch prevents a second semantic dispatch. `NavigationChrome::EndAddressEdit(false)` now cancels on focus loss without reclaiming focus, so Global search/palette commands can move focus to their own native controls; explicit Escape still restores chrome focus.
+Persisted formats:
+- Canonical `shortcuts.json`: version/bindings array; each customization is keyed by stable `commandId` and stores numeric `key` + `modifiers` (`CSA`), or `unbound`; scope is restored from current registry metadata, not persisted.
+- Legacy `settings.json`: nested `shortcuts.bindings` array of `command` + human-readable `binding`; it cannot represent scope/unbound state and is not suitable as the runtime model.
+- Settings JSON is `%LOCALAPPDATA%\\FastFiles\\settings.json`; the dedicated file is `%LOCALAPPDATA%\\FastFiles\\shortcuts.json`; both currently use the same AppDirectory convention but different loaders/writers.
 
-OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts remain the planning context. Implementation, focused tests, current-source runtime acceptance, Analyze, full CTest, and the bounded product commit are complete.
+Canonical source: dedicated `%LOCALAPPDATA%\\FastFiles\\shortcuts.json`, because it is the existing runtime model and preserves stable IDs, unbound state, conflict behavior, and registry-derived Global/ActiveView scope.
+Runtime in-memory source: the one WindowShell-owned `ShortcutMap`, shared with CommandPalette and SettingsDialog.
+Legacy source: `settings.json`'s old `shortcuts.bindings` section, migration-only.
+Migration policy: if canonical `shortcuts.json` exists, it wins (including an intentionally empty bindings array); if it does not exist, parse valid legacy entries, resolve command IDs/display names against the registry, apply valid bindings deterministically, save canonical once, and ignore/log unknown or malformed entries. Missing legacy data uses registry defaults. No later startup reads legacy shortcuts once canonical exists.
+Live apply policy: SettingsDialog edits a draft of the shared ShortcutMap; accepted changes replace the WindowShell map, save canonical `shortcuts.json`, and refresh the existing CommandPalette pointer immediately. Settings/general persistence remains separate and no longer carries shortcut values.
+
+Implementation milestone: `Settings` no longer owns or writes shortcut values; `ffprotocol::ShortcutSettingsPath` is shared by startup and save paths; WindowShell loads canonical data or performs one-shot legacy import; SettingsDialog lists/edits the real command map through a draft; `ShortcutMap` validates canonical JSON, rejects duplicate/conflicting/invalid persisted bindings, preserves registry-derived scope, and saves atomically.
+
+OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts remain the planning context. Source mapping, implementation, actual Settings UI edit/apply/live/restart acceptance, native-edit/global regression, Debug/Analyze builds, and full CTest are complete. Only final staging/commit bookkeeping remains. No product commit was created.
 
 ## Established Facts
 
@@ -71,11 +84,11 @@ OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts r
 
 ### In Progress
 
-- None.
+- Run final Debug/Analyze builds and full serial CTest, audit scope, then create the focused shortcut-persistence product commit and complete bookkeeping.
 
 ### Not Started
 
-- None for this slice.
+- Product commit and final COMPLETE bookkeeping after all required acceptance passes.
 
 ## Files Changed In Prior Storage Slice
 
@@ -90,6 +103,16 @@ OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts r
 
 ## Files Changed In This Slice
 
+- `src/protocol/include/ffprotocol/Settings.h` and `src/protocol/src/Settings.cpp`
+  - Removed shortcut vectors from general Settings persistence, exposed the shared canonical shortcut path, and added one-shot legacy extraction.
+- `src/ui/src/CommandSystem.h` and `src/ui/src/CommandSystem.cpp`
+  - Made the runtime ShortcutMap the validated canonical model, with atomic save/load, stable IDs, scope-derived bindings, and legacy import.
+- `src/ui/src/SettingsDialog.h` and `src/ui/src/SettingsDialog.cpp`
+  - Settings Shortcuts page now edits a draft of the live ShortcutMap and applies it on OK.
+- `src/ui/src/WindowShell.h` and `src/ui/src/WindowShell.cpp`
+  - Startup canonical load/legacy migration and save/live-apply wiring.
+- `tests/commands/test_command_system.cpp` and `tests/protocol/test_protocol.cpp`
+  - Persistence, malformed/unknown, scope, path, and legacy migration coverage.
 - `src/ui/src/CommandSystem.h` and `src/ui/src/CommandSystem.cpp`
   - Central native-edit eligibility policy; `file.undo` is ActiveView so Ctrl+Z remains native while editing.
 - `src/ui/src/WindowShell.h` and `src/ui/src/WindowShell.cpp`
@@ -112,14 +135,17 @@ OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts r
 
 ## Validation
 
-Debug: PASS; rebuilt the current worktree with `cmake --build --preset debug`; the current executable is `build/debug/src/ui/FastFiles.exe` (the separate staged copy remained stale and was not used for acceptance).
-Analyze: PASS; `cmake --build --preset analyze` completed with no work after the current-source tree was already analyzed.
-CTest: PASS, 39/39 serial with long-form process-local `TEMP=C:\Users\Michael Roy\AppData\Local\Temp` and `TMP=C:\Users\Michael Roy\AppData\Local\Temp`; `ffshortcut_routing_tests` passed as test 34/39.
+Debug: PASS; `cmake --build --preset debug` rebuilt the current worktree and linked `build/debug/src/ui/FastFiles.exe`.
+Analyze: PASS; `cmake --build --preset analyze` completed cleanly with `/analyze`.
+CTest: PASS, 39/39 serial with process-local `TEMP=C:\Users\Michael Roy\AppData\Local\Temp` and `TMP=C:\Users\Michael Roy\AppData\Local\Temp`; the first run's only failure was corrected documented mixed line endings, and the final run passed all 39.
+Focused persistence/routing: PASS — `ffprotocol_tests`, `ffcommand_tests`, and `ffshortcut_routing_tests`; tests cover missing defaults, save/reload, old binding removal, Global/ActiveView scope retention, malformed canonical fallback, unknown commands, legacy import, invalid chords, and settings path/source separation.
+Runtime (Settings persistence acceptance): PASS — actual FastFiles Settings HWND `FastFilesSettingsDialog` opened via physical `Ctrl+,`; Shortcuts tab selected by native mouse plus five Right-arrow inputs; stock `SysListView32` row 24 (`Search`) entered its temporary native `EDIT` through physical double-click. Literal `F6` was observed in that editor via cross-process `GetWindowText`, committed with Enter, and applied through the real OK button control path. Canonical file contained `search.focus` key 117 with no Ctrl+F binding; legacy `settings.json` shortcut section was removed. Actual F6 focused Search query EDIT live. After Ctrl+L focused address EDIT `20776946`, old Ctrl+F left address focus unchanged. A normal close/relaunch loaded the same F6 binding; fresh Search query EDIT `3999782` focused on F6, and fresh address EDIT `133296` retained focus after old Ctrl+F.
+Runtime (native-edit/global regression): PASS — from the native address EDIT, F6 focused Search; Ctrl+L focused the address EDIT; Ctrl+Shift+P opened command-palette EDIT `723122` plus ListBox `329884`, Escape closed it; F5 while address EDIT owned focus left it focused. Disposable `probe` text exercised native Ctrl+A/C/X/V/Z: selection result `327680` (0..5), copied clipboard `probe`, cut length 0, paste length 5, undo length 5. Original Unicode clipboard text was restored.
 Runtime (shortcut slice): PASS on the rebuilt current Debug UI via direct Win32 `keybd_event` and live HWND state. `Ctrl+L` focused address `EDIT` HWND 264124. Native acceptance used actual typed `probe` text and `WM_GETTEXTLENGTH`/`EM_GETSEL`: Ctrl+A selected all (0..5), Ctrl+C yielded clipboard `probe`, Ctrl+X reduced edit length to 0, Ctrl+V with `PasteProbe` produced length 10, and Ctrl+Z restored length 5; focus remained the address edit throughout. Global acceptance from the edit passed: Ctrl+Shift+P focused the command-palette `EDIT` HWND 133068 with its ListBox visible, Ctrl+F focused the search `EDIT` HWND 133076, and Ctrl+L returned focus to address `EDIT` HWND 264124. F5 while address edit focus remained on HWND 264124, with no view-routing UI change observed. Escape cleanup completed separately. Storage runtime evidence below is from the completed prior slice.
 Runtime (shortcut regression): PASS on a fresh current Debug GUI instance. Real address-edit paste/Enter navigation reached `C:\Windows\Temp` and `C:\Windows`; after each commit the edit hid and focus returned to the main HWND. Ctrl+Shift+P from normal view focus opened the palette `EDIT`/ListBox and Escape closed it; `IsHungAppWindow` reported responsive. No destructive file operation was used.
 Runtime (prior Storage slice): PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
 Other: OpenSpec CLI is unavailable; checked-in `storage-analysis` artifacts were read manually. Build tools are available under the installed VS 2022 Build Tools instance.
-Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Current shortcut product commit: `9db73c1fed5c8ed3a96c95e9ef89b463254ce197` (`Preserve global shortcuts while editing text`).
+Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior shortcut-routing product commit: `9db73c1fed5c8ed3a96c95e9ef89b463254ce197` (`Preserve global shortcuts while editing text`). Current shortcut-persistence product commit: not created.
 
 ## Failures / Blockers
 
@@ -129,7 +155,9 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Curren
 - `cmake` was initially absent from the plain shell PATH; using `Launch-VsDevShell.ps1` from the installed Build Tools instance resolved the harness setup without changing the repository.
 - Runtime probe: a read-only PowerShell/PInvoke query used the live main HWND and Storage child control IDs; normal command-palette and radio-button commands drove mode transitions. FastFiles remained responsive and the Engine/UI process pair stayed alive.
 - Treemap screenshot capture was limited by the existing degraded empty-layout path (`TreemapView::Render` returns before clearing when `layout_` is empty); no Treemap rendering claim is made from that capture.
-- No active blockers remain for this slice; native-edit, global shortcut, and bounded runtime regression acceptance pass on the rebuilt current executable.
+- The first UI driver pass targeted row 22 (`Toggle Details Pane`) because the registry has 15 pre-Search rows, not 14; it added only an unbound customization for a command with no default. This test-profile state was removed by restoring the backed-up user files; no product source changed.
+- Win32 runtime driver required a foreground handoff because each shell invocation left the terminal foreground; `GetForegroundWindow` + returned thread IDs from `GetWindowThreadProcessId` + `AttachThreadInput`/`SetForegroundWindow` made the product interactive. Cross-process pointer messages (`TCM_GETITEMRECT`) were abandoned after a timeout; no unsafe target-buffer observation was used.
+- FastFiles UI closed through the native title-bar close region on each acceptance run; the exact Engine child remained orphaned after its UI parent exited and was stopped by PID after parent exit. This is runtime-process cleanup evidence, not a shortcut persistence failure.
 - Plain-shell `cmake` is unavailable; focused validation succeeded after launching the installed VS 2022 Build Tools developer shell, as documented above.
 - OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts were used as planning context and no unrelated change artifacts were edited.
 - The first runtime probe used a stale staged executable and invalid cross-process `GetWindowText`/`EM_GETSEL` observations; those results are explicitly excluded. The rebuilt run used the source-matching executable, actual key-generated text, `WM_GETTEXTLENGTH`, `EM_GETSEL` return values, and clipboard contents.
@@ -141,9 +169,16 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Curren
 - Any UIA/provider work for Direct2D-painted ColumnView rows.
 - Storage-specific limitation retained: degraded mode may have no Treemap layout, so visual Treemap tiles were not claimed by this slice; allocated-size metadata remains the existing projection gap.
 
+## Runtime Acceptance Checkpoint
+
+- Settings control facts: top-level `FastFilesSettingsDialog`; tab index 5 is Shortcuts; shortcut rows are a native `SysListView32`; `NM_DBLCLK` on subitem 1 creates a temporary native `EDIT`; Enter/blur commits and Escape cancels; IDOK runs `FinishShortcutEdit`, `SaveCurrentPage`, and the real `onChanged_` callback.
+- Test binding: `Search` old `Ctrl+F`, test `F6`. Search is registry row 24 (file operations 9 + navigation/selection 15).
+- Acceptance evidence: canonical `shortcuts.json` has `{"commandId":"search.focus","key":117,"modifiers":""}` and no `Ctrl+F`; physical F6 focused Search query EDIT `5441536`; physical Ctrl+L focused address EDIT `20776946`; physical old Ctrl+F left address EDIT focus unchanged.
+- Completed: normal close, relaunch without rewriting config, F6/old Ctrl+F restart checks, native-edit/global regression, exact user-profile restoration, generated canonical cleanup, and temporary-directory removal. Remaining gate is final repository validation and commit.
+
 ## NEXT EXACT ACTION
 
-This slice is complete. Do not implement the next slice in this session. The single next recommended slice is Shortcut settings persistence / source-of-truth disconnect.
+Run final Debug/Analyze builds and full serial CTest, inspect Git scope, stage only shortcut-persistence product/test changes plus WORKSTATE, verify the staged diff, commit `Unify shortcut settings persistence`, then mark this slice COMPLETE and recommend exactly one next slice without implementing it.
 
 ## Resume Instructions
 

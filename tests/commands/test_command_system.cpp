@@ -93,17 +93,33 @@ void TestPersistence() {
     ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand));
     ffui::ShortcutMap shortcuts;
     shortcuts.ResetDefaults(registry);
+    const auto path = std::filesystem::temp_directory_path() / L"fastfiles-command-tests" / L"shortcuts.json";
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    ffui::ShortcutMap defaultOnly;
+    Check(defaultOnly.Load(path, registry), "missing shortcut configuration loads successfully");
+    Check(defaultOnly.FindByCommand(L"search.focus") != nullptr &&
+              defaultOnly.FindByCommand(L"search.focus")->chord == ffui::KeyChord{'F', ffui::ModifierControl},
+          "missing shortcut configuration restores built-in defaults");
     Check(shortcuts.Rebind(L"navigation.refresh", {'R', ffui::ModifierControl}, false) == ffui::RebindResult::Applied,
           "custom shortcut applies");
-    const auto path = std::filesystem::temp_directory_path() / L"fastfiles-command-tests" / L"shortcuts.json";
+    Check(shortcuts.Rebind(L"search.focus", {'K', ffui::ModifierControl}, false) == ffui::RebindResult::Applied,
+          "global custom shortcut applies");
     Check(shortcuts.Save(path), "shortcut diffs save");
     ffui::ShortcutMap loaded;
     Check(loaded.Load(path, registry), "shortcut diffs load");
     Check(loaded.FindByCommand(L"navigation.refresh") != nullptr &&
           loaded.FindByCommand(L"navigation.refresh")->chord == ffui::KeyChord{'R', ffui::ModifierControl},
           "custom shortcut survives reload");
-    Check(loaded.FindByCommand(L"search.focus") != nullptr, "unrelated new defaults remain active");
+    Check(loaded.FindByCommand(L"search.focus") != nullptr &&
+              loaded.FindByCommand(L"search.focus")->chord == ffui::KeyChord{'K', ffui::ModifierControl} &&
+              loaded.FindByCommand(L"search.focus")->scope == ffui::ShortcutScope::Global,
+          "global custom shortcut and scope survive reload");
     Check(loaded.FindByCommand(L"file.copy") != nullptr, "unrelated default remains after ordinary customization");
+    Check(loaded.FindByChord({VK_F5, ffui::ModifierNone}, ffui::ShortcutScope::ActiveView) == nullptr,
+          "the old binding is removed after reload");
+    Check(loaded.FindByCommand(L"navigation.refresh")->scope == ffui::ShortcutScope::ActiveView,
+          "active-view scope is restored from command metadata after reload");
 
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, true) == ffui::RebindResult::Applied,
           "reassignment applies before persistence test");
@@ -119,9 +135,54 @@ void TestPersistence() {
         loggedUnknown = message.find(L"removed.command") != std::wstring::npos;
     }), "unknown shortcut ids do not fail loading");
     Check(loggedUnknown, "unknown shortcut ids are logged and ignored");
-    std::error_code error;
+    {
+        std::wofstream malformed(path, std::ios::trunc);
+        malformed << L"{\"version\":1,\"bindings\":[{\"commandId\":\"search.focus\",\"key\":\"bad\"}]}";
+    }
+    Check(!loaded.Load(path, registry), "malformed shortcut configuration reports failure");
+    Check(loaded.FindByCommand(L"search.focus") != nullptr &&
+              loaded.FindByCommand(L"search.focus")->chord == ffui::KeyChord{'F', ffui::ModifierControl},
+          "malformed shortcut configuration falls back to defaults");
     std::filesystem::remove(path, error);
     std::filesystem::remove(path.parent_path(), error);
+}
+
+void TestLegacyMigrationAndChordValidation() {
+    int invocations = 0;
+    std::wstring lastCommand;
+    ffui::CommandRegistry registry;
+    ffui::RegisterBaselineCommands(registry, CountingHandlers(invocations, lastCommand));
+    ffui::ShortcutMap shortcuts;
+    shortcuts.ResetDefaults(registry);
+    const std::vector<std::pair<std::wstring, std::wstring>> legacy = {
+        {L"Search", L"Ctrl+K"},
+        {L"Settings", L"Ctrl+,"},
+        {L"navigation.refresh", L"F6"},
+        {L"removed.command", L"Ctrl+Q"},
+    };
+    bool loggedUnknown = false;
+    Check(shortcuts.ImportLegacy(legacy, registry, [&](const std::wstring& message) {
+        loggedUnknown = message.find(L"removed.command") != std::wstring::npos;
+    }), "legacy shortcut import accepts valid entries while reporting no parse failures");
+    Check(loggedUnknown, "legacy unknown command is logged");
+    Check(shortcuts.FindByCommand(L"search.focus")->chord == ffui::KeyChord{'K', ffui::ModifierControl},
+          "legacy display name resolves to the stable search command");
+    Check(shortcuts.FindByCommand(L"search.focus")->scope == ffui::ShortcutScope::Global,
+          "legacy import retains Global scope from command metadata");
+    Check(shortcuts.FindByCommand(L"app.settings") != nullptr &&
+              shortcuts.FindByCommand(L"app.settings")->chord == ffui::KeyChord{VK_OEM_COMMA, ffui::ModifierControl},
+          "legacy import can bind a command that had no built-in default");
+    Check(shortcuts.FindByCommand(L"app.settings")->scope == ffui::ShortcutScope::Global,
+          "legacy import retains Global scope for an unbound-by-default command");
+    Check(shortcuts.FindByCommand(L"navigation.refresh")->scope == ffui::ShortcutScope::ActiveView,
+          "legacy import retains ActiveView scope from command metadata");
+    Check(ffui::ShortcutMap::ParseKeyChord(L"Ctrl+Shift+P") ==
+              std::optional<ffui::KeyChord>(ffui::KeyChord{'P', static_cast<uint8_t>(ffui::ModifierControl | ffui::ModifierShift)}),
+          "display shortcut parser accepts modifier combinations");
+    Check(!ffui::ShortcutMap::ParseKeyChord(L"Ctrl+NoSuchKey").has_value(),
+          "display shortcut parser rejects invalid key names");
+    Check(shortcuts.Rebind(L"search.focus", {0, ffui::ModifierControl}, false) == ffui::RebindResult::InvalidBinding,
+          "runtime rebind rejects an invalid key code");
 }
 
 void TestBaselinePaletteCoverage() {
@@ -184,6 +245,7 @@ int main() {
     TestRegistryAndSelection();
     TestShortcutsAndPalette();
     TestPersistence();
+    TestLegacyMigrationAndChordValidation();
     TestBaselinePaletteCoverage();
     TestQuickActions();
     if (fftest::FailureCount() == 0) std::cout << "All command-system tests passed\n";

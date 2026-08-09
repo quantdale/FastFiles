@@ -231,13 +231,6 @@ ffui::DetailsLayout WindowShell::CurrentDetailsLayout() const {
                                       columnView_.IsDualPane());
 }
 
-std::filesystem::path WindowShell::ShortcutSettingsPath() const {
-    std::vector<wchar_t> buffer(32768);
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0 || length >= buffer.size()) return {};
-    return std::filesystem::path(buffer.data()) / L"FastFiles" / L"shortcuts.json";
-}
-
 CommandContext WindowShell::CurrentCommandContext() const {
     return {ClassifySelection(columnView_.ActiveSelectionItems()),
             !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_)};
@@ -475,9 +468,29 @@ bool WindowShell::InitializeCommands() {
         };
     }};
     if (!RegisterBaselineCommands(commandRegistry_, handlers)) return false;
-    const auto shortcutPath = ShortcutSettingsPath();
-    if (shortcutPath.empty()) shortcuts_.ResetDefaults(commandRegistry_);
-    else shortcuts_.Load(shortcutPath, commandRegistry_, [](const std::wstring& message) { OutputDebugStringW((message + L"\n").c_str()); });
+    const auto shortcutPath = ffprotocol::ShortcutSettingsPath();
+    std::error_code shortcutError;
+    const bool canonicalExists = !shortcutPath.empty() && std::filesystem::exists(shortcutPath, shortcutError);
+    if (canonicalExists) {
+        shortcuts_.Load(shortcutPath, commandRegistry_, [](const std::wstring& message) {
+            OutputDebugStringW((message + L"\n").c_str());
+        });
+    } else {
+        shortcuts_.ResetDefaults(commandRegistry_);
+        const ffprotocol::LegacyShortcutSettings legacy = ffprotocol::LoadLegacyShortcutSettings();
+        if (legacy.sectionPresent) {
+            if (!legacy.valid) {
+                OutputDebugStringW(L"Legacy shortcut settings were malformed; defaults retained.\n");
+            } else {
+                shortcuts_.ImportLegacy(legacy.bindings, commandRegistry_, [](const std::wstring& message) {
+                    OutputDebugStringW((message + L"\n").c_str());
+                });
+            }
+            // Persist the migration result once. From this point forward the
+            // general settings shortcut section is never consulted again.
+            if (!shortcutPath.empty()) shortcuts_.Save(shortcutPath);
+        }
+    }
     if (!commandPalette_.Initialize(hwnd_, &commandRegistry_, &shortcuts_,
                                     [this](const std::wstring& id) { InvokeCommand(id); })) return false;
     if (!searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
@@ -751,7 +764,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             InvokeCommand(commandId);
         })) return false;
     storageAnalysis_.SetCategories(settings_.storageCategories);
-    if (!settingsDialog_.Initialize(hwnd_, &settings_, &navigationWorkspace_,
+    if (!settingsDialog_.Initialize(hwnd_, &settings_, &commandRegistry_, &shortcuts_, &navigationWorkspace_,
         [this]() {
             SaveAndNotifySettings();
             ApplyTheme();
@@ -931,7 +944,10 @@ void WindowShell::HandleAnimationTimer(bool ensureRunning) {
 }
 
 void WindowShell::SaveAndNotifySettings() {
-    if (ffprotocol::SaveSettings(settings_)) {
+    const bool settingsSaved = ffprotocol::SaveSettings(settings_);
+    const auto shortcutPath = ffprotocol::ShortcutSettingsPath();
+    const bool shortcutsSaved = !shortcutPath.empty() && shortcuts_.Save(shortcutPath);
+    if (settingsSaved && shortcutsSaved) {
         storageAnalysis_.SetCategories(settings_.storageCategories);
         engineClient_.ReloadIndexingConfig();
     }

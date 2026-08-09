@@ -332,6 +332,26 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     Check(loaded.indexing.size() == 1 && loaded.indexing[0].rules.size() == 1
               && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path,
           "indexing paths round-trip through JSON escaping");
+    const std::wstring settingsPathBeforeLegacy = SettingsPath();
+    const std::wstring shortcutPathBeforeLegacy = ShortcutSettingsPath();
+    Check(settingsPathBeforeLegacy.substr(0, settingsPathBeforeLegacy.find_last_of(L'\\')) ==
+              shortcutPathBeforeLegacy.substr(0, shortcutPathBeforeLegacy.find_last_of(L'\\')),
+          "settings and shortcut persistence use the same per-user directory");
+    {
+        std::ofstream legacy(SettingsPath(), std::ios::binary | std::ios::trunc);
+        legacy << "{\"shortcuts\":{\"bindings\":["
+                  "{\"command\":\"Search\",\"binding\":\"Ctrl+K\"}]}}";
+    }
+    const LegacyShortcutSettings legacy = LoadLegacyShortcutSettings();
+    Check(legacy.sectionPresent && legacy.valid && legacy.bindings.size() == 1 &&
+              legacy.bindings.front().first == L"Search" && legacy.bindings.front().second == L"Ctrl+K",
+          "legacy settings shortcut section is available only for migration");
+    Check(SaveSettings(settings), "canonical general settings save omits legacy shortcut values");
+    std::ifstream savedSettings(SettingsPath(), std::ios::binary);
+    const std::string savedBytes((std::istreambuf_iterator<char>(savedSettings)), {});
+    Check(savedBytes.find("\"shortcuts\"") == std::string::npos,
+          "general settings persistence no longer writes a shortcut source of truth");
+    savedSettings.close();
 
     {
         std::ofstream partial(SettingsPath(), std::ios::binary | std::ios::trunc);

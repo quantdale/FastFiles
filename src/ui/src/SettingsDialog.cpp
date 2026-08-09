@@ -66,10 +66,14 @@ SettingsDialog::~SettingsDialog() {
 }
 
 bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
+                                const CommandRegistry* commandRegistry, ShortcutMap* shortcuts,
                                 NavigationWorkspace* navigationWorkspace,
                                 std::function<void()> onChanged) {
     owner_ = owner;
     settings_ = settings;
+    commandRegistry_ = commandRegistry;
+    shortcuts_ = shortcuts;
+    if (shortcuts_) shortcutDraft_ = *shortcuts_;
     navigationWorkspace_ = navigationWorkspace;
     onChanged_ = std::move(onChanged);
 
@@ -128,6 +132,7 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
 
 void SettingsDialog::Show() {
     if (dialog_) {
+        if (shortcuts_) shortcutDraft_ = *shortcuts_;
         ShowWindow(dialog_, SW_SHOW);
         SetForegroundWindow(dialog_);
         visible_ = true;
@@ -213,11 +218,13 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         case WM_COMMAND:
             switch (LOWORD(wParam)) {
                 case IDOK:
+                    FinishShortcutEdit(true);
                     SaveCurrentPage();
                     if (onChanged_) onChanged_();
                     Hide();
                     return 0;
                 case IDCANCEL:
+                    FinishShortcutEdit(false);
                     Hide();
                     return 0;
                 case 40001: // Reset shortcuts button
@@ -279,6 +286,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             }
             break;
         case WM_CLOSE:
+            FinishShortcutEdit(false);
             Hide();
             return 0;
         case WM_APP_VOLUME_STATUS: {
@@ -291,6 +299,11 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         }
         case WM_NOTIFY: {
             auto* hdr = reinterpret_cast<NMHDR*>(lParam);
+            if (hdr->hwndFrom == shortcutList_ && hdr->code == NM_DBLCLK) {
+                const auto* info = reinterpret_cast<NMITEMACTIVATE*>(lParam);
+                if (info->iItem >= 0 && info->iSubItem == 1) BeginShortcutEdit(info->iItem);
+                return 0;
+            }
             if (hdr->hwndFrom == tabControl_ && hdr->code == TCN_SELCHANGE) {
                 SwitchPage(TabCtrl_GetCurSel(tabControl_));
             }
@@ -902,24 +915,113 @@ void SettingsDialog::PopulateShortcutsPage() {
         ListView_SetExtendedListViewStyle(shortcutList_, LVS_EX_FULLROWSELECT);
         
         resetShortcutsButton_ = CreateWindowExW(0, L"BUTTON", L"Reset Defaults", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                 Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
-                                                 dialog_, reinterpret_cast<HMENU>(40001), GetModuleHandleW(nullptr), nullptr);
+                                                  Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
+                                                  dialog_, reinterpret_cast<HMENU>(40001), GetModuleHandleW(nullptr), nullptr);
     }
     
     ListView_DeleteAllItems(shortcutList_);
-    if (settings_) {
-        for (size_t i = 0; i < settings_->shortcuts.size(); ++i) {
+    if (commandRegistry_ && shortcuts_) {
+        for (size_t i = 0; i < commandRegistry_->Commands().size(); ++i) {
+            const auto& command = commandRegistry_->Commands()[i];
+            const auto* binding = shortcutDraft_.FindByCommand(command.commandId);
             LVITEMW item{};
             item.iItem = static_cast<int>(i);
             item.iSubItem = 0;
             item.mask = LVIF_TEXT;
-            item.pszText = const_cast<wchar_t*>(settings_->shortcuts[i].first.c_str());
+            item.pszText = const_cast<wchar_t*>(command.displayName.c_str());
             ListView_InsertItem(shortcutList_, &item);
             
+            const std::wstring shortcutText = binding ? FormatKeyChord(binding->chord) : L"(Unbound)";
             ListView_SetItemText(shortcutList_, static_cast<int>(i), 1,
-                                 const_cast<wchar_t*>(settings_->shortcuts[i].second.c_str()));
+                                 const_cast<wchar_t*>(shortcutText.c_str()));
         }
     }
+}
+
+void SettingsDialog::BeginShortcutEdit(int row) {
+    if (!shortcutList_ || !commandRegistry_ || shortcutEdit_ != nullptr ||
+        row < 0 || row >= static_cast<int>(commandRegistry_->Commands().size())) return;
+    RECT bounds{};
+    if (!ListView_GetSubItemRect(shortcutList_, row, 1, LVIR_BOUNDS, &bounds)) return;
+    MapWindowPoints(shortcutList_, dialog_, reinterpret_cast<POINT*>(&bounds), 2);
+    const auto& command = commandRegistry_->Commands()[static_cast<size_t>(row)];
+    const auto* binding = shortcutDraft_.FindByCommand(command.commandId);
+    const std::wstring text = binding ? FormatKeyChord(binding->chord) : L"";
+    shortcutEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", text.c_str(),
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                                    bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+                                    dialog_, reinterpret_cast<HMENU>(40002), GetModuleHandleW(nullptr), nullptr);
+    if (!shortcutEdit_) return;
+    shortcutEditRow_ = row;
+    shortcutEditCommand_ = command.commandId;
+    SetWindowSubclass(shortcutEdit_, ShortcutEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SendMessageW(shortcutEdit_, EM_SETSEL, 0, -1);
+    SetFocus(shortcutEdit_);
+}
+
+void SettingsDialog::FinishShortcutEdit(bool accept) {
+    if (!shortcutEdit_) return;
+    const HWND editor = shortcutEdit_;
+    const std::wstring commandId = shortcutEditCommand_;
+    shortcutEdit_ = nullptr;
+    shortcutEditCommand_.clear();
+    shortcutEditRow_ = -1;
+    const std::wstring text = GetWindowText(editor);
+    RemoveWindowSubclass(editor, ShortcutEditProc, 1);
+    DestroyWindow(editor);
+    if (!accept || !shortcuts_ || !commandRegistry_) return;
+
+    if (text.empty()) {
+        shortcutDraft_.Remove(commandId);
+        PopulateShortcutsPage();
+        return;
+    }
+    const auto chord = ShortcutMap::ParseKeyChord(text);
+    if (!chord) {
+        MessageBoxW(dialog_, L"Enter a shortcut such as Ctrl+Shift+P, or leave it blank to unbind.",
+                    L"Invalid shortcut", MB_OK | MB_ICONWARNING);
+        PopulateShortcutsPage();
+        return;
+    }
+    if (ShortcutMap::IsWindowsReserved(*chord)) {
+        const int choice = MessageBoxW(dialog_, L"Windows reserves Alt+F4 and may intercept it before Fast Files receives it. Save this binding anyway?",
+                                       L"Reserved shortcut", MB_YESNO | MB_ICONWARNING);
+        if (choice != IDYES) {
+            PopulateShortcutsPage();
+            return;
+        }
+    }
+    RebindResult result = shortcutDraft_.Rebind(commandId, *chord, false);
+    if (result == RebindResult::Conflict) {
+        const int choice = MessageBoxW(dialog_, L"That shortcut is already assigned. Reassign it?",
+                                       L"Shortcut conflict", MB_YESNO | MB_ICONQUESTION);
+        if (choice == IDYES) result = shortcutDraft_.Rebind(commandId, *chord, true);
+    }
+    if (result == RebindResult::InvalidBinding) {
+        MessageBoxW(dialog_, L"That shortcut is not a valid key combination.",
+                    L"Invalid shortcut", MB_OK | MB_ICONWARNING);
+    }
+    PopulateShortcutsPage();
+}
+
+LRESULT CALLBACK SettingsDialog::ShortcutEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                  UINT_PTR, DWORD_PTR referenceData) {
+    auto* self = reinterpret_cast<SettingsDialog*>(referenceData);
+    if (self != nullptr && message == WM_KEYDOWN) {
+        if (wParam == VK_RETURN) {
+            self->FinishShortcutEdit(true);
+            return 0;
+        }
+        if (wParam == VK_ESCAPE) {
+            self->FinishShortcutEdit(false);
+            return 0;
+        }
+    }
+    if (self != nullptr && message == WM_KILLFOCUS && self->shortcutEdit_ == hwnd) {
+        self->FinishShortcutEdit(true);
+        return 0;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 void SettingsDialog::SaveCurrentPage() {
@@ -974,24 +1076,15 @@ void SettingsDialog::SaveCurrentPage() {
         }
     }
 
-    if (currentPage_ == 5 && shortcutList_) {
-        settings_->shortcuts.clear();
-        const int count = ListView_GetItemCount(shortcutList_);
-        for (int i = 0; i < count; ++i) {
-            wchar_t cmd[256]{};
-            wchar_t key[256]{};
-            ListView_GetItemText(shortcutList_, i, 0, cmd, std::size(cmd));
-            ListView_GetItemText(shortcutList_, i, 1, key, std::size(key));
-            settings_->shortcuts.emplace_back(cmd, key);
-        }
+    if (shortcutList_ && shortcuts_) {
+        FinishShortcutEdit(true);
+        *shortcuts_ = shortcutDraft_;
     }
 }
 
 void SettingsDialog::ResetShortcuts() {
-    if (!settings_) return;
-    settings_->shortcuts.clear();
-    // Defaults will be reloaded by CommandSystem on next startup
-    if (onChanged_) onChanged_();
+    if (!commandRegistry_ || !shortcuts_) return;
+    shortcutDraft_.ResetDefaults(*commandRegistry_);
 }
 
 void SettingsDialog::CenterWindow(HWND child, HWND parent) {

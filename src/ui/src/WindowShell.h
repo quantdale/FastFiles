@@ -69,7 +69,6 @@ private:
     void RestoreActiveTabViewState();
     float NavigationViewportWidth() const;
     ffui::DetailsLayout CurrentDetailsLayout() const;
-    std::filesystem::path ShortcutSettingsPath() const;
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;

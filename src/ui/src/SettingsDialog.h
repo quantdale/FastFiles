@@ -8,6 +8,7 @@
 
 #include "ffprotocol/Settings.h"
 #include "ffprotocol/UiProtocol.h"
+#include "CommandSystem.h"
 #include "NavigationWorkspace.h"
 
 namespace ffui {
@@ -27,6 +28,7 @@ public:
     ~SettingsDialog();
 
     bool Initialize(HWND owner, ffprotocol::Settings* settings,
+                    const CommandRegistry* commandRegistry, ShortcutMap* shortcuts,
                     NavigationWorkspace* navigationWorkspace,
                     std::function<void()> onChanged);
     void Show();
@@ -75,6 +77,10 @@ private:
     void MoveVolumeRuleUp();
     void MoveVolumeRuleDown();
     void ResetShortcuts();
+    void BeginShortcutEdit(int row);
+    void FinishShortcutEdit(bool accept);
+    static LRESULT CALLBACK ShortcutEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                             UINT_PTR subclassId, DWORD_PTR referenceData);
     void CenterWindow(HWND child, HWND parent);
     // §7.3: requests the engine's per-volume condition report and
     // re-renders the Indexing page's status column + explanation text.
@@ -94,6 +100,9 @@ private:
     HWND dialog_ = nullptr;
     HWND tabControl_ = nullptr;
     ffprotocol::Settings* settings_ = nullptr;
+    const CommandRegistry* commandRegistry_ = nullptr;
+    ShortcutMap* shortcuts_ = nullptr;
+    ShortcutMap shortcutDraft_;
     NavigationWorkspace* navigationWorkspace_ = nullptr;
     EngineClient* engineClient_ = nullptr;
     std::function<void()> onChanged_;
@@ -142,6 +151,9 @@ private:
     // Shortcuts page controls
     HWND shortcutList_ = nullptr;
     HWND resetShortcutsButton_ = nullptr;
+    HWND shortcutEdit_ = nullptr;
+    int shortcutEditRow_ = -1;
+    std::wstring shortcutEditCommand_;
 };
 
 } // namespace ffui

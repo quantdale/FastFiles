@@ -118,7 +118,7 @@ bool RegisterPropertiesCommands(CommandRegistry& registry, const BaselineHandler
 bool RegisterShellCommands(CommandRegistry& registry, const BaselineHandlers& handlers);
 bool RegisterBaselineCommands(CommandRegistry& registry, const BaselineHandlers& handlers);
 
-enum class RebindResult { Applied, Conflict, UnknownCommand };
+enum class RebindResult { Applied, Conflict, UnknownCommand, InvalidBinding };
 
 class ShortcutMap {
 public:
@@ -128,14 +128,19 @@ public:
     std::vector<ShortcutBinding> EffectiveBindings() const;
     RebindResult Rebind(const std::wstring& commandId, KeyChord chord, bool reassignConflict);
     bool Remove(const std::wstring& commandId);
+    bool ImportLegacy(const std::vector<std::pair<std::wstring, std::wstring>>& entries,
+                      const CommandRegistry& registry,
+                      const std::function<void(const std::wstring&)>& log = {});
     bool Load(const std::filesystem::path& path, const CommandRegistry& registry,
               const std::function<void(const std::wstring&)>& log = {});
     bool Save(const std::filesystem::path& path) const;
     static bool IsWindowsReserved(KeyChord chord);
+    static std::optional<KeyChord> ParseKeyChord(const std::wstring& text);
 
 private:
     std::unordered_map<std::wstring, ShortcutBinding> defaults_;
     std::unordered_map<std::wstring, std::optional<ShortcutBinding>> customizations_;
+    std::unordered_map<std::wstring, ShortcutScope> commandScopes_;
 };
 
 struct PaletteResult {
