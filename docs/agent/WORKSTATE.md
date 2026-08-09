@@ -1,14 +1,14 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-09T16:35:00+08:00
+Last updated: 2026-08-09T16:50:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD: `f7b60ca127abff5af699fd637983d576e33bd139`
-Working tree: clean after the focused product and acceptance-evidence commits; runtime artifacts cleaned
+HEAD: `412e25b`
+Working tree: clean after the focused Storage visibility product commit; runtime artifacts and owned processes cleaned
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Product commit: `2d671d1` (`Preserve selection identity across snapshot refresh`)
 
@@ -97,7 +97,7 @@ Analyze: PASS; `cmake --preset analyze` and full `cmake --build --preset analyze
 CTest: PASS, 38/38 serial with process-local `TEMP=C:\Windows\Temp` and `TMP=C:\Windows\Temp`.
 Runtime: PASS. Live Debug FastFiles accepted Overview, Drill Down, Largest Folders, Largest Files, By Category, and Treemap. For each mode, `IsWindowVisible`/`GetWindowRect` was queried before and after a 1500x900 resize; hidden mode-owned HWNDs remained hidden, radio state tracked the active mode, and closing Storage hid every Storage child. The Direct2D Treemap surface had no layout in degraded coverage, so its screenshot was not treated as visual tile evidence; native control visibility and checked Treemap mode were verified.
 Other: OpenSpec CLI is unavailable; checked-in `storage-analysis` artifacts were read manually. Build tools are available under the installed VS 2022 Build Tools instance.
-Product commit: pending until the focused commit is created.
+Product commit: `412e25b` (`Fix Storage Analysis mode visibility`).
 
 ## Failures / Blockers
 
