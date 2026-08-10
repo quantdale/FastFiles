@@ -42,6 +42,17 @@ target_include_directories(ffengine_directory_watcher_tests PRIVATE ${CMAKE_SOUR
 target_link_libraries(ffengine_directory_watcher_tests PRIVATE ffprotocol)
 add_test(NAME ffengine_directory_watcher_tests COMMAND ffengine_directory_watcher_tests)
 
+add_executable(ffengine_ui_server_lifecycle_tests
+  test_ui_server_lifecycle.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/UiServer.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DirectoryWatcher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
+)
+target_include_directories(ffengine_ui_server_lifecycle_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_ui_server_lifecycle_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore shell32)
+add_test(NAME ffengine_ui_server_lifecycle_tests COMMAND ffengine_ui_server_lifecycle_tests)
+
 add_executable(ffengine_snapshot_publisher_tests
   test_snapshot_publisher.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
@@ -61,4 +72,4 @@ add_executable(ffengine_subtree_gating_tests
 target_include_directories(ffengine_subtree_gating_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_subtree_gating_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_subtree_gating_tests COMMAND ffengine_subtree_gating_tests)
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)

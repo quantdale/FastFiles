@@ -8,6 +8,7 @@
 #include <iterator>
 #include <thread>
 #include <unordered_set>
+#include <utility>
 
 #include "ffipc/PipeFraming.h"
 #include "ffprotocol/Diagnostics.h"
@@ -22,15 +23,14 @@ namespace {
 
 using ffprotocol::UiMessageType;
 
-// Every UI connection is a synchronous byte-stream pipe. Header and payload
-// writes must be serialized across the engine's request, status, watcher and
-// index threads; otherwise two frames can interleave and the peer can block
-// forever while parsing a corrupt length.
-std::mutex gUiPipeWriteMutex;
-
-bool WriteUiFrame(HANDLE pipe, uint16_t messageType, const void* payload = nullptr, uint32_t payloadSize = 0) {
-    std::lock_guard<std::mutex> lock(gUiPipeWriteMutex);
+bool DefaultFrameWriter(HANDLE pipe, uint16_t messageType, const void* payload, uint32_t payloadSize) {
     return ffipc::WriteFrame(pipe, messageType, payload, payloadSize);
+}
+
+void DefaultPipeCanceller(HANDLE pipe) {
+    if (pipe != INVALID_HANDLE_VALUE) {
+        CancelIoEx(pipe, nullptr);
+    }
 }
 
 // Synchronous named-pipe handles cannot keep a blocking ReadFile pending
@@ -71,18 +71,93 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
     return directory;
 }
 
-bool SendDirectoryError(HANDLE pipe, const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
-    std::vector<uint8_t> payload(sizeof(ffprotocol::DirectoryErrorPayload) + path.size() * sizeof(wchar_t));
-    ffprotocol::DirectoryErrorPayload header{reason, static_cast<uint16_t>(path.size())};
-    std::memcpy(payload.data(), &header, sizeof(header));
-    if (!path.empty()) {
-        std::memcpy(payload.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));
+} // namespace
+
+UiServer::ClientConnection::ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller)
+    : pipe_(pipe), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {}
+
+bool UiServer::ClientConnection::Write(uint16_t messageType, const void* payload, uint32_t payloadSize) {
+    // Serialize complete frames for this connection, but do not hold the
+    // connection state lock while the external pipe write can block.
+    std::lock_guard<std::mutex> writeLock(writeMutex_);
+    HANDLE writerThread = OpenThread(THREAD_TERMINATE, FALSE, GetCurrentThreadId());
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    {
+        std::lock_guard<std::mutex> stateLock(stateMutex_);
+        if (closing_) {
+            if (writerThread != nullptr) {
+                CloseHandle(writerThread);
+            }
+            return false;
+        }
+        pipe = pipe_;
+        writerThread_ = writerThread;
     }
-    return WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::DirectoryError), payload.data(),
-                        static_cast<uint32_t>(payload.size()));
+    const bool written = frameWriter_(pipe, messageType, payload, payloadSize);
+    {
+        std::lock_guard<std::mutex> stateLock(stateMutex_);
+        writerThread_ = nullptr;
+    }
+    if (writerThread != nullptr) {
+        CloseHandle(writerThread);
+    }
+    return written;
 }
 
-} // namespace
+void UiServer::ClientConnection::CancelPendingWriteLocked() {
+    if (writerThread_ != nullptr) {
+        CancelSynchronousIo(writerThread_);
+    }
+}
+
+void UiServer::ClientConnection::Cancel() {
+    std::lock_guard<std::mutex> stateLock(stateMutex_);
+    if (!closing_) {
+        CancelPendingWriteLocked();
+        pipeCanceller_(pipe_);
+    }
+}
+
+void UiServer::ClientConnection::Close() {
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    {
+        std::lock_guard<std::mutex> stateLock(stateMutex_);
+        if (closing_) {
+            return;
+        }
+        closing_ = true;
+        pipe = pipe_;
+        CancelPendingWriteLocked();
+    }
+
+    // Cancel before waiting for a concurrent writer. A writer that already
+    // owns writeMutex_ is now guaranteed to unwind; a later writer observes
+    // closing_ before it can issue I/O.
+    pipeCanceller_(pipe);
+    std::lock_guard<std::mutex> writeLock(writeMutex_);
+    {
+        std::lock_guard<std::mutex> stateLock(stateMutex_);
+        pipe = pipe_;
+        pipe_ = INVALID_HANDLE_VALUE;
+    }
+    if (pipe != INVALID_HANDLE_VALUE) {
+        CloseHandle(pipe);
+    }
+}
+
+UiServer::UiServer(FrameWriter frameWriter, PipeCanceller pipeCanceller)
+    : frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {
+    if (!frameWriter_) {
+        frameWriter_ = DefaultFrameWriter;
+    }
+    if (!pipeCanceller_) {
+        pipeCanceller_ = DefaultPipeCanceller;
+    }
+}
+
+UiServer::~UiServer() {
+    Stop();
+}
 
 bool UiServer::Start(DWORD sessionId) {
     if (!snapshot_.Start(sessionId)) {
@@ -110,19 +185,26 @@ bool UiServer::Start(DWORD sessionId) {
 void UiServer::Stop() {
     running_ = false;
     listener_.Stop();
+
+    // Cancel before joining watcher callbacks. A callback may already be in
+    // ClientConnection::Write, and CancelIoEx must run before that callback's
+    // owning watcher thread is joined. The client list is copied under its
+    // short state lock; no client-list lock is held across pipe I/O.
+    std::vector<ClientConnectionPtr> clients;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clients = subscribedClients_;
+    }
+    for (const auto& client : clients) {
+        client->Cancel();
+    }
+
     watcher_.UnwatchAll();
     snapshot_.Stop();
-
-    // Cancel each connection's pending ReadFrame rather than closing the
-    // handle here directly: each connection's own (detached) thread in
-    // HandleConnection owns the single CloseHandle for its pipe, in its
-    // `disconnected:` path. Closing it from both places would race a
-    // double-close / a handle-value reused by an unrelated CreateFile.
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    for (HANDLE pipe : subscribedPipes_) {
-        CancelIoEx(pipe, nullptr);
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        subscribedClients_.clear();
     }
-    subscribedPipes_.clear();
 }
 
 void UiServer::OnDirectoryChanged(const std::wstring& path) {
@@ -147,32 +229,40 @@ bool UiServer::RepublishAndBroadcastGeneration() {
     }
 
     ffprotocol::NewGenerationPayload payload{generation};
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    for (auto it = subscribedPipes_.begin(); it != subscribedPipes_.end();) {
-        if (!WriteUiFrame(*it, static_cast<uint16_t>(UiMessageType::NewGeneration), &payload, sizeof(payload))) {
-            it = subscribedPipes_.erase(it); // that connection's own reader thread will observe the disconnect and clean up
-        } else {
-            ++it;
+    std::vector<ClientConnectionPtr> clients;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clients = subscribedClients_;
+    }
+    for (const auto& client : clients) {
+        if (!client->Write(static_cast<uint16_t>(UiMessageType::NewGeneration), &payload, sizeof(payload))) {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            subscribedClients_.erase(
+                std::remove(subscribedClients_.begin(), subscribedClients_.end(), client), subscribedClients_.end());
         }
     }
     return true;
 }
 
-void UiServer::BroadcastEngineStatus(HANDLE toSinglePipe) {
+void UiServer::BroadcastEngineStatus(const ClientConnectionPtr& toSingleClient) {
     ffprotocol::EngineStatusPayload payload{
         engineActive_ ? ffprotocol::PrivilegedPathStatus::Active : ffprotocol::PrivilegedPathStatus::Unavailable};
 
-    if (toSinglePipe != nullptr) {
-        WriteUiFrame(toSinglePipe, static_cast<uint16_t>(UiMessageType::EngineStatus), &payload, sizeof(payload));
+    if (toSingleClient != nullptr) {
+        toSingleClient->Write(static_cast<uint16_t>(UiMessageType::EngineStatus), &payload, sizeof(payload));
         return;
     }
 
-    std::lock_guard<std::mutex> lock(clientsMutex_);
-    for (HANDLE pipe : subscribedPipes_) {
-        if (!WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::EngineStatus), &payload, sizeof(payload))) {
-            // Drop is handled by the connection thread when it observes the
-            // broken pipe; this broadcast must not hold the client mutex
-            // longer than the bounded frame write itself.
+    std::vector<ClientConnectionPtr> clients;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clients = subscribedClients_;
+    }
+    for (const auto& client : clients) {
+        if (!client->Write(static_cast<uint16_t>(UiMessageType::EngineStatus), &payload, sizeof(payload))) {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            subscribedClients_.erase(
+                std::remove(subscribedClients_.begin(), subscribedClients_.end(), client), subscribedClients_.end());
         }
     }
 }
@@ -241,7 +331,7 @@ void UiServer::RemoveVolumeDirectories(wchar_t driveLetter) {
     RepublishAndBroadcastGeneration();
 }
 
-bool UiServer::SendUnavailableVolumes(HANDLE pipe) {
+bool UiServer::SendUnavailableVolumes(const ClientConnectionPtr& client) {
     const auto records = onRequestUnavailableVolumes ? onRequestUnavailableVolumes()
                                                      : std::vector<ffprotocol::UnavailableVolumeRecord>{};
     if (records.size() > (ffprotocol::kMaxFrameSize - sizeof(ffprotocol::FrameHeader)
@@ -257,11 +347,11 @@ bool UiServer::SendUnavailableVolumes(HANDLE pipe) {
         std::memcpy(payload.data() + sizeof(header), records.data(),
                     records.size() * sizeof(ffprotocol::UnavailableVolumeRecord));
     }
-    return WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::UnavailableVolumes), payload.data(),
-                        static_cast<uint32_t>(payload.size()));
+    return client->Write(static_cast<uint16_t>(UiMessageType::UnavailableVolumes), payload.data(),
+                         static_cast<uint32_t>(payload.size()));
 }
 
-bool UiServer::SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId) {
+bool UiServer::SendForgetUnavailableVolumeResult(const ClientConnectionPtr& client, int64_t volumeRowId) {
     const auto status = onForgetUnavailableVolume
         ? onForgetUnavailableVolume(volumeRowId)
         : ffprotocol::ForgetUnavailableVolumeStatus::Failed;
@@ -270,27 +360,29 @@ bool UiServer::SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowI
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
                                       {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0});
     }
-    return WriteUiFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolumeResult),
-                        &payload, sizeof(payload));
+    return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolumeResult),
+                         &payload, sizeof(payload));
 }
 
-bool UiServer::SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
-                                         uint64_t itemCount, uint64_t totalSizeBytes) {
+bool UiServer::SendFolderAggregateResult(const ClientConnectionPtr& client, uint64_t requestId,
+                                         ffprotocol::FolderAggregateStatus status, uint64_t itemCount,
+                                         uint64_t totalSizeBytes) {
     const ffprotocol::FolderAggregateResultPayload payload{requestId, status, itemCount, totalSizeBytes};
-    return WriteUiFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResult),
-                        &payload, sizeof(payload));
+    return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResult),
+                         &payload, sizeof(payload));
 }
 
-bool UiServer::SendIndexedSearchResult(HANDLE pipe, const ffprotocol::IndexedSearchResponse& response) {
+bool UiServer::SendIndexedSearchResult(const ClientConnectionPtr& client,
+                                       const ffprotocol::IndexedSearchResponse& response) {
     auto payload = ffprotocol::SerializeIndexedSearchResponse(response);
     if (payload.empty()) {
         return false;
     }
-    return WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::IndexedSearchResult), payload.data(),
-                        static_cast<uint32_t>(payload.size()));
+    return client->Write(static_cast<uint16_t>(UiMessageType::IndexedSearchResult), payload.data(),
+                         static_cast<uint32_t>(payload.size()));
 }
 
-bool UiServer::SendVolumeStatus(HANDLE pipe) {
+bool UiServer::SendVolumeStatus(const ClientConnectionPtr& client) {
     const auto records = onRequestVolumeStatus
         ? onRequestVolumeStatus()
         : std::vector<ffprotocol::VolumeStatusRecord>{};
@@ -307,8 +399,8 @@ bool UiServer::SendVolumeStatus(HANDLE pipe) {
         std::memcpy(payload.data() + sizeof(header), records.data(),
                     records.size() * sizeof(ffprotocol::VolumeStatusRecord));
     }
-    return WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::VolumeStatus), payload.data(),
-                        static_cast<uint32_t>(payload.size()));
+    return client->Write(static_cast<uint16_t>(UiMessageType::VolumeStatus), payload.data(),
+                         static_cast<uint32_t>(payload.size()));
 }
 
 void UiServer::SetEngineStatus(bool privilegedPathActive) {
@@ -320,7 +412,19 @@ void UiServer::SetEngineStatus(bool privilegedPathActive) {
     }
 }
 
-void UiServer::HandleRequestDirectory(HANDLE pipe, const std::wstring& path) {
+bool UiServer::SendDirectoryError(const ClientConnectionPtr& client, const std::wstring& path,
+                                  ffprotocol::DirectoryErrorReason reason) {
+    std::vector<uint8_t> payload(sizeof(ffprotocol::DirectoryErrorPayload) + path.size() * sizeof(wchar_t));
+    ffprotocol::DirectoryErrorPayload header{reason, static_cast<uint16_t>(path.size())};
+    std::memcpy(payload.data(), &header, sizeof(header));
+    if (!path.empty()) {
+        std::memcpy(payload.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));
+    }
+    return client->Write(static_cast<uint16_t>(UiMessageType::DirectoryError), payload.data(),
+                         static_cast<uint32_t>(payload.size()));
+}
+
+void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const std::wstring& path) {
     if (onActivity) {
         onActivity();
     }
@@ -336,19 +440,19 @@ void UiServer::HandleRequestDirectory(HANDLE pipe, const std::wstring& path) {
     if (result.status == EnumerationStatus::AccessDenied) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0});
-        SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::AccessDenied);
+        SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::AccessDenied);
         return;
     }
     if (result.status == EnumerationStatus::NotFound) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0});
-        SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
+        SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
         return;
     }
     if (result.status == EnumerationStatus::IoError) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
                                       path, {}, L"enumeration-failed", ERROR_READ_FAULT, 0});
-        SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::EnumerationFailed);
+        SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::EnumerationFailed);
         return;
     }
 
@@ -359,11 +463,12 @@ void UiServer::HandleRequestDirectory(HANDLE pipe, const std::wstring& path) {
         // recovery-degraded-browsing 4.2: enumeration succeeded but the
         // publish failed -- tell this client explicitly rather than leaving
         // it with stale data and no explanation.
-        SendDirectoryError(pipe, path, ffprotocol::DirectoryErrorReason::PublishFailed);
+        SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::PublishFailed);
     }
 }
 
-void UiServer::HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8_t>& framePayload) {
+void UiServer::HandleRequestFolderAggregate(const ClientConnectionPtr& client,
+                                            const std::vector<uint8_t>& framePayload) {
     if (framePayload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) {
         return;
     }
@@ -371,7 +476,7 @@ void UiServer::HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8
     std::memcpy(&request, framePayload.data(), sizeof(request));
 
     if (!onRequestFolderAggregate) {
-        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
         return;
     }
 
@@ -379,15 +484,16 @@ void UiServer::HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8
     const auto aggregateOpt = onRequestFolderAggregate(static_cast<ffindexstore::VolumeRowId>(request.volumeRowId), parentFrn);
 
     if (!aggregateOpt) {
-        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
     } else {
         const auto& aggregate = *aggregateOpt;
-        SendFolderAggregateResult(pipe, request.requestId, ffprotocol::FolderAggregateStatus::Resolved,
+        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::Resolved,
                                   aggregate.itemCount, aggregate.totalSizeBytes);
     }
 }
 
-bool UiServer::HandleRequestIndexedSearch(HANDLE pipe, const std::vector<uint8_t>& framePayload) {
+bool UiServer::HandleRequestIndexedSearch(const ClientConnectionPtr& client,
+                                          const std::vector<uint8_t>& framePayload) {
     const auto request = ffprotocol::ParseIndexedSearchRequest(framePayload.data(), framePayload.size());
     if (!request) {
         return false;
@@ -402,15 +508,16 @@ bool UiServer::HandleRequestIndexedSearch(HANDLE pipe, const std::vector<uint8_t
     } else {
         response.status = ffprotocol::IndexedSearchStatus::Unavailable;
     }
-    return SendIndexedSearchResult(pipe, response);
+    return SendIndexedSearchResult(client, response);
 }
 
 void UiServer::HandleConnection(HANDLE pipe) {
+    const ClientConnectionPtr client = std::make_shared<ClientConnection>(pipe, frameWriter_, pipeCanceller_);
     bool subscribed = false;
 
     for (;;) {
         ffipc::ReceivedFrame frame;
-        if (!ReadUiFrame(pipe, running_, frame)) {
+        if (!ReadUiFrame(client->Pipe(), running_, frame)) {
             break;
         }
         auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
@@ -422,7 +529,7 @@ void UiServer::HandleConnection(HANDLE pipe) {
             case UiMessageType::Subscribe: {
                 {
                     std::lock_guard<std::mutex> lock(clientsMutex_);
-                    subscribedPipes_.push_back(pipe);
+                    subscribedClients_.push_back(client);
                 }
                 subscribed = true;
 
@@ -432,11 +539,11 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 std::memcpy(payload.data(), &header, sizeof(header));
                 std::memcpy(payload.data() + sizeof(header), sectionName.data(), sectionName.size() * sizeof(wchar_t));
 
-                if (!WriteUiFrame(pipe, static_cast<uint16_t>(UiMessageType::SubscribeAck), payload.data(),
-                                  static_cast<uint32_t>(payload.size()))) {
+                if (!client->Write(static_cast<uint16_t>(UiMessageType::SubscribeAck), payload.data(),
+                                   static_cast<uint32_t>(payload.size()))) {
                     goto disconnected;
                 }
-                BroadcastEngineStatus(pipe);
+                BroadcastEngineStatus(client);
                 break;
             }
 
@@ -457,7 +564,7 @@ void UiServer::HandleConnection(HANDLE pipe) {
                     reinterpret_cast<const wchar_t*>(frame.payload.data() + sizeof(header)), header.pathLengthChars);
                 ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                               path, {}, L"engine-directory-request-received", 0, 0});
-                HandleRequestDirectory(pipe, path);
+                HandleRequestDirectory(client, path);
                 break;
             }
 
@@ -467,14 +574,14 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 break;
 
             case UiMessageType::RequestUnavailableVolumes:
-                if (!frame.payload.empty() || !SendUnavailableVolumes(pipe)) goto disconnected;
+                if (!frame.payload.empty() || !SendUnavailableVolumes(client)) goto disconnected;
                 break;
 
     case UiMessageType::ForgetUnavailableVolume: {
         if (frame.payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
         ffprotocol::ForgetUnavailableVolumePayload payload{};
         std::memcpy(&payload, frame.payload.data(), sizeof(payload));
-        if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(pipe, payload.volumeRowId)) {
+        if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(client, payload.volumeRowId)) {
             goto disconnected;
         }
         break;
@@ -482,16 +589,16 @@ void UiServer::HandleConnection(HANDLE pipe) {
 
     case UiMessageType::RequestFolderAggregate: {
         if (frame.payload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) goto disconnected;
-        HandleRequestFolderAggregate(pipe, frame.payload);
+        HandleRequestFolderAggregate(client, frame.payload);
         break;
     }
 
     case UiMessageType::RequestIndexedSearch:
-        if (!HandleRequestIndexedSearch(pipe, frame.payload)) goto disconnected;
+        if (!HandleRequestIndexedSearch(client, frame.payload)) goto disconnected;
         break;
 
     case UiMessageType::RequestVolumeStatus:
-        if (!frame.payload.empty() || !SendVolumeStatus(pipe)) goto disconnected;
+        if (!frame.payload.empty() || !SendVolumeStatus(client)) goto disconnected;
         break;
 
     case UiMessageType::SetIndexingPaused: {
@@ -513,9 +620,10 @@ void UiServer::HandleConnection(HANDLE pipe) {
 disconnected:
     if (subscribed) {
         std::lock_guard<std::mutex> lock(clientsMutex_);
-        subscribedPipes_.erase(std::remove(subscribedPipes_.begin(), subscribedPipes_.end(), pipe), subscribedPipes_.end());
+        subscribedClients_.erase(
+            std::remove(subscribedClients_.begin(), subscribedClients_.end(), client), subscribedClients_.end());
     }
-    CloseHandle(pipe);
+    client->Close();
 }
 
 } // namespace ffengine
