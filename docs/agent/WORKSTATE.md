@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:14:00+08:00
+Last updated: 2026-08-11T00:38:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,15 +11,15 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: SQL no-count implementation is uncommitted; this is the pre-benchmark checkpoint
+Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage percentage reconciliation is the next-frontier checkpoint
 
 ## Active Engineering Slice
 
-Name: Measure the SQLite volume-metadata search bottleneck
+Name: Reconcile Storage “% of Parent” validation tasks
 
-Objective: Isolate the `GetAllVolumes` metadata-query cost after trigram acceleration and determine whether one narrow, evidence-backed SQL/index change is justified.
+Objective: Verify the already-implemented percentage helper/display/sort behavior against `close-independent-validation-gaps` tasks 1.1–1.7, add only missing deterministic headless cases, and reconcile the task checkboxes with source/test evidence.
 
-Frontier invariant: One SQL measurement/optimization slice only. No query-language change, secondary-index redesign, cancellation, UI, snapshot, MFT/USN, or security change belongs in this slice.
+Frontier invariant: One Storage percentage validation slice only. No details-pane layout, security/pin, snapshot, search, SQL, or privileged-path work belongs in this slice.
 
 Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 
@@ -41,9 +41,13 @@ SQL slice decision: implement the no-count search path first, then rerun the est
 
 SQL implementation milestone: `Store::GetAllVolumesWithoutEntryCounts()` shares the existing volume-row reader while skipping `CountEntries()`. `IndexPipeline::SearchIndexed` uses it in both view-compatible and owning fallback branches; rebuild, public volume metadata, and unavailable-volume reporting retain counted `GetAllVolumes()`. Focused Store and engine tests pass.
 
-Next exact action: build the Release benchmark target and run `ffengine_bench_large_index_scalability` at 100K/500K/1M/2M into `docs/benchmarks/large-index-scalability-sql-no-count.json`; preserve the prior secondary-index artifact.
+Benchmark result: the complete `docs/benchmarks/large-index-scalability-sql-no-count.json` artifact covers 100K/500K/1M/2M with 179 runs and 28 summaries. Selective/no-match/broad medians are `0.03/0.06/8.82`, `0.50/0.62/11.89`, `0.64/0.63/14.29`, and `0.55/2.24/17.55 ms`; 2M SQLite metadata is approximately `0.10 ms`, versus `~65–68 ms` before. The 120-second external command deadline expired after the complete artifact was written; no benchmark process or disposable fixture remained.
 
-Reconciliation: HEAD began at `a24f9bb` with the benchmark decision committed and the working tree clean. The trigram integration is now committed as `90efdf9`; only this bookkeeping update is uncommitted. Prior benchmark and implementation evidence below remains valid historical context.
+SQL slice status: COMPLETE. Product commit `6d6f6c1` preserves counted metadata semantics while routing indexed search through the no-count API. Debug and Analyze builds passed; full serial CTest passed 42/42; the Release artifact is complete and valid.
+
+Next exact action: inspect and extend `tests/ui/test_storage_percentage.cpp` for parent composition, root/unknown, rounding, equal/nearly-equal, and overflow-scale cases; run the focused test and then mark tasks 1.1–1.7 only after the full gates pass.
+
+Reconciliation: HEAD began at `6d6f6c1` with the SQL slice committed and only this bookkeeping update uncommitted. Storage percentage code/test seams predate this frontier in `c6dd602`; task checkboxes are stale and will be reconciled from current source/tests rather than assumed complete.
 
 Baseline reproduction complete before editing using Release `ffengine_bench_large_index_scalability` at 100K/500K/1M. Fresh medians: 100K selective/no-match/broad/worst-substring `7.23/7.11/12.28/13.17 ms`; 500K `72.46/79.12/32.48/32.34 ms`; 1M selective/no-match/broad/worst-substring `131.06/166.33/48.83/50.92 ms`. 1M p90/max: selective `131.56/138.36 ms`, no-match `167.23/167.60 ms`, broad `48.93/49.03 ms`, worst-substring `52.19/53.27 ms`. Incremental 1M `p/ph/pho/phot/photo = 47.62/56.68/56.76/56.60/56.65 ms`. Results were `1/0/4096/4096`; variation is within the established baseline band.
 
