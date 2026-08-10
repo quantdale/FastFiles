@@ -1,31 +1,53 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T10:45:00+08:00
+Last updated: 2026-08-10T12:55:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at product completion: `03f7a4d` (`Prevent watcher shutdown from blocking on UI publication`)
-Working tree: clean after the product commit and WORKSTATE completion bookkeeping
+HEAD at slice start: `273a871` (`Clarify watcher lifecycle lock invariant`); source baseline includes product commit `03f7a4d` plus documentation-only bookkeeping commits
+Working tree: clean at slice start
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Prior product commit: `3ec28db` (`Unify shortcut settings persistence`)
 Product commit: `ff0533e` (`Apply category filters to Treemap data`)
 
 ## Current Engineering Slice
 
-Name: Watcher shutdown / synchronous UI-pipe publication lifecycle
+Name: Stale snapshot / publish-failure UX
 
-Objective: Keep watcher and engine shutdown bounded when UI publication is slow, stalled, disconnected, or no longer consuming data, while preserving normal degraded-mode watcher updates.
+Objective: Make freshness, stale last-known-good data, and unavailable requested locations explicit without rewriting the snapshot architecture or discarding useful same-context data.
 
-Safety / correctness invariant: No watcher or lifecycle-critical shutdown path may be indefinitely hostage to synchronous UI output; callbacks must not publish through destroyed state.
+Safety / correctness invariant: A failed refresh or unreadable announced generation must never be rendered as current/empty success; a different requested context must never inherit rows from the previous context.
 
-Non-goals: Selection identity, Storage visibility, shortcut routing/persistence, Treemap filtering, stale snapshot UX except where required for lifecycle correctness, large-index/search performance, MFT/USN activation, signing/authentication, installer redesign, or broad IPC replacement.
+Non-goals: Watcher shutdown architecture, selection identity, Storage visibility, shortcuts, Treemap filtering, large-index/search performance, MFT/USN activation, signing/authentication, installer redesign, broad notification/toast framework, or visual redesign.
 
 ## Current Frontier
 
-Completed from clean starting HEAD `cd76f1a`; selection identity, Storage visibility, global shortcut routing, shortcut persistence, Treemap category-filter integration, and this watcher/UI publication lifecycle slice are complete. Git/source/tests remain authoritative over prior completion notes. Product completion commit: `03f7a4d`.
+Trace completed for the real snapshot path. Producer: `UiServer::HandleRequestDirectory` / `OnDirectoryChanged` enumerate into `directories_`; `SnapshotPublisher::Publish` serializes into the inactive shared-memory slot and commits descriptor/slot/generation; `UiServer::RepublishAndBroadcastGeneration` sends `NewGeneration` only after a nonzero publish result. Consumer: `EngineClient::ConnectAndSubscribe` maps the section, `ReaderLoop` receives generation notifications, `WindowShell` posts `WM_APP_SNAPSHOT_UPDATED`, and `ColumnView`/`SearchPanel`/`StorageAnalysis`/`TreemapView` call `ReadSnapshot()`.
+
+Silent-staleness edges proven: `EngineClient` discarded `NewGenerationPayload::generationId`; `ReadSnapshot()` exposed no generation and returned `nullopt` without a UI result; `ColumnView::OnSnapshotUpdated` logged read failure and returned, while `RefreshColumnFromSnapshot` returned silently on path miss; all source/request errors cleared same-context rows and displayed only a generic unavailable/error column. Request-time `PublishFailed` already exists as an additive enum and response path, but watcher-time publish failure was ignored by `OnDirectoryChanged`. New navigation creates new path-owned `Column` objects, so failed new contexts do not inherit old rows; same-context refreshes had no retained stale state.
+
+Chosen direction: add one pure, headless `SnapshotFreshness` state seam (`Loading`, `Current`, `StaleWithError`, `Unavailable`) carried by each path-owned `Column`, with accepted/requested generation ordering and a failure reason. Retain rows only for the same existing `Column`; new context columns begin empty/loading and become unavailable on failure. Thread generation through `EngineClient`/`WindowShell` and make mapping/read failure explicit. Keep publish atomicity unchanged unless tests disprove it; add watcher publish-failure notification and focused deterministic tests.
+
+Implementation milestone: `src/ui/include/ffui/SnapshotFreshness.h` now owns the pure state transitions and generation ordering. `EngineClient::ReaderLoop` validates/deduplicates `NewGenerationPayload`, `ReadSnapshotWithGeneration` returns the committed generation, and `WindowShell` coalesces the newest generation onto the UI thread. `ColumnView` retains same-context rows for source, publish, snapshot-load, path-missing, and disconnect failures with bounded inline status text; it clears only unavailable contexts and treats a successful zero-item snapshot as `Current`. `UiServer::OnDirectoryChanged` broadcasts watcher-time publish failure to subscribed clients. `tests/ui/test_snapshot_freshness.cpp` covers the deterministic state model; `test_snapshot_publisher.cpp` proves an oversized publication returns failure without advancing shared generation. Focused tests and full Debug build pass so far.
+
+Runtime milestone: a rebuilt Debug UI used a disposable `build\\debug\\stale-runtime-fixture` containing `nested\\beta.txt` and `alpha.txt`. The real selection probe reported the fixture path and both rows. After moving that exact directory away and triggering F5, the probe still reported the same path and rows, while a captured real window showed `Showing previous results — refresh fa…` above the retained rows. Moving it back and refreshing restored the normal view with the same rows and no stale banner. A separate relaunch to a nonexistent disposable path reported that path with `VisibleItems=` and never exposed the fixture rows. The settings file and workspace state were restored to `This PC`/previous-session `C:\`; all FastFiles processes and created runtime artifacts were cleaned up.
+
+File-operation finding: `ActiveSelectionPaths()` resolves live full paths from current rows; command handlers check existence for open/rename/conflict decisions, and `FileOperations::Execute` rebuilds transfer plans and creates `IShellItem` objects at operation time. No stale numeric metadata is used to execute an operation. No operation redesign is planned.
+
+Completed from clean starting HEAD `273a871`; selection identity, Storage visibility, global shortcut routing, shortcut persistence, Treemap category-filter integration, watcher/UI publication lifecycle, and stale snapshot/publish-failure UX are complete. Git/source/tests remain authoritative over prior completion notes. Current product completion commit: `21481a5` (`Surface stale snapshot and refresh failures`).
+
+## Completed Slice Record — Stale Snapshot / Publish-Failure UX
+
+Root cause: the UI discarded announced generation IDs, exposed snapshot reads without generation, silently returned on mapping/path misses, and cleared same-context rows on request errors. Watcher-time `SnapshotPublisher::Publish` failure was also only logged. `SnapshotPublisher` itself already committed the inactive slot, descriptor, active slot, and generation in the correct order; failed oversized publication returns zero without advancing or announcing a generation.
+
+Final model: `SnapshotFreshness` is authoritative per path-owned `Column`: `Loading`, `Current`, `StaleWithError`, or `Unavailable`, with a failure reason, requested generation, and last successful generation. Same-column data is retained only for the same logical path; a new path owns a new empty/loading column and cannot inherit another location's rows. A valid zero-item directory reaches `Current`.
+
+Failure/recovery: source enumeration, watcher/request publication, announced-generation mapping/read, missing-path, and disconnect failures retain same-context rows as stale with bounded inline status text; contexts with no last-known-good data become unavailable and render an explicit reason. A later accepted generation clears the failure. Out-of-order generations are rejected. Existing file operations resolve current paths and filesystem state at execution time; stale rows remain actionable without relying on stale numeric metadata.
+
+Protocol/publication scope: no protocol version change was needed; existing `DirectoryErrorReason::PublishFailed` now also reaches all subscribed clients for watcher refresh failure. `SnapshotPublisher` atomic publication was proven rather than rewritten.
 
 Root cause established: `DirectoryWatcher::WatchLoop` (`src/engine/src/DirectoryWatcher.cpp:133-210`) invokes its `ChangeCallback` inline on the watcher thread. `UiServer::OnDirectoryChanged` (`src/engine/src/UiServer.cpp:128-135`) re-enumerates, updates `directories_`, and synchronously calls `RepublishAndBroadcastGeneration`. That publishes through `SnapshotPublisher::Publish` (`SnapshotPublisher.cpp:77-106`) and then holds `clientsMutex_` (`UiServer.cpp:150-157`) while `WriteUiFrame` -> `ffipc::WriteFrame` -> `WriteExact` -> synchronous `WriteFile` (`src/ipc/src/PipeFraming.cpp:20-31, 66-84`) writes the `NewGeneration` notification. `UiServer::Stop` (`UiServer.cpp:110-126`) calls `listener_.Stop()` then `watcher_.UnwatchAll()`/`StopEntry` joins the watcher before it reaches the subscribed-pipe `CancelIoEx` loop. A stalled UI reader therefore leaves the watcher in `WriteFile`, holding `clientsMutex_`, while shutdown waits forever in `StopEntry::thread.join()` and cannot reach cancellation. `directoriesMutex_` and `SnapshotPublisher::publishMutex_` are released before pipe output; `clientsMutex_` is the lock held across the blocking external call.
 
@@ -39,9 +61,9 @@ Deterministic tests: `tests/engine/test_ui_server_lifecycle.cpp` injects a block
 
 Runtime evidence: rebuilt Debug `FastFilesEngine.exe` served a real .NET named-pipe client. The client observed SubscribeAck/status, initial directory publication, and a new generation after an externally-created disposable file. After the client disconnected, the Engine remained alive and responsive. The actual rebuilt Debug `FastFiles.exe` launched, exited via `WM_CLOSE`, relaunched, and exited again; no FastFiles/Engine processes or disposable runtime directories remained after cleanup. The synthetic stalled-pipe evidence remains the exact bounded-shutdown proof; no fragile large-pipe-fill claim is made.
 
-Validation: Debug build PASS; Analyze build PASS. Full serial CTest PASS, 41/41, with `TEMP`/`TMP` set to `C:\Users\Michael Roy\AppData\Local\Temp`. Focused engine lifecycle/watcher/snapshot tests PASS. Runtime smoke PASS as above.
+Validation: current-slice Debug rebuild PASS; Analyze build PASS. Full serial CTest PASS, 42/42, with `TEMP`/`TMP` set to `C:\Users\Michael Roy\AppData\Local\Temp`; the new `ffsnapshot_freshness_tests` is registered and passing. Focused `ffsnapshot_freshness_tests`, `ffengine_snapshot_publisher_tests`, and `ffengine_ui_server_lifecycle_tests` PASS. Runtime stale/recovery/new-context smoke PASS as above.
 
-NEXT EXACT ACTION: Do not implement the next slice. The single next recommended slice is `stale snapshot / publish-failure UX`.
+NEXT EXACT ACTION: Do not implement the next slice. The single next recommended slice is `large-index search/snapshot scalability benchmarking`.
 
 Required data-flow map:
 `category-filter UI/state` -> `Storage Analysis model` -> `filtered dataset/request` -> `Treemap layout input` -> `rendered Treemap`.
@@ -223,7 +245,7 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior 
 
 ## NEXT EXACT ACTION
 
-After the focused product commit, do not implement another slice. The single next recommended slice is `stale snapshot / publish-failure UX`.
+After product commit `21481a5`, do not implement another slice. The single next recommended slice is `large-index search/snapshot scalability benchmarking`.
 
 ## Resume Instructions
 
