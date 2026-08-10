@@ -1,26 +1,53 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T17:15:00+08:00
+Last updated: 2026-08-10T19:05:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `ce4e6ca9a5db3c78d36102ce56d03399a82ee9cb` (`Record indexed search scalability benchmark state`)
+HEAD at slice start: `8d68ac351d64e2c17eae0082562c2f24253590e5` (`Record indexed search optimization state`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
-Workstate bookkeeping: `ce4e6ca9a5db3c78d36102ce56d03399a82ee9cb` (`Record indexed search scalability benchmark state`)
+Workstate bookkeeping: `7c0cd83` (`Avoid eager candidate copies in indexed search`); bookkeeping commit follows this update
 
 ## Current Engineering Slice
 
-Name: Optimize indexed-search projection candidate/path materialization
+Name: Optimize lightweight indexed-search candidate/name materialization
 
-Objective: Remove unnecessary full candidate/path materialization from `IndexPipeline::SearchIndexed` while preserving the canonical query semantics, ordering, and 4,096-result cap.
+Objective: Remove the remaining all-row owning candidate/name materialization from `IndexPipeline::SearchIndexed` while preserving the canonical query semantics, ordering, and 4,096-result cap.
 
 Scope invariant: One search-performance frontier only. No SQLite replacement, speculative FTS, query-language changes, cancellation, snapshot optimization, MFT/USN activation, security/signing changes, or unrelated UI/product work belongs in this slice.
 
 OpenSpec context: No existing OpenSpec change owns this optimization. The completed `instant-search` spec is the source context: indexed matching scans the in-memory projection with no per-search SQL query, and the UI uses a bounded result page. The OpenSpec CLI is unavailable in this environment.
+
+## Current Slice Baseline Reproduction
+
+- Starting point was clean `8d68ac3`; no source/test changes were present before measurement.
+- Existing Release harness reproduced the current optimized path: 100K selective `36.43 ms`, 500K selective `300.28 ms`, 1M selective `473.34 ms`, 1M no-match `475.37 ms`, and 1M broad `448.50 ms` medians.
+- Warm 1M selective attribution: lightweight candidate materialization `407.09 ms`, SQLite metadata `34.27 ms`, match/filter/sort `31.08 ms`, lazy path `0.012 ms` for one path, total `472.47 ms` for the sampled run.
+- Fresh 1M private memory samples: database open `5.5 MB`, selective peak `543.6 MB`, broad peak `530.7 MB`, post-query `528.3 MB`.
+- Root cause inside the remaining stage is confirmed: `ProjectionEntry` exposes an interned UTF-16 `NameId`, but `SearchIndexed` calls `ToWString` for every row, allocates/copies every name into an owning `Candidate`, copies scalar metadata, and retains all candidates in a reserved vector. The projection has already paid for name storage; non-matching rows do not need another name allocation.
+- Design frontier: add a non-owning UTF-16 `CandidateView`/view-aware canonical matcher and stream projection rows while the projection lock protects NamePool lifetimes; materialize an owning `Candidate` only for path evaluation survivors/results. Keep existing owning `Candidate` APIs and fallback search behavior intact.
+
+## Current Slice Implementation Checkpoint
+
+- `ffsearch::CandidateView` carries a non-owning UTF-16 name view plus scalar metadata; `FilterDefinition`/`Query` now retain view-aware built-in predicates alongside the existing owning predicates. Extension/kind matching uses the existing `towlower` semantics without allocating a per-row normalized string; ordinal and glob matching operate directly on the UTF-16 view.
+- `ExecuteSearchViews` streams a callback-provided view source, preserves canonical scope/filter/match/sort behavior and cap-before-sort semantics, and requests ownership only after cheap view predicates pass. `SearchIndexed` holds the projection lock for the view lifetime, so NamePool references cannot dangle; custom filters without a view factory use the old owning fallback.
+- Structural attribution now records projection rows examined, owning candidate objects, name copies, result objects, projection traversal, and lazy-path counts. The 1M selective run examined 1,000,000 rows and created/copied/materialized exactly 1 candidate/name/result; broad stopped at the same 4,096-result cap boundary after 13,779 eligible rows and materialized 4,096 candidates.
+- First Release after measurements: 100K selective `19.09 ms`, 500K `126.67 ms`, 1M selective `292.85 ms`, 1M no-match `298.32 ms`, 1M broad `59.44 ms`; incremental 1M `p/ph/pho/phot/photo` `56.39/71.01/70.95/71.12/70.59 ms`. 1M selective attribution: projection traversal/direct matching `257.72 ms`, owning candidate/name `0.003 ms`, lazy path `0.009 ms`, SQLite `34.52 ms`; private memory samples: open `5.0 MB`, selective warm peak max about `456.9 MB`, broad peak `465.4 MB`, post-query `467.5 MB`.
+- Focused `ffsearch_tests`, `ffsearch_scan_tests`, and `ffengine_index_pipeline_tests` pass, including view/owning predicate agreement and existing parent-path, extension, duplicate-name, ordering, scope, and 4,096-cap coverage.
+
+## Current Slice Validation Checkpoint
+
+- Final default Release benchmark is recorded in `docs/benchmarks/large-index-scalability.json`: selective 100K/500K/1M `17.88/132.88/293.18 ms`, no-match 1M `300.96 ms`, broad 1M `58.41 ms`; full classes and snapshot-capacity probes completed. Incremental `p/ph/pho/phot/photo` is `55.44/70.53/70.85/71.04/70.41 ms`.
+- Final instrumented 1M selective sample: SQLite `33.2357 ms`, projection traversal/direct matching `271.7994 ms`, owning candidate/name `0.0032 ms`, lazy path `0.0084 ms` with one successful path, total `305.0476 ms`; counts are 1,000,000 rows examined, 1 candidate/name/result materialized. Final 1M private samples: database open `6.0 MB`, selective peak max `466.3 MB`, broad peak `473.9 MB`, post-query `475.3 MB`.
+- Debug build PASS, Analyze build PASS, and full serial CTest PASS `42/42` with the documented user TEMP/TMP override; the first CTest attempt failed only the mixed-line-ending guard and the normalized rerun passed all tests.
+- Runtime smoke PASS for rebuilt Debug FastFiles launch, automatic Engine launch, UI/Engine responsiveness, normal UI close, and cleanup. No indexed privileged fixture was available; degraded navigation remains the active runtime path and no signing/authentication bypass was used.
+- Benchmark Markdown preserves the original baseline → path-materialization optimization → candidate/name-materialization optimization progression. The new primary bottleneck is raw projection traversal plus direct UTF-16 filename matching; the next slice is not implemented.
+
+Current product commit: `7c0cd83` (`Avoid eager candidate copies in indexed search`).
 
 ## Benchmark Trace Checkpoint
 
@@ -83,7 +110,7 @@ Validation: Debug build PASS; Analyze build PASS; Release benchmark target PASS.
 
 ## NEXT EXACT ACTION
 
-After the final focused commit is recorded, the single next engineering slice is `optimize lightweight indexed-search name/candidate materialization` using a projection-backed name view or exact filename prefilter. Do not implement it in this slice; cancellation remains deferred.
+Do not implement the next slice automatically. The single next recommended slice is `optimize projection iteration and direct filename matching` using measured dense live-entry traversal or a narrowly scoped exact filename prefilter. SQLite schema work and cancellation remain deferred.
 
 ## Previous Slice Record
 
