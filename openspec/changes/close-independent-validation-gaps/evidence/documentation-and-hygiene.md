@@ -38,4 +38,3 @@ Observed result:
 - `dist/FastFiles.exe`: deleted from source control in `52d33da`; the current tree has no tracked copy, and `.gitignore` excludes `dist/`. Documented CMake builds continue to emit binaries under ignored `build/` directories. Decision: remove from source control and ignore generated distribution output.
 - `Audit.txt`: renamed `Audit.txt -> codebase-audit/Audit.txt` in `52d33da`. The 819-line autonomous-audit prompt is retained as tooling/documentation in the owned `codebase-audit` area rather than at repository root. Decision: retain after the documented move.
 - `codebase-audit/sessions/20260804-180500-v7k4p2/`: no files were modified by the hygiene commit or this reconciliation; its eight validation reports remain intact.
-
