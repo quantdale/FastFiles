@@ -275,3 +275,113 @@ Focused deterministic engine/search coverage remains passing for selective, no-m
 `NEXT SINGLE OPTIMIZATION SLICE: reduce projection iteration/name-predicate scan cost, guided by dense live-entry traversal or a narrowly measured exact filename prefilter; SQLite schema work and cancellation remain separate.`
 
 The candidate/name materialization optimization is complete; this benchmark does not implement the next slice.
+
+## Projection scan / direct filename matching optimization — final 2026-08-10
+
+This slice preserves the preceding original → path-materialization → candidate/name-materialization history. It optimizes the remaining projection walk without changing the query language, owning-result boundary, lazy paths, ordering, or cap-before-sort behavior.
+
+### Root cause and broad/selective explanation
+
+The old 1M selective stage was approximately `271.79 ms` (`89.1%` of the sampled search). Detailed diagnostics decomposed it into overlapping work: about `102.6 ms` of NamePool lookup timing, `23.2 ms` of name-view construction timing, and `63.7 ms` of direct predicate/substring timing; the combined stage is the authoritative wall-clock measure. No-match traversed the same 1,000,000 rows and performed `2,872,240` ordinal comparison windows. Broad was different because the existing cap-before-sort behavior stopped after exactly 4,096 accepted results, at 13,779 examined rows; it did not scan the full million.
+
+The final implementation makes rebuilt projection entries follow the original live hash-bucket order in a dense vector and remaps the ID and parent-child indices. A valid dense-order flag is used for read-only scans; after mutations, direct live-slot iteration preserves the previous order. The matcher recognizes a single simple literal name term, folds query-side ASCII once, stores only a one-bit-equivalent entry property indicating an ASCII lowercase-compatible name, and uses an allocation-free anchor search in that case. Uppercase/non-ASCII names and complex terms retain the canonical ordinal/Unicode fallback. No lowercase filename copies are stored.
+
+### Final search pipeline
+
+```text
+query parse and query-side literal preparation
+→ SQLite volume metadata lookup
+→ projection lock and dense live-entry/view traversal
+→ prepared simple-literal matcher or canonical generic view predicates
+→ lazy folder/path materialization only for survivors
+→ owning result materialization, existing 4,096 cap, and sort
+→ response serialization
+```
+
+NamePool access remains a UTF-16 view. Simple literal queries use the prepared query term and an ASCII anchor when the entry property proves the exact fast-path precondition; all other cases use the existing ordinal case-insensitive semantics. Result and path ownership remain limited to accepted rows and path-dependent predicates.
+
+### Before/after medians
+
+| Index | Query | Before | After | Speedup |
+| ----: | ----- | -----: | ----: | ------: |
+| 100K | Selective | 17.88 ms | 7.40 ms | 2.42x |
+| 500K | Selective | 132.88 ms | 57.29 ms | 2.32x |
+| 1M | Selective | 293.18 ms | 130.76 ms | 2.24x |
+| 1M | No match | 300.96 ms | 172.52 ms | 1.74x |
+| 1M | Broad | 58.41 ms | 51.09 ms | 1.14x |
+| 1M | Worst substring | 61.17 ms | 52.87 ms | 1.16x |
+| 1M | Extension | 58.60 ms | 51.74 ms | 1.13x |
+
+Full query-class medians remain in the machine-readable artifact. Ordered `selective / moderate / broad / no-match / prefix / extension / worst-substring`:
+
+| Scale | Before (ms) | After (ms) |
+| ----: | -----------: | ----------: |
+| 10K | 0.68 / 2.75 / 6.42 / 0.73 / 2.88 / 6.07 / 4.81 | 0.49 / 2.24 / 5.35 / 0.49 / 2.28 / 4.91 / 3.83 |
+| 100K | 17.88 / 21.87 / 14.55 / 18.67 / 21.79 / 13.37 / 16.07 | 7.40 / 15.87 / 12.27 / 7.23 / 16.40 / 12.42 / 13.40 |
+| 500K | 132.88 / 46.48 / 36.36 / 135.76 / 46.82 / 35.30 / 38.89 | 57.29 / 37.84 / 32.62 / 73.78 / 39.68 / 32.42 / 32.63 |
+| 1M | 293.18 / 69.74 / 58.41 / 300.96 / 69.91 / 58.60 / 61.17 | 130.76 / 59.07 / 51.09 / 172.52 / 60.31 / 51.74 / 52.87 |
+
+### Stage attribution — 1M selective
+
+The normal warm sample below is paired with a separate projection-only probe. Diagnostic per-operation clocks are intentionally non-additive and perturb wall time; they are included to identify operations, not to replace the normal median.
+
+| Stage | Before | After | % After |
+| ----- | -----: | ----: | ------: |
+| SQLite metadata | 33.24 ms | 33.98 ms | 26.4% |
+| Projection-only traversal floor | not isolated | 54.28 ms | 42.1% |
+| Direct literal matching/filter residual | included in 271.79 ms | ~40.54 ms | 31.5% |
+| Combined projection traversal + matching | 271.79 ms | 94.82 ms | 73.6% |
+| Lazy path work | 0.008 ms | 0.012 ms | <0.1% |
+| Result handling | 0.003 ms | 0.016 ms | <0.1% |
+| Total sampled search | 305.05 ms | 128.81 ms | 100% |
+
+The normal final 1M selective median is `130.76 ms`. The paired sample examined 1,000,000 rows, performed 999,999 NamePool lookups and 1,000,000 view/predicate evaluations, accepted one row, and materialized one candidate/name/result with one lazy path. The no-match warm sample measured `138.01 ms` for the combined projection/matching stage; subtracting the `54.28 ms` projection-only floor leaves an approximately `83.73 ms` failed-literal matching/filter residual. Its diagnostic run counted 1,000,000 failed substring searches, 1,000,000 early rejects, and zero path lookups. This is the remaining dominant operation.
+
+### Incremental search — 1M
+
+| Query | Before | After | Speedup |
+| ----- | -----: | ----: | ------: |
+| `p` | 55.44 ms | 49.99 ms | 1.11x |
+| `ph` | 70.53 ms | 59.55 ms | 1.18x |
+| `pho` | 70.85 ms | 58.74 ms | 1.21x |
+| `phot` | 71.04 ms | 58.53 ms | 1.21x |
+| `photo` | 70.41 ms | 59.18 ms | 1.19x |
+
+### Memory and semantic equivalence
+
+The clean isolated 1M run measured private memory at approximately `4.4 / 454.0 / 470.4 / 471.2 MiB` for open / rebuild / after broad / post-query, versus the prior `6.0 / 466.3 / 473.9 / 475.3 MiB`. The canonical multi-scale artifact records `6.4 / 455.2 / 487.7 / 490.1 MiB`; the higher post-broad values are allocator-history effects from retaining the earlier 10K/100K/500K runs in the same process, not persistent projection storage. The isolated measurement is the comparable footprint check and shows no material regression.
+
+| Scenario | Result |
+| -------- | ------ |
+| selective | PASS |
+| no match | PASS |
+| broad / capped | PASS |
+| exact 4,096 result set | PASS |
+| filename substring | PASS |
+| parent path | PASS |
+| extension | PASS |
+| prefix | PASS |
+| glob | PASS |
+| ASCII case-insensitive | PASS |
+| Unicode/non-ASCII | PASS |
+| multi-term | PASS |
+| metadata/folder predicate | PASS |
+| duplicate names | PASS |
+| result ordering | PASS |
+
+Focused deterministic search tests pass, including new uppercase-ASCII fast-path/fallback agreement and non-ASCII Unicode fallback cases. Existing engine tests continue to cover parent-path-only queries, folder scope, glob, extension, metadata, duplicate names, ordering, and the 4,096 cap.
+
+### Larger scale
+
+2M: NOT TESTED
+5M: NOT TESTED
+
+### Assessment and next slice
+
+`PRIMARY BOTTLENECK BEFORE: combined raw projection traversal plus direct UTF-16 matching/filtering (271.79 ms sampled)`
+
+`PRIMARY BOTTLENECK AFTER: failed direct literal filename matching/filtering (~83.73 ms residual in the 1M no-match sample)`
+
+`NEXT SINGLE OPTIMIZATION SLICE: evaluate an evidence-backed secondary filename-search index/FTS design or a narrowly targeted failed-literal matcher improvement; do not implement it in this slice.`
+
+Cancellation, snapshot changes, SQL schema redesign, MFT/USN activation, and security/signing work remain deferred.

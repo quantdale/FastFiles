@@ -44,6 +44,17 @@ struct SearchResponse {
     size_t candidatesVisited = 0;
 };
 
+// Optional benchmark-only attribution for the projection-backed search loop.
+// The normal product path passes null and keeps the existing behavior.
+struct SearchDiagnostics {
+    MatchDiagnostics match;
+    bool projectionOnly = false;
+    size_t pathNeededDecisions = 0;
+    size_t pathLookups = 0;
+    size_t matchedRows = 0;
+    double matchedRowHandlingMs = 0.0;
+};
+
 SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
                              const std::function<bool()>& cancelled = {});
 using CandidateMaterializer = std::function<bool(Candidate&)>;
@@ -51,13 +62,29 @@ SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const Searc
                                   const CandidateMaterializer& materialize,
                                   const std::function<bool()>& cancelled = {});
 
-using CandidateViewVisitor = std::function<bool(const CandidateView&)>;
+class CandidateViewVisitor {
+public:
+    template <typename Fn>
+    explicit CandidateViewVisitor(Fn& fn) noexcept
+        : context_(&fn), invoke_([](void* context, const CandidateView& candidate) {
+            return (*static_cast<Fn*>(context))(candidate);
+        }) {}
+
+    bool operator()(const CandidateView& candidate) const {
+        return invoke_(context_, candidate);
+    }
+
+private:
+    void* context_;
+    bool (*invoke_)(void*, const CandidateView&);
+};
 using CandidateViewEnumerator = std::function<void(const CandidateViewVisitor&)>;
 using CandidateViewMaterializer = std::function<std::optional<Candidate>(const CandidateView&)>;
 SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
                                   const SearchRequest& request,
                                   const CandidateViewMaterializer& materialize,
-                                  const std::function<bool()>& cancelled = {});
+                                  const std::function<bool()>& cancelled = {},
+                                  SearchDiagnostics* diagnostics = nullptr);
 void SortResults(std::vector<SearchResult>& results, SortField field, bool descending);
 MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term);
 

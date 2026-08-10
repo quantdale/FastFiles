@@ -517,6 +517,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                                                                SearchTimings* timings) {
     using Clock = std::chrono::steady_clock;
     const auto totalStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    const bool detailedDiagnostics = timings != nullptr && timings->detailedDiagnostics;
+    const bool projectionOnly = timings != nullptr && timings->projectionOnly;
     const auto setTotal = [&] {
         if (timings != nullptr) {
             timings->totalMs = std::chrono::duration<double, std::milli>(Clock::now() - totalStart).count();
@@ -551,8 +553,17 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
     std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
     double lazyPathMaterializationMs = 0.0;
     double candidateNameMaterializationMs = 0.0;
+    double namePoolLookupMs = 0.0;
+    double nameViewConstructionMs = 0.0;
     std::chrono::steady_clock::time_point candidateStart{};
     size_t projectionRowsExamined = 0;
+    size_t projectionEntriesVisited = 0;
+    size_t namePoolLookups = 0;
+    size_t emptyNamesRejected = 0;
+    size_t nameViewsConstructed = 0;
+    ffsearch::SearchDiagnostics searchDiagnostics;
+    searchDiagnostics.projectionOnly = projectionOnly;
+    const bool collectSearchDiagnostics = detailedDiagnostics || projectionOnly;
     size_t candidateObjectsMaterialized = 0;
     size_t candidateNameCopies = 0;
     ffsearch::SearchResponse search;
@@ -605,6 +616,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
+        const auto singlePrefixIt = prefixes.size() == 1 ? prefixes.begin() : prefixes.end();
+        const ffindexstore::VolumeRowId singleVolumeId = singlePrefixIt == prefixes.end()
+            ? 0 : singlePrefixIt->first;
+        const std::wstring* singlePrefix = singlePrefixIt == prefixes.end() ? nullptr : &singlePrefixIt->second;
 
         searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
         candidateStart = searchStart;
@@ -628,23 +643,41 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             return std::optional<ffsearch::Candidate>(std::move(candidate));
         };
         const ffsearch::CandidateViewEnumerator enumerate = [&](const ffsearch::CandidateViewVisitor& visit) {
-            projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
-                                          const ffindexstore::ProjectionEntry& entry) {
+            const auto enumerationStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+            projection_.ForEachEntryValue([&](const ffindexstore::ProjectionEntry& entry) {
                 if (!continueEnumeration) return;
-                const auto prefixIt = prefixes.find(key.volumeRowId);
-                if (prefixIt == prefixes.end()) return;
+                if (detailedDiagnostics) ++projectionEntriesVisited;
+                const std::wstring* prefix = singlePrefix;
+                if (prefix == nullptr) {
+                    const auto prefixIt = prefixes.find(entry.volumeRowId);
+                    if (prefixIt == prefixes.end()) return;
+                    prefix = &prefixIt->second;
+                } else if (entry.volumeRowId != singleVolumeId) {
+                    return;
+                }
                 ++projectionRowsExamined;
                 std::u16string rootName;
                 std::u16string_view name;
                 if (entry.parentFrn == entry.frn) {
                     // The root's on-disk name is not user-facing. Use the
                     // mounted drive root exactly as the snapshot/UI path model does.
-                    rootName = ToU16String(prefixIt->second + L"\\");
+                    rootName = ToU16String(*prefix + L"\\");
                     name = rootName;
                 } else {
+                    const auto nameLookupStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+                    if (detailedDiagnostics) ++namePoolLookups;
                     name = projection_.Names().Get(entry.nameId);
-                    if (name.empty()) return;
+                    if (detailedDiagnostics) {
+                        namePoolLookupMs +=
+                            std::chrono::duration<double, std::milli>(Clock::now() - nameLookupStart).count();
+                    }
+                    if (name.empty()) {
+                        if (detailedDiagnostics) ++emptyNamesRejected;
+                        return;
+                    }
                 }
+                const auto nameViewStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+                const bool nameAsciiLower = entry.parentFrn != entry.frn && entry.nameAsciiLower;
                 const ffsearch::CandidateView view{
                     name,
                     {},
@@ -652,15 +685,26 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                     entry.lastModifiedTime,
                     (entry.attributes & kFileAttributeDirectory) != 0,
                     entry.creationTime,
-                    static_cast<int64_t>(key.volumeRowId),
+                    static_cast<int64_t>(entry.volumeRowId),
                     entry.frn.low,
                     entry.parentFrn.low,
                     true,
+                    nameAsciiLower,
                 };
+                if (detailedDiagnostics) {
+                    ++nameViewsConstructed;
+                    nameViewConstructionMs +=
+                        std::chrono::duration<double, std::milli>(Clock::now() - nameViewStart).count();
+                }
                 continueEnumeration = visit(view);
             });
+            if (detailedDiagnostics) {
+                timings->projectionEnumerationMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();
+            }
         };
-        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize);
+        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize, {},
+                                               collectSearchDiagnostics ? &searchDiagnostics : nullptr);
         lock.unlock();
     } else {
         std::vector<ffsearch::Candidate> candidates;
@@ -761,15 +805,42 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         const double searchElapsed =
             std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
         timings->projectionTraversalMs = searchElapsed;
+        timings->namePoolLookupMs = namePoolLookupMs;
+        timings->nameViewConstructionMs = nameViewConstructionMs;
         timings->candidateMaterializationMs = candidateNameMaterializationMs + lazyPathMaterializationMs;
         timings->lightweightCandidateMaterializationMs = candidateNameMaterializationMs;
         timings->lazyPathMaterializationMs = lazyPathMaterializationMs;
         timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - candidateNameMaterializationMs - lazyPathMaterializationMs);
         timings->candidateCount = projectionRowsExamined;
+        timings->projectionEntriesVisited = projectionEntriesVisited;
         timings->projectionRowsExamined = projectionRowsExamined;
+        timings->namePoolLookups = namePoolLookups;
+        timings->emptyNamesRejected = emptyNamesRejected;
+        timings->nameViewsConstructed = nameViewsConstructed;
         timings->candidateObjectsMaterialized = candidateObjectsMaterialized;
         timings->candidateNameCopies = candidateNameCopies;
         timings->candidatesVisited = search.candidatesVisited;
+        timings->queryPredicateEvaluations = searchDiagnostics.match.predicateEvaluations;
+        timings->queryTermEvaluations = searchDiagnostics.match.termEvaluations;
+        timings->caseInsensitiveComparisons = searchDiagnostics.match.caseInsensitiveComparisons;
+        timings->caseFoldOperations = searchDiagnostics.match.caseFoldOperations;
+        timings->substringSearches = searchDiagnostics.match.substringSearches;
+        timings->globMatches = searchDiagnostics.match.globMatches;
+        timings->prefixChecks = searchDiagnostics.match.prefixChecks;
+        timings->extensionPredicates = searchDiagnostics.match.extensionPredicates;
+        timings->metadataPredicates = searchDiagnostics.match.metadataPredicates;
+        timings->earlyRejects = searchDiagnostics.match.earlyRejects;
+        timings->predicateMatches = searchDiagnostics.match.predicateMatches;
+        timings->pathNeededDecisions = searchDiagnostics.pathNeededDecisions;
+        timings->pathLookups = searchDiagnostics.pathLookups;
+        timings->matchedRows = searchDiagnostics.matchedRows;
+        timings->predicateDispatchMs = searchDiagnostics.match.predicateDispatchMs;
+        timings->substringMatchingMs = searchDiagnostics.match.substringMatchingMs;
+        timings->globMatchingMs = searchDiagnostics.match.globMatchingMs;
+        timings->extensionMatchingMs = searchDiagnostics.match.extensionMatchingMs;
+        timings->metadataMatchingMs = searchDiagnostics.match.metadataMatchingMs;
+        timings->folderMatchingMs = searchDiagnostics.match.folderMatchingMs;
+        timings->matchedRowHandlingMs = searchDiagnostics.matchedRowHandlingMs;
         timings->resultCount = search.results.size();
         timings->searchResultObjectsMaterialized = search.results.size();
         timings->truncated = search.truncated;

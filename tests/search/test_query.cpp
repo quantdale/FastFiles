@@ -59,6 +59,24 @@ int main() {
     const auto emojiQuery = ffsearch::ParseQuery(L"file_?.txt", registry);
     Check(emojiQuery.Matches(emoji) == emojiQuery.MatchesView(emojiView),
           "view glob matching preserves surrogate-pair semantics");
+    const auto simpleLiteral = ffsearch::ParseQuery(L"REPORT", registry);
+    Check(simpleLiteral.simpleLiteralName && simpleLiteral.MatchesView(reportView),
+          "simple literal queries use the prepared projection matcher");
+    const ffsearch::Candidate upperAscii{L"Report.TXT", L"C:\\ascii", 1, 0, false};
+    const ffsearch::CandidateView upperAsciiView{u"Report.TXT", upperAscii.folder, upperAscii.sizeBytes,
+                                                 upperAscii.modifiedTime, upperAscii.isDirectory,
+                                                 upperAscii.createdTime, upperAscii.volumeId, upperAscii.id,
+                                                 upperAscii.parentId, upperAscii.persistentIndexed};
+    Check(simpleLiteral.Matches(upperAscii) == simpleLiteral.MatchesView(upperAsciiView) &&
+              simpleLiteral.MatchesView(upperAsciiView),
+          "uppercase ASCII names use the ordinal fallback without false negatives");
+    const ffsearch::Candidate unicode{L"\u00C5ngstr\u00F6m-report.txt", L"C:\\unicode", 1, 0, false};
+    const ffsearch::CandidateView unicodeView{u"\u00C5ngstr\u00F6m-report.txt", unicode.folder, unicode.sizeBytes,
+                                              unicode.modifiedTime, unicode.isDirectory, unicode.createdTime,
+                                              unicode.volumeId, unicode.id, unicode.parentId, unicode.persistentIndexed};
+    const auto unicodeQuery = ffsearch::ParseQuery(L"\u00E5NGSTR\u00D6M", registry);
+    Check(unicodeQuery.Matches(unicode) == unicodeQuery.MatchesView(unicodeView) && unicodeQuery.MatchesView(unicodeView),
+          "non-ASCII literal matching preserves ordinal case-insensitive fallback semantics");
     auto extended = ffsearch::FilterRegistry::WithDefaults();
     extended.Register(L"owner", {[](std::wstring_view value) -> std::optional<ffsearch::FilterValue> { return std::wstring(value); }, [](const ffsearch::FilterValue&) { return [](const ffsearch::Candidate&) { return true; }; }});
     Check(ffsearch::ParseQuery(L"ext:pdf", extended).Matches(report), "registering a new key leaves existing filters unchanged");

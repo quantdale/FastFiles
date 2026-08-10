@@ -2,6 +2,7 @@
 #include "ffsearch/Path.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cwctype>
 #include <unordered_map>
 #include <unordered_set>
@@ -129,7 +130,8 @@ SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const Searc
 SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
                                   const SearchRequest& request,
                                   const CandidateViewMaterializer& materialize,
-                                  const std::function<bool()>& cancelled) {
+                                  const std::function<bool()>& cancelled,
+                                  SearchDiagnostics* diagnostics) {
     SearchResponse response;
     if (!request.query.viewCompatible) return response;
 
@@ -137,7 +139,7 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
     const bool folderNeededForEvaluation = request.scope != SearchScope::AllIndexedLocations ||
                                            request.query.requiresFolder;
     bool stopped = false;
-    const CandidateViewVisitor visit = [&](const CandidateView& candidate) {
+    auto visitLambda = [&](const CandidateView& candidate) {
         if (stopped) return false;
         if (response.candidatesVisited % chunkSize == 0 && cancelled && cancelled()) {
             response.cancelled = true;
@@ -146,24 +148,39 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
             return false;
         }
         ++response.candidatesVisited;
-        if (!request.query.MatchesViewWithoutFolder(candidate)) return true;
+        if (diagnostics != nullptr && diagnostics->projectionOnly) return true;
 
         std::optional<Candidate> ownedCandidate;
+        if (diagnostics != nullptr) ++diagnostics->pathNeededDecisions;
         if (folderNeededForEvaluation) {
+            if (!request.query.MatchesViewWithoutFolder(candidate,
+                                                        diagnostics != nullptr ? &diagnostics->match : nullptr)) {
+                return true;
+            }
+            if (diagnostics != nullptr) ++diagnostics->pathLookups;
             ownedCandidate = materialize(candidate);
             if (!ownedCandidate || !InScope(*ownedCandidate, request.scope, request.scopePath,
                                             request.persistentOnly) || !request.query.Matches(*ownedCandidate)) {
                 return true;
             }
         } else {
-            if (!request.query.MatchesView(candidate)) return true;
+            if (!request.query.MatchesView(candidate,
+                                           diagnostics != nullptr ? &diagnostics->match : nullptr)) return true;
+            if (diagnostics != nullptr) ++diagnostics->pathLookups;
             ownedCandidate = materialize(candidate);
             if (!ownedCandidate) return true;
         }
 
+        const auto matchedRowStart = diagnostics != nullptr ? std::chrono::steady_clock::now()
+                                                             : std::chrono::steady_clock::time_point{};
         Candidate owned = std::move(*ownedCandidate);
         const MatchTier tier = ClassifyMatch(owned, request.query.primaryTerm);
         response.results.push_back({std::move(owned), tier});
+        if (diagnostics != nullptr) {
+            ++diagnostics->matchedRows;
+            diagnostics->matchedRowHandlingMs +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - matchedRowStart).count();
+        }
         if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
             response.truncated = true;
             stopped = true;
@@ -171,6 +188,7 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
         }
         return true;
     };
+    const CandidateViewVisitor visit(visitLambda);
     enumerate(visit);
     if (response.cancelled) return response;
     SortResults(response.results, request.sortField, request.descending);

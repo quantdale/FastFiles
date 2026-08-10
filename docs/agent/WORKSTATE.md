@@ -1,26 +1,45 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T19:05:00+08:00
+Last updated: 2026-08-10T20:10:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `8d68ac351d64e2c17eae0082562c2f24253590e5` (`Record indexed search optimization state`)
+HEAD at slice start: `95bbcc89e700c6a03c54ea36dee57284d0a005e2` (`Record indexed search candidate materialization state`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
-Workstate bookkeeping: `7c0cd83` (`Avoid eager candidate copies in indexed search`); bookkeeping commit follows this update
+Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
+Current slice bookkeeping: uncommitted WORKSTATE checkpoint
 
 ## Current Engineering Slice
 
-Name: Optimize lightweight indexed-search candidate/name materialization
+Name: Optimize projection traversal and direct filename matching
 
-Objective: Remove the remaining all-row owning candidate/name materialization from `IndexPipeline::SearchIndexed` while preserving the canonical query semantics, ordering, and 4,096-result cap.
+Objective: Decompose and materially reduce the measured raw projection traversal plus direct UTF-16 filename matching stage while preserving canonical query semantics, ordering, zero-copy candidate behavior, lazy paths, and the 4,096-result cap.
 
 Scope invariant: One search-performance frontier only. No SQLite replacement, speculative FTS, query-language changes, cancellation, snapshot optimization, MFT/USN activation, security/signing changes, or unrelated UI/product work belongs in this slice.
 
-OpenSpec context: No existing OpenSpec change owns this optimization. The completed `instant-search` spec is the source context: indexed matching scans the in-memory projection with no per-search SQL query, and the UI uses a bounded result page. The OpenSpec CLI is unavailable in this environment.
+OpenSpec context: No existing OpenSpec change owns this optimization. The completed `instant-search` spec is the source context: indexed matching scans the in-memory projection with no per-search SQL query, and the UI uses a bounded result page. `openspec list --json` was attempted and the CLI is unavailable in this environment.
+
+## Current Slice Frontier
+
+- Phase 1 reproduction completed before edits using the existing Release harness and a temporary output file. Medians: 100K selective/no-match/broad/prefix/extension/worst-substring `19.57/19.30/14.57/22.63/13.72/16.59 ms`; 500K `143.56/142.27/36.51/46.63/35.71/39.21 ms`; 1M `288.81/306.55/60.44/70.21/57.67/61.63 ms`. Incremental 1M `p/ph/pho/phot/photo` = `56.17/70.76/70.61/70.73/70.20 ms`.
+- Fresh 1M structural attribution: selective examined 1,000,000 rows, took `258.55 ms` in the combined projection/match stage, and materialized one candidate/name/result with one lazy path; no-match examined all rows and took `282.57 ms` with zero materialization; broad accepted the 4,096 cap after 13,779 examined rows and took `26.08 ms` projection traversal plus `8.08 ms` result/path materialization. SQLite metadata was `32.81–34.35 ms`.
+- Phase 2 decomposition completed with narrow benchmark-only attribution for projection row iteration, NamePool access, name-view construction, query-term iteration, case-insensitive comparison, substring/glob/prefix/extension matching, metadata predicates, path-needed decisions, predicate interpretation, matched-row handling, and counters for rows/terms/comparisons/searches/folding/rejects/matches/path lookups.
+- Broad is fast primarily because cap-before-sort terminates traversal at 4,096 accepted results; selective/no-match pay the full million-row scan. The final projection-only probe isolates a `54.28 ms` traversal floor; the failed no-match literal scan leaves an approximately `83.73 ms` matching/filter residual after subtracting that floor.
+- Exactly one engineering frontier is active: determine and optimize this measured projection/matcher stage. Cancellation, snapshot work, SQL schema redesign, FTS, security/signing, and UI changes remain deferred.
+- Required evidence is complete: result-cap termination, broad-vs-selective disparity, matcher semantics, and the semantics-preserving optimization are recorded below.
+
+## Current Slice Implementation Checkpoint
+
+- Root cause decomposed: broad is fast because cap-before-sort stops after 4,096 accepted rows (the 1M fixture stops at 13,779 examined rows). Selective/no-match traverse all 1,000,000 live projection rows. Before cache-local projection work, the scan floor was about `232.75 ms` with projection-only diagnostics; no-match also performed `2,872,240` ordinal case-insensitive window comparisons. SQLite remained about `33 ms`.
+- Implemented projection locality: `Projection::RebuildVolumeFromStore` compacts dense `ProjectionEntry` storage into the original live hash-bucket order and remaps `idToIndex_` and `parentToChildren_` references. Search iteration order and cap-before-sort acceptance order are unchanged. A dense-order-valid flag uses the compact vector for rebuilt read-only scans; mutations fall back to direct live-slot iteration, so no persistent iteration-slot index is retained.
+- Implemented common literal plan: query-side ASCII folding/rare-anchor preparation, entry-local `nameAsciiLower` metadata computed during ingestion, and a direct simple-literal view matcher with exact ordinal fallback for uppercase/non-ASCII names. Complex/multi-term/glob/filter queries retain canonical predicate dispatch. No lowercase name copies are stored.
+- Added optional benchmark-only diagnostics and a projection-only probe. Counts cover projection rows, NamePool lookups, views, query/predicate terms, ordinal comparisons, extension/glob/metadata calls, rejects, path decisions/lookups, and accepted rows. Detailed per-operation timers are intentionally separate from normal latency runs because their clock calls perturb wall time.
+- Disproved and removed from the final design: ASCII full-name/KMP matcher variants (no wall-time win before/after compaction), a projection index-vector cache (capped scans regressed), and NamePool-side ASCII flags (added a second per-row lookup). A non-owning visitor wrapper was neutral in measurement and remains only as a small type-erasure reduction.
+- Final isolated 1M Release result after removing the persistent iteration-slot cache: selective `137.45 ms`, no-match `170.24 ms`, broad `54.38 ms`, prefix `58.04 ms`, extension `54.16 ms`, worst-substring `53.71 ms`; final full-matrix medians are `130.76/172.52/51.09 ms` for selective/no-match/broad, with result counts `1/0/4096`.
 
 ## Current Slice Baseline Reproduction
 
@@ -41,21 +60,21 @@ OpenSpec context: No existing OpenSpec change owns this optimization. The comple
 
 ## Current Slice Validation Checkpoint
 
-- Final default Release benchmark is recorded in `docs/benchmarks/large-index-scalability.json`: selective 100K/500K/1M `17.88/132.88/293.18 ms`, no-match 1M `300.96 ms`, broad 1M `58.41 ms`; full classes and snapshot-capacity probes completed. Incremental `p/ph/pho/phot/photo` is `55.44/70.53/70.85/71.04/70.41 ms`.
-- Final instrumented 1M selective sample: SQLite `33.2357 ms`, projection traversal/direct matching `271.7994 ms`, owning candidate/name `0.0032 ms`, lazy path `0.0084 ms` with one successful path, total `305.0476 ms`; counts are 1,000,000 rows examined, 1 candidate/name/result materialized. Final 1M private samples: database open `6.0 MB`, selective peak max `466.3 MB`, broad peak `473.9 MB`, post-query `475.3 MB`.
+- Final default Release benchmark is recorded in `docs/benchmarks/large-index-scalability.json`: selective 100K/500K/1M `7.40/57.29/130.76 ms`, no-match 1M `172.52 ms`, broad 1M `51.09 ms`; full classes and snapshot-capacity probes completed. Incremental `p/ph/pho/phot/photo` is `49.99/59.55/58.74/58.53/59.18 ms`.
+- Final instrumented 1M selective sample: projection-only `54.28 ms`, normal combined projection/matching `94.82 ms` (about `40.54 ms` residual matching), SQLite `33.98 ms`, owning candidate/name `0.016 ms`, lazy path `0.012 ms` with one successful path. No-match combined stage was `138.01 ms`, leaving about `83.73 ms` failed-literal residual. Counts remain 1,000,000 rows and one candidate/name/result for selective. Isolated 1M private samples: open `4.4 MiB`, rebuild `454.0 MiB`, broad `470.4 MiB`, post-query `471.2 MiB`.
 - Debug build PASS, Analyze build PASS, and full serial CTest PASS `42/42` with the documented user TEMP/TMP override; the first CTest attempt failed only the mixed-line-ending guard and the normalized rerun passed all tests.
 - Runtime smoke PASS for rebuilt Debug FastFiles launch, automatic Engine launch, UI/Engine responsiveness, normal UI close, and cleanup. No indexed privileged fixture was available; degraded navigation remains the active runtime path and no signing/authentication bypass was used.
-- Benchmark Markdown preserves the original baseline → path-materialization optimization → candidate/name-materialization optimization progression. The new primary bottleneck is raw projection traversal plus direct UTF-16 filename matching; the next slice is not implemented.
+- Benchmark Markdown preserves the original baseline → path-materialization optimization → candidate/name-materialization optimization → projection/matcher optimization progression. The new primary bottleneck is failed direct literal filename matching/filtering; the next slice is not implemented.
 
-Current product commit: `7c0cd83` (`Avoid eager candidate copies in indexed search`).
+Current product commit: pending final focused commit.
 
 ## Benchmark Trace Checkpoint
 
-Actual indexed-search path: `SearchPanel::Dispatch` -> `EngineClient::RequestIndexedSearch` -> `UiServer::HandleRequestIndexedSearch` -> `IndexPipeline::SearchIndexed` -> SQLite `GetAllVolumes` metadata lookup only -> full projection candidate/path materialization -> `ffsearch::ParseQuery` -> `ffsearch::ExecuteSearch` linear scope/filter/match scan and `SortResults` -> response candidate materialization -> `SerializeIndexedSearchResponse`/pipe -> UI indexed-completion candidate materialization.
+Actual indexed-search path: `SearchPanel::Dispatch` -> `EngineClient::RequestIndexedSearch` -> `UiServer::HandleRequestIndexedSearch` -> `IndexPipeline::SearchIndexed` -> SQLite `GetAllVolumes` metadata lookup only -> dense rebuilt projection view traversal -> prepared simple-literal or canonical generic view matching -> lazy path/result materialization -> existing cap/sort -> `SerializeIndexedSearchResponse`/pipe -> UI indexed-completion candidate materialization.
 
 Actual browse snapshot path: `IndexPipeline::ExportDirectorySnapshot` -> `ffprotocol::SerializeSnapshot` -> `SnapshotPublisher::Publish` inactive-slot copy and interlocked slot/generation commit -> UI mapping/header selection -> `ffprotocol::ParseSnapshot`.
 
-Measured hypothesis confirmed: indexed search latency scales with total projection size because `SearchIndexed` reconstructs/materializes every candidate for every request, while the returned result count is capped at `kMaxIndexedSearchResultCount` (4096). SQLite entry query time is effectively absent by design; the benchmark separately times the small metadata query.
+Measured hypothesis confirmed: indexed search latency scales with total projection size because simple literal matching remains an O(N) scan, while the returned result count is capped at `kMaxIndexedSearchResultCount` (4096). Candidate/name/path work is now lazy and zero-copy for rejected rows. SQLite entry query time is effectively absent by design; the benchmark separately times the small metadata query.
 
 Formal performance target: none found. Interpret numbers with clearly labeled engineering bands only (`<50 ms` immediate, `50-100 ms` excellent, `100-250 ms` responsive, `250-500 ms` noticeable, `>500 ms` poor, `>1 s` not instant).
 
@@ -345,6 +364,18 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior 
 ## Historical Prior-Slice Note
 
 The prior slice recommended `large-index search/snapshot scalability benchmarking`; that recommendation is now completed by the current slice record above.
+
+## Projection / filename optimization checkpoint
+
+Status: COMPLETE; product commit hash is recorded after the single focused commit.
+
+Root cause: broad was fast because the existing cap-before-sort behavior stopped at 4,096 accepted rows after 13,779 examined rows. Selective and no-match traversed all 1,000,000 rows. The old combined projection/direct-match stage was about 271.79 ms. Diagnostic timers overlapped, but showed roughly 102.6 ms NamePool lookup timing, 23.2 ms view construction, and 63.7 ms direct predicate timing; no-match performed 2,872,240 ordinal comparison windows.
+
+Implementation: rebuild-time `Projection` compaction preserves exact live hash-bucket order while making entries dense; `idToIndex_` and `parentToChildren_` indices are remapped. Dense scans are used only while that order is valid; mutation paths use direct live-slot iteration. Query-side simple literal plans prepare ASCII folding and a rare anchor once. Entries carry only an ASCII-lowercase-compatible flag; the canonical ordinal/Unicode fallback remains. No lowercase name copies, cancellation, SQL redesign, snapshot change, or UI change was added.
+
+Fresh final Release full benchmark: selective `100K/500K/1M = 7.40/57.29/130.76 ms`; no-match 1M `172.52 ms`; broad `51.09 ms`; worst substring `52.87 ms`; extension `51.74 ms`. Incremental `p/ph/pho/phot/photo = 49.99/59.55/58.74/58.53/59.18 ms`. Isolated clean 1M memory: open/rebuild/broad/post `4.4/454.0/470.4/471.2 MiB`; no material regression. Projection-only diagnostic floor `54.28 ms`; normal selective combined stage `~94.82 ms`, leaving `~40.54 ms` direct-match residual; no-match combined `138.01 ms`, leaving `~83.73 ms` failed-literal residual.
+
+Validation: Debug PASS; Analyze PASS; serial CTest PASS 42/42 with the documented TEMP/TMP override; runtime smoke PASS for UI launch, Engine companion, responsiveness, normal UI close, and explicit cleanup. The canonical Release artifact includes 10K/100K/500K/1M and all seven query classes. Do not begin the next filename-index/cancellation slice.
 
 ## Resume Instructions
 

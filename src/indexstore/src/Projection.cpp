@@ -8,6 +8,13 @@ namespace ffindexstore {
 
 namespace {
 constexpr uint32_t kFileAttributeDirectory = 0x00000010;
+
+bool IsAsciiLower(std::u16string_view name) {
+    for (const char16_t ch : name) {
+        if (ch > 0x7f || (ch >= u'A' && ch <= u'Z')) return false;
+    }
+    return true;
+}
 } // namespace
 
 void Projection::Reserve(size_t expectedEntryCount) {
@@ -17,6 +24,24 @@ void Projection::Reserve(size_t expectedEntryCount) {
     // quarter of the entry count is a reasonable rough estimate for the
     // unique-name-count hint; NamePool grows past this fine if wrong.
     namePool_.Reserve(expectedEntryCount / 4 + 16, expectedEntryCount * 12);
+}
+
+void Projection::CompactEntriesForIterationOrder() {
+    if (!freeList_.empty() || entries_.empty()) return;
+
+    std::vector<uint32_t> remap(entries_.size());
+    std::vector<ProjectionEntry> reordered;
+    reordered.reserve(entries_.size());
+    idToIndex_.ForEach([&](const EntryKey&, const uint32_t oldIndex) {
+        remap[oldIndex] = static_cast<uint32_t>(reordered.size());
+        reordered.push_back(entries_[oldIndex]);
+    });
+    if (reordered.size() != entries_.size()) return;
+
+    idToIndex_.RemapValues([&](const uint32_t oldIndex) { return remap[oldIndex]; });
+    parentToChildren_.RemapValues([&](const uint32_t oldIndex) { return remap[oldIndex]; });
+    entries_ = std::move(reordered);
+    denseIterationOrderValid_ = true;
 }
 
 void Projection::RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index) {
@@ -50,9 +75,11 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.lastModifiedTime = record.lastModifiedTime;
         entry.lastAccessTime = record.lastAccessTime;
         entry.attributes = record.attributes;
+        entry.nameAsciiLower = IsAsciiLower(record.name);
         return;
     }
 
+    denseIterationOrderValid_ = false;
     ProjectionEntry entry;
     entry.volumeRowId = volumeRowId;
     entry.frn = record.id;
@@ -63,6 +90,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     entry.lastModifiedTime = record.lastModifiedTime;
     entry.lastAccessTime = record.lastAccessTime;
     entry.attributes = record.attributes;
+    entry.nameAsciiLower = IsAsciiLower(record.name);
 
     uint32_t index;
     if (!freeList_.empty()) {
@@ -86,6 +114,7 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     if (pIndex == nullptr) {
         return;
     }
+    denseIterationOrderValid_ = false;
     const uint32_t index = *pIndex;
     RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
     idToIndex_.erase(key);
@@ -188,8 +217,10 @@ Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, File
 }
 
 void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
+    denseIterationOrderValid_ = false;
     Reserve(EntryCount() + expectedEntryCount);
     store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) { Upsert(volumeRowId, record); });
+    CompactEntriesForIterationOrder();
 }
 
 } // namespace ffindexstore

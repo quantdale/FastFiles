@@ -31,6 +31,7 @@ struct ProjectionEntry {
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
     uint32_t attributes = 0;
+    bool nameAsciiLower = false;
 };
 
 // The compact, RAM-resident view of the index that search/browse/storage-
@@ -112,12 +113,22 @@ public:
     // array directly, so tombstoned/reused slots are never visited.
     template <typename Fn>
     void ForEachEntry(Fn&& fn) const {
-        for (const auto& [key, index] : idToIndex_) {
+        idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
             fn(key, entries_[index]);
+        });
+    }
+
+    template <typename Fn>
+    void ForEachEntryValue(Fn&& fn) const {
+        if (denseIterationOrderValid_) {
+            for (const ProjectionEntry& entry : entries_) fn(entry);
+        } else {
+            idToIndex_.ForEachValue([&](const uint32_t index) { fn(entries_[index]); });
         }
     }
 
 private:
+    void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
 
     NamePool namePool_;
@@ -125,6 +136,7 @@ private:
     std::vector<uint32_t> freeList_;
     FlatHashMap<EntryKey, uint32_t, EntryKeyHash> idToIndex_;
     FlatChildrenMap parentToChildren_;
+    bool denseIterationOrderValid_ = false;
 };
 
 } // namespace ffindexstore

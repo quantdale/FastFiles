@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -97,6 +98,27 @@ public:
         --count_;
     }
 
+    template <typename Fn>
+    void ForEach(Fn&& fn) const {
+        for (size_t index = 0; index < states_.size(); ++index) {
+            if (states_[index] == 1) fn(keys_[index], values_[index]);
+        }
+    }
+
+    template <typename Fn>
+    void ForEachValue(Fn&& fn) const {
+        for (size_t index = 0; index < states_.size(); ++index) {
+            if (states_[index] == 1) fn(values_[index]);
+        }
+    }
+
+    template <typename Fn>
+    void RemapValues(Fn&& fn) {
+        for (size_t index = 0; index < states_.size(); ++index) {
+            if (states_[index] == 1) values_[index] = fn(values_[index]);
+        }
+    }
+
     struct Iterator {
         const FlatHashMap* map = nullptr;
         size_t index = 0;
@@ -183,6 +205,17 @@ public:
     }
 
     bool contains(const EntryKey& key) const { return !find(key).empty(); }
+
+    template <typename Fn>
+    void RemapValues(Fn&& fn) {
+        for (size_t index = 0; index < states_.size(); ++index) {
+            if (states_[index] != 1) continue;
+            const size_t offset = offsets_[index];
+            for (size_t child = 0; child < counts_[index]; ++child) {
+                values_[offset + child] = fn(values_[offset + child]);
+            }
+        }
+    }
 
     // Insert a single child index for `key`. Appends to the existing
     // value's contiguous slice, or creates a new one.

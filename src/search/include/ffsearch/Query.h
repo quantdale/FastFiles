@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -43,6 +44,7 @@ struct CandidateView {
     uint64_t id = 0;
     uint64_t parentId = 0;
     bool persistentIndexed = true;
+    bool nameAsciiLower = false;
 };
 
 struct SizeFilter { enum class Op { Equal, Greater, GreaterEqual, Less, LessEqual, Range }; Op op; uint64_t first; uint64_t second = 0; };
@@ -50,6 +52,39 @@ struct DateFilter { enum class Op { EqualDay, GreaterThan, Range }; Op op; uint6
 using FilterValue = std::variant<std::wstring, SizeFilter, DateFilter>;
 using Predicate = std::function<bool(const Candidate&)>;
 using ViewPredicate = std::function<bool(const CandidateView&)>;
+
+enum class PredicateKind {
+    Unknown,
+    LiteralName,
+    GlobName,
+    FolderName,
+    Extension,
+    Size,
+    Modified,
+    Kind,
+};
+
+// Optional benchmark-only attribution for the canonical view matcher. A
+// null diagnostics pointer keeps ordinary searches on the existing path.
+struct MatchDiagnostics {
+    size_t predicateEvaluations = 0;
+    size_t termEvaluations = 0;
+    size_t caseInsensitiveComparisons = 0;
+    size_t caseFoldOperations = 0;
+    size_t substringSearches = 0;
+    size_t globMatches = 0;
+    size_t prefixChecks = 0;
+    size_t extensionPredicates = 0;
+    size_t metadataPredicates = 0;
+    size_t earlyRejects = 0;
+    size_t predicateMatches = 0;
+    double predicateDispatchMs = 0.0;
+    double substringMatchingMs = 0.0;
+    double globMatchingMs = 0.0;
+    double extensionMatchingMs = 0.0;
+    double metadataMatchingMs = 0.0;
+    double folderMatchingMs = 0.0;
+};
 
 struct FilterDefinition {
     std::function<std::optional<FilterValue>(std::wstring_view)> parseValue;
@@ -74,15 +109,22 @@ struct Query {
     std::vector<Predicate> predicatesWithoutFolder;
     std::vector<ViewPredicate> viewPredicates;
     std::vector<ViewPredicate> viewPredicatesWithoutFolder;
+    std::vector<PredicateKind> viewPredicateKinds;
+    std::vector<PredicateKind> viewPredicateWithoutFolderKinds;
     std::vector<std::wstring> unrecognizedKeys;
     std::vector<std::wstring> invalidFilters;
     std::wstring primaryTerm;
+    std::wstring simpleLiteralTerm;
+    std::u16string simpleLiteralFolded;
+    char16_t simpleLiteralAnchor = 0;
+    size_t simpleLiteralAnchorIndex = 0;
     bool requiresFolder = false;
     bool viewCompatible = true;
+    bool simpleLiteralName = false;
     bool Matches(const Candidate& candidate) const;
     bool MatchesWithoutFolder(const Candidate& candidate) const;
-    bool MatchesView(const CandidateView& candidate) const;
-    bool MatchesViewWithoutFolder(const CandidateView& candidate) const;
+    bool MatchesView(const CandidateView& candidate, MatchDiagnostics* diagnostics = nullptr) const;
+    bool MatchesViewWithoutFolder(const CandidateView& candidate, MatchDiagnostics* diagnostics = nullptr) const;
 };
 
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry);

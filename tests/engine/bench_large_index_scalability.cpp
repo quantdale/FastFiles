@@ -107,6 +107,7 @@ void WriteJsonDouble(std::ostream& output, double value) {
 struct Options {
     std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000};
     std::filesystem::path outputPath = std::filesystem::path(L"docs/benchmarks/large-index-scalability.json");
+    bool detailedDiagnostics = false;
 };
 
 std::vector<size_t> ParseScales(const std::wstring& text) {
@@ -132,7 +133,7 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
     for (int index = 1; index < argc; ++index) {
         const std::wstring argument = argv[index];
         if (argument == L"--help") {
-            std::wprintf(L"Usage: %s [--scales 10000,100000] [--output path]\n", argv[0]);
+            std::wprintf(L"Usage: %s [--scales 10000,100000] [--output path] [--diagnostics]\n", argv[0]);
             return false;
         }
         if (argument == L"--scales" && index + 1 < argc) {
@@ -145,6 +146,10 @@ bool ParseOptions(int argc, wchar_t** argv, Options& options) {
         }
         if (argument == L"--output" && index + 1 < argc) {
             options.outputPath = argv[++index];
+            continue;
+        }
+        if (argument == L"--diagnostics") {
+            options.detailedDiagnostics = true;
             continue;
         }
         std::fwprintf(stderr, L"Unknown or incomplete argument: %s\n", argument.c_str());
@@ -238,19 +243,47 @@ struct SearchRun {
     size_t wireResultCount = 0;
     double sqliteMs = 0.0;
     double projectionTraversalMs = 0.0;
+    double projectionEnumerationMs = 0.0;
+    double namePoolLookupMs = 0.0;
+    double nameViewConstructionMs = 0.0;
     double materializationMs = 0.0;
     double lightweightCandidateMaterializationMs = 0.0;
     double lazyPathMaterializationMs = 0.0;
     size_t lazyPathMaterializationCount = 0;
     double queryParseMs = 0.0;
     double matchFilterSortMs = 0.0;
+    double predicateDispatchMs = 0.0;
+    double substringMatchingMs = 0.0;
+    double globMatchingMs = 0.0;
+    double extensionMatchingMs = 0.0;
+    double metadataMatchingMs = 0.0;
+    double folderMatchingMs = 0.0;
+    double matchedRowHandlingMs = 0.0;
     double responseMaterializationMs = 0.0;
     double responseSerializationMs = 0.0;
     double responseParseMs = 0.0;
     double uiResultMaterializationMs = 0.0;
     double totalMs = 0.0;
     double engineAndResponseMs = 0.0;
+    size_t projectionEntriesVisited = 0;
     size_t projectionRowsExamined = 0;
+    size_t namePoolLookups = 0;
+    size_t emptyNamesRejected = 0;
+    size_t nameViewsConstructed = 0;
+    size_t queryPredicateEvaluations = 0;
+    size_t queryTermEvaluations = 0;
+    size_t caseInsensitiveComparisons = 0;
+    size_t caseFoldOperations = 0;
+    size_t substringSearches = 0;
+    size_t globMatches = 0;
+    size_t prefixChecks = 0;
+    size_t extensionPredicates = 0;
+    size_t metadataPredicates = 0;
+    size_t earlyRejects = 0;
+    size_t predicateMatches = 0;
+    size_t pathNeededDecisions = 0;
+    size_t pathLookups = 0;
+    size_t matchedRows = 0;
     size_t candidateObjectsMaterialized = 0;
     size_t candidateNameCopies = 0;
     size_t searchResultObjectsMaterialized = 0;
@@ -436,7 +469,8 @@ struct SearchOutcome {
 };
 
 SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const QueryCase& queryCase,
-                        size_t iteration, const char* temperature) {
+                        size_t iteration, const char* temperature, bool detailedDiagnostics,
+                        bool projectionOnly = false) {
     ffprotocol::IndexedSearchRequest request;
     request.requestId = static_cast<uint64_t>(iteration + 1);
     request.scope = 3; // AllIndexedLocations
@@ -446,6 +480,8 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     request.query = queryCase.query;
 
     SearchOutcome outcome;
+    outcome.timings.detailedDiagnostics = detailedDiagnostics;
+    outcome.timings.projectionOnly = projectionOnly;
     const auto response = pipeline.SearchIndexed(request, &outcome.timings);
     const auto serializationStart = Clock::now();
     const std::vector<uint8_t> payload = ffprotocol::SerializeIndexedSearchResponse(response);
@@ -486,19 +522,47 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.truncated = outcome.timings.truncated;
     outcome.run.sqliteMs = outcome.timings.sqliteMetadataMs;
     outcome.run.projectionTraversalMs = outcome.timings.projectionTraversalMs;
+    outcome.run.projectionEnumerationMs = outcome.timings.projectionEnumerationMs;
+    outcome.run.namePoolLookupMs = outcome.timings.namePoolLookupMs;
+    outcome.run.nameViewConstructionMs = outcome.timings.nameViewConstructionMs;
     outcome.run.materializationMs = outcome.timings.candidateMaterializationMs;
     outcome.run.lightweightCandidateMaterializationMs = outcome.timings.lightweightCandidateMaterializationMs;
     outcome.run.lazyPathMaterializationMs = outcome.timings.lazyPathMaterializationMs;
     outcome.run.lazyPathMaterializationCount = outcome.timings.lazyPathMaterializationCount;
     outcome.run.queryParseMs = outcome.timings.queryParseMs;
     outcome.run.matchFilterSortMs = outcome.timings.matchFilterSortMs;
+    outcome.run.predicateDispatchMs = outcome.timings.predicateDispatchMs;
+    outcome.run.substringMatchingMs = outcome.timings.substringMatchingMs;
+    outcome.run.globMatchingMs = outcome.timings.globMatchingMs;
+    outcome.run.extensionMatchingMs = outcome.timings.extensionMatchingMs;
+    outcome.run.metadataMatchingMs = outcome.timings.metadataMatchingMs;
+    outcome.run.folderMatchingMs = outcome.timings.folderMatchingMs;
+    outcome.run.matchedRowHandlingMs = outcome.timings.matchedRowHandlingMs;
     outcome.run.responseMaterializationMs = outcome.timings.responseMaterializationMs;
     outcome.run.responseSerializationMs = serializationMs;
     outcome.run.responseParseMs = parseMs;
     outcome.run.uiResultMaterializationMs = materializationMs;
     outcome.run.totalMs = outcome.timings.totalMs;
     outcome.run.engineAndResponseMs = outcome.timings.totalMs + serializationMs;
+    outcome.run.projectionEntriesVisited = outcome.timings.projectionEntriesVisited;
     outcome.run.projectionRowsExamined = outcome.timings.projectionRowsExamined;
+    outcome.run.namePoolLookups = outcome.timings.namePoolLookups;
+    outcome.run.emptyNamesRejected = outcome.timings.emptyNamesRejected;
+    outcome.run.nameViewsConstructed = outcome.timings.nameViewsConstructed;
+    outcome.run.queryPredicateEvaluations = outcome.timings.queryPredicateEvaluations;
+    outcome.run.queryTermEvaluations = outcome.timings.queryTermEvaluations;
+    outcome.run.caseInsensitiveComparisons = outcome.timings.caseInsensitiveComparisons;
+    outcome.run.caseFoldOperations = outcome.timings.caseFoldOperations;
+    outcome.run.substringSearches = outcome.timings.substringSearches;
+    outcome.run.globMatches = outcome.timings.globMatches;
+    outcome.run.prefixChecks = outcome.timings.prefixChecks;
+    outcome.run.extensionPredicates = outcome.timings.extensionPredicates;
+    outcome.run.metadataPredicates = outcome.timings.metadataPredicates;
+    outcome.run.earlyRejects = outcome.timings.earlyRejects;
+    outcome.run.predicateMatches = outcome.timings.predicateMatches;
+    outcome.run.pathNeededDecisions = outcome.timings.pathNeededDecisions;
+    outcome.run.pathLookups = outcome.timings.pathLookups;
+    outcome.run.matchedRows = outcome.timings.matchedRows;
     outcome.run.candidateObjectsMaterialized = outcome.timings.candidateObjectsMaterialized;
     outcome.run.candidateNameCopies = outcome.timings.candidateNameCopies;
     outcome.run.searchResultObjectsMaterialized = outcome.timings.searchResultObjectsMaterialized;
@@ -696,6 +760,9 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
            << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false");
     output << ",\"sqlite_ms\":"; WriteJsonDouble(output, run.sqliteMs);
     output << ",\"projection_traversal_ms\":"; WriteJsonDouble(output, run.projectionTraversalMs);
+    output << ",\"projection_enumeration_ms\":"; WriteJsonDouble(output, run.projectionEnumerationMs);
+    output << ",\"name_pool_lookup_ms\":"; WriteJsonDouble(output, run.namePoolLookupMs);
+    output << ",\"name_view_construction_ms\":"; WriteJsonDouble(output, run.nameViewConstructionMs);
     output << ",\"materialization_ms\":"; WriteJsonDouble(output, run.materializationMs);
     output << ",\"lightweight_candidate_materialization_ms\":";
     WriteJsonDouble(output, run.lightweightCandidateMaterializationMs);
@@ -704,13 +771,38 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
     output << ",\"lazy_path_materialization_count\":" << run.lazyPathMaterializationCount;
     output << ",\"query_parse_ms\":"; WriteJsonDouble(output, run.queryParseMs);
     output << ",\"match_filter_sort_ms\":"; WriteJsonDouble(output, run.matchFilterSortMs);
+    output << ",\"predicate_dispatch_ms\":"; WriteJsonDouble(output, run.predicateDispatchMs);
+    output << ",\"substring_matching_ms\":"; WriteJsonDouble(output, run.substringMatchingMs);
+    output << ",\"glob_matching_ms\":"; WriteJsonDouble(output, run.globMatchingMs);
+    output << ",\"extension_matching_ms\":"; WriteJsonDouble(output, run.extensionMatchingMs);
+    output << ",\"metadata_matching_ms\":"; WriteJsonDouble(output, run.metadataMatchingMs);
+    output << ",\"folder_matching_ms\":"; WriteJsonDouble(output, run.folderMatchingMs);
+    output << ",\"matched_row_handling_ms\":"; WriteJsonDouble(output, run.matchedRowHandlingMs);
     output << ",\"response_materialization_ms\":"; WriteJsonDouble(output, run.responseMaterializationMs);
     output << ",\"response_serialization_ms\":"; WriteJsonDouble(output, run.responseSerializationMs);
     output << ",\"response_parse_ms\":"; WriteJsonDouble(output, run.responseParseMs);
     output << ",\"ui_result_materialization_ms\":"; WriteJsonDouble(output, run.uiResultMaterializationMs);
     output << ",\"total_ms\":"; WriteJsonDouble(output, run.totalMs);
     output << ",\"engine_and_response_ms\":"; WriteJsonDouble(output, run.engineAndResponseMs);
+    output << ",\"projection_entries_visited\":" << run.projectionEntriesVisited;
     output << ",\"projection_rows_examined\":" << run.projectionRowsExamined;
+    output << ",\"name_pool_lookups\":" << run.namePoolLookups;
+    output << ",\"empty_names_rejected\":" << run.emptyNamesRejected;
+    output << ",\"name_views_constructed\":" << run.nameViewsConstructed;
+    output << ",\"query_predicate_evaluations\":" << run.queryPredicateEvaluations;
+    output << ",\"query_term_evaluations\":" << run.queryTermEvaluations;
+    output << ",\"case_insensitive_comparisons\":" << run.caseInsensitiveComparisons;
+    output << ",\"case_fold_operations\":" << run.caseFoldOperations;
+    output << ",\"substring_searches\":" << run.substringSearches;
+    output << ",\"glob_matches\":" << run.globMatches;
+    output << ",\"prefix_checks\":" << run.prefixChecks;
+    output << ",\"extension_predicates\":" << run.extensionPredicates;
+    output << ",\"metadata_predicates\":" << run.metadataPredicates;
+    output << ",\"early_rejects\":" << run.earlyRejects;
+    output << ",\"predicate_matches\":" << run.predicateMatches;
+    output << ",\"path_needed_decisions\":" << run.pathNeededDecisions;
+    output << ",\"path_lookups\":" << run.pathLookups;
+    output << ",\"matched_rows\":" << run.matchedRows;
     output << ",\"candidate_objects_materialized\":" << run.candidateObjectsMaterialized;
     output << ",\"candidate_name_copies\":" << run.candidateNameCopies;
     output << ",\"search_result_objects_materialized\":" << run.searchResultObjectsMaterialized;
@@ -832,18 +924,29 @@ int wmain(int argc, wchar_t** argv) {
             }
         }
 
+        if (options.detailedDiagnostics) {
+            const QueryCase projectionProbe{"projection_probe", L"zzzz_never_present", 0};
+            const SearchOutcome probe = RunSearch(pipeline, scale, projectionProbe, 0,
+                                                  "diagnostic", false, true);
+            searchRuns.push_back(probe.run);
+            std::printf("  projection probe   %.2f ms, rows %zu\n", probe.run.totalMs,
+                        probe.run.projectionRowsExamined);
+        }
+
         for (size_t caseIndex = 0; caseIndex < queryCases.size(); ++caseIndex) {
             const QueryCase& queryCase = queryCases[caseIndex];
             const size_t warmRuns = scale >= kLargeSearchThreshold ? kWarmRunsLarge : kWarmRunsNormal;
             if (caseIndex == 0) {
-                const SearchOutcome first = RunSearch(pipeline, scale, queryCase, 0, "cold-ish-first-after-rebuild");
+                const SearchOutcome first = RunSearch(pipeline, scale, queryCase, 0,
+                                                      "cold-ish-first-after-rebuild", options.detailedDiagnostics);
                 searchRuns.push_back(first.run);
             } else {
-                RunSearch(pipeline, scale, queryCase, 0, "warmup");
-                RunSearch(pipeline, scale, queryCase, 1, "warmup");
+                RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                RunSearch(pipeline, scale, queryCase, 1, "warmup", options.detailedDiagnostics);
             }
             for (size_t iteration = 0; iteration < warmRuns; ++iteration) {
-                const SearchOutcome measured = RunSearch(pipeline, scale, queryCase, iteration, "warm");
+                const SearchOutcome measured = RunSearch(pipeline, scale, queryCase, iteration, "warm",
+                                                         options.detailedDiagnostics);
                 searchRuns.push_back(measured.run);
             }
             AddSearchSummary(searchSummaries, scale, queryCase, searchRuns);
@@ -858,9 +961,10 @@ int wmain(int argc, wchar_t** argv) {
                 QueryCase stepCase{"incremental", step.c_str(), 0};
                 std::vector<double> values;
                 size_t resultCount = 0;
-                RunSearch(pipeline, scale, stepCase, 0, "warmup");
+                RunSearch(pipeline, scale, stepCase, 0, "warmup", options.detailedDiagnostics);
                 for (size_t iteration = 0; iteration < 10; ++iteration) {
-                    const SearchOutcome measured = RunSearch(pipeline, scale, stepCase, iteration, "warm");
+                    const SearchOutcome measured = RunSearch(pipeline, scale, stepCase, iteration, "warm",
+                                                             options.detailedDiagnostics);
                     values.push_back(measured.run.totalMs);
                     resultCount = measured.run.resultCount;
                 }
