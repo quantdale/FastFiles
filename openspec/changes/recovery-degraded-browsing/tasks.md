@@ -23,9 +23,9 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 4. Publish-failure surfacing (design D4)
 
-- [ ] 4.1 Add `DirectoryErrorReason::PublishFailed` to `UiProtocol.h` (additive value).
-- [ ] 4.2 `UiServer::RepublishAndBroadcastGeneration` returns success; `HandleRequestDirectory` sends `PublishFailed` on failure.
-- [ ] 4.3 `ColumnView` maps `PublishFailed` to a clear per-column message.
+- [x] 4.1 Add `DirectoryErrorReason::PublishFailed` to `UiProtocol.h` (additive value). — complete; the additive value is present and covered by the publication/freshness evidence in `evidence/publish-failure.md`.
+- [x] 4.2 `UiServer::RepublishAndBroadcastGeneration` returns success; `HandleRequestDirectory` sends `PublishFailed` on failure. — complete; source path is covered by `ffengine_snapshot_publisher_tests` and `ffengine_ui_server_lifecycle_tests`.
+- [x] 4.3 `ColumnView` maps `PublishFailed` to a clear per-column message. — complete; `ffsnapshot_freshness_tests` covers stale same-context retention, unavailable new contexts, and later-generation recovery; source mapping is recorded in `evidence/publish-failure.md`.
 
 ## 5. Watcher safety (design D5)
 

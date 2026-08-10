@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T03:10:00+08:00
+Last updated: 2026-08-11T03:25:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -15,15 +15,15 @@ Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validat
 
 ## Active Engineering Slice
 
-Name: Reconcile degraded-browsing engine discovery
+Name: Validate degraded-browsing publish failures
 
-Objective: Commit the independently validated recovery engine-discovery slice, preserving the broader deep-navigation/retry-click acceptance as open.
+Objective: Independently validate the already-present additive `PublishFailed` recovery path and reconcile tasks 4.1–4.3 using focused deterministic publication/freshness/lifecycle tests.
 
 Frontier invariant: One degraded-browsing discovery/lifecycle validation slice only. Do not begin signed-service/MFT/USN validation, alter security pins, or change unrelated UI/search/SQL code. Runtime checks must use the disposable Debug build and clean up any child Engine process.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: inspect and commit the bounded recovery evidence/task/WORKSTATE diff, then choose the next recovery task only if it has a safe deterministic validation seam.
+Next exact action: run the focused snapshot publisher, freshness, and UI-server lifecycle tests; inspect the existing enum/response/UI mapping; then record and commit only the publish-failure evidence.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
@@ -33,7 +33,9 @@ Documentation/hygiene reconciliation milestone: evidence is prepared but uncommi
 
 Final reconciliation milestone: commit `67a5d54` records the exact Debug baseline configure/build, `ctest -N`, and serial CTest result of 42/42; Analyze also passed earlier in this campaign. Tasks 7.1, 7.3, and 7.4 are evidenced; OpenSpec 7.2 remains open because `openspec validate --all --strict` cannot run without the unavailable CLI. External signing/elevation/clean-host/interactive gates remain open and no privileged path was activated.
 
-Recovery discovery milestone: evidence is prepared but uncommitted in `openspec/changes/recovery-degraded-browsing/evidence/engine-discovery.md`. The focused discovery test passed; the Debug UI launched the sibling engine from the development tree; isolated no-engine/invalid-engine probes demonstrated retry exhaustion, `engine-launch-failed` OS-error logging, and `engine-unavailable`, with all probe processes/directories cleaned. Recovery tasks 1.1–1.3 and 7.1–7.2 are ready to reconcile. Recovery task 7.3 remains open because deep navigation, file opening/search, and interactive retry-click acceptance were not performed in this slice.
+Recovery discovery milestone: commit `ab77ded` records `evidence/engine-discovery.md`. The focused discovery test passed; the Debug UI launched the sibling engine from the development tree; isolated no-engine/invalid-engine probes demonstrated retry exhaustion, `engine-launch-failed` OS-error logging, and `engine-unavailable`, with all probe processes/directories cleaned. Recovery tasks 1.1–1.3 and 7.1–7.2 are complete. Recovery task 7.3 remains open because deep navigation, file opening/search, and interactive retry-click acceptance were not performed in that slice.
+
+Recovery publish-failure milestone: evidence is prepared but uncommitted in `openspec/changes/recovery-degraded-browsing/evidence/publish-failure.md`. The additive protocol value, request/watcher response paths, UI freshness mapping, oversized publication failure, stale-state recovery, blocked publication cancellation, disconnect unwind, and idle shutdown were verified by source inspection and three focused passing tests. Recovery tasks 4.1–4.3 are ready to reconcile.
 
 Next exact action: read the recovery change design/spec, run `ffengine_discovery_tests`, inspect the candidate ordering and `EngineClient` launch/retry path, then perform one bounded Debug development-tree launch/reachability check with process cleanup.
 
