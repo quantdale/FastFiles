@@ -66,7 +66,7 @@ OpenSpec context: No existing OpenSpec change owns this optimization. The comple
 - Runtime smoke PASS for rebuilt Debug FastFiles launch, automatic Engine launch, UI/Engine responsiveness, normal UI close, and cleanup. No indexed privileged fixture was available; degraded navigation remains the active runtime path and no signing/authentication bypass was used.
 - Benchmark Markdown preserves the original baseline → path-materialization optimization → candidate/name-materialization optimization → projection/matcher optimization progression. The new primary bottleneck is failed direct literal filename matching/filtering; the next slice is not implemented.
 
-Current product commit: pending final focused commit.
+Current product commit: `d0f58a7` (`Optimize indexed projection filename matching`).
 
 ## Benchmark Trace Checkpoint
 
@@ -367,7 +367,7 @@ The prior slice recommended `large-index search/snapshot scalability benchmarkin
 
 ## Projection / filename optimization checkpoint
 
-Status: COMPLETE; product commit hash is recorded after the single focused commit.
+Status: COMPLETE; product commit `d0f58a7` is recorded below.
 
 Root cause: broad was fast because the existing cap-before-sort behavior stopped at 4,096 accepted rows after 13,779 examined rows. Selective and no-match traversed all 1,000,000 rows. The old combined projection/direct-match stage was about 271.79 ms. Diagnostic timers overlapped, but showed roughly 102.6 ms NamePool lookup timing, 23.2 ms view construction, and 63.7 ms direct predicate timing; no-match performed 2,872,240 ordinal comparison windows.
 
