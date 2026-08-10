@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T22:45:00+08:00
-Status: IN PROGRESS
+Last updated: 2026-08-10T22:55:00+08:00
+Status: COMPLETE
 
 ## Repository
 
@@ -11,7 +11,7 @@ HEAD at slice start: `95bbcc89e700c6a03c54ea36dee57284d0a005e2` (`Record indexed
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: product commit pending; final validation checkpoint recorded below
+Current slice bookkeeping: product commit `0e7ebf6`; this final WORKSTATE update is the bookkeeping commit
 
 ## Active Engineering Slice
 
@@ -21,7 +21,7 @@ Objective: Determine whether the existing O(N) projection scan can be made mater
 
 Frontier invariant: One failed-literal-matching frontier only. No secondary filename index, FTS, trigram/suffix structure, cancellation, UI, snapshot, projection-layout, SQLite-schema, MFT/USN, or security changes belong in this slice.
 
-Reconciliation: HEAD `c3cf597` is the expected bookkeeping commit after product commit `d0f58a7`; the working tree is clean. Prior benchmark and implementation evidence below remains valid and is the baseline for this slice. The prior instruction not to begin the next filename-index/cancellation slice is superseded by the explicit user request for this matcher evaluation.
+Reconciliation: HEAD began at `c3cf597` (the expected bookkeeping commit after product commit `d0f58a7`); product commit `0e7ebf6` now contains the matcher slice, and only this WORKSTATE bookkeeping edit remains. Prior benchmark and implementation evidence below remains valid and is the baseline for this slice. The prior instruction not to begin the next filename-index/cancellation slice is superseded by the explicit user request for this matcher evaluation.
 
 Baseline reproduction complete before editing using Release `ffengine_bench_large_index_scalability` at 100K/500K/1M. Fresh medians: 100K selective/no-match/broad/worst-substring `7.23/7.11/12.28/13.17 ms`; 500K `72.46/79.12/32.48/32.34 ms`; 1M selective/no-match/broad/worst-substring `131.06/166.33/48.83/50.92 ms`. 1M p90/max: selective `131.56/138.36 ms`, no-match `167.23/167.60 ms`, broad `48.93/49.03 ms`, worst-substring `52.19/53.27 ms`. Incremental 1M `p/ph/pho/phot/photo = 47.62/56.68/56.76/56.60/56.65 ms`. Results were `1/0/4096/4096`; variation is within the established baseline band.
 
@@ -43,9 +43,11 @@ Memory: isolated 1M open/rebuild/broad/post private bytes `4.9/453.8/468.8/470.1
 
 Validation: Debug PASS; Analyze PASS; final serial CTest PASS `42/42` with the documented TEMP/TMP override. Manual runtime smoke PASS for rebuilt UI launch, Engine spawn, responsiveness, graceful UI shutdown, and cleanup. The non-elevated `verify.ps1 run` wrapper hung before launching UI/Engine and was terminated; no security bypass was used. `docs/benchmarks/large-index-scalability.json` and `.md` were updated with the candidate evidence and historical progression.
 
-Decision: `SECONDARY FILENAME INDEX EVALUATION REQUIRED`. New primary bottleneck: `full O(N) projection traversal plus residual literal rejection`. 2M: NOT TESTED because 1M selective remained above the optional scale-up gate. Product code, narrow benchmark, semantic test, benchmark artifacts, and this checkpoint are ready for one focused product commit.
+Decision: `SECONDARY FILENAME INDEX EVALUATION REQUIRED`. New primary bottleneck: `full O(N) projection traversal plus residual literal rejection`. 2M: NOT TESTED because 1M selective remained above the optional scale-up gate. Product code, narrow benchmark, semantic test, benchmark artifacts, and validation are complete in focused product commit `0e7ebf6`.
 
-NEXT EXACT ACTION: Review staged scope with `git diff --cached --check`, `git diff --cached --stat`, and `git diff --cached`, then create the focused product commit. After that, record its hash here and make exactly one next-slice recommendation without implementing it.
+Completed: reviewed staged scope with `git diff --cached --check`, `git diff --cached --stat`, and `git diff --cached`; product commit `0e7ebf6` (`Optimize failed literal filename matching`) was created. Working tree was clean immediately before the commit.
+
+Next recommended slice (not started): `Design and benchmark a secondary filename-search index`.
 
 ## Previous Engineering Slice
 
