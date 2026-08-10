@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:38:00+08:00
+Last updated: 2026-08-11T01:05:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,7 +11,7 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage percentage reconciliation is the next-frontier checkpoint
+Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage percentage and details-layout reconciliation changes are uncommitted
 
 ## Active Engineering Slice
 
@@ -45,7 +45,13 @@ Benchmark result: the complete `docs/benchmarks/large-index-scalability-sql-no-c
 
 SQL slice status: COMPLETE. Product commit `6d6f6c1` preserves counted metadata semantics while routing indexed search through the no-count API. Debug and Analyze builds passed; full serial CTest passed 42/42; the Release artifact is complete and valid.
 
-Next exact action: inspect and extend `tests/ui/test_storage_percentage.cpp` for parent composition, root/unknown, rounding, equal/nearly-equal, and overflow-scale cases; run the focused test and then mark tasks 1.1–1.7 only after the full gates pass.
+Storage percentage milestone: existing implementation from `c6dd602` already owns the pure helper, complete-parent denominator, unknown/aggregate refresh, and division-first ratio sorting. Expanded `tests/ui/test_storage_percentage.cpp` now covers mixed/only-file/only-directory composition, rounding, root/unknown, equal and near-equal values, and `UINT64_MAX`-scale ordering; focused `ffstorage_percentage_tests` passes. OpenSpec tasks 1.1–1.6 are now checked off with source/test evidence; task 1.7 remains open pending the final gates.
+
+Storage percentage slice status: COMPLETE. Existing implementation from `c6dd602` plus the expanded `tests/ui/test_storage_percentage.cpp` satisfies tasks 1.1–1.6; task 1.7 is checked off with Debug PASS, Analyze PASS, serial CTest PASS 42/42, focused `ffstorage_percentage_tests` PASS, and `ffdoc_drift_tests` PASS. The bounded changes are test coverage, OpenSpec task evidence, and this checkpoint; no production behavior was reworked because current source already matched the design.
+
+Details-layout milestone: existing implementation from `c6dd602` already owns the pure DIP helper, WindowShell reservation, reduced render/hit-test viewport, dual-pane split, disclosure rail, and hidden-pane threshold. Expanded `tests/ui/test_details_layout.cpp` now covers both narrow strategies; focused `ffdetails_layout_tests` passes. OpenSpec tasks 2.1–2.6 are checked off with source/test evidence.
+
+Next exact action: run the full Debug build, Analyze build, and serial CTest suite after the Storage/details test additions; then inspect the bounded test/task/workstate diff and commit this reconciliation slice.
 
 Reconciliation: HEAD began at `6d6f6c1` with the SQL slice committed and only this bookkeeping update uncommitted. Storage percentage code/test seams predate this frontier in `c6dd602`; task checkboxes are stale and will be reconciled from current source/tests rather than assumed complete.
 
