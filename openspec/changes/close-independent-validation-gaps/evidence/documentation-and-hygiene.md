@@ -64,7 +64,16 @@ Finding reconciliation:
 - Pinned-authentication release blockers: constant-time comparison and local regression/fuzz validation are complete in `40ce237`; placeholder pins, expired/untrusted certificate fixtures, signing procedure, elevated signed-service validation, real MFT/USN acceptance, privilege diagnostics, and clean-host matrix remain open. No trusted thumbprint was invented and no privileged path was activated.
 - Interactive visual validation remains open because it requires the external desktop matrix and retained screenshots; the existing headless/runtime evidence is not substituted for that gate.
 
-`openspec validate --all --strict` remains open: the `openspec` CLI is not installed in this environment (`openspec` was not recognized). No validation result was fabricated.
+The local `openspec` executable is not installed, but the pinned official
+package invocation below supplied the same CLI without a global install:
+
+```powershell
+npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive
+```
+
+Result: 45 changes/specs passed and 0 failed. OpenSpec task 7.2 is therefore
+complete; no schema or format violation was reported and no repository file
+was changed by the validation command.
 
 Degraded mode remains the active, fail-safe product path per `AGENTS.md`; prior runtime evidence confirms the UI/Engine degraded browsing path remains usable, and this campaign made no change that requires the privileged service.
 
@@ -73,9 +82,10 @@ Degraded mode remains the active, fail-safe product path per `AGENTS.md`; prior 
 The following machine observations were recorded on 2026-08-11 after the
 status-chip slice:
 
-- `Get-Command openspec` returned no command. The repository OpenSpec CLI
-  validation is therefore `REQUIRED-BUT-UNAVAILABLE`; no schema-validation
-  result was invented.
+- `Get-Command openspec` returned no local command. The pinned official
+  `@fission-ai/openspec@1.8.0` package was invoked non-globally with
+  `npx`; its strict non-interactive validation passed all 45 items with 0
+  failures, so OpenSpec validation is no longer blocked.
 - `src/setup/include/ffsetup/PinnedSignatures.h` still contains
   `kExpectedEngineSignatureThumbprint{}` and
   `kExpectedIndexSvcSignatureThumbprint{}`. Development authentication remains
