@@ -802,12 +802,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     dropTarget_.Attach(dropTarget);
 
     engineClient_.Start(
-        [this] {
+        [this](uint64_t generation) {
             // ReaderLoop must stay dedicated to draining the pipe. Snapshot
             // parsing and owner-window/ListView work can be expensive and
             // must run on the UI thread; doing it inline here can fill the
             // synchronous pipe and prevent the next directory request from
             // ever reaching UiServer.
+            uint64_t pending = pendingSnapshotGeneration_.load();
+            while (generation > pending &&
+                   !pendingSnapshotGeneration_.compare_exchange_weak(pending, generation)) {
+            }
             if (!snapshotRefreshPosted_.exchange(true)) {
                 PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
             }
@@ -1337,18 +1341,26 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_APP_SNAPSHOT_UPDATED:
             snapshotRefreshPosted_ = false;
-            columnView_.OnSnapshotUpdated();
+            {
+                const uint64_t generation = pendingSnapshotGeneration_.exchange(0);
+                columnView_.OnSnapshotUpdated(generation);
+            }
             searchPanel_.OnSnapshotUpdated();
             storageAnalysis_.OnSnapshotUpdated();
             RequestRepaint();
+            if (pendingSnapshotGeneration_.load() != 0 && !snapshotRefreshPosted_.exchange(true)) {
+                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+            }
             return 0;
 
-        case WM_APP_ENGINE_STATUS:
+        case WM_APP_ENGINE_STATUS: {
             // wParam carries the EngineConnectionState; lParam is the
             // privileged-path-active flag fanned out to the index-dependent
             // surfaces. Keep all ColumnView model work on the owner thread:
             // this message is posted by EngineClient's management thread.
-            if (static_cast<EngineConnectionState>(wParam) == EngineConnectionState::Connected) {
+            const EngineConnectionState state = static_cast<EngineConnectionState>(wParam);
+            columnView_.OnEngineConnectionState(state);
+            if (state == EngineConnectionState::Connected) {
                 // A restarted engine owns a fresh snapshot mapping. Replay
                 // the visible columns so reconnects cannot leave the browser
                 // showing empty/stale columns indefinitely.
@@ -1360,6 +1372,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             storageAnalysis_.SetEngineActive(engineActive_);
             RequestRepaint();
             return 0;
+        }
 
         case WM_APP_SEARCH_COMPLETE:
             searchPanel_.HandleCompletion(lParam);

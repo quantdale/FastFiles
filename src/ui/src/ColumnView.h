@@ -19,6 +19,7 @@
 
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
+#include "ffui/SnapshotFreshness.h"
 
 #ifdef _DEBUG
 #include "ffui/SelectionIdentity.h"
@@ -61,24 +62,13 @@ struct SelectionDiagnostics {
 };
 #endif
 
-enum class ColumnErrorState {
-    None,
-    AccessDenied,
-    NoLongerAvailable,
-    EnumerationFailed,
-    // recovery-degraded-browsing 4.3: enumeration succeeded but the snapshot
-    // publish failed (e.g. slot capacity); the column shows an error instead
-    // of stale contents.
-    PublishFailed,
-};
-
 struct Column {
     std::wstring path;
     std::vector<ColumnItem> items;
     std::set<int> selectedIndices;
     int selectionAnchor = -1;
     int focusIndex = -1;
-    ColumnErrorState error = ColumnErrorState::None;
+    SnapshotFreshness freshness;
 };
 
 // Pure path-chain construction used by direct address/sidebar/startup
@@ -247,9 +237,10 @@ public:
     void NavigateToHierarchy(const std::vector<std::wstring>& segments, bool isDirectory);
     int FocusedItemIndex() const;
 
-    void OnSnapshotUpdated();
+    void OnSnapshotUpdated(uint64_t announcedGeneration = 0);
     void OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
     void ShowUnavailableLocation(const std::wstring& displayName);
+    void OnEngineConnectionState(EngineConnectionState state);
     // recovery-degraded-browsing D3: `state` is the UI-side connection
     // lifecycle; `privilegedPathActive` mirrors the engine's index-service
     // status report. Written from EngineClient's background callback,
@@ -301,7 +292,11 @@ private:
     static Column MakeComputerRootColumn();
     void TruncateAfter(int columnIndex);
     void RequestColumn(int columnIndex, const std::wstring& path);
-    void RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot);
+    void RefreshColumnFromSnapshot(Column& column,
+                                   const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
+                                   uint64_t generation);
+    void MarkSnapshotLoadFailed(uint64_t generation);
+    void MarkPathLoading(const std::wstring& path);
     static void SelectSingle(Column& column, int itemIndex);
     static void ToggleSelection(Column& column, int itemIndex);
     static void SelectRange(Column& column, int itemIndex);

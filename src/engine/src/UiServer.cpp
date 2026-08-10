@@ -213,7 +213,12 @@ void UiServer::OnDirectoryChanged(const std::wstring& path) {
         std::lock_guard<std::mutex> lock(directoriesMutex_);
         directories_[path] = ToSnapshotDirectory(result);
     }
-    RepublishAndBroadcastGeneration();
+    if (!RepublishAndBroadcastGeneration()) {
+        // A watcher refresh has no single requesting client.  Surface the
+        // same publish failure to every subscribed UI so a retained
+        // same-context listing is visibly stale instead of silently current.
+        BroadcastDirectoryError(path, ffprotocol::DirectoryErrorReason::PublishFailed);
+    }
 }
 
 bool UiServer::RepublishAndBroadcastGeneration() {
@@ -413,7 +418,7 @@ void UiServer::SetEngineStatus(bool privilegedPathActive) {
 }
 
 bool UiServer::SendDirectoryError(const ClientConnectionPtr& client, const std::wstring& path,
-                                  ffprotocol::DirectoryErrorReason reason) {
+                                   ffprotocol::DirectoryErrorReason reason) {
     std::vector<uint8_t> payload(sizeof(ffprotocol::DirectoryErrorPayload) + path.size() * sizeof(wchar_t));
     ffprotocol::DirectoryErrorPayload header{reason, static_cast<uint16_t>(path.size())};
     std::memcpy(payload.data(), &header, sizeof(header));
@@ -422,6 +427,21 @@ bool UiServer::SendDirectoryError(const ClientConnectionPtr& client, const std::
     }
     return client->Write(static_cast<uint16_t>(UiMessageType::DirectoryError), payload.data(),
                          static_cast<uint32_t>(payload.size()));
+}
+
+void UiServer::BroadcastDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
+    std::vector<ClientConnectionPtr> clients;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex_);
+        clients = subscribedClients_;
+    }
+    for (const auto& client : clients) {
+        if (!SendDirectoryError(client, path, reason)) {
+            std::lock_guard<std::mutex> lock(clientsMutex_);
+            subscribedClients_.erase(
+                std::remove(subscribedClients_.begin(), subscribedClients_.end(), client), subscribedClients_.end());
+        }
+    }
 }
 
 void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const std::wstring& path) {

@@ -16,6 +16,11 @@
 
 namespace ffui {
 
+struct SnapshotReadResult {
+    uint64_t generation = 0;
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> directories;
+};
+
 // recovery-degraded-browsing D2: the UI-side connection lifecycle states.
 // Starting covers both the initial launch and reconnects after a drop;
 // after a bounded number of attempts the state becomes Unavailable and the
@@ -41,7 +46,7 @@ class EngineClient {
 public:
     ~EngineClient();
 
-    using GenerationCallback = std::function<void()>;
+    using GenerationCallback = std::function<void(uint64_t generation)>;
     // `state` is the local connection lifecycle; `privilegedPathActive`
     // mirrors the engine's EngineStatus report (index service reachable).
     using StatusCallback = std::function<void(EngineConnectionState state, bool privilegedPathActive)>;
@@ -86,6 +91,9 @@ public:
     // Reads the most recently published snapshot directly out of the
     // mapped shared-memory section.
     std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> ReadSnapshot() const;
+    // Same read with the committed generation, used by the browser freshness
+    // model to reject an older/out-of-order mapping read.
+    std::optional<SnapshotReadResult> ReadSnapshotWithGeneration() const;
 
     // recovery-degraded-browsing 2.3: restarts the bounded connect cycle
     // from the Unavailable state (invoked by the status-chip retry
@@ -137,6 +145,7 @@ private:
     std::condition_variable invalidationCv_;
     std::deque<std::wstring> invalidationQueue_;
     std::atomic<uint64_t> lastRequestId_{0};
+    std::atomic<uint64_t> announcedGeneration_{0};
 
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;

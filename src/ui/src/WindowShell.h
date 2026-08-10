@@ -97,6 +97,7 @@ private:
     SettingsDialog settingsDialog_;
     bool engineActive_ = false;
     std::atomic<bool> snapshotRefreshPosted_{false};
+    std::atomic<uint64_t> pendingSnapshotGeneration_{0};
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;
     bool clipboardIsCut_ = false;

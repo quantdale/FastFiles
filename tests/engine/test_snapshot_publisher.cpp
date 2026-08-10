@@ -98,6 +98,17 @@ void TestPublisherUsesPerSlotDescriptors() {
     Check(publisher.Publish(large) == 3,
           "large directory publishes without falling into the old 8 MiB capacity cliff");
 
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> oversized;
+    ffprotocol::SnapshotDirectory oversizedDirectory;
+    oversizedDirectory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+    const size_t oversizedPathLength = ffprotocol::kSnapshotSlotCapacityBytes / sizeof(wchar_t) + 1;
+    oversized.emplace(std::wstring(oversizedPathLength, L'x'), std::move(oversizedDirectory));
+    const uint64_t generationBeforeFailure = publisher.CurrentGeneration();
+    Check(publisher.Publish(oversized) == 0, "oversized publication fails closed");
+    Check(publisher.CurrentGeneration() == generationBeforeFailure &&
+              firstHeader->generation == generationBeforeFailure,
+          "failed publication does not advance or announce a generation");
+
     UnmapViewOfFile(view);
     CloseHandle(mapping);
     publisher.Stop();

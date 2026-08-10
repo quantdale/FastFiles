@@ -154,6 +154,12 @@ void EngineClient::UnmapSnapshotSection() {
 }
 
 std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClient::ReadSnapshot() const {
+    auto result = ReadSnapshotWithGeneration();
+    if (!result) return std::nullopt;
+    return std::move(result->directories);
+}
+
+std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() const {
     std::lock_guard<std::mutex> lock(mappingMutex_);
     if (mappedView_ == nullptr) {
         return std::nullopt;
@@ -161,6 +167,7 @@ std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClien
     const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(mappedView_);
     for (int attempt = 0; attempt != 3; ++attempt) {
         const uint64_t generationBefore = LoadSharedU64(&header->generation);
+        if (generationBefore == 0) return std::nullopt;
         const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
         if (activeSlot > 1) return std::nullopt;
         const uint32_t dataSize = LoadSharedU32(&header->slotDataSize[activeSlot]);
@@ -176,7 +183,7 @@ std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClien
         if (LoadSharedU64(&header->generation) == generationBefore &&
             LoadSharedU32(&header->activeSlot) == activeSlot &&
             LoadSharedU32(&header->slotDataSize[activeSlot]) == dataSize) {
-            return parsed;
+            return SnapshotReadResult{generationBefore, std::move(*parsed)};
         }
     }
     return std::nullopt;
@@ -250,6 +257,7 @@ bool EngineClient::ConnectAndSubscribe() {
         }
         pipe_ = pipe;
     }
+    announcedGeneration_ = header.generationId;
     // Wake the invalidation worker after the control pipe becomes usable. Any
     // directory requests queued while the engine was starting must remain
     // pending until this point; dropping them leaves the corresponding column
@@ -274,8 +282,17 @@ void EngineClient::ReaderLoop() {
 
         switch (*messageType) {
             case UiMessageType::NewGeneration:
-                if (onNewGeneration_) {
-                    onNewGeneration_();
+                if (frame.payload.size() != sizeof(ffprotocol::NewGenerationPayload)) break;
+                {
+                    ffprotocol::NewGenerationPayload payload{};
+                    std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+                    if (payload.generationId == 0) break;
+                    uint64_t announced = announcedGeneration_.load();
+                    while (payload.generationId > announced &&
+                           !announcedGeneration_.compare_exchange_weak(announced, payload.generationId)) {
+                    }
+                    if (payload.generationId <= announced) break;
+                    if (onNewGeneration_) onNewGeneration_(payload.generationId);
                 }
                 break;
 

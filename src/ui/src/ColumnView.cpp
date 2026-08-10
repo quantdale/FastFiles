@@ -40,6 +40,20 @@ std::wstring FileExtensionOf(const std::wstring& fileName) {
     return fileName.substr(dot + 1);
 }
 
+void ClearUnavailableColumn(Column& column) {
+    column.items.clear();
+    column.selectedIndices.clear();
+    column.selectionAnchor = -1;
+    column.focusIndex = -1;
+}
+
+void ApplyColumnFailure(Column& column, SnapshotFailureReason reason, uint64_t generation = 0) {
+    if (!column.freshness.Fail(reason, generation)) return;
+    if (column.freshness.state == SnapshotViewState::Unavailable) {
+        ClearUnavailableColumn(column);
+    }
+}
+
 } // namespace
 
 Column ColumnView::MakeComputerRootColumn() {
@@ -331,7 +345,10 @@ void ColumnView::SelectAll() {
 
 void ColumnView::RefreshActiveColumn() {
     const std::wstring path = ActivePanePath();
-    if (!path.empty() && engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    if (!path.empty() && engineClient_ != nullptr) {
+        MarkPathLoading(path);
+        engineClient_->RequestDirectory(path);
+    }
 }
 
 void ColumnView::RefreshAllColumns() {
@@ -339,9 +356,12 @@ void ColumnView::RefreshAllColumns() {
     std::vector<std::wstring> paths;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        const auto collect = [&paths](const std::vector<Column>& columns) {
+        const auto collect = [&paths](std::vector<Column>& columns) {
             for (const auto& column : columns) {
                 if (!column.path.empty()) paths.push_back(column.path);
+            }
+            for (auto& column : columns) {
+                if (!column.path.empty()) column.freshness.BeginRequest();
             }
         };
         collect(columns_);
@@ -531,12 +551,17 @@ std::wstring ColumnView::RootPath() const {
     return {};
 }
 
-void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot) {
+void ColumnView::RefreshColumnFromSnapshot(Column& column,
+                                           const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
+                                           uint64_t generation) {
     auto it = snapshot.find(column.path);
     if (it == snapshot.end()) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                       column.path, {}, L"ui-snapshot-path-miss", ERROR_FILE_NOT_FOUND, 0});
-        return; // not published yet
+        if (column.freshness.HasLastKnownGood()) {
+            ApplyColumnFailure(column, SnapshotFailureReason::PathMissing, generation);
+        }
+        return; // an initial request may not have reached the published view yet
     }
     const auto& directory = it->second;
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
@@ -544,31 +569,19 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
                                   0, static_cast<uint64_t>(directory.entries.size())});
 
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::AccessDenied) {
-        column.error = ColumnErrorState::AccessDenied;
-        column.items.clear();
-        column.selectedIndices.clear();
-        column.selectionAnchor = -1;
-        column.focusIndex = -1;
+        ApplyColumnFailure(column, SnapshotFailureReason::AccessDenied, generation);
         return;
     }
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::NotFound) {
-        column.error = ColumnErrorState::NoLongerAvailable;
-        column.items.clear();
-        column.selectedIndices.clear();
-        column.selectionAnchor = -1;
-        column.focusIndex = -1;
+        ApplyColumnFailure(column, SnapshotFailureReason::NoLongerAvailable, generation);
         return;
     }
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::IoError) {
-        column.error = ColumnErrorState::EnumerationFailed;
-        column.items.clear();
-        column.selectedIndices.clear();
-        column.selectionAnchor = -1;
-        column.focusIndex = -1;
+        ApplyColumnFailure(column, SnapshotFailureReason::EnumerationFailed, generation);
         return;
     }
 
-    column.error = ColumnErrorState::None;
+    if (!column.freshness.AcceptGeneration(generation)) return;
     std::vector<SelectionIdentity> previousIdentities;
     previousIdentities.reserve(column.items.size());
     for (const auto& item : column.items) {
@@ -621,14 +634,25 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
     }
 }
 
-void ColumnView::OnSnapshotUpdated() {
+void ColumnView::OnSnapshotUpdated(uint64_t announcedGeneration) {
     if (!engineClient_) {
         return;
     }
-    auto snapshot = engineClient_->ReadSnapshot();
-    if (!snapshot) {
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        for (auto& column : columns_) {
+            if (!column.path.empty()) column.freshness.AnnounceGeneration(announcedGeneration);
+        }
+        for (auto& column : columns2_) {
+            if (!column.path.empty()) column.freshness.AnnounceGeneration(announcedGeneration);
+        }
+    }
+    auto snapshot = engineClient_->ReadSnapshotWithGeneration();
+    if (!snapshot || (announcedGeneration != 0 && snapshot->generation < announcedGeneration)) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                      {}, {}, L"ui-snapshot-read-failed", ERROR_INVALID_DATA, 0});
+                                      {}, {}, L"ui-snapshot-read-failed", ERROR_INVALID_DATA,
+                                      announcedGeneration});
+        MarkSnapshotLoadFailed(announcedGeneration);
         return;
     }
     std::lock_guard<std::mutex> lock(columnsMutex_);
@@ -636,42 +660,34 @@ void ColumnView::OnSnapshotUpdated() {
         if (column.path.empty()) {
             continue; // the synthetic root (drive list) column isn't engine-backed
         }
-        RefreshColumnFromSnapshot(column, *snapshot);
+        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
     }
     for (auto& column : columns2_) {
         if (column.path.empty()) {
             continue;
         }
-        RefreshColumnFromSnapshot(column, *snapshot);
+        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
     }
 }
 
 void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
-    const ColumnErrorState errorState =
+    const SnapshotFailureReason failure =
         reason == ffprotocol::DirectoryErrorReason::AccessDenied
-            ? ColumnErrorState::AccessDenied
+            ? SnapshotFailureReason::AccessDenied
             : (reason == ffprotocol::DirectoryErrorReason::PublishFailed
-                   ? ColumnErrorState::PublishFailed
+                   ? SnapshotFailureReason::PublishFailed
                    : (reason == ffprotocol::DirectoryErrorReason::EnumerationFailed
-                          ? ColumnErrorState::EnumerationFailed
-                          : ColumnErrorState::NoLongerAvailable));
+                          ? SnapshotFailureReason::EnumerationFailed
+                          : SnapshotFailureReason::NoLongerAvailable));
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (auto& column : columns_) {
         if (column.path == path) {
-            column.error = errorState;
-            column.items.clear();
-            column.selectedIndices.clear();
-            column.selectionAnchor = -1;
-            column.focusIndex = -1;
+            ApplyColumnFailure(column, failure);
         }
     }
     for (auto& column : columns2_) {
         if (column.path == path) {
-            column.error = errorState;
-            column.items.clear();
-            column.selectedIndices.clear();
-            column.selectionAnchor = -1;
-            column.focusIndex = -1;
+            ApplyColumnFailure(column, failure);
         }
     }
 }
@@ -680,11 +696,49 @@ void ColumnView::ShowUnavailableLocation(const std::wstring& displayName) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     Column column;
     column.path = displayName.empty() ? L"Unavailable location" : displayName;
-    column.error = ColumnErrorState::NoLongerAvailable;
+    column.freshness.Fail(SnapshotFailureReason::NoLongerAvailable);
     columns_ = {std::move(column)};
     focusedColumnIndex_ = 0;
     pendingSelectionName_.clear();
     pendingSelectionPath_.clear();
+}
+
+void ColumnView::MarkSnapshotLoadFailed(uint64_t generation) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    for (auto& column : columns_) {
+        if (!column.path.empty()) ApplyColumnFailure(column, SnapshotFailureReason::SnapshotLoadFailed, generation);
+    }
+    for (auto& column : columns2_) {
+        if (!column.path.empty()) ApplyColumnFailure(column, SnapshotFailureReason::SnapshotLoadFailed, generation);
+    }
+}
+
+void ColumnView::MarkPathLoading(const std::wstring& path) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    for (auto& column : columns_) {
+        if (column.path == path) column.freshness.BeginRequest();
+    }
+    for (auto& column : columns2_) {
+        if (column.path == path) column.freshness.BeginRequest();
+    }
+}
+
+void ColumnView::OnEngineConnectionState(EngineConnectionState state) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto apply = [state](std::vector<Column>& columns) {
+        for (auto& column : columns) {
+            if (column.path.empty()) continue;
+            if (state == EngineConnectionState::Connected) {
+                column.freshness.ResetForNewSource();
+            } else if (state == EngineConnectionState::Unavailable) {
+                ApplyColumnFailure(column, SnapshotFailureReason::Disconnected);
+            } else if (column.freshness.HasLastKnownGood()) {
+                ApplyColumnFailure(column, SnapshotFailureReason::Disconnected);
+            }
+        }
+    };
+    apply(columns_);
+    apply(columns2_);
 }
 
 void ColumnView::SetEngineStatus(EngineConnectionState state, bool privilegedPathActive) {
@@ -894,29 +948,66 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
             context->DrawLine(D2D1_POINT_2F{x + kColumnWidth, kBadgeHeight}, D2D1_POINT_2F{x + kColumnWidth, viewportSize.height},
                               dividerBrush_.Get(), 1.0f);
 
-            if (column.error != ColumnErrorState::None) {
-                const wchar_t* message = column.error == ColumnErrorState::AccessDenied
-                    ? L"You don't have permission to view this folder."
-                    : (column.error == ColumnErrorState::PublishFailed
-                           ? L"Could not publish this folder's listing (snapshot capacity exceeded)."
-                           : (column.error == ColumnErrorState::EnumerationFailed
-                                  ? L"The folder could not be read because of an I/O or network error."
-                                  : L"This folder is no longer available."));
+            const auto unavailableMessage = [&column]() {
+                switch (column.freshness.failure) {
+                    case SnapshotFailureReason::AccessDenied:
+                        return L"You don't have permission to view this folder.";
+                    case SnapshotFailureReason::PublishFailed:
+                        return L"Unable to load this location — snapshot publication failed.";
+                    case SnapshotFailureReason::EnumerationFailed:
+                        return L"Unable to load this location — the folder could not be read.";
+                    case SnapshotFailureReason::SnapshotLoadFailed:
+                        return L"Unable to load this location — snapshot data could not be read.";
+                    case SnapshotFailureReason::Disconnected:
+                        return L"Unable to load this location — the engine is unavailable.";
+                    case SnapshotFailureReason::PathMissing:
+                    case SnapshotFailureReason::NoLongerAvailable:
+                        return L"This folder is no longer available.";
+                    case SnapshotFailureReason::None:
+                        break;
+                }
+                return L"Unable to load this location.";
+            };
+            const auto statusMessage = [&column]() {
+                if (column.freshness.state == SnapshotViewState::Loading) return L"Refreshing…";
+                if (column.freshness.failure == SnapshotFailureReason::Disconnected) {
+                    return L"Showing previous results — engine disconnected.";
+                }
+                if (column.freshness.failure == SnapshotFailureReason::PublishFailed) {
+                    return L"Showing previous results — refresh failed (snapshot publication failed).";
+                }
+                return L"Showing previous results — refresh failed.";
+            };
+            if (column.freshness.state == SnapshotViewState::Unavailable) {
+                const wchar_t* message = unavailableMessage();
                 D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
                 context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), messageRect, errorBrush_.Get());
                 continue;
             }
 
+            float contentTop = kBadgeHeight;
+            if (column.freshness.state == SnapshotViewState::Loading ||
+                column.freshness.state == SnapshotViewState::StaleWithError) {
+                const wchar_t* message = statusMessage();
+                D2D1_RECT_F statusRect = D2D1::RectF(x + 8, kBadgeHeight + 4, x + kColumnWidth - 8,
+                                                     kBadgeHeight + 24);
+                context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), statusRect,
+                                  column.freshness.state == SnapshotViewState::StaleWithError
+                                      ? errorBrush_.Get() : textSecondaryBrush_.Get());
+                contentTop += 24.0f;
+            }
+
             if (column.items.empty()) {
+                if (column.freshness.state != SnapshotViewState::Current) continue;
                 const wchar_t* emptyMessage = L"This folder is empty";
-                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
+                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, contentTop + 8, x + kColumnWidth - 8, viewportSize.height - 8);
                 context->DrawText(emptyMessage, static_cast<UINT32>(wcslen(emptyMessage)), textFormat_.Get(), messageRect, textSecondaryBrush_.Get());
                 continue;
             }
 
             for (int r = 0; r < static_cast<int>(column.items.size()); ++r) {
-                const float y = kBadgeHeight + r * kRowHeight - verticalScrollOffset;
-                if (y + kRowHeight < kBadgeHeight || y > viewportSize.height) {
+                const float y = contentTop + r * kRowHeight - verticalScrollOffset;
+                if (y + kRowHeight < contentTop || y > viewportSize.height) {
                     continue;
                 }
 

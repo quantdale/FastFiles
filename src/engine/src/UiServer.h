@@ -110,6 +110,7 @@ private:
     void BroadcastEngineStatus(const ClientConnectionPtr& toSingleClient = nullptr);
     bool SendDirectoryError(const ClientConnectionPtr& client, const std::wstring& path,
                             ffprotocol::DirectoryErrorReason reason);
+    void BroadcastDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
     bool SendUnavailableVolumes(const ClientConnectionPtr& client);
     bool SendForgetUnavailableVolumeResult(const ClientConnectionPtr& client, int64_t volumeRowId);
     bool SendFolderAggregateResult(const ClientConnectionPtr& client, uint64_t requestId,

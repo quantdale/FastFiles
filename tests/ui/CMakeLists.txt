@@ -35,6 +35,10 @@ add_executable(ffselection_identity_tests test_selection_identity.cpp)
 target_include_directories(ffselection_identity_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffselection_identity_tests COMMAND ffselection_identity_tests)
 
+add_executable(ffsnapshot_freshness_tests test_snapshot_freshness.cpp)
+target_include_directories(ffsnapshot_freshness_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffsnapshot_freshness_tests COMMAND ffsnapshot_freshness_tests)
+
 add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)
 target_include_directories(ffstorage_visibility_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_visibility_tests COMMAND ffstorage_visibility_tests)
@@ -56,4 +60,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)
