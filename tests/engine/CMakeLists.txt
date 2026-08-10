@@ -40,6 +40,7 @@ add_executable(ffengine_directory_watcher_tests
 )
 target_include_directories(ffengine_directory_watcher_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_directory_watcher_tests PRIVATE ffprotocol)
+target_compile_definitions(ffengine_directory_watcher_tests PRIVATE FF_DIRECTORY_WATCHER_TESTING=1)
 add_test(NAME ffengine_directory_watcher_tests COMMAND ffengine_directory_watcher_tests)
 
 add_executable(ffengine_ui_server_lifecycle_tests

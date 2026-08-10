@@ -98,10 +98,20 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
 
                 const auto stopRequested = entry->stopRequested;
                 const auto finished = entry->finished;
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+                const TestCompletionProvider testCompletionProvider = testCompletionProvider_;
+                entry->thread = std::thread([directoryHandle, stopEvent, path,
+                                             callback = std::move(onChanged), stopRequested, finished,
+                                             testCompletionProvider] {
+                    WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished,
+                              testCompletionProvider);
+                });
+#else
                 entry->thread = std::thread([directoryHandle, stopEvent, path,
                                              callback = std::move(onChanged), stopRequested, finished] {
                     WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished);
                 });
+#endif
 
                 watches_.emplace(path, std::move(entry));
                 accessOrder_.push_back(path);
@@ -117,7 +127,11 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
 void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const std::wstring& path,
                                  const ChangeCallback& callback,
                                  const std::shared_ptr<std::atomic_bool>& stopRequested,
-                                 const std::shared_ptr<std::atomic_bool>& finished) {
+                                 const std::shared_ptr<std::atomic_bool>& finished
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+                                 , const TestCompletionProvider& testCompletionProvider
+#endif
+                                 ) {
     std::vector<uint8_t> buffer(64 * 1024);
     int consecutiveOverflows = 0;
     HANDLE ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -130,7 +144,58 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
 
     OVERLAPPED overlapped{};
     overlapped.hEvent = ioEvent;
+
+    const auto processCompletion = [&](DWORD error, DWORD bytesReturned) {
+        if (stopRequested->load() || error == ERROR_OPERATION_ABORTED) {
+            return false;
+        }
+        if (error == ERROR_SUCCESS && bytesReturned != 0) {
+            if (stopRequested->load()) return false;
+            consecutiveOverflows = 0;
+            // Coalesced notification: the exact set of FILE_NOTIFY_INFORMATION
+            // records isn't needed -- callers re-enumerate the whole
+            // directory and republish a snapshot generation.
+            callback(path);
+            return true;
+        }
+
+        // A zero-byte completion means the change buffer overflowed. Treat
+        // that form exactly like ERROR_NOTIFY_ENUM_DIR so the directory is
+        // re-enumerated instead of silently losing synchronization.
+        if (error == ERROR_SUCCESS && bytesReturned == 0) {
+            error = ERROR_NOTIFY_ENUM_DIR;
+        }
+        if (error == ERROR_NOTIFY_ENUM_DIR) {
+            // recovery-degraded-browsing 5.2: the change buffer overflowed --
+            // the notification stream is unreliable. Detect, log, re-enumerate
+            // (the callback republishes a fresh generation), and re-arm the
+            // watch; never silently abandon synchronization.
+            ++consecutiveOverflows;
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          path, {}, L"watch-buffer-overflow", error, 0});
+            callback(path);
+            if (stopRequested->load()) return false;
+            if (consecutiveOverflows >= kMaxConsecutiveWatchOverflows) {
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              path, {}, L"watch-gave-up", error, 0});
+                return false;
+            }
+            return true;
+        }
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      path, {}, L"watch-failed", error, 0});
+        return false;
+    };
+
     while (!stopRequested->load()) {
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+        if (testCompletionProvider) {
+            const std::optional<TestCompletion> completion = testCompletionProvider();
+            if (!completion.has_value()) break;
+            if (!processCompletion(completion->error, completion->bytesReturned)) break;
+            continue;
+        }
+#endif
         ResetEvent(ioEvent);
         DWORD bytesReturned = 0;
         const BOOL started = ReadDirectoryChangesW(
@@ -169,45 +234,7 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
             }
         }
 
-        if (stopRequested->load() || error == ERROR_OPERATION_ABORTED) {
-            break;
-        }
-        if (error == ERROR_SUCCESS && bytesReturned != 0) {
-            if (stopRequested->load()) break;
-            consecutiveOverflows = 0;
-            // Coalesced notification: the exact set of FILE_NOTIFY_INFORMATION
-            // records isn't needed -- callers re-enumerate the whole
-            // directory and republish a snapshot generation.
-            callback(path);
-            continue;
-        }
-
-        // A zero-byte completion means the change buffer overflowed. Treat
-        // that form exactly like ERROR_NOTIFY_ENUM_DIR so the directory is
-        // re-enumerated instead of silently losing synchronization.
-        if (error == ERROR_SUCCESS && bytesReturned == 0) {
-            error = ERROR_NOTIFY_ENUM_DIR;
-        }
-        if (error == ERROR_NOTIFY_ENUM_DIR) {
-            // recovery-degraded-browsing 5.2: the change buffer overflowed --
-            // the notification stream is unreliable. Detect, log, re-enumerate
-            // (the callback republishes a fresh generation), and re-arm the
-            // watch; never silently abandon synchronization.
-            ++consecutiveOverflows;
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                          path, {}, L"watch-buffer-overflow", error, 0});
-            callback(path);
-            if (stopRequested->load() || consecutiveOverflows >= kMaxConsecutiveWatchOverflows) {
-                if (stopRequested->load()) break;
-                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                              path, {}, L"watch-gave-up", error, 0});
-                break;
-            }
-            continue; // re-arm the watch
-        }
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                      path, {}, L"watch-failed", error, 0});
-        break;
+        if (!processCompletion(error, bytesReturned)) break;
     }
     CloseHandle(ioEvent);
     finished->store(true);

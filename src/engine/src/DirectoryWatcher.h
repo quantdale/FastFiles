@@ -5,6 +5,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -25,6 +26,21 @@ constexpr size_t kMaxWatchedRoots = 32;
 // (spec "A newly created file appears without manual refresh").
 class DirectoryWatcher {
 public:
+    DirectoryWatcher() = default;
+
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+    // Test-only completion injection keeps the production watcher on the real
+    // ReadDirectoryChangesW path while making overflow recovery deterministic.
+    struct TestCompletion {
+        DWORD error = ERROR_SUCCESS;
+        DWORD bytesReturned = 0;
+    };
+    using TestCompletionProvider = std::function<std::optional<TestCompletion>()>;
+
+    explicit DirectoryWatcher(TestCompletionProvider testCompletionProvider)
+        : testCompletionProvider_(std::move(testCompletionProvider)) {}
+#endif
+
     ~DirectoryWatcher();
 
     using ChangeCallback = std::function<void(const std::wstring& path)>;
@@ -48,11 +64,18 @@ private:
     static void WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const std::wstring& path,
                           const ChangeCallback& callback,
                           const std::shared_ptr<std::atomic_bool>& stopRequested,
-                          const std::shared_ptr<std::atomic_bool>& finished);
+                          const std::shared_ptr<std::atomic_bool>& finished
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+                          , const TestCompletionProvider& testCompletionProvider
+#endif
+                          );
 
     std::mutex mutex_;
     std::map<std::wstring, std::unique_ptr<WatchEntry>> watches_;
     std::deque<std::wstring> accessOrder_; // least-recently-watched first
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+    TestCompletionProvider testCompletionProvider_;
+#endif
 };
 
 } // namespace ffengine

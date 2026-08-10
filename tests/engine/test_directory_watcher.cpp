@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -152,10 +153,123 @@ void TestWatcherEvictsLeastRecentlyUsedRoot() {
     Check(!std::filesystem::exists(root), "watcher LRU fixture is removed");
 }
 
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+void TestWatcherRecoversFromInjectedOverflow() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::filesystem::path localAppData = root / L"local-app-data";
+    std::error_code error;
+    Check(std::filesystem::create_directories(localAppData, error),
+          "overflow diagnostics directory fixture is created");
+
+    std::vector<wchar_t> previousLocalAppData(32768);
+    const DWORD previousLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", previousLocalAppData.data(), static_cast<DWORD>(previousLocalAppData.size()));
+    Check(SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str()),
+          "overflow test redirects diagnostics to its disposable fixture");
+
+    auto completions = std::make_shared<std::deque<ffengine::DirectoryWatcher::TestCompletion>>(
+        std::deque<ffengine::DirectoryWatcher::TestCompletion>{
+            {ERROR_SUCCESS, 0}, {ERROR_NOTIFY_ENUM_DIR, 0},
+            {ERROR_SUCCESS, 16}, {ERROR_NOTIFY_ENUM_DIR, 0}});
+    std::mutex callbackMutex;
+    std::condition_variable callbackCondition;
+    int callbacks = 0;
+    {
+        ffengine::DirectoryWatcher watcher([completions] {
+            if (completions->empty()) return std::optional<ffengine::DirectoryWatcher::TestCompletion>{};
+            const auto completion = completions->front();
+            completions->pop_front();
+            return std::optional<ffengine::DirectoryWatcher::TestCompletion>{completion};
+        });
+        watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        std::unique_lock<std::mutex> lock(callbackMutex);
+        Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks >= 4; }),
+              "overflow recovery re-enumerates, re-arms, and resets its consecutive count");
+        watcher.Unwatch(root.wstring());
+    }
+
+    const auto diagnosticsPath = localAppData / L"FastFiles" / L"logs" / L"diagnostics.log";
+    std::ifstream diagnostics(diagnosticsPath, std::ios::binary);
+    const std::string diagnosticText((std::istreambuf_iterator<char>(diagnostics)),
+                                     std::istreambuf_iterator<char>());
+    Check(diagnosticText.find("state=watch-buffer-overflow") != std::string::npos,
+          "injected overflow is recorded in diagnostics");
+    Check(diagnosticText.find("state=watch-gave-up") == std::string::npos,
+          "a recoverable overflow does not give up the watch");
+    diagnostics.close();
+
+    if (previousLength == 0) {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    } else {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", previousLocalAppData.data());
+    }
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "overflow recovery fixture is removed");
+}
+
+void TestWatcherGivesUpAfterEightInjectedOverflows() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::filesystem::path localAppData = root / L"local-app-data";
+    std::error_code error;
+    Check(std::filesystem::create_directories(localAppData, error),
+          "give-up diagnostics directory fixture is created");
+
+    std::vector<wchar_t> previousLocalAppData(32768);
+    const DWORD previousLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", previousLocalAppData.data(), static_cast<DWORD>(previousLocalAppData.size()));
+    Check(SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str()),
+          "give-up test redirects diagnostics to its disposable fixture");
+
+    auto completions = std::make_shared<std::deque<ffengine::DirectoryWatcher::TestCompletion>>();
+    for (int index = 0; index < 8; ++index) {
+        completions->push_back({ERROR_NOTIFY_ENUM_DIR, 0});
+    }
+    std::atomic<int> callbacks{0};
+    {
+        ffengine::DirectoryWatcher watcher([completions] {
+            if (completions->empty()) return std::optional<ffengine::DirectoryWatcher::TestCompletion>{};
+            const auto completion = completions->front();
+            completions->pop_front();
+            return std::optional<ffengine::DirectoryWatcher::TestCompletion>{completion};
+        });
+        watcher.Watch(root.wstring(), [&](const std::wstring&) { ++callbacks; });
+        for (int attempt = 0; attempt < 50 && callbacks.load() < 8; ++attempt) Sleep(10);
+        Check(callbacks.load() == 8, "watcher invokes re-enumeration for each consecutive overflow");
+        watcher.Unwatch(root.wstring());
+    }
+
+    const auto diagnosticsPath = localAppData / L"FastFiles" / L"logs" / L"diagnostics.log";
+    std::ifstream diagnostics(diagnosticsPath, std::ios::binary);
+    const std::string diagnosticText((std::istreambuf_iterator<char>(diagnostics)),
+                                     std::istreambuf_iterator<char>());
+    Check(diagnosticText.find("state=watch-buffer-overflow") != std::string::npos,
+          "consecutive overflows are recorded in diagnostics");
+    Check(diagnosticText.find("state=watch-gave-up") != std::string::npos,
+          "watcher gives up after eight consecutive overflows");
+    diagnostics.close();
+
+    if (previousLength == 0) {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    } else {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", previousLocalAppData.data());
+    }
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "give-up fixture is removed");
+}
+#endif
+
 } // namespace
 
 int main() {
     TestWatcherPublishesAndStops();
     TestWatcherEvictsLeastRecentlyUsedRoot();
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+    TestWatcherRecoversFromInjectedOverflow();
+    TestWatcherGivesUpAfterEightInjectedOverflows();
+#endif
     return FailureCount() == 0 ? 0 : 1;
 }
