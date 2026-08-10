@@ -422,4 +422,42 @@ Using the established projection-only floor (`54.28 ms`) and SQLite metadata flo
 
 `NEW PRIMARY BOTTLENECK: full O(N) projection traversal plus residual literal rejection`
 
+## Secondary filename index integration — 2026-08-11
+
+The measured UTF-16 trigram posting design is now integrated into the production indexed-search path. The new historical artifact is [large-index-scalability-secondary-index.json](large-index-scalability-secondary-index.json); the original `large-index-scalability.json` remains unchanged so the optimization history is preserved.
+
+The current pipeline is:
+
+```text
+ParseQuery
+→ GetAllVolumes metadata query
+→ projection lock
+→ eligible simple-literal UTF-16 trigram candidate lookup
+→ canonical filename/path/predicate verification
+→ existing result cap, ordering, and response
+```
+
+Only simple literal filename terms with at least three ASCII-foldable UTF-16 units use the accelerator. Short terms, Unicode terms, globs, multi-term queries, path predicates, extension predicates, metadata predicates, and any unavailable/invalid index use the existing canonical scan. The index is a candidate generator, never the semantic authority; exact result sets and ordering remain owned by the canonical matcher.
+
+### Integrated Release medians
+
+| Scale | Selective | No match | Broad |
+| ----: | --------: | -------: | ----: |
+| 100K | 1.93 ms | 2.02 ms | 10.99 ms |
+| 500K | 17.71 ms | 18.06 ms | 29.15 ms |
+| 1M | 34.34 ms | 36.25 ms | 47.83 ms |
+| 2M | 64.91 ms | 67.84 ms | 81.36 ms |
+
+At 2M, the selective query verified one candidate and the no-match query verified zero candidates; both still measured approximately 65–68 ms because the `GetAllVolumes` SQLite metadata query is now the dominant stage. Broad search used 590,624 candidates and retained the existing 4,096-result cap. The query summaries include p90/max values and all seven benchmark classes.
+
+The integrated result improves the prior same-harness 1M medians of approximately `126.99/147.90/48.82 ms` (selective/no-match/broad) to `34.34/36.25/47.83 ms`. Selective and no-match no longer scale with the full projection row count; broad remains governed by candidate verification and result materialization.
+
+### Lifecycle and resource behavior
+
+`Projection` owns the postings beside its generation-owned dense slots. Rebuilds bulk-load and sort/deduplicate postings after compaction; insert, delete, and rename update postings incrementally. Allocation or update failure invalidates only the accelerator, and search falls back to the canonical linear path. Focused tests cover duplicate/uppercase/non-ASCII recall, empty no-match, short and Unicode fallback, delete, and rename behavior; engine tests cover eligible, no-match, short-term, and folder-query routing.
+
+The final artifact reports private bytes after rebuild of approximately `59.3/280.7/551.9/1120.6 MiB` at `100K/500K/1M/2M`, with post-query values of `61.3/292.7/565.4/1294.2 MiB`. The isolated architecture benchmark estimated 168.6 MiB of trigram postings at 2M; the integrated process also retains the existing SQLite/projection/snapshot working set. The 2M rebuild took approximately 5.0 seconds and the temporary database occupied 150,564,864 bytes. No schema migration or persistent secondary-index file was introduced.
+
+This slice does not optimize SQLite or add search cancellation. Those are separate decisions and require fresh measurements rather than attribution from the pre-index path.
+
 No 2M run was performed because the 1M selective result remained above the optional scale-up gate. An isolated 1M memory check measured approximately `4.9 / 453.8 / 468.8 / 470.1 MiB` for open / rebuild / after broad / post-query, with no material regression against the prior isolated `4.4 / 454.0 / 470.4 / 471.2 MiB` check. Focused and full semantic tests passed for selective/no-match, early/late matching, short and overlong needles, ASCII case-insensitivity, uppercase fallback, Unicode/mixed Unicode, prefix, glob, extension, parent path, multi-term, duplicate names, capped 4,096 results, and ordering.

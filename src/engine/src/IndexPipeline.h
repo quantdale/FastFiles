@@ -85,6 +85,8 @@ public:
         size_t resultCount = 0;
         size_t searchResultObjectsMaterialized = 0;
         size_t lazyPathMaterializationCount = 0;
+        size_t filenameIndexCandidateCount = 0;
+        bool filenameIndexUsed = false;
         bool truncated = false;
     };
 

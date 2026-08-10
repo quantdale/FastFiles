@@ -1,6 +1,7 @@
 #include "ffindexstore/Projection.h"
 
 #include <algorithm>
+#include <iterator>
 
 #include "ffindexstore/Store.h"
 
@@ -14,6 +15,47 @@ bool IsAsciiLower(std::u16string_view name) {
         if (ch > 0x7f || (ch >= u'A' && ch <= u'Z')) return false;
     }
     return true;
+}
+
+bool IsAscii(std::u16string_view name) {
+    return std::all_of(name.begin(), name.end(), [](const char16_t ch) { return ch <= 0x7f; });
+}
+
+std::u16string FoldAscii(std::u16string_view name) {
+    std::u16string folded;
+    folded.reserve(name.size());
+    for (const char16_t ch : name) {
+        folded.push_back(ch >= u'A' && ch <= u'Z' ? static_cast<char16_t>(ch + (u'a' - u'A')) : ch);
+    }
+    return folded;
+}
+
+uint64_t PackTrigram(std::u16string_view value, size_t offset) {
+    return static_cast<uint64_t>(value[offset]) |
+           (static_cast<uint64_t>(value[offset + 1]) << 16) |
+           (static_cast<uint64_t>(value[offset + 2]) << 32);
+}
+
+std::vector<uint64_t> UniqueTrigrams(std::u16string_view value) {
+    std::vector<uint64_t> result;
+    if (value.size() < 3) return result;
+    result.reserve(value.size() - 2);
+    for (size_t index = 0; index + 2 < value.size(); ++index) {
+        result.push_back(PackTrigram(value, index));
+    }
+    std::sort(result.begin(), result.end());
+    result.erase(std::unique(result.begin(), result.end()), result.end());
+    return result;
+}
+
+void InsertSorted(std::vector<uint32_t>& values, uint32_t value) {
+    const auto it = std::lower_bound(values.begin(), values.end(), value);
+    if (it == values.end() || *it != value) values.insert(it, value);
+}
+
+void EraseSorted(std::vector<uint32_t>& values, uint32_t value) {
+    const auto it = std::lower_bound(values.begin(), values.end(), value);
+    if (it != values.end() && *it == value) values.erase(it);
 }
 } // namespace
 
@@ -44,18 +86,89 @@ void Projection::CompactEntriesForIterationOrder() {
     denseIterationOrderValid_ = true;
 }
 
+void Projection::InvalidateFilenameIndex() noexcept {
+    filenameIndexValid_ = false;
+    filenameTrigramPostings_.clear();
+    filenameNonAsciiEntries_.clear();
+}
+
+void Projection::AddFilenameIndexEntry(const uint32_t index) {
+    if (!filenameIndexValid_) return;
+    try {
+        const std::u16string_view name = namePool_.Get(entries_[index].nameId);
+        if (!IsAscii(name)) {
+            if (filenameIndexBuilding_) filenameNonAsciiEntries_.push_back(index);
+            else InsertSorted(filenameNonAsciiEntries_, index);
+        }
+        const std::u16string folded = FoldAscii(name);
+        for (const uint64_t trigram : UniqueTrigrams(folded)) {
+            auto& posting = filenameTrigramPostings_[trigram];
+            if (filenameIndexBuilding_) posting.push_back(index);
+            else InsertSorted(posting, index);
+        }
+    } catch (...) {
+        InvalidateFilenameIndex();
+    }
+}
+
+void Projection::RemoveFilenameIndexEntry(const uint32_t index, const std::u16string_view name) {
+    if (!filenameIndexValid_) return;
+    try {
+        if (!IsAscii(name)) EraseSorted(filenameNonAsciiEntries_, index);
+        for (const uint64_t trigram : UniqueTrigrams(FoldAscii(name))) {
+            const auto it = filenameTrigramPostings_.find(trigram);
+            if (it == filenameTrigramPostings_.end()) continue;
+            EraseSorted(it->second, index);
+            if (it->second.empty()) filenameTrigramPostings_.erase(it);
+        }
+    } catch (...) {
+        InvalidateFilenameIndex();
+    }
+}
+
+void Projection::RebuildFilenameIndex() {
+    filenameTrigramPostings_.clear();
+    filenameNonAsciiEntries_.clear();
+    filenameIndexValid_ = true;
+    filenameIndexBuilding_ = true;
+    try {
+        idToIndex_.ForEachValue([&](const uint32_t index) { AddFilenameIndexEntry(index); });
+        for (auto& [trigram, posting] : filenameTrigramPostings_) {
+            (void)trigram;
+            std::sort(posting.begin(), posting.end());
+            posting.erase(std::unique(posting.begin(), posting.end()), posting.end());
+        }
+        std::sort(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end());
+        filenameNonAsciiEntries_.erase(
+            std::unique(filenameNonAsciiEntries_.begin(), filenameNonAsciiEntries_.end()),
+            filenameNonAsciiEntries_.end());
+    } catch (...) {
+        InvalidateFilenameIndex();
+    }
+    filenameIndexBuilding_ = false;
+}
+
 void Projection::RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index) {
     parentToChildren_.remove(parentKey, index);
 }
 
 void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     const EntryKey key{volumeRowId, record.id};
-    const NameId nameId = namePool_.Intern(record.name);
-
     const uint32_t* pIndex = idToIndex_.find(key);
     if (pIndex != nullptr) {
         const uint32_t index = *pIndex;
         ProjectionEntry& entry = entries_[index];
+
+        std::u16string oldName;
+        if (filenameIndexValid_) {
+            try {
+                oldName = std::u16string(namePool_.Get(entry.nameId));
+            } catch (...) {
+                InvalidateFilenameIndex();
+            }
+        }
+        const NameId nameId = namePool_.Intern(record.name);
+        if (filenameIndexValid_) RemoveFilenameIndexEntry(index, oldName);
 
         if (entry.parentFrn != record.parentId) {
             RemoveFromChildrenList(EntryKey{volumeRowId, entry.parentFrn}, index);
@@ -76,9 +189,11 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.lastAccessTime = record.lastAccessTime;
         entry.attributes = record.attributes;
         entry.nameAsciiLower = IsAsciiLower(record.name);
+        AddFilenameIndexEntry(index);
         return;
     }
 
+    const NameId nameId = namePool_.Intern(record.name);
     denseIterationOrderValid_ = false;
     ProjectionEntry entry;
     entry.volumeRowId = volumeRowId;
@@ -106,6 +221,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     if (record.parentId != record.id) {
         parentToChildren_.insert(EntryKey{volumeRowId, record.parentId}, index);
     }
+    AddFilenameIndexEntry(index);
 }
 
 void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
@@ -116,6 +232,7 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     }
     denseIterationOrderValid_ = false;
     const uint32_t index = *pIndex;
+    RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
     RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
     idToIndex_.erase(key);
     freeList_.push_back(index);
@@ -142,6 +259,49 @@ void Projection::RemoveVolume(VolumeRowId volumeRowId) {
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
     const uint32_t* pIndex = idToIndex_.find(EntryKey{volumeRowId, frn});
     return pIndex ? &entries_[*pIndex] : nullptr;
+}
+
+std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
+    const std::u16string_view foldedNeedle) const {
+    if (!filenameIndexValid_ || foldedNeedle.size() < 3 || !IsAscii(foldedNeedle)) {
+        return std::nullopt;
+    }
+    try {
+        std::vector<uint32_t> result;
+        const std::vector<uint64_t> trigrams = UniqueTrigrams(foldedNeedle);
+        std::vector<const std::vector<uint32_t>*> postings;
+        postings.reserve(trigrams.size());
+        for (const uint64_t trigram : trigrams) {
+            const auto it = filenameTrigramPostings_.find(trigram);
+            if (it == filenameTrigramPostings_.end()) {
+                result.clear();
+                break;
+            }
+            postings.push_back(&it->second);
+        }
+        if (!postings.empty()) {
+            std::sort(postings.begin(), postings.end(), [](const auto* left, const auto* right) {
+                return left->size() < right->size();
+            });
+            result = *postings.front();
+            std::vector<uint32_t> scratch;
+            for (size_t index = 1; index < postings.size() && !result.empty(); ++index) {
+                scratch.clear();
+                std::set_intersection(result.begin(), result.end(), postings[index]->begin(), postings[index]->end(),
+                                      std::back_inserter(scratch));
+                result.swap(scratch);
+            }
+        }
+        std::vector<uint32_t> merged;
+        merged.reserve(result.size() + filenameNonAsciiEntries_.size());
+        std::set_union(result.begin(), result.end(), filenameNonAsciiEntries_.begin(),
+                       filenameNonAsciiEntries_.end(), std::back_inserter(merged));
+        return merged;
+    } catch (...) {
+        // The index is an accelerator only. A transient allocation failure in
+        // candidate materialization must leave the canonical scan available.
+        return std::nullopt;
+    }
 }
 
 std::span<const uint32_t> Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
@@ -218,9 +378,11 @@ Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, File
 
 void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
     denseIterationOrderValid_ = false;
+    filenameIndexValid_ = false;
     Reserve(EntryCount() + expectedEntryCount);
     store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) { Upsert(volumeRowId, record); });
     CompactEntriesForIterationOrder();
+    RebuildFilenameIndex();
 }
 
 } // namespace ffindexstore

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -196,6 +197,42 @@ void TestManyDistinctParentsDoNotStallGrowth() {
     const auto children = proj.ChildIndices(1, FileId{100, 0});
     Check(children.size() == 3, "first directory still lists exactly its own children");
 }
+
+bool CandidateContains(const Projection& projection, const std::vector<uint32_t>& candidates, uint64_t id) {
+    return std::any_of(candidates.begin(), candidates.end(), [&](const uint32_t index) {
+        return projection.EntryAt(index).frn.low == id;
+    });
+}
+
+void TestFilenameTrigramCandidatesTrackMutations() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"unique_component_7391.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"UNIQUE_COMPONENT_7391-copy.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"\u6771\u4EAC_component_7391.txt"));
+    proj.Upsert(1, MakeEntry(103, 5, u"report.txt"));
+
+    const auto candidates = proj.FilenameCandidateIndices(u"component_7391");
+    Check(candidates.has_value(), "eligible filename terms use the trigram candidate index");
+    if (!candidates) return;
+    Check(CandidateContains(proj, *candidates, 100), "matching ASCII filename is a candidate");
+    Check(CandidateContains(proj, *candidates, 101), "uppercase ASCII filename is a candidate");
+    Check(CandidateContains(proj, *candidates, 102), "non-ASCII filename is conservatively retained");
+    Check(!CandidateContains(proj, *candidates, 103), "non-matching filename is rejected by postings");
+
+    Check(!proj.FilenameCandidateIndices(u"ph").has_value(), "two-character terms use the canonical fallback");
+    Check(!proj.FilenameCandidateIndices(u"\u6771\u4EAC").has_value(), "Unicode terms use the canonical fallback");
+
+    proj.Remove(1, FileId{100, 0});
+    auto afterRemove = proj.FilenameCandidateIndices(u"component_7391");
+    Check(afterRemove.has_value() && !CandidateContains(proj, *afterRemove, 100),
+          "deleting an entry removes its trigram candidates");
+
+    proj.Upsert(1, MakeEntry(103, 5, u"renamed_component_7391.txt"));
+    auto afterRename = proj.FilenameCandidateIndices(u"component_7391");
+    Check(afterRename.has_value() && CandidateContains(proj, *afterRename, 103),
+          "renaming an entry adds its new trigram candidates");
+}
 } // namespace
 
 int main() {
@@ -210,6 +247,7 @@ int main() {
     TestRebuildFromStoreMatchesPersistedData();
     TestFolderAggregateCountsSubtree();
     TestManyDistinctParentsDoNotStallGrowth();
+    TestFilenameTrigramCandidatesTrackMutations();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

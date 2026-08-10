@@ -241,6 +241,8 @@ struct SearchRun {
     bool truncated = false;
     bool wireTruncated = false;
     size_t wireResultCount = 0;
+    bool filenameIndexUsed = false;
+    size_t filenameIndexCandidateCount = 0;
     double sqliteMs = 0.0;
     double projectionTraversalMs = 0.0;
     double projectionEnumerationMs = 0.0;
@@ -519,6 +521,8 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.resultCount = outcome.timings.resultCount;
     outcome.run.candidateCount = outcome.timings.candidateCount;
     outcome.run.candidatesVisited = outcome.timings.candidatesVisited;
+    outcome.run.filenameIndexUsed = outcome.timings.filenameIndexUsed;
+    outcome.run.filenameIndexCandidateCount = outcome.timings.filenameIndexCandidateCount;
     outcome.run.truncated = outcome.timings.truncated;
     outcome.run.sqliteMs = outcome.timings.sqliteMetadataMs;
     outcome.run.projectionTraversalMs = outcome.timings.projectionTraversalMs;
@@ -757,7 +761,9 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
            << ",\"candidate_count\":" << run.candidateCount << ",\"candidates_visited\":"
            << run.candidatesVisited << ",\"truncated\":" << (run.truncated ? "true" : "false")
            << ",\"wire_result_count\":" << run.wireResultCount
-           << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false");
+           << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false")
+           << ",\"filename_index_used\":" << (run.filenameIndexUsed ? "true" : "false")
+           << ",\"filename_index_candidate_count\":" << run.filenameIndexCandidateCount;
     output << ",\"sqlite_ms\":"; WriteJsonDouble(output, run.sqliteMs);
     output << ",\"projection_traversal_ms\":"; WriteJsonDouble(output, run.projectionTraversalMs);
     output << ",\"projection_enumeration_ms\":"; WriteJsonDouble(output, run.projectionEnumerationMs);

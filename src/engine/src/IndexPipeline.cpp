@@ -642,9 +642,18 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             ++candidateObjectsMaterialized;
             return std::optional<ffsearch::Candidate>(std::move(candidate));
         };
+        const bool filenameIndexEligible = searchRequest.query.simpleLiteralName &&
+                                           searchRequest.query.simpleLiteralFolded.size() >= 3;
+        const std::optional<std::vector<uint32_t>> filenameCandidates = filenameIndexEligible
+            ? projection_.FilenameCandidateIndices(searchRequest.query.simpleLiteralFolded)
+            : std::nullopt;
+        if (timings != nullptr) {
+            timings->filenameIndexUsed = filenameCandidates.has_value();
+            timings->filenameIndexCandidateCount = filenameCandidates.has_value() ? filenameCandidates->size() : 0;
+        }
         const ffsearch::CandidateViewEnumerator enumerate = [&](const ffsearch::CandidateViewVisitor& visit) {
             const auto enumerationStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
-            projection_.ForEachEntryValue([&](const ffindexstore::ProjectionEntry& entry) {
+            const auto visitEntry = [&](const ffindexstore::ProjectionEntry& entry) {
                 if (!continueEnumeration) return;
                 if (detailedDiagnostics) ++projectionEntriesVisited;
                 const std::wstring* prefix = singlePrefix;
@@ -697,7 +706,15 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                         std::chrono::duration<double, std::milli>(Clock::now() - nameViewStart).count();
                 }
                 continueEnumeration = visit(view);
-            });
+            };
+            if (filenameCandidates.has_value()) {
+                for (const uint32_t index : *filenameCandidates) {
+                    if (!continueEnumeration) break;
+                    visitEntry(projection_.EntryAt(index));
+                }
+            } else {
+                projection_.ForEachEntryValue(visitEntry);
+            }
             if (detailedDiagnostics) {
                 timings->projectionEnumerationMs +=
                     std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();

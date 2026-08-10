@@ -3,6 +3,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -67,6 +69,13 @@ public:
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
 
+    // Returns a conservative candidate set for an already ASCII-folded
+    // simple literal. nullopt means the secondary accelerator is ineligible
+    // or unavailable, so callers must use the canonical live-entry scan.
+    // Returned slot indices belong to this projection generation and are
+    // valid only while the caller holds the projection's synchronization.
+    std::optional<std::vector<uint32_t>> FilenameCandidateIndices(std::u16string_view foldedNeedle) const;
+
     // task 2.3: parent->children lookup for directory-listing/Column-View
     // style access. Returns empty span if the parent has no known children
     // (which is not the same as the parent itself being unknown).
@@ -130,6 +139,10 @@ public:
 private:
     void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
+    void RebuildFilenameIndex();
+    void AddFilenameIndexEntry(uint32_t index);
+    void RemoveFilenameIndexEntry(uint32_t index, std::u16string_view name);
+    void InvalidateFilenameIndex() noexcept;
 
     NamePool namePool_;
     std::vector<ProjectionEntry> entries_; // dense array; freed slots reused via freeList_
@@ -137,6 +150,10 @@ private:
     FlatHashMap<EntryKey, uint32_t, EntryKeyHash> idToIndex_;
     FlatChildrenMap parentToChildren_;
     bool denseIterationOrderValid_ = false;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> filenameTrigramPostings_;
+    std::vector<uint32_t> filenameNonAsciiEntries_;
+    bool filenameIndexValid_ = true;
+    bool filenameIndexBuilding_ = false;
 };
 
 } // namespace ffindexstore

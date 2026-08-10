@@ -215,11 +215,28 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
     all.sortField = 0; // Relevance
     all.maxResults = 100;
     all.query = L"report";
-    auto result = pipeline.SearchIndexed(all);
+    IndexPipeline::SearchTimings reportTimings;
+    auto result = pipeline.SearchIndexed(all, &reportTimings);
     Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
               result.candidates[0].name == L"report.txt" && result.candidates[0].folder == L"C:\\Users" &&
               result.candidates[0].persistentIndexed,
           "indexed search returns a durable candidate with its reconstructed parent folder");
+    Check(reportTimings.filenameIndexUsed && reportTimings.filenameIndexCandidateCount < 8,
+          "eligible filename search uses a bounded projection-owned trigram candidate set");
+
+    all.query = L"zzzz_not_present";
+    IndexPipeline::SearchTimings noMatchTimings;
+    result = pipeline.SearchIndexed(all, &noMatchTimings);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.empty() &&
+              noMatchTimings.filenameIndexUsed && noMatchTimings.filenameIndexCandidateCount == 0,
+          "an indexed no-match query uses an empty trigram candidate set without changing the result");
+
+    all.query = L"ph";
+    IndexPipeline::SearchTimings shortTermTimings;
+    result = pipeline.SearchIndexed(all, &shortTermTimings);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && !result.candidates.empty() &&
+              !shortTermTimings.filenameIndexUsed,
+          "short literal terms retain the canonical full-scan fallback");
 
     all.requestId = 4;
     all.query = L"nested.txt";
@@ -237,10 +254,12 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
     all.sortField = 0; // Relevance
     all.maxResults = 100;
     all.query = L"FOLDER:ALICE";
-    result = pipeline.SearchIndexed(all);
+    IndexPipeline::SearchTimings folderTimings;
+    result = pipeline.SearchIndexed(all, &folderTimings);
     Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
               result.candidates[0].name == L"nested.txt" && result.candidates[0].folder == L"C:\\Users\\Alice",
           "a folder-only query matches a parent path when the filename itself does not match");
+    Check(!folderTimings.filenameIndexUsed, "folder predicates use the canonical fallback path");
 
     all.query = L"ext:TXT";
     result = pipeline.SearchIndexed(all);
