@@ -1,13 +1,13 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T09:30:56+08:00
+Last updated: 2026-08-10T10:45:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at product completion: `ff0533e` (`Apply category filters to Treemap data`)
+HEAD at product completion: `03f7a4d` (`Prevent watcher shutdown from blocking on UI publication`)
 Working tree: clean after the product commit and WORKSTATE completion bookkeeping
 Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
 Prior product commit: `3ec28db` (`Unify shortcut settings persistence`)
@@ -15,17 +15,33 @@ Product commit: `ff0533e` (`Apply category filters to Treemap data`)
 
 ## Current Engineering Slice
 
-Name: Treemap category-filter integration
+Name: Watcher shutdown / synchronous UI-pipe publication lifecycle
 
-Objective: Make the active Storage Analysis category filter drive the dataset supplied to Treemap layout and rendering, with correct nested-folder aggregation, invalidation, and deterministic transitions.
+Objective: Keep watcher and engine shutdown bounded when UI publication is slow, stalled, disconnected, or no longer consuming data, while preserving normal degraded-mode watcher updates.
 
-Safety / correctness invariant: When category filtering applies, Treemap layout input contains only matching data under the existing Storage category semantics; excluded bytes cannot remain in aggregates or stale tiles.
+Safety / correctness invariant: No watcher or lifecycle-critical shutdown path may be indefinitely hostage to synchronous UI output; callbacks must not publish through destroyed state.
 
-Non-goals: Storage visibility/overlap, shortcut routing/persistence, selection identity, watcher shutdown ordering, stale snapshot UX, large-index/search performance, MFT/USN, signing/authentication, installer changes, broad Treemap redesign, new Treemap interactions, and color/theme redesign.
+Non-goals: Selection identity, Storage visibility, shortcut routing/persistence, Treemap filtering, stale snapshot UX except where required for lifecycle correctness, large-index/search performance, MFT/USN activation, signing/authentication, installer redesign, or broad IPC replacement.
 
 ## Current Frontier
 
-Completed from clean starting HEAD `cd76f1a`; selection identity, Storage visibility, global shortcut routing, shortcut persistence, and this Treemap category-filter slice are complete. Git/source/tests remain authoritative over prior completion notes.
+Completed from clean starting HEAD `cd76f1a`; selection identity, Storage visibility, global shortcut routing, shortcut persistence, Treemap category-filter integration, and this watcher/UI publication lifecycle slice are complete. Git/source/tests remain authoritative over prior completion notes. Product completion commit: `03f7a4d`.
+
+Root cause established: `DirectoryWatcher::WatchLoop` (`src/engine/src/DirectoryWatcher.cpp:133-210`) invokes its `ChangeCallback` inline on the watcher thread. `UiServer::OnDirectoryChanged` (`src/engine/src/UiServer.cpp:128-135`) re-enumerates, updates `directories_`, and synchronously calls `RepublishAndBroadcastGeneration`. That publishes through `SnapshotPublisher::Publish` (`SnapshotPublisher.cpp:77-106`) and then holds `clientsMutex_` (`UiServer.cpp:150-157`) while `WriteUiFrame` -> `ffipc::WriteFrame` -> `WriteExact` -> synchronous `WriteFile` (`src/ipc/src/PipeFraming.cpp:20-31, 66-84`) writes the `NewGeneration` notification. `UiServer::Stop` (`UiServer.cpp:110-126`) calls `listener_.Stop()` then `watcher_.UnwatchAll()`/`StopEntry` joins the watcher before it reaches the subscribed-pipe `CancelIoEx` loop. A stalled UI reader therefore leaves the watcher in `WriteFile`, holding `clientsMutex_`, while shutdown waits forever in `StopEntry::thread.join()` and cannot reach cancellation. `directoriesMutex_` and `SnapshotPublisher::publishMutex_` are released before pipe output; `clientsMutex_` is the lock held across the blocking external call.
+
+Lifecycle ownership facts: `DirectoryWatcher::StopEntry` sets `stopRequested`, signals `stopEvent`, cancels pending `ReadDirectoryChangesW`, and joins its `std::thread`; `PipeListener` accepts each UI connection on a detached `HandleConnection` thread; `WindowShell::Run` stops only its UI-side `EngineClient`, while the engine normally parks in `Main.cpp` and `UiServer` teardown is primarily destructor/process-lifecycle driven. Existing `CancelIoEx(pipe)` in `UiServer::Stop` was too late for the watcher chain; the final implementation moves cancellation before watcher join and adds active writer-thread cancellation.
+
+Implementation milestone: `UiServer::ClientConnection` now owns each subscribed pipe handle, serializes only that connection's complete frames, and releases `clientsMutex_` before invoking the potentially blocking frame writer. `UiServer::Stop` snapshots and cancels subscribed connections before `DirectoryWatcher::UnwatchAll` joins watcher threads. Production cancellation uses `CancelSynchronousIo` for the active writer thread plus `CancelIoEx` on the pipe handle; connection close cancels before waiting for an in-flight writer and then performs the sole `CloseHandle`. The global cross-client write mutex and raw subscribed-handle vector were removed.
+
+Lock-order invariant: `clientsMutex_`, `ClientConnection::stateMutex_`, and `ClientConnection::writeMutex_` are never held across a pipe write. `ClientConnection::Close` marks closing, cancels the writer, then waits for `writeMutex_`; a later writer observes closing before issuing I/O. Watcher `mutex_` remains released before `StopEntry` joins. `directoriesMutex_` remains released before `SnapshotPublisher::Publish` returns to notification output.
+
+Deterministic tests: `tests/engine/test_ui_server_lifecycle.cpp` injects a blocking frame sink into the real `UiServer`/`DirectoryWatcher` path. It verifies normal watcher publication, blocked-sink shutdown, downstream disconnect unwind, and idle shutdown. Focused result: `ffengine_ui_server_lifecycle_tests` PASS; blocked shutdown observed 10 ms against a 500 ms deadline. Existing `ffengine_directory_watcher_tests` and `ffengine_snapshot_publisher_tests` also PASS.
+
+Runtime evidence: rebuilt Debug `FastFilesEngine.exe` served a real .NET named-pipe client. The client observed SubscribeAck/status, initial directory publication, and a new generation after an externally-created disposable file. After the client disconnected, the Engine remained alive and responsive. The actual rebuilt Debug `FastFiles.exe` launched, exited via `WM_CLOSE`, relaunched, and exited again; no FastFiles/Engine processes or disposable runtime directories remained after cleanup. The synthetic stalled-pipe evidence remains the exact bounded-shutdown proof; no fragile large-pipe-fill claim is made.
+
+Validation: Debug build PASS; Analyze build PASS. Full serial CTest PASS, 41/41, with `TEMP`/`TMP` set to `C:\Users\Michael Roy\AppData\Local\Temp`. Focused engine lifecycle/watcher/snapshot tests PASS. Runtime smoke PASS as above.
+
+NEXT EXACT ACTION: Do not implement the next slice. The single next recommended slice is `stale snapshot / publish-failure UX`.
 
 Required data-flow map:
 `category-filter UI/state` -> `Storage Analysis model` -> `filtered dataset/request` -> `Treemap layout input` -> `rendered Treemap`.
@@ -94,7 +110,7 @@ OpenSpec CLI is unavailable in this environment; checked-in OpenSpec artifacts r
 
 ### Not Started
 
-- None for the implementation slice.
+- None for this slice.
 
 ## Files Changed In Prior Storage Slice
 
@@ -207,7 +223,7 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior 
 
 ## NEXT EXACT ACTION
 
-Do not implement the next slice. The single next recommended slice is `watcher shutdown ordering / synchronous UI-pipe blocking`.
+After the focused product commit, do not implement another slice. The single next recommended slice is `stale snapshot / publish-failure UX`.
 
 ## Resume Instructions
 
