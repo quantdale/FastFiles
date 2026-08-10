@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T01:43:00+08:00
+Last updated: 2026-08-11T01:46:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -15,15 +15,15 @@ Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validat
 
 ## Active Engineering Slice
 
-Name: Audit remaining independent validation backlog
+Name: Document pinned-signature provisioning procedure
 
-Objective: Record the completed degraded recovery contract and select the next safe independent validation slice while preserving fail-closed privileged authentication.
+Objective: Retain the existing D5 pin-provisioning/rotation procedure as auditable evidence and close only documentation task 4.4 without populating pins or activating privileged IPC.
 
 Frontier invariant: One degraded-browsing discovery/lifecycle validation slice only. Do not begin signed-service/MFT/USN validation, alter security pins, or change unrelated UI/search/SQL code. Runtime checks must use the disposable Debug build and clean up any child Engine process.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: inspect `close-independent-validation-gaps/tasks.md` and its existing evidence, reconcile Git reality, and choose one bounded local validation task that does not require signing credentials or privileged-service activation.
+Next exact action: add the bounded pin-provisioning evidence note, check task 4.4, run documentation drift validation, and commit the documentation-only slice.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
@@ -50,6 +50,8 @@ Recovery scope-authority checkpoint: `SearchPanel::RefreshScopeLabels` and the s
 Development-tree acceptance milestone: commit `8652401` records that the disposable Debug UI/Engine pair completed the five-level navigation, Alt+Left, Backspace/up, file selection/open, real Ctrl+C/Ctrl+V copy, degraded `acceptance` search, exact scope-label observation, and synthetic-root drive listing. The missing-engine/retry run in `evidence/status-retry.md` completes the acceptance chain. Tasks 6.1 and 7.3 are checked; recovery task 3.1 remains open only for privileged-active runtime validation blocked by placeholder pins.
 
 Scope-contract reconciliation milestone: commit `feca05a` updates D6, Requirement 6.2, and task 6.1 to the source-backed rule that degraded browsed-snapshot scopes remain available with honest labels while indexed coverage is separately identified and filtered. The pre-existing invalid CP1252 bytes in `spec.md` were mechanically normalized to UTF-8/CRLF as part of the artifact edit; `ffdoc_drift_tests` passed.
+
+Pinned-signature procedure frontier: close-independent task 4.4 is the next bounded local task. The authoritative D5 design already requires controlled release-time leaf-thumbprint derivation, no private material in source control, single-pin rotation with restart/revalidation, and fail-closed placeholders; this slice will retain those steps as evidence without inventing values.
 
 Status/retry evidence commit: `b6e401e` records the isolated native-environment launch, real Starting/Unavailable/degraded captures, five-attempt exhaustion, and a real retry-chip cycle. The subsequent lost-Engine reconnect evidence is now ready for its own focused commit.
 
