@@ -38,3 +38,28 @@ Observed result:
 - `dist/FastFiles.exe`: deleted from source control in `52d33da`; the current tree has no tracked copy, and `.gitignore` excludes `dist/`. Documented CMake builds continue to emit binaries under ignored `build/` directories. Decision: remove from source control and ignore generated distribution output.
 - `Audit.txt`: renamed `Audit.txt -> codebase-audit/Audit.txt` in `52d33da`. The 819-line autonomous-audit prompt is retained as tooling/documentation in the owned `codebase-audit` area rather than at repository root. Decision: retain after the documented move.
 - `codebase-audit/sessions/20260804-180500-v7k4p2/`: no files were modified by the hygiene commit or this reconciliation; its eight validation reports remain intact.
+
+## Final reconciliation
+
+The required baseline commands were rerun on 2026-08-11 with the x64 VS 2022 developer shell and the documented process-local user temporary directory:
+
+```powershell
+cmake --preset debug
+cmake --build --preset debug
+cmake -E chdir build\debug ctest -N
+cmake -E chdir build\debug ctest --output-on-failure
+```
+
+Results: Debug configure/build passed; `ctest -N` discovered 42 tests; serial CTest passed 42/42, including the storage, details, authentication, fuzz, and doc-drift tests. The Analyze configure/build gate also passed in the same campaign.
+
+Finding reconciliation:
+
+- `MED-20260804-v7k4p2-006`: closed by the existing storage implementation and deterministic tests, reconciled in `3adaf7b`.
+- `LOW-20260804-v7k4p2-007`: closed by the existing details-layout implementation and non-overlap tests, reconciled in `3adaf7b`.
+- `LOW-20260804-v7k4p2-001`: closed by the guidance search and evidence in this file, committed in `edb951c`/`51cbb24`.
+- Pinned-authentication release blockers: constant-time comparison and local regression/fuzz validation are complete in `40ce237`; placeholder pins, expired/untrusted certificate fixtures, signing procedure, elevated signed-service validation, real MFT/USN acceptance, privilege diagnostics, and clean-host matrix remain open. No trusted thumbprint was invented and no privileged path was activated.
+- Interactive visual validation remains open because it requires the external desktop matrix and retained screenshots; the existing headless/runtime evidence is not substituted for that gate.
+
+`openspec validate --all --strict` remains open: the `openspec` CLI is not installed in this environment (`openspec` was not recognized). No validation result was fabricated.
+
+Degraded mode remains the active, fail-safe product path per `AGENTS.md`; prior runtime evidence confirms the UI/Engine degraded browsing path remains usable, and this campaign made no change that requires the privileged service.

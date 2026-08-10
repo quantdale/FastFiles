@@ -51,10 +51,10 @@ Implementation tasks for the confirmed gaps from independent-validation session 
 
 ## 7. Final validation and reconciliation
 
-- [ ] 7.1 Run the baseline gates: `cmake --preset debug`, `cmake --build --preset debug`, `cmake -E chdir build\debug ctest -N`, `cmake -E chdir build\debug ctest --output-on-failure`. Confirm clean `/W4 /WX` build and all discovered tests pass (count may exceed 27).
-- [ ] 7.2 Run the repository OpenSpec validation for this change and fix any schema/format violations.
-- [ ] 7.3 Reconcile every closed finding ID against its requirement/task/validation: `MED-20260804-v7k4p2-006` (storage percentage), `LOW-20260804-v7k4p2-007` (details-pane layout), `LOW-20260804-v7k4p2-001` (documentation consistency), and the external release blockers (pins, constant-time compare, elevated/clean-host/interactive validation). Mark external blockers as open/pending with evidence; do not mark them complete without evidence.
-- [ ] 7.4 Confirm no task was marked complete in advance, and that degraded mode remains usable/releasable independently of the privileged-path gates.
+- [x] 7.1 Run the baseline gates: `cmake --preset debug`, `cmake --build --preset debug`, `cmake -E chdir build\debug ctest -N`, `cmake -E chdir build\debug ctest --output-on-failure`. Confirm clean `/W4 /WX` build and all discovered tests pass (count may exceed 27). — complete 2026-08-11: 42 tests discovered and 42/42 passed; Debug and Analyze builds passed.
+- [ ] 7.2 Run the repository OpenSpec validation for this change and fix any schema/format violations. — pending: the `openspec` CLI is unavailable in this environment; the exact blocker and no-fabrication decision are recorded in `evidence/documentation-and-hygiene.md`.
+- [x] 7.3 Reconcile every closed finding ID against its requirement/task/validation: `MED-20260804-v7k4p2-006` (storage percentage), `LOW-20260804-v7k4p2-007` (details-pane layout), `LOW-20260804-v7k4p2-001` (documentation consistency), and the external release blockers (pins, constant-time compare, elevated/clean-host/interactive validation). Mark external blockers as open/pending with evidence; do not mark them complete without evidence. — complete in `evidence/documentation-and-hygiene.md`; only the evidenced local portions are closed, and signing/elevated/interactive/CLI blockers remain open.
+- [x] 7.4 Confirm no task was marked complete in advance, and that degraded mode remains usable/releasable independently of the privileged-path gates. — complete: task evidence distinguishes local completion from external prerequisites, placeholder pins remain fail-closed, and degraded mode remains the active supported path.
 
 ## Explicitly deferred / follow-up (not implemented in this change)
 
