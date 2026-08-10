@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T14:15:30+08:00
+Last updated: 2026-08-10T14:17:10+08:00
 Status: COMPLETE
 
 ## Repository
@@ -9,8 +9,8 @@ Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
 HEAD at slice start: `46db0a5` (`Record stale snapshot UX completion state`); expected product baseline includes `21481a5` (`Surface stale snapshot and refresh failures`)
 Working tree at slice start: clean
-Benchmark implementation commit: pending
-Workstate bookkeeping commit: pending
+Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
+Workstate bookkeeping: this completion record is included in the follow-up bookkeeping commit.
 
 ## Current Engineering Slice
 
@@ -284,9 +284,9 @@ Prior product commit: `412e25b` (`Fix Storage Analysis mode visibility`). Prior 
 - Acceptance evidence: canonical `shortcuts.json` has `{"commandId":"search.focus","key":117,"modifiers":""}` and no `Ctrl+F`; physical F6 focused Search query EDIT `5441536`; physical Ctrl+L focused address EDIT `20776946`; physical old Ctrl+F left address EDIT focus unchanged.
 - Completed: normal close, relaunch without rewriting config, F6/old Ctrl+F restart checks, native-edit/global regression, exact user-profile restoration, generated canonical cleanup, temporary-directory removal, final Debug/Analyze builds, full serial CTest, and the focused product commit.
 
-## NEXT EXACT ACTION
+## Historical Prior-Slice Note
 
-After product commit `21481a5`, do not implement another slice. The single next recommended slice is `large-index search/snapshot scalability benchmarking`.
+The prior slice recommended `large-index search/snapshot scalability benchmarking`; that recommendation is now completed by the current slice record above.
 
 ## Resume Instructions
 
