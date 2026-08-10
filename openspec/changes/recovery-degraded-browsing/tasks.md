@@ -40,4 +40,4 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 - [x] 7.1 Add `ffengine_discovery_tests` (candidate order, dedupe, validation) and register it with CTest. — complete; target is registered and focused CTest passed.
 - [x] 7.2 Full build (zero warnings) and full CTest suite pass. — complete; Debug/Analyze builds passed and serial CTest passed 42/42.
-- [ ] 7.3 Manual acceptance from the development build tree: launch → engine reachable → drives listed → folder navigation ≥5 levels → back/up navigation → file open → file-operation smoke → search over a browsed folder → missing-engine failure state visible with working retry.
+- [x] 7.3 Manual acceptance from the development build tree: launch → engine reachable → drives listed → folder navigation ≥5 levels → back/up navigation → file open → file-operation smoke → search over a browsed folder → missing-engine failure state visible with working retry. — complete; disposable runtime evidence is in `evidence/development-tree-acceptance.md` and `evidence/status-retry.md`.
