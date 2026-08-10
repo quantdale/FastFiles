@@ -72,6 +72,29 @@ std::wstring StripVolumeRootName(const ffindexstore::Projection& projection,
     return reconstructed;
 }
 
+bool MaterializeCandidateFolder(const ffindexstore::Projection& projection,
+                                const std::unordered_map<ffindexstore::VolumeRowId, std::wstring>& prefixes,
+                                ffsearch::Candidate& candidate) {
+    const auto prefixIt = prefixes.find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId));
+    if (prefixIt == prefixes.end()) return false;
+    const auto* entry = projection.Find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId),
+                                        ffindexstore::FileId{candidate.id, 0});
+    if (entry == nullptr) return false;
+    if (entry->parentFrn == entry->frn) {
+        // The root candidate intentionally keeps the same empty folder that
+        // the eager path used; its user-facing root is stored in name.
+        return true;
+    }
+    const auto parentPath = projection.ReconstructPath(
+        static_cast<ffindexstore::VolumeRowId>(candidate.volumeId), entry->parentFrn);
+    if (!parentPath.reachedRoot) return false;
+    const std::wstring reconstructedParent = StripVolumeRootName(
+        projection, static_cast<ffindexstore::VolumeRowId>(candidate.volumeId), entry->parentFrn,
+        ToWString(parentPath.path));
+    candidate.folder = prefixIt->second + L"\\" + reconstructedParent;
+    return true;
+}
+
 ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
     ffindexstore::EntryRecord entry;
     entry.id = ffindexstore::FileId{record.fixed.fileReferenceNumber, 0};
@@ -486,7 +509,24 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         return result;
     }
 
+    const auto queryStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    ffsearch::SearchRequest searchRequest;
+    searchRequest.query = ffsearch::ParseQuery(request.query, ffsearch::FilterRegistry::WithDefaults());
+    searchRequest.scope = static_cast<ffsearch::SearchScope>(request.scope);
+    searchRequest.scopePath = request.scopePath;
+    searchRequest.sortField = static_cast<ffsearch::SortField>(request.sortField);
+    searchRequest.descending = request.descending;
+    searchRequest.maxResults = (std::min)(static_cast<size_t>(request.maxResults),
+                                          static_cast<size_t>(ffprotocol::kMaxIndexedSearchResultCount));
+    searchRequest.persistentOnly = true;
+    if (timings != nullptr) {
+        timings->queryParseMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - queryStart).count();
+    }
+
     std::vector<ffsearch::Candidate> candidates;
+    std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
+    double lazyPathMaterializationMs = 0.0;
     std::chrono::steady_clock::time_point candidateStart{};
     {
         // Copy only the candidate fields needed by the query. Matching and
@@ -499,7 +539,6 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             return result;
         }
 
-        std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
         prefixes.reserve(volumeRules_.size() + 4);
         std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
         disabledVolumes.reserve(volumeRules_.size());
@@ -544,7 +583,6 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             if (prefixIt == prefixes.end()) {
                 return;
             }
-            const std::wstring rootPath = prefixIt->second + L"\\";
             ffsearch::Candidate candidate;
             candidate.volumeId = static_cast<int64_t>(key.volumeRowId);
             candidate.id = entry.frn.low;
@@ -558,20 +596,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             if (entry.parentFrn == entry.frn) {
                 // The root's on-disk name is not user-facing. Use the mounted
                 // drive root exactly as the snapshot/UI path model does.
-                candidate.name = rootPath;
+                candidate.name = prefixIt->second + L"\\";
             } else {
-                const auto parentPath = projection_.ReconstructPath(key.volumeRowId, entry.parentFrn);
-                if (!parentPath.reachedRoot) {
-                    return; // do not expose a candidate with an untrustworthy path
-                }
-                const std::wstring reconstructedParent = StripVolumeRootName(
-                    projection_, key.volumeRowId, entry.parentFrn, ToWString(parentPath.path));
-                // After the synthetic root component is stripped, a direct
-                // child is "Users" and a deeper parent is "Users\\Alice".
-                // Keep the complete relative path here:
-                // dropping everything through the first separator would turn
-                // a nested result into C:\\Alice instead of C:\\Users\\Alice.
-                candidate.folder = rootPath + reconstructedParent;
                 candidate.name = ToWString(projection_.Names().Get(entry.nameId));
                 if (candidate.name.empty()) {
                     return;
@@ -580,32 +606,34 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             candidates.push_back(std::move(candidate));
         });
     }
-    if (timings != nullptr) {
-        timings->candidateMaterializationMs =
-            std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count();
-        timings->candidateCount = candidates.size();
-    }
-
-    const auto queryStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-    ffsearch::SearchRequest searchRequest;
-    searchRequest.query = ffsearch::ParseQuery(request.query, ffsearch::FilterRegistry::WithDefaults());
-    searchRequest.scope = static_cast<ffsearch::SearchScope>(request.scope);
-    searchRequest.scopePath = request.scopePath;
-    searchRequest.sortField = static_cast<ffsearch::SortField>(request.sortField);
-    searchRequest.descending = request.descending;
-    searchRequest.maxResults = (std::min)(static_cast<size_t>(request.maxResults),
-                                          static_cast<size_t>(ffprotocol::kMaxIndexedSearchResultCount));
-    searchRequest.persistentOnly = true;
-    if (timings != nullptr) {
-        timings->queryParseMs =
-            std::chrono::duration<double, std::milli>(Clock::now() - queryStart).count();
-    }
+    const double lightweightCandidateMaterializationMs = timings != nullptr
+        ? std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count()
+        : 0.0;
+    if (timings != nullptr) timings->candidateCount = candidates.size();
 
     const auto searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-    const auto search = ffsearch::ExecuteSearch(candidates, searchRequest);
+    std::optional<std::unique_lock<std::mutex>> pathLock;
+    const auto search = ffsearch::ExecuteSearchLazy(
+        candidates, searchRequest,
+        [&](ffsearch::Candidate& candidate) {
+            if (!pathLock.has_value()) pathLock.emplace(mutex_);
+            const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+            if (timings != nullptr) {
+                lazyPathMaterializationMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
+                if (materialized) ++timings->lazyPathMaterializationCount;
+            }
+            return materialized;
+        });
+    pathLock.reset();
     if (timings != nullptr) {
-        timings->matchFilterSortMs =
+        const double searchElapsed =
             std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
+        timings->candidateMaterializationMs = lightweightCandidateMaterializationMs + lazyPathMaterializationMs;
+        timings->lightweightCandidateMaterializationMs = lightweightCandidateMaterializationMs;
+        timings->lazyPathMaterializationMs = lazyPathMaterializationMs;
+        timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - lazyPathMaterializationMs);
         timings->candidatesVisited = search.candidatesVisited;
         timings->resultCount = search.results.size();
         timings->truncated = search.truncated;

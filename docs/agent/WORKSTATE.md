@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T14:17:10+08:00
+Last updated: 2026-08-10T17:05:00+08:00
 Status: COMPLETE
 
 ## Repository
@@ -14,13 +14,13 @@ Workstate bookkeeping: this completion record is included in the follow-up bookk
 
 ## Current Engineering Slice
 
-Name: Large-index search / snapshot scalability benchmarking
+Name: Optimize indexed-search projection candidate/path materialization
 
-Objective: Establish a reproducible optimized-build baseline for indexed search, snapshot construction/publication, and UI-side snapshot parsing across deterministic synthetic indexes, without changing product algorithms.
+Objective: Remove unnecessary full candidate/path materialization from `IndexPipeline::SearchIndexed` while preserving the canonical query semantics, ordering, and 4,096-result cap.
 
-Scope invariant: Measure first; no speculative optimization, MFT/USN activation, security/signing changes, or unrelated UI/product work belongs in this slice.
+Scope invariant: One search-performance frontier only. No SQLite replacement, speculative FTS, query-language changes, cancellation, snapshot optimization, MFT/USN activation, security/signing changes, or unrelated UI/product work belongs in this slice.
 
-OpenSpec context: No existing OpenSpec change owns this benchmark. The completed `instant-search` spec is the source context: indexed matching is required to scan the in-memory projection with no per-search SQL query, and the UI uses a bounded result page.
+OpenSpec context: No existing OpenSpec change owns this optimization. The completed `instant-search` spec is the source context: indexed matching scans the in-memory projection with no per-search SQL query, and the UI uses a bounded result page. The OpenSpec CLI is unavailable in this environment.
 
 ## Benchmark Trace Checkpoint
 
@@ -48,11 +48,42 @@ Formal performance target: none found. Interpret numbers with clearly labeled en
 - Formal product latency target: none found. Engineering interpretation only: <50 ms immediate, 50–100 excellent, 100–250 responsive, 250–500 noticeable, >500 poor, >1 s not instant. Current behavior is acceptable through roughly 100K only; 500K is poor and 1M is not instant.
 - Primary bottleneck: full projection candidate/path materialization in `IndexPipeline::SearchIndexed`. Optimization is required, but is explicitly deferred to one separate next slice.
 
+## Optimization Trace Checkpoint
+
+Root cause confirmed against source: `IndexPipeline::SearchIndexed` called `store_.GetAllVolumes()`, then `Projection::ForEachEntry`, copied every row into an `ffsearch::Candidate`, reconstructed every non-root parent path with `Projection::ReconstructPath` while holding `mutex_`, and only then parsed the query and called `ffsearch::ExecuteSearch`. `ffsearch::Candidate` owns `name` and `folder` strings, so every indexed row paid for full path traversal and allocation even when filename/metadata matching returned zero or one row.
+
+Actual query requirements: default bare terms, glob/name, `ext`, `size`, `modified`, and `kind` predicates use filename/metadata only; `folder:` uses `Candidate::folder`; `CurrentFolder`, `CurrentFolderAndSubfolders`, and `CurrentDrive` scopes use the folder; `AllIndexedLocations` does not. Result sorting by Path/Relevance needs folders only for already-matched results. The existing matcher applies the result cap before sorting, so lazy materialization must happen before the cap is incremented but does not require a top-K redesign.
+
+Concurrency constraint: the old implementation copied a consistent candidate/path view under the projection lock, then matched outside it. The optimization keeps lightweight candidate copying under the lock and acquires the same lock only when the lazy materializer first needs a path; this preserves safe projection access and bounds the new path work to path-evaluation survivors/results.
+
+## Optimization Implementation Checkpoint
+
+- `ffsearch::Query` now records `requiresFolder`, retains a parallel `predicatesWithoutFolder` set, and exposes `MatchesWithoutFolder`; `folder` key detection remains case-insensitive.
+- `ffsearch::ExecuteSearchLazy` retains canonical scope/filter/match/sort/cap behavior while invoking a candidate materializer after cheap predicates and before path-dependent evaluation or result insertion.
+- `IndexPipeline::SearchIndexed` parses before projection traversal, copies lightweight metadata/name candidates without folders, and reconstructs folders only for `folder:`/non-all scope survivors or final matched results. Unresolvable paths are rejected before the result cap is consumed.
+- Focused deterministic engine coverage now includes parent-path-only matching, case-insensitive extension/name matching, multi-term AND semantics, nested duplicate names, path ordering, and the 4,096-result cap.
+
+Focused Debug validation: `ffsearch_tests`, `ffsearch_scan_tests`, and `ffengine_index_pipeline_tests` PASS. The final full after run covers 10K/100K/500K/1M and all seven benchmark query classes; the instrumented 1M rerun reports one lazy path at 0.014 ms median and 411.42 ms lightweight candidate materialization.
+
+## Optimization Completion Checkpoint
+
+Status: COMPLETE pending the single final Git commit below.
+
+Semantic evidence: deterministic engine tests pass for selective filename matching, no-match behavior, broad truncation at exactly 4,096, `FOLDER:` parent-path-only matching, `ext:TXT`, case-insensitive filename matching, multi-term AND semantics, nested duplicate names, path ordering, current-folder scope, and unresolved/disabled-volume boundary behavior. Existing search tests continue to pass for ranking, scope, Unicode/locale-independent matching, cancellation, and path reconstruction. The lazy matcher preserves the existing cap-before-sort behavior and rejects an unresolvable path before it consumes the cap.
+
+Final benchmark evidence, using the committed historical baseline and the final 2026-08-10 Release rerun: selective 100K `145.07→46.00 ms` (3.15x), 500K `923.44→245.44 ms` (3.76x), 1M `2037.15→470.61 ms` (4.33x); 1M no-match `2098.81→472.99 ms` (4.44x); 1M broad `1983.53→441.56 ms` (4.49x). Instrumented 1M selective attribution: old combined candidate/path `1970.48 ms`; optimized lightweight candidate `411.42 ms`, lazy path `0.014 ms` for one result, SQLite `33.10 ms`, match/filter/sort `30.87 ms`, total `475.22 ms`. Incremental `p/ph/pho/phot/photo`: `1996.67/1990.67/1986.35/1990.34/1979.76 ms` before versus `445.45/448.34/446.03/444.62/446.84 ms` after. 1M private memory: database open `6.0→5.5 MB`, selective peak `601.3→540.4 MB`, broad peak `647.1→537.0 MB`, post-query `689.1→530.5 MB`; no material regression.
+
+Validation: Debug build PASS; Analyze build PASS; full serial CTest PASS 42/42 with the established user TEMP/TMP override; `ffdoc_drift_tests` PASS. Runtime smoke PASS for normal Debug launch, automatic Engine launch, both processes responsive, and cleanup. Indexed UI search was not claimed because the active environment is degraded/no usable privileged fixture; deterministic engine coverage and the real Release benchmark are the authoritative indexed-search evidence.
+
+Recorded commit: PENDING final focused optimization commit.
+
+Preliminary optimized benchmark (same machine, same harness, temporary after file): 100K selective/no-match/broad `37.71/36.27/53.83 ms`; 500K `219.32/224.10/214.16 ms`; 1M `497.81/495.24/457.28 ms`. Relative to the same-session pre-run (`131.02/131.99/132.63`, `854.48/895.78/843.30`, `2012.66/2077.76/1865.99 ms`), speedups are 3.47–4.20x. 1M incremental `p/ph/pho/phot/photo` is `448.50/451.93/468.85/460.35/458.16 ms` versus `1858.31/1852.13/1836.67/1838.40/1840.56 ms`. Representative 1M selective attribution changed from materialization 1944.98 ms + match 31.84 ms to materialization 427.21 ms + match 33.74 ms; the remaining materialization is lightweight name/metadata candidate construction plus one-result path work, not full projection path traversal. Same-session 1M private memory changed: open 5.7→5.8 MB, selective peak 610.6→542.5 MB, broad peak 647.9→536.8 MB, post-query 672.8→529.1 MB.
+
 Validation: Debug build PASS; Analyze build PASS; Release benchmark target PASS. Full serial CTest PASS, 42/42, with `TEMP`/`TMP` set to `C:\Users\Michael Roy\AppData\Local\Temp`; the focused drift guard and all 42 tests passed.
 
 ## NEXT EXACT ACTION
 
-Do not start automatically. The single next engineering slice is `optimize projection candidate/path materialization in IndexPipeline::SearchIndexed`, guided by a follow-up benchmark that preserves current query semantics and the 4,096-result cap.
+After the final focused commit is recorded, the single next engineering slice is `optimize lightweight indexed-search name/candidate materialization` using a projection-backed name view or exact filename prefilter. Do not implement it in this slice; cancellation remains deferred.
 
 ## Previous Slice Record
 

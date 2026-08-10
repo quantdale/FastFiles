@@ -204,6 +204,8 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
                                       MakeMftRecord(102, 100, u"photo.jpg", 0, 99),
                                       MakeMftRecord(103, 100, u"Alice", 0x10, 0),
                                       MakeMftRecord(104, 103, u"nested.txt", 0, 7),
+                                      MakeMftRecord(105, 5, u"Archive", 0x10, 0),
+                                      MakeMftRecord(106, 105, u"nested.txt", 0, 8),
                                   }),
           "indexed-search fixture is persisted through the normal ingestion path");
 
@@ -222,9 +224,63 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
     all.requestId = 4;
     all.query = L"nested.txt";
     result = pipeline.SearchIndexed(all);
-    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
-              result.candidates[0].folder == L"C:\\Users\\Alice",
+    const auto nestedAlice = std::find_if(result.candidates.begin(), result.candidates.end(),
+                                          [](const auto& candidate) {
+                                              return candidate.folder == L"C:\\Users\\Alice";
+                                          });
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 2 &&
+              nestedAlice != result.candidates.end(),
           "indexed search preserves every component of a nested reconstructed parent folder");
+
+    all.scope = 3; // AllIndexedLocations
+    all.scopePath.clear();
+    all.sortField = 0; // Relevance
+    all.maxResults = 100;
+    all.query = L"FOLDER:ALICE";
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 1 &&
+              result.candidates[0].name == L"nested.txt" && result.candidates[0].folder == L"C:\\Users\\Alice",
+          "a folder-only query matches a parent path when the filename itself does not match");
+
+    all.query = L"ext:TXT";
+    result = pipeline.SearchIndexed(all);
+    const size_t textCount = static_cast<size_t>(std::count_if(
+        result.candidates.begin(), result.candidates.end(),
+        [](const auto& candidate) { return candidate.name == L"report.txt" || candidate.name == L"nested.txt"; }));
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 3 &&
+              textCount == 3,
+          "extension filtering remains case-insensitive and returns duplicate names from distinct folders");
+
+    all.query = L"REPORT";
+    result = pipeline.SearchIndexed(all);
+    Check(result.candidates.size() == 1 && result.candidates[0].name == L"report.txt",
+          "filename matching remains case-insensitive");
+
+    all.query = L"report TXT";
+    result = pipeline.SearchIndexed(all);
+    Check(result.candidates.size() == 1 && result.candidates[0].name == L"report.txt",
+          "multiple query terms remain ANDed against the filename");
+
+    all.query = L"nested.txt";
+    all.sortField = 2; // Path
+    result = pipeline.SearchIndexed(all);
+    Check(result.candidates.size() == 2 && result.candidates[0].folder == L"C:\\Archive" &&
+              result.candidates[1].folder == L"C:\\Users\\Alice",
+          "path sorting remains deterministic after lazy folder reconstruction");
+
+    std::vector<ffprotocol::MftRecordV1> cappedRecords;
+    cappedRecords.reserve(4100);
+    for (uint64_t index = 0; index < 4100; ++index) {
+        cappedRecords.push_back(MakeMftRecord(1000 + index, 5, u"cap.txt", 0, index));
+    }
+    Check(pipeline.ApplyMftBatch(volume, cappedRecords), "the broad-search cap fixture applies successfully");
+    all.query = L"cap";
+    all.sortField = 1; // Filename
+    all.maxResults = 5000;
+    result = pipeline.SearchIndexed(all);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 4096 &&
+              result.truncated,
+          "indexed search preserves the 4,096 result cap and truncation flag");
 
     all.requestId = 2;
     all.scope = 1; // CurrentFolderAndSubfolders

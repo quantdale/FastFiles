@@ -102,14 +102,86 @@ At 1M, incremental `p → ph → pho → phot → photo` searches returned 4,096
 
 Supersession is generation-safe but not cancellable on the indexed path: UI generation checks discard stale completions, while the engine completes old work and sends its response. A broad old request can therefore consume CPU/memory while a newer selective request waits or competes; no result-order correctness defect was found in the inspected path.
 
+## Indexed-search materialization optimization follow-up
+
+The 2026-08-10 follow-up keeps the historical baseline above and adds the optimized Release rerun. The resulting path is:
+
+```text
+query parse
+→ SQLite volume metadata lookup
+→ lightweight projection candidate/name/metadata copy
+→ cheap filename/metadata predicates
+→ lazy full-folder reconstruction only for folder-aware scope/filter survivors or matched results
+→ canonical scope/filter/match/sort with the existing 4,096 cap
+→ response materialization / serialization
+```
+
+The `folder:` predicate and non-all scopes still receive full canonical paths. `AllIndexedLocations` filename/metadata queries do not reconstruct paths for non-matches. Sorting and the cap remain in the existing matcher; unresolved paths are discarded before consuming the cap.
+
+### Required before/after medians
+
+| Scale | Query | Before Median | After Median | Speedup |
+| ----: | ----- | ------------: | -----------: | ------: |
+| 100K | Selective | 145.07 ms | 46.00 ms | 3.15x |
+| 500K | Selective | 923.44 ms | 245.44 ms | 3.76x |
+| 1M | Selective | 2,037.15 ms | 470.61 ms | 4.33x |
+| 1M | No match | 2,098.81 ms | 472.99 ms | 4.44x |
+| 1M | Broad | 1,983.53 ms | 441.56 ms | 4.49x |
+
+Full query-class medians are ordered `selective / moderate / broad / no-match / prefix / extension / worst-substring`:
+
+| Scale | Before (ms) | After (ms) |
+| ----: | -----------: | ----------: |
+| 10K | 9.93 / 9.84 / 12.49 / 9.91 / 11.16 / 12.47 / 11.54 | 1.68 / 3.74 / 7.41 / 1.73 / 4.01 / 7.23 / 6.63 |
+| 100K | 145.07 / 148.77 / 145.41 / 145.19 / 147.24 / 143.10 / 143.46 | 46.00 / 53.47 / 43.93 / 40.64 / 48.49 / 52.04 / 46.68 |
+| 500K | 923.44 / 925.13 / 895.94 / 932.91 / 896.63 / 894.29 / 889.99 | 245.44 / 228.69 / 224.66 / 227.59 / 220.23 / 213.83 / 221.02 |
+| 1M | 2,037.15 / 1,998.47 / 1,983.53 / 2,098.81 / 1,988.56 / 1,986.99 / 1,993.35 | 470.61 / 446.99 / 441.56 / 472.99 / 449.72 / 446.91 / 447.06 |
+
+### Stage attribution — 1M selective
+
+| Stage | Before | After | % After |
+| ----- | -----: | ----: | ------: |
+| Full projection parent-path reconstruction | 1,970.48 ms* | 0.014 ms | <0.1% |
+| Lightweight name/metadata candidate materialization | included above* | 411.42 ms | 86.6% |
+| SQLite metadata query | 33.81 ms | 33.10 ms | 7.0% |
+| Match/filter/sort | 32.85 ms | 30.87 ms | 6.5% |
+| Query parse | 0.0055 ms | 0.01 ms | <0.1% |
+| Response materialization | 0.0021 ms | 0 ms | <0.1% |
+| Total | 2,037.15 ms | 475.22 ms | 100% |
+
+`*` The historical implementation measured candidate construction and full parent paths as one stage. The instrumented optimized rerun measured 411.42 ms for lightweight name/metadata candidates, 0.014 ms for one surviving lazy path, and 475.22 ms total. The new bottleneck is therefore candidate name conversion/copying and the linear filename predicate scan, not full parent-path reconstruction.
+
+### Incremental search — 1M
+
+| Query | Before | After | Speedup |
+| ----- | -----: | ----: | ------: |
+| `p` | 1,996.67 ms | 445.45 ms | 4.48x |
+| `ph` | 1,990.67 ms | 448.34 ms | 4.44x |
+| `pho` | 1,986.35 ms | 446.03 ms | 4.45x |
+| `phot` | 1,990.34 ms | 444.62 ms | 4.48x |
+| `photo` | 1,979.76 ms | 446.84 ms | 4.43x |
+
+### Memory — 1M private bytes
+
+| Measurement | Before | After |
+| ----------- | -----: | ----: |
+| Database/index open | 6.0 MB | 5.5 MB |
+| Selective peak | 601.3 MB | 540.4 MB |
+| Broad peak | 647.1 MB | 537.0 MB |
+| Post-query retained | 689.1 MB | 530.5 MB |
+
+The optimized run preserved the snapshot capacity boundary and supersession behavior; snapshot serialization/publication and cancellation remain out of scope.
+
 ## Assessment and decision
 
 The first clear unacceptable boundary is between 100K and 500K: 100K is noticeable/responsive only at the upper edge, 500K is poor, and 1M is not instant. 2M/5M were not run because the measured 500K/1M failure boundary already determines the next engineering decision and larger runs would add little attribution value before optimization.
 
-`PRIMARY BOTTLENECK: projection candidate/path materialization in IndexPipeline::SearchIndexed`
+`PRIMARY BOTTLENECK BEFORE: projection candidate/path materialization in IndexPipeline::SearchIndexed`
 
-`OPTIMIZATION REQUIRED: YES`
+`PRIMARY BOTTLENECK AFTER: lightweight candidate name/metadata materialization and the linear filename predicate scan`
 
-`NEXT SINGLE OPTIMIZATION SLICE: reduce or eliminate the full projection candidate/path materialization performed for every indexed search, guided by a follow-up benchmark that preserves the current query semantics and result cap.`
+`OPTIMIZATION REQUIRED: COMPLETED FOR THIS SLICE`
+
+`NEXT SINGLE OPTIMIZATION SLICE: reduce per-entry name conversion/copying with a projection-backed candidate view or exact filename prefilter, guided by the same benchmark; cancellation remains deferred.`
 
 This benchmark slice intentionally does not implement that optimization.

@@ -49,10 +49,16 @@ private:
 
 struct Query {
     std::vector<Predicate> predicates;
+    // The canonical matcher keeps folder-dependent predicates separate so a
+    // caller with a lazy path source can reject name/metadata non-matches
+    // before reconstructing a full parent path.
+    std::vector<Predicate> predicatesWithoutFolder;
     std::vector<std::wstring> unrecognizedKeys;
     std::vector<std::wstring> invalidFilters;
     std::wstring primaryTerm;
+    bool requiresFolder = false;
     bool Matches(const Candidate& candidate) const;
+    bool MatchesWithoutFolder(const Candidate& candidate) const;
 };
 
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry);

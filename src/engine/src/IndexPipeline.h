@@ -40,6 +40,8 @@ public:
     struct SearchTimings {
         double sqliteMetadataMs = 0.0;
         double candidateMaterializationMs = 0.0;
+        double lightweightCandidateMaterializationMs = 0.0;
+        double lazyPathMaterializationMs = 0.0;
         double queryParseMs = 0.0;
         double matchFilterSortMs = 0.0;
         double responseMaterializationMs = 0.0;
@@ -47,6 +49,7 @@ public:
         size_t candidateCount = 0;
         size_t candidatesVisited = 0;
         size_t resultCount = 0;
+        size_t lazyPathMaterializationCount = 0;
         bool truncated = false;
     };
 
@@ -143,8 +146,9 @@ public:
     // Executes a bounded query against the durable in-memory projection. The
     // returned candidates carry reconstructed parent folders so the UI can
     // navigate a result without requiring the entire index over IPC. The
-    // projection lock is held only while copying candidate data; matching and
-    // sorting happen after the lock is released.
+    // projection lock is held while copying lightweight candidate data;
+    // matching and sorting happen after that copy, and lazy folder
+    // reconstruction reacquires the lock only for path-dependent survivors.
     ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
                                                     SearchTimings* timings = nullptr);
 

@@ -81,10 +81,14 @@ void SortResults(std::vector<SearchResult>& results, SortField field, bool desce
     std::stable_sort(results.begin(), results.end(), compare);
 }
 
-SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
-                             const std::function<bool()>& cancelled) {
+SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
+                                 const std::vector<Candidate>& candidates, const SearchRequest& request,
+                                 const CandidateMaterializer& materialize,
+                                 const std::function<bool()>& cancelled) {
     SearchResponse response;
     const size_t chunkSize = (std::max)(size_t{1}, request.chunkSize);
+    const bool folderNeededForEvaluation = request.scope != SearchScope::AllIndexedLocations ||
+                                           request.query.requiresFolder;
     for (size_t index = 0; index < candidates.size(); ++index) {
         if (index % chunkSize == 0 && cancelled && cancelled()) {
             response.cancelled = true;
@@ -92,9 +96,15 @@ SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const Sea
             return response;
         }
         ++response.candidatesVisited;
-        const Candidate& candidate = candidates[index];
+        Candidate* mutableCandidate = mutableCandidates == nullptr ? nullptr : &(*mutableCandidates)[index];
+        const Candidate& candidate = mutableCandidate == nullptr ? candidates[index] : *mutableCandidate;
+        if (!request.query.MatchesWithoutFolder(candidate)) continue;
+        if (folderNeededForEvaluation && materialize &&
+            (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
         if (!InScope(candidate, request.scope, request.scopePath, request.persistentOnly)) continue;
         if (!request.query.Matches(candidate)) continue;
+        if (!folderNeededForEvaluation && materialize &&
+            (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
         response.results.push_back({candidate, ClassifyMatch(candidate, request.query.primaryTerm)});
         if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
             response.truncated = true;
@@ -103,6 +113,17 @@ SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const Sea
     }
     SortResults(response.results, request.sortField, request.descending);
     return response;
+}
+
+SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
+                             const std::function<bool()>& cancelled) {
+    return ExecuteSearchCore(nullptr, candidates, request, {}, cancelled);
+}
+
+SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const SearchRequest& request,
+                                  const CandidateMaterializer& materialize,
+                                  const std::function<bool()>& cancelled) {
+    return ExecuteSearchCore(&candidates, candidates, request, materialize, cancelled);
 }
 
 PathReconstruction ReconstructPath(const std::vector<Candidate>& entries, size_t entryIndex) {

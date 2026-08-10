@@ -277,5 +277,32 @@
     {"rows":556454,"serialized_bytes":67108794,"publish_succeeded":true,"oversize":false,"generation_before":13,"generation_after":14,"model_build_ms":62.1225,"serialization_ms":85.4981,"publish_copy_and_commit_ms":6.1036,"total_ms":155.5224,"ui_mapping_and_parsing_ms":81.0084,"ui_parsed_rows":556454,"memory_after":{"working_set_bytes":287584256,"private_bytes":169058304}},
     {"rows":556455,"serialized_bytes":67108915,"publish_succeeded":false,"oversize":true,"generation_before":14,"generation_after":14,"model_build_ms":58.3727,"serialization_ms":83.7693,"publish_copy_and_commit_ms":0.0000,"total_ms":143.9513,"ui_mapping_and_parsing_ms":0.0000,"ui_parsed_rows":0,"memory_after":{"working_set_bytes":287670272,"private_bytes":169058304}}
   ],
-  "supersession":{"engine_cancellation":false,"ui_generation_discards_stale_completion":true,"old_work_completes":true}
+  "supersession":{"engine_cancellation":false,"ui_generation_discards_stale_completion":true,"old_work_completes":true},
+  "optimization_comparison":{
+    "name":"lazy indexed-search candidate/path materialization",
+    "before_source":"top-level search_summaries/search_runs in this artifact",
+    "after_run":"2026-08-10 Release rerun at 10K, 100K, 500K, and 1M",
+    "representative_search_summaries":[
+      {"dataset_size":100000,"query_class":"selective","before_median_ms":145.07,"after_median_ms":46.00,"after_p90_ms":50.72,"after_max_ms":52.02},
+      {"dataset_size":500000,"query_class":"selective","before_median_ms":923.44,"after_median_ms":245.44,"after_p90_ms":250.86,"after_max_ms":262.88},
+      {"dataset_size":1000000,"query_class":"selective","before_median_ms":2037.15,"after_median_ms":470.61,"after_p90_ms":472.93,"after_max_ms":479.54},
+      {"dataset_size":1000000,"query_class":"no_match","before_median_ms":2098.81,"after_median_ms":472.99,"after_p90_ms":473.99,"after_max_ms":475.31},
+      {"dataset_size":1000000,"query_class":"broad","before_median_ms":1983.53,"after_median_ms":441.56,"after_p90_ms":441.88,"after_max_ms":453.70}
+    ],
+    "stage_attribution_1m_selective_ms":{
+      "before":{"candidate_path_materialization":1970.48,"sqlite_metadata":33.81,"match_filter_sort":32.85,"query_parse":0.0055,"response_materialization":0.0021,"total":2037.15},
+      "after_instrumented_rerun":{"lightweight_candidate_materialization":411.42,"lazy_path_materialization":0.014,"lazy_path_materialization_count":1,"sqlite_metadata":33.10,"match_filter_sort":30.87,"query_parse":0.01,"response_materialization":0.0,"total":475.22},
+      "after_full_comparison_run":{"combined_materialization":403.53,"sqlite_metadata":33.68,"match_filter_sort":32.43,"query_parse":0.01,"response_materialization":0.0,"total":470.61}
+    },
+    "incremental_search_1m":[
+      {"query_step":"p","before_median_ms":1996.67,"after_median_ms":445.45,"result_count":4096},
+      {"query_step":"ph","before_median_ms":1990.67,"after_median_ms":448.34,"result_count":4096},
+      {"query_step":"pho","before_median_ms":1986.35,"after_median_ms":446.03,"result_count":4096},
+      {"query_step":"phot","before_median_ms":1990.34,"after_median_ms":444.62,"result_count":4096},
+      {"query_step":"photo","before_median_ms":1979.76,"after_median_ms":446.84,"result_count":4096}
+    ],
+    "memory_1m_private_mb":{"before":{"database_open":6.0,"selective_peak":601.3,"broad_peak":647.1,"post_query":689.1},"after":{"database_open":5.5,"selective_peak":540.4,"broad_peak":537.0,"post_query":530.5}},
+    "result_cap_preserved":4096,
+    "cancellation_changed":false
+  }
 }

@@ -238,6 +238,9 @@ struct SearchRun {
     size_t wireResultCount = 0;
     double sqliteMs = 0.0;
     double materializationMs = 0.0;
+    double lightweightCandidateMaterializationMs = 0.0;
+    double lazyPathMaterializationMs = 0.0;
+    size_t lazyPathMaterializationCount = 0;
     double queryParseMs = 0.0;
     double matchFilterSortMs = 0.0;
     double responseMaterializationMs = 0.0;
@@ -478,6 +481,9 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.truncated = outcome.timings.truncated;
     outcome.run.sqliteMs = outcome.timings.sqliteMetadataMs;
     outcome.run.materializationMs = outcome.timings.candidateMaterializationMs;
+    outcome.run.lightweightCandidateMaterializationMs = outcome.timings.lightweightCandidateMaterializationMs;
+    outcome.run.lazyPathMaterializationMs = outcome.timings.lazyPathMaterializationMs;
+    outcome.run.lazyPathMaterializationCount = outcome.timings.lazyPathMaterializationCount;
     outcome.run.queryParseMs = outcome.timings.queryParseMs;
     outcome.run.matchFilterSortMs = outcome.timings.matchFilterSortMs;
     outcome.run.responseMaterializationMs = outcome.timings.responseMaterializationMs;
@@ -680,6 +686,11 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
            << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false");
     output << ",\"sqlite_ms\":"; WriteJsonDouble(output, run.sqliteMs);
     output << ",\"materialization_ms\":"; WriteJsonDouble(output, run.materializationMs);
+    output << ",\"lightweight_candidate_materialization_ms\":";
+    WriteJsonDouble(output, run.lightweightCandidateMaterializationMs);
+    output << ",\"lazy_path_materialization_ms\":";
+    WriteJsonDouble(output, run.lazyPathMaterializationMs);
+    output << ",\"lazy_path_materialization_count\":" << run.lazyPathMaterializationCount;
     output << ",\"query_parse_ms\":"; WriteJsonDouble(output, run.queryParseMs);
     output << ",\"match_filter_sort_ms\":"; WriteJsonDouble(output, run.matchFilterSortMs);
     output << ",\"response_materialization_ms\":"; WriteJsonDouble(output, run.responseMaterializationMs);

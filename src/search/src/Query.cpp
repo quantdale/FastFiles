@@ -139,6 +139,10 @@ FilterRegistry FilterRegistry::WithDefaults() {
 }
 
 bool Query::Matches(const Candidate& candidate) const { return std::all_of(predicates.begin(), predicates.end(), [&](const auto& p) { return p(candidate); }); }
+bool Query::MatchesWithoutFolder(const Candidate& candidate) const {
+    return std::all_of(predicatesWithoutFolder.begin(), predicatesWithoutFolder.end(),
+                       [&](const auto& predicate) { return predicate(candidate); });
+}
 bool OrdinalContains(std::wstring_view h, std::wstring_view n) { if (n.empty()) return true; for (size_t i = 0; i + n.size() <= h.size(); ++i) if (CompareStringOrdinal(h.data() + i, static_cast<int>(n.size()), n.data(), static_cast<int>(n.size()), TRUE) == CSTR_EQUAL) return true; return false; }
 bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
     const auto width = [](std::wstring_view value, size_t offset) -> size_t {
@@ -176,6 +180,14 @@ bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
 }
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
     Query query;
+    const auto addPredicate = [&query](Predicate predicate, bool requiresFolder) {
+        query.predicates.push_back(predicate);
+        if (requiresFolder) {
+            query.requiresFolder = true;
+        } else {
+            query.predicatesWithoutFolder.push_back(std::move(predicate));
+        }
+    };
     for (const auto& token : Tokenize(text)) {
         const size_t colon = token.find(L':');
         if (colon != std::wstring::npos) {
@@ -183,17 +195,17 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
             const auto value = std::wstring_view(token).substr(colon + 1);
             if (const auto* definition = registry.Find(key)) {
                 const auto parsed = definition->parseValue(value);
-                if (parsed) query.predicates.push_back(definition->makePredicate(*parsed));
+                if (parsed) addPredicate(definition->makePredicate(*parsed), Lower(key) == L"folder");
                 else query.invalidFilters.push_back(std::wstring(key));
                 continue;
             }
             query.unrecognizedKeys.push_back(std::wstring(key));
         }
         if (token.find_first_of(L"*?") != std::wstring::npos) {
-            query.predicates.push_back([token](const Candidate& candidate) { return GlobMatches(candidate.name, token); });
+            addPredicate([token](const Candidate& candidate) { return GlobMatches(candidate.name, token); }, false);
         } else {
             if (query.primaryTerm.empty()) query.primaryTerm = token;
-            query.predicates.push_back([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); });
+            addPredicate([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); }, false);
         }
     }
     return query;

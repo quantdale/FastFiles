@@ -45,6 +45,10 @@ struct SearchResponse {
 
 SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
                              const std::function<bool()>& cancelled = {});
+using CandidateMaterializer = std::function<bool(Candidate&)>;
+SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const SearchRequest& request,
+                                  const CandidateMaterializer& materialize,
+                                  const std::function<bool()>& cancelled = {});
 void SortResults(std::vector<SearchResult>& results, SortField field, bool descending);
 MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term);
 
