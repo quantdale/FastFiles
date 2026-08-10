@@ -19,6 +19,8 @@
 
 namespace ffui {
 
+class CategoryEngine;
+
 constexpr UINT WM_APP_TREEMAP_AGGREGATE = WM_APP + 12;
 
 struct TreemapAggregatePayload {
@@ -46,6 +48,7 @@ public:
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
     bool HandleLButtonDown(WPARAM wParam, LPARAM lParam);
     void SetDarkTheme(bool dark);
+    void SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId);
     void OnSnapshotUpdated();
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
 
@@ -62,6 +65,8 @@ private:
     std::unique_ptr<TreemapNode> root_;
     std::vector<TreemapRect> layout_;
     std::wstring currentPath_;
+    const CategoryEngine* categoryEngine_ = nullptr;
+    std::wstring categoryId_;
     bool visible_ = false;
     uint64_t buildGeneration_ = 0;
     std::shared_ptr<std::atomic<bool>> lifetime_ = std::make_shared<std::atomic<bool>>(true);

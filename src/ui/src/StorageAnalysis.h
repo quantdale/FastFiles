@@ -97,6 +97,7 @@ private:
                                uint64_t itemCount, uint64_t totalSizeBytes);
     void SortItems(int column, bool ascending);
     void PopulateCategoryFilter();
+    void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
 
     HWND owner_ = nullptr;
@@ -119,6 +120,8 @@ private:
     std::function<void(const std::wstring& commandId, const std::vector<std::wstring>& paths)> invokeCommand_;
     CategoryEngine categoryEngine_;
     TreemapView treemapView_;
+    std::vector<std::wstring> categoryFilterIds_;
+    std::wstring activeCategoryId_; // empty means All categories
 
     std::vector<DrillItem> items_;
     std::vector<VolumeItem> volumes_;    // storage-overview rows

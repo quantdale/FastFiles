@@ -1,4 +1,6 @@
 #include "TreemapView.h"
+#include "CategoryEngine.h"
+#include "TreemapFilter.h"
 #include "UITheme.h"
 #include "UiStyle.h"
 #include "ffui/SnapshotAggregate.h"
@@ -126,6 +128,15 @@ void TreemapView::SetDarkTheme(bool dark) {
     calculatingBrush_.Reset();
 }
 
+void TreemapView::SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId) {
+    categoryEngine_ = categoryEngine;
+    categoryId_ = categoryId;
+    if (visible_) {
+        BuildTree(currentPath_);
+        InvalidateRect(owner_, nullptr, FALSE);
+    }
+}
+
 void TreemapView::BuildTree(const std::wstring& path) {
     const uint64_t generation = ++buildGeneration_;
     root_ = std::make_unique<TreemapNode>();
@@ -143,6 +154,8 @@ void TreemapView::BuildTree(const std::wstring& path) {
     const auto& directory = it->second;
     if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) return;
 
+    const bool categoryFilterActive = categoryEngine_ != nullptr && !categoryId_.empty();
+
     const auto joinPath = [](const std::wstring& base, const std::wstring& name) {
         if (base.empty()) return name;
         if (base.back() == L'\\' || base.back() == L'/') return base + name;
@@ -152,9 +165,9 @@ void TreemapView::BuildTree(const std::wstring& path) {
     const HWND targetWindow = owner_;
     const auto lifetime = lifetime_;
     const auto engine = engine_;
-    const auto requestAggregate = [engine, targetWindow, lifetime, generation](const TreemapNode& node) {
+    const auto requestAggregate = [engine, targetWindow, lifetime, generation, categoryFilterActive](const TreemapNode& node) {
         if (engine == nullptr || targetWindow == nullptr || node.volumeRowId == 0 ||
-            (node.fileIdLow == 0 && node.fileIdHigh == 0) || !node.calculating) {
+            (node.fileIdLow == 0 && node.fileIdHigh == 0) || !node.calculating || categoryFilterActive) {
             return;
         }
         const std::wstring nodePath = node.path;
@@ -202,22 +215,9 @@ void TreemapView::BuildTree(const std::wstring& path) {
             child->fileIdLow = entry.fileIdLow;
             child->fileIdHigh = entry.fileIdHigh;
             child->depth = parent.depth + 1;
+            child->parent = &parent;
             if (child->isDirectory) {
-                if (child->volumeRowId == 0) {
-                    // Degraded snapshots have no durable FRN with which to
-                    // ask the engine's indexed aggregate seam.  If the
-                    // browsed snapshot contains the subtree, use its bounded
-                    // lower-bound aggregate now; missing descendants remain
-                    // explicitly partial instead of being rendered as an
-                    // unexplained zero-byte directory.
-                    const auto aggregate = ffui::AggregateSnapshotDirectory(*snapshot, child->path);
-                    child->totalSizeBytes = aggregate.totalSizeBytes;
-                    child->aggregateFailed = !aggregate.complete;
-                    child->calculating = !aggregate.complete;
-                } else {
-                    const uint64_t childTotal = populate(*child);
-                    child->totalSizeBytes = childTotal;
-                }
+                child->totalSizeBytes = populate(*child);
                 if (child->calculating || child->aggregateFailed) incomplete = true;
                 requestAggregate(*child);
             }
@@ -246,18 +246,16 @@ void TreemapView::BuildTree(const std::wstring& path) {
         node->fileIdLow = entry.fileIdLow;
         node->fileIdHigh = entry.fileIdHigh;
         node->depth = 1;
+        node->parent = root_.get();
         if (node->isDirectory) {
-            if (node->volumeRowId == 0) {
-                const auto aggregate = ffui::AggregateSnapshotDirectory(*snapshot, node->path);
-                node->totalSizeBytes = aggregate.totalSizeBytes;
-                node->aggregateFailed = !aggregate.complete;
-                node->calculating = !aggregate.complete;
-            } else {
-                node->totalSizeBytes = populate(*node);
-            }
+            node->totalSizeBytes = populate(*node);
             requestAggregate(*node);
         }
         root_->children.push_back(std::move(node));
+    }
+
+    if (categoryFilterActive) {
+        FilterTreemapTree(*root_, *categoryEngine_, categoryId_);
     }
 
     RebuildLayout();
@@ -337,6 +335,7 @@ bool TreemapView::HandleNotify(LPARAM lParam) {
 bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
     std::unique_ptr<TreemapAggregatePayload> payload(reinterpret_cast<TreemapAggregatePayload*>(lParam));
     if (!payload || !visible_ || payload->generation != buildGeneration_) return true;
+    if (categoryEngine_ != nullptr && !categoryId_.empty()) return true;
 
     TreemapNode* node = FindNode(root_.get(), payload->path);
     if (node == nullptr || !node->isDirectory) return true;

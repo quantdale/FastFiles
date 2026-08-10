@@ -142,6 +142,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         }
         if (navigate_) navigate_(path, isDirectory);
     });
+    treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
     return true;
 }
 
@@ -149,23 +150,41 @@ void StorageAnalysis::SetCategories(const std::vector<std::pair<std::wstring, st
     categoryEngine_.LoadFromSettings(categories);
     if (categoryFilter_ != nullptr) {
         PopulateCategoryFilter();
-        if (visible_ && viewMode_ == ViewMode::ByCategory) {
-            RefreshData();
-        }
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
+        if (visible_) RefreshData();
     }
 }
 
 void StorageAnalysis::PopulateCategoryFilter() {
     if (!categoryFilter_) return;
     ComboBox_ResetContent(categoryFilter_);
-    // storage-analysis 5.4: "All categories" plus one entry per shipped/user
-    // category definition; directories are never filtered out.
+    categoryFilterIds_.clear();
+    categoryFilterIds_.push_back(L"");
     ComboBox_AddString(categoryFilter_, L"All categories");
     const auto& categories = categoryEngine_.GetCategories();
     for (const auto& cat : categories) {
+        categoryFilterIds_.push_back(cat.id);
         ComboBox_AddString(categoryFilter_, const_cast<wchar_t*>(cat.displayName.c_str()));
     }
-    ComboBox_SetCurSel(categoryFilter_, 0);
+
+    int selected = 0;
+    for (size_t i = 1; i < categoryFilterIds_.size(); ++i) {
+        if (categoryFilterIds_[i] == activeCategoryId_) {
+            selected = static_cast<int>(i);
+            break;
+        }
+    }
+    if (selected == 0) activeCategoryId_.clear();
+    ComboBox_SetCurSel(categoryFilter_, selected);
+}
+
+void StorageAnalysis::UpdateCategoryFilterFromControl() {
+    activeCategoryId_.clear();
+    if (!categoryFilter_) return;
+    const int selected = ComboBox_GetCurSel(categoryFilter_);
+    if (selected >= 0 && selected < static_cast<int>(categoryFilterIds_.size())) {
+        activeCategoryId_ = categoryFilterIds_[static_cast<size_t>(selected)];
+    }
 }
 
 void StorageAnalysis::ApplyCategoryFilter() {
@@ -173,17 +192,11 @@ void StorageAnalysis::ApplyCategoryFilter() {
     // category, recalculating percentages relative to the filtered scope.
     // Directories stay (they can be drilled into); files whose category does
     // not match the filter are removed from the list.
-    if (!categoryFilter_) return;
-    const int sel = ComboBox_GetCurSel(categoryFilter_);
-    if (sel <= 0) return; // index 0 = "All categories"
-    wchar_t buffer[128]{};
-    ComboBox_GetLBText(categoryFilter_, sel, buffer);
-    const std::wstring catName = buffer;
+    if (activeCategoryId_.empty()) return;
     items_.erase(std::remove_if(items_.begin(), items_.end(),
-                                [this, &catName](const DrillItem& item) {
+                                [this](const DrillItem& item) {
                                     if (item.isDirectory) return false;
-                                    auto match = categoryEngine_.Match(item.name);
-                                    return match.matched ? match.categoryName != catName : catName != L"Other";
+                                    return !categoryEngine_.Matches(item.name, activeCategoryId_);
                                 }),
                  items_.end());
 }
@@ -688,6 +701,8 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam);
     if (id == kCategoryFilterId && HIWORD(wParam) == CBN_SELCHANGE) {
+        UpdateCategoryFilterFromControl();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         RefreshData();
         return true;
     }

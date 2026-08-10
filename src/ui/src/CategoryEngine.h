@@ -28,6 +28,10 @@ public:
     std::vector<std::pair<std::wstring, std::wstring>> SaveToSettings() const;
 
     CategoryMatch Match(const std::wstring& fileName) const;
+    // The canonical predicate shared by list and Treemap filtering. An empty
+    // category ID means all categories; the reserved fallback ID "other"
+    // matches files that have no configured category.
+    bool Matches(const std::wstring& fileName, const std::wstring& categoryId) const;
     std::vector<CategoryDefinition> GetCategories() const { return categories_; }
     void SetCategories(const std::vector<CategoryDefinition>& categories) { categories_ = categories; }
 

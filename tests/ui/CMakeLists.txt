@@ -2,6 +2,10 @@ add_executable(fftreemap_layout_tests test_treemap_layout.cpp)
 target_include_directories(fftreemap_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME fftreemap_layout_tests COMMAND fftreemap_layout_tests)
 
+add_executable(fftreemap_filter_tests test_treemap_filter.cpp ../../src/ui/src/CategoryEngine.cpp)
+target_include_directories(fftreemap_filter_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+add_test(NAME fftreemap_filter_tests COMMAND fftreemap_filter_tests)
+
 # recovery-degraded-browsing 7.1: deterministic engine executable discovery
 # (candidate order, dedupe, regular-file validation) -- EngineDiscovery.cpp
 # is header-only-dependency, so it compiles standalone for the test target.
@@ -52,4 +56,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)
