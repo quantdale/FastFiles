@@ -1,29 +1,29 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:55:00+08:00
-Status: PARTIAL — SAFE LOCAL FRONTIER COMPLETE; EXTERNAL GATES REMAIN
+Last updated: 2026-08-11T01:19:00+08:00
+Status: IN PROGRESS
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at current frontier: `a4ed265e2572e77fb900a9ce453a6d48f157f2d2` (`Validate watcher root bounds`)
+HEAD at slice start: `f334b15857a6336f507c0e9ca2de1f5e742c5194` (`Record final recovery validation frontier`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validation `3adaf7b`; authentication validation `40ce237`; recovery discovery `ab77ded`; publish failure `9d3bf9a`; watcher bound `a4ed265`
+Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validation `3adaf7b`; authentication validation `40ce237`; recovery discovery `ab77ded`; publish failure `9d3bf9a`; watcher bound/overflow `4b8addf`
 
 ## Active Engineering Slice
 
-Name: Reconcile remaining degraded-browsing acceptance gates
+Name: Validate degraded-browsing engine status and retry
 
-Objective: Preserve the completed local recovery evidence, identify the remaining acceptance boundaries without fabricating runtime claims, and finish with a clean fully validated repository if no further safe deterministic slice remains.
+Objective: Exercise the existing Starting/Connected/Unavailable status path and retry affordance from an isolated missing-engine launch, capturing only evidence that the actual rebuilt UI supports.
 
 Frontier invariant: One degraded-browsing discovery/lifecycle validation slice only. Do not begin signed-service/MFT/USN validation, alter security pins, or change unrelated UI/search/SQL code. Runtime checks must use the disposable Debug build and clean up any child Engine process.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: no further local safe deterministic slice remains. Resume only when signing/elevation/clean-host/interactive prerequisites, the OpenSpec CLI, or a deliberately designed watcher fault-injection seam becomes available.
+Next exact action: inspect and commit the status/retry evidence, task updates, and WORKSTATE; then audit the remaining open recovery tasks without claiming the unavailable privileged state or unperformed deep-navigation acceptance.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
@@ -37,13 +37,15 @@ Recovery discovery milestone: commit `ab77ded` records `evidence/engine-discover
 
 Recovery publish-failure milestone: commit `9d3bf9a` records `evidence/publish-failure.md`. The additive protocol value, request/watcher response paths, UI freshness mapping, oversized publication failure, stale-state recovery, blocked publication cancellation, disconnect unwind, and idle shutdown were verified by source inspection and three focused passing tests. Recovery tasks 4.1–4.3 are complete.
 
-Recovery watcher milestone: commit `a4ed265` records `evidence/watcher-safety.md`, the 32-root LRU test, and task 5.1. Debug and Analyze builds passed; serial CTest passed 42/42. Overflow task 5.2 remains open because no deterministic fault-injection seam exists and no flaky timing stress claim is being made.
+Recovery watcher milestone: commit `4b8addf` records `evidence/watcher-safety.md`, the 32-root LRU test, deterministic zero-byte/`ERROR_NOTIFY_ENUM_DIR` recovery and re-arm coverage, reset behavior, and the eight-overflow give-up bound. Debug and Analyze builds passed; serial CTest passed 42/42. Task 5.2 is complete.
 
 Recovery status-visibility milestone: rebuilt Debug launch-window enumeration observed one visible top-level UI window and zero visible `FastFilesSettingsDialog` windows at startup; exact UI and Engine processes were cleaned up. Task 3.3 is now checked. Tasks 2.1–2.4 and 3.1–3.2 remain open pending stronger runtime acceptance of the status chip, retry click, and lifecycle transitions.
 
+Recovery status/retry milestone: the native isolated missing-engine launch reached `Unavailable` after five failed attempts; real captures showed `Starting engine…`, `Engine unavailable — click to retry`, and normal development-tree `Instant search: basic (degraded mode)`. A real chip click started a new bounded cycle (`connect_failed` 5 → 6 within 400 ms → 7 within 3 seconds) while the UI remained responsive. Tasks 2.1–2.3 and 3.2 are now evidenced; 2.4, 3.1, and 7.3 remain open because lost-connection recovery, the privileged active state, and the full manual navigation/search sequence were not claimed.
+
 Recovery acceptance boundary: a read-only UI Automation probe could not open Search in the restored profile because its canonical shortcut file currently contains only `app.settings`; no user configuration was changed and no search-label runtime claim was made. The recovery source already emits the browsed-location labels, while the older instant-search artifact retains superseded whole-volume gating language; do not change either behavior without a resolved authority.
 
-Final validation checkpoint: after commit `a46dfed`, `cmake --build --preset debug` completed with no work, `cmake --build --preset analyze` completed cleanly, and serial `ctest --test-dir build/debug --output-on-failure --parallel 1` passed 42/42 with the documented user TEMP/TMP override. No FastFiles processes or disposable runtime fixtures remained. Final local frontier is complete; the remaining open tasks listed below are not claimed.
+Final validation checkpoint before the watcher slice: after commit `a46dfed`, `cmake --build --preset debug` completed with no work, `cmake --build --preset analyze` completed cleanly, and serial CTest passed 42/42. A new full Debug/Analyze/CTest gate after `4b8addf` also passed 42/42; the current status-chip runtime slice is not yet claimed.
 
 Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 

@@ -10,15 +10,15 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 2. Bounded connection lifecycle (design D2)
 
-- [ ] 2.1 Add `EngineConnectionState { Starting, Connected, Unavailable }`; change the status callback to carry `(state, privilegedPathActive)`.
-- [ ] 2.2 Bound connect attempts to 5 per cycle; park on a retry condition variable when exhausted.
-- [ ] 2.3 Add `EngineClient::RetryConnect()`; wake the parked wait from `Stop()`.
+- [x] 2.1 Add `EngineConnectionState { Starting, Connected, Unavailable }`; change the status callback to carry `(state, privilegedPathActive)`. — complete; source path and real Starting/Connected-degraded/Unavailable observations are recorded in `evidence/status-retry.md`.
+- [x] 2.2 Bound connect attempts to 5 per cycle; park on a retry condition variable when exhausted. — complete; the isolated missing-engine cycle recorded five failed attempts before `engine-unavailable`.
+- [x] 2.3 Add `EngineClient::RetryConnect()`; wake the parked wait from `Stop()`. — complete; the real chip click started a new bounded cycle, increasing failed-connection events from 5 to 6 within 400 ms and 7 within 3 seconds.
 - [ ] 2.4 Update `WindowShell` status fan-out (`WM_APP_ENGINE_STATUS` carries state + privileged flag).
 
 ## 3. Status chip (design D3)
 
 - [ ] 3.1 `ColumnView::SetEngineStatus(state, privilegedPathActive)` with per-state text.
-- [ ] 3.2 Badge click in the `Unavailable` state invokes the retry callback.
+- [x] 3.2 Badge click in the `Unavailable` state invokes the retry callback. — complete; real window click and retry-cycle evidence are in `evidence/status-retry.md`.
 - [x] 3.3 Settings dialog no longer auto-opens at launch (remove the unconditional `ShowWindow` from `SettingsDialog::Initialize`; shown on demand via Settings menu / Ctrl+,). — complete; source inspection and rebuilt Debug launch-window evidence are in `evidence/settings-launch-visibility.md`.
 
 ## 4. Publish-failure surfacing (design D4)
