@@ -52,6 +52,10 @@ cmake -E chdir build\debug ctest --output-on-failure
 
 Results: Debug configure/build passed; `ctest -N` discovered 42 tests; serial CTest passed 42/42, including the storage, details, authentication, fuzz, and doc-drift tests. The Analyze configure/build gate also passed in the same campaign.
 
+The later status-chip policy slice (`387228f`) added one deterministic CTest
+target. Its x64 Debug/Analyze rebuilds passed, serial CTest discovered and
+passed 43/43, and the post-checkpoint `ffdoc_drift_tests` rerun also passed.
+
 Finding reconciliation:
 
 - `MED-20260804-v7k4p2-006`: closed by the existing storage implementation and deterministic tests, reconciled in `3adaf7b`.
@@ -63,3 +67,22 @@ Finding reconciliation:
 `openspec validate --all --strict` remains open: the `openspec` CLI is not installed in this environment (`openspec` was not recognized). No validation result was fabricated.
 
 Degraded mode remains the active, fail-safe product path per `AGENTS.md`; prior runtime evidence confirms the UI/Engine degraded browsing path remains usable, and this campaign made no change that requires the privileged service.
+
+## External validation availability
+
+The following machine observations were recorded on 2026-08-11 after the
+status-chip slice:
+
+- `Get-Command openspec` returned no command. The repository OpenSpec CLI
+  validation is therefore `REQUIRED-BUT-UNAVAILABLE`; no schema-validation
+  result was invented.
+- `src/setup/include/ffsetup/PinnedSignatures.h` still contains
+  `kExpectedEngineSignatureThumbprint{}` and
+  `kExpectedIndexSvcSignatureThumbprint{}`. Development authentication remains
+  fail-closed, so signed privileged-path execution cannot be claimed.
+- No `FastFiles` or `FastFilesEngine` process remained after validation. No
+  service was installed, started, or activated by this campaign.
+- The clean-host privilege-candidate matrix, provisioned release certificate,
+  authorized elevation, and retained interactive visual screenshot matrix were
+  not available to this session. Tasks 4.2, 4.5–4.8, and 5.1–5.3 remain open;
+  their evidence is intentionally pending rather than marked complete.
