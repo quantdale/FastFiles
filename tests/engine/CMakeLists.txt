@@ -84,4 +84,13 @@ add_executable(ffengine_bench_large_index_scalability
 target_include_directories(ffengine_bench_large_index_scalability PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
 
+# Informational only: compares bounded secondary filename-index candidates
+# against the canonical matcher. It is intentionally not registered with
+# CTest because its scales are selected for engineering evidence, not a
+# wall-clock gate.
+add_executable(ffengine_bench_secondary_filename_index
+  bench_secondary_filename_index.cpp
+)
+target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
+
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
