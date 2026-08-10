@@ -1,5 +1,6 @@
 #include "SnapshotPublisher.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <iterator>
@@ -74,17 +75,26 @@ void SnapshotPublisher::Stop() {
     }
 }
 
-uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories) {
+uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
+                                    PublishTimings* timings) {
+    using Clock = std::chrono::steady_clock;
     std::lock_guard<std::mutex> lock(publishMutex_);
     if (view_ == nullptr) {
         return 0;
     }
 
+    const auto serializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
     std::vector<uint8_t> serialized = ffprotocol::SerializeSnapshot(directories);
+    if (timings != nullptr) {
+        timings->serializationMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - serializationStart).count();
+        timings->serializedBytes = serialized.size();
+    }
     if (serialized.size() > ffprotocol::kSnapshotSlotCapacityBytes) {
         return 0; // exceeds the configured slot capacity
     }
 
+    const auto copyStart = timings != nullptr ? Clock::now() : Clock::time_point{};
     auto* header = reinterpret_cast<ffprotocol::SnapshotSharedHeader*>(view_);
     const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
     const uint32_t inactiveSlot = activeSlot == 0 ? 1 : 0;
@@ -104,6 +114,11 @@ uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::Sna
     StoreSharedU32(&header->slotDataSize[inactiveSlot], static_cast<uint32_t>(serialized.size()));
     StoreSharedU32(&header->activeSlot, inactiveSlot);
     StoreSharedU64(&header->generation, newGeneration);
+
+    if (timings != nullptr) {
+        timings->copyAndCommitMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - copyStart).count();
+    }
 
     return newGeneration;
 }

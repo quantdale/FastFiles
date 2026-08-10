@@ -1,6 +1,7 @@
 #include "IndexPipeline.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cwctype>
 
 #include "VolumeIdentity.h"
@@ -465,7 +466,15 @@ std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolde
     return projection_.GetFolderAggregate(volumeId, parentFrn);
 }
 
-ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request) {
+ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
+                                                               SearchTimings* timings) {
+    using Clock = std::chrono::steady_clock;
+    const auto totalStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    const auto setTotal = [&] {
+        if (timings != nullptr) {
+            timings->totalMs = std::chrono::duration<double, std::milli>(Clock::now() - totalStart).count();
+        }
+    };
     ffprotocol::IndexedSearchResponse result;
     result.requestId = request.requestId;
     if (request.requestId == 0 || !ffprotocol::IsIndexedSearchScopeValid(request.scope) ||
@@ -473,10 +482,12 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         request.query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars ||
         request.scopePath.size() > ffprotocol::kMaxPathLengthChars || request.maxResults == 0) {
         result.status = ffprotocol::IndexedSearchStatus::InvalidRequest;
+        setTotal();
         return result;
     }
 
     std::vector<ffsearch::Candidate> candidates;
+    std::chrono::steady_clock::time_point candidateStart{};
     {
         // Copy only the candidate fields needed by the query. Matching and
         // sorting are intentionally outside this lock so a broad query cannot
@@ -484,6 +495,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         std::lock_guard<std::mutex> lock(mutex_);
         if (!store_.IsOpen()) {
             result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
             return result;
         }
 
@@ -500,23 +512,31 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                 prefixes.emplace(volumeId, prefix);
             }
         }
-        for (const auto& metadata : store_.GetAllVolumes()) {
-            if (!metadata.available || disabledVolumes.contains(metadata.rowId) || prefixes.contains(metadata.rowId)) {
+        const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        const auto metadata = store_.GetAllVolumes();
+        if (timings != nullptr) {
+            timings->sqliteMetadataMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();
+        }
+        for (const auto& metadataEntry : metadata) {
+            if (!metadataEntry.available || disabledVolumes.contains(metadataEntry.rowId) || prefixes.contains(metadataEntry.rowId)) {
                 continue;
             }
-            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadata.key);
+            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadataEntry.key);
             if (driveLetter != L'\0') {
                 std::wstring prefix;
                 prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
                 prefix.push_back(L':');
-                prefixes.emplace(metadata.rowId, std::move(prefix));
+                prefixes.emplace(metadataEntry.rowId, std::move(prefix));
             }
         }
         if (prefixes.empty()) {
             result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
             return result;
         }
 
+        candidateStart = timings != nullptr ? Clock::now() : Clock::time_point{};
         candidates.reserve(projection_.EntryCount());
         projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
                                       const ffindexstore::ProjectionEntry& entry) {
@@ -560,7 +580,13 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             candidates.push_back(std::move(candidate));
         });
     }
+    if (timings != nullptr) {
+        timings->candidateMaterializationMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count();
+        timings->candidateCount = candidates.size();
+    }
 
+    const auto queryStart = timings != nullptr ? Clock::now() : Clock::time_point{};
     ffsearch::SearchRequest searchRequest;
     searchRequest.query = ffsearch::ParseQuery(request.query, ffsearch::FilterRegistry::WithDefaults());
     searchRequest.scope = static_cast<ffsearch::SearchScope>(request.scope);
@@ -570,17 +596,35 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
     searchRequest.maxResults = (std::min)(static_cast<size_t>(request.maxResults),
                                           static_cast<size_t>(ffprotocol::kMaxIndexedSearchResultCount));
     searchRequest.persistentOnly = true;
+    if (timings != nullptr) {
+        timings->queryParseMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - queryStart).count();
+    }
 
+    const auto searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
     const auto search = ffsearch::ExecuteSearch(candidates, searchRequest);
+    if (timings != nullptr) {
+        timings->matchFilterSortMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
+        timings->candidatesVisited = search.candidatesVisited;
+        timings->resultCount = search.results.size();
+        timings->truncated = search.truncated;
+    }
     result.status = ffprotocol::IndexedSearchStatus::Completed;
     result.truncated = search.truncated;
     result.candidates.reserve(search.results.size());
+    const auto responseStart = timings != nullptr ? Clock::now() : Clock::time_point{};
     for (const auto& matched : search.results) {
         const auto& candidate = matched.candidate;
         result.candidates.push_back({candidate.name, candidate.folder, candidate.sizeBytes,
                                      candidate.modifiedTime, candidate.isDirectory,
                                      candidate.createdTime, candidate.volumeId, candidate.id,
                                      candidate.parentId, candidate.persistentIndexed});
+    }
+    if (timings != nullptr) {
+        timings->responseMaterializationMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - responseStart).count();
+        setTotal();
     }
     return result;
 }

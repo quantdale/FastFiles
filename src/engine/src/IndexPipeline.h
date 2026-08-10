@@ -33,6 +33,23 @@ namespace ffengine {
 // caller) do not need to coordinate with each other.
 class IndexPipeline {
 public:
+    // Optional attribution seam for the explicit scalability benchmark. The
+    // normal product path passes no timing object and remains behaviorally
+    // unchanged; the fields describe the real SearchIndexed stages rather
+    // than adding production logging.
+    struct SearchTimings {
+        double sqliteMetadataMs = 0.0;
+        double candidateMaterializationMs = 0.0;
+        double queryParseMs = 0.0;
+        double matchFilterSortMs = 0.0;
+        double responseMaterializationMs = 0.0;
+        double totalMs = 0.0;
+        size_t candidateCount = 0;
+        size_t candidatesVisited = 0;
+        size_t resultCount = 0;
+        bool truncated = false;
+    };
+
     // outIntegrityFailed (optional, task 1.7): set to true when the open
     // failed specifically because the existing file failed its integrity
     // check, so the caller can apply the rebuild-from-fresh-scan fallback
@@ -128,7 +145,8 @@ public:
     // navigate a result without requiring the entire index over IPC. The
     // projection lock is held only while copying candidate data; matching and
     // sorting happen after the lock is released.
-    ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request);
+    ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
+                                                    SearchTimings* timings = nullptr);
 
 private:
     std::mutex mutex_;

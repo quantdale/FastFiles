@@ -24,6 +24,14 @@ namespace ffengine {
 // required cross-process ordering; a reader never observes a torn descriptor.
 class SnapshotPublisher {
 public:
+    // Optional attribution seam for the explicit scalability benchmark. The
+    // regular publisher call passes no timing object and emits no logging.
+    struct PublishTimings {
+        double serializationMs = 0.0;
+        double copyAndCommitMs = 0.0;
+        size_t serializedBytes = 0;
+    };
+
     ~SnapshotPublisher();
 
     bool Start(DWORD sessionId);
@@ -32,7 +40,8 @@ public:
     // Replaces the full published view and flips to a new generation.
     // Returns the new generation ID, or 0 on failure (e.g. serialized size
     // exceeds the bounded 64 MiB slot capacity).
-    uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories);
+    uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
+                     PublishTimings* timings = nullptr);
 
     const std::wstring& SectionName() const noexcept { return sectionName_; }
     uint64_t CurrentGeneration() const noexcept { return generation_.load(); }

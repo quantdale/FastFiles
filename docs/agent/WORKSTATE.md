@@ -1,19 +1,60 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T12:55:00+08:00
+Last updated: 2026-08-10T14:15:30+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `273a871` (`Clarify watcher lifecycle lock invariant`); source baseline includes product commit `03f7a4d` plus documentation-only bookkeeping commits
-Working tree: clean at slice start
-Infrastructure commit: `4ca9e40` (`Add persistent Codex workstate protocol`)
-Prior product commit: `3ec28db` (`Unify shortcut settings persistence`)
-Product commit: `ff0533e` (`Apply category filters to Treemap data`)
+HEAD at slice start: `46db0a5` (`Record stale snapshot UX completion state`); expected product baseline includes `21481a5` (`Surface stale snapshot and refresh failures`)
+Working tree at slice start: clean
+Benchmark implementation commit: pending
+Workstate bookkeeping commit: pending
 
 ## Current Engineering Slice
+
+Name: Large-index search / snapshot scalability benchmarking
+
+Objective: Establish a reproducible optimized-build baseline for indexed search, snapshot construction/publication, and UI-side snapshot parsing across deterministic synthetic indexes, without changing product algorithms.
+
+Scope invariant: Measure first; no speculative optimization, MFT/USN activation, security/signing changes, or unrelated UI/product work belongs in this slice.
+
+OpenSpec context: No existing OpenSpec change owns this benchmark. The completed `instant-search` spec is the source context: indexed matching is required to scan the in-memory projection with no per-search SQL query, and the UI uses a bounded result page.
+
+## Benchmark Trace Checkpoint
+
+Actual indexed-search path: `SearchPanel::Dispatch` -> `EngineClient::RequestIndexedSearch` -> `UiServer::HandleRequestIndexedSearch` -> `IndexPipeline::SearchIndexed` -> SQLite `GetAllVolumes` metadata lookup only -> full projection candidate/path materialization -> `ffsearch::ParseQuery` -> `ffsearch::ExecuteSearch` linear scope/filter/match scan and `SortResults` -> response candidate materialization -> `SerializeIndexedSearchResponse`/pipe -> UI indexed-completion candidate materialization.
+
+Actual browse snapshot path: `IndexPipeline::ExportDirectorySnapshot` -> `ffprotocol::SerializeSnapshot` -> `SnapshotPublisher::Publish` inactive-slot copy and interlocked slot/generation commit -> UI mapping/header selection -> `ffprotocol::ParseSnapshot`.
+
+Measured hypothesis confirmed: indexed search latency scales with total projection size because `SearchIndexed` reconstructs/materializes every candidate for every request, while the returned result count is capped at `kMaxIndexedSearchResultCount` (4096). SQLite entry query time is effectively absent by design; the benchmark separately times the small metadata query.
+
+Formal performance target: none found. Interpret numbers with clearly labeled engineering bands only (`<50 ms` immediate, `50-100 ms` excellent, `100-250 ms` responsive, `250-500 ms` noticeable, `>500 ms` poor, `>1 s` not instant).
+
+## Completed Benchmark Slice
+
+- Added optional, null-safe timing seams to `IndexPipeline::SearchIndexed` and `SnapshotPublisher::Publish`; default product callers preserve existing behavior.
+- Added non-CTest `ffengine_bench_large_index_scalability` in `tests/engine/bench_large_index_scalability.cpp`. It uses the real SQLite/index projection/search/snapshot/publication/parser APIs, deterministic realistic synthetic rows, temporary per-scale databases, warm-run distributions, memory samples, incremental typing, and supersession inspection.
+- Added machine-readable output at `docs/benchmarks/large-index-scalability.json` and concise interpretation at `docs/benchmarks/large-index-scalability.md`.
+- Reproduction command: `cmake --preset release; cmake --build --preset release --target ffengine_bench_large_index_scalability; build\\release\\tests\\engine\\ffengine_bench_large_index_scalability.exe --output docs/benchmarks/large-index-scalability.json`.
+- Reference environment: Release/MSVC 19.44.35228.0/CMake 3.31.6, Windows 10.0.26200, AMD Ryzen 5 7535HS (12 logical cores), 23.3 GiB RAM, Kingston OM8SEP4512Q-AA NVMe SSD, NTFS C:.
+- Completed scales: 10,000; 100,000; 500,000; 1,000,000. Stopped before 2M/5M because 500K/1M already established the clear latency and memory boundary; larger scales would not change the next decision before optimization.
+- Search medians (selective/broad/no-match): 10K 9.93/12.49/9.91 ms; 100K 145.07/145.41/145.19 ms; 500K 923.44/895.94/932.91 ms; 1M 2,037.15/1,983.53/2,098.81 ms. The similar times for zero, one, and 4,096-result queries prove total index size dominates returned count in the current path.
+- Representative 1M selective attribution: candidate/path materialization 1,970.48 ms (96.7%); SQLite metadata 33.81 ms (1.7%); match/filter/sort 32.85 ms (1.6%); all other measured stages below 0.1% each.
+- Actual snapshot export succeeded through 500K entries (57.37 MB serialized) and was rejected at 1M (115.16 MB) by the unchanged 64 MiB publication slot. Isolated capacity boundary: 556,454 rows / 67,108,794 bytes succeeds; 556,455 / 67,108,915 bytes fails with generation unchanged.
+- Private bytes after rebuild/broad query/post-query: 10K 8.7/8.3/8.8 MB; 100K 51.2/53.7/53.8 MB; 500K 242.2/320.0/336.0 MB; 1M 478.4/678.6/722.5 MB. The run found no proven unbounded leak, but candidate copies create substantial scale-dependent memory pressure.
+- Incremental `p -> ph -> pho -> phot -> photo` at 1M returned 4,096 rows at each step and measured 1,979.76–1,996.67 ms median per request. Engine cancellation is absent; UI generation checks discard stale completions while old engine work completes. No ordering correctness defect was found.
+- Formal product latency target: none found. Engineering interpretation only: <50 ms immediate, 50–100 excellent, 100–250 responsive, 250–500 noticeable, >500 poor, >1 s not instant. Current behavior is acceptable through roughly 100K only; 500K is poor and 1M is not instant.
+- Primary bottleneck: full projection candidate/path materialization in `IndexPipeline::SearchIndexed`. Optimization is required, but is explicitly deferred to one separate next slice.
+
+Validation: Debug build PASS; Analyze build PASS; Release benchmark target PASS. Full serial CTest PASS, 42/42, with `TEMP`/`TMP` set to `C:\Users\Michael Roy\AppData\Local\Temp`; the focused drift guard and all 42 tests passed.
+
+## NEXT EXACT ACTION
+
+Do not start automatically. The single next engineering slice is `optimize projection candidate/path materialization in IndexPipeline::SearchIndexed`, guided by a follow-up benchmark that preserves current query semantics and the 4,096-result cap.
+
+## Previous Slice Record
 
 Name: Stale snapshot / publish-failure UX
 

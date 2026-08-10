@@ -72,4 +72,16 @@ add_executable(ffengine_subtree_gating_tests
 target_include_directories(ffengine_subtree_gating_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_subtree_gating_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_subtree_gating_tests COMMAND ffengine_subtree_gating_tests)
+
+# Informational only: explicit large-index scalability evidence, never a CTest
+# wall-clock gate and never run by the normal test suite.
+add_executable(ffengine_bench_large_index_scalability
+  bench_large_index_scalability.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+)
+target_include_directories(ffengine_bench_large_index_scalability PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_bench_large_index_scalability PRIVATE ffindexstore ffprotocol ffsearch ffsetup psapi Rpcrt4 Shell32 Ole32)
+
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
