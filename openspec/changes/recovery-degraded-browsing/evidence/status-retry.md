@@ -36,5 +36,11 @@ was connected in degraded mode; the real chip showed `Instant search: basic
 activated because the configured Authenticode pins remain placeholders and the
 privileged path is fail-closed.
 
+The state-to-text contract is also covered without requiring the privileged
+runtime: `tests/ui/test_engine_status.cpp` exercises Starting, Connected with
+the active privileged path, Connected in degraded mode, and Unavailable. The
+Unavailable presentation explicitly cannot claim an active privileged path,
+even if a stale/incorrect boolean is supplied by a caller.
+
 All copied UI/Engine processes and disposable directories were removed after
 the run. No user settings or system installation files were changed.

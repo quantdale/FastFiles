@@ -1,4 +1,5 @@
 #include "ColumnView.h"
+#include "EngineStatusPolicy.h"
 #include "SelectionModel.h"
 #include "UITheme.h"
 #include "UiAnimation.h"
@@ -897,25 +898,21 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     D2D1_RECT_F badgeRect = D2D1::RectF(8.0f, 4.0f, viewportSize.width - 8.0f, kBadgeHeight - 4.0f);
     const EngineConnectionState connectionState = engineState_.load();
     const bool privilegedActive = privilegedPathActive_.load();
+    const EngineStatusPresentation statusPresentation =
+        GetEngineStatusPresentation(connectionState, privilegedActive);
     ID2D1SolidColorBrush* badgeBrush = badgeDegradedBrush_.Get();
     ID2D1SolidColorBrush* badgeTextBrush = badgeDegradedTextBrush_.Get();
-    const wchar_t* badgeText = L"";
-    switch (connectionState) {
-        case EngineConnectionState::Connected:
-            badgeBrush = privilegedActive ? badgeActiveBrush_.Get() : badgeDegradedBrush_.Get();
-            badgeTextBrush = privilegedActive ? badgeActiveTextBrush_.Get() : badgeDegradedTextBrush_.Get();
-            badgeText = privilegedActive ? L"Instant search: enabled" : L"Instant search: basic (degraded mode)";
-            break;
-        case EngineConnectionState::Starting:
-            badgeText = L"Starting engine…";
-            break;
-        case EngineConnectionState::Unavailable:
-            badgeText = L"Engine unavailable — click to retry";
-            break;
+    if (statusPresentation.privilegedPathActive) {
+        badgeBrush = badgeActiveBrush_.Get();
+        badgeTextBrush = badgeActiveTextBrush_.Get();
+    } else if (connectionState == EngineConnectionState::Connected) {
+        badgeBrush = badgeDegradedBrush_.Get();
+        badgeTextBrush = badgeDegradedTextBrush_.Get();
     }
     ffui::UiFillRoundedRect(context, badgeRect, badgeBrush, ffui::UiMetrics::kRadiusSmall);
     D2D1_RECT_F badgeTextRect = D2D1::RectF(16.0f, 4.0f, viewportSize.width - 16.0f, kBadgeHeight - 4.0f);
-    context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect,
+    context->DrawText(statusPresentation.text, static_cast<UINT32>(wcslen(statusPresentation.text)),
+                      badgeTextFormat_.Get(), badgeTextRect,
                       badgeTextBrush);
 
     // High Contrast: drive every selection through the system highlight

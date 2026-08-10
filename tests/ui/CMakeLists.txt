@@ -13,6 +13,12 @@ add_executable(ffengine_discovery_tests test_engine_discovery.cpp ../../src/ui/s
 target_include_directories(ffengine_discovery_tests PRIVATE ../../src/ui/src ../../src/setup/include)
 add_test(NAME ffengine_discovery_tests COMMAND ffengine_discovery_tests)
 
+# recovery-degraded-browsing 3.1: keep all status-chip state text and the
+# privileged/degraded distinction covered without requiring a renderer.
+add_executable(ffengine_status_tests test_engine_status.cpp)
+target_include_directories(ffengine_status_tests PRIVATE ../../src/ui/src ../../src/protocol/include)
+add_test(NAME ffengine_status_tests COMMAND ffengine_status_tests)
+
 add_executable(ffstorage_percentage_tests test_storage_percentage.cpp)
 target_include_directories(ffstorage_percentage_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_percentage_tests COMMAND ffstorage_percentage_tests)
@@ -60,4 +66,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests PROPERTIES TIMEOUT 120)

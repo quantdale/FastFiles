@@ -17,7 +17,7 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 3. Status chip (design D3)
 
-- [ ] 3.1 `ColumnView::SetEngineStatus(state, privilegedPathActive)` with per-state text.
+- [x] 3.1 `ColumnView::SetEngineStatus(state, privilegedPathActive)` with per-state text. — complete; `EngineStatusPolicy.h` makes the four state/privilege presentations deterministic and `ffengine_status_tests` covers the exact strings plus the fail-closed unavailable/degraded distinction.
 - [x] 3.2 Badge click in the `Unavailable` state invokes the retry callback. — complete; real window click and retry-cycle evidence are in `evidence/status-retry.md`.
 - [x] 3.3 Settings dialog no longer auto-opens at launch (remove the unconditional `ShowWindow` from `SettingsDialog::Initialize`; shown on demand via Settings menu / Ctrl+,). — complete; source inspection and rebuilt Debug launch-window evidence are in `evidence/settings-launch-visibility.md`.
 
