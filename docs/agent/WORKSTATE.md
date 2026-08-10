@@ -1,7 +1,56 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T03:08:00+08:00
-Status: STOPPED — EXTERNAL VALIDATION BLOCKERS
+Last updated: 2026-08-11T04:58:33+08:00
+Status: STOPPED — RELEASE VALIDATION BLOCKED
+
+## Elevated release-validation checkpoint (2026-08-11)
+
+- Current repository truth: branch `recovery/fast-files-20260809`, HEAD
+  `feef52d0cf4bc05ff20e0cf63eaaf1fcdbb77a73`, working tree clean before this
+  evidence update. No merge, push, or `main` modification occurred.
+- Elevation: user `LAPTOP-8T16MFM8\\Michael Roy`; Administrator role true;
+  `BUILTIN\\Administrators` enabled; `High Mandatory Level`; Windows 11 Home
+  Single Language 10.0.26200 build 26200; x64. Build Tools were found under
+  `C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools`.
+- Gate inventory: current release tasks open are 4.2, 4.5–4.8, and 5.1–5.3
+  in `close-independent-validation-gaps`; all recovery-degraded-browsing
+  tasks are checked. The unrelated open backlog in
+  `address-engineering-audit-findings`, `autonomous-runtime-verification`,
+  and `zero-touch-autonomous-engineering` was not part of this release-gate
+  slice and was not changed.
+- Installer/service: idempotent upgrade PASS; uninstall PASS with service,
+  task, group, metadata, install directory, and pipe absent; reinstall PASS
+  and restored the pre-validation running state. Final service is
+  `LocalSystem`, automatic delayed start, with query-only client-group SCM
+  rights. Install-directory ACL and descriptor-builder pipe assertions pass;
+  scratch is empty.
+- Privilege matrix: elevated token probe PASS (integrity RID 12288); raw C:
+  volume open and USN journal query PASS; Administrator control candidate
+  raw-volume/USN row PASS; impostor handshake rejected PASS. Standard/non-admin
+  clean-host rows remain unexecuted. No UI/Engine child processes remain.
+- MFT/USN: C: is NTFS with a live USN journal; `fftest privilege`, `fsutil`
+  volume/NTFS/USN queries, parser tests, and protocol fuzz tests pass. The
+  authenticated engine↔service path and real privileged MFT enumeration remain
+  blocked by unsigned peers and placeholder pins.
+- Authentication: both configured pins remain all-zero; installed service,
+  engine, and setup binaries are unsigned. Disposable untrusted-signer
+  fixture was rejected by the repository's native trust helper. An expired
+  certificate could be generated but Windows refused to sign with it, so no
+  expired-signed result is claimed. No bypass or trusted pin was introduced.
+- Repository gates: pinned OpenSpec validation 45/45; Debug PASS; Analyze
+  PASS; serial CTest 43/43 PASS including `ffprotocol_fuzz_tests` and
+  `ffdoc_drift_tests`. The first serial run had one transient 120-second
+  timeout; focused rerun passed in 0.17 seconds and the complete rerun passed
+  in 28.44 seconds.
+- Interactive: visual tasks 5.1–5.3 remain blocked. The installed computer-use
+  package lacked the required runtime `documentation()` API, so no
+  undocumented desktop control or screenshot claim was made.
+- Release verdict: `CODE COMPLETE  RELEASE VALIDATION STILL BLOCKED`.
+- Evidence file: `openspec/changes/close-independent-validation-gaps/evidence/elevated-release-validation.md`.
+- Next exact action: provide authorized production signing material and a
+  clean supported Windows validation host, plus a desktop-control environment
+  with the required guidance API; then execute only tasks 4.2, 4.5–4.8, and
+  5.1–5.3. Do not alter pins before the controlled signing step.
 
 ## Repository
 
