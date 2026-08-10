@@ -1,13 +1,13 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T22:55:00+08:00
-Status: COMPLETE
+Last updated: 2026-08-11T00:35:00+08:00
+Status: IN PROGRESS
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `95bbcc89e700c6a03c54ea36dee57284d0a005e2` (`Record indexed search candidate materialization state`)
+HEAD at slice start: `1c2353bb54b5007c48dc922e726716c7241ed6ab` (`Record failed literal matcher validation state`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
@@ -15,11 +15,17 @@ Current slice bookkeeping: product commit `0e7ebf6`; this final WORKSTATE update
 
 ## Active Engineering Slice
 
-Name: Optimize failed literal filename matching
+Name: Integrate the measured UTF-16 trigram filename index
 
-Objective: Determine whether the existing O(N) projection scan can be made materially cheaper by optimizing only literal filename matching, without adding a secondary index or changing search semantics.
+Objective: Add the selected UTF-16 trigram postings accelerator to the projection-owned indexed search path while preserving canonical semantics, generation ownership, mutation correctness, and linear fallback safety.
 
-Frontier invariant: One failed-literal-matching frontier only. No secondary filename index, FTS, trigram/suffix structure, cancellation, UI, snapshot, projection-layout, SQLite-schema, MFT/USN, or security changes belong in this slice.
+Frontier invariant: One secondary-index integration only. No query-language change, SQLite schema migration, cancellation, UI, snapshot, MFT/USN, or security change belongs in this slice.
+
+Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42. The next exact action is to inspect projection mutation/rebuild ownership and add the smallest reusable trigram index seam.
+
+Required evidence: vendored SQLite FTS5/trigram capability; canonical-match recall; candidate reduction; query medians/p90; build time; estimated and observed memory; persistent-size proxy; insert/delete/rename batches; duplicate/short/Unicode/current-infix behavior; and an explicit decision record.
+
+Benchmark result: COMPLETE. No production code or SQLite schema changed in `c36f8bd`; the benchmark remains an informational target outside CTest. The selected integration policy is ASCII simple literal terms with at least three UTF-16 units, with short/Unicode/glob/multi-term/folder/metadata queries using the canonical linear path. The accelerator is only a candidate generator; canonical verification remains authoritative.
 
 Reconciliation: HEAD began at `c3cf597` (the expected bookkeeping commit after product commit `d0f58a7`); product commit `0e7ebf6` now contains the matcher slice, and only this WORKSTATE bookkeeping edit remains. Prior benchmark and implementation evidence below remains valid and is the baseline for this slice. The prior instruction not to begin the next filename-index/cancellation slice is superseded by the explicit user request for this matcher evaluation.
 
