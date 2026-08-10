@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:03:15+08:00
+Last updated: 2026-08-11T00:08:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,7 +11,7 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: integration product commit `90efdf9`; this file is the next-frontier bookkeeping checkpoint
+Current slice bookkeeping: integration product commit `90efdf9`; SQL bottleneck measurement checkpoint is now recorded here
 
 ## Active Engineering Slice
 
@@ -34,6 +34,10 @@ Integration reprofile: the final historical-preserving Release artifact `docs/be
 Integration slice status: COMPLETE. Product commit `90efdf971f9f5be61db57102e8b857b6e8036768` contains the projection-owned trigram index, production routing, mutation/fallback tests, benchmark telemetry, and the historical-preserving 100K/500K/1M/2M Release artifact. Debug and Analyze builds passed; focused projection/engine tests passed; full serial CTest passed 42/42 after the documented line-ending normalization; `ffdoc_drift_tests` passed.
 
 Next exact action: inspect the Store implementation and schema for `GetAllVolumes`, add only a focused timing/plan probe if existing telemetry is insufficient, and measure the exact metadata stage on the established Release harness before editing SQL.
+
+SQL root cause: `Store::GetAllVolumes()` calls `CountEntries()` for every volume. `CountEntries()` runs `SELECT COUNT(*) FROM entries WHERE volume_id=?`; the current `(volume_id, parent_frn_low, parent_frn_high)` covering index still scans every entry for that volume. The indexed-search path only consumes `available`, `rowId`, and `VolumeKey`, so its metadata call is paying an unnecessary O(entries) count. `EXPLAIN QUERY PLAN` confirms a covering-index search for the count and a table scan for the volume list. The safe candidate is a no-entry-count overload used only by indexed search; preserve counted metadata for rebuild and unavailable-volume reporting.
+
+SQL slice decision: implement the no-count search path first, then rerun the established Release 100K/500K/1M/2M benchmark. Do not add a schema counter or persistent migration unless measurements prove the no-count path cannot remove the dominant cost.
 
 Reconciliation: HEAD began at `a24f9bb` with the benchmark decision committed and the working tree clean. The trigram integration is now committed as `90efdf9`; only this bookkeeping update is uncommitted. Prior benchmark and implementation evidence below remains valid historical context.
 
