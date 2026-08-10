@@ -4,9 +4,9 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 1. Engine discovery (design D1)
 
-- [ ] 1.1 Add `src/ui/src/EngineDiscovery.h/.cpp`: ordered candidates (same dir, sibling `engine` dir via `GetFullPathNameW`, `%ProgramFiles%\FastFiles`), case-insensitive dedupe, regular-file validation.
-- [ ] 1.2 Wire discovery into `EngineClient::LaunchEngineIfNotRunning`; launch only validated candidates.
-- [ ] 1.3 Log the resolved path, launch successes, launch failures (with `GetLastError`), and give-up to `diagnostics.log`.
+- [x] 1.1 Add `src/ui/src/EngineDiscovery.h/.cpp`: ordered candidates (same dir, sibling `engine` dir via `GetFullPathNameW`, `%ProgramFiles%\FastFiles`), case-insensitive dedupe, regular-file validation. — complete; focused `ffengine_discovery_tests` and candidate-order/runtime evidence are in `evidence/engine-discovery.md`.
+- [x] 1.2 Wire discovery into `EngineClient::LaunchEngineIfNotRunning`; launch only validated candidates. — complete; the Debug UI reached `build\debug\src\engine\FastFilesEngine.exe` in the disposable development-tree launch.
+- [x] 1.3 Log the resolved path, launch successes, launch failures (with `GetLastError`), and give-up to `diagnostics.log`. — complete; isolated no-engine and invalid-regular-file probes recorded connect exhaustion, `engine-launch-failed` with `0xd8`, and `engine-unavailable`.
 
 ## 2. Bounded connection lifecycle (design D2)
 
@@ -38,6 +38,6 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 7. Tests and acceptance
 
-- [ ] 7.1 Add `ffengine_discovery_tests` (candidate order, dedupe, validation) and register it with CTest.
-- [ ] 7.2 Full build (zero warnings) and full CTest suite pass.
+- [x] 7.1 Add `ffengine_discovery_tests` (candidate order, dedupe, validation) and register it with CTest. — complete; target is registered and focused CTest passed.
+- [x] 7.2 Full build (zero warnings) and full CTest suite pass. — complete; Debug/Analyze builds passed and serial CTest passed 42/42.
 - [ ] 7.3 Manual acceptance from the development build tree: launch → engine reachable → drives listed → folder navigation ≥5 levels → back/up navigation → file open → file-operation smoke → search over a browsed folder → missing-engine failure state visible with working retry.

@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T02:25:00+08:00
+Last updated: 2026-08-11T03:10:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -15,15 +15,15 @@ Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validat
 
 ## Active Engineering Slice
 
-Name: Commit final OpenSpec reconciliation
+Name: Reconcile degraded-browsing engine discovery
 
-Objective: Commit the final evidence-backed OpenSpec reconciliation after the required baseline gates, preserving the unavailable CLI and privileged-release prerequisites as explicit open blockers.
+Objective: Commit the independently validated recovery engine-discovery slice, preserving the broader deep-navigation/retry-click acceptance as open.
 
-Frontier invariant: One remaining validation-gap slice only. Do not begin elevated signed-service/MFT/USN validation, invent certificate values, alter security pins, or delete tracked artifacts until a narrowly scoped hygiene decision is evidenced. No unrelated UI, search, SQL, or privileged-path work belongs in this slice.
+Frontier invariant: One degraded-browsing discovery/lifecycle validation slice only. Do not begin signed-service/MFT/USN validation, alter security pins, or change unrelated UI/search/SQL code. Runtime checks must use the disposable Debug build and clean up any child Engine process.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: inspect the final evidence/tasks/WORKSTATE diff, commit it as one bounded reconciliation slice, then verify HEAD, status, and the final task/blocker frontier.
+Next exact action: inspect and commit the bounded recovery evidence/task/WORKSTATE diff, then choose the next recovery task only if it has a safe deterministic validation seam.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
@@ -31,7 +31,11 @@ Pinned-authentication slice status: COMPLETE. Commit `40ce237` contains the dete
 
 Documentation/hygiene reconciliation milestone: evidence is prepared but uncommitted. `evidence/documentation-and-hygiene.md` records the 2026-08-11 repository search and hygiene commands. The search found only explicitly historical/superseded descriptors outside current guidance. Commit `52d33da` already deleted `dist/FastFiles.exe`, added `dist/` to `.gitignore`, and moved the 819-line `Audit.txt` prompt to `codebase-audit/Audit.txt`; the eight 2026-08-04 validation reports are unchanged. OpenSpec tasks 3.3 and 6.1–6.3 are reconciled as complete in the pending diff.
 
-Final reconciliation milestone: the exact Debug baseline configure/build, `ctest -N`, and serial CTest passed 42/42 on 2026-08-11; Analyze also passed earlier in this campaign. Tasks 7.1, 7.3, and 7.4 are now evidenced for commit; 7.2 remains open because `openspec validate --all --strict` cannot run without the unavailable CLI. External signing/elevation/clean-host/interactive gates remain open and no privileged path was activated.
+Final reconciliation milestone: commit `67a5d54` records the exact Debug baseline configure/build, `ctest -N`, and serial CTest result of 42/42; Analyze also passed earlier in this campaign. Tasks 7.1, 7.3, and 7.4 are evidenced; OpenSpec 7.2 remains open because `openspec validate --all --strict` cannot run without the unavailable CLI. External signing/elevation/clean-host/interactive gates remain open and no privileged path was activated.
+
+Recovery discovery milestone: evidence is prepared but uncommitted in `openspec/changes/recovery-degraded-browsing/evidence/engine-discovery.md`. The focused discovery test passed; the Debug UI launched the sibling engine from the development tree; isolated no-engine/invalid-engine probes demonstrated retry exhaustion, `engine-launch-failed` OS-error logging, and `engine-unavailable`, with all probe processes/directories cleaned. Recovery tasks 1.1–1.3 and 7.1–7.2 are ready to reconcile. Recovery task 7.3 remains open because deep navigation, file opening/search, and interactive retry-click acceptance were not performed in this slice.
+
+Next exact action: read the recovery change design/spec, run `ffengine_discovery_tests`, inspect the candidate ordering and `EngineClient` launch/retry path, then perform one bounded Debug development-tree launch/reachability check with process cleanup.
 
 Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 
