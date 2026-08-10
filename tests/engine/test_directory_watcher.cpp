@@ -7,6 +7,7 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "DirectoryWatcher.h"
 #include "../TestSupport.h"
@@ -99,9 +100,62 @@ void TestWatcherPublishesAndStops() {
     Check(!std::filesystem::exists(root), "watcher fixture is removed");
 }
 
+void TestWatcherEvictsLeastRecentlyUsedRoot() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::filesystem::path localAppData = root / L"local-app-data";
+    std::error_code error;
+    Check(std::filesystem::create_directories(localAppData, error),
+          "watcher diagnostics directory fixture is created");
+
+    std::vector<wchar_t> previousLocalAppData(32768);
+    const DWORD previousLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", previousLocalAppData.data(), static_cast<DWORD>(previousLocalAppData.size()));
+    Check(SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str()),
+          "watcher test redirects diagnostics to its disposable fixture");
+
+    std::vector<std::filesystem::path> watchedRoots;
+    watchedRoots.reserve(ffengine::kMaxWatchedRoots + 1);
+    for (size_t index = 0; index <= ffengine::kMaxWatchedRoots; ++index) {
+        const auto watched = root / (L"watched-" + std::to_wstring(index));
+        Check(std::filesystem::create_directories(watched, error),
+              "watcher LRU directory fixture is created");
+        watchedRoots.push_back(watched);
+    }
+
+    {
+        ffengine::DirectoryWatcher watcher;
+        for (size_t index = 0; index < ffengine::kMaxWatchedRoots; ++index) {
+            watcher.Watch(watchedRoots[index].wstring(), [](const std::wstring&) {});
+        }
+        // Refresh root zero so root one is the least-recently-watched victim.
+        watcher.Watch(watchedRoots.front().wstring(), [](const std::wstring&) {});
+        watcher.Watch(watchedRoots.back().wstring(), [](const std::wstring&) {});
+        watcher.UnwatchAll();
+    }
+
+    const auto diagnosticsPath = localAppData / L"FastFiles" / L"logs" / L"diagnostics.log";
+    std::ifstream diagnostics(diagnosticsPath, std::ios::binary);
+    const std::string diagnosticText((std::istreambuf_iterator<char>(diagnostics)),
+                                     std::istreambuf_iterator<char>());
+    Check(diagnosticText.find("state=watch-evicted") != std::string::npos,
+          "watcher LRU eviction is recorded in diagnostics");
+    Check(diagnosticText.find(watchedRoots[1].string()) != std::string::npos,
+          "the least-recently-watched root is evicted after the active root is refreshed");
+    diagnostics.close();
+
+    if (previousLength == 0) {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    } else {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", previousLocalAppData.data());
+    }
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "watcher LRU fixture is removed");
+}
+
 } // namespace
 
 int main() {
     TestWatcherPublishesAndStops();
+    TestWatcherEvictsLeastRecentlyUsedRoot();
     return FailureCount() == 0 ? 0 : 1;
 }

@@ -29,7 +29,7 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 5. Watcher safety (design D5)
 
-- [ ] 5.1 Bound watched roots (32) with least-recently-watched eviction.
+- [x] 5.1 Bound watched roots (32) with least-recently-watched eviction. — complete; the expanded `ffengine_directory_watcher_tests` proves LRU eviction and diagnostic output; evidence is in `evidence/watcher-safety.md`.
 - [ ] 5.2 Overflow recovery: log, re-enumerate via the change callback, re-arm the watch; give up after 8 consecutive overflows with a log entry.
 
 ## 6. Search scope honesty (design D6)
