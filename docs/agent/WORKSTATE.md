@@ -1,16 +1,16 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T17:05:00+08:00
+Last updated: 2026-08-10T17:15:00+08:00
 Status: COMPLETE
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `46db0a5` (`Record stale snapshot UX completion state`); expected product baseline includes `21481a5` (`Surface stale snapshot and refresh failures`)
+HEAD at slice start: `ce4e6ca9a5db3c78d36102ce56d03399a82ee9cb` (`Record indexed search scalability benchmark state`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
-Workstate bookkeeping: this completion record is included in the follow-up bookkeeping commit.
+Workstate bookkeeping: `ce4e6ca9a5db3c78d36102ce56d03399a82ee9cb` (`Record indexed search scalability benchmark state`)
 
 ## Current Engineering Slice
 
@@ -67,7 +67,7 @@ Focused Debug validation: `ffsearch_tests`, `ffsearch_scan_tests`, and `ffengine
 
 ## Optimization Completion Checkpoint
 
-Status: COMPLETE pending the single final Git commit below.
+Status: COMPLETE; the focused optimization commit is recorded below.
 
 Semantic evidence: deterministic engine tests pass for selective filename matching, no-match behavior, broad truncation at exactly 4,096, `FOLDER:` parent-path-only matching, `ext:TXT`, case-insensitive filename matching, multi-term AND semantics, nested duplicate names, path ordering, current-folder scope, and unresolved/disabled-volume boundary behavior. Existing search tests continue to pass for ranking, scope, Unicode/locale-independent matching, cancellation, and path reconstruction. The lazy matcher preserves the existing cap-before-sort behavior and rejects an unresolvable path before it consumes the cap.
 
@@ -75,7 +75,7 @@ Final benchmark evidence, using the committed historical baseline and the final 
 
 Validation: Debug build PASS; Analyze build PASS; full serial CTest PASS 42/42 with the established user TEMP/TMP override; `ffdoc_drift_tests` PASS. Runtime smoke PASS for normal Debug launch, automatic Engine launch, both processes responsive, and cleanup. Indexed UI search was not claimed because the active environment is degraded/no usable privileged fixture; deterministic engine coverage and the real Release benchmark are the authoritative indexed-search evidence.
 
-Recorded commit: PENDING final focused optimization commit.
+Recorded commit: `e0f046b` (`Optimize indexed search path materialization`) before this WORKSTATE hash-record amendment.
 
 Preliminary optimized benchmark (same machine, same harness, temporary after file): 100K selective/no-match/broad `37.71/36.27/53.83 ms`; 500K `219.32/224.10/214.16 ms`; 1M `497.81/495.24/457.28 ms`. Relative to the same-session pre-run (`131.02/131.99/132.63`, `854.48/895.78/843.30`, `2012.66/2077.76/1865.99 ms`), speedups are 3.47–4.20x. 1M incremental `p/ph/pho/phot/photo` is `448.50/451.93/468.85/460.35/458.16 ms` versus `1858.31/1852.13/1836.67/1838.40/1840.56 ms`. Representative 1M selective attribution changed from materialization 1944.98 ms + match 31.84 ms to materialization 427.21 ms + match 33.74 ms; the remaining materialization is lightweight name/metadata candidate construction plus one-result path work, not full projection path traversal. Same-session 1M private memory changed: open 5.7→5.8 MB, selective peak 610.6→542.5 MB, broad peak 647.9→536.8 MB, post-query 672.8→529.1 MB.
 
