@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T02:42:00+08:00
+Last updated: 2026-08-11T02:45:00+08:00
 Status: STOPPED — EXTERNAL VALIDATION BLOCKERS
 
 ## Repository
@@ -27,7 +27,7 @@ Next exact action: when authorized signing material/elevated clean-host access a
 
 Status-chip policy milestone: recovery task 3.1 was locally complete in source but left unchecked because its state-to-text mapping had no deterministic renderer-independent test. Commit `387228f` (`Add deterministic engine status policy coverage`) added `src/ui/src/EngineStatusPolicy.h`, routed `ColumnView::Render` through it, and registered `ffengine_status_tests` covering Starting, Connected/privileged, Connected/degraded, and Unavailable (including fail-closed privilege presentation). Focused test passed; full Debug build, Analyze build, and serial CTest passed 43/43 on 2026-08-11. Privileged runtime activation remains intentionally unclaimed because pins are placeholders.
 
-External-blocker evidence milestone: updated `openspec/changes/close-independent-validation-gaps/evidence/documentation-and-hygiene.md` to distinguish the historical 42-test reconciliation from the current 43/43 gate and to record `REQUIRED-BUT-UNAVAILABLE` OpenSpec validation, placeholder pins, clean process state, and unavailable signed/elevated/clean-host/interactive prerequisites. The focused `ffdoc_drift_tests` rerun passed; no open external task was marked complete.
+External-blocker evidence milestone: commit `8caf002` updated `openspec/changes/close-independent-validation-gaps/evidence/documentation-and-hygiene.md` to distinguish the historical 42-test reconciliation from the current 43/43 gate and to record `REQUIRED-BUT-UNAVAILABLE` OpenSpec validation, placeholder pins, clean process state, and unavailable signed/elevated/clean-host/interactive prerequisites. The focused `ffdoc_drift_tests` rerun passed; no open external task was marked complete.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
