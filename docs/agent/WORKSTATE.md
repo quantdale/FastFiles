@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:08:00+08:00
+Last updated: 2026-08-11T00:14:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,7 +11,7 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: integration product commit `90efdf9`; SQL bottleneck measurement checkpoint is now recorded here
+Current slice bookkeeping: SQL no-count implementation is uncommitted; this is the pre-benchmark checkpoint
 
 ## Active Engineering Slice
 
@@ -38,6 +38,10 @@ Next exact action: inspect the Store implementation and schema for `GetAllVolume
 SQL root cause: `Store::GetAllVolumes()` calls `CountEntries()` for every volume. `CountEntries()` runs `SELECT COUNT(*) FROM entries WHERE volume_id=?`; the current `(volume_id, parent_frn_low, parent_frn_high)` covering index still scans every entry for that volume. The indexed-search path only consumes `available`, `rowId`, and `VolumeKey`, so its metadata call is paying an unnecessary O(entries) count. `EXPLAIN QUERY PLAN` confirms a covering-index search for the count and a table scan for the volume list. The safe candidate is a no-entry-count overload used only by indexed search; preserve counted metadata for rebuild and unavailable-volume reporting.
 
 SQL slice decision: implement the no-count search path first, then rerun the established Release 100K/500K/1M/2M benchmark. Do not add a schema counter or persistent migration unless measurements prove the no-count path cannot remove the dominant cost.
+
+SQL implementation milestone: `Store::GetAllVolumesWithoutEntryCounts()` shares the existing volume-row reader while skipping `CountEntries()`. `IndexPipeline::SearchIndexed` uses it in both view-compatible and owning fallback branches; rebuild, public volume metadata, and unavailable-volume reporting retain counted `GetAllVolumes()`. Focused Store and engine tests pass.
+
+Next exact action: build the Release benchmark target and run `ffengine_bench_large_index_scalability` at 100K/500K/1M/2M into `docs/benchmarks/large-index-scalability-sql-no-count.json`; preserve the prior secondary-index artifact.
 
 Reconciliation: HEAD began at `a24f9bb` with the benchmark decision committed and the working tree clean. The trigram integration is now committed as `90efdf9`; only this bookkeeping update is uncommitted. Prior benchmark and implementation evidence below remains valid historical context.
 
