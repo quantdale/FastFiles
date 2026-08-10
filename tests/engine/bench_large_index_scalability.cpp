@@ -237,6 +237,7 @@ struct SearchRun {
     bool wireTruncated = false;
     size_t wireResultCount = 0;
     double sqliteMs = 0.0;
+    double projectionTraversalMs = 0.0;
     double materializationMs = 0.0;
     double lightweightCandidateMaterializationMs = 0.0;
     double lazyPathMaterializationMs = 0.0;
@@ -249,6 +250,10 @@ struct SearchRun {
     double uiResultMaterializationMs = 0.0;
     double totalMs = 0.0;
     double engineAndResponseMs = 0.0;
+    size_t projectionRowsExamined = 0;
+    size_t candidateObjectsMaterialized = 0;
+    size_t candidateNameCopies = 0;
+    size_t searchResultObjectsMaterialized = 0;
     size_t wireBytes = 0;
     MemorySample memory;
 };
@@ -480,6 +485,7 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.candidatesVisited = outcome.timings.candidatesVisited;
     outcome.run.truncated = outcome.timings.truncated;
     outcome.run.sqliteMs = outcome.timings.sqliteMetadataMs;
+    outcome.run.projectionTraversalMs = outcome.timings.projectionTraversalMs;
     outcome.run.materializationMs = outcome.timings.candidateMaterializationMs;
     outcome.run.lightweightCandidateMaterializationMs = outcome.timings.lightweightCandidateMaterializationMs;
     outcome.run.lazyPathMaterializationMs = outcome.timings.lazyPathMaterializationMs;
@@ -492,6 +498,10 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.uiResultMaterializationMs = materializationMs;
     outcome.run.totalMs = outcome.timings.totalMs;
     outcome.run.engineAndResponseMs = outcome.timings.totalMs + serializationMs;
+    outcome.run.projectionRowsExamined = outcome.timings.projectionRowsExamined;
+    outcome.run.candidateObjectsMaterialized = outcome.timings.candidateObjectsMaterialized;
+    outcome.run.candidateNameCopies = outcome.timings.candidateNameCopies;
+    outcome.run.searchResultObjectsMaterialized = outcome.timings.searchResultObjectsMaterialized;
     outcome.run.wireBytes = payload.size();
     outcome.run.memory = ReadMemory();
     return outcome;
@@ -685,6 +695,7 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
            << ",\"wire_result_count\":" << run.wireResultCount
            << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false");
     output << ",\"sqlite_ms\":"; WriteJsonDouble(output, run.sqliteMs);
+    output << ",\"projection_traversal_ms\":"; WriteJsonDouble(output, run.projectionTraversalMs);
     output << ",\"materialization_ms\":"; WriteJsonDouble(output, run.materializationMs);
     output << ",\"lightweight_candidate_materialization_ms\":";
     WriteJsonDouble(output, run.lightweightCandidateMaterializationMs);
@@ -699,6 +710,10 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
     output << ",\"ui_result_materialization_ms\":"; WriteJsonDouble(output, run.uiResultMaterializationMs);
     output << ",\"total_ms\":"; WriteJsonDouble(output, run.totalMs);
     output << ",\"engine_and_response_ms\":"; WriteJsonDouble(output, run.engineAndResponseMs);
+    output << ",\"projection_rows_examined\":" << run.projectionRowsExamined;
+    output << ",\"candidate_objects_materialized\":" << run.candidateObjectsMaterialized;
+    output << ",\"candidate_name_copies\":" << run.candidateNameCopies;
+    output << ",\"search_result_objects_materialized\":" << run.searchResultObjectsMaterialized;
     output << ",\"wire_bytes\":" << run.wireBytes << ",\"memory\":";
     WriteMemory(output, run.memory);
     output << '}';

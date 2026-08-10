@@ -35,6 +35,15 @@ std::wstring ToWString(std::u16string_view text) {
     return result;
 }
 
+std::u16string ToU16String(std::wstring_view text) {
+    std::u16string result;
+    result.reserve(text.size());
+    for (wchar_t ch : text) {
+        result.push_back(static_cast<char16_t>(ch));
+    }
+    return result;
+}
+
 std::wstring NormalizeVolumePrefix(std::wstring value) {
     if (value.size() < 2 || value[1] != L':') {
         return {};
@@ -93,6 +102,21 @@ bool MaterializeCandidateFolder(const ffindexstore::Projection& projection,
         ToWString(parentPath.path));
     candidate.folder = prefixIt->second + L"\\" + reconstructedParent;
     return true;
+}
+
+ffsearch::Candidate MakeOwnedCandidate(const ffsearch::CandidateView& view) {
+    ffsearch::Candidate candidate;
+    candidate.name = ToWString(view.name);
+    candidate.folder.assign(view.folder);
+    candidate.sizeBytes = view.sizeBytes;
+    candidate.modifiedTime = view.modifiedTime;
+    candidate.isDirectory = view.isDirectory;
+    candidate.createdTime = view.createdTime;
+    candidate.volumeId = view.volumeId;
+    candidate.id = view.id;
+    candidate.parentId = view.parentId;
+    candidate.persistentIndexed = view.persistentIndexed;
+    return candidate;
 }
 
 ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
@@ -524,15 +548,125 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             std::chrono::duration<double, std::milli>(Clock::now() - queryStart).count();
     }
 
-    std::vector<ffsearch::Candidate> candidates;
     std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
     double lazyPathMaterializationMs = 0.0;
+    double candidateNameMaterializationMs = 0.0;
     std::chrono::steady_clock::time_point candidateStart{};
-    {
-        // Copy only the candidate fields needed by the query. Matching and
-        // sorting are intentionally outside this lock so a broad query cannot
-        // block ingestion or snapshot publication while a UI pipe is waiting.
-        std::lock_guard<std::mutex> lock(mutex_);
+    size_t projectionRowsExamined = 0;
+    size_t candidateObjectsMaterialized = 0;
+    size_t candidateNameCopies = 0;
+    ffsearch::SearchResponse search;
+    std::chrono::steady_clock::time_point searchStart{};
+
+    if (searchRequest.query.viewCompatible) {
+        // The NamePool storage is immutable for the duration of the
+        // projection lock. Evaluate views while that lock is held, then only
+        // copy accepted rows into owning Candidates. This keeps non-matches
+        // allocation-free and makes the view lifetime explicit.
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!store_.IsOpen()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+
+        prefixes.reserve(volumeRules_.size() + 4);
+        std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
+        disabledVolumes.reserve(volumeRules_.size());
+        for (const auto& [volumeId, setting] : volumeRules_) {
+            if (!setting.enabled) {
+                disabledVolumes.insert(volumeId);
+                continue;
+            }
+            if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
+                prefixes.emplace(volumeId, prefix);
+            }
+        }
+        const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        const auto metadata = store_.GetAllVolumes();
+        if (timings != nullptr) {
+            timings->sqliteMetadataMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();
+        }
+        for (const auto& metadataEntry : metadata) {
+            if (!metadataEntry.available || disabledVolumes.contains(metadataEntry.rowId) || prefixes.contains(metadataEntry.rowId)) {
+                continue;
+            }
+            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadataEntry.key);
+            if (driveLetter != L'\0') {
+                std::wstring prefix;
+                prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
+                prefix.push_back(L':');
+                prefixes.emplace(metadataEntry.rowId, std::move(prefix));
+            }
+        }
+        if (prefixes.empty()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+
+        searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        candidateStart = searchStart;
+        bool continueEnumeration = true;
+        const ffsearch::CandidateViewMaterializer materialize = [&](const ffsearch::CandidateView& view) {
+            const auto materializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            ++candidateNameCopies;
+            auto candidate = MakeOwnedCandidate(view);
+            const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            const bool pathMaterialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+            if (timings != nullptr) {
+                const double pathElapsed =
+                    std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
+                lazyPathMaterializationMs += pathElapsed;
+                candidateNameMaterializationMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - materializationStart).count() - pathElapsed;
+                if (pathMaterialized) ++timings->lazyPathMaterializationCount;
+            }
+            if (!pathMaterialized) return std::optional<ffsearch::Candidate>{};
+            ++candidateObjectsMaterialized;
+            return std::optional<ffsearch::Candidate>(std::move(candidate));
+        };
+        const ffsearch::CandidateViewEnumerator enumerate = [&](const ffsearch::CandidateViewVisitor& visit) {
+            projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
+                                          const ffindexstore::ProjectionEntry& entry) {
+                if (!continueEnumeration) return;
+                const auto prefixIt = prefixes.find(key.volumeRowId);
+                if (prefixIt == prefixes.end()) return;
+                ++projectionRowsExamined;
+                std::u16string rootName;
+                std::u16string_view name;
+                if (entry.parentFrn == entry.frn) {
+                    // The root's on-disk name is not user-facing. Use the
+                    // mounted drive root exactly as the snapshot/UI path model does.
+                    rootName = ToU16String(prefixIt->second + L"\\");
+                    name = rootName;
+                } else {
+                    name = projection_.Names().Get(entry.nameId);
+                    if (name.empty()) return;
+                }
+                const ffsearch::CandidateView view{
+                    name,
+                    {},
+                    entry.sizeBytes,
+                    entry.lastModifiedTime,
+                    (entry.attributes & kFileAttributeDirectory) != 0,
+                    entry.creationTime,
+                    static_cast<int64_t>(key.volumeRowId),
+                    entry.frn.low,
+                    entry.parentFrn.low,
+                    true,
+                };
+                continueEnumeration = visit(view);
+            });
+        };
+        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize);
+        lock.unlock();
+    } else {
+        std::vector<ffsearch::Candidate> candidates;
+        // A future custom FilterRegistry entry without a view predicate uses
+        // the established owning path as a correctness-preserving fallback.
+        std::unique_lock<std::mutex> lock(mutex_);
         if (!store_.IsOpen()) {
             result.status = ffprotocol::IndexedSearchStatus::Unavailable;
             setTotal();
@@ -580,9 +714,8 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
                                       const ffindexstore::ProjectionEntry& entry) {
             const auto prefixIt = prefixes.find(key.volumeRowId);
-            if (prefixIt == prefixes.end()) {
-                return;
-            }
+            if (prefixIt == prefixes.end()) return;
+            ++projectionRowsExamined;
             ffsearch::Candidate candidate;
             candidate.volumeId = static_cast<int64_t>(key.volumeRowId);
             candidate.id = entry.frn.low;
@@ -592,50 +725,53 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             candidate.createdTime = entry.creationTime;
             candidate.isDirectory = (entry.attributes & kFileAttributeDirectory) != 0;
             candidate.persistentIndexed = true;
-
             if (entry.parentFrn == entry.frn) {
-                // The root's on-disk name is not user-facing. Use the mounted
-                // drive root exactly as the snapshot/UI path model does.
                 candidate.name = prefixIt->second + L"\\";
             } else {
                 candidate.name = ToWString(projection_.Names().Get(entry.nameId));
-                if (candidate.name.empty()) {
-                    return;
-                }
+                if (candidate.name.empty()) return;
             }
             candidates.push_back(std::move(candidate));
         });
+        lock.unlock();
+        candidateObjectsMaterialized = candidates.size();
+        candidateNameCopies = candidates.size();
+        const double lightweightCandidateMaterializationMs = timings != nullptr
+            ? std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count()
+            : 0.0;
+        if (timings != nullptr) timings->candidateMaterializationMs = lightweightCandidateMaterializationMs;
+        searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        std::optional<std::unique_lock<std::mutex>> pathLock;
+        search = ffsearch::ExecuteSearchLazy(
+            candidates, searchRequest,
+            [&](ffsearch::Candidate& candidate) {
+                if (!pathLock.has_value()) pathLock.emplace(mutex_);
+                const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+                const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+                if (timings != nullptr) {
+                    lazyPathMaterializationMs +=
+                        std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
+                    if (materialized) ++timings->lazyPathMaterializationCount;
+                }
+                return materialized;
+            });
+        pathLock.reset();
     }
-    const double lightweightCandidateMaterializationMs = timings != nullptr
-        ? std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count()
-        : 0.0;
-    if (timings != nullptr) timings->candidateCount = candidates.size();
-
-    const auto searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-    std::optional<std::unique_lock<std::mutex>> pathLock;
-    const auto search = ffsearch::ExecuteSearchLazy(
-        candidates, searchRequest,
-        [&](ffsearch::Candidate& candidate) {
-            if (!pathLock.has_value()) pathLock.emplace(mutex_);
-            const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-            const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
-            if (timings != nullptr) {
-                lazyPathMaterializationMs +=
-                    std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
-                if (materialized) ++timings->lazyPathMaterializationCount;
-            }
-            return materialized;
-        });
-    pathLock.reset();
     if (timings != nullptr) {
         const double searchElapsed =
             std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
-        timings->candidateMaterializationMs = lightweightCandidateMaterializationMs + lazyPathMaterializationMs;
-        timings->lightweightCandidateMaterializationMs = lightweightCandidateMaterializationMs;
+        timings->projectionTraversalMs = searchElapsed;
+        timings->candidateMaterializationMs = candidateNameMaterializationMs + lazyPathMaterializationMs;
+        timings->lightweightCandidateMaterializationMs = candidateNameMaterializationMs;
         timings->lazyPathMaterializationMs = lazyPathMaterializationMs;
-        timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - lazyPathMaterializationMs);
+        timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - candidateNameMaterializationMs - lazyPathMaterializationMs);
+        timings->candidateCount = projectionRowsExamined;
+        timings->projectionRowsExamined = projectionRowsExamined;
+        timings->candidateObjectsMaterialized = candidateObjectsMaterialized;
+        timings->candidateNameCopies = candidateNameCopies;
         timings->candidatesVisited = search.candidatesVisited;
         timings->resultCount = search.results.size();
+        timings->searchResultObjectsMaterialized = search.results.size();
         timings->truncated = search.truncated;
     }
     result.status = ffprotocol::IndexedSearchStatus::Completed;

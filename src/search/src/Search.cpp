@@ -126,6 +126,57 @@ SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const Searc
     return ExecuteSearchCore(&candidates, candidates, request, materialize, cancelled);
 }
 
+SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
+                                  const SearchRequest& request,
+                                  const CandidateViewMaterializer& materialize,
+                                  const std::function<bool()>& cancelled) {
+    SearchResponse response;
+    if (!request.query.viewCompatible) return response;
+
+    const size_t chunkSize = (std::max)(size_t{1}, request.chunkSize);
+    const bool folderNeededForEvaluation = request.scope != SearchScope::AllIndexedLocations ||
+                                           request.query.requiresFolder;
+    bool stopped = false;
+    const CandidateViewVisitor visit = [&](const CandidateView& candidate) {
+        if (stopped) return false;
+        if (response.candidatesVisited % chunkSize == 0 && cancelled && cancelled()) {
+            response.cancelled = true;
+            response.results.clear();
+            stopped = true;
+            return false;
+        }
+        ++response.candidatesVisited;
+        if (!request.query.MatchesViewWithoutFolder(candidate)) return true;
+
+        std::optional<Candidate> ownedCandidate;
+        if (folderNeededForEvaluation) {
+            ownedCandidate = materialize(candidate);
+            if (!ownedCandidate || !InScope(*ownedCandidate, request.scope, request.scopePath,
+                                            request.persistentOnly) || !request.query.Matches(*ownedCandidate)) {
+                return true;
+            }
+        } else {
+            if (!request.query.MatchesView(candidate)) return true;
+            ownedCandidate = materialize(candidate);
+            if (!ownedCandidate) return true;
+        }
+
+        Candidate owned = std::move(*ownedCandidate);
+        const MatchTier tier = ClassifyMatch(owned, request.query.primaryTerm);
+        response.results.push_back({std::move(owned), tier});
+        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
+            response.truncated = true;
+            stopped = true;
+            return false;
+        }
+        return true;
+    };
+    enumerate(visit);
+    if (response.cancelled) return response;
+    SortResults(response.results, request.sortField, request.descending);
+    return response;
+}
+
 PathReconstruction ReconstructPath(const std::vector<Candidate>& entries, size_t entryIndex) {
     PathReconstruction result;
     if (entryIndex >= entries.size()) return result;

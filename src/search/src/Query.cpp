@@ -14,6 +14,73 @@ std::wstring Lower(std::wstring_view value) {
     return result;
 }
 
+int CompareOrdinal16(std::u16string_view left, std::wstring_view right) {
+    return CompareStringOrdinal(reinterpret_cast<const wchar_t*>(left.data()), static_cast<int>(left.size()),
+                                right.data(), static_cast<int>(right.size()), TRUE) - CSTR_EQUAL;
+}
+
+bool OrdinalContains16(std::u16string_view haystack, std::wstring_view needle) {
+    if (needle.empty()) return true;
+    if (haystack.size() < needle.size()) return false;
+    for (size_t index = 0; index + needle.size() <= haystack.size(); ++index) {
+        if (CompareOrdinal16(haystack.substr(index, needle.size()), needle) == 0) return true;
+    }
+    return false;
+}
+
+bool GlobMatches16(std::u16string_view text, std::wstring_view pattern) {
+    const auto width = [](std::u16string_view value, size_t offset) -> size_t {
+        if (offset + 1 < value.size() && IS_HIGH_SURROGATE(value[offset]) && IS_LOW_SURROGATE(value[offset + 1])) return 2;
+        return 1;
+    };
+    size_t textIndex = 0, patternIndex = 0, star = std::wstring_view::npos, saved = 0;
+    while (textIndex < text.size()) {
+        if (patternIndex < pattern.size() && pattern[patternIndex] == L'?') {
+            textIndex += width(text, textIndex);
+            ++patternIndex;
+        } else if (patternIndex < pattern.size() && pattern[patternIndex] != L'*') {
+            const size_t textWidth = width(text, textIndex);
+            const size_t patternWidth = pattern[patternIndex] >= 0xD800 && pattern[patternIndex] <= 0xDBFF &&
+                patternIndex + 1 < pattern.size() && pattern[patternIndex + 1] >= 0xDC00 && pattern[patternIndex + 1] <= 0xDFFF ? 2 : 1;
+            if (textWidth == patternWidth && CompareOrdinal16(text.substr(textIndex, textWidth),
+                                                                pattern.substr(patternIndex, patternWidth)) == 0) {
+                textIndex += textWidth;
+                patternIndex += patternWidth;
+            } else if (star != std::wstring_view::npos) {
+                patternIndex = star + 1;
+                saved += width(text, saved);
+                textIndex = saved;
+            } else {
+                return false;
+            }
+        } else if (patternIndex < pattern.size() && pattern[patternIndex] == L'*') {
+            star = patternIndex++;
+            saved = textIndex;
+        } else if (star != std::wstring_view::npos) {
+            patternIndex = star + 1;
+            saved += width(text, saved);
+            textIndex = saved;
+        } else {
+            return false;
+        }
+    }
+    while (patternIndex < pattern.size() && pattern[patternIndex] == L'*') ++patternIndex;
+    return patternIndex == pattern.size();
+}
+
+bool LowerEquals16(std::u16string_view value, std::wstring_view lowerValue) {
+    if (value.size() != lowerValue.size()) return false;
+    for (size_t index = 0; index < value.size(); ++index) {
+        if (static_cast<wchar_t>(towlower(static_cast<wchar_t>(value[index]))) != lowerValue[index]) return false;
+    }
+    return true;
+}
+
+bool HasLowerExtension16(std::u16string_view name, std::wstring_view extension) {
+    const size_t dot = name.find_last_of(u'.');
+    return dot != std::u16string_view::npos && LowerEquals16(name.substr(dot + 1), extension);
+}
+
 std::vector<std::wstring> Tokenize(std::wstring_view text) {
     std::vector<std::wstring> tokens;
     std::wstring current;
@@ -119,22 +186,37 @@ const FilterDefinition* FilterRegistry::Find(std::wstring_view key) const { cons
 
 FilterRegistry FilterRegistry::WithDefaults() {
     FilterRegistry registry;
-    registry.Register(L"ext", {[](std::wstring_view v) -> std::optional<FilterValue> { std::wstring x(v); if (!x.empty() && x.front() == L'.') x.erase(0, 1); return x.empty() ? std::nullopt : std::optional<FilterValue>(Lower(x)); }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const Candidate& c) { const size_t dot = c.name.find_last_of(L'.'); return dot != std::wstring::npos && Lower(std::wstring_view(c.name).substr(dot + 1)) == extension; }; }});
+    registry.Register(L"ext", {[](std::wstring_view v) -> std::optional<FilterValue> { std::wstring x(v); if (!x.empty() && x.front() == L'.') x.erase(0, 1); return x.empty() ? std::nullopt : std::optional<FilterValue>(Lower(x)); }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const Candidate& c) { const size_t dot = c.name.find_last_of(L'.'); return dot != std::wstring::npos && Lower(std::wstring_view(c.name).substr(dot + 1)) == extension; }; }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const CandidateView& c) { return HasLowerExtension16(c.name, extension); }; }});
     registry.Register(L"name", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
         const auto text = std::get<std::wstring>(value);
         return [text](const Candidate& candidate) { return OrdinalContains(candidate.name, text); };
+    }, [](const FilterValue& value) {
+        const auto text = std::get<std::wstring>(value);
+        return [text](const CandidateView& candidate) { return OrdinalContains16(candidate.name, text); };
     }});
     registry.Register(L"folder", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
         const auto text = std::get<std::wstring>(value);
         return [text](const Candidate& candidate) { return OrdinalContains(candidate.folder, text); };
+    }, [](const FilterValue& value) {
+        const auto text = std::get<std::wstring>(value);
+        return [text](const CandidateView& candidate) { return OrdinalContains(candidate.folder, text); };
     }});
-    registry.Register(L"size", {ParseSizeFilter, MakeSizePredicate});
-    registry.Register(L"modified", {ParseDateFilter, MakeDatePredicate});
-    registry.Register(L"kind", {[](std::wstring_view v) -> std::optional<FilterValue> { const auto x = Lower(v); return (x == L"document" || x == L"image" || x == L"video" || x == L"audio" || x == L"archive" || x == L"executable" || x == L"folder") ? std::optional<FilterValue>(x) : std::nullopt; }, [](const FilterValue& v) { const auto k = std::get<std::wstring>(v); return [k](const Candidate& c) { if (k == L"folder") return c.isDirectory; const size_t dot = c.name.find_last_of(L'.'); const std::wstring ext = dot == std::wstring::npos ? L"" : Lower(std::wstring_view(c.name).substr(dot + 1)); if (k == L"image") return ext == L"png" || ext == L"jpg" || ext == L"jpeg" || ext == L"gif"; if (k == L"document") return ext == L"pdf" || ext == L"doc" || ext == L"docx" || ext == L"txt"; if (k == L"video") return ext == L"mp4" || ext == L"mkv"; if (k == L"audio") return ext == L"mp3" || ext == L"wav"; if (k == L"archive") return ext == L"zip" || ext == L"7z"; return ext == L"exe" || ext == L"bat" || ext == L"cmd"; }; }});
+    registry.Register(L"size", {ParseSizeFilter, MakeSizePredicate, [](const FilterValue& value) {
+        const auto filter = std::get<SizeFilter>(value);
+        return [filter](const CandidateView& c) { switch (filter.op) { case SizeFilter::Op::Equal: return c.sizeBytes == filter.first; case SizeFilter::Op::Greater: return c.sizeBytes > filter.first; case SizeFilter::Op::GreaterEqual: return c.sizeBytes >= filter.first; case SizeFilter::Op::Less: return c.sizeBytes < filter.first; case SizeFilter::Op::LessEqual: return c.sizeBytes <= filter.first; case SizeFilter::Op::Range: return c.sizeBytes >= filter.first && c.sizeBytes <= filter.second; } return false; };
+    }});
+    registry.Register(L"modified", {ParseDateFilter, MakeDatePredicate, [](const FilterValue& value) {
+        const auto filter = std::get<DateFilter>(value);
+        return [filter](const CandidateView& c) { return filter.op == DateFilter::Op::GreaterThan ? c.modifiedTime > filter.first : c.modifiedTime >= filter.first && c.modifiedTime <= filter.second; };
+    }});
+    registry.Register(L"kind", {[](std::wstring_view v) -> std::optional<FilterValue> { const auto x = Lower(v); return (x == L"document" || x == L"image" || x == L"video" || x == L"audio" || x == L"archive" || x == L"executable" || x == L"folder") ? std::optional<FilterValue>(x) : std::nullopt; }, [](const FilterValue& v) { const auto k = std::get<std::wstring>(v); return [k](const Candidate& c) { if (k == L"folder") return c.isDirectory; const size_t dot = c.name.find_last_of(L'.'); const std::wstring ext = dot == std::wstring::npos ? L"" : Lower(std::wstring_view(c.name).substr(dot + 1)); if (k == L"image") return ext == L"png" || ext == L"jpg" || ext == L"jpeg" || ext == L"gif"; if (k == L"document") return ext == L"pdf" || ext == L"doc" || ext == L"docx" || ext == L"txt"; if (k == L"video") return ext == L"mp4" || ext == L"mkv"; if (k == L"audio") return ext == L"mp3" || ext == L"wav"; if (k == L"archive") return ext == L"zip" || ext == L"7z"; return ext == L"exe" || ext == L"bat" || ext == L"cmd"; }; }, [](const FilterValue& v) {
+        const auto k = std::get<std::wstring>(v);
+        return [k](const CandidateView& c) { if (k == L"folder") return c.isDirectory; if (k == L"image") return HasLowerExtension16(c.name, L"png") || HasLowerExtension16(c.name, L"jpg") || HasLowerExtension16(c.name, L"jpeg") || HasLowerExtension16(c.name, L"gif"); if (k == L"document") return HasLowerExtension16(c.name, L"pdf") || HasLowerExtension16(c.name, L"doc") || HasLowerExtension16(c.name, L"docx") || HasLowerExtension16(c.name, L"txt"); if (k == L"video") return HasLowerExtension16(c.name, L"mp4") || HasLowerExtension16(c.name, L"mkv"); if (k == L"audio") return HasLowerExtension16(c.name, L"mp3") || HasLowerExtension16(c.name, L"wav"); if (k == L"archive") return HasLowerExtension16(c.name, L"zip") || HasLowerExtension16(c.name, L"7z"); return HasLowerExtension16(c.name, L"exe") || HasLowerExtension16(c.name, L"bat") || HasLowerExtension16(c.name, L"cmd"); };
+    }});
     return registry;
 }
 
@@ -142,6 +224,14 @@ bool Query::Matches(const Candidate& candidate) const { return std::all_of(predi
 bool Query::MatchesWithoutFolder(const Candidate& candidate) const {
     return std::all_of(predicatesWithoutFolder.begin(), predicatesWithoutFolder.end(),
                        [&](const auto& predicate) { return predicate(candidate); });
+}
+bool Query::MatchesView(const CandidateView& candidate) const {
+    return viewCompatible && std::all_of(viewPredicates.begin(), viewPredicates.end(),
+                                         [&](const auto& predicate) { return predicate(candidate); });
+}
+bool Query::MatchesViewWithoutFolder(const CandidateView& candidate) const {
+    return viewCompatible && std::all_of(viewPredicatesWithoutFolder.begin(), viewPredicatesWithoutFolder.end(),
+                                         [&](const auto& predicate) { return predicate(candidate); });
 }
 bool OrdinalContains(std::wstring_view h, std::wstring_view n) { if (n.empty()) return true; for (size_t i = 0; i + n.size() <= h.size(); ++i) if (CompareStringOrdinal(h.data() + i, static_cast<int>(n.size()), n.data(), static_cast<int>(n.size()), TRUE) == CSTR_EQUAL) return true; return false; }
 bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
@@ -180,12 +270,18 @@ bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
 }
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
     Query query;
-    const auto addPredicate = [&query](Predicate predicate, bool requiresFolder) {
+    const auto addPredicate = [&query](Predicate predicate, ViewPredicate viewPredicate, bool requiresFolder) {
         query.predicates.push_back(predicate);
         if (requiresFolder) {
             query.requiresFolder = true;
         } else {
             query.predicatesWithoutFolder.push_back(std::move(predicate));
+        }
+        if (!viewPredicate) {
+            query.viewCompatible = false;
+        } else {
+            query.viewPredicates.push_back(viewPredicate);
+            if (!requiresFolder) query.viewPredicatesWithoutFolder.push_back(std::move(viewPredicate));
         }
     };
     for (const auto& token : Tokenize(text)) {
@@ -195,17 +291,24 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
             const auto value = std::wstring_view(token).substr(colon + 1);
             if (const auto* definition = registry.Find(key)) {
                 const auto parsed = definition->parseValue(value);
-                if (parsed) addPredicate(definition->makePredicate(*parsed), Lower(key) == L"folder");
+                if (parsed) {
+                    const bool requiresFolder = Lower(key) == L"folder";
+                    const ViewPredicate viewPredicate = definition->makeViewPredicate
+                        ? definition->makeViewPredicate(*parsed) : ViewPredicate{};
+                    addPredicate(definition->makePredicate(*parsed), viewPredicate, requiresFolder);
+                }
                 else query.invalidFilters.push_back(std::wstring(key));
                 continue;
             }
             query.unrecognizedKeys.push_back(std::wstring(key));
         }
         if (token.find_first_of(L"*?") != std::wstring::npos) {
-            addPredicate([token](const Candidate& candidate) { return GlobMatches(candidate.name, token); }, false);
+            addPredicate([token](const Candidate& candidate) { return GlobMatches(candidate.name, token); },
+                         [token](const CandidateView& candidate) { return GlobMatches16(candidate.name, token); }, false);
         } else {
             if (query.primaryTerm.empty()) query.primaryTerm = token;
-            addPredicate([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); }, false);
+            addPredicate([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); },
+                         [token](const CandidateView& candidate) { return OrdinalContains16(candidate.name, token); }, false);
         }
     }
     return query;

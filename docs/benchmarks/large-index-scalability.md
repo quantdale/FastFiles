@@ -102,7 +102,7 @@ At 1M, incremental `p → ph → pho → phot → photo` searches returned 4,096
 
 Supersession is generation-safe but not cancellable on the indexed path: UI generation checks discard stale completions, while the engine completes old work and sends its response. A broad old request can therefore consume CPU/memory while a newer selective request waits or competes; no result-order correctness defect was found in the inspected path.
 
-## Indexed-search materialization optimization follow-up
+## Path-materialization optimization — historical stage
 
 The 2026-08-10 follow-up keeps the historical baseline above and adds the optimized Release rerun. The resulting path is:
 
@@ -184,4 +184,94 @@ The first clear unacceptable boundary is between 100K and 500K: 100K is noticeab
 
 `NEXT SINGLE OPTIMIZATION SLICE: reduce per-entry name conversion/copying with a projection-backed candidate view or exact filename prefilter, guided by the same benchmark; cancellation remains deferred.`
 
-This benchmark slice intentionally does not implement that optimization.
+This historical path-materialization slice intentionally did not implement the next candidate/name optimization.
+
+## Candidate/name materialization optimization — final 2026-08-10 result
+
+This slice preserves the original baseline and the completed path-materialization optimization above, then removes the remaining all-row owning candidate/name construction. The final path is:
+
+```text
+query parse
+→ SQLite volume metadata lookup
+→ streaming projection row/view traversal
+→ direct UTF-16 filename/metadata predicates
+→ lazy full-folder reconstruction only for scope/folder survivors or accepted results
+→ owning SearchResult materialization only for accepted rows
+→ existing ordering, cap-before-sort, response materialization, and serialization
+```
+
+The projection lock protects `NamePool` view lifetimes. Built-in predicates have view equivalents; custom predicates without a view factory retain the existing owning fallback. No query syntax, ordering, identity, scope, or result-cap behavior changed.
+
+### Before/after medians for this slice
+
+| Index | Query | Previous Median | New Median | Speedup |
+| ----: | ----- | --------------: | ---------: | ------: |
+| 100K | Selective | 46.00 ms | 17.88 ms | 2.57x |
+| 500K | Selective | 245.44 ms | 132.88 ms | 1.85x |
+| 1M | Selective | 470.61 ms | 293.18 ms | 1.61x |
+| 1M | No match | 472.99 ms | 300.96 ms | 1.57x |
+| 1M | Broad | 441.56 ms | 58.41 ms | 7.56x |
+
+Full query-class medians are ordered `selective / moderate / broad / no-match / prefix / extension / worst-substring`:
+
+| Scale | Previous (ms) | New (ms) |
+| ----: | ------------: | --------: |
+| 10K | 1.68 / 3.74 / 7.41 / 1.73 / 4.01 / 7.23 / 6.63 | 0.68 / 2.75 / 6.42 / 0.73 / 2.88 / 6.07 / 4.81 |
+| 100K | 46.00 / 53.47 / 43.93 / 40.64 / 48.49 / 52.04 / 46.68 | 17.88 / 21.87 / 14.55 / 18.67 / 21.79 / 13.37 / 16.07 |
+| 500K | 245.44 / 228.69 / 224.66 / 227.59 / 220.23 / 213.83 / 221.02 | 132.88 / 46.48 / 36.36 / 135.76 / 46.82 / 35.30 / 38.89 |
+| 1M | 470.61 / 446.99 / 441.56 / 472.99 / 449.72 / 446.91 / 447.06 | 293.18 / 69.74 / 58.41 / 300.96 / 69.91 / 58.60 / 61.17 |
+
+### Stage attribution — 1M selective
+
+| Stage | Previous | New | % New |
+| ----- | -------: | ---: | -----: |
+| Full parent-path reconstruction | 0.014 ms | 0.008 ms | <0.1% |
+| Lightweight owning candidate/name work | 411.42 ms | 0.003 ms | <0.1% |
+| Projection traversal + direct matching/filter/sort | 30.87 ms | 271.79 ms | 89.1% |
+| SQLite metadata query | 33.10 ms | 33.24 ms | 10.9% |
+| Query parse | 0.010 ms | 0.007 ms | <0.1% |
+| Response materialization | 0.002 ms | 0.001 ms | <0.1% |
+| Total sampled run | 475.22 ms | 305.05 ms | 100% |
+
+The sampled new total is higher than the 293.18 ms warm median because the table uses one instrumented run for attribution. The 411 ms all-row candidate/name stage is removed; the new dominant work is raw projection traversal plus the linear direct filename predicate scan.
+
+### Allocation/materialization counts — 1M selective
+
+| Item | Previous | New |
+| ---- | -------: | ---: |
+| Projection rows examined | 1,000,000 | 1,000,000 |
+| Owning candidate objects | 1,000,000 | 1 |
+| Owning name copies | 1,000,000 | 1 |
+| Path materializations | 1 | 1 |
+| SearchResult objects | 1 | 1 |
+
+Broad queries retain only the accepted capped set: the final run examined 13,779 rows before the exact 4,096 cap, materialized 4,096 owning candidates/names/results, and preserved the historical wire-truncated 3,955-row response.
+
+### Incremental search — 1M
+
+| Query | Previous | New | Speedup |
+| ----- | -------: | ---: | ------: |
+| `p` | 445.45 ms | 55.44 ms | 8.03x |
+| `ph` | 448.34 ms | 70.53 ms | 6.36x |
+| `pho` | 446.03 ms | 70.85 ms | 6.29x |
+| `phot` | 444.62 ms | 71.04 ms | 6.26x |
+| `photo` | 446.84 ms | 70.41 ms | 6.35x |
+
+### Memory — 1M private bytes
+
+| Measurement | Previous | New |
+| ----------- | -------: | ---: |
+| Database/index open | 5.5 MB | 6.0 MB |
+| Selective peak | 540.4 MB | 466.3 MB |
+| Broad peak | 537.0 MB | 473.9 MB |
+| Post-query retained | 530.5 MB | 475.3 MB |
+
+### Semantic equivalence
+
+Focused deterministic engine/search coverage remains passing for selective, no-match, broad/capped, filename, parent-path, extension, prefix/glob, case-insensitive, multi-term, nested duplicate names, path ordering, folder predicates, current-folder scope, Unicode/locale-independent matching, surrogate-pair wildcard behavior, and disabled/unavailable-volume boundaries. The view matcher is directly checked against the owning matcher for built-in predicates.
+
+`PRIMARY BOTTLENECK AFTER CANDIDATE OPTIMIZATION: raw projection traversal plus direct UTF-16 filename matching/filtering (271.79 ms, 89.1% of the sampled 1M selective search)`
+
+`NEXT SINGLE OPTIMIZATION SLICE: reduce projection iteration/name-predicate scan cost, guided by dense live-entry traversal or a narrowly measured exact filename prefilter; SQLite schema work and cancellation remain separate.`
+
+The candidate/name materialization optimization is complete; this benchmark does not implement the next slice.

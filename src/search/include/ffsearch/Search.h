@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,14 @@ SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const Sea
 using CandidateMaterializer = std::function<bool(Candidate&)>;
 SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const SearchRequest& request,
                                   const CandidateMaterializer& materialize,
+                                  const std::function<bool()>& cancelled = {});
+
+using CandidateViewVisitor = std::function<bool(const CandidateView&)>;
+using CandidateViewEnumerator = std::function<void(const CandidateViewVisitor&)>;
+using CandidateViewMaterializer = std::function<std::optional<Candidate>(const CandidateView&)>;
+SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
+                                  const SearchRequest& request,
+                                  const CandidateViewMaterializer& materialize,
                                   const std::function<bool()>& cancelled = {});
 void SortResults(std::vector<SearchResult>& results, SortField field, bool descending);
 MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term);

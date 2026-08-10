@@ -39,6 +39,7 @@ public:
     // than adding production logging.
     struct SearchTimings {
         double sqliteMetadataMs = 0.0;
+        double projectionTraversalMs = 0.0;
         double candidateMaterializationMs = 0.0;
         double lightweightCandidateMaterializationMs = 0.0;
         double lazyPathMaterializationMs = 0.0;
@@ -47,8 +48,12 @@ public:
         double responseMaterializationMs = 0.0;
         double totalMs = 0.0;
         size_t candidateCount = 0;
+        size_t projectionRowsExamined = 0;
+        size_t candidateObjectsMaterialized = 0;
+        size_t candidateNameCopies = 0;
         size_t candidatesVisited = 0;
         size_t resultCount = 0;
+        size_t searchResultObjectsMaterialized = 0;
         size_t lazyPathMaterializationCount = 0;
         bool truncated = false;
     };
