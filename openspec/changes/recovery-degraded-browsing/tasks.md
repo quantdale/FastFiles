@@ -19,7 +19,7 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 - [ ] 3.1 `ColumnView::SetEngineStatus(state, privilegedPathActive)` with per-state text.
 - [ ] 3.2 Badge click in the `Unavailable` state invokes the retry callback.
-- [ ] 3.3 Settings dialog no longer auto-opens at launch (remove the unconditional `ShowWindow` from `SettingsDialog::Initialize`; shown on demand via Settings menu / Ctrl+,).
+- [x] 3.3 Settings dialog no longer auto-opens at launch (remove the unconditional `ShowWindow` from `SettingsDialog::Initialize`; shown on demand via Settings menu / Ctrl+,). — complete; source inspection and rebuilt Debug launch-window evidence are in `evidence/settings-launch-visibility.md`.
 
 ## 4. Publish-failure surfacing (design D4)
 
