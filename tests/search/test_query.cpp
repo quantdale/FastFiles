@@ -62,6 +62,10 @@ int main() {
     const auto simpleLiteral = ffsearch::ParseQuery(L"REPORT", registry);
     Check(simpleLiteral.simpleLiteralName && simpleLiteral.MatchesView(reportView),
           "simple literal queries use the prepared projection matcher");
+    const auto shortLiteral = ffsearch::ParseQuery(L"ph", registry);
+    const auto bmhLiteral = ffsearch::ParseQuery(L"phot", registry);
+    Check(!shortLiteral.simpleLiteralUseBmh && bmhLiteral.simpleLiteralUseBmh,
+          "ASCII matcher selects BMH only beyond the short-needle boundary");
     const ffsearch::Candidate upperAscii{L"Report.TXT", L"C:\\ascii", 1, 0, false};
     const ffsearch::CandidateView upperAsciiView{u"Report.TXT", upperAscii.folder, upperAscii.sizeBytes,
                                                  upperAscii.modifiedTime, upperAscii.isDirectory,

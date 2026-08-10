@@ -94,6 +94,16 @@ size_t ChooseAsciiAnchor(std::u16string_view needle) {
     return anchor;
 }
 
+std::array<size_t, 128> BuildAsciiShifts(std::u16string_view needle) {
+    std::array<size_t, 128> shifts{};
+    shifts.fill(needle.size());
+    if (needle.size() < 2) return shifts;
+    for (size_t index = 0; index + 1 < needle.size(); ++index) {
+        shifts[needle[index]] = needle.size() - 1 - index;
+    }
+    return shifts;
+}
+
 bool AnchorContains(std::u16string_view haystack, std::u16string_view needle,
                     char16_t anchor, size_t anchorIndex) {
     if (needle.empty()) return true;
@@ -105,6 +115,23 @@ bool AnchorContains(std::u16string_view haystack, std::u16string_view needle,
         const size_t start = anchorPosition - anchorIndex;
         if (std::u16string_view(haystack.data() + start, needle.size()) == needle) return true;
         ++anchorPosition;
+    }
+    return false;
+}
+
+bool BoyerMooreHorspoolContains(std::u16string_view haystack, std::u16string_view needle,
+                                const std::array<size_t, 128>& shifts) {
+    if (needle.empty()) return true;
+    if (haystack.size() < needle.size()) return false;
+    const size_t lastIndex = needle.size() - 1;
+    size_t position = lastIndex;
+    while (position < haystack.size()) {
+        const char16_t tail = haystack[position];
+        if (tail == needle.back() &&
+            std::u16string_view(haystack.data() + position - lastIndex, needle.size()) == needle) {
+            return true;
+        }
+        position += tail < shifts.size() ? shifts[tail] : needle.size();
     }
     return false;
 }
@@ -393,8 +420,17 @@ bool EvaluateViewPredicates(const std::vector<ViewPredicate>& predicates,
     return true;
 }
 
+bool MatchSimpleLiteral(const Query& query, const CandidateView& candidate) {
+    return candidate.nameAsciiLower && query.simpleLiteralUseBmh
+        ? BoyerMooreHorspoolContains(candidate.name, query.simpleLiteralFolded, query.simpleLiteralShifts)
+        : OrdinalContains16Prepared(candidate.name, query.simpleLiteralTerm, query.simpleLiteralFolded,
+                                    candidate.nameAsciiLower, query.simpleLiteralAnchor,
+                                    query.simpleLiteralAnchorIndex);
+}
+
 bool EvaluateSimpleLiteral(const Query& query, const CandidateView& candidate,
                            MatchDiagnostics* diagnostics) {
+    if (diagnostics == nullptr) return MatchSimpleLiteral(query, candidate);
     DiagnosticsScope scope(diagnostics);
     if (diagnostics != nullptr) {
         ++diagnostics->predicateEvaluations;
@@ -402,9 +438,7 @@ bool EvaluateSimpleLiteral(const Query& query, const CandidateView& candidate,
         ++diagnostics->substringSearches;
     }
     const auto start = diagnostics != nullptr ? Clock::now() : Clock::time_point{};
-    const bool matched = OrdinalContains16Prepared(candidate.name, query.simpleLiteralTerm,
-                                                   query.simpleLiteralFolded, candidate.nameAsciiLower,
-                                                   query.simpleLiteralAnchor, query.simpleLiteralAnchorIndex);
+    const bool matched = MatchSimpleLiteral(query, candidate);
     if (diagnostics != nullptr) {
         const double elapsed = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
         diagnostics->predicateDispatchMs += elapsed;
@@ -536,6 +570,8 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
         query.simpleLiteralAnchorIndex = ChooseAsciiAnchor(query.simpleLiteralFolded);
         query.simpleLiteralAnchor = query.simpleLiteralFolded.empty()
             ? 0 : query.simpleLiteralFolded[query.simpleLiteralAnchorIndex];
+        query.simpleLiteralShifts = BuildAsciiShifts(query.simpleLiteralFolded);
+        query.simpleLiteralUseBmh = query.simpleLiteralFolded.size() >= 4;
     }
     return query;
 }

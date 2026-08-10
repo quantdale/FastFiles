@@ -385,3 +385,41 @@ Focused deterministic search tests pass, including new uppercase-ASCII fast-path
 `NEXT SINGLE OPTIMIZATION SLICE: evaluate an evidence-backed secondary filename-search index/FTS design or a narrowly targeted failed-literal matcher improvement; do not implement it in this slice.`
 
 Cancellation, snapshot changes, SQL schema redesign, MFT/USN activation, and security/signing work remain deferred.
+
+## Failed literal filename matcher optimization
+
+This follow-up slice measured and optimized only failed direct literal filename matching. The old simple-literal path pre-folded an ASCII query once, selected a rare anchor, scanned each ASCII-compatible name with `u16string_view::find` plus folded-view equality, and used a per-window `CompareStringOrdinal(..., TRUE)` fallback for uppercase/non-ASCII cases. It already rejected a needle longer than the candidate name before searching.
+
+The isolated 1M matcher benchmark used the real synthetic filename distribution, plus short/long, late-match, common-prefix, and Unicode cases:
+
+| Strategy | Failed | Early | Late | Short 2–4 | Long | Common prefix | Unicode fallback |
+| -------- | -----: | ----: | ---: | --------: | ----: | ------------: | ----------------: |
+| Current anchor | 19.1 ms | 22.7 ms | 26.6 ms | 25.5 ms | 16.0 ms | 21.7 ms | exact fallback |
+| First + last rejection | 16.8 ms | 23.6 ms | 22.7 ms | 22.5–25.0 ms | 15.2 ms | 46.6 ms | exact fallback |
+| BMH candidate | 14.5 ms | 21.0 ms | 25.0 ms | 25.5–35.0 ms | 12.6 ms | 16.5 ms | exact fallback |
+
+The selected implementation stores a 128-entry BMH shift table in the prepared `Query`. It is used only for ASCII-compatible names and folded needles of length 4 or more; 1–3 character needles retain the existing anchor path, and all non-ASCII/uppercase cases retain the exact ordinal fallback. The no-diagnostics path also avoids the benchmark diagnostics scope. No persistent lowercase filename copy or secondary index was added.
+
+### Final search evidence
+
+| Scale | Query | Before | After | Speedup |
+| ----: | ----- | -----: | ----: | ------: |
+| 100K | Selective | 7.23 ms | 6.59 ms | 1.10x |
+| 500K | Selective | 72.46 ms | 58.33 ms | 1.24x |
+| 1M | Selective | 131.06 ms | 126.99 ms | 1.03x |
+| 1M | No match | 166.33 ms | 147.90 ms | 1.12x |
+| 1M | Broad | 48.83 ms | 48.82 ms | 1.00x |
+| 1M | Worst substring | 50.92 ms | 49.95 ms | 1.02x |
+| 1M | Extension | 50.27 ms | 49.30 ms | 1.02x |
+
+Final 1M p90/max were selective `129.34/130.71 ms`, no-match `149.38/152.35 ms`, broad `49.99/50.73 ms`, and worst-substring `50.13/51.20 ms`. Incremental `p/ph/pho/phot/photo` was `46.97/56.26/56.38/55.62/55.70 ms` median, so cancellation remains a separate future concern rather than part of this slice.
+
+### Attribution and decision
+
+Using the established projection-only floor (`54.28 ms`) and SQLite metadata floor (`33.98 ms`), the 1M no-match failed-literal residual is approximately `59.64 ms` after this slice, versus approximately `83.73 ms` before it. The combined lower bound is already about `88 ms` before meaningful result work. The full scan remains linear in projection size and still costs `147.90 ms` for a guaranteed no-match query; a secondary filename-search design must therefore be evaluated before further matcher micro-optimization.
+
+`ARCHITECTURAL DECISION: SECONDARY FILENAME INDEX EVALUATION REQUIRED`
+
+`NEW PRIMARY BOTTLENECK: full O(N) projection traversal plus residual literal rejection`
+
+No 2M run was performed because the 1M selective result remained above the optional scale-up gate. An isolated 1M memory check measured approximately `4.9 / 453.8 / 468.8 / 470.1 MiB` for open / rebuild / after broad / post-query, with no material regression against the prior isolated `4.4 / 454.0 / 470.4 / 471.2 MiB` check. Focused and full semantic tests passed for selective/no-match, early/late matching, short and overlong needles, ASCII case-insensitivity, uppercase fallback, Unicode/mixed Unicode, prefix, glob, extension, parent path, multi-term, duplicate names, capped 4,096 results, and ordering.

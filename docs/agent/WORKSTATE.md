@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-10T20:10:00+08:00
-Status: COMPLETE
+Last updated: 2026-08-10T22:45:00+08:00
+Status: IN PROGRESS
 
 ## Repository
 
@@ -11,9 +11,43 @@ HEAD at slice start: `95bbcc89e700c6a03c54ea36dee57284d0a005e2` (`Record indexed
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: uncommitted WORKSTATE checkpoint
+Current slice bookkeeping: product commit pending; final validation checkpoint recorded below
 
-## Current Engineering Slice
+## Active Engineering Slice
+
+Name: Optimize failed literal filename matching
+
+Objective: Determine whether the existing O(N) projection scan can be made materially cheaper by optimizing only literal filename matching, without adding a secondary index or changing search semantics.
+
+Frontier invariant: One failed-literal-matching frontier only. No secondary filename index, FTS, trigram/suffix structure, cancellation, UI, snapshot, projection-layout, SQLite-schema, MFT/USN, or security changes belong in this slice.
+
+Reconciliation: HEAD `c3cf597` is the expected bookkeeping commit after product commit `d0f58a7`; the working tree is clean. Prior benchmark and implementation evidence below remains valid and is the baseline for this slice. The prior instruction not to begin the next filename-index/cancellation slice is superseded by the explicit user request for this matcher evaluation.
+
+Baseline reproduction complete before editing using Release `ffengine_bench_large_index_scalability` at 100K/500K/1M. Fresh medians: 100K selective/no-match/broad/worst-substring `7.23/7.11/12.28/13.17 ms`; 500K `72.46/79.12/32.48/32.34 ms`; 1M selective/no-match/broad/worst-substring `131.06/166.33/48.83/50.92 ms`. 1M p90/max: selective `131.56/138.36 ms`, no-match `167.23/167.60 ms`, broad `48.93/49.03 ms`, worst-substring `52.19/53.27 ms`. Incremental 1M `p/ph/pho/phot/photo = 47.62/56.68/56.76/56.60/56.65 ms`. Results were `1/0/4096/4096`; variation is within the established baseline band.
+
+Completed: traced the current literal matcher and added the narrowest independent matcher measurement seam before product editing.
+
+Matcher trace and microbenchmark complete. The old simple-literal view path is `Query::MatchesView` -> `EvaluateSimpleLiteral` -> `OrdinalContains16Prepared`. Query-side ASCII text is folded once; ASCII-compatible names use a query-selected rare anchor with `std::u16string_view::find` followed by a full folded-view equality check. Uppercase or non-ASCII names, and non-ASCII queries, use a loop of `CompareStringOrdinal(..., TRUE)` for each possible UTF-16 window. Length-too-long candidates reject before either scan. There is no per-candidate allocation, but the ordinal fallback repeats the Win32 comparison for every window; no standard searcher or compiler SIMD path is used.
+
+Added the isolated non-CTest Release target `ffsearch_bench_literal_matcher`, using 1M names from the existing synthetic filename distribution plus short/long/failed/late/common-prefix and Unicode datasets. Pre-change direct-matcher medians (ms) were: failed `19.1`, early `22.7`, late `26.6`, single `24.8`, 2-char `26.9`, 3-char `22.0`, 4-char `27.7`, 5-char `27.4`, medium `26.9`, long `16.1`, too-long `3.4`, common-prefix `21.3`; first+last was better for late/2-4-char cases, while BMH was `14.8/20.9/25.3/45.0/34.6/29.5/25.7/25.0/20.7/12.9/3.6/16.5` respectively. The single-character BMH regression is material; BMH is the clear general winner for failed, medium/long, and common-prefix ASCII cases. Unicode remains the exact fallback and showed no BMH eligibility.
+
+Implemented the minimal production candidate: query-prepared 128-entry BMH shift data is stored only in `Query`; simple ASCII literal matching selects BMH for folded needles of length 4+, keeps the existing rare-anchor matcher for 1-3 characters, and retains the exact ordinal fallback when the name/query is not ASCII-eligible. Added a boundary assertion (`ph` stays anchor, `phot` selects BMH) to `ffsearch_tests`. No persistent lowercase names or auxiliary index was added.
+
+Completed: real Release SearchIndexed benchmark, attribution run, and incremental comparison performed; the measured BMH improvement is retained as the smallest worthwhile matcher change, but no secondary index was implemented.
+
+First post-change real wall-time run (non-diagnostic, same Release harness) measured 1M selective/no-match/broad/worst-substring `133.15/147.13/48.12/49.53 ms`, versus the reproduced `131.06/166.33/48.83/50.92 ms`. BMH materially reduced no-match by about 11.5% but did not move selective or broad; it misses the provisional `<100/<125 ms` engineering bands. The diagnostic run is attribution-only because per-row clocks perturb the full scan; it showed roughly `82 ms` matcher clock and an inflated `93 ms` projection-only floor. The current wall-time floor remains close to the combined projection plus SQLite lower bound, so avoid speculative additional algorithms.
+
+Final multi-scale candidate artifact: selective 100K/500K/1M `6.59/58.33/126.99 ms`; no-match 1M `147.90 ms`; broad `48.82 ms`; worst-substring `49.95 ms`; extension `49.30 ms`. Final 1M p90/max: selective `129.34/130.71 ms`, no-match `149.38/152.35 ms`, broad `49.99/50.73 ms`, worst `50.13/51.20 ms`. Incremental `p/ph/pho/phot/photo = 46.97/56.26/56.38/55.62/55.70 ms`. Estimated no-match residual after the unchanged `54.28 ms` projection floor and `33.98 ms` SQLite floor is `~59.64 ms`, down from `~83.73 ms`; the remaining full scan still justifies secondary-index evaluation.
+
+Memory: isolated 1M open/rebuild/broad/post private bytes `4.9/453.8/468.8/470.1 MiB`, with no material regression. Semantics: focused `ffsearch_tests` and full CTest cover/pass ASCII, uppercase fallback, Unicode/mixed Unicode, short/overlong, prefix, glob, extension, parent path, multi-term, duplicate, cap, and ordering behavior.
+
+Validation: Debug PASS; Analyze PASS; final serial CTest PASS `42/42` with the documented TEMP/TMP override. Manual runtime smoke PASS for rebuilt UI launch, Engine spawn, responsiveness, graceful UI shutdown, and cleanup. The non-elevated `verify.ps1 run` wrapper hung before launching UI/Engine and was terminated; no security bypass was used. `docs/benchmarks/large-index-scalability.json` and `.md` were updated with the candidate evidence and historical progression.
+
+Decision: `SECONDARY FILENAME INDEX EVALUATION REQUIRED`. New primary bottleneck: `full O(N) projection traversal plus residual literal rejection`. 2M: NOT TESTED because 1M selective remained above the optional scale-up gate. Product code, narrow benchmark, semantic test, benchmark artifacts, and this checkpoint are ready for one focused product commit.
+
+NEXT EXACT ACTION: Review staged scope with `git diff --cached --check`, `git diff --cached --stat`, and `git diff --cached`, then create the focused product commit. After that, record its hash here and make exactly one next-slice recommendation without implementing it.
+
+## Previous Engineering Slice
 
 Name: Optimize projection traversal and direct filename matching
 

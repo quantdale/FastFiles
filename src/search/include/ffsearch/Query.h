@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -118,6 +119,8 @@ struct Query {
     std::u16string simpleLiteralFolded;
     char16_t simpleLiteralAnchor = 0;
     size_t simpleLiteralAnchorIndex = 0;
+    std::array<size_t, 128> simpleLiteralShifts{};
+    bool simpleLiteralUseBmh = false;
     bool requiresFolder = false;
     bool viewCompatible = true;
     bool simpleLiteralName = false;
