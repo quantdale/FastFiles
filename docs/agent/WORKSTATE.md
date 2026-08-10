@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T03:02:00+08:00
-Status: IN PROGRESS — OPENSPEC VALIDATION RECONCILIATION
+Last updated: 2026-08-11T03:08:00+08:00
+Status: STOPPED — EXTERNAL VALIDATION BLOCKERS
 
 ## Repository
 
@@ -23,13 +23,13 @@ Frontier invariant: One degraded-browsing discovery/lifecycle validation slice o
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: run the focused documentation-drift gate after the OpenSpec task/evidence reconciliation, inspect the bounded diff, and commit if clean. Remaining signed/elevated/clean-host/interactive gates are external; do not alter pins or activate the privileged path.
+Next exact action: when authorized signing material/elevated clean-host access and interactive desktop evidence are available, execute the remaining external release gates; do not alter pins or activate the privileged path. No safe local implementation frontier remains in the current backlog.
 
 Status-chip policy milestone: recovery task 3.1 was locally complete in source but left unchecked because its state-to-text mapping had no deterministic renderer-independent test. Commit `387228f` (`Add deterministic engine status policy coverage`) added `src/ui/src/EngineStatusPolicy.h`, routed `ColumnView::Render` through it, and registered `ffengine_status_tests` covering Starting, Connected/privileged, Connected/degraded, and Unavailable (including fail-closed privilege presentation). Focused test passed; full Debug build, Analyze build, and serial CTest passed 43/43 on 2026-08-11. Privileged runtime activation remains intentionally unclaimed because pins are placeholders.
 
 External-blocker evidence milestone: commit `8caf002` updated `openspec/changes/close-independent-validation-gaps/evidence/documentation-and-hygiene.md` to distinguish the historical 42-test reconciliation from the current 43/43 gate and to record placeholder pins, clean process state, and unavailable signed/elevated/clean-host/interactive prerequisites. The local `openspec` executable was absent, but the pinned official package now supplies strict validation; no open external task was marked complete in that prior checkpoint.
 
-OpenSpec validation milestone: `npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive` passed all 45 changes/specs with 0 failures on 2026-08-11. This closes `close-independent-validation-gaps` task 7.2 without a global install or repository mutation; the remaining blockers are signing/elevation/clean-host/interactive only.
+OpenSpec validation milestone: commit `3fe729b` records `npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive` passing all 45 changes/specs with 0 failures on 2026-08-11. This closes `close-independent-validation-gaps` task 7.2 without a global install or repository mutation; the remaining blockers are signing/elevation/clean-host/interactive only.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
