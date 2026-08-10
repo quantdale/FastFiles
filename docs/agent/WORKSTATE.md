@@ -1,33 +1,41 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T00:35:00+08:00
+Last updated: 2026-08-11T00:03:15+08:00
 Status: IN PROGRESS
 
 ## Repository
 
 Path: `C:\Users\Michael Roy\Documents\FastFiles`
 Branch: `recovery/fast-files-20260809`
-HEAD at slice start: `1c2353bb54b5007c48dc922e726716c7241ed6ab` (`Record failed literal matcher validation state`)
+HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record secondary filename index decision`)
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: product commit `0e7ebf6`; this final WORKSTATE update is the bookkeeping commit
+Current slice bookkeeping: integration product commit `90efdf9`; this file is the next-frontier bookkeeping checkpoint
 
 ## Active Engineering Slice
 
-Name: Integrate the measured UTF-16 trigram filename index
+Name: Measure the SQLite volume-metadata search bottleneck
 
-Objective: Add the selected UTF-16 trigram postings accelerator to the projection-owned indexed search path while preserving canonical semantics, generation ownership, mutation correctness, and linear fallback safety.
+Objective: Isolate the `GetAllVolumes` metadata-query cost after trigram acceleration and determine whether one narrow, evidence-backed SQL/index change is justified.
 
-Frontier invariant: One secondary-index integration only. No query-language change, SQLite schema migration, cancellation, UI, snapshot, MFT/USN, or security change belongs in this slice.
+Frontier invariant: One SQL measurement/optimization slice only. No query-language change, secondary-index redesign, cancellation, UI, snapshot, MFT/USN, or security change belongs in this slice.
 
-Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42. The next exact action is to inspect projection mutation/rebuild ownership and add the smallest reusable trigram index seam.
+Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 
 Required evidence: vendored SQLite FTS5/trigram capability; canonical-match recall; candidate reduction; query medians/p90; build time; estimated and observed memory; persistent-size proxy; insert/delete/rename batches; duplicate/short/Unicode/current-infix behavior; and an explicit decision record.
 
 Benchmark result: COMPLETE. No production code or SQLite schema changed in `c36f8bd`; the benchmark remains an informational target outside CTest. The selected integration policy is ASCII simple literal terms with at least three UTF-16 units, with short/Unicode/glob/multi-term/folder/metadata queries using the canonical linear path. The accelerator is only a candidate generator; canonical verification remains authoritative.
 
-Reconciliation: HEAD began at `c3cf597` (the expected bookkeeping commit after product commit `d0f58a7`); product commit `0e7ebf6` now contains the matcher slice, and only this WORKSTATE bookkeeping edit remains. Prior benchmark and implementation evidence below remains valid and is the baseline for this slice. The prior instruction not to begin the next filename-index/cancellation slice is superseded by the explicit user request for this matcher evaluation.
+Integration milestone: `Projection` now owns UTF-16 trigram postings keyed to live dense slots, rebuilds them after durable-store projection rebuild/compaction, and updates them on Upsert/Remove/RemoveVolume. Allocation/update failures invalidate only the accelerator; `FilenameCandidateIndices` returns `nullopt` and `IndexPipeline::SearchIndexed` uses the existing canonical scan. Eligible view-compatible simple literals with folded length >=3 use candidate slots; all other queries are unchanged. Focused `ffindexstore_projection_tests` and `ffengine_index_pipeline_tests` pass, including selective, empty no-match, short-term fallback, folder fallback, delete, and rename coverage.
+
+Integration reprofile: the final historical-preserving Release artifact `docs/benchmarks/large-index-scalability-secondary-index.json` covers 100K/500K/1M/2M. Selective/no-match/broad medians were `1.93/2.02/10.99`, `17.71/18.06/29.15`, `34.34/36.25/47.83`, and `64.91/67.84/81.36 ms`; at 2M, selective used one candidate and no-match used zero. The SQLite metadata query was `~65–68 ms`, now the dominant measured stage. The accelerator removes the O(N) projection scan, but SQL remains a separate follow-on slice.
+
+Integration slice status: COMPLETE. Product commit `90efdf971f9f5be61db57102e8b857b6e8036768` contains the projection-owned trigram index, production routing, mutation/fallback tests, benchmark telemetry, and the historical-preserving 100K/500K/1M/2M Release artifact. Debug and Analyze builds passed; focused projection/engine tests passed; full serial CTest passed 42/42 after the documented line-ending normalization; `ffdoc_drift_tests` passed.
+
+Next exact action: inspect the Store implementation and schema for `GetAllVolumes`, add only a focused timing/plan probe if existing telemetry is insufficient, and measure the exact metadata stage on the established Release harness before editing SQL.
+
+Reconciliation: HEAD began at `a24f9bb` with the benchmark decision committed and the working tree clean. The trigram integration is now committed as `90efdf9`; only this bookkeeping update is uncommitted. Prior benchmark and implementation evidence below remains valid historical context.
 
 Baseline reproduction complete before editing using Release `ffengine_bench_large_index_scalability` at 100K/500K/1M. Fresh medians: 100K selective/no-match/broad/worst-substring `7.23/7.11/12.28/13.17 ms`; 500K `72.46/79.12/32.48/32.34 ms`; 1M selective/no-match/broad/worst-substring `131.06/166.33/48.83/50.92 ms`. 1M p90/max: selective `131.56/138.36 ms`, no-match `167.23/167.60 ms`, broad `48.93/49.03 ms`, worst-substring `52.19/53.27 ms`. Incremental 1M `p/ph/pho/phot/photo = 47.62/56.68/56.76/56.60/56.65 ms`. Results were `1/0/4096/4096`; variation is within the established baseline band.
 
