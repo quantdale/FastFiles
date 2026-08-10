@@ -34,7 +34,7 @@ Implementation tasks for the degraded-mode browsing recovery. Behavior contracts
 
 ## 6. Search scope honesty (design D6)
 
-- [ ] 6.1 Relabel scope items to describe browsed-locations coverage; retain engine-availability gating.
+- [x] 6.1 Relabel scope items to describe browsed-locations coverage and reconcile availability with the snapshot-backed degraded path. — complete; source history, exact UI Automation labels, degraded search results, and fallback behavior are recorded in `evidence/development-tree-acceptance.md` and `evidence/status-retry.md`. The stale prior “retain engine-availability gating” clause is replaced by the D6 coverage rule: degraded scopes remain finite browsed-snapshot queries, while indexed coverage is separately labelled and filtered.
 
 ## 7. Tests and acceptance
 

@@ -43,6 +43,6 @@ Why: typical browsing must neither accumulate watches without bound nor silently
 
 ### D6 — Search scopes describe what search has
 
-Scope items relabeled to `Current Folder` / `Current Folder + Browsed Subfolders` / `Current Drive — Browsed Folders Only` / `All Browsed Locations`. The existing engine-availability gating of scopes ≥ 2 is retained.
+Scope items are coverage-labelled: degraded mode uses `Current Folder` / `Current Folder + Browsed Subfolders` / `Current Drive — Browsed Folders Only` / `All Browsed Locations`; persistent indexed coverage uses corresponding indexed labels. Every degraded scope is a finite browsed-snapshot query, so it remains available while the index service is disconnected. The UI reports the fallback source instead of silently rewriting the selected scope, and no label implies whole-drive or all-indexed coverage without that coverage.
 
-Why: honest coverage claims. A later change can restore broad scopes when the snapshot/index genuinely covers them.
+Why: honest coverage claims while preserving useful degraded search. The indexed path remains separately identified and can use persistent-only filtering; a later change can broaden or narrow coverage only with corresponding data and labels.

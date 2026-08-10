@@ -42,7 +42,7 @@ Acceptance-style requirements for making the development build usable as a basic
 
 - **Given** the engine process is not running
 - **When** the UI attempts to connect 5 times with 2-second cadence
-- **Then** the UI displays "Engine unavailable — click to retry" in the status chip
+- **Then** the UI displays "Engine unavailable â€” click to retry" in the status chip
 - **And** the UI stops attempting automatic reconnection
 - **And** the user can click the chip to restart the connection cycle
 
@@ -51,7 +51,7 @@ Acceptance-style requirements for making the development build usable as a basic
 - **Given** the UI is connected to the engine
 - **When** the engine process terminates unexpectedly
 - **Then** the UI attempts to reconnect up to 5 times
-- **And** the status chip shows the connection state throughout (Starting ? Connected ? Starting ? … ? Unavailable)
+- **And** the status chip shows the connection state throughout (Starting ? Connected ? Starting ? â€¦ ? Unavailable)
 - **And** if reconnection succeeds, the UI returns to the Connected state
 
 ### Requirement: Requirement 3: State visibility
@@ -64,10 +64,10 @@ Acceptance-style requirements for making the development build usable as a basic
 
 - **Given** the UI is in various connection states
 - **When** the status chip is rendered
-- **Then** starting state shows "Starting engine…"
+- **Then** starting state shows "Starting engineâ€¦"
 - **And** connected with index shows "Instant search: enabled"
 - **And** connected in degraded mode shows "Instant search: basic (degraded mode)"
-- **And** unavailable state shows "Engine unavailable — click to retry"
+- **And** unavailable state shows "Engine unavailable â€” click to retry"
 
 #### Scenario: No modal at launch
 
@@ -84,7 +84,7 @@ Acceptance-style requirements for making the development build usable as a basic
 
 #### Scenario: Snapshot publish failure
 
-- **Given** a directory's snapshot exceeds the 2×8 MiB slot capacity
+- **Given** a directory's snapshot exceeds the 2Ã—8 MiB slot capacity
 - **When** the UI requests that directory
 - **Then** the engine sends `PublishFailed` to the UI
 - **And** the column displays a clear error message (not stale contents)
@@ -115,15 +115,16 @@ Acceptance-style requirements for making the development build usable as a basic
 ### Requirement: Requirement 6: Honest search scopes
 
 - 6.1 Search scope labels SHALL describe the data actually searched (browsed locations), never implying whole-drive or all-indexed coverage.
-- 6.2 Scopes that require index data SHALL remain disabled while the index service is not active.
+- 6.2 Degraded mode SHALL keep browsed-snapshot scopes available while the index service is not active; scopes SHALL be labelled as browsed coverage and SHALL NOT imply whole-drive or all-indexed coverage. When persistent indexed coverage is active, indexed labels and persistent-only filtering SHALL identify that path.
 
 #### Scenario: Accurate scope labels
 
 - **Given** the user has browsed 3 folders across 2 drives without the index service
 - **When** the search scope dropdown is displayed
-- **Then** available scopes include "Current Folder", "Current Folder + Browsed Subfolders", "Current Drive — Browsed Folders Only", and "All Browsed Locations"
+- **Then** available scopes include "Current Folder", "Current Folder + Browsed Subfolders", "Current Drive â€” Browsed Folders Only", and "All Browsed Locations"
 - **And** no scope implies whole-drive or all-indexed coverage
-- **And** scopes requiring the index service are disabled
+- **And** broad scopes remain backed by the browsed snapshot while the service is inactive
+- **And** the UI reports the browsed-snapshot fallback rather than silently rewriting the selected scope
 
 ### Requirement: Requirement 7: Acceptance
 
@@ -154,6 +155,6 @@ Acceptance-style requirements for making the development build usable as a basic
 - **Given** the engine executable is missing from all candidate locations
 - **When** the UI is launched
 - **Then** the UI attempts to connect 5 times
-- **Then** the UI displays "Engine unavailable — click to retry" in the status chip
+- **Then** the UI displays "Engine unavailable â€” click to retry" in the status chip
 - **And** the UI does not silently retry forever
 - **And** clicking the chip restarts the connection cycle
