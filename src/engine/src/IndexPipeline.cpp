@@ -594,7 +594,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             }
         }
         const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-        const auto metadata = store_.GetAllVolumes();
+        const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
         if (timings != nullptr) {
             timings->sqliteMetadataMs =
                 std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();
@@ -747,7 +747,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             }
         }
         const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-        const auto metadata = store_.GetAllVolumes();
+        const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
         if (timings != nullptr) {
             timings->sqliteMetadataMs =
                 std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();

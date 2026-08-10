@@ -362,6 +362,14 @@ std::optional<VolumeMetadata> Store::GetVolumeMetadata(VolumeRowId volumeRowId) 
 }
 
 std::vector<VolumeMetadata> Store::GetAllVolumes() {
+    return GetAllVolumesImpl(true);
+}
+
+std::vector<VolumeMetadata> Store::GetAllVolumesWithoutEntryCounts() {
+    return GetAllVolumesImpl(false);
+}
+
+std::vector<VolumeMetadata> Store::GetAllVolumesImpl(const bool includeEntryCounts) {
     std::vector<VolumeMetadata> result;
     if (db_ == nullptr) {
         return result;
@@ -373,7 +381,9 @@ std::vector<VolumeMetadata> Store::GetAllVolumes() {
     }
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         auto meta = ReadVolumeMetadataRow(stmt);
-        meta.entryCount = CountEntries(meta.rowId);
+        if (includeEntryCounts) {
+            meta.entryCount = CountEntries(meta.rowId);
+        }
         result.push_back(std::move(meta));
     }
     return result;

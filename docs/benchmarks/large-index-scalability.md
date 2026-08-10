@@ -461,3 +461,20 @@ The final artifact reports private bytes after rebuild of approximately `59.3/28
 This slice does not optimize SQLite or add search cancellation. Those are separate decisions and require fresh measurements rather than attribution from the pre-index path.
 
 No 2M run was performed because the 1M selective result remained above the optional scale-up gate. An isolated 1M memory check measured approximately `4.9 / 453.8 / 468.8 / 470.1 MiB` for open / rebuild / after broad / post-query, with no material regression against the prior isolated `4.4 / 454.0 / 470.4 / 471.2 MiB` check. Focused and full semantic tests passed for selective/no-match, early/late matching, short and overlong needles, ASCII case-insensitivity, uppercase fallback, Unicode/mixed Unicode, prefix, glob, extension, parent path, multi-term, duplicate names, capped 4,096 results, and ordering.
+
+## SQL metadata no-count path — 2026-08-11
+
+The secondary-index artifact showed that `GetAllVolumes()` had become the dominant stage because it counted every entry for every volume even though indexed search only needs volume identity, availability, and the resolved root key. The focused change adds `GetAllVolumesWithoutEntryCounts()` and routes both indexed-search branches through it. Rebuild, public metadata, and unavailable-volume reporting retain the counted API and its existing semantics; no schema migration or entry-count cache was added.
+
+The final historical artifact is [large-index-scalability-sql-no-count.json](large-index-scalability-sql-no-count.json). It preserves the previous secondary-index artifact and records the same Release harness at 100K/500K/1M/2M:
+
+| Scale | Selective | No match | Broad |
+| ----: | --------: | -------: | ----: |
+| 100K | 0.03 ms | 0.06 ms | 8.82 ms |
+| 500K | 0.50 ms | 0.62 ms | 11.89 ms |
+| 1M | 0.64 ms | 0.63 ms | 14.29 ms |
+| 2M | 0.55 ms | 2.24 ms | 17.55 ms |
+
+At 2M, the eligible selective query still used one trigram candidate and the no-match query used zero; SQLite metadata timing was approximately `0.10 ms`, down from approximately `65–68 ms`. Broad search retained the existing 4,096-result cap and used 590,624 candidates. The result is now below the low-tens-of-milliseconds engineering target for eligible selective/no-match queries through 2M; no further SQL redesign is justified by this measurement.
+
+The benchmark process exited after writing the complete artifact when the external 120-second command deadline expired; post-run checks found no live benchmark process, no leftover disposable benchmark directories, and valid JSON with 4 datasets, 179 runs, and 28 summaries. Focused Store/engine tests passed before the benchmark. Full Debug/Analyze/CTest validation and the bounded product commit remain the next gate for this slice.

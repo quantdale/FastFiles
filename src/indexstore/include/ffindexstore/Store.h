@@ -82,6 +82,9 @@ public:
     std::optional<VolumeRowId> GetOrCreateVolume(const VolumeKey& key);
     std::optional<VolumeMetadata> GetVolumeMetadata(VolumeRowId volumeRowId);
     std::vector<VolumeMetadata> GetAllVolumes();
+    // Indexed search needs volume identity/availability only; this avoids
+    // counting every entry when the caller does not need entryCount.
+    std::vector<VolumeMetadata> GetAllVolumesWithoutEntryCounts();
 
     // tasks.md 7.2/7.3: mark availability without touching entries.
     bool SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp);
@@ -134,6 +137,8 @@ public:
     FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 
 private:
+    std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
+
     sqlite3* db_ = nullptr;
 };
 

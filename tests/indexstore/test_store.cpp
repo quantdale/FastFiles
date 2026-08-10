@@ -134,6 +134,27 @@ void TestVolumeMetadataRoundTrips() {
     Check(meta->lastSeenTime == 42, "last-seen timestamp is recorded");
 }
 
+void TestAllVolumeMetadataCanSkipEntryCounts() {
+    Store store;
+    store.Open(FreshDbPath("ffindexstore_test_metadata_without_counts.db"));
+    VolumeKey key;
+    key.serialNumber = 8;
+    const auto vol = *store.GetOrCreateVolume(key);
+    EntryRecord entry;
+    entry.id = FileId{100, 0};
+    entry.parentId = FileId{100, 0};
+    entry.name = u"root";
+    Check(store.ApplyBatch(vol, {{EntryChangeKind::Upsert, entry}}),
+          "metadata count probe stores an entry");
+
+    const auto counted = store.GetAllVolumes();
+    const auto uncounted = store.GetAllVolumesWithoutEntryCounts();
+    Check(counted.size() == 1 && counted[0].entryCount == 1,
+          "the existing all-volume metadata API retains entry counts");
+    Check(uncounted.size() == 1 && uncounted[0].rowId == vol && uncounted[0].entryCount == 0,
+          "the search metadata API returns identity without scanning entry counts");
+}
+
 void TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes() {
     Store store;
     store.Open(FreshDbPath("ffindexstore_test_disconnect.db"));
@@ -271,6 +292,7 @@ int main() {
     TestEntryIdentityIsKeyedByVolumeAndFrnNotPath();
     TestBatchUpsertAndRemove();
     TestVolumeMetadataRoundTrips();
+    TestAllVolumeMetadataCanSkipEntryCounts();
     TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes();
     TestForgetVolumeIsExplicitAndRemovesEntries();
     TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint();
