@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T01:05:00+08:00
+Last updated: 2026-08-11T01:35:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,15 +11,21 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage percentage and details-layout reconciliation changes are uncommitted
+Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validation commit `3adaf7b`
 
 ## Active Engineering Slice
 
-Name: Reconcile Storage “% of Parent” validation tasks
+Name: Validate pinned-authentication hardening
 
-Objective: Verify the already-implemented percentage helper/display/sort behavior against `close-independent-validation-gaps` tasks 1.1–1.7, add only missing deterministic headless cases, and reconcile the task checkboxes with source/test evidence.
+Objective: Validate the existing Authenticode thumbprint comparison hardening, add only the missing deterministic partial-pin regression, and reconcile the OpenSpec evidence without changing placeholder pins or fail-closed behavior.
 
-Frontier invariant: One Storage percentage validation slice only. No details-pane layout, security/pin, snapshot, search, SQL, or privileged-path work belongs in this slice.
+Frontier invariant: One authentication-comparison hardening slice only. Do not change pinned values, peer paths, pipe ACLs, service privileges, or privileged MFT/USN activation. No unrelated UI, search, SQL, or runtime-install work belongs in this slice.
+
+Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
+
+Next exact action: run the final Debug/Analyze/full serial CTest gates for the authentication-test addition, inspect the bounded diff, and commit the security-validation slice. Then select the next non-external validation task.
+
+Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
 Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 
