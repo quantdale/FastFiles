@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T01:41:00+08:00
+Last updated: 2026-08-11T01:43:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -15,15 +15,15 @@ Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validat
 
 ## Active Engineering Slice
 
-Name: Reconcile degraded search-scope contract
+Name: Audit remaining independent validation backlog
 
-Objective: Reconcile the stale D6/task-6.1 engine-gating wording with the established snapshot-backed degraded search behavior, preserving exact runtime labels and making no production/security changes.
+Objective: Record the completed degraded recovery contract and select the next safe independent validation slice while preserving fail-closed privileged authentication.
 
 Frontier invariant: One degraded-browsing discovery/lifecycle validation slice only. Do not begin signed-service/MFT/USN validation, alter security pins, or change unrelated UI/search/SQL code. Runtime checks must use the disposable Debug build and clean up any child Engine process.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: read the OpenSpec artifact-update instructions, revise only the D6/spec/task wording justified by source and runtime evidence, run the drift guard, and commit the bounded reconciliation.
+Next exact action: inspect `close-independent-validation-gaps/tasks.md` and its existing evidence, reconcile Git reality, and choose one bounded local validation task that does not require signing credentials or privileged-service activation.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
 
@@ -47,7 +47,9 @@ Recovery lost-Engine milestone: commit `0805bae` records that the normal develop
 
 Recovery scope-authority checkpoint: `SearchPanel::RefreshScopeLabels` and the snapshot-backed `UpdateScopeAvailability` policy both originate in `c6dd602`; degraded mode intentionally keeps browsed-location scopes available while the service is disconnected. The task wording still says to retain prior engine gating, so runtime evidence must distinguish the actual labels from the unresolved specification clause before task 6.1 is closed.
 
-Development-tree acceptance milestone: commit `8652401` records that the disposable Debug UI/Engine pair completed the five-level navigation, Alt+Left, Backspace/up, file selection/open, real Ctrl+C/Ctrl+V copy, degraded `acceptance` search, exact scope-label observation, and synthetic-root drive listing. The missing-engine/retry run in `evidence/status-retry.md` completes the acceptance chain. Task 7.3 is checked; task 6.1 remains open only for the contradictory prior engine-gating clause, and task 3.1 remains blocked from privileged-active runtime validation by placeholder pins.
+Development-tree acceptance milestone: commit `8652401` records that the disposable Debug UI/Engine pair completed the five-level navigation, Alt+Left, Backspace/up, file selection/open, real Ctrl+C/Ctrl+V copy, degraded `acceptance` search, exact scope-label observation, and synthetic-root drive listing. The missing-engine/retry run in `evidence/status-retry.md` completes the acceptance chain. Tasks 6.1 and 7.3 are checked; recovery task 3.1 remains open only for privileged-active runtime validation blocked by placeholder pins.
+
+Scope-contract reconciliation milestone: commit `feca05a` updates D6, Requirement 6.2, and task 6.1 to the source-backed rule that degraded browsed-snapshot scopes remain available with honest labels while indexed coverage is separately identified and filtered. The pre-existing invalid CP1252 bytes in `spec.md` were mechanically normalized to UTF-8/CRLF as part of the artifact edit; `ffdoc_drift_tests` passed.
 
 Status/retry evidence commit: `b6e401e` records the isolated native-environment launch, real Starting/Unavailable/degraded captures, five-attempt exhaustion, and a real retry-chip cycle. The subsequent lost-Engine reconnect evidence is now ready for its own focused commit.
 
