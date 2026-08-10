@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T02:27:00+08:00
+Last updated: 2026-08-11T02:33:00+08:00
 Status: STOPPED — EXTERNAL VALIDATION BLOCKERS
 
 ## Repository
@@ -58,6 +58,8 @@ Pinned-signature procedure frontier: commit `ff06a99` evidences close-independen
 Final validation milestone: commit `c906f60` was followed by a no-op Debug build, a clean Analyze build, and serial full CTest `42/42` pass under the established user TEMP/TMP environment. `git status --short` was clean before this checkpoint, no `FastFiles` or `FastFilesEngine` processes remained, both configured thumbprints remain placeholder `{}` values, and no privileged service was activated.
 
 Terminal blocker audit: recovery task 3.1 is locally complete; only its privileged-active runtime observation is blocked by placeholder pins. Independent-validation tasks 4.2 (expired/untrusted fixtures), 4.5–4.8 (signed/elevated/real MFT-USN/privilege/clean-host), 5.1–5.3 (interactive visual matrix), and 7.2 (unavailable OpenSpec CLI) remain open. These are recorded as unavailable rather than fabricated; after the status-policy slice, no further safe local implementation frontier remains in the current backlog.
+
+Desktop-validation tooling audit: the installed `computer-use` skill was read, but its `@oai/sky` package exposes no required `documentation()` API (only control methods). No desktop action was taken without the mandatory guidance/confirmation material; interactive visual tasks remain unverified and external.
 
 Status/retry evidence commit: `b6e401e` records the isolated native-environment launch, real Starting/Unavailable/degraded captures, five-attempt exhaustion, and a real retry-chip cycle. The subsequent lost-Engine reconnect evidence is now ready for its own focused commit.
 
