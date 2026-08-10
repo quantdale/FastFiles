@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T01:35:00+08:00
+Last updated: 2026-08-11T02:05:00+08:00
 Status: IN PROGRESS
 
 ## Repository
@@ -11,21 +11,25 @@ HEAD at slice start: `a24f9bb04a649290efdd9ad2917364996e2db1cc` (`Record seconda
 Working tree at slice start: clean
 Benchmark implementation commit: `008779e` (`Add indexed search scalability benchmarks`)
 Prior product optimization: `7c0cd83` (`Avoid eager candidate copies in indexed search`)
-Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validation commit `3adaf7b`
+Current slice bookkeeping: SQL product commit `6d6f6c1`; Storage/details validation `3adaf7b`; authentication validation `40ce237`
 
 ## Active Engineering Slice
 
-Name: Validate pinned-authentication hardening
+Name: Reconcile final OpenSpec validation
 
-Objective: Validate the existing Authenticode thumbprint comparison hardening, add only the missing deterministic partial-pin regression, and reconcile the OpenSpec evidence without changing placeholder pins or fail-closed behavior.
+Objective: Complete the final non-external reconciliation for `close-independent-validation-gaps`: run the required baseline gates, reconcile closed findings and degraded-mode readiness, and record the unavailable OpenSpec CLI as an external tooling blocker without fabricating validation.
 
-Frontier invariant: One authentication-comparison hardening slice only. Do not change pinned values, peer paths, pipe ACLs, service privileges, or privileged MFT/USN activation. No unrelated UI, search, SQL, or runtime-install work belongs in this slice.
+Frontier invariant: One remaining validation-gap slice only. Do not begin elevated signed-service/MFT/USN validation, invent certificate values, alter security pins, or delete tracked artifacts until a narrowly scoped hygiene decision is evidenced. No unrelated UI, search, SQL, or privileged-path work belongs in this slice.
 
 Storage/details validation slice: COMPLETE. Commit `3adaf7b` reconciles OpenSpec tasks `close-independent-validation-gaps` 1.1–1.7 and 2.1–2.6 with current source/test evidence, adds deterministic mixed-parent/rounding/overflow and narrow-layout non-overlap cases, and preserves the existing production implementation from `c6dd602`. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffstorage_percentage_tests`, `ffdetails_layout_tests`, and `ffdoc_drift_tests`.
 
-Next exact action: run the final Debug/Analyze/full serial CTest gates for the authentication-test addition, inspect the bounded diff, and commit the security-validation slice. Then select the next non-external validation task.
+Next exact action: inspect and commit the bounded documentation/hygiene evidence diff, then run the final baseline gates and reconcile tasks 7.1, 7.3, and 7.4; leave 7.2 open with the observed missing-CLI evidence.
 
 Pinned-authentication validation milestone: source inspection against foundation design D4 found `ConstantTimeThumbprintEqual` already implemented in `c6dd602` as a fixed 20-byte XOR/OR loop and used by `VerifyPinnedSignature`; both configured pins remain all-zero placeholders and the diagnostic unsigned escape hatch remains compile-time-only. Added `TestPartiallyPopulatedPinsRejectUnpinnedPeer` to prove a populated expected signer can pass while a placeholder expected signer rejects the same signed binary. Focused Authenticode and protocol-fuzz tests passed. The first rebuild attempt selected x86 libraries for the x64 Debug tree due to an unqualified developer-shell launch; rerun with `-Arch amd64 -HostArch amd64` linked and passed. OpenSpec tasks 4.1 and 4.3 are checked; 4.2 remains open for expired/untrusted certificate fixtures and release-pipeline evidence.
+
+Pinned-authentication slice status: COMPLETE. Commit `40ce237` contains the deterministic partial-pin regression, task evidence reconciliation, and WORKSTATE checkpoint. Debug and Analyze builds passed; serial CTest passed 42/42, including `ffprotocol_fuzz_tests`, `ffengine_authenticode_verification_tests`, and `ffdoc_drift_tests`. No production security code or pin values changed, and the privileged path remains fail-closed.
+
+Documentation/hygiene reconciliation milestone: evidence is prepared but uncommitted. `evidence/documentation-and-hygiene.md` records the 2026-08-11 repository search and hygiene commands. The search found only explicitly historical/superseded descriptors outside current guidance. Commit `52d33da` already deleted `dist/FastFiles.exe`, added `dist/` to `.gitignore`, and moved the 819-line `Audit.txt` prompt to `codebase-audit/Audit.txt`; the eight 2026-08-04 validation reports are unchanged. OpenSpec tasks 3.3 and 6.1–6.3 are reconciled as complete in the pending diff.
 
 Benchmark decision checkpoint: the failed-literal matcher slice is complete at `0e7ebf6` with bookkeeping at `1c2353b`; benchmark commit `c36f8bd` records the final 100K/500K/1M/2M matrix. Vendored SQLite FTS5 creation fails (`no such module: fts5`). UTF-16 trigrams had zero false negatives across 12 eligible query classes at every scale; at 2M, selective/no-match used 4/3 candidates at 0.01/0.00 ms with an estimated 168.6 MiB index. Sorted-prefix ranges missed 1,969 current-infix matches at 2M. Debug and Analyze builds pass; serial CTest passes 42/42.
 
