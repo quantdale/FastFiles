@@ -27,6 +27,9 @@ public:
     size_t size() const noexcept { return count_; }
     bool empty() const noexcept { return count_ == 0; }
     size_t bucket_count() const noexcept { return keys_.size(); }
+    size_t MemoryUsageBytes() const noexcept {
+        return keys_.capacity() * sizeof(Key) + values_.capacity() * sizeof(Value) + states_.capacity();
+    }
 
     void reserve(size_t n) {
         if (n > keys_.size()) {
@@ -223,6 +226,11 @@ public:
 
     size_t size() const noexcept { return keys_.size(); }
     bool empty() const noexcept { return keys_.empty(); }
+    size_t MemoryUsageBytes() const noexcept {
+        return keys_.capacity() * sizeof(EntryKey) + values_.capacity() * sizeof(uint32_t)
+            + states_.capacity() + offsets_.capacity() * sizeof(size_t)
+            + counts_.capacity() * sizeof(size_t);
+    }
 
     std::span<const uint32_t> find(const EntryKey& key) const {
         size_t idx = find_slot(key);

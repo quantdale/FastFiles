@@ -50,6 +50,21 @@ struct ProjectionEntry {
 // already requiring the caller to serialize Publish() calls.
 class Projection {
 public:
+    static constexpr size_t kDefaultMaximumMemoryBytes = 500ULL * 1024ULL * 1024ULL;
+
+    // A zero value restores the production default. The limit is measured
+    // from the projection's owned capacity and index storage, not from the
+    // database file size.
+    void SetMaximumMemoryBytes(size_t maximumBytes);
+    size_t MaximumMemoryBytes() const noexcept { return maximumMemoryBytes_; }
+    size_t EstimatedMemoryBytes() const noexcept;
+    bool IsMemoryPressureHigh() const noexcept;
+
+    // Evicted subtrees remain durable in Store. The engine calls this before
+    // serving a volume-specific browse/aggregate/search operation.
+    bool NeedsReload(VolumeRowId volumeRowId) const;
+    bool ReloadEvictedVolume(Store& store, VolumeRowId volumeRowId);
+
     // task 2.5: pre-size before a bulk rebuild.
     void Reserve(size_t expectedEntryCount);
 
@@ -137,6 +152,11 @@ public:
     }
 
 private:
+    void EnforceMemoryLimit();
+    std::optional<EntryKey> LeastRecentlyUsedEntry() const;
+    void EvictSubtree(const EntryKey& rootKey);
+    void CompactStorage();
+    void Touch(const EntryKey& key) const noexcept;
     void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
     void RebuildFilenameIndex();
@@ -154,6 +174,11 @@ private:
     std::vector<uint32_t> filenameNonAsciiEntries_;
     bool filenameIndexValid_ = true;
     bool filenameIndexBuilding_ = false;
+    size_t maximumMemoryBytes_ = kDefaultMaximumMemoryBytes;
+    mutable uint64_t accessClock_ = 0;
+    mutable std::unordered_map<EntryKey, uint64_t, EntryKeyHash> lastAccess_;
+    std::unordered_set<VolumeRowId> evictedVolumes_;
+    bool enforcingMemoryLimit_ = true;
 };
 
 } // namespace ffindexstore
