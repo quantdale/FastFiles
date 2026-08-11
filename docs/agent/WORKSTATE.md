@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T17:00:00+08:00
-Status: READY — PROJECTION-EVICTION SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T18:30:00+08:00
+Status: READY — IPC-RELIABILITY SLICE VALIDATED; COMMIT PENDING
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -192,6 +192,30 @@ Status: READY — PROJECTION-EVICTION SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS
   passed 45/45.
 - NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   leaving external release blockers unresolved.
+
+## IPC reliability slice (2026-08-11)
+
+- Root cause: the service Ctrl-pipe control loop polled `PeekNamedPipe` every
+  2 ms and then entered synchronous framing reads, adding idle CPU work and
+  leaving the service-side pipe mode inconsistent with the intended async
+  design.
+- Bounded fix: service Ctrl-pipe instances now use `FILE_FLAG_OVERLAPPED`;
+  connection, handshake, header/payload reads, and service writes use event
+  completion plus `GetOverlappedResult`. Idle and handshake deadlines cancel
+  pending operations; the existing watchdog cancels stalled writes with
+  `CancelIoEx` while preserving the synchronous cancellation fallback.
+- Focused validation: `ffipc_framing_tests` passed the maximum-frame and
+  malformed-header cases plus overlapped completion, timeout, service-write,
+  and synchronous fallback cases. `FastFilesIndexSvc` also built.
+- Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
+  ipc-reliability-20260811.md`; tasks 2.1–2.3 are checked.
+- Full validation: Debug/Analyze/Release builds passed; serial Debug and
+  Release CTest passed 45/45; the Windows build verifier passed; and strict
+  OpenSpec validation passed 45/45.
+- Slice status: VALIDATED; implementation, task updates, and evidence are
+  ready to commit.
+- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
+  commit this slice while leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 

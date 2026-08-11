@@ -27,37 +27,21 @@ namespace {
 
 using ffprotocol::MessageType;
 
-constexpr std::chrono::milliseconds kInboundPollInterval{2};
-
 // A client that stops sending frames would otherwise pin this connection --
 // and any scan/journal worker threads it owns -- indefinitely. Conservative:
 // far beyond the engine's ~20s heartbeat cadence, so only genuinely silent
 // connections are reaped (the timeout closes via the same teardown path as
 // any other disconnect).
 constexpr std::chrono::milliseconds kInboundIdleTimeout{300000};
+constexpr std::chrono::milliseconds kHandshakeTimeout{30000};
 
-// A synchronous named-pipe handle serializes an outstanding blocking
-// ReadFile with writes issued by scan/journal worker threads on that same
-// handle.  Do not park the control thread inside ReadFrame while workers
-// may have asynchronous results to publish.  PeekNamedPipe is nonblocking;
-// once a complete header is present, the client is already in WriteFrame
-// and will immediately supply the (bounded) payload.  If no frame arrives
-// before idleDeadline, returns nullopt -- the caller closes the connection
-// (reject-by-close, same as an I/O error or disconnect).
+// The service listener opens Ctrl-pipe instances with FILE_FLAG_OVERLAPPED.
+// ReadFrameOverlapped issues one bounded ReadFile for the header and payload,
+// then waits on the operation event instead of polling pipe state. If the
+// absolute deadline expires, the operation is cancelled and the connection
+// follows the existing reject-by-close path.
 std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle, std::chrono::steady_clock::time_point idleDeadline) {
-    for (;;) {
-        DWORD bytesAvailable = 0;
-        if (!PeekNamedPipe(pipeHandle, nullptr, 0, nullptr, &bytesAvailable, nullptr)) {
-            return std::nullopt;
-        }
-        if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
-            return ffipc::ReadFrame(pipeHandle);
-        }
-        if (std::chrono::steady_clock::now() >= idleDeadline) {
-            return std::nullopt; // no frame received within the idle window
-        }
-        std::this_thread::sleep_for(kInboundPollInterval);
-    }
+    return ffipc::ReadFrameOverlapped(pipeHandle, idleDeadline);
 }
 
 // index-storage-and-scanning: a scan or journal stream runs on its own
@@ -99,12 +83,12 @@ void StopAndJoinAll(std::vector<ActiveWorker>& workers) {
 
 bool SendIncompatibleVersion(HANDLE pipeHandle) {
     ffprotocol::IncompatibleVersionPayload payload{ffprotocol::kCurrentProtocolVersion};
-    return ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::IncompatibleVersion), &payload, sizeof(payload));
+    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::IncompatibleVersion), &payload, sizeof(payload));
 }
 
 bool SendHandshakeReject(HANDLE pipeHandle, ffprotocol::HandshakeRejectReason reason) {
     ffprotocol::HandshakeRejectPayload payload{reason};
-    return ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
+    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
 }
 
 bool SendVolumeList(HANDLE pipeHandle) {
@@ -117,7 +101,7 @@ bool SendVolumeList(HANDLE pipeHandle) {
         std::memcpy(payload.data() + sizeof(header), volumes.data(), volumes.size() * sizeof(ffprotocol::VolumeInfo));
     }
 
-    return ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::VolumeList), payload.data(), static_cast<uint32_t>(payload.size()));
+    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::VolumeList), payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
 // Returns std::nullopt (and does not reply -- the connection is closed by
@@ -126,7 +110,7 @@ bool SendVolumeList(HANDLE pipeHandle) {
 // appropriate rejection reply.
 std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wstring& installDir,
                                                 bool& outShouldClose, ffprotocol::ProtocolVersion& outVersion) {
-    auto frame = ffipc::ReadFrame(pipeHandle);
+    auto frame = ffipc::ReadFrameOverlapped(pipeHandle, std::chrono::steady_clock::now() + kHandshakeTimeout);
     outShouldClose = true;
     if (!frame || frame->header.messageType != static_cast<uint16_t>(MessageType::Handshake)) {
         return std::nullopt; // first message must be Handshake
@@ -159,7 +143,7 @@ std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wst
                                       (std::min)(request.clientVersion.minor, ffprotocol::kCurrentProtocolVersion.minor)}
         : request.clientVersion;
     ffprotocol::HandshakeAckPayload ack{outVersion};
-    if (!ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeAck), &ack, sizeof(ack))) {
+    if (!ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeAck), &ack, sizeof(ack))) {
         CloseClientIdentity(*identity);
         return std::nullopt;
     }
@@ -339,8 +323,8 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                             // reconciliation sweep instead of a blind resume.
                             ffprotocol::JournalResumeInvalidPayload payload{volumeId};
                             std::lock_guard<std::mutex> lock(writeMutex);
-                            WriteDeadlineGuard deadlineGuard(deadline);
-                            ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
+                            WriteDeadlineGuard deadlineGuard(deadline, pipeHandle);
+                            ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
                                                &payload, sizeof(payload));
                         }
                     });
@@ -374,7 +358,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     break;
                 }
                 std::lock_guard<std::mutex> lock(writeMutex);
-                disconnect = !ffipc::WriteFrame(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
+                disconnect = !ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
                 break;
             }
 

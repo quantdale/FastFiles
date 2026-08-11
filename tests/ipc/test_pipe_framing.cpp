@@ -1,8 +1,10 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -44,6 +46,67 @@ AnonymousPipe MakePipe() {
     if (!CreatePipe(&pipe.read, &pipe.write, nullptr, 64 * 1024)) {
         pipe.read = nullptr;
         pipe.write = nullptr;
+    }
+    return pipe;
+}
+
+struct NamedPipePair {
+    HANDLE server = nullptr;
+    HANDLE client = nullptr;
+    NamedPipePair() = default;
+    NamedPipePair(const NamedPipePair&) = delete;
+    NamedPipePair& operator=(const NamedPipePair&) = delete;
+    NamedPipePair(NamedPipePair&& other) noexcept
+        : server(std::exchange(other.server, nullptr)), client(std::exchange(other.client, nullptr)) {}
+    NamedPipePair& operator=(NamedPipePair&& other) noexcept {
+        if (this != &other) {
+            if (server != nullptr) CloseHandle(server);
+            if (client != nullptr) CloseHandle(client);
+            server = std::exchange(other.server, nullptr);
+            client = std::exchange(other.client, nullptr);
+        }
+        return *this;
+    }
+    ~NamedPipePair() {
+        if (server != nullptr) CloseHandle(server);
+        if (client != nullptr) CloseHandle(client);
+    }
+};
+
+NamedPipePair MakeOverlappedNamedPipe() {
+    NamedPipePair pipe;
+    const std::wstring name = L"\\\\.\\pipe\\FastFilesIpcTest." + std::to_wstring(GetCurrentProcessId());
+    pipe.server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                                   PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
+                                   64 * 1024, 64 * 1024, 0, nullptr);
+    if (pipe.server == INVALID_HANDLE_VALUE) {
+        pipe.server = nullptr;
+        return pipe;
+    }
+
+    OVERLAPPED connect{};
+    connect.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (connect.hEvent == nullptr) {
+        CloseHandle(pipe.server);
+        pipe.server = nullptr;
+        return pipe;
+    }
+    const BOOL connected = ConnectNamedPipe(pipe.server, &connect);
+    const DWORD connectError = connected ? ERROR_SUCCESS : GetLastError();
+    pipe.client = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                              OPEN_EXISTING, 0, nullptr);
+    bool connectionReady = connected != FALSE || connectError == ERROR_PIPE_CONNECTED;
+    if (!connectionReady && connectError == ERROR_IO_PENDING) {
+        const DWORD waitResult = WaitForSingleObject(connect.hEvent, 2000);
+        DWORD ignored = 0;
+        connectionReady = waitResult == WAIT_OBJECT_0
+            && GetOverlappedResult(pipe.server, &connect, &ignored, FALSE) != FALSE;
+    }
+    CloseHandle(connect.hEvent);
+    if (!connectionReady || pipe.client == INVALID_HANDLE_VALUE) {
+        if (pipe.client == INVALID_HANDLE_VALUE) pipe.client = nullptr;
+        CloseHandle(pipe.server);
+        pipe.server = nullptr;
     }
     return pipe;
 }
@@ -100,11 +163,72 @@ void TestMalformedHeadersRejectedWithoutPayloadRead() {
     }
 }
 
+void TestOverlappedReadCompletesAndWriteRoundTrips() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "overlapped named pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+
+    bool writeResult = false;
+    std::thread writer([&] {
+        writeResult = ffipc::WriteFrame(pipe.client,
+            static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), nullptr, 0);
+    });
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, std::chrono::steady_clock::now() + std::chrono::seconds(2));
+    writer.join();
+    Check(writeResult, "synchronous client write reaches overlapped service read");
+    Check(received.has_value(), "overlapped service read completes without polling");
+    Check(received && received->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat),
+          "overlapped service read preserves the frame type");
+
+    Check(ffipc::WriteFrameOverlapped(pipe.server,
+                                      static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat)),
+          "overlapped service write completes");
+    Check(ffipc::ReadFrame(pipe.client).has_value(), "synchronous client read receives overlapped service write");
+}
+
+void TestOverlappedReadTimesOut() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "timeout named pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, started + std::chrono::milliseconds(100));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    Check(!received.has_value(), "overlapped service read returns no frame on timeout");
+    Check(elapsed >= std::chrono::milliseconds(50) && elapsed < std::chrono::seconds(2),
+          "overlapped timeout remains bounded");
+}
+
+void TestSynchronousReadFallbackCompletesAndTimesOut() {
+    AnonymousPipe pipe = MakePipe();
+    Check(pipe.read != nullptr && pipe.write != nullptr, "synchronous fallback pipe is created");
+    if (pipe.read == nullptr || pipe.write == nullptr) return;
+
+    bool writeResult = false;
+    std::thread writer([&] {
+        writeResult = ffipc::WriteFrame(pipe.write,
+            static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), nullptr, 0);
+    });
+    const auto received = ffipc::ReadFrameWithTimeout(
+        pipe.read, std::chrono::steady_clock::now() + std::chrono::seconds(2));
+    writer.join();
+    Check(writeResult && received.has_value(), "non-overlapped test handle uses the bounded read fallback");
+
+    const auto timeout = ffipc::ReadFrameWithTimeout(
+        pipe.read, std::chrono::steady_clock::now() + std::chrono::milliseconds(100));
+    Check(!timeout.has_value(), "non-overlapped fallback also returns on timeout");
+}
+
 } // namespace
 
 int main() {
     TestMaximumValidPayloadRoundTrips();
     TestOversizedWriteRejectedBeforeIo();
     TestMalformedHeadersRejectedWithoutPayloadRead();
+    TestOverlappedReadCompletesAndWriteRoundTrips();
+    TestOverlappedReadTimesOut();
+    TestSynchronousReadFallbackCompletesAndTimesOut();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

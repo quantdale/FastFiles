@@ -30,7 +30,7 @@ public:
     // as fatal and refuse to proceed, not silently continue without the
     // expected pipe.
     bool Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES* securityAttributes,
-               std::function<void(HANDLE)> onConnect);
+               std::function<void(HANDLE)> onConnect, bool useOverlapped = false);
 
     void Stop();
 
@@ -39,6 +39,7 @@ private:
 
     std::wstring pipeName_;
     const SECURITY_ATTRIBUTES* securityAttributes_ = nullptr;
+    bool useOverlapped_ = false;
 
     std::function<void(HANDLE)> onConnect_;
     std::thread acceptThread_;

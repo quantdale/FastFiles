@@ -10,9 +10,9 @@
 
 ## 2. IPC Reliability (ipc-reliability)
 
-- [ ] 2.1 Replace PeekNamedPipe + Sleep(2) busy-wait in ServiceConnection.cpp with ReadFile overlapped I/O
-- [ ] 2.2 Add GetOverlappedResult with timeout fallback for non-overlapped test scenarios
-- [ ] 2.3 Add unit test for async pipe read completion and timeout paths
+- [x] 2.1 Replace PeekNamedPipe + Sleep(2) busy-wait in ServiceConnection.cpp with ReadFile overlapped I/O
+- [x] 2.2 Add GetOverlappedResult with timeout fallback for non-overlapped test scenarios
+- [x] 2.3 Add unit test for async pipe read completion and timeout paths
 
 ## 3. Data Structure Safety (data-structure-safety)
 

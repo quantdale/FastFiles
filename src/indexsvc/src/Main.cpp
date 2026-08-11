@@ -261,7 +261,8 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 
     const bool ctrlStarted = g_ctrlListener.Start(
         ffsetup::kCtrlPipeName, &g_pipeSecurityDescriptor.attributes,
-        [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); });
+        [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); },
+        /*useOverlapped=*/true);
 
     if (!ctrlStarted) {
         StopEverything();

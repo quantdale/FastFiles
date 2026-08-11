@@ -8,19 +8,10 @@
 
 namespace ffindexsvc {
 
-// A blocking WriteFile on a byte-mode named pipe blocks the calling thread
-// indefinitely once the pipe's outbound buffer is full (the client is not
-// reading). A non-reading authenticated client could therefore wedge a
-// scan/journal worker thread forever. Windows exposes no per-operation
-// timeout for a synchronous-mode pipe write (SetNamedPipeHandleState's
-// lpCollectDataTimeout only applies to remote/client-side pipes, and
-// CreateNamedPipe's nDefaultTimeOut only affects WaitNamedPipe), so the
-// only documented way to interrupt a blocked synchronous write is
-// CancelSynchronousIo from another thread. This header wires that up: each
-// worker marks its pipe writes in a WriteDeadlineState, and a small
-// per-worker watchdog thread calls CancelSynchronousIo on the worker once a
-// write exceeds kWriteDeadlineMs, unblocking it and letting the write fail
-// (ERROR_OPERATION_ABORTED) so the worker unwinds instead of hanging.
+// A pipe write can block indefinitely once a non-reading client's outbound
+// buffer is full. Service Ctrl-pipe instances use overlapped I/O, so the
+// watchdog cancels the active pipe operation with CancelIoEx; the state also
+// retains the thread handle for synchronous test or diagnostic pipes.
 constexpr std::chrono::milliseconds kWriteDeadline{5000};
 constexpr std::chrono::milliseconds kWatchdogInterval{100};
 
@@ -28,6 +19,7 @@ struct WriteDeadlineState {
     std::atomic<bool> writeInProgress{false};
     std::atomic<long long> writeStartedAtMs{0};
     std::atomic<bool> finished{false};
+    std::atomic<HANDLE> pipeHandle{nullptr};
     // Real worker thread handle (THREAD_TERMINATE access, not the
     // GetCurrentThread pseudo-handle) that CancelSynchronousIo targets.
     HANDLE threadHandle = nullptr;
@@ -39,12 +31,13 @@ inline long long NowMs() noexcept {
         .count();
 }
 
-// RAII marker: flags the start/end of a single blocking pipe write so the
-// watchdog can detect and cancel a write that has exceeded the deadline.
+// RAII marker: flags the start/end of a single pipe write so the watchdog can
+// detect and cancel a write that has exceeded the deadline.
 class WriteDeadlineGuard {
 public:
-    explicit WriteDeadlineGuard(WriteDeadlineState* state) : state_(state) {
+    explicit WriteDeadlineGuard(WriteDeadlineState* state, HANDLE pipeHandle = nullptr) : state_(state) {
         if (state_ != nullptr) {
+            state_->pipeHandle.store(pipeHandle);
             state_->writeStartedAtMs.store(NowMs());
             state_->writeInProgress.store(true);
         }
@@ -52,6 +45,7 @@ public:
     ~WriteDeadlineGuard() {
         if (state_ != nullptr) {
             state_->writeInProgress.store(false);
+            state_->pipeHandle.store(nullptr);
         }
     }
     WriteDeadlineGuard(const WriteDeadlineGuard&) = delete;
@@ -66,10 +60,13 @@ inline std::thread StartWriteDeadlineWatchdog(WriteDeadlineState* state) {
         while (!state->finished.load()) {
             if (state->writeInProgress.load() &&
                 NowMs() - state->writeStartedAtMs.load() > kWriteDeadline.count()) {
-                // Bound the write: unblock the worker's blocking WriteFile.
-                // The worker's write then returns ERROR_OPERATION_ABORTED,
-                // the frame write fails, and the worker stops instead of
-                // wedging indefinitely.
+                // Bound the write. Overlapped service writes are cancelled
+                // by pipe handle; synchronous test writes use the thread
+                // cancellation fallback.
+                const HANDLE pipeHandle = state->pipeHandle.load();
+                if (pipeHandle != nullptr) {
+                    ::CancelIoEx(pipeHandle, nullptr);
+                }
                 if (state->threadHandle != nullptr) {
                     ::CancelSynchronousIo(state->threadHandle);
                 }

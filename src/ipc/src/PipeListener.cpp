@@ -13,10 +13,9 @@ PipeListener::~PipeListener() {
 }
 
 HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
-    // Deliberately synchronous (no FILE_FLAG_OVERLAPPED): connection I/O
-    // (ffipc::ReadFrame/WriteFrame) uses blocking ReadFile/WriteFile with
-    // lpOverlapped == nullptr, which requires a synchronous-mode handle.
-    const DWORD openMode = PIPE_ACCESS_DUPLEX | (isFirstInstance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
+    const DWORD openMode = PIPE_ACCESS_DUPLEX
+        | (useOverlapped_ ? FILE_FLAG_OVERLAPPED : 0)
+        | (isFirstInstance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
 
     return CreateNamedPipeW(
         pipeName_.c_str(), openMode,
@@ -26,10 +25,11 @@ HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
 }
 
 bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES* securityAttributes,
-                          std::function<void(HANDLE)> onConnect) {
+                          std::function<void(HANDLE)> onConnect, const bool useOverlapped) {
     pipeName_ = pipeName;
     securityAttributes_ = securityAttributes;
     onConnect_ = std::move(onConnect);
+    useOverlapped_ = useOverlapped;
 
     HANDLE firstInstance = CreateInstance(/*isFirstInstance=*/true);
     if (firstInstance == INVALID_HANDLE_VALUE) {
@@ -59,8 +59,48 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
                 break;
             }
 
-            const BOOL connected = ConnectNamedPipe(currentInstance, nullptr);
-            const DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+            OVERLAPPED connectOverlapped{};
+            HANDLE connectEvent = nullptr;
+            if (useOverlapped_) {
+                connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+                if (connectEvent == nullptr) {
+                    CloseHandle(currentInstance);
+                    break;
+                }
+                connectOverlapped.hEvent = connectEvent;
+            }
+
+            BOOL connected = ConnectNamedPipe(currentInstance, useOverlapped_ ? &connectOverlapped : nullptr);
+            DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+            if (!connected && useOverlapped_ && error == ERROR_IO_PENDING) {
+                for (;;) {
+                    const DWORD waitResult = WaitForSingleObject(connectEvent, 100);
+                    if (waitResult == WAIT_OBJECT_0) {
+                        DWORD ignored = 0;
+                        if (GetOverlappedResult(currentInstance, &connectOverlapped, &ignored, FALSE)) {
+                            connected = TRUE;
+                            error = ERROR_SUCCESS;
+                        } else {
+                            error = GetLastError();
+                        }
+                        break;
+                    }
+                    if (waitResult != WAIT_TIMEOUT) {
+                        error = ERROR_OPERATION_ABORTED;
+                        break;
+                    }
+                    if (!running_) {
+                        CancelIoEx(currentInstance, &connectOverlapped);
+                        DWORD ignored = 0;
+                        GetOverlappedResult(currentInstance, &connectOverlapped, &ignored, TRUE);
+                        error = ERROR_OPERATION_ABORTED;
+                        break;
+                    }
+                }
+            }
+            if (connectEvent != nullptr) {
+                CloseHandle(connectEvent);
+            }
 
             if (!running_) {
                 CloseHandle(currentInstance);

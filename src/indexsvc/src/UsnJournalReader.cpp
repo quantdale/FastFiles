@@ -28,8 +28,8 @@ bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId
                         uint64_t currentUsn, WriteDeadlineState* deadline) {
     ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
@@ -49,8 +49,8 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
                               payload.data(), static_cast<uint32_t>(payload.size()));
 }
 

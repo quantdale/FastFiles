@@ -55,8 +55,8 @@ bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId vol
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
                               payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
@@ -64,8 +64,8 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                            WriteDeadlineState* deadline) {
     ffprotocol::ScanCompletePayload payload{volumeId};
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete), &payload, sizeof(payload));
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete), &payload, sizeof(payload));
 }
 
 class BackgroundMode {
