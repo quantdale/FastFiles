@@ -1,7 +1,39 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T01:25:00+08:00
+Last updated: 2026-08-12T01:58:03+08:00
 Status: READY — LOCAL VALIDATION COMPLETE; ELEVATED SESSION REQUIRED FOR SERVICE CLEANUP; EXTERNAL RELEASE BLOCKERS REMAIN
+
+## Authenticated engine-launch hardening slice (2026-08-12)
+
+- Root cause: engine discovery validated only regular-file existence, so a
+  planted or reparse-routed executable could reach `CreateProcessW`; release
+  builds also had no build-time enforcement that both Authenticode pins were
+  provisioned.
+- Bounded implementation: CMake now generates pin constants from signing-pipeline
+  cache/environment inputs and refuses absent/all-zero Release configuration;
+  `PinnedSignatures.h` keeps the all-zero development fallback; UI, Engine, and
+  Index Service perform non-debug startup self-checks. Discovery now rejects
+  reparse/canonical-path mismatches and requires a pinned Authenticode signer
+  before launch. Structured launch/rejection diagnostics retain the path and
+  observed signer thumbprint.
+- Focused validation: Debug configure/build passed; Release configure failed as
+  designed without signing inputs; the Engine, Index Service, UI, Authenticode,
+  discovery, and diagnostics targets built cleanly with `/W4 /WX`; focused CTest
+  passed 3/3. Direct discovery execution passed with the default 8.3 TEMP path,
+  unsigned rejection, and symlink rejection. Full Debug CTest passed 45/45,
+  Analyze built cleanly, and strict OpenSpec validation passed 45/45. Computer
+  Use confirmed strict unsigned Debug reaches the unavailable state and the
+  explicit diagnostic build preserves degraded browsing; the exact diagnostic
+  Engine was cleaned up.
+- No production certificate, thumbprint, signing bypass, or privileged-path
+  claim was introduced. Evidence is recorded in
+  `openspec/changes/address-engineering-audit-findings/evidence/authenticated-engine-launch-20260812.md`.
+- Slice status: implementation and all available local validation complete;
+  Release configuration is intentionally blocked until signing inputs exist.
+  External signing, elevated service, real MFT/USN, privilege-diagnostics,
+  clean-host, and aggregate-backed visual evidence blockers remain unresolved.
+- NEXT EXACT ACTION: review the final diff, commit this local slice, then
+  checkpoint the external blocker audit without altering signing material.
 
 ## Authorized system-level visual matrix (2026-08-11)
 

@@ -11,6 +11,10 @@ add_test(NAME fftreemap_filter_tests COMMAND fftreemap_filter_tests)
 # is header-only-dependency, so it compiles standalone for the test target.
 add_executable(ffengine_discovery_tests test_engine_discovery.cpp ../../src/ui/src/EngineDiscovery.cpp)
 target_include_directories(ffengine_discovery_tests PRIVATE ../../src/ui/src ../../src/setup/include)
+target_link_libraries(ffengine_discovery_tests PRIVATE ffsetup)
+if(FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
+  target_compile_definitions(ffengine_discovery_tests PRIVATE FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
+endif()
 add_test(NAME ffengine_discovery_tests COMMAND ffengine_discovery_tests)
 
 # recovery-degraded-browsing 3.1: keep all status-chip state text and the

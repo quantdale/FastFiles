@@ -89,37 +89,70 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
     bool launched = false;
     DWORD lastError = ERROR_FILE_NOT_FOUND;
     for (const std::wstring& candidate : EngineDiscoveryCandidates(std::wstring(ownPath, length))) {
-        if (!IsValidEngineExecutable(candidate)) {
+        const EngineExecutableValidation validation = ValidateEngineExecutable(candidate);
+        if (!validation.Accepted()) {
+            if (validation.status != EngineExecutableValidationStatus::NotRegularFile) {
+                ffprotocol::DiagnosticEvent rejection{};
+                rejection.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+                rejection.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_SIGNATURE_REJECTED;
+                rejection.path = candidate;
+                rejection.state = EngineExecutableValidationStatusName(validation.status);
+                rejection.errorCode = ERROR_INVALID_DATA;
+                if (validation.signerThumbprint.has_value()) {
+                    rejection.signatureThumbprint = ffsetup::ThumbprintToHex(*validation.signerThumbprint);
+                } else {
+                    rejection.signatureThumbprint = L"<none>";
+                }
+                ffprotocol::AppendDiagnostic(rejection);
+            }
             continue;
         }
-        std::wstring commandLine = L"\"" + candidate + L"\"";
+        const std::wstring launchPath = validation.canonicalPath.empty() ? candidate : validation.canonicalPath;
         STARTUPINFOW startupInfo{};
         startupInfo.cb = sizeof(startupInfo);
         PROCESS_INFORMATION processInfo{};
-        if (CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+        if (CreateProcessW(launchPath.c_str(), nullptr, nullptr, nullptr, FALSE, 0, nullptr, nullptr,
                            &startupInfo, &processInfo)) {
             CloseHandle(processInfo.hThread);
             CloseHandle(processInfo.hProcess);
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCHED,
-                                          candidate, {}, L"engine-launched", 0, 0});
+            ffprotocol::DiagnosticEvent launchedEvent{};
+            launchedEvent.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+            launchedEvent.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCHED;
+            launchedEvent.path = launchPath;
+            launchedEvent.state = L"engine-launched";
+            launchedEvent.signatureThumbprint = validation.signerThumbprint.has_value()
+                ? ffsetup::ThumbprintToHex(*validation.signerThumbprint)
+                : L"<development-override>";
+            ffprotocol::AppendDiagnostic(launchedEvent);
             // Give the just-launched helper a short, bounded readiness
             // window before ConnectAndSubscribe performs its first open.
             // Without this, the normal interval between CreateProcess and
             // PipeListener::Start is reported as a failed connection and a
             // later retry can launch a duplicate helper if startup is slow.
             if (!WaitForNamedPipe(pipeName, running_, 10000)) {
-                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                              ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PIPE_NOT_READY,
-                                              candidate, {}, L"engine-pipe-not-ready-after-launch", GetLastError(), 0});
+                ffprotocol::DiagnosticEvent pipeEvent{};
+                pipeEvent.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+                pipeEvent.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PIPE_NOT_READY;
+                pipeEvent.path = launchPath;
+                pipeEvent.state = L"engine-pipe-not-ready-after-launch";
+                pipeEvent.errorCode = GetLastError();
+                pipeEvent.signatureThumbprint = launchedEvent.signatureThumbprint;
+                ffprotocol::AppendDiagnostic(pipeEvent);
             }
             launched = true;
             break;
         }
         lastError = GetLastError();
-        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
-                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCH_FAILED,
-                                      candidate, {}, L"engine-launch-failed", lastError, 0});
+        ffprotocol::DiagnosticEvent launchFailure{};
+        launchFailure.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+        launchFailure.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCH_FAILED;
+        launchFailure.path = launchPath;
+        launchFailure.state = L"engine-launch-failed";
+        launchFailure.errorCode = lastError;
+        launchFailure.signatureThumbprint = validation.signerThumbprint.has_value()
+            ? ffsetup::ThumbprintToHex(*validation.signerThumbprint)
+            : L"<development-override>";
+        ffprotocol::AppendDiagnostic(launchFailure);
     }
     if (!launched) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,

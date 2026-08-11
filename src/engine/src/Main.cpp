@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/PinnedSignatures.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
 #include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Settings.h"
@@ -95,6 +96,17 @@ constexpr std::chrono::milliseconds kIdleTimeout{10 * 60 * 1000};
 } // namespace
 
 int wmain() {
+#ifndef _DEBUG
+    if (!ffsetup::ArePinnedSignaturesConfigured()) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED,
+                                      {}, {}, L"authenticode-pins-unconfigured", ERROR_INVALID_DATA, 0});
+        std::fwprintf(stderr,
+                      L"FastFilesEngine: refusing non-debug startup because Authenticode pins are not provisioned.\n");
+        return 1;
+    }
+#endif
+
     const std::wstring ownPath = GetOwnPath();
     const std::wstring installDir = DirectoryOf(ownPath);
 

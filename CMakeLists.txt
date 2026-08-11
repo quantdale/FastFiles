@@ -24,6 +24,75 @@ add_compile_definitions(
 option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
 option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
 
+# Authenticode pins are release inputs, not source-controlled product data.
+# CI supplies the two certificate thumbprints through environment variables or
+# explicit cache entries; development configurations intentionally retain the
+# all-zero fail-closed fallback until an explicit diagnostic override is
+# selected.  Never silently turn an unprovisioned release into a build that
+# can authenticate arbitrary peers.
+set(FASTFILES_ENGINE_SIGNATURE_THUMBPRINT "$ENV{FASTFILES_ENGINE_SIGNATURE_THUMBPRINT}"
+    CACHE STRING "SHA-1 thumbprint for the signed FastFilesEngine release binary")
+set(FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT "$ENV{FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT}"
+    CACHE STRING "SHA-1 thumbprint for the signed FastFilesIndexSvc release binary")
+
+function(fastfiles_normalize_thumbprint variable_name output_variable)
+  set(value "${${variable_name}}")
+  string(STRIP "${value}" value)
+  if(NOT value STREQUAL "")
+    string(LENGTH "${value}" value_length)
+    if(NOT value_length EQUAL 40)
+      message(FATAL_ERROR
+        "${variable_name} must contain exactly 40 hexadecimal characters when provisioned.")
+    endif()
+    string(REGEX MATCH "[^0-9A-Fa-f]" invalid_character "${value}")
+    if(NOT invalid_character STREQUAL "")
+      message(FATAL_ERROR "${variable_name} contains a non-hexadecimal character.")
+    endif()
+  endif()
+
+  set(bytes "")
+  if(value STREQUAL "")
+    set(bytes "0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00")
+  else()
+    foreach(offset RANGE 0 38 2)
+      string(SUBSTRING "${value}" ${offset} 2 byte)
+      string(TOUPPER "${byte}" byte)
+      if(bytes STREQUAL "")
+        set(bytes "0x${byte}")
+      else()
+        string(APPEND bytes ", 0x${byte}")
+      endif()
+    endforeach()
+  endif()
+  set(${output_variable} "${bytes}" PARENT_SCOPE)
+endfunction()
+
+fastfiles_normalize_thumbprint(
+  FASTFILES_ENGINE_SIGNATURE_THUMBPRINT
+  FASTFILES_ENGINE_SIGNATURE_THUMBPRINT_BYTES)
+fastfiles_normalize_thumbprint(
+  FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT
+  FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT_BYTES)
+
+if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+  if(FASTFILES_ENGINE_SIGNATURE_THUMBPRINT STREQUAL "" OR
+     FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT STREQUAL "" OR
+     FASTFILES_ENGINE_SIGNATURE_THUMBPRINT MATCHES "^0+$" OR
+     FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT MATCHES "^0+$")
+    message(FATAL_ERROR
+      "Release FastFiles builds require FASTFILES_ENGINE_SIGNATURE_THUMBPRINT and "
+      "FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT from the signing pipeline; "
+      "refusing to configure with placeholder Authenticode pins.")
+  endif()
+endif()
+
+set(FASTFILES_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/setup/PinnedSignaturesConfig.h.in"
+  "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup/PinnedSignaturesConfig.h"
+  @ONLY)
+
 # Add the vendored C target before applying first-party warning and analysis
 # policy. SQLite keeps its own warning configuration in its subdirectory and
 # must not fail FastFiles analysis on Windows SDK annotations.

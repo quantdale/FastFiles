@@ -1,12 +1,12 @@
 ## 1. Authenticated Engine Launch (security-hardening, authenticated-engine-launch)
 
-- [ ] 1.1 Add build-time pin injection mechanism (CI environment variable or signed resource) for release builds
-- [ ] 1.2 Replace all-zero placeholder pins in PinnedSignatures.h with build-time-injected values or dev-mode fallback
-- [ ] 1.3 Add startup self-check that fails with clear error if pins are still placeholders in a non-debug build
-- [ ] 1.4 Add Authenticode signature verification to EngineDiscovery.cpp before launching any engine executable
-- [ ] 1.5 Add canonical path validation (GetFinalPathNameByHandle) to reject symlinks/junctions in the install directory scan
-- [ ] 1.6 Log launched path and signature thumbprint for auditability
-- [ ] 1.7 Add unit test for signature verification failure path
+- [x] 1.1 Add build-time pin injection mechanism (CI environment variable or signed resource) for release builds — complete: CMake accepts the two signing-pipeline thumbprints from cache or environment, validates their shape, generates an isolated header, and refuses Release configuration when either value is absent or all-zero.
+- [x] 1.2 Replace all-zero placeholder pins in PinnedSignatures.h with build-time-injected values or dev-mode fallback — complete: generated values override the source fallback; unprovisioned Debug keeps all-zero pins and remains fail-closed unless the existing explicit diagnostic-only override is enabled.
+- [x] 1.3 Add startup self-check that fails with clear error if pins are still placeholders in a non-debug build — complete: UI, Engine, and Index Service refuse non-debug startup, emit `FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED`, and print a clear stderr message.
+- [x] 1.4 Add Authenticode signature verification to EngineDiscovery.cpp before launching any engine executable — complete: candidates are inspected immediately before `CreateProcessW`; missing, unsigned, mismatched, or unconfigured signatures are rejected outside the diagnostic-only build.
+- [x] 1.5 Add canonical path validation (GetFinalPathNameByHandle) to reject symlinks/junctions in the install directory scan — complete: final-handle path must match the long-name-normalized requested path and reparse attributes are rejected; the focused test covers a symlinked parent and 8.3 TEMP aliases.
+- [x] 1.6 Log launched path and signature thumbprint for auditability — complete: launch/rejection diagnostics include the resolved path and signer thumbprint metadata through the structured diagnostic stream.
+- [x] 1.7 Add unit test for signature verification failure path — complete: the discovery test exercises an unsigned disposable fixture and the Authenticode suite covers unsigned, mismatched, placeholder, matching, and partial-pin cases.
 
 ## 2. IPC Reliability (ipc-reliability)
 

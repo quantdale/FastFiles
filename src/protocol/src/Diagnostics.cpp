@@ -123,6 +123,8 @@ const wchar_t* DiagnosticCodeName(DiagnosticCode code) {
         case DiagnosticCode::FFDIAG_CANDIDATE_MATRIX: return L"FFDIAG_CANDIDATE_MATRIX";
         case DiagnosticCode::FFDIAG_STARTUP_TOKEN: return L"FFDIAG_STARTUP_TOKEN";
         case DiagnosticCode::FFDIAG_PROJECTION_MEMORY_PRESSURE: return L"FFDIAG_PROJECTION_MEMORY_PRESSURE";
+        case DiagnosticCode::FFDIAG_ENGINE_SIGNATURE_REJECTED: return L"FFDIAG_ENGINE_SIGNATURE_REJECTED";
+        case DiagnosticCode::FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED: return L"FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED";
     }
     return L"FFDIAG_UNKNOWN";
 }
@@ -163,6 +165,10 @@ std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFo
                    << L",\"journalReadError\":" << event.journalReadError
                    << L",\"registrationOrder\":" << event.registrationOrder;
         }
+        if (!event.signatureThumbprint.empty()) {
+            output << L",\"signatureThumbprint\":\""
+                   << JsonEscape(event.signatureThumbprint) << L"\"";
+        }
         output << L"}";
         return output.str();
     }
@@ -190,6 +196,9 @@ std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFo
                << L" journalRead=" << (event.journalRead ? 1 : 0)
                << L" journalReadError=0x" << std::hex << event.journalReadError << std::dec
                << L" regOrder=" << event.registrationOrder;
+    }
+    if (!event.signatureThumbprint.empty()) {
+        output << L" signatureThumbprint=" << SafeField(event.signatureThumbprint);
     }
     return output.str();
 }

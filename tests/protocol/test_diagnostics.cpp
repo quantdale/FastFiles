@@ -44,12 +44,15 @@ int main() {
 
     ffprotocol::DiagnosticEvent jsonEvent = event;
     jsonEvent.state = L"quoted \"message\"\nwith control";
+    jsonEvent.signatureThumbprint = L"0123456789ABCDEF0123456789ABCDEF01234567";
     const std::wstring json = ffprotocol::SerializeDiagnosticEvent(jsonEvent, ffprotocol::DiagnosticFormat::Json);
     Check(json.find(L"\"code\":11") != std::wstring::npos, "JSON includes the structured integer code");
     Check(json.find(L"\"codeName\":\"FFDIAG_DIRECTORY_ACCESS_DENIED\"") != std::wstring::npos,
           "JSON includes the stable structured code name");
     Check(json.find(L"\"message\":\"quoted \\\"message\\\"\\nwith control\"") != std::wstring::npos,
           "JSON escapes the human-readable message");
+    Check(json.find(L"\"signatureThumbprint\":\"0123456789ABCDEF0123456789ABCDEF01234567\"") != std::wstring::npos,
+          "JSON records the signer thumbprint metadata");
     Check(ffprotocol::AppendDiagnostic(jsonEvent, ffprotocol::DiagnosticFormat::Json),
           "JSON diagnostic stream append succeeds");
 

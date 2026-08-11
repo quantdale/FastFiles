@@ -6,10 +6,24 @@
 // openspec/changes/establish-architecture-foundation.
 #include <windows.h>
 #include <objbase.h>
+#include <cstdio>
 
+#include "ffprotocol/Diagnostics.h"
+#include "ffsetup/PinnedSignatures.h"
 #include "WindowShell.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
+#ifndef _DEBUG
+    if (!ffsetup::ArePinnedSignaturesConfigured()) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED,
+                                      {}, {}, L"authenticode-pins-unconfigured", ERROR_INVALID_DATA, 0});
+        std::fwprintf(stderr,
+                      L"FastFiles: refusing non-debug startup because Authenticode pins are not provisioned.\n");
+        return 1;
+    }
+#endif
+
     // Enables per-monitor DPI awareness so the Direct2D content renders crisply
     // at non-100% scaling and WM_DPICHANGED actually fires. Fall back safely on
     // older builds (< Windows 10 1703) where the API does not exist.

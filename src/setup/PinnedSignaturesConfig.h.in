@@ -1,0 +1,7 @@
+#pragma once
+
+// Generated at configure time.  The source fallback remains all-zero when
+// these values are not provisioned, which deliberately fails closed at every
+// production authentication check.
+#define FASTFILES_ENGINE_SIGNATURE_THUMBPRINT_INITIALIZER {@FASTFILES_ENGINE_SIGNATURE_THUMBPRINT_BYTES@}
+#define FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT_INITIALIZER {@FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT_BYTES@}

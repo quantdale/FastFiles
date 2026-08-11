@@ -8,7 +8,10 @@ add_library(ffsetup STATIC
   src/AuthenticodeVerification.cpp
 )
 
-target_include_directories(ffsetup PUBLIC include)
+target_include_directories(ffsetup PUBLIC
+  "${FASTFILES_GENERATED_INCLUDE_DIR}"
+  include
+)
 target_compile_features(ffsetup PUBLIC cxx_std_20)
 
 target_link_libraries(ffsetup PUBLIC

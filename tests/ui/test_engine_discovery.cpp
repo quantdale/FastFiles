@@ -5,6 +5,8 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -34,6 +36,55 @@ int CountCandidate(const std::vector<std::wstring>& candidates, const wchar_t* e
         }
     }
     return count;
+}
+
+std::wstring UnsignedFixture() {
+    wchar_t tempDirectory[MAX_PATH]{};
+    if (GetTempPathW(static_cast<DWORD>(std::size(tempDirectory)), tempDirectory) == 0) {
+        return {};
+    }
+    wchar_t tempPath[MAX_PATH]{};
+    if (GetTempFileNameW(tempDirectory, L"ffdisc", 0, tempPath) == 0) {
+        return {};
+    }
+    const char bytes[64] = {};
+    std::ofstream file(std::filesystem::path(tempPath), std::ios::binary | std::ios::trunc);
+    file.write(bytes, sizeof(bytes));
+    return tempPath;
+}
+
+void TestReparsePathRejected() {
+    wchar_t tempDirectory[MAX_PATH]{};
+    if (GetTempPathW(static_cast<DWORD>(std::size(tempDirectory)), tempDirectory) == 0) {
+        std::printf("note: temporary path unavailable; reparse-path check skipped\n");
+        return;
+    }
+    const std::filesystem::path root = std::filesystem::path(tempDirectory) /
+        (L"FastFiles-discovery-reparse-" + std::to_wstring(GetCurrentProcessId()));
+    const std::filesystem::path target = root / L"target";
+    const std::filesystem::path link = root / L"link";
+    const std::filesystem::path targetExecutable = target / L"FastFilesEngine.exe";
+    std::error_code error;
+    std::filesystem::create_directories(target, error);
+    if (error) {
+        std::printf("note: reparse fixture directory could not be created; check skipped\n");
+        return;
+    }
+    std::ofstream file(targetExecutable, std::ios::binary);
+    const char bytes[32] = {};
+    file.write(bytes, sizeof(bytes));
+    file.close();
+
+    const DWORD flags = SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE;
+    if (CreateSymbolicLinkW(link.c_str(), target.c_str(), flags) != 0) {
+        const auto validation = ffui::ValidateEngineExecutable((link / L"FastFilesEngine.exe").wstring());
+        Check(validation.status == ffui::EngineExecutableValidationStatus::CanonicalPathRejected,
+              "a symlinked install path is rejected before signature validation");
+        RemoveDirectoryW(link.c_str());
+    } else {
+        std::printf("note: symbolic-link creation unavailable; reparse-path check skipped\n");
+    }
+    std::filesystem::remove_all(root, error);
 }
 
 } // namespace
@@ -79,6 +130,25 @@ int main() {
     wchar_t ownPath[MAX_PATH * 4];
     const DWORD ownLength = GetModuleFileNameW(nullptr, ownPath, static_cast<DWORD>(std::size(ownPath)));
     Check(ownLength != 0 && ffui::IsValidEngineExecutable(ownPath), "test executable itself validates");
+
+    // Authenticated launch validation must reject a regular unsigned file in
+    // the normal build, while retaining the explicit diagnostic-only escape
+    // hatch for disposable local development runs.
+    const std::wstring unsignedFixture = UnsignedFixture();
+    Check(!unsignedFixture.empty(), "unsigned discovery fixture is created");
+    if (!unsignedFixture.empty()) {
+        const ffui::EngineExecutableValidation validation =
+            ffui::ValidateEngineExecutable(unsignedFixture);
+        Check(!validation.canonicalPath.empty(), "canonical path is resolved before signature validation");
+#ifdef FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED
+        Check(validation.Accepted(), "diagnostic override accepts the unsigned discovery fixture");
+#else
+        Check(validation.status == ffui::EngineExecutableValidationStatus::Unsigned,
+              "unsigned discovery fixture is rejected before launch");
+#endif
+        DeleteFileW(unsignedFixture.c_str());
+    }
+    TestReparsePathRejected();
 
     if (FailureCount() != 0) {
         std::fprintf(stderr, "%d failure(s)\n", FailureCount());

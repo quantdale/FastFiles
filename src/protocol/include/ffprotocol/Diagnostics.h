@@ -50,6 +50,8 @@ enum class DiagnosticCode : uint32_t {
     FFDIAG_CANDIDATE_MATRIX = 31,
     FFDIAG_STARTUP_TOKEN = 32,
     FFDIAG_PROJECTION_MEMORY_PRESSURE = 33,
+    FFDIAG_ENGINE_SIGNATURE_REJECTED = 34,
+    FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED = 35,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);
@@ -92,6 +94,9 @@ struct DiagnosticEvent {
     bool journalRead = false;
     uint32_t journalReadError = 0;
     uint32_t registrationOrder = 0;
+    // Authenticode leaf thumbprint observed during engine discovery. This is
+    // metadata-only and remains empty for unsigned candidates.
+    std::wstring signatureThumbprint;
 };
 
 std::wstring DiagnosticLogPath();
