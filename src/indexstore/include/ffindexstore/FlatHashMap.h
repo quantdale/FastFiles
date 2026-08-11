@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <functional>
 #include <span>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -14,6 +15,8 @@ namespace ffindexstore {
 template <typename Key, typename Value, typename Hash = std::hash<Key>>
 class FlatHashMap {
 public:
+    static constexpr size_t kMaxProbeDistance = 64;
+
     FlatHashMap() = default;
     ~FlatHashMap() = default;
     FlatHashMap(const FlatHashMap&) = delete;
@@ -39,9 +42,9 @@ public:
     }
 
     const Value* find(const Key& key) const {
-        size_t idx = find_slot(key);
-        if (idx == keys_.size() || states_[idx] != 1) return nullptr;
-        return &values_[idx];
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted || probe.index == keys_.size() || states_[probe.index] != 1) return nullptr;
+        return &values_[probe.index];
     }
 
     Value* find(const Key& key) {
@@ -51,10 +54,15 @@ public:
     bool contains(const Key& key) const { return find(key) != nullptr; }
 
     Value& operator[](const Key& key) {
-        size_t idx = find_slot(key);
-        if (idx < keys_.size() && states_[idx] == 1) {
-            return values_[idx];
+        EnsureInsertCapacity();
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted) {
+            throw std::runtime_error("FlatHashMap probe distance exceeded 64 steps");
         }
+        if (probe.index < keys_.size() && states_[probe.index] == 1) {
+            return values_[probe.index];
+        }
+        size_t idx = probe.index;
         if (idx == keys_.size()) {
             idx = keys_.size();
             keys_.push_back(key);
@@ -70,11 +78,16 @@ public:
     }
 
     void insert(const Key& key, const Value& value) {
-        size_t idx = find_slot(key);
-        if (idx < keys_.size() && states_[idx] == 1) {
-            values_[idx] = value;
+        EnsureInsertCapacity();
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted) {
+            throw std::runtime_error("FlatHashMap probe distance exceeded 64 steps");
+        }
+        if (probe.index < keys_.size() && states_[probe.index] == 1) {
+            values_[probe.index] = value;
             return;
         }
+        size_t idx = probe.index;
         if (idx == keys_.size()) {
             idx = keys_.size();
             keys_.push_back(key);
@@ -86,15 +99,12 @@ public:
             states_[idx] = 1;
         }
         ++count_;
-        if (count_ > keys_.size() * 7 / 10) {
-            grow(keys_.size() * 2);
-        }
     }
 
     void erase(const Key& key) {
-        size_t idx = find_slot(key);
-        if (idx == keys_.size() || states_[idx] != 1) return;
-        states_[idx] = 2; // tombstone
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted || probe.index == keys_.size() || states_[probe.index] != 1) return;
+        states_[probe.index] = 2; // tombstone
         --count_;
     }
 
@@ -141,6 +151,11 @@ public:
     Iterator end() const { return Iterator{this, keys_.size()}; }
 
 private:
+    struct ProbeResult {
+        size_t index = 0;
+        bool exhausted = false;
+    };
+
     std::vector<Key> keys_;
     std::vector<Value> values_;
     std::vector<uint8_t> states_;
@@ -174,15 +189,28 @@ private:
         }
     }
 
-    size_t find_slot(const Key& key) const {
-        if (keys_.empty()) return 0;
+    void EnsureInsertCapacity() {
+        // address-engineering-audit-findings 3.1: grow before probing when
+        // the next insertion would start at or above 75% occupancy.
+        if (keys_.empty()) {
+            grow(8);
+        } else if (count_ >= keys_.size() * 3 / 4) {
+            grow(keys_.size() * 2);
+        }
+    }
+
+    ProbeResult find_slot(const Key& key) const {
+        if (keys_.empty()) return ProbeResult{0, false};
         size_t mask = keys_.size() - 1;
         size_t idx = hasher_(key) & mask;
-        for (;;) {
-            if (states_[idx] == 0) return idx;
-            if (states_[idx] == 1 && keys_[idx] == key) return idx;
+        // address-engineering-audit-findings 3.2: never allow malformed or
+        // adversarial hash distributions to turn a lookup into an infinite loop.
+        for (size_t distance = 0; distance < kMaxProbeDistance; ++distance) {
+            if (states_[idx] == 0) return ProbeResult{idx, false};
+            if (states_[idx] == 1 && keys_[idx] == key) return ProbeResult{idx, false};
             idx = (idx + 1) & mask;
         }
+        return ProbeResult{keys_.size(), true};
     }
 };
 

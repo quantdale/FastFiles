@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T13:45:36+08:00
-Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T14:42:28+08:00
+Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -37,14 +37,39 @@ Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL
   expired/untrusted/release-pin evidence, 4.5–4.8's signed/elevated/real
   MFT-USN/privilege/clean-host evidence, and 5.1's real aggregate-backed
   `% of Parent` sum. Do not alter signing material or pins.
-- Resume audit: the worktree is clean at `8d2c8e2`; `verify.ps1 doctor`
-  still passes the local VC toolset, SDK, CMake, Ninja, and Application
-  Verifier checks, while Hyper-V/Sandbox are unavailable for disposable-host
-  validation. An orphaned `FastFilesIndexSvc.exe` PID 9708 is running under
-  `services.exe` in Session 0 without a matching SCM service entry. The exact
-  `Stop-Process -Id 9708 -Force` cleanup was denied with `Access is denied`;
-  no UAC was initiated. The host cannot be declared process-clean until an
-  authorized elevated stop/cleanup is approved.
+- Resume audit: the worktree was clean at `c5ca5358` before the current
+  FlatHashMap slice; `verify.ps1 doctor` still passes the local VC toolset,
+  SDK, CMake, Ninja, and Application Verifier checks, while Hyper-V/Sandbox
+  are unavailable for disposable-host validation. The previously observed
+  orphaned `FastFilesIndexSvc.exe` PID 9708 has since exited; no Fast Files
+  SCM service is registered. The current uncommitted slice is limited to the
+  FlatHashMap implementation and its CTest target.
+
+## FlatHashMap safety slice (2026-08-11)
+
+- Root cause: `FlatHashMap::operator[]` never grew its bucket array, while
+  `find_slot` used an unbounded linear-probe loop. A full or adversarially
+  colliding table could therefore spin indefinitely.
+- Bounded fix: grow before insertion at the 75% live-key threshold, cap each
+  probe at 64 steps, and throw a clear `std::runtime_error` when insertion
+  cannot find a slot within that bound. `EntryKeyHash` now applies a final
+  64-bit mix so ordinary sequential FRNs do not reach the adversarial bound.
+  Existing keys are rehashed during growth; no security, IPC, signing, or
+  authentication behavior changed.
+- Regression coverage: new `ffindexstore_flat_hash_map_tests` covers repeated
+  `operator[]` growth beyond the old capacity and a constant-hash collision
+  sequence that reaches the bounded abort. The 4,100-record engine projection
+  fixture also guards the production hash distribution. Focused CTest passed
+  2/2; serial Debug and Release CTest each passed 45/45; Debug, Analyze, and
+  Release builds passed; the Windows build verifier passed; and pinned
+  OpenSpec strict validation passed 45/45.
+- Evidence is recorded in
+  `openspec/changes/address-engineering-audit-findings/evidence/data-structure-safety-20260811.md`.
+  Tasks 3.1–3.4, 8.2, and 8.5 are checked. No signing pins or authentication
+  controls were changed.
+- NEXT EXACT ACTION: review the focused diff, commit this slice, then stop at
+  the already documented external signing/pin, clean-host privileged-path,
+  and populated-index visual prerequisites.
 
 ## Stale persisted startup location (2026-08-11)
 

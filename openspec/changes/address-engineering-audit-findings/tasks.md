@@ -16,10 +16,10 @@
 
 ## 3. Data Structure Safety (data-structure-safety)
 
-- [ ] 3.1 Fix FlatHashMap::operator[] grow trigger to fire at 75% load factor
-- [ ] 3.2 Add maximum probe distance (64 steps) safety break to FlatHashMap insertion loop
-- [ ] 3.3 Add unit test that fills FlatHashMap to 100% capacity and verifies insertion still works (triggers grow)
-- [ ] 3.4 Add unit test for max probe distance abort path
+- [x] 3.1 Fix FlatHashMap::operator[] grow trigger to fire at 75% load factor
+- [x] 3.2 Add maximum probe distance (64 steps) safety break to FlatHashMap insertion loop
+- [x] 3.3 Add unit test that fills FlatHashMap to 100% capacity and verifies insertion still works (triggers grow)
+- [x] 3.4 Add unit test for max probe distance abort path
 
 ## 4. Snapshot Versioning (snapshot-versioning)
 
@@ -53,7 +53,7 @@
 ## 8. Verification and CI
 
 - [ ] 8.1 Add CI check that fails if TEMP-DEBUG or DEBUG_STALL patterns are found in non-test code
-- [ ] 8.2 Add CTest test for FlatHashMap 100% occupancy
+- [x] 8.2 Add CTest test for FlatHashMap 100% occupancy
 - [ ] 8.3 Add CTest test for IPC handshake over real named pipe
 - [ ] 8.4 Add CTest test for SnapshotPublisher concurrency under thread contention
-- [ ] 8.5 Verify entire test suite passes with /W4 /WX on Windows toolchain
+- [x] 8.5 Verify entire test suite passes with /W4 /WX on Windows toolchain
