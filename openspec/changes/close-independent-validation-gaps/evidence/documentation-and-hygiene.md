@@ -96,3 +96,12 @@ status-chip slice:
   authorized elevation, and retained interactive visual screenshot matrix were
   not available to this session. Tasks 4.2, 4.5–4.8, and 5.1–5.3 remain open;
   their evidence is intentionally pending rather than marked complete.
+
+## Superseding addendum — authorized visual pass
+
+The availability note above records the state before the user's explicit
+Computer Use authorization. The later pass is retained in
+`evidence/interactive-visual-validation-20260811.md`; it completed task 5.2
+and task 5.3. Task 5.1 remains open only for the real aggregate-backed
+`% of Parent` sum, because degraded coverage exposed unknown/partial parent
+totals in the live Drill Down surface.

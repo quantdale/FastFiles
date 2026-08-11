@@ -1,7 +1,42 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T14:01:00+08:00
-Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T13:33:52+08:00
+Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
+
+## Authorized system-level visual matrix (2026-08-11)
+
+- The user explicitly authorized temporary Windows display changes and direct
+  Computer Use. The pass exercised the rebuilt Debug `FastFiles.exe` at 150%
+  DPI, Windows High Contrast (`Aquatic`), animations disabled, Light/Dark
+  themes, details open/closed, single/dual pane, and a 724 px narrow window.
+- Retained screenshot/evidence artifacts are in the untracked directory
+  `verify/runs/manual-visual-20260811/`; the tracked acceptance record is
+  `openspec/changes/close-independent-validation-gaps/evidence/interactive-visual-validation-20260811.md`.
+- Direct observations found no visual defect: text remained readable, no
+  mojibake or column-under-details overlap was observed, High Contrast used
+  readable system-color chrome, reduced-motion remained stable, and the
+  narrow strategy removed the full details card without making the columns
+  unusable. The 100% final screenshots show the reserved details region and
+  the single/dual-pane layout.
+- The real Analyze Storage → Drill Down UI exposed the `% of Parent` column,
+  but degraded/partial coverage supplied `—` for file rows and `Partial` for
+  folder aggregates. The required real 100%-sum assertion is therefore not
+  claimed; OpenSpec task 5.1 remains open for that data-dependent row. Tasks
+  5.2 and 5.3 are now checked with the retained evidence.
+- Final host state was restored and verified: Display Settings showed 100%,
+  FastFiles/Settings window DPI was 96, `HighContrast=False`, and
+  `Animations=True`. FastFiles and the exact sibling Engine were cleaned up.
+- Final gates after the visual pass: pinned OpenSpec strict validation passed
+  45/45; x64 Debug, Analyze, and Release builds passed; serial Debug CTest
+  passed 44/44; serial Release CTest passed 44/44; and
+  `pwsh ./verify/verify.ps1 build` passed the `windows-build-validation`
+  capability. No source or security behavior changed in this pass.
+- The tracked evidence/task/workstate reconciliation is committed as
+  `dffc085` (`docs: record authorized visual validation`). The exact
+  remaining OpenSpec blockers are 4.2's
+  expired/untrusted/release-pin evidence, 4.5–4.8's signed/elevated/real
+  MFT-USN/privilege/clean-host evidence, and 5.1's real aggregate-backed
+  `% of Parent` sum. Do not alter signing material or pins.
 
 ## Stale persisted startup location (2026-08-11)
 
@@ -32,13 +67,14 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
   checkpoint are committed in the follow-up validation commit; its full
   `verify.ps1 build` rerun passed. The CMake diagnostic guard fix is committed
   as `565b90e`.
-- Final local checkpoint is `99b00e0`; the worktree is clean. OpenSpec tasks
-  4.2, 4.5–4.8, and 5.1–5.3 remain open because signed release material,
-  clean-host privilege evidence, and system-level visual rows are still
-  unavailable; no privileged path or security pin was weakened.
-- NEXT EXACT ACTION: obtain the documented external signing/elevation/
-  clean-host/visual-matrix prerequisites and execute only those remaining
-  gates; no safe local implementation frontier remains in this slice.
+- Final local checkpoint before this evidence commit was `5d071bb`; the
+  current evidence checkpoint is `dffc085`. OpenSpec
+  tasks 4.2, 4.5–4.8, and 5.1 remain open because signed release material,
+  clean-host privilege evidence, and a populated aggregate-backed visual
+  drill-down are still unavailable; 5.2 and 5.3 are now evidenced and
+  checked. No privileged path or security pin was weakened.
+- NEXT EXACT ACTION: commit the tracked visual evidence/task/workstate
+  reconciliation, then stop at the remaining external release prerequisites.
 
 ## Conflict-dialog test race (2026-08-11)
 

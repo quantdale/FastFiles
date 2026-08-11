@@ -91,3 +91,13 @@ activation, expired-signer release evidence, clean-host coverage, and the
 interactive visual matrix remain external blockers. The correct state is:
 
 `CODE COMPLETE  RELEASE VALIDATION STILL BLOCKED`
+
+## Addendum — authorized visual pass
+
+The earlier 5.1–5.3 row above predates the user's explicit authorization for
+temporary display changes. The subsequent Computer Use pass is recorded in
+`evidence/interactive-visual-validation-20260811.md`: task 5.2 (dark-theme
+confirmation) and task 5.3 (retained screenshot evidence) are complete. Task
+5.1 remains open only for the real aggregate-backed `% of Parent` sum; the
+degraded drill-down exposed the column but returned unknown/partial parent
+totals, so no 100%-sum claim is made.
