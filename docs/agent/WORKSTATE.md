@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T16:21:51+08:00
-Status: READY — STRUCTURED-DIAGNOSTICS SLICE VALIDATED; COMMIT PENDING
+Last updated: 2026-08-11T16:25:00+08:00
+Status: READY — STRUCTURED-DIAGNOSTICS SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -164,11 +164,9 @@ Status: READY — STRUCTURED-DIAGNOSTICS SLICE VALIDATED; COMMIT PENDING
 - Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
   structured-diagnostics-20260811.md`; tasks 7.1–7.4 are checked in the
   change task file.
-- Slice status: VALIDATED; implementation/evidence commit is next.
-- NEXT EXACT ACTION: inspect the final diff, commit this structured-diagnostics
-  slice and its evidence, then continue with the next local OpenSpec task
-  while keeping external signing, service, and populated-index blockers
-  unresolved.
+- Slice status: COMPLETE; implementation/evidence committed as `fba7ff5`.
+- NEXT EXACT ACTION: continue with the next local OpenSpec task while keeping
+  external signing, service, and populated-index blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
