@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T16:55:00+08:00
-Status: READY — PROJECTION-EVICTION SLICE VALIDATED; COMMIT PENDING
+Last updated: 2026-08-11T17:00:00+08:00
+Status: READY — PROJECTION-EVICTION SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -185,12 +185,13 @@ Status: READY — PROJECTION-EVICTION SLICE VALIDATED; COMMIT PENDING
   eviction markers, SQLite reload restoration, and pressure signaling.
 - Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
   projection-eviction-20260811.md`; tasks 6.1–6.5 are checked.
-- Slice status: VALIDATED; implementation and evidence are ready to commit.
+- Slice status: COMPLETE; implementation, task updates, and evidence are
+  committed as `96b92be` (`Bound projection memory with durable reload`).
   Debug/Analyze/Release builds passed, serial Debug and Release CTest passed
   45/45, the Windows build verifier passed, and strict OpenSpec validation
   passed 45/45.
-- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
-  commit this slice while leaving external release blockers unresolved.
+- NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
