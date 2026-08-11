@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <thread>
 #include <utility>
@@ -163,28 +164,40 @@ void TestMalformedHeadersRejectedWithoutPayloadRead() {
     }
 }
 
-void TestOverlappedReadCompletesAndWriteRoundTrips() {
+void TestRealNamedPipeHandshakeRoundTrips() {
     NamedPipePair pipe = MakeOverlappedNamedPipe();
     Check(pipe.server != nullptr && pipe.client != nullptr, "overlapped named pipe is connected");
     if (pipe.server == nullptr || pipe.client == nullptr) return;
 
+    const ffprotocol::HandshakeRequest request{ffprotocol::kCurrentProtocolVersion};
     bool writeResult = false;
     std::thread writer([&] {
         writeResult = ffipc::WriteFrame(pipe.client,
-            static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), nullptr, 0);
+            static_cast<uint16_t>(ffprotocol::MessageType::Handshake), &request, sizeof(request));
     });
     const auto received = ffipc::ReadFrameOverlapped(
         pipe.server, std::chrono::steady_clock::now() + std::chrono::seconds(2));
     writer.join();
-    Check(writeResult, "synchronous client write reaches overlapped service read");
-    Check(received.has_value(), "overlapped service read completes without polling");
-    Check(received && received->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat),
-          "overlapped service read preserves the frame type");
+    Check(writeResult, "real named-pipe handshake request is written");
+    Check(received.has_value(), "real named-pipe handshake request is read asynchronously");
+    Check(received && received->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::Handshake),
+          "handshake request message type crosses the real pipe");
+    Check(received && received->payload.size() == sizeof(request), "handshake request payload is bounded and complete");
+    if (received && received->payload.size() == sizeof(request)) {
+        ffprotocol::HandshakeRequest parsed{};
+        std::memcpy(&parsed, received->payload.data(), sizeof(parsed));
+        Check(ffprotocol::IsVersionCompatible(ffprotocol::kCurrentProtocolVersion, parsed.clientVersion),
+              "handshake request version is compatible");
+    }
 
+    const ffprotocol::HandshakeAckPayload ack{ffprotocol::kCurrentProtocolVersion};
     Check(ffipc::WriteFrameOverlapped(pipe.server,
-                                      static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat)),
-          "overlapped service write completes");
-    Check(ffipc::ReadFrame(pipe.client).has_value(), "synchronous client read receives overlapped service write");
+                                      static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck), &ack, sizeof(ack)),
+          "real named-pipe handshake acknowledgement is written asynchronously");
+    const auto reply = ffipc::ReadFrame(pipe.client);
+    Check(reply && reply->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck),
+          "handshake acknowledgement message type crosses the real pipe");
+    Check(reply && reply->payload.size() == sizeof(ack), "handshake acknowledgement payload is complete");
 }
 
 void TestOverlappedReadTimesOut() {
@@ -227,7 +240,7 @@ int main() {
     TestMaximumValidPayloadRoundTrips();
     TestOversizedWriteRejectedBeforeIo();
     TestMalformedHeadersRejectedWithoutPayloadRead();
-    TestOverlappedReadCompletesAndWriteRoundTrips();
+    TestRealNamedPipeHandshakeRoundTrips();
     TestOverlappedReadTimesOut();
     TestSynchronousReadFallbackCompletesAndTimesOut();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

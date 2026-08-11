@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T19:05:00+08:00
-Status: READY — PRODUCTION-MARKER GUARD COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T20:00:00+08:00
+Status: READY — REAL NAMED-PIPE HANDSHAKE VALIDATED; COMMIT PENDING
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -244,6 +244,29 @@ Status: READY — PRODUCTION-MARKER GUARD COMMITTED; EXTERNAL RELEASE BLOCKERS R
   validation passed 45/45.
 - NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   leaving external release blockers unresolved.
+
+## Real named-pipe handshake slice (2026-08-11)
+
+- Root cause: the verification suite had framing and service-side async-read
+  coverage, but no CTest acceptance of the Handshake/HandshakeAck exchange over
+  a real Windows named pipe.
+- Bounded fix: the existing real named-pipe fixture now sends a Handshake
+  request through the synchronous client side, receives/parses it through the
+  overlapped service-side read, then sends HandshakeAck through the overlapped
+  service write helper and validates the client-side reply. No production
+  authentication or signing bypass was introduced.
+- Focused validation: ffipc_framing_tests passed, including exact handshake
+  message types, payload sizes, and compatible protocol version.
+- Full validation: Debug/Analyze/Release builds passed; serial Debug and
+  Release CTest passed 45/45; the Windows build verifier passed; strict
+  OpenSpec validation passed 45/45; and doc-drift/line-ending validation passed
+  after CRLF normalization.
+- Evidence: openspec/changes/address-engineering-audit-findings/evidence/
+  ipc-handshake-20260811.md; task 8.3 is checked.
+- Slice status: VALIDATED; implementation, task update, and evidence are ready
+  to commit.
+- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
+  commit this slice while leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
