@@ -8,8 +8,9 @@ Status: READY — COMPUTER-USE VISUAL GATE COMPLETE; EXTERNAL RELEASE BLOCKERS R
 - Reconciled Git before this slice: branch `recovery/fast-files-20260809`, HEAD
   `9b10816aafa95409eb76460e860da70be0dbab18`; existing UTF-8 fix frontier in
   `CMakeLists.txt`, `tests/ui/CMakeLists.txt`, and `tests/ui/test_ui_text_encoding.cpp`
-  preserved. This campaign also has the bounded details-pane rendering change
-  in `src/ui/src/WindowShell.cpp` (uncommitted).
+  preserved. The bounded details-pane rendering change in
+  `src/ui/src/WindowShell.cpp` and the UTF-8 fix were committed as
+  `93b3847` (`ui: harden text and details layout`).
 - Computer Use was available and used directly against the exact rebuilt Debug
   `build/debug/src/ui/FastFiles.exe` window. Clean relaunch confirmed title
   `FastFiles`, proper `Last Operation Errors…`, proper `Selected: … • … • …`,
@@ -46,8 +47,8 @@ Status: READY — COMPUTER-USE VISUAL GATE COMPLETE; EXTERNAL RELEASE BLOCKERS R
   failures were isolated, then both focused reruns passed before the final suite.
   The exact disposable visual fixture was removed and the exact Debug UI/Engine
   processes were stopped. No merge or push occurred.
-- Next exact action: inspect final Git diff, commit the bounded UI fixes and
-  workstate checkpoint, then hand off with the external privileged-path and
+- Next exact action: commit this post-commit WORKSTATE hash/status checkpoint,
+  inspect final Git state, and hand off with the external privileged-path and
   system-setting visual rows explicitly blocked. Do not merge or push.
 
 ## Interactive validation product defect — Unicode literal encoding (2026-08-11)
