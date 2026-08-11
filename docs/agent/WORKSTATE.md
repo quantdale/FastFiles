@@ -1,7 +1,32 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T11:32:24+08:00
-Status: READY — COMPUTER-USE VISUAL GATE COMPLETE; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T12:28:00+08:00
+Status: READY — DIAGNOSTIC BUILD-GUARD FIX VERIFIED; EXTERNAL RELEASE BLOCKERS REMAIN
+
+## Diagnostic escape-hatch build guard (2026-08-11)
+
+- Found a concrete CMake defect while auditing the remaining authentication
+  task: `src/setup/CMakeLists.txt` called `target_compile_definitions(ffsetup
+  ...)` before creating the `ffsetup` target. The normal OFF path concealed the
+  defect, but the intended Debug-only diagnostic configuration could not
+  configure.
+- Bounded fix: create/configure `ffsetup` first, then apply the option and keep
+  the existing fatal guard for every non-Debug `CMAKE_BUILD_TYPE`. No runtime
+  authentication behavior or fail-closed production path changed.
+- Validation: an isolated Debug configure with
+  `FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON` configured and built `ffsetup`; an
+  isolated Release configure with the same option rejected configuration with
+  the expected fatal error. Normal Debug `ffengine_authenticode_verification_tests`
+  build/test also passed. Matching-x64 Release configure/build passed for all 51
+  targets, and Release CTest passed 44/44 with the documented user TEMP/TMP
+  override. The default shell's x86 library mismatch was harness-only and was
+  eliminated by `Launch-VsDevShell.ps1 -Arch amd64 -HostArch amd64`.
+- The bounded CMake fix is ready to commit with this checkpoint. Remaining
+  release blockers are the explicitly external signing/elevation/clean-host
+  evidence and system-level visual matrix rows; no task is marked complete
+  without that evidence.
+- NEXT EXACT ACTION: obtain the provisioned signing certificate and authorized
+  elevated/clean validation hosts for the remaining external gates.
 
 ## Computer-Use visual validation checkpoint (2026-08-11)
 
