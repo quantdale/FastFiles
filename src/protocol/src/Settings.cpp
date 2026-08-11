@@ -288,6 +288,14 @@ Settings LoadSettings(bool preserveCorruptFile) {
             try { result.maxAutoPreviewBytes = std::stoull(match[1]); }
             catch (const std::exception&) { LogFallback(L"Invalid preview section; preview defaults loaded."); }
         } else if (HasJsonField(text, L"maxAutoPreviewBytes")) LogFallback(L"Invalid preview section; preview defaults loaded.");
+        if (std::regex_search(text, match, std::wregex(LR"re("vacuumIntervalHours"\s*:\s*([0-9]+))re"))) {
+            try { result.vacuumIntervalHours = std::stoull(match[1]); }
+            catch (const std::exception&) { LogFallback(L"Invalid maintenance section; maintenance defaults loaded."); }
+        } else if (HasJsonField(text, L"vacuumIntervalHours")) LogFallback(L"Invalid maintenance section; maintenance defaults loaded.");
+        if (std::regex_search(text, match, std::wregex(LR"re("vacuumSizeGrowthPercent"\s*:\s*([0-9]+))re"))) {
+            try { result.vacuumSizeGrowthPercent = std::stoull(match[1]); }
+            catch (const std::exception&) { LogFallback(L"Invalid maintenance section; maintenance defaults loaded."); }
+        } else if (HasJsonField(text, L"vacuumSizeGrowthPercent")) LogFallback(L"Invalid maintenance section; maintenance defaults loaded.");
 
         std::vector<VolumeSetting> volumes;
         const std::wsregex_iterator regexEnd;
@@ -346,6 +354,8 @@ bool SaveSettings(const Settings& settings) {
          << L"},\n  \"appearance\": {\"theme\":\"" << ThemeName(settings.theme)
          << L"\"},\n  \"navigation\": {\"startupLocation\":\"" << Escape(settings.startupLocation) << L"\",\"restorePreviousSession\":" << (settings.restorePreviousSession ? L"true" : L"false")
          << L"},\n  \"preview\": {\"previewEnabled\":" << (settings.previewEnabled ? L"true" : L"false") << L",\"maxAutoPreviewBytes\":" << settings.maxAutoPreviewBytes
+         << L"},\n  \"maintenance\": {\"vacuumIntervalHours\":" << settings.vacuumIntervalHours
+         << L",\"vacuumSizeGrowthPercent\":" << settings.vacuumSizeGrowthPercent
          << L"},\n  \"storage-analysis\": {\"categories\":[";
     for (size_t i = 0; i < settings.storageCategories.size(); ++i) {
         if (i) file << L",";

@@ -75,6 +75,12 @@ public:
     // address-engineering-audit-findings 5.1: refresh SQLite query-planner
     // statistics after a sufficiently large ingestion batch.
     bool Analyze();
+    // address-engineering-audit-findings 5.2: run VACUUM only during an
+    // idle window after the configured interval and size-growth gates pass.
+    // nowEpochSeconds is injectable so the gating policy is deterministic in
+    // tests; the production caller passes current wall-clock seconds.
+    bool VacuumIfDue(bool userIdle, uint64_t nowEpochSeconds, uint64_t intervalHours,
+                     uint64_t sizeGrowthPercent);
 
     // --- Volume metadata (tasks.md 1.3, section 7/8's persistence needs) ---
 
@@ -143,6 +149,9 @@ private:
     std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
 
     sqlite3* db_ = nullptr;
+    std::string dbPathUtf8_;
+    uint64_t lastVacuumTimeSeconds_ = 0;
+    uint64_t lastVacuumSizeBytes_ = 0;
 };
 
 } // namespace ffindexstore

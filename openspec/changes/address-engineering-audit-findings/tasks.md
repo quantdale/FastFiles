@@ -31,9 +31,9 @@
 ## 5. Index Store Maintenance (index-store-maintenance)
 
 - [x] 5.1 Add ANALYZE trigger after every 10,000 bulk insert records in IndexPipeline.cpp
-- [ ] 5.2 Add idle-time VACUUM scheduler in Store.cpp gated by 24-hour interval and 10% size growth threshold
-- [ ] 5.3 Add configuration options for VACUUM interval and size threshold in Settings.h
-- [ ] 5.4 Add unit test for VACUUM gating logic
+- [x] 5.2 Add idle-time VACUUM scheduler in Store.cpp gated by 24-hour interval and 10% size growth threshold
+- [x] 5.3 Add configuration options for VACUUM interval and size threshold in Settings.h
+- [x] 5.4 Add unit test for VACUUM gating logic
 
 ## 6. Projection Eviction (projection-eviction)
 

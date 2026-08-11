@@ -168,13 +168,19 @@ void IndexPipeline::Close() {
     recordsSinceAnalyze_ = 0;
 }
 
-void IndexPipeline::RunStoreMaintenance() {
+void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHours,
+                                         uint64_t vacuumSizeGrowthPercent) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!store_.IsOpen()) {
         return;
     }
     store_.CheckpointPassive();
     store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+    if (userIdle) {
+        const uint64_t nowEpochSeconds = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+        store_.VacuumIfDue(true, nowEpochSeconds, vacuumIntervalHours, vacuumSizeGrowthPercent);
+    }
 }
 
 void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {

@@ -236,7 +236,14 @@ int wmain() {
 
     idleManager.Start(
         kIdleTimeout,
-        [&privilegedConnection] { privilegedConnection.DropForIdle(); },
+        [&privilegedConnection, &indexPipeline] {
+            const auto settings = ffprotocol::LoadSettings(false);
+            // address-engineering-audit-findings 5.2: the idle callback is
+            // the only production path allowed to attempt expensive VACUUM.
+            indexPipeline.RunStoreMaintenance(true, settings.vacuumIntervalHours,
+                                               settings.vacuumSizeGrowthPercent);
+            privilegedConnection.DropForIdle();
+        },
         [&privilegedConnection] { privilegedConnection.RequestReconnect(); });
 
     // This process has no message loop or console of its own -- it's a

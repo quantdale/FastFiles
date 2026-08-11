@@ -324,11 +324,16 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     Settings settings = DefaultSettings();
     settings.startupLocation = L"C:\\Work\\日本語\\\"quoted\"";
     settings.defaultSearchScope = L"D:\\資料";
+    settings.vacuumIntervalHours = 48;
+    settings.vacuumSizeGrowthPercent = 15;
     settings.indexing = {{L"C:\\", true, {{L"C:\\Work\\Private", false}}}};
     Check(SaveSettings(settings), "settings are written as UTF-8 JSON");
     const Settings loaded = LoadSettings();
     Check(loaded.startupLocation == settings.startupLocation && loaded.defaultSearchScope == settings.defaultSearchScope,
           "escaped Windows and Unicode paths round-trip without accumulating backslashes");
+    Check(loaded.vacuumIntervalHours == settings.vacuumIntervalHours &&
+              loaded.vacuumSizeGrowthPercent == settings.vacuumSizeGrowthPercent,
+          "VACUUM maintenance settings round-trip through JSON");
     Check(loaded.indexing.size() == 1 && loaded.indexing[0].rules.size() == 1
               && loaded.indexing[0].rules[0].path == settings.indexing[0].rules[0].path,
           "indexing paths round-trip through JSON escaping");

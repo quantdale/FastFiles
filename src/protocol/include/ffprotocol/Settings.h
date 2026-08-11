@@ -29,6 +29,8 @@ struct Settings {
     bool restorePreviousSession = true;
     bool previewEnabled = true;
     unsigned long long maxAutoPreviewBytes = 16ULL * 1024ULL * 1024ULL;
+    unsigned long long vacuumIntervalHours = 24;
+    unsigned long long vacuumSizeGrowthPercent = 10;
     std::vector<std::pair<std::wstring, std::wstring>> storageCategories;
 };
 

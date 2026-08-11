@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <string>
 
 #include "ffindexstore/Store.h"
@@ -251,6 +252,31 @@ void TestDataSurvivesReopenAfterClose() {
     Check(reopened.CountEntries(vol) == 1, "committed data survives close/reopen (WAL durability)");
 }
 
+void TestVacuumGatingByIdleIntervalAndGrowth() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_vacuum_gating.db");
+    Store store;
+    Check(store.Open(dbPath), "database opens for VACUUM gating");
+    VolumeKey key;
+    key.serialNumber = 1;
+    const auto vol = *store.GetOrCreateVolume(key);
+
+    constexpr uint64_t kFarFuture = std::numeric_limits<uint64_t>::max();
+    Check(!store.VacuumIfDue(false, kFarFuture, 0, 0), "VACUUM requires an idle window");
+    Check(!store.VacuumIfDue(true, kFarFuture, 0, 10), "VACUUM skips when the database has not grown");
+
+    std::vector<EntryChange> changes;
+    changes.reserve(1'000);
+    const std::u16string longName(256, u'x');
+    for (uint64_t index = 0; index < 1'000; ++index) {
+        changes.push_back({EntryChangeKind::Upsert, MakeEntry(1'000 + index, 1'000 + index, longName)});
+    }
+    Check(store.ApplyBatch(vol, changes), "bulk rows apply for VACUUM growth gating");
+    Check(store.CheckpointPassive(), "the growth fixture is checkpointed before VACUUM evaluation");
+    Check(!store.VacuumIfDue(true, 0, 24, 10), "VACUUM honors the interval gate");
+    Check(store.VacuumIfDue(true, kFarFuture, 0, 10), "VACUUM runs after idle, interval, and growth gates pass");
+    Check(!store.VacuumIfDue(true, kFarFuture, 0, 10), "a successful VACUUM resets the growth baseline");
+}
+
 void TestGetFolderAggregateFromStore() {
     const std::string dbPath = FreshDbPath("ffindexstore_test_folder_agg.db");
     Store store;
@@ -297,6 +323,7 @@ int main() {
     TestForgetVolumeIsExplicitAndRemovesEntries();
     TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint();
     TestDataSurvivesReopenAfterClose();
+    TestVacuumGatingByIdleIntervalAndGrowth();
     TestGetFolderAggregateFromStore();
 
     if (fftest::FailureCount() > 0) {

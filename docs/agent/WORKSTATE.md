@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T16:34:00+08:00
-Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T17:42:00+08:00
+Status: READY — INDEX-STORE VACUUM SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -119,6 +119,27 @@ Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING COMMITTED; EX
   NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   keeping external signing, service, and real-index evidence blockers
   unresolved.
+
+## Index-store VACUUM safety slice (2026-08-11)
+
+- Root cause: SQLite planner maintenance was covered, but expensive space
+  reclamation had no idle, interval, or size-growth gate and no persisted
+  configuration values.
+- Bounded fix: `Store::VacuumIfDue` tracks the database baseline and last
+  VACUUM, rejects non-idle/too-early/insufficient-growth calls, and is invoked
+  only from the existing IdleManager callback. Settings defaults are 24 hours
+  and 10 percent, with JSON round-trip support. No security, IPC, signing, or
+  privileged-service behavior changed.
+- Focused validation: `ffindexstore_store_tests`, `ffprotocol_tests`, and
+  `ffengine_index_pipeline_tests` passed 3/3. Full Debug/Analyze/Release
+  builds passed; serial Debug and Release CTest passed 45/45; strict OpenSpec
+  passed 45/45; and the Windows build verifier passed. Tasks 5.2–5.4 are
+  checked; evidence is recorded in
+  `openspec/changes/address-engineering-audit-findings/evidence/index-store-vacuum-20260811.md`.
+- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
+  update/stage final evidence and commit this slice, then continue with the
+  next remaining local OpenSpec task while keeping external signing, service,
+  and real-index evidence blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 

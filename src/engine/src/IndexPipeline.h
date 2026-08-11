@@ -104,7 +104,8 @@ public:
     // every call and escalates to a forced checkpoint once the WAL has
     // grown past the threshold (design.md "Risks": unbounded WAL growth
     // under sustained write bursts). No-op if the store was never opened.
-    void RunStoreMaintenance();
+    void RunStoreMaintenance(bool userIdle = false, uint64_t vacuumIntervalHours = 24,
+                             uint64_t vacuumSizeGrowthPercent = 10);
 
     // task 3.1/3.2: rebuilds every volume already known to the durable
     // store, invoking onVolumeRebuilt once per volume as soon as that
