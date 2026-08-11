@@ -53,8 +53,11 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
   dialog behavior changed. Focused Debug stress passed 20/20 consecutively;
   Analyze/Release rebuilds passed; complete serial Debug and Release CTest
   passed 44/44; and `pwsh ./verify/verify.ps1 build` passed.
-- NEXT EXACT ACTION: commit the test-race fix with this checkpoint, then stop
-  at the documented external release blockers.
+- The test-race fix is committed as `f862af1`; the final local checkpoint is
+  this branch's clean HEAD after the follow-up workstate record.
+- NEXT EXACT ACTION: stop at the documented external release blockers unless
+  authorized signing material, clean-host access, or required system-level
+  visual environments become available.
 
 ## Diagnostic escape-hatch build guard (2026-08-11)
 
