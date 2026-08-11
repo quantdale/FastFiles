@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T20:00:00+08:00
-Status: READY — REAL NAMED-PIPE HANDSHAKE VALIDATED; COMMIT PENDING
+Last updated: 2026-08-11T20:05:00+08:00
+Status: READY — REAL NAMED-PIPE HANDSHAKE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -263,10 +263,13 @@ Status: READY — REAL NAMED-PIPE HANDSHAKE VALIDATED; COMMIT PENDING
   after CRLF normalization.
 - Evidence: openspec/changes/address-engineering-audit-findings/evidence/
   ipc-handshake-20260811.md; task 8.3 is checked.
-- Slice status: VALIDATED; implementation, task update, and evidence are ready
-  to commit.
-- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
-  commit this slice while leaving external release blockers unresolved.
+- Slice status: COMPLETE; implementation, task update, and evidence are
+  committed as `4a57ba2` (`Test handshake over real named pipe`). Debug,
+  Analyze, and Release builds passed; serial Debug and Release CTest passed
+  45/45; the verifier passed; strict OpenSpec validation passed 45/45; and the
+  doc-drift/line-ending guard passed after CRLF normalization.
+- NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
