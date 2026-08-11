@@ -18,6 +18,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Reject production debug markers
+        shell: pwsh
+        run: ./verify/check_source_markers.ps1
+
       - name: Configure
         shell: pwsh
         run: cmake --preset ${{ matrix.preset }}

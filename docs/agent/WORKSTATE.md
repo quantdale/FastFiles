@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T18:35:00+08:00
-Status: READY — IPC-RELIABILITY SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T19:00:00+08:00
+Status: READY — PRODUCTION-MARKER GUARD VALIDATED; COMMIT PENDING
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -219,6 +219,28 @@ Status: READY — IPC-RELIABILITY SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REM
   passed 45/45.
 - NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   leaving external release blockers unresolved.
+
+## Production debug-marker guard slice (2026-08-11)
+
+- Root cause: CI had no explicit source guard against temporary debug stalls,
+  so a `TEMP-DEBUG`/`DEBUG_STALL` marker could enter a production source
+  path without a dedicated failure before configure/build.
+- Bounded fix: `verify/check_source_markers.ps1` scans first-party C/C++
+  under `src/` and fails with file/line evidence for either marker. The GitHub
+  Actions workflow runs it immediately after checkout for every preset. Tests
+  and audit history are outside the production-source scan boundary.
+- Focused validation: the guard passed with no markers in 171 production source
+  files.
+- Full validation: Debug and Release CTest passed 45/45; the Windows build
+  verifier passed; and strict OpenSpec validation passed 45/45. The existing
+  Debug/Analyze/Release builds from the preceding IPC slice remain green; this
+  slice contains no C++ changes.
+- Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
+  production-debug-marker-20260811.md`; task 8.1 is checked.
+- Slice status: VALIDATED; implementation, workflow, task update, and evidence
+  are ready to commit.
+- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
+  commit this slice while leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
