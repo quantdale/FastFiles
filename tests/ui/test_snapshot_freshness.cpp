@@ -1,6 +1,7 @@
 #include <cstdint>
 
 #include "ffui/SnapshotFreshness.h"
+#include "ffprotocol/SnapshotFormat.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -79,6 +80,20 @@ void TestRepeatedFailureDoesNotAccumulateState() {
           "repeated identical failure is one stable current-state result");
 }
 
+void TestIncompatibleFormatStartsFreshMappingSource() {
+    ffui::SnapshotFreshness state;
+    state.AcceptGeneration(7);
+    Check(!ffprotocol::IsSnapshotFormatCompatible(ffprotocol::kSnapshotFormatVersion + 1),
+          "an incompatible snapshot format is detected before parsing");
+
+    // EngineClient clears its mapped section and waits for a new generation;
+    // this is the UI freshness state that accompanies that re-map request.
+    state.ResetForNewSource();
+    Check(state.state == ffui::SnapshotViewState::Loading && state.requestedGeneration == 0 &&
+              state.lastSuccessfulGeneration == 0,
+          "an incompatible snapshot re-map starts a fresh source state");
+}
+
 } // namespace
 
 int main() {
@@ -87,5 +102,6 @@ int main() {
     TestContextIsolation();
     TestMappingFailureAndGenerationOrdering();
     TestRepeatedFailureDoesNotAccumulateState();
+    TestIncompatibleFormatStartsFreshMappingSource();
     return FailureCount() == 0 ? 0 : 1;
 }

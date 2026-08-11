@@ -45,7 +45,7 @@ target_include_directories(ffselection_identity_tests PRIVATE ../../src/ui/inclu
 add_test(NAME ffselection_identity_tests COMMAND ffselection_identity_tests)
 
 add_executable(ffsnapshot_freshness_tests test_snapshot_freshness.cpp)
-target_include_directories(ffsnapshot_freshness_tests PRIVATE ../../src/ui/include)
+target_include_directories(ffsnapshot_freshness_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
 add_test(NAME ffsnapshot_freshness_tests COMMAND ffsnapshot_freshness_tests)
 
 add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)

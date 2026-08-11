@@ -23,10 +23,10 @@
 
 ## 4. Snapshot Versioning (snapshot-versioning)
 
-- [ ] 4.1 Add format version field to SnapshotDirectory header in SnapshotFormat.h
-- [ ] 4.2 Update SnapshotPublisher to write version on every publication
-- [ ] 4.3 Update UI mapping code to read version and reject incompatible snapshots with re-map
-- [ ] 4.4 Add unit test for version mismatch detection and re-map path
+- [x] 4.1 Add format version field to SnapshotDirectory header in SnapshotFormat.h
+- [x] 4.2 Update SnapshotPublisher to write version on every publication
+- [x] 4.3 Update UI mapping code to read version and reject incompatible snapshots with re-map
+- [x] 4.4 Add unit test for version mismatch detection and re-map path
 
 ## 5. Index Store Maintenance (index-store-maintenance)
 

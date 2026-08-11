@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T14:44:57+08:00
-Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T15:08:00+08:00
+Status: READY — SNAPSHOT VERSIONING SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -44,7 +44,8 @@ Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS 
   orphaned `FastFilesIndexSvc.exe` PID 9708 has since exited; no Fast Files
   SCM service is registered. The FlatHashMap implementation, CTest target,
   OpenSpec evidence, and task/workstate checkpoint were committed as
-  `3619c26`; the follow-up workstate checkpoint is the only pending edit.
+  `3619c26`/`53530be`. The current snapshot-versioning slice is the only
+  uncommitted frontier.
 
 ## FlatHashMap safety slice (2026-08-11)
 
@@ -68,10 +69,30 @@ Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS 
   `openspec/changes/address-engineering-audit-findings/evidence/data-structure-safety-20260811.md`.
   Tasks 3.1–3.4, 8.2, and 8.5 are checked. No signing pins or authentication
   controls were changed.
-- NEXT EXACT ACTION: persist this final workstate checkpoint, then stop at the
-  already documented external signing/pin, clean-host privileged-path, and
-  populated-index visual prerequisites. If resumed, reread this checkpoint and
-  inspect Git before selecting exactly one new frontier.
+- Slice status: COMPLETE; do not restart this FlatHashMap work.
+
+## Snapshot versioning safety slice (2026-08-11)
+
+- Root cause: the shared memory mapping carried generation and slot
+  descriptors but no format version, so a mismatched engine/UI build could
+  parse an incompatible layout as if it were current.
+- Bounded fix: `SnapshotSharedHeader` now carries a versioned, naturally
+  aligned header; `SnapshotPublisher` writes the version at startup and on
+  every publication; `EngineClient` rejects incompatible versions before
+  parsing, unmaps the read-only view, and remaps the retained section name on
+  the next generation notification. Failed remaps retain the name for retry.
+- Focused Debug validation: `ffengine_snapshot_publisher_tests` and
+  `ffsnapshot_freshness_tests` passed; the real `FastFiles` UI target built.
+  Full Debug/Analyze/Release builds passed; serial Debug and Release CTest
+  passed 45/45; `pwsh ./verify/verify.ps1 build` passed; and pinned
+  `openspec validate --all --strict` passed 45/45. The document-drift guard
+  passed after the changed files were normalized to the repository's CRLF
+  convention. Tasks 4.1–4.4 are checked and evidence is recorded in
+  `openspec/changes/address-engineering-audit-findings/evidence/snapshot-versioning-20260811.md`.
+- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
+  commit the snapshot-versioning implementation/evidence, then select the
+  next local OpenSpec task; do not claim the external signing, service, or
+  real-index evidence blockers are resolved.
 
 ## Stale persisted startup location (2026-08-11)
 

@@ -128,8 +128,9 @@ private:
     // failed write cannot leak the old connection.
     std::vector<HANDLE> retiredPipes_;
 
-    HANDLE mappingHandle_ = nullptr;
-    const uint8_t* mappedView_ = nullptr;
+    mutable HANDLE mappingHandle_ = nullptr;
+    mutable const uint8_t* mappedView_ = nullptr;
+    mutable std::wstring snapshotSectionName_;
     mutable std::mutex mappingMutex_;
 
     std::thread managementThread_;
@@ -146,6 +147,9 @@ private:
     std::deque<std::wstring> invalidationQueue_;
     std::atomic<uint64_t> lastRequestId_{0};
     std::atomic<uint64_t> announcedGeneration_{0};
+    // address-engineering-audit-findings 4.3: an incompatible mapping is
+    // discarded and re-opened when the engine announces its next generation.
+    mutable std::atomic<bool> snapshotRemapRequested_{false};
 
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;

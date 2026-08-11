@@ -57,6 +57,8 @@ bool SnapshotPublisher::Start(DWORD sessionId) {
     // fresh mapping starts at generation zero; keep the local counter in
     // lockstep so the first publication after restart is generation one.
     generation_.store(0);
+    header->formatVersion = ffprotocol::kSnapshotFormatVersion;
+    header->reserved = 0;
     header->generation = 0;
     header->activeSlot = 0;
     header->slotDataSize[0] = 0;
@@ -111,6 +113,9 @@ uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::Sna
     // Interlocked stores are full barriers and are visible across processes;
     // this is stronger than relying on the C++ memory model for plain fields
     // in a shared mapping.
+    // address-engineering-audit-findings 4.2: repeat the version publication
+    // on every generation so a reused section cannot retain stale metadata.
+    StoreSharedU32(&header->formatVersion, ffprotocol::kSnapshotFormatVersion);
     StoreSharedU32(&header->slotDataSize[inactiveSlot], static_cast<uint32_t>(serialized.size()));
     StoreSharedU32(&header->activeSlot, inactiveSlot);
     StoreSharedU64(&header->generation, newGeneration);

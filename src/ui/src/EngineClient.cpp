@@ -138,6 +138,8 @@ bool EngineClient::MapSnapshotSection(const std::wstring& sectionName) {
     std::lock_guard<std::mutex> lock(mappingMutex_);
     mappingHandle_ = mapping;
     mappedView_ = view;
+    snapshotSectionName_ = sectionName;
+    snapshotRemapRequested_.store(false);
     return true;
 }
 
@@ -151,6 +153,7 @@ void EngineClient::UnmapSnapshotSection() {
         CloseHandle(mappingHandle_);
         mappingHandle_ = nullptr;
     }
+    snapshotSectionName_.clear();
 }
 
 std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClient::ReadSnapshot() const {
@@ -166,6 +169,17 @@ std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() con
     }
     const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(mappedView_);
     for (int attempt = 0; attempt != 3; ++attempt) {
+        if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
+            // address-engineering-audit-findings 4.3: do not parse an
+            // incompatible shared-memory layout; the reader loop remaps on
+            // the next NewGeneration notification.
+            snapshotRemapRequested_.store(true);
+            UnmapViewOfFile(mappedView_);
+            mappedView_ = nullptr;
+            CloseHandle(mappingHandle_);
+            mappingHandle_ = nullptr;
+            return std::nullopt;
+        }
         const uint64_t generationBefore = LoadSharedU64(&header->generation);
         if (generationBefore == 0) return std::nullopt;
         const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
@@ -292,6 +306,18 @@ void EngineClient::ReaderLoop() {
                            !announcedGeneration_.compare_exchange_weak(announced, payload.generationId)) {
                     }
                     if (payload.generationId <= announced) break;
+                    if (snapshotRemapRequested_.exchange(false)) {
+                        std::wstring sectionName;
+                        {
+                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
+                            sectionName = snapshotSectionName_;
+                        }
+                        if (!sectionName.empty() && !MapSnapshotSection(sectionName)) {
+                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
+                            snapshotSectionName_ = sectionName;
+                            snapshotRemapRequested_.store(true);
+                        }
+                    }
                     if (onNewGeneration_) onNewGeneration_(payload.generationId);
                 }
                 break;

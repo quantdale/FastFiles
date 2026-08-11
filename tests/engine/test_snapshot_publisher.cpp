@@ -62,6 +62,12 @@ void TestPublisherUsesPerSlotDescriptors() {
     Check(firstGeneration == 1, "first publication receives generation one");
 
     const auto* firstHeader = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
+    Check(firstHeader->formatVersion == ffprotocol::kSnapshotFormatVersion,
+          "the mapping header publishes the supported snapshot format version");
+    Check(ffprotocol::IsSnapshotFormatCompatible(firstHeader->formatVersion),
+          "the current snapshot format is accepted");
+    Check(!ffprotocol::IsSnapshotFormatCompatible(ffprotocol::kSnapshotFormatVersion + 1),
+          "a future snapshot format is rejected");
     const uint32_t firstSlot = firstHeader->activeSlot;
     Check(firstSlot <= 1, "active slot is in range");
     const uint32_t safeFirstSlot = firstSlot <= 1 ? firstSlot : 0;
