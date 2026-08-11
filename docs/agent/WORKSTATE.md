@@ -32,7 +32,7 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
   checkpoint are committed in the follow-up validation commit; its full
   `verify.ps1 build` rerun passed. The CMake diagnostic guard fix is committed
   as `565b90e`.
-- Final local checkpoint is `bd150b3`; the worktree is clean. OpenSpec tasks
+- Final local checkpoint is `18c68cf`; the worktree is clean. OpenSpec tasks
   4.2, 4.5–4.8, and 5.1–5.3 remain open because signed release material,
   clean-host privilege evidence, and system-level visual rows are still
   unavailable; no privileged path or security pin was weakened.
@@ -58,6 +58,23 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
 - NEXT EXACT ACTION: stop at the documented external release blockers unless
   authorized signing material, clean-host access, or required system-level
   visual environments become available.
+
+## Standard-state Computer Use recheck (2026-08-11)
+
+- Read-only host state: system DPI is 96 (100% scale), High Contrast is off,
+  and client-area animations are enabled. No system setting was changed.
+- A fresh rebuilt Debug launch through Computer Use showed one FastFiles window,
+  no startup Settings dialog or hidden modal, correct `Last Operation Errors…`
+  text, `Instant search: basic (degraded mode)`, `This PC` startup, and the
+  status line `Selected: 0 • 0 B • Computer`. The menu opened without text
+  corruption, and `Ctrl+L` exposed a native edit control before Escape restored
+  the normal chrome.
+- The exact Debug UI and sibling Engine were closed/cleaned; no FastFiles
+  processes remain. No new product defect was found. This strengthens the
+  100%-DPI/normal-theme baseline but does not prove 150% DPI, High Contrast, or
+  animations-disabled rows.
+- NEXT EXACT ACTION: only execute the remaining 5.1–5.3 system visual rows or
+  4.2/4.5–4.8 signed/clean-host rows when their external prerequisites exist.
 
 ## Diagnostic escape-hatch build guard (2026-08-11)
 
