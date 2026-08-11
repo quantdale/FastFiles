@@ -76,6 +76,19 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
 - NEXT EXACT ACTION: only execute the remaining 5.1–5.3 system visual rows or
   4.2/4.5–4.8 signed/clean-host rows when their external prerequisites exist.
 
+## Root refresh diagnosis (2026-08-11)
+
+- The standard Debug launch continued to show `Refreshing…` at the synthetic
+  `This PC` root after 11 seconds, while the window remained responsive.
+- A real address-bar navigation to the safe user Temp directory rendered its
+  contents promptly and without the progress label. This classifies the root
+  label as active large-root enumeration rather than a stuck refresh defect;
+  no product change was justified.
+- The test navigation was restored to `This PC` before shutdown, and the exact
+  Debug UI/Engine processes were cleaned up.
+- NEXT EXACT ACTION: preserve the current implementation and wait for the
+  authorized system-level visual or signed privileged-path prerequisites.
+
 ## Diagnostic escape-hatch build guard (2026-08-11)
 
 - Found a concrete CMake defect while auditing the remaining authentication
