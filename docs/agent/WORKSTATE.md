@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T16:28:00+08:00
-Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T16:34:00+08:00
+Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -115,10 +115,10 @@ Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING VALIDATED; EX
 - Full Debug and Release CTest passed 45/45; full Debug/Analyze/Release builds
   passed; strict OpenSpec validation passed 45/45; and
   `pwsh ./verify/verify.ps1 build` passed `windows-build-validation`.
-- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
-  update/stage the final evidence and commit this local slice, then continue
-  with the next remaining local OpenSpec task while keeping external signing,
-  service, and real-index evidence blockers unresolved.
+- Slice status: COMPLETE; implementation/evidence committed as `f8ef012`.
+  NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  keeping external signing, service, and real-index evidence blockers
+  unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
