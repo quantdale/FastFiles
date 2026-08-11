@@ -398,12 +398,33 @@ void FileOperations::Execute(const FileOperationRequest& input) {
         for (const auto& path : allCompletedPaths) {
             if (!path.resultingPath.empty()) completion.createdPaths.push_back(path.resultingPath);
         }
+        // file-operations 2.4: some shell providers report a successful
+        // NewItem without returning the created IShellItem. The filesystem
+        // path is still deterministic; publish it only after verifying that
+        // the requested item exists so inline rename never loses the new row.
+        if (completion.failures.empty()) {
+            const auto expectedPath = (std::filesystem::path(request.destination) / request.newName).wstring();
+            if (GetFileAttributesW(expectedPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                completion.createdPaths.clear();
+                completion.createdPaths.push_back(expectedPath);
+            }
+        }
     }
     if (request.recordHistory) {
         auto completedPaths = allCompletedPaths;
         if (request.kind == FileOperationKind::Rename && completedPaths.size() == 1) {
             completion.reversibleOperation = ReversibleOperation{ReversibleOperationKind::Rename, std::move(completedPaths)};
         } else if (request.kind == FileOperationKind::Move) {
+            // file-operations 6.6: a Replace destroys the previous
+            // destination contents, so the entire move batch is ineligible
+            // for undo even if Shell returns a callback path with different
+            // canonicalization from the preflight source path.
+            const bool overwroteExisting = std::any_of(
+                request.transferPlan.begin(), request.transferPlan.end(),
+                [](const TransferPlanItem& item) { return item.replacesExisting; });
+            if (overwroteExisting) {
+                completedPaths.clear();
+            }
             std::erase_if(completedPaths, [&](const ReversiblePath& path) {
                 const auto found = std::find_if(request.transferPlan.begin(), request.transferPlan.end(), [&](const TransferPlanItem& item) {
                     return _wcsicmp(item.source.c_str(), path.originalPath.c_str()) == 0;

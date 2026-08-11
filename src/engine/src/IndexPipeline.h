@@ -207,6 +207,13 @@ private:
     // than risk dropping a record whose inclusion is genuinely undecided).
     bool IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn);
 
+    // address-engineering-audit-findings 5.1: keep planner statistics fresh
+    // without adding ANALYZE work to every small journal update. The counter
+    // is retained when ANALYZE fails so a later ingestion batch retries it.
+    static constexpr uint64_t kAnalyzeRecordThreshold = 10'000;
+    void MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount);
+    uint64_t recordsSinceAnalyze_ = 0;
+
     struct FileIdHash {
         size_t operator()(const ffindexstore::FileId& id) const noexcept {
             return std::hash<uint64_t>{}(id.low) ^ (std::hash<uint64_t>{}(id.high) << 1);

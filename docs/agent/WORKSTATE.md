@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T15:08:00+08:00
-Status: READY — SNAPSHOT VERSIONING SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T16:28:00+08:00
+Status: READY — INDEX-STORE ANALYZE AND FILE-OPERATION HARDENING VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -92,6 +92,33 @@ Status: READY — SNAPSHOT VERSIONING SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS
 - Slice status: COMPLETE; implementation/evidence committed as `855f0c1`.
   NEXT EXACT ACTION: begin the next local OpenSpec task, keeping the external
   signing, service, and real-index evidence blockers explicitly unresolved.
+
+## Index-store ANALYZE safety slice (2026-08-11)
+
+- Root cause: the ingestion pipeline committed large MFT/USN batches without
+  refreshing SQLite planner statistics, so query planning could remain stale
+  after index growth.
+- Bounded fix: `Store::Analyze()` executes `ANALYZE`; `IndexPipeline` counts
+  committed MFT records and USN upserts, triggers at 10,000, retries after a
+  maintenance failure, and resets the counter at store-session boundaries.
+  No security, IPC, signing, or privileged-service behavior changed.
+- Focused validation: `ffengine_index_pipeline_tests` and its CTest entry pass;
+  the test observes no `sqlite_stat1` at 9,999 records and observes planner
+  statistics after 10,000. Evidence is recorded in
+  `openspec/changes/address-engineering-audit-findings/evidence/index-store-analyze-20260811.md`.
+  Task 5.1 is checked.
+- Additional local repair: `FileOperations` now reports the verified
+  destination/name when Shell omits or canonicalizes the NewItem callback path,
+  and structurally suppresses Move undo history for any Replace plan. Focused
+  `fffileoperations_e2e_tests` passes after this repair. Evidence is recorded
+  in `openspec/changes/file-operations/evidence/windows-e2e-hardening-20260811.md`.
+- Full Debug and Release CTest passed 45/45; full Debug/Analyze/Release builds
+  passed; strict OpenSpec validation passed 45/45; and
+  `pwsh ./verify/verify.ps1 build` passed `windows-build-validation`.
+- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
+  update/stage the final evidence and commit this local slice, then continue
+  with the next remaining local OpenSpec task while keeping external signing,
+  service, and real-index evidence blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 

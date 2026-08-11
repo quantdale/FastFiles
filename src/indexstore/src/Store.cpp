@@ -280,6 +280,10 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     return true;
 }
 
+bool Store::Analyze() {
+    return db_ != nullptr && ExecSql(db_, "ANALYZE;");
+}
+
 std::optional<VolumeRowId> Store::GetOrCreateVolume(const VolumeKey& key) {
     if (db_ == nullptr) {
         return std::nullopt;

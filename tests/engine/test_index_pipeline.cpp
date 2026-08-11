@@ -4,6 +4,7 @@
 #include <string>
 
 #include "IndexPipeline.h"
+#include "sqlite3.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -21,6 +22,60 @@ ffprotocol::MftRecordV1 MakeMftRecord(uint64_t id, uint64_t parent, std::u16stri
     r.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
     r.fileName = std::move(name);
     return r;
+}
+
+bool HasSqlitePlannerStats(const std::string& dbPath) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open_v2(dbPath.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) {
+        if (db != nullptr) sqlite3_close(db);
+        return false;
+    }
+    sqlite3_stmt* statement = nullptr;
+    const bool prepared = sqlite3_prepare_v2(
+                              db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sqlite_stat1';", -1,
+                              &statement, nullptr) == SQLITE_OK;
+    const bool found = prepared && sqlite3_step(statement) == SQLITE_ROW;
+    if (statement != nullptr) sqlite3_finalize(statement);
+    sqlite3_close(db);
+    return found;
+}
+
+void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
+    const std::string dbPath = FreshDbPath("engine_test_analyze_threshold.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "the pipeline opens for ANALYZE threshold validation");
+    VolumeKey key;
+    key.serialNumber = 1;
+    const auto volume = pipeline.ResolveVolume(key);
+
+    const auto applyBatches = [&](ffindexstore::VolumeRowId targetVolume, uint64_t firstId, size_t batchCount,
+                                  size_t recordsPerBatch, const std::u16string& name) {
+        for (size_t batchIndex = 0; batchIndex < batchCount; ++batchIndex) {
+            std::vector<ffprotocol::MftRecordV1> batch;
+            batch.reserve(recordsPerBatch);
+            for (size_t recordIndex = 0; recordIndex < recordsPerBatch; ++recordIndex) {
+                const uint64_t offset = static_cast<uint64_t>(batchIndex * recordsPerBatch + recordIndex);
+                const uint64_t id = firstId;
+                batch.push_back(MakeMftRecord(id, id, name, 0, offset));
+            }
+            if (!pipeline.ApplyMftBatch(targetVolume, batch)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    Check(applyBatches(volume, 1'000, 1, 9'999, u"entry"),
+          "9,999 records apply in one ingestion batch");
+    pipeline.Close();
+    Check(!HasSqlitePlannerStats(dbPath), "ANALYZE is not triggered before 10,000 inserted records");
+
+    Check(pipeline.Open(dbPath), "the pipeline reopens for the threshold-crossing batches");
+    const auto reopenedVolume = pipeline.ResolveVolume(key);
+    Check(applyBatches(reopenedVolume, 20'000, 1, 10'000, u"threshold"),
+          "10,000 records apply in one ingestion batch");
+    pipeline.Close();
+    Check(HasSqlitePlannerStats(dbPath), "ANALYZE creates planner statistics at 10,000 inserted records");
 }
 
 void TestVolumeResolutionIsStable() {
@@ -328,6 +383,7 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
 } // namespace
 
 int main() {
+    TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
     TestVolumeResolutionIsStable();
     TestApplyMftBatchAndExportSnapshot();
     TestRebuildAfterRestartMatchesPriorState();

@@ -72,6 +72,9 @@ public:
     // "Risks"). Returns false only on an I/O/database error; a WAL file
     // under the threshold is a normal, successful no-op.
     bool CheckpointIfWalExceeds(uint64_t thresholdBytes);
+    // address-engineering-audit-findings 5.1: refresh SQLite query-planner
+    // statistics after a sufficiently large ingestion batch.
+    bool Analyze();
 
     // --- Volume metadata (tasks.md 1.3, section 7/8's persistence needs) ---
 

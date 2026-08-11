@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cwctype>
+#include <limits>
 
 #include "VolumeIdentity.h"
 
@@ -154,6 +155,7 @@ constexpr uint64_t kWalForceCheckpointThresholdBytes = 4000ULL * 4096;
 
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     std::lock_guard<std::mutex> lock(mutex_);
+    recordsSinceAnalyze_ = 0;
     if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
         return false;
     }
@@ -163,6 +165,7 @@ bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed
 void IndexPipeline::Close() {
     std::lock_guard<std::mutex> lock(mutex_);
     store_.Close();
+    recordsSinceAnalyze_ = 0;
 }
 
 void IndexPipeline::RunStoreMaintenance() {
@@ -172,6 +175,28 @@ void IndexPipeline::RunStoreMaintenance() {
     }
     store_.CheckpointPassive();
     store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+}
+
+void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
+    if (recordCount == 0) {
+        return;
+    }
+    const uint64_t count = static_cast<uint64_t>(recordCount);
+    if (recordsSinceAnalyze_ > std::numeric_limits<uint64_t>::max() - count) {
+        recordsSinceAnalyze_ = kAnalyzeRecordThreshold;
+    } else {
+        recordsSinceAnalyze_ += count;
+    }
+    if (recordsSinceAnalyze_ < kAnalyzeRecordThreshold) {
+        return;
+    }
+    // address-engineering-audit-findings 5.1: ANALYZE runs only after the
+    // durable batch commits. A failed maintenance operation never makes an
+    // already-committed ingestion look failed; retaining the threshold makes
+    // the next batch retry the statistics refresh.
+    if (store_.Analyze()) {
+        recordsSinceAnalyze_ %= kAnalyzeRecordThreshold;
+    }
 }
 
 void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
@@ -277,6 +302,7 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
+    MaybeAnalyzeAfterBulkInsertLocked(changes.size());
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
@@ -331,6 +357,13 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
+    size_t upsertCount = 0;
+    for (const auto& change : changes) {
+        if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+            ++upsertCount;
+        }
+    }
+    MaybeAnalyzeAfterBulkInsertLocked(upsertCount);
     for (const auto& change : changes) {
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
             projection_.Upsert(volumeId, change.record);
