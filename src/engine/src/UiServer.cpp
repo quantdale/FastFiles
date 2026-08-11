@@ -229,6 +229,7 @@ bool UiServer::RepublishAndBroadcastGeneration() {
     }
     if (generation == 0) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_SNAPSHOT_PUBLISH_FAILED,
                                       {}, {}, L"snapshot-publish-failed", ERROR_WRITE_FAULT, 0});
         return false; // publish failed (e.g. exceeded slot capacity); nothing to announce
     }
@@ -363,6 +364,7 @@ bool UiServer::SendForgetUnavailableVolumeResult(const ClientConnectionPtr& clie
     const ffprotocol::ForgetUnavailableVolumeResultPayload payload{volumeRowId, status};
     if (status == ffprotocol::ForgetUnavailableVolumeStatus::Failed) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_FORGET_VOLUME_FAILED,
                                       {}, std::to_wstring(volumeRowId), L"forget-volume-failed", ERROR_WRITE_FAULT, 0});
     }
     return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolumeResult),
@@ -412,6 +414,7 @@ void UiServer::SetEngineStatus(bool privilegedPathActive) {
     const bool changed = engineActive_.exchange(privilegedPathActive) != privilegedPathActive;
     if (changed) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_STATUS_CHANGED,
                                       {}, {}, privilegedPathActive ? L"active" : L"unavailable", 0, 0});
         BroadcastEngineStatus();
     }
@@ -459,18 +462,21 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
 
     if (result.status == EnumerationStatus::AccessDenied) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+                                      ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ACCESS_DENIED,
                                       path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::AccessDenied);
         return;
     }
     if (result.status == EnumerationStatus::NotFound) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+                                      ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_NOT_FOUND,
                                       path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
         return;
     }
     if (result.status == EnumerationStatus::IoError) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+                                      ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ENUMERATION_FAILED,
                                       path, {}, L"enumeration-failed", ERROR_READ_FAULT, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::EnumerationFailed);
         return;
@@ -583,6 +589,7 @@ void UiServer::HandleConnection(HANDLE pipe) {
                 std::wstring path(
                     reinterpret_cast<const wchar_t*>(frame.payload.data() + sizeof(header)), header.pathLengthChars);
                 ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                              ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED,
                                               path, {}, L"engine-directory-request-received", 0, 0});
                 HandleRequestDirectory(client, path);
                 break;

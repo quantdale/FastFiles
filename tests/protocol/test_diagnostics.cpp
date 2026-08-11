@@ -29,14 +29,29 @@ int main() {
 
     const ffprotocol::DiagnosticEvent event{
         ffprotocol::DiagnosticCategory::InaccessibleDirectory,
+        ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ACCESS_DENIED,
         L"C:\\private\\folder", L"C:", L"access-denied", ERROR_ACCESS_DENIED, 3};
     Check(ffprotocol::AppendDiagnostic(event), "diagnostic event is appended");
     std::wifstream input(ffprotocol::DiagnosticLogPath());
     std::wstring contents((std::istreambuf_iterator<wchar_t>(input)), {});
     Check(contents.find(L"category=inaccessible-directory") != std::wstring::npos, "category is logged");
+    Check(contents.find(L"code=11") != std::wstring::npos, "structured numeric code is logged");
+    Check(contents.find(L"codeName=FFDIAG_DIRECTORY_ACCESS_DENIED") != std::wstring::npos,
+          "structured code name is logged");
     Check(contents.find(L"path=C:\\private\\folder") != std::wstring::npos, "path metadata is logged");
     Check(contents.find(L"access-denied") != std::wstring::npos, "state metadata is logged");
     Check(contents.find(L"secret file contents") == std::wstring::npos, "file contents are not accepted by the event shape");
+
+    ffprotocol::DiagnosticEvent jsonEvent = event;
+    jsonEvent.state = L"quoted \"message\"\nwith control";
+    const std::wstring json = ffprotocol::SerializeDiagnosticEvent(jsonEvent, ffprotocol::DiagnosticFormat::Json);
+    Check(json.find(L"\"code\":11") != std::wstring::npos, "JSON includes the structured integer code");
+    Check(json.find(L"\"codeName\":\"FFDIAG_DIRECTORY_ACCESS_DENIED\"") != std::wstring::npos,
+          "JSON includes the stable structured code name");
+    Check(json.find(L"\"message\":\"quoted \\\"message\\\"\\nwith control\"") != std::wstring::npos,
+          "JSON escapes the human-readable message");
+    Check(ffprotocol::AppendDiagnostic(jsonEvent, ffprotocol::DiagnosticFormat::Json),
+          "JSON diagnostic stream append succeeds");
 
     const std::filesystem::path fallbackAppData = std::filesystem::path(temp) /
         (L"FastFiles-diagnostics-fallback-test-" + std::to_wstring(GetCurrentProcessId()));

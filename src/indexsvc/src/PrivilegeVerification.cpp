@@ -176,6 +176,7 @@ void LogRawVolumeOpenDiagnostic(const std::wstring& volumePath,
                                 RawVolumeOpenOutcome outcome, DWORD errorCode) {
     ffprotocol::DiagnosticEvent event;
     event.category = ffprotocol::DiagnosticCategory::IndexingError;
+    event.code = ffprotocol::DiagnosticCode::FFDIAG_RAW_VOLUME_OPEN;
     event.path = volumePath;
     event.state = L"raw-volume-open";
     event.outcome = RawVolumeOpenOutcomeName(outcome);
@@ -306,6 +307,7 @@ CandidateMatrixRow CaptureCandidateMatrixRow(const std::wstring& candidateId,
 void LogCandidateMatrixRow(const CandidateMatrixRow& row) {
     ffprotocol::DiagnosticEvent event;
     event.category = ffprotocol::DiagnosticCategory::IndexingError;
+    event.code = ffprotocol::DiagnosticCode::FFDIAG_CANDIDATE_MATRIX;
     event.path = row.volumePath;
     event.state = L"candidate-matrix";
     event.outcome = CandidateMatrixOutcomeName(row.outcome);
@@ -398,6 +400,7 @@ void LogStartupTokenDiagnostic() {
     const TokenPrivilegeState tokenState = CaptureTokenPrivilegeState();
     ffprotocol::DiagnosticEvent event;
     event.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+    event.code = ffprotocol::DiagnosticCode::FFDIAG_STARTUP_TOKEN;
     event.state = L"startup-token";
     event.outcome = tokenState.backupPrivilegeEnabled ? L"backup-privilege-ready" : L"backup-privilege-unavailable";
     event.accountName = tokenState.accountName;

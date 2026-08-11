@@ -101,6 +101,7 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
             CloseHandle(processInfo.hThread);
             CloseHandle(processInfo.hProcess);
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCHED,
                                           candidate, {}, L"engine-launched", 0, 0});
             // Give the just-launched helper a short, bounded readiness
             // window before ConnectAndSubscribe performs its first open.
@@ -109,6 +110,7 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
             // later retry can launch a duplicate helper if startup is slow.
             if (!WaitForNamedPipe(pipeName, running_, 10000)) {
                 ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                              ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PIPE_NOT_READY,
                                               candidate, {}, L"engine-pipe-not-ready-after-launch", GetLastError(), 0});
             }
             launched = true;
@@ -116,10 +118,12 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
         }
         lastError = GetLastError();
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCH_FAILED,
                                       candidate, {}, L"engine-launch-failed", lastError, 0});
     }
     if (!launched) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_NOT_FOUND,
                                       {}, {}, L"engine-not-found", lastError, 0});
     }
 }
@@ -206,6 +210,7 @@ std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() con
 bool EngineClient::ConnectAndSubscribe() {
     const auto fail = [](const wchar_t* state, DWORD error) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
                                       {}, {}, state, error, 0});
         // Preserve the stage-specific status across diagnostic-file I/O so
         // ManagementLoop's aggregate failure record remains meaningful.
@@ -278,6 +283,7 @@ bool EngineClient::ConnectAndSubscribe() {
     // permanently empty.
     invalidationCv_.notify_all();
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_SUCCEEDED,
                                   {}, {}, L"engine-connect-succeeded", 0, 0});
     return true;
 }
@@ -493,6 +499,7 @@ void EngineClient::ManagementLoop() {
                 break;
             }
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
                                           {}, {}, L"engine-connect-failed", GetLastError(), 0});
             if (!WaitForRetryDelay()) {
                 return;
@@ -504,6 +511,7 @@ void EngineClient::ManagementLoop() {
         if (!connected) {
             SetConnectionState(EngineConnectionState::Unavailable, false);
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_UNAVAILABLE,
                                           {}, {}, L"engine-unavailable", 0, 0});
             std::unique_lock<std::mutex> lock(retryMutex_);
             retryCv_.wait(lock, [this] { return !running_ || retryRequested_.exchange(false); });
@@ -521,6 +529,7 @@ void EngineClient::ManagementLoop() {
             break;
         }
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DISCONNECTED,
                                       {}, {}, L"engine-disconnected", 0, 0});
         // Loop: re-enter Starting and run the same bounded reconnect cycle.
     }
@@ -617,6 +626,7 @@ void EngineClient::RequestDirectory(const std::wstring& path) {
     // Production state-transition evidence for separating input/hit-test
     // failures from pipe or engine failures during degraded browsing.
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_QUEUED,
                                   path, {}, L"ui-directory-request-queued", 0, 0});
     invalidationCv_.notify_one();
 }
@@ -655,6 +665,7 @@ bool EngineClient::SendDirectoryRequest(const std::wstring& path) {
     if (WriteCurrentFrame(static_cast<uint16_t>(UiMessageType::RequestDirectory), payload.data(),
                           static_cast<uint32_t>(payload.size()))) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_SENT,
                                       path, {}, L"ui-directory-request-sent", 0, 0});
         return true;
     }

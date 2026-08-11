@@ -558,6 +558,7 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
     auto it = snapshot.find(column.path);
     if (it == snapshot.end()) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_PATH_MISS,
                                       column.path, {}, L"ui-snapshot-path-miss", ERROR_FILE_NOT_FOUND, 0});
         if (column.freshness.HasLastKnownGood()) {
             ApplyColumnFailure(column, SnapshotFailureReason::PathMissing, generation);
@@ -566,6 +567,7 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
     }
     const auto& directory = it->second;
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_COLUMN_REFRESH,
                                   column.path, {}, L"ui-snapshot-column-refresh",
                                   0, static_cast<uint64_t>(directory.entries.size())});
 
@@ -651,6 +653,7 @@ void ColumnView::OnSnapshotUpdated(uint64_t announcedGeneration) {
     auto snapshot = engineClient_->ReadSnapshotWithGeneration();
     if (!snapshot || (announcedGeneration != 0 && snapshot->generation < announcedGeneration)) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_READ_FAILED,
                                       {}, {}, L"ui-snapshot-read-failed", ERROR_INVALID_DATA,
                                       announcedGeneration});
         MarkSnapshotLoadFailed(announcedGeneration);

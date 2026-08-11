@@ -8,6 +8,7 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -48,6 +49,32 @@ const wchar_t* CategoryName(DiagnosticCategory category) {
     return L"unknown";
 }
 
+std::wstring JsonEscape(const std::wstring& value) {
+    std::wstring result;
+    result.reserve(value.size());
+    for (wchar_t ch : value) {
+        switch (ch) {
+            case L'"': result += L"\\\""; break;
+            case L'\\': result += L"\\\\"; break;
+            case L'\b': result += L"\\b"; break;
+            case L'\f': result += L"\\f"; break;
+            case L'\n': result += L"\\n"; break;
+            case L'\r': result += L"\\r"; break;
+            case L'\t': result += L"\\t"; break;
+            default:
+                if (static_cast<unsigned int>(ch) < 0x20u) {
+                    wchar_t escaped[7]{};
+                    swprintf_s(escaped, L"\\u%04x", static_cast<unsigned int>(ch));
+                    result += escaped;
+                } else {
+                    result.push_back(ch);
+                }
+                break;
+        }
+    }
+    return result;
+}
+
 std::wstring SafeField(const std::wstring& value) {
     std::wstring result;
     result.reserve(value.size());
@@ -60,25 +87,92 @@ std::wstring SafeField(const std::wstring& value) {
 
 } // namespace
 
+const wchar_t* DiagnosticCodeName(DiagnosticCode code) {
+    switch (code) {
+        case DiagnosticCode::FFDIAG_UNKNOWN: return L"FFDIAG_UNKNOWN";
+        case DiagnosticCode::FFDIAG_CORRUPT_DB: return L"FFDIAG_CORRUPT_DB";
+        case DiagnosticCode::FFDIAG_DATABASE_OPEN_FAILED: return L"FFDIAG_DATABASE_OPEN_FAILED";
+        case DiagnosticCode::FFDIAG_WATCH_EVICTED: return L"FFDIAG_WATCH_EVICTED";
+        case DiagnosticCode::FFDIAG_WATCH_EVENT_CREATE_FAILED: return L"FFDIAG_WATCH_EVENT_CREATE_FAILED";
+        case DiagnosticCode::FFDIAG_WATCH_BUFFER_OVERFLOW: return L"FFDIAG_WATCH_BUFFER_OVERFLOW";
+        case DiagnosticCode::FFDIAG_WATCH_GAVE_UP: return L"FFDIAG_WATCH_GAVE_UP";
+        case DiagnosticCode::FFDIAG_WATCH_FAILED: return L"FFDIAG_WATCH_FAILED";
+        case DiagnosticCode::FFDIAG_SNAPSHOT_PUBLISH_FAILED: return L"FFDIAG_SNAPSHOT_PUBLISH_FAILED";
+        case DiagnosticCode::FFDIAG_FORGET_VOLUME_FAILED: return L"FFDIAG_FORGET_VOLUME_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_STATUS_CHANGED: return L"FFDIAG_ENGINE_STATUS_CHANGED";
+        case DiagnosticCode::FFDIAG_DIRECTORY_ACCESS_DENIED: return L"FFDIAG_DIRECTORY_ACCESS_DENIED";
+        case DiagnosticCode::FFDIAG_DIRECTORY_NOT_FOUND: return L"FFDIAG_DIRECTORY_NOT_FOUND";
+        case DiagnosticCode::FFDIAG_DIRECTORY_ENUMERATION_FAILED: return L"FFDIAG_DIRECTORY_ENUMERATION_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED: return L"FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED";
+        case DiagnosticCode::FFDIAG_ENGINE_UI_SERVER_START_FAILED: return L"FFDIAG_ENGINE_UI_SERVER_START_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_PARK_EVENT_FAILED: return L"FFDIAG_ENGINE_PARK_EVENT_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_LAUNCHED: return L"FFDIAG_ENGINE_LAUNCHED";
+        case DiagnosticCode::FFDIAG_ENGINE_PIPE_NOT_READY: return L"FFDIAG_ENGINE_PIPE_NOT_READY";
+        case DiagnosticCode::FFDIAG_ENGINE_LAUNCH_FAILED: return L"FFDIAG_ENGINE_LAUNCH_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_NOT_FOUND: return L"FFDIAG_ENGINE_NOT_FOUND";
+        case DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED: return L"FFDIAG_ENGINE_CONNECT_FAILED";
+        case DiagnosticCode::FFDIAG_ENGINE_CONNECT_SUCCEEDED: return L"FFDIAG_ENGINE_CONNECT_SUCCEEDED";
+        case DiagnosticCode::FFDIAG_ENGINE_UNAVAILABLE: return L"FFDIAG_ENGINE_UNAVAILABLE";
+        case DiagnosticCode::FFDIAG_ENGINE_DISCONNECTED: return L"FFDIAG_ENGINE_DISCONNECTED";
+        case DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_QUEUED: return L"FFDIAG_UI_DIRECTORY_REQUEST_QUEUED";
+        case DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_SENT: return L"FFDIAG_UI_DIRECTORY_REQUEST_SENT";
+        case DiagnosticCode::FFDIAG_UI_SNAPSHOT_PATH_MISS: return L"FFDIAG_UI_SNAPSHOT_PATH_MISS";
+        case DiagnosticCode::FFDIAG_UI_SNAPSHOT_COLUMN_REFRESH: return L"FFDIAG_UI_SNAPSHOT_COLUMN_REFRESH";
+        case DiagnosticCode::FFDIAG_UI_SNAPSHOT_READ_FAILED: return L"FFDIAG_UI_SNAPSHOT_READ_FAILED";
+        case DiagnosticCode::FFDIAG_RAW_VOLUME_OPEN: return L"FFDIAG_RAW_VOLUME_OPEN";
+        case DiagnosticCode::FFDIAG_CANDIDATE_MATRIX: return L"FFDIAG_CANDIDATE_MATRIX";
+        case DiagnosticCode::FFDIAG_STARTUP_TOKEN: return L"FFDIAG_STARTUP_TOKEN";
+    }
+    return L"FFDIAG_UNKNOWN";
+}
+
 std::wstring DiagnosticLogPath() {
     const std::wstring directory = AppDirectory();
     return directory.empty() ? std::wstring{} : directory + L"\\logs\\diagnostics.log";
 }
 
-bool AppendDiagnostic(const DiagnosticEvent& event) {
-    const std::wstring path = DiagnosticLogPath();
-    if (path.empty()) return false;
-    std::error_code error;
-    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
-    if (error) return false;
-    std::lock_guard lock(LogMutex());
-    std::wofstream output(path, std::ios::app);
-    if (!output) return false;
+std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFormat format) {
     const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    const auto message = !event.state.empty() ? event.state
+        : (!event.outcome.empty() ? event.outcome : L"diagnostic");
+    std::wostringstream output;
+    if (format == DiagnosticFormat::Json) {
+        output << L"{\"timestamp\":" << now
+               << L",\"category\":\"" << JsonEscape(CategoryName(event.category))
+               << L"\",\"code\":" << static_cast<uint32_t>(event.code)
+               << L",\"codeName\":\"" << DiagnosticCodeName(event.code)
+               << L"\",\"message\":\"" << JsonEscape(message)
+               << L"\",\"path\":\"" << JsonEscape(event.path)
+               << L"\",\"volume\":\"" << JsonEscape(event.volumeId)
+               << L"\",\"state\":\"" << JsonEscape(event.state)
+               << L"\",\"outcome\":\"" << JsonEscape(event.outcome)
+               << L"\",\"account\":\"" << JsonEscape(event.accountName)
+               << L"\",\"sid\":\"" << JsonEscape(event.accountSid)
+               << L"\",\"privilegeHeld\":" << (event.privilegeHeld ? L"true" : L"false")
+               << L",\"privilegeEnabled\":" << (event.privilegeEnabled ? L"true" : L"false")
+               << L",\"errorCode\":" << event.errorCode
+               << L",\"items\":" << event.itemCount;
+        if (!event.candidateId.empty()) {
+            output << L",\"candidate\":\"" << JsonEscape(event.candidateId)
+                   << L"\",\"privilegeName\":\"" << JsonEscape(event.privilegeName)
+                   << L"\",\"group\":\"" << JsonEscape(event.groupContext)
+                   << L"\",\"journalQueried\":" << (event.journalQueried ? L"true" : L"false")
+                   << L",\"journalError\":" << event.journalQueryError
+                   << L",\"journalRead\":" << (event.journalRead ? L"true" : L"false")
+                   << L",\"journalReadError\":" << event.journalReadError
+                   << L",\"registrationOrder\":" << event.registrationOrder;
+        }
+        output << L"}";
+        return output.str();
+    }
+
     output << now << L" category=" << CategoryName(event.category)
+           << L" code=" << static_cast<uint32_t>(event.code)
+           << L" codeName=" << DiagnosticCodeName(event.code)
            << L" path=" << SafeField(event.path)
            << L" volume=" << SafeField(event.volumeId)
            << L" state=" << SafeField(event.state)
+           << L" message=" << SafeField(message)
            << L" outcome=" << SafeField(event.outcome)
            << L" account=" << SafeField(event.accountName)
            << L" sid=" << SafeField(event.accountSid)
@@ -86,9 +180,6 @@ bool AppendDiagnostic(const DiagnosticEvent& event) {
            << L" privilegeEnabled=" << (event.privilegeEnabled ? 1 : 0)
            << L" error=0x" << std::hex << event.errorCode << std::dec
            << L" items=" << event.itemCount;
-    // Matrix-only fields: emitted solely for candidate-matrix rows (those
-    // that set candidateId), so non-matrix events keep their exact prior
-    // line format and any existing log parser stays unaffected.
     if (!event.candidateId.empty()) {
         output << L" candidate=" << SafeField(event.candidateId)
                << L" privilegeName=" << SafeField(event.privilegeName)
@@ -99,7 +190,19 @@ bool AppendDiagnostic(const DiagnosticEvent& event) {
                << L" journalReadError=0x" << std::hex << event.journalReadError << std::dec
                << L" regOrder=" << event.registrationOrder;
     }
-    output << L"\n";
+    return output.str();
+}
+
+bool AppendDiagnostic(const DiagnosticEvent& event, DiagnosticFormat format) {
+    const std::wstring path = DiagnosticLogPath();
+    if (path.empty()) return false;
+    std::error_code error;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
+    if (error) return false;
+    std::lock_guard lock(LogMutex());
+    std::wofstream output(path, std::ios::app);
+    if (!output) return false;
+    output << SerializeDiagnosticEvent(event, format) << L"\n";
     output.flush();
     return static_cast<bool>(output);
 }
@@ -163,7 +266,81 @@ struct LogLine {
     uint32_t errorCode = 0;
 };
 
+std::wstring JsonUnescape(const std::wstring& value) {
+    std::wstring result;
+    result.reserve(value.size());
+    for (size_t index = 0; index < value.size(); ++index) {
+        if (value[index] != L'\\' || index + 1 >= value.size()) {
+            result.push_back(value[index]);
+            continue;
+        }
+        const wchar_t escaped = value[++index];
+        switch (escaped) {
+            case L'"': result.push_back(L'"'); break;
+            case L'\\': result.push_back(L'\\'); break;
+            case L'/': result.push_back(L'/'); break;
+            case L'b': result.push_back(L'\b'); break;
+            case L'f': result.push_back(L'\f'); break;
+            case L'n': result.push_back(L'\n'); break;
+            case L'r': result.push_back(L'\r'); break;
+            case L't': result.push_back(L'\t'); break;
+            case L'u': {
+                if (index + 4 >= value.size()) return {};
+                const std::wstring hex = value.substr(index + 1, 4);
+                wchar_t* end = nullptr;
+                const unsigned long code = wcstoul(hex.c_str(), &end, 16);
+                if (end == nullptr || end != hex.c_str() + hex.size()) return {};
+                result.push_back(static_cast<wchar_t>(code));
+                index += 4;
+                break;
+            }
+            default: return {};
+        }
+    }
+    return result;
+}
+
+bool ExtractJsonString(const std::wstring& line, const wchar_t* name,
+                       std::wstring& value, size_t* valueStart = nullptr, size_t* valueEnd = nullptr) {
+    const std::wstring marker = std::wstring(L"\"") + name + L"\":\"";
+    const size_t start = line.find(marker);
+    if (start == std::wstring::npos) return false;
+    const size_t encodedStart = start + marker.size();
+    size_t end = encodedStart;
+    for (; end < line.size(); ++end) {
+        if (line[end] == L'\\') {
+            ++end;
+            continue;
+        }
+        if (line[end] == L'\"') break;
+    }
+    if (end >= line.size()) return false;
+    value = JsonUnescape(line.substr(encodedStart, end - encodedStart));
+    if (valueStart != nullptr) *valueStart = encodedStart;
+    if (valueEnd != nullptr) *valueEnd = end;
+    return true;
+}
+
+bool ExtractJsonNumber(const std::wstring& line, const wchar_t* name, uint32_t& value) {
+    const std::wstring marker = std::wstring(L"\"") + name + L"\":";
+    const size_t start = line.find(marker);
+    if (start == std::wstring::npos) return false;
+    const size_t valueStart = start + marker.size();
+    wchar_t* end = nullptr;
+    const unsigned long parsed = wcstoul(line.c_str() + valueStart, &end, 10);
+    if (end == line.c_str() + valueStart || parsed > UINT32_MAX) return false;
+    value = static_cast<uint32_t>(parsed);
+    return true;
+}
+
 bool ParseLogLine(const std::wstring& line, LogLine& out) {
+    if (!line.empty() && line.front() == L'{') {
+        if (!ExtractJsonString(line, L"category", out.category)) return false;
+        ExtractJsonString(line, L"path", out.path);
+        ExtractJsonString(line, L"volume", out.volume);
+        ExtractJsonNumber(line, L"errorCode", out.errorCode);
+        return true;
+    }
     // Format: "<ts> category=<name> path=<p> volume=<v> state=<s> outcome=<o> ..."
     const auto field = [&line](const wchar_t* name) {
         const std::wstring marker = std::wstring(name) + L"=";
@@ -254,15 +431,25 @@ bool ExportDiagnosticBundle(const std::wstring& destinationPath, bool includeLit
             }
         }
 
-        // Redact per-line: replace the path= value with its redacted form.
+        // Redact per-line: replace the path value with its redacted form in
+        // either the legacy key/value stream or the optional JSON stream.
         if (!includeLiteralPaths && !parsed.path.empty()) {
-            const size_t marker = line.find(L"path=");
-            if (marker != std::wstring::npos) {
-                const size_t valueStart = marker + 5;
-                const size_t valueEnd = line.find(L' ', valueStart);
-                const size_t end = valueEnd == std::wstring::npos ? line.size() : valueEnd;
-                const std::wstring redacted = RedactPath(parsed.path, false);
-                line.replace(valueStart, end - valueStart, redacted);
+            const std::wstring redacted = RedactPath(parsed.path, false);
+            if (!line.empty() && line.front() == L'{') {
+                size_t valueStart = 0;
+                size_t valueEnd = 0;
+                std::wstring ignored;
+                if (ExtractJsonString(line, L"path", ignored, &valueStart, &valueEnd)) {
+                    line.replace(valueStart, valueEnd - valueStart, JsonEscape(redacted));
+                }
+            } else {
+                const size_t marker = line.find(L"path=");
+                if (marker != std::wstring::npos) {
+                    const size_t valueStart = marker + 5;
+                    const size_t valueEnd = line.find(L' ', valueStart);
+                    const size_t end = valueEnd == std::wstring::npos ? line.size() : valueEnd;
+                    line.replace(valueStart, end - valueStart, redacted);
+                }
             }
         }
         redactedBody += line;

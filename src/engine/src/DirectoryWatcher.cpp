@@ -83,6 +83,7 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
                         toStop.push_back(std::move(victimIt->second));
                         watches_.erase(victimIt);
                         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                      ffprotocol::DiagnosticCode::FFDIAG_WATCH_EVICTED,
                                                       victim, {}, L"watch-evicted", ERROR_TOO_MANY_OPEN_FILES, 0});
                     }
                 }
@@ -137,6 +138,7 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
     HANDLE ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (ioEvent == nullptr) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_WATCH_EVENT_CREATE_FAILED,
                                       path, {}, L"watch-event-create-failed", GetLastError(), 0});
         finished->store(true);
         return;
@@ -172,17 +174,20 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
             // watch; never silently abandon synchronization.
             ++consecutiveOverflows;
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_WATCH_BUFFER_OVERFLOW,
                                           path, {}, L"watch-buffer-overflow", error, 0});
             callback(path);
             if (stopRequested->load()) return false;
             if (consecutiveOverflows >= kMaxConsecutiveWatchOverflows) {
                 ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_WATCH_GAVE_UP,
                                               path, {}, L"watch-gave-up", error, 0});
                 return false;
             }
             return true;
         }
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_WATCH_FAILED,
                                       path, {}, L"watch-failed", error, 0});
         return false;
     };

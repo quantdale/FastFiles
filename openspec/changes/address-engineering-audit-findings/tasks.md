@@ -45,10 +45,10 @@
 
 ## 7. Structured Diagnostics (structured-diagnostics)
 
-- [ ] 7.1 Define diagnostic error code enum in Diagnostics.h
-- [ ] 7.2 Update all diagnostic emission sites to include structured code alongside message
-- [ ] 7.3 Add JSON serialization option for diagnostic stream
-- [ ] 7.4 Add unit test for structured diagnostic output format
+- [x] 7.1 Define diagnostic error code enum in Diagnostics.h
+- [x] 7.2 Update all diagnostic emission sites to include structured code alongside message
+- [x] 7.3 Add JSON serialization option for diagnostic stream
+- [x] 7.4 Add unit test for structured diagnostic output format
 
 ## 8. Verification and CI
 

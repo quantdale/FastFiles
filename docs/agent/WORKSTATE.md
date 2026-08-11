@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T17:48:00+08:00
-Status: READY — INDEX-STORE VACUUM SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T16:21:51+08:00
+Status: READY — STRUCTURED-DIAGNOSTICS SLICE VALIDATED; COMMIT PENDING
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -139,6 +139,35 @@ Status: READY — INDEX-STORE VACUUM SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS 
 - Slice status: COMPLETE; implementation/evidence committed as `8ac1261`.
   NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   keeping external signing, service, and real-index evidence blockers
+  unresolved.
+
+## Structured diagnostics slice (2026-08-11)
+
+- Root cause: production diagnostic lines carried human-readable state and
+  Win32 error values but no stable machine-readable diagnostic identifier, so
+  monitoring had to parse free-form text and could not reliably distinguish
+  cases such as corrupt SQLite recovery.
+- Bounded fix: `ffprotocol::DiagnosticCode` is an append-only integer enum
+  with stable `FFDIAG_*` names. Every current production emission now sets an
+  explicit code, including `FFDIAG_CORRUPT_DB` before the integrity-failure
+  rebuild fallback. `SerializeDiagnosticEvent` and the
+  `DiagnosticFormat::Json` append option emit JSON Lines with escaped fields,
+  both code forms, and a human-readable message/state. Bundle redaction parses
+  both text and JSON lines so the default export remains path-redacted.
+- Focused validation: `ffprotocol_diagnostics_tests` built and passed 1/1,
+  covering text fields, JSON fields/escaping, JSON stream append, and bundle
+  compatibility. Full Debug and Release CTest passed 45/45; Debug, Analyze,
+  and Release builds passed; `pwsh ./verify/verify.ps1 build` passed
+  `windows-build-validation`; and strict OpenSpec validation passed 45/45.
+  No IPC, signing, privilege, authentication, or trust-store behavior
+  changed.
+- Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
+  structured-diagnostics-20260811.md`; tasks 7.1–7.4 are checked in the
+  change task file.
+- Slice status: VALIDATED; implementation/evidence commit is next.
+- NEXT EXACT ACTION: inspect the final diff, commit this structured-diagnostics
+  slice and its evidence, then continue with the next local OpenSpec task
+  while keeping external signing, service, and populated-index blockers
   unresolved.
 
 ## Stale persisted startup location (2026-08-11)

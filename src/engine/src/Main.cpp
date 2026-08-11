@@ -104,6 +104,7 @@ int wmain() {
     ffengine::UiServer uiServer;
     if (!uiServer.Start(sessionId)) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_UI_SERVER_START_FAILED,
                                       ownPath, {}, L"engine-ui-server-start-failed", GetLastError(), 0});
         return 1;
     }
@@ -124,6 +125,9 @@ int wmain() {
         bool integrityFailed = false;
         bool opened = indexPipeline.Open(dbPathUtf8, &integrityFailed);
         if (!opened && integrityFailed) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_CORRUPT_DB,
+                                          {}, {}, L"index-database-corrupt", ERROR_INVALID_DATA, 0});
             // Task 1.7's defined fallback: an existing database that fails
             // its integrity check is never trusted -- delete it (plus its
             // WAL/SHM siblings) and reopen a fresh, empty store, which the
@@ -137,6 +141,9 @@ int wmain() {
             opened = indexPipeline.Open(dbPathUtf8);
         }
         if (!opened) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_DATABASE_OPEN_FAILED,
+                                          {}, {}, L"index-database-open-failed", ERROR_OPEN_FAILED, 0});
             // An unopenable durable store (for reasons other than
             // integrity, or if the delete-and-reopen fallback itself
             // failed) is not fatal to the process -- the engine still
@@ -252,6 +259,7 @@ int wmain() {
     HANDLE parkEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (parkEvent == nullptr) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PARK_EVENT_FAILED,
                                       ownPath, {}, L"engine-park-event-failed", GetLastError(), 0});
         return 1;
     }
