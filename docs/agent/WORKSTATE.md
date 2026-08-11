@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T13:34:00+08:00
-Status: READY — LOCAL STARTUP/VERIFIER GATES VERIFIED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T14:01:00+08:00
+Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Stale persisted startup location (2026-08-11)
 
@@ -39,6 +39,22 @@ Status: READY — LOCAL STARTUP/VERIFIER GATES VERIFIED; EXTERNAL RELEASE BLOCKE
 - NEXT EXACT ACTION: obtain the documented external signing/elevation/
   clean-host/visual-matrix prerequisites and execute only those remaining
   gates; no safe local implementation frontier remains in this slice.
+
+## Conflict-dialog test race (2026-08-11)
+
+- A clean Debug/Release CTest run intermittently failed
+  `fffileoperations_tests` at the custom conflict-dialog result assertion,
+  although the same test passed on focused retry.
+- Root cause: the test driver used `FindWindowW` on the dialog's hidden parent;
+  it could set the checkbox and post the choice before `ShowConflictDialog`
+  had created the child controls, leaving `applyToAllRemaining` false.
+- Bounded test-only fix: the driver now waits for a visible dialog and both
+  required controls before setting state and posting the choice. No production
+  dialog behavior changed. Focused Debug stress passed 20/20 consecutively;
+  Analyze/Release rebuilds passed; complete serial Debug and Release CTest
+  passed 44/44; and `pwsh ./verify/verify.ps1 build` passed.
+- NEXT EXACT ACTION: commit the test-race fix with this checkpoint, then stop
+  at the documented external release blockers.
 
 ## Diagnostic escape-hatch build guard (2026-08-11)
 

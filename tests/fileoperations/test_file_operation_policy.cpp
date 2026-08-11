@@ -58,8 +58,13 @@ int main() {
     std::thread dialogDriver([] {
         HWND dialog = nullptr;
         for (int attempt = 0; attempt < 100 && dialog == nullptr; ++attempt) {
-            dialog = FindWindowW(L"FastFilesConflictDialog", nullptr);
-            if (dialog == nullptr) Sleep(10);
+            const HWND candidate = FindWindowW(L"FastFilesConflictDialog", nullptr);
+            if (candidate != nullptr && IsWindowVisible(candidate) &&
+                GetDlgItem(candidate, 1004) != nullptr && GetDlgItem(candidate, 1003) != nullptr) {
+                dialog = candidate;
+            } else {
+                Sleep(10);
+            }
         }
         Check(dialog != nullptr, "conflict dialog did not appear");
         SendMessageW(GetDlgItem(dialog, 1004), BM_SETCHECK, BST_CHECKED, 0);
