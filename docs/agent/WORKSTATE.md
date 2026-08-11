@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T17:42:00+08:00
-Status: READY — INDEX-STORE VACUUM SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T17:48:00+08:00
+Status: READY — INDEX-STORE VACUUM SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -136,10 +136,10 @@ Status: READY — INDEX-STORE VACUUM SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS 
   passed 45/45; and the Windows build verifier passed. Tasks 5.2–5.4 are
   checked; evidence is recorded in
   `openspec/changes/address-engineering-audit-findings/evidence/index-store-vacuum-20260811.md`.
-- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
-  update/stage final evidence and commit this slice, then continue with the
-  next remaining local OpenSpec task while keeping external signing, service,
-  and real-index evidence blockers unresolved.
+- Slice status: COMPLETE; implementation/evidence committed as `8ac1261`.
+  NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  keeping external signing, service, and real-index evidence blockers
+  unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
