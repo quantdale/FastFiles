@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-11T15:08:00+08:00
-Status: READY — SNAPSHOT VERSIONING SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
+Status: READY — SNAPSHOT VERSIONING SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -89,10 +89,9 @@ Status: READY — SNAPSHOT VERSIONING SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS
   passed after the changed files were normalized to the repository's CRLF
   convention. Tasks 4.1–4.4 are checked and evidence is recorded in
   `openspec/changes/address-engineering-audit-findings/evidence/snapshot-versioning-20260811.md`.
-- Slice status: COMPLETE pending the focused commit. NEXT EXACT ACTION:
-  commit the snapshot-versioning implementation/evidence, then select the
-  next local OpenSpec task; do not claim the external signing, service, or
-  real-index evidence blockers are resolved.
+- Slice status: COMPLETE; implementation/evidence committed as `855f0c1`.
+  NEXT EXACT ACTION: begin the next local OpenSpec task, keeping the external
+  signing, service, and real-index evidence blockers explicitly unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
