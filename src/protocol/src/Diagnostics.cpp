@@ -122,6 +122,7 @@ const wchar_t* DiagnosticCodeName(DiagnosticCode code) {
         case DiagnosticCode::FFDIAG_RAW_VOLUME_OPEN: return L"FFDIAG_RAW_VOLUME_OPEN";
         case DiagnosticCode::FFDIAG_CANDIDATE_MATRIX: return L"FFDIAG_CANDIDATE_MATRIX";
         case DiagnosticCode::FFDIAG_STARTUP_TOKEN: return L"FFDIAG_STARTUP_TOKEN";
+        case DiagnosticCode::FFDIAG_PROJECTION_MEMORY_PRESSURE: return L"FFDIAG_PROJECTION_MEMORY_PRESSURE";
     }
     return L"FFDIAG_UNKNOWN";
 }

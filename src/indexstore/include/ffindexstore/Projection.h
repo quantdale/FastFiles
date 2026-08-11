@@ -64,6 +64,7 @@ public:
     // serving a volume-specific browse/aggregate/search operation.
     bool NeedsReload(VolumeRowId volumeRowId) const;
     bool ReloadEvictedVolume(Store& store, VolumeRowId volumeRowId);
+    bool ReloadAllEvictedVolumes(Store& store);
 
     // task 2.5: pre-size before a bulk rebuild.
     void Reserve(size_t expectedEntryCount);

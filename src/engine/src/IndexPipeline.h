@@ -213,7 +213,9 @@ private:
     // is retained when ANALYZE fails so a later ingestion batch retries it.
     static constexpr uint64_t kAnalyzeRecordThreshold = 10'000;
     void MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount);
+    void MaybeReportProjectionMemoryPressureLocked();
     uint64_t recordsSinceAnalyze_ = 0;
+    bool projectionMemoryWarningIssued_ = false;
 
     struct FileIdHash {
         size_t operator()(const ffindexstore::FileId& id) const noexcept {

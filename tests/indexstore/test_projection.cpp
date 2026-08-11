@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <windows.h>
 
 #include "ffindexstore/Projection.h"
 #include "ffindexstore/Store.h"
@@ -233,6 +234,66 @@ void TestFilenameTrigramCandidatesTrackMutations() {
     Check(afterRename.has_value() && CandidateContains(proj, *afterRename, 103),
           "renaming an entry adds its new trigram candidates");
 }
+
+void TestProjectionEvictsLruAndReloadsFromStore() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"old.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"middle.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"recent.txt"));
+    const size_t beforeLimit = proj.EstimatedMemoryBytes();
+    Check(beforeLimit > 1, "projection reports owned memory before eviction");
+
+    // Refresh entry 100 so entry 101 is the least-recently-used non-root
+    // candidate. A one-byte reduction forces the bounded LRU policy to act.
+    Check(proj.Find(1, FileId{100, 0}) != nullptr, "LRU fixture entry is present before touch");
+    proj.SetMaximumMemoryBytes(beforeLimit - 1);
+    Check(proj.NeedsReload(1), "eviction records that durable volume data needs reload");
+    Check(proj.Find(1, FileId{100, 0}) != nullptr, "recently touched entry survives LRU eviction");
+    Check(proj.Find(1, FileId{101, 0}) == nullptr, "least-recently-used entry is evicted first");
+
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_eviction_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+    Store store;
+    Check(store.Open(dbPath.string()), "eviction reload fixture store opens");
+    VolumeKey volumeKey;
+    volumeKey.serialNumber = 7391;
+    const auto volumeId = store.GetOrCreateVolume(volumeKey);
+    Check(volumeId.has_value(), "eviction reload fixture volume is created");
+    if (volumeId.has_value()) {
+        Check(store.ApplyBatch(*volumeId, {
+            {EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)},
+            {EntryChangeKind::Upsert, MakeEntry(100, 5, u"old.txt")},
+            {EntryChangeKind::Upsert, MakeEntry(101, 5, u"middle.txt")},
+            {EntryChangeKind::Upsert, MakeEntry(102, 5, u"recent.txt")},
+        }), "eviction reload fixture rows are durable");
+        Projection reload;
+        reload.RebuildVolumeFromStore(store, *volumeId, store.CountEntries(*volumeId));
+        const size_t loadedBytes = reload.EstimatedMemoryBytes();
+        reload.SetMaximumMemoryBytes(loadedBytes - 1);
+        Check(reload.NeedsReload(*volumeId), "reloaded projection records its eviction");
+        reload.SetMaximumMemoryBytes(Projection::kDefaultMaximumMemoryBytes);
+        Check(reload.ReloadEvictedVolume(store, *volumeId), "evicted volume reload succeeds from SQLite");
+        Check(!reload.NeedsReload(*volumeId), "successful SQLite reload clears the eviction marker");
+        Check(reload.EntryCount() == 4 && reload.Find(*volumeId, FileId{101, 0}) != nullptr,
+              "SQLite reload restores the evicted directory data");
+    }
+    store.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+}
+
+void TestProjectionMemoryPressureSignal() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    const size_t usage = proj.EstimatedMemoryBytes();
+    proj.SetMaximumMemoryBytes(usage);
+    Check(proj.IsMemoryPressureHigh(), "projection exposes a high-memory pressure signal near its limit");
+}
 } // namespace
 
 int main() {
@@ -248,6 +309,8 @@ int main() {
     TestFolderAggregateCountsSubtree();
     TestManyDistinctParentsDoNotStallGrowth();
     TestFilenameTrigramCandidatesTrackMutations();
+    TestProjectionEvictsLruAndReloadsFromStore();
+    TestProjectionMemoryPressureSignal();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

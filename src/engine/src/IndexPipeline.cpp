@@ -5,6 +5,7 @@
 #include <cwctype>
 #include <limits>
 
+#include "ffprotocol/Diagnostics.h"
 #include "VolumeIdentity.h"
 
 namespace ffengine {
@@ -150,12 +151,16 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV1& record) {
 // frames at the default 4 KiB page size (~16 MB) -- past that, a passive
 // checkpoint is escalated to a full RESTART checkpoint.
 constexpr uint64_t kWalForceCheckpointThresholdBytes = 4000ULL * 4096;
+// Win32 ERROR_NOT_ENOUGH_MEMORY, kept numeric so this engine translation unit
+// does not acquire a direct windows.h dependency for one diagnostic field.
+constexpr uint32_t kErrorNotEnoughMemory = 8;
 
 } // namespace
 
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     std::lock_guard<std::mutex> lock(mutex_);
     recordsSinceAnalyze_ = 0;
+    projectionMemoryWarningIssued_ = false;
     if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
         return false;
     }
@@ -166,6 +171,7 @@ void IndexPipeline::Close() {
     std::lock_guard<std::mutex> lock(mutex_);
     store_.Close();
     recordsSinceAnalyze_ = 0;
+    projectionMemoryWarningIssued_ = false;
 }
 
 void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHours,
@@ -205,6 +211,19 @@ void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
     }
 }
 
+void IndexPipeline::MaybeReportProjectionMemoryPressureLocked() {
+    const bool pressure = projection_.IsMemoryPressureHigh();
+    if (pressure && !projectionMemoryWarningIssued_) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_PROJECTION_MEMORY_PRESSURE,
+                                      {}, {}, L"projection-memory-pressure", kErrorNotEnoughMemory,
+                                      projection_.EstimatedMemoryBytes()});
+        projectionMemoryWarningIssued_ = true;
+    } else if (!pressure) {
+        projectionMemoryWarningIssued_ = false;
+    }
+}
+
 void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
     std::vector<ffindexstore::VolumeRowId> volumeIds;
     {
@@ -233,6 +252,7 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
             }
             volumeIds.push_back(meta.rowId);
         }
+        MaybeReportProjectionMemoryPressureLocked();
     }
     // Invoked outside the lock: a rebuild-completion callback typically
     // publishes a snapshot, which may itself call back into
@@ -312,6 +332,7 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
+    MaybeReportProjectionMemoryPressureLocked();
 
     auto reconciling = reconciliationSeen_.find(volumeId);
     if (reconciling != reconciliationSeen_.end()) {
@@ -346,6 +367,7 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    MaybeReportProjectionMemoryPressureLocked();
     return true;
 }
 
@@ -394,6 +416,7 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    MaybeReportProjectionMemoryPressureLocked();
     return true;
 }
 
@@ -483,6 +506,7 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
     std::lock_guard<std::mutex> lock(mutex_);
+    projection_.ReloadEvictedVolume(store_, id);
     std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
@@ -549,6 +573,7 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
 
 std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
     std::lock_guard<std::mutex> lock(mutex_);
+    projection_.ReloadEvictedVolume(store_, volumeId);
     return projection_.GetFolderAggregate(volumeId, parentFrn);
 }
 
@@ -619,6 +644,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
+        projection_.ReloadAllEvictedVolumes(store_);
 
         prefixes.reserve(volumeRules_.size() + 4);
         std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
@@ -772,6 +798,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
+        projection_.ReloadAllEvictedVolumes(store_);
 
         prefixes.reserve(volumeRules_.size() + 4);
         std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;

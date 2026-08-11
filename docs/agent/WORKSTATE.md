@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T16:25:00+08:00
-Status: READY — STRUCTURED-DIAGNOSTICS SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T16:55:00+08:00
+Status: READY — PROJECTION-EVICTION SLICE VALIDATED; COMMIT PENDING
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -167,6 +167,30 @@ Status: READY — STRUCTURED-DIAGNOSTICS SLICE COMMITTED; EXTERNAL RELEASE BLOCK
 - Slice status: COMPLETE; implementation/evidence committed as `fba7ff5`.
 - NEXT EXACT ACTION: continue with the next local OpenSpec task while keeping
   external signing, service, and populated-index blockers unresolved.
+
+## Projection eviction slice (2026-08-11)
+
+- Root cause: the projection had no bounded memory policy, so large indexed
+  volumes could retain dense entries, child indexes, name storage, and search
+  postings indefinitely; an eviction without coordinated reload would also
+  break parent/path reconstruction.
+- Bounded fix: `Projection` now defaults to a 500 MiB owned-memory limit,
+  accounts its backing capacities, tracks access recency, evicts an LRU
+  subtree while preserving root preference, compacts all dependent indexes,
+  and marks the affected volume for durable replay. SQLite-backed replay is
+  available for volume-specific and all-volume engine access paths. The engine
+  emits one structured memory-pressure warning per pressure episode.
+- Focused validation: `ffindexstore_projection_tests` and
+  `ffengine_index_pipeline_tests` built and passed 2/2, covering LRU ordering,
+  eviction markers, SQLite reload restoration, and pressure signaling.
+- Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
+  projection-eviction-20260811.md`; tasks 6.1–6.5 are checked.
+- Slice status: VALIDATED; implementation and evidence are ready to commit.
+  Debug/Analyze/Release builds passed, serial Debug and Release CTest passed
+  45/45, the Windows build verifier passed, and strict OpenSpec validation
+  passed 45/45.
+- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
+  commit this slice while leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 

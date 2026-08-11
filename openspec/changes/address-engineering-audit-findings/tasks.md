@@ -37,11 +37,11 @@
 
 ## 6. Projection Eviction (projection-eviction)
 
-- [ ] 6.1 Add configurable maximum projection size setting (default 500 MB) in Projection.h
-- [ ] 6.2 Implement LRU eviction policy in Projection.cpp when size limit is exceeded
-- [ [ ] 6.3 Add SQLite reload path for evicted directory entries
-- [ ] 6.4 Add unit test for projection size limit and eviction order
-- [ ] 6.5 Add memory usage monitoring and warning when projection approaches limit
+- [x] 6.1 Add configurable maximum projection size setting (default 500 MB) in Projection.h
+- [x] 6.2 Implement LRU eviction policy in Projection.cpp when size limit is exceeded
+- [x] 6.3 Add SQLite reload path for evicted directory entries
+- [x] 6.4 Add unit test for projection size limit and eviction order
+- [x] 6.5 Add memory usage monitoring and warning when projection approaches limit
 
 ## 7. Structured Diagnostics (structured-diagnostics)
 

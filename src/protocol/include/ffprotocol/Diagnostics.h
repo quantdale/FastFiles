@@ -49,6 +49,7 @@ enum class DiagnosticCode : uint32_t {
     FFDIAG_RAW_VOLUME_OPEN = 30,
     FFDIAG_CANDIDATE_MATRIX = 31,
     FFDIAG_STARTUP_TOKEN = 32,
+    FFDIAG_PROJECTION_MEMORY_PRESSURE = 33,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

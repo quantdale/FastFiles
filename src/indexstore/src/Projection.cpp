@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <iterator>
+#include <limits>
 
 #include "ffindexstore/Store.h"
 
@@ -58,6 +59,178 @@ void EraseSorted(std::vector<uint32_t>& values, uint32_t value) {
     if (it != values.end() && *it == value) values.erase(it);
 }
 } // namespace
+
+void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
+    maximumMemoryBytes_ = maximumBytes == 0 ? kDefaultMaximumMemoryBytes : maximumBytes;
+    EnforceMemoryLimit();
+}
+
+size_t Projection::EstimatedMemoryBytes() const noexcept {
+    size_t result = entries_.capacity() * sizeof(ProjectionEntry)
+        + freeList_.capacity() * sizeof(uint32_t)
+        + idToIndex_.MemoryUsageBytes()
+        + parentToChildren_.MemoryUsageBytes()
+        + namePool_.MemoryUsageBytes()
+        + filenameNonAsciiEntries_.capacity() * sizeof(uint32_t)
+        + lastAccess_.bucket_count() * sizeof(void*)
+        + lastAccess_.size() * (sizeof(EntryKey) + sizeof(uint64_t));
+    for (const auto& [trigram, posting] : filenameTrigramPostings_) {
+        (void)trigram;
+        result += sizeof(uint64_t) + sizeof(std::vector<uint32_t>)
+            + posting.capacity() * sizeof(uint32_t);
+    }
+    result += filenameTrigramPostings_.bucket_count() * sizeof(void*);
+    return result;
+}
+
+bool Projection::IsMemoryPressureHigh() const noexcept {
+    if (maximumMemoryBytes_ == 0) return false;
+    return EstimatedMemoryBytes() >= maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
+}
+
+bool Projection::NeedsReload(const VolumeRowId volumeRowId) const {
+    return evictedVolumes_.contains(volumeRowId);
+}
+
+void Projection::Touch(const EntryKey& key) const noexcept {
+    try {
+        if (accessClock_ == std::numeric_limits<uint64_t>::max()) {
+            accessClock_ = 1;
+            for (auto& [entryKey, timestamp] : lastAccess_) {
+                (void)entryKey;
+                timestamp = 0;
+            }
+        } else {
+            ++accessClock_;
+        }
+        lastAccess_[key] = accessClock_;
+    } catch (...) {
+        // LRU metadata is an optimization and must never make projection
+        // lookup or ingestion fail under memory pressure.
+    }
+}
+
+std::optional<EntryKey> Projection::LeastRecentlyUsedEntry() const {
+    std::optional<EntryKey> oldest;
+    std::optional<EntryKey> rootFallback;
+    uint64_t oldestTimestamp = std::numeric_limits<uint64_t>::max();
+    uint64_t rootTimestamp = std::numeric_limits<uint64_t>::max();
+    idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
+        const ProjectionEntry& entry = entries_[index];
+        const auto accessIt = lastAccess_.find(key);
+        const uint64_t timestamp = accessIt == lastAccess_.end() ? 0 : accessIt->second;
+        if (entry.parentFrn == entry.frn) {
+            if (!rootFallback || timestamp < rootTimestamp) {
+                rootFallback = key;
+                rootTimestamp = timestamp;
+            }
+            return;
+        }
+        if (!oldest || timestamp < oldestTimestamp) {
+            oldest = key;
+            oldestTimestamp = timestamp;
+        }
+    });
+    return oldest.has_value() ? oldest : rootFallback;
+}
+
+void Projection::EvictSubtree(const EntryKey& rootKey) {
+    const uint32_t* rootIndex = idToIndex_.find(rootKey);
+    if (rootIndex == nullptr) return;
+
+    std::vector<EntryKey> removalOrder;
+    std::vector<EntryKey> pending;
+    std::unordered_set<EntryKey, EntryKeyHash> visited;
+    pending.push_back(rootKey);
+    while (!pending.empty()) {
+        const EntryKey current = pending.back();
+        pending.pop_back();
+        if (!visited.insert(current).second) continue;
+        const uint32_t* currentIndex = idToIndex_.find(current);
+        if (currentIndex == nullptr) continue;
+        removalOrder.push_back(current);
+        const ProjectionEntry& entry = entries_[*currentIndex];
+        if ((entry.attributes & kFileAttributeDirectory) == 0) continue;
+        for (const uint32_t childIndex : parentToChildren_.find(current)) {
+            if (childIndex >= entries_.size()) continue;
+            const ProjectionEntry& child = entries_[childIndex];
+            pending.push_back(EntryKey{child.volumeRowId, child.frn});
+        }
+    }
+
+    // Remove descendants before the selected directory so every child-index
+    // slice is still valid when Remove() unlinks the child.
+    for (auto it = removalOrder.rbegin(); it != removalOrder.rend(); ++it) {
+        Remove(it->volumeRowId, it->frn);
+    }
+    evictedVolumes_.insert(rootKey.volumeRowId);
+}
+
+void Projection::CompactStorage() {
+    std::vector<ProjectionEntry> compacted;
+    compacted.reserve(idToIndex_.size());
+    FlatHashMap<EntryKey, uint32_t, EntryKeyHash> compactedIds;
+    compactedIds.reserve(idToIndex_.size());
+    FlatChildrenMap compactedChildren;
+    NamePool compactedNames;
+
+    idToIndex_.ForEach([&](const EntryKey& key, const uint32_t oldIndex) {
+        ProjectionEntry entry = entries_[oldIndex];
+        entry.nameId = compactedNames.Intern(namePool_.Get(entry.nameId));
+        const uint32_t newIndex = static_cast<uint32_t>(compacted.size());
+        compacted.push_back(entry);
+        compactedIds.insert(key, newIndex);
+        if (entry.parentFrn != entry.frn) {
+            compactedChildren.insert(EntryKey{entry.volumeRowId, entry.parentFrn}, newIndex);
+        }
+    });
+
+    entries_ = std::move(compacted);
+    freeList_.clear();
+    idToIndex_ = std::move(compactedIds);
+    parentToChildren_ = std::move(compactedChildren);
+    namePool_ = std::move(compactedNames);
+    denseIterationOrderValid_ = true;
+    RebuildFilenameIndex();
+}
+
+void Projection::EnforceMemoryLimit() {
+    if (!enforcingMemoryLimit_) return;
+    while (EstimatedMemoryBytes() > maximumMemoryBytes_) {
+        const auto victim = LeastRecentlyUsedEntry();
+        if (!victim.has_value()) break;
+        const size_t before = EstimatedMemoryBytes();
+        EvictSubtree(*victim);
+        CompactStorage();
+        if (EstimatedMemoryBytes() >= before && idToIndex_.empty()) break;
+    }
+}
+
+bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId) {
+    if (!NeedsReload(volumeRowId)) return true;
+    const auto metadata = store.GetVolumeMetadata(volumeRowId);
+    if (!metadata.has_value()) {
+        evictedVolumes_.erase(volumeRowId);
+        return false;
+    }
+    RebuildVolumeFromStore(store, volumeRowId, metadata->entryCount);
+    return !NeedsReload(volumeRowId);
+}
+
+bool Projection::ReloadAllEvictedVolumes(Store& store) {
+    std::vector<VolumeRowId> volumeIds;
+    volumeIds.reserve(evictedVolumes_.size());
+    for (const VolumeRowId volumeId : evictedVolumes_) {
+        volumeIds.push_back(volumeId);
+    }
+    bool allReloaded = true;
+    for (const VolumeRowId volumeId : volumeIds) {
+        if (!ReloadEvictedVolume(store, volumeId)) {
+            allReloaded = false;
+        }
+    }
+    return allReloaded;
+}
 
 void Projection::Reserve(size_t expectedEntryCount) {
     entries_.reserve(expectedEntryCount);
@@ -189,6 +362,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.lastAccessTime = record.lastAccessTime;
         entry.attributes = record.attributes;
         entry.nameAsciiLower = IsAsciiLower(record.name);
+        Touch(key);
         AddFilenameIndexEntry(index);
         return;
     }
@@ -221,7 +395,9 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     if (record.parentId != record.id) {
         parentToChildren_.insert(EntryKey{volumeRowId, record.parentId}, index);
     }
+    Touch(key);
     AddFilenameIndexEntry(index);
+    EnforceMemoryLimit();
 }
 
 void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
@@ -235,6 +411,7 @@ void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     RemoveFilenameIndexEntry(index, namePool_.Get(entries_[index].nameId));
     RemoveFromChildrenList(EntryKey{volumeRowId, entries_[index].parentFrn}, index);
     idToIndex_.erase(key);
+    lastAccess_.erase(key);
     freeList_.push_back(index);
     // entries_[index] itself is left in place (tombstoned) -- nothing
     // reachable via idToIndex_/parentToChildren_ points at it anymore, and
@@ -257,7 +434,9 @@ void Projection::RemoveVolume(VolumeRowId volumeRowId) {
 }
 
 const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) const {
-    const uint32_t* pIndex = idToIndex_.find(EntryKey{volumeRowId, frn});
+    const EntryKey key{volumeRowId, frn};
+    const uint32_t* pIndex = idToIndex_.find(key);
+    if (pIndex != nullptr) Touch(key);
     return pIndex ? &entries_[*pIndex] : nullptr;
 }
 
@@ -305,7 +484,9 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
 }
 
 std::span<const uint32_t> Projection::ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const {
-    return parentToChildren_.find(EntryKey{volumeRowId, parentFrn});
+    const EntryKey key{volumeRowId, parentFrn};
+    if (idToIndex_.find(key) != nullptr) Touch(key);
+    return parentToChildren_.find(key);
 }
 
 std::optional<Projection::FolderAggregate> Projection::GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) const {
@@ -377,12 +558,25 @@ Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, File
 }
 
 void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
+    const bool wasEnforcingMemoryLimit = enforcingMemoryLimit_;
+    enforcingMemoryLimit_ = false;
+    bool volumePresent = false;
+    idToIndex_.ForEach([&](const EntryKey& key, const uint32_t) {
+        if (key.volumeRowId == volumeRowId) volumePresent = true;
+    });
+    if (volumePresent || NeedsReload(volumeRowId)) {
+        RemoveVolume(volumeRowId);
+        CompactStorage();
+    }
+    evictedVolumes_.erase(volumeRowId);
     denseIterationOrderValid_ = false;
     filenameIndexValid_ = false;
     Reserve(EntryCount() + expectedEntryCount);
     store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) { Upsert(volumeRowId, record); });
     CompactEntriesForIterationOrder();
     RebuildFilenameIndex();
+    enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
+    EnforceMemoryLimit();
 }
 
 } // namespace ffindexstore
