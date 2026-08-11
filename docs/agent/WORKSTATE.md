@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T14:42:28+08:00
+Last updated: 2026-08-11T14:44:57+08:00
 Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
@@ -42,8 +42,9 @@ Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS 
   SDK, CMake, Ninja, and Application Verifier checks, while Hyper-V/Sandbox
   are unavailable for disposable-host validation. The previously observed
   orphaned `FastFilesIndexSvc.exe` PID 9708 has since exited; no Fast Files
-  SCM service is registered. The current uncommitted slice is limited to the
-  FlatHashMap implementation and its CTest target.
+  SCM service is registered. The FlatHashMap implementation, CTest target,
+  OpenSpec evidence, and task/workstate checkpoint were committed as
+  `3619c26`; the follow-up workstate checkpoint is the only pending edit.
 
 ## FlatHashMap safety slice (2026-08-11)
 
@@ -67,9 +68,10 @@ Status: READY — FLATHASHMAP SAFETY SLICE VALIDATED; EXTERNAL RELEASE BLOCKERS 
   `openspec/changes/address-engineering-audit-findings/evidence/data-structure-safety-20260811.md`.
   Tasks 3.1–3.4, 8.2, and 8.5 are checked. No signing pins or authentication
   controls were changed.
-- NEXT EXACT ACTION: review the focused diff, commit this slice, then stop at
-  the already documented external signing/pin, clean-host privileged-path,
-  and populated-index visual prerequisites.
+- NEXT EXACT ACTION: persist this final workstate checkpoint, then stop at the
+  already documented external signing/pin, clean-host privileged-path, and
+  populated-index visual prerequisites. If resumed, reread this checkpoint and
+  inspect Git before selecting exactly one new frontier.
 
 ## Stale persisted startup location (2026-08-11)
 
