@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T13:33:52+08:00
+Last updated: 2026-08-11T13:45:36+08:00
 Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
@@ -37,7 +37,7 @@ Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL
   expired/untrusted/release-pin evidence, 4.5–4.8's signed/elevated/real
   MFT-USN/privilege/clean-host evidence, and 5.1's real aggregate-backed
   `% of Parent` sum. Do not alter signing material or pins.
-- Resume audit: the worktree is clean at `043b679`; `verify.ps1 doctor`
+- Resume audit: the worktree is clean at `8d2c8e2`; `verify.ps1 doctor`
   still passes the local VC toolset, SDK, CMake, Ninja, and Application
   Verifier checks, while Hyper-V/Sandbox are unavailable for disposable-host
   validation. An orphaned `FastFilesIndexSvc.exe` PID 9708 is running under
@@ -76,7 +76,7 @@ Status: READY — AUTHORIZED VISUAL MATRIX RECORDED; LOCAL GATES CLEAN; EXTERNAL
   `verify.ps1 build` rerun passed. The CMake diagnostic guard fix is committed
   as `565b90e`.
 - Final local checkpoint before this evidence commit was `5d071bb`; the
-  current evidence checkpoint is `043b679`. OpenSpec
+  current evidence checkpoint is `8d2c8e2`. OpenSpec
   tasks 4.2, 4.5–4.8, and 5.1 remain open because signed release material,
   clean-host privilege evidence, and a populated aggregate-backed visual
   drill-down are still unavailable; 5.2 and 5.3 are now evidenced and
