@@ -32,7 +32,7 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
   checkpoint are committed in the follow-up validation commit; its full
   `verify.ps1 build` rerun passed. The CMake diagnostic guard fix is committed
   as `565b90e`.
-- Final local checkpoint is `18c68cf`; the worktree is clean. OpenSpec tasks
+- Final local checkpoint is `99b00e0`; the worktree is clean. OpenSpec tasks
   4.2, 4.5–4.8, and 5.1–5.3 remain open because signed release material,
   clean-host privilege evidence, and system-level visual rows are still
   unavailable; no privileged path or security pin was weakened.
@@ -88,6 +88,22 @@ Status: READY — LOCAL GATES CLEAN; EXTERNAL RELEASE BLOCKERS REMAIN
   Debug UI/Engine processes were cleaned up.
 - NEXT EXACT ACTION: preserve the current implementation and wait for the
   authorized system-level visual or signed privileged-path prerequisites.
+
+## External prerequisite re-audit (2026-08-11)
+
+- `pwsh ./verify/verify.ps1 doctor` confirms the Visual Studio VC toolset,
+  Windows SDK, CMake, Ninja, Application Verifier, ETW/logging tools, and
+  PowerShell prerequisites. Optional WPA/Procmon/WinDbg tools are absent but
+  are not the release blockers.
+- Read-only Authenticode inspection reports the built Debug/Release UI, Engine,
+  and Index Service artifacts as `NotSigned`; `PinnedSignatures.h` still holds
+  the all-zero engine/service placeholders. No certificate or thumbprint was
+  invented, and no authentication bypass was introduced.
+- This confirms the remaining 4.2/4.5–4.8 gates require authorized signing
+  material and clean/elevated validation state, while 5.1–5.3 still require
+  system-level display transitions and evidence artifacts.
+- NEXT EXACT ACTION: wait for explicit authorization to change local display
+  settings and for provisioned signing/clean-host prerequisites.
 
 ## Diagnostic escape-hatch build guard (2026-08-11)
 
