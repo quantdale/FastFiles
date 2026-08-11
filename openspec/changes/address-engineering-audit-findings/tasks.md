@@ -55,5 +55,5 @@
 - [x] 8.1 Add CI check that fails if TEMP-DEBUG or DEBUG_STALL patterns are found in non-test code
 - [x] 8.2 Add CTest test for FlatHashMap 100% occupancy
 - [x] 8.3 Add CTest test for IPC handshake over real named pipe
-- [ ] 8.4 Add CTest test for SnapshotPublisher concurrency under thread contention
+- [x] 8.4 Add CTest test for SnapshotPublisher concurrency under thread contention
 - [x] 8.5 Verify entire test suite passes with /W4 /WX on Windows toolchain

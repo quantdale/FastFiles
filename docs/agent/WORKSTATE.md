@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T20:05:00+08:00
-Status: READY — REAL NAMED-PIPE HANDSHAKE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T20:25:00+08:00
+Status: READY — SNAPSHOT-PUBLISHER CONTENTION VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -44,8 +44,8 @@ Status: READY — REAL NAMED-PIPE HANDSHAKE COMMITTED; EXTERNAL RELEASE BLOCKERS
   orphaned `FastFilesIndexSvc.exe` PID 9708 has since exited; no Fast Files
   SCM service is registered. The FlatHashMap implementation, CTest target,
   OpenSpec evidence, and task/workstate checkpoint were committed as
-  `3619c26`/`53530be`. The current snapshot-versioning slice is the only
-  uncommitted frontier.
+  `3619c26`/`53530be`. The current snapshot-publisher contention slice is the
+  only uncommitted frontier.
 
 ## FlatHashMap safety slice (2026-08-11)
 
@@ -192,6 +192,29 @@ Status: READY — REAL NAMED-PIPE HANDSHAKE COMMITTED; EXTERNAL RELEASE BLOCKERS
   passed 45/45.
 - NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
   leaving external release blockers unresolved.
+
+## SnapshotPublisher contention slice (2026-08-11)
+
+- Root cause coverage: the shared-memory publisher already protects concurrent
+  writers with its publication mutex, but the audit change had no bounded CTest
+  proof that contended callers receive an intact generation sequence.
+- Regression coverage: eight worker threads publish 64 snapshots each after a
+  synchronized start. The test checks all 512 returned generations are unique
+  and contiguous, verifies `CurrentGeneration()`, and parses the final active
+  slot through a read-only mapping.
+- Focused validation: `ffengine_snapshot_publisher_tests` passed, including
+  five consecutive repeated runs.
+- Full validation: Debug/Analyze/Release builds passed; serial Debug and
+  Release CTest passed 45/45; the Windows build verifier passed; strict
+  OpenSpec validation passed 45/45; and the doc-drift/line-ending guard passed
+  after CRLF normalization.
+- Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
+  snapshot-publisher-contention-20260811.md`; task 8.4 is checked.
+- Slice status: COMPLETE; implementation, task update, and evidence are ready
+  for commit. No shared-memory, signing, authentication, or security policy
+  was changed.
+- NEXT EXACT ACTION: review and commit this slice, then continue the external
+  blocker audit without altering signing material or production pins.
 
 ## IPC reliability slice (2026-08-11)
 
