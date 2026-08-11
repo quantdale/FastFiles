@@ -17,6 +17,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <shellapi.h>
 #include <shlobj.h>
@@ -1191,26 +1192,45 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
             info += L"Attributes: " + FormatAttributes(selection->attributes);
         }
     }
+    const float infoTop = cardTop + pad;
+    const float infoWidth = (std::max)(0.0f, cardRight - cardLeft - 2.0f * pad);
+    float infoHeight = 120.0f;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> infoLayout;
+    if (detailsTextFormat_ && infoWidth > 0.0f &&
+        SUCCEEDED(renderer_.DWriteFactory()->CreateTextLayout(
+            info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
+            infoWidth, (std::numeric_limits<float>::max)(), &infoLayout))) {
+        DWRITE_TEXT_METRICS infoMetrics{};
+        if (SUCCEEDED(infoLayout->GetMetrics(&infoMetrics))) {
+            infoHeight = (std::max)(0.0f, infoMetrics.height);
+        }
+    }
+    // Long paths can wrap across several lines. Let DirectWrite determine the
+    // property block height, then place the preview below it so metadata never
+    // paints into the preview region.
+    const float previewTop = (std::min)(cardBottom,
+        (std::max)(cardTop + 135.0f, infoTop + infoHeight + pad));
+    const float infoBottom = (std::min)(previewTop - pad, cardBottom);
     context->DrawText(info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(cardLeft + pad, cardTop + pad, cardRight - pad, cardTop + 120), detailsTextBrush_.Get());
+        D2D1::RectF(cardLeft + pad, infoTop, cardRight - pad, infoBottom), detailsTextBrush_.Get());
     PreviewResult preview;
     { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
-    const float previewTop = cardTop + 135;
-    if (!settings_.previewEnabled) {
+    const float previewBottom = cardBottom - pad;
+    if (previewTop < previewBottom && !settings_.previewEnabled) {
         const std::wstring text = L"Preview disabled";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
-    } else if (preview.kind == PreviewKind::Image) {
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+    } else if (previewTop < previewBottom && preview.kind == PreviewKind::Image) {
         if (!previewBitmap_ && !preview.pixels.empty()) {
             const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
             context->CreateBitmap(D2D1::SizeU(preview.width, preview.height), preview.pixels.data(), preview.width * 4, &properties, &previewBitmap_);
         }
-        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad));
-    } else {
+        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom));
+    } else if (previewTop < previewBottom) {
         std::wstring text = preview.kind == PreviewKind::Text ? preview.text : (selection && !selection->isDirectory ? L"No preview available" : L"");
         if (preview.truncated) text += L"\n\n[Preview truncated]";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
     }
     }
     const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +

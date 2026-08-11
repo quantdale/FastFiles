@@ -30,7 +30,9 @@ option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
 add_subdirectory(third_party/sqlite)
 
 if(MSVC)
-  add_compile_options(/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus)
+  # First-party source files are UTF-8; keep raw wide UI literals from being
+  # decoded through the active legacy code page (which produces mojibake).
+  add_compile_options(/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus /utf-8)
   add_link_options(/DYNAMICBASE /NXCOMPAT /guard:cf)
 endif()
 

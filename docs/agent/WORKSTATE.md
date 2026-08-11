@@ -1,7 +1,60 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T04:58:33+08:00
-Status: STOPPED — RELEASE VALIDATION BLOCKED
+Last updated: 2026-08-11T11:27:50+08:00
+Status: READY — COMPUTER-USE VISUAL GATE COMPLETE; EXTERNAL RELEASE BLOCKERS REMAIN
+
+## Computer-Use visual validation checkpoint (2026-08-11)
+
+- Reconciled Git before this slice: branch `recovery/fast-files-20260809`, HEAD
+  `9b10816aafa95409eb76460e860da70be0dbab18`; existing UTF-8 fix frontier in
+  `CMakeLists.txt`, `tests/ui/CMakeLists.txt`, and `tests/ui/test_ui_text_encoding.cpp`
+  preserved. This campaign also has the bounded details-pane rendering change
+  in `src/ui/src/WindowShell.cpp` (uncommitted).
+- Computer Use was available and used directly against the exact rebuilt Debug
+  `build/debug/src/ui/FastFiles.exe` window. Clean relaunch confirmed title
+  `FastFiles`, proper `Last Operation Errors…`, proper `Selected: … • … • …`,
+  degraded badge, and no startup mojibake. The direct screenshot capture does
+  not persist a file; observations are recorded here from the live screenshots
+  and accessibility states.
+- Visual rows passed: fixture navigation through Level1–Level5; back; external
+  directory watcher insertion; selection identity after a preceding external
+  sort key; details pane open/closed; wide light layout; dual-pane layout with
+  the details region reserved; Dark then Light theme; command palette labels;
+  Settings tabs; search query `watcher` returning the fixture file; and a
+  responsive UI after stopping the exact Debug Engine sibling. Storage
+  Overview's native list/radio controls were exposed and exercised through the
+  real UI; the canvas capture did not show those child controls, so no tile
+  screenshot claim is made for degraded Treemap data.
+- Concrete product defect found: `RenderDetails` used a fixed 120-DIP property
+  text rectangle, so a long fixture path wrapped into later metadata. Bounded
+  fix: measure the DirectWrite property layout and place the preview below the
+  measured block, suppressing preview drawing when no vertical space remains.
+  Rebuilt `FastFiles` successfully; focused `ffui_text_encoding_tests` and
+  `ffdetails_layout_tests` passed. Rebuilt visual confirmation shows path,
+  metadata, and `No preview available` separated without overlap.
+- System-level rows not changed without explicit confirmation: 150% DPI,
+  High Contrast, and animations-off. Treat those rows as environment-blocked
+  unless the current host is already in that state. Narrow-window coverage was
+  exercised through the real system resize menu; at 335/162-pixel captures the
+  app collapsed/removed usable content as expected for the extreme minimum,
+  then was restored to maximized state. No settings were left changed.
+- Final gates: pinned OpenSpec strict validation PASS (45/45); Debug configure
+  and full build PASS; Analyze configure/build PASS (the first wrapper timed out
+  while the existing analyze workers continued, and the follow-up build reported
+  `ninja: no work to do`); documented serial CTest PASS (44/44) with user TEMP/TMP.
+  The first CTest attempt's `fffileoperations_tests` and mixed-line-ending guard
+  failures were isolated, then both focused reruns passed before the final suite.
+  The exact disposable visual fixture was removed and the exact Debug UI/Engine
+  processes were stopped. No merge or push occurred.
+- Next exact action: inspect final Git diff, commit the bounded UI fixes and
+  workstate checkpoint, then hand off with the external privileged-path and
+  system-setting visual rows explicitly blocked. Do not merge or push.
+
+## Interactive validation product defect — Unicode literal encoding (2026-08-11)
+
+- Direct supervised Debug observation after commit `9b10816aafa95409eb76460e860da70be0dbab18` found reproducible mojibake in the actual FastFiles window: `Last Operation Errorsâ€¦` and `Selected: 0 â€¢ 0 B â€¢ C:`. The intended glyphs are U+2026 HORIZONTAL ELLIPSIS and U+2022 BULLET.
+- Root cause established: first-party UTF-8 source contains raw wide Unicode literals, but the MSVC warning-policy block does not enable `/utf-8`; the compiler therefore decodes those literals through the active legacy code page. The same issue can affect other raw UI punctuation literals, not only the two observed surfaces.
+- Bounded fix frontier: enable `/utf-8` for first-party MSVC compilation and add a deterministic UI text-encoding regression test that asserts raw ellipsis/bullet literals compile to one U+2026/U+2022 code unit. Rebuild and repeat the baseline before resuming visual acceptance.
 
 ## Elevated release-validation checkpoint (2026-08-11)
 
