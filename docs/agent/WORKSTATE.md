@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T20:25:00+08:00
-Status: READY — SNAPSHOT-PUBLISHER CONTENTION VALIDATED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T20:35:00+08:00
+Status: READY — LOCAL VALIDATION COMPLETE; SERVICE CLEANUP REQUIRES ELEVATION; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -23,9 +23,14 @@ Status: READY — SNAPSHOT-PUBLISHER CONTENTION VALIDATED; EXTERNAL RELEASE BLOC
   folder aggregates. The required real 100%-sum assertion is therefore not
   claimed; OpenSpec task 5.1 remains open for that data-dependent row. Tasks
   5.2 and 5.3 are now checked with the retained evidence.
-- Final host state was restored and verified: Display Settings showed 100%,
-  FastFiles/Settings window DPI was 96, `HighContrast=False`, and
+- Final host display state was restored and verified: Display Settings showed
+  100%, FastFiles/Settings window DPI was 96, `HighContrast=False`, and
   `Animations=True`. FastFiles and the exact sibling Engine were cleaned up.
+  A later local-gate audit found the separately registered automatic
+  `FastFilesIndexSvc` running from `C:\Program Files\FastFiles\`; stopping it
+  returned Access Denied from both PowerShell and `sc.exe`. Its registration,
+  start mode, binary path, and security configuration were left unchanged;
+  stopping this in-scope service requires an elevated service-control action.
 - Final gates after the visual pass: pinned OpenSpec strict validation passed
   45/45; x64 Debug, Analyze, and Release builds passed; serial Debug CTest
   passed 44/44; serial Release CTest passed 44/44; and
