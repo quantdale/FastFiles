@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T18:30:00+08:00
-Status: READY — IPC-RELIABILITY SLICE VALIDATED; COMMIT PENDING
+Last updated: 2026-08-11T18:35:00+08:00
+Status: READY — IPC-RELIABILITY SLICE COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -212,10 +212,13 @@ Status: READY — IPC-RELIABILITY SLICE VALIDATED; COMMIT PENDING
 - Full validation: Debug/Analyze/Release builds passed; serial Debug and
   Release CTest passed 45/45; the Windows build verifier passed; and strict
   OpenSpec validation passed 45/45.
-- Slice status: VALIDATED; implementation, task updates, and evidence are
-  ready to commit.
-- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
-  commit this slice while leaving external release blockers unresolved.
+- Slice status: COMPLETE; implementation, task updates, and evidence are
+  committed as `b3abd9b` (`Replace service pipe polling with overlapped I/O`).
+  Debug/Analyze/Release builds passed, serial Debug and Release CTest passed
+  45/45, the Windows build verifier passed, and strict OpenSpec validation
+  passed 45/45.
+- NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
