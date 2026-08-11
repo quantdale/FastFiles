@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T20:35:00+08:00
-Status: READY — LOCAL VALIDATION COMPLETE; SERVICE CLEANUP REQUIRES ELEVATION; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-12T01:25:00+08:00
+Status: READY — LOCAL VALIDATION COMPLETE; ELEVATED SESSION REQUIRED FOR SERVICE CLEANUP; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -31,6 +31,12 @@ Status: READY — LOCAL VALIDATION COMPLETE; SERVICE CLEANUP REQUIRES ELEVATION;
   returned Access Denied from both PowerShell and `sc.exe`. Its registration,
   start mode, binary path, and security configuration were left unchanged;
   stopping this in-scope service requires an elevated service-control action.
+- Fresh resume on 2026-08-12 confirmed the current Codex shell still reports
+  `IsAdmin=False` even after the user changed the account context. A narrowly
+  scoped `Start-Process -Verb RunAs` attempt for only this service timed out
+  after 30 seconds without changing the service; UAC/secure-desktop approval or
+  a newly launched elevated Codex session is required. No elevation bypass was
+  attempted.
 - Final gates after the visual pass: pinned OpenSpec strict validation passed
   45/45; x64 Debug, Analyze, and Release builds passed; serial Debug CTest
   passed 44/44; serial Release CTest passed 44/44; and
