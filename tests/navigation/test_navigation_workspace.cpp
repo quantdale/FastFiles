@@ -133,6 +133,35 @@ void TestWorkspacePersistenceFallback() {
     if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
     else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());
 }
+void TestInitialNavigationFallback() {
+    using namespace ffui;
+    wchar_t tempPath[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, tempPath) != 0, "temporary path is available for startup resolution");
+    const std::filesystem::path root = std::filesystem::path(tempPath) /
+        (L"FastFiles-startup-resolution-" + std::to_wstring(GetCurrentProcessId()));
+    const std::filesystem::path existing = root / L"existing";
+    const std::filesystem::path existingFile = root / L"file.txt";
+    const std::filesystem::path missing = root / L"removed";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(existing, error);
+    {
+        std::wofstream file(existingFile);
+        file << L"not a directory";
+    }
+
+    Check(ResolveInitialNavigationPath(true, existing.wstring(), L"This PC") == existing.wstring(),
+          "an existing persisted directory is restored");
+    Check(ResolveInitialNavigationPath(true, missing.wstring(), existing.wstring()) == existing.wstring(),
+          "a deleted persisted directory falls back to the configured startup directory");
+    Check(ResolveInitialNavigationPath(true, existingFile.wstring(), existing.wstring()) == existing.wstring(),
+          "a persisted file path is not restored as a navigation directory");
+    Check(ResolveInitialNavigationPath(true, L"not an absolute path", existing.wstring()) == existing.wstring(),
+          "a malformed persisted location falls back to startup");
+    Check(ResolveInitialNavigationPath(true, missing.wstring(), L"This PC").empty(),
+          "a deleted persisted directory falls back to the synthetic This PC root");
+    std::filesystem::remove_all(root, error);
+}
 void TestCopyRelativePathBaseResolution() {
     using namespace ffui;
     NavigationWorkspace workspace(L"C:\\");
@@ -233,7 +262,7 @@ void TestConcurrentIndependentContextsReadDifferentPaths() {
 }
 int main() {
     TestPathParsing(); TestParentNavigationPath(); TestSyntheticRootContext(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
-    TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestCopyRelativePathBaseResolution();
+    TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestInitialNavigationFallback(); TestCopyRelativePathBaseResolution();
     TestPerTabPaneContexts();
     TestConcurrentIndependentContextsReadDifferentPaths();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

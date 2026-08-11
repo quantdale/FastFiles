@@ -53,6 +53,12 @@ private:
 };
 struct ParsedPath { std::wstring path; std::wstring error; };
 ParsedPath ParseNavigationPath(const std::wstring& input);
+// Chooses the startup location without resurrecting a deleted persisted
+// directory. Access-denied locations remain eligible so the destination view
+// can present its own permission error state.
+std::wstring ResolveInitialNavigationPath(bool restorePreviousSession,
+                                          const std::wstring& lastLocation,
+                                          const std::wstring& startupLocation);
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input);
 // Returns the filesystem parent used by the shell's Up/Backspace command.
 // A value containing an empty string means "This PC" (the synthetic root);

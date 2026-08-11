@@ -690,15 +690,9 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         return false;
     }
     settings_ = ffprotocol::LoadSettings();
-    std::wstring initialNavigationPath;
-    if (settings_.restorePreviousSession && !navigationWorkspace_.State().lastLocation.empty()) {
-        initialNavigationPath = navigationWorkspace_.State().lastLocation;
-    } else if (!settings_.startupLocation.empty()) {
-        const auto parsedStartup = ParseNavigationPath(settings_.startupLocation);
-        if (parsedStartup.error.empty()) {
-            initialNavigationPath = parsedStartup.path;
-        }
-    }
+    const std::wstring initialNavigationPath = ResolveInitialNavigationPath(
+        settings_.restorePreviousSession, navigationWorkspace_.State().lastLocation,
+        settings_.startupLocation);
     if (!initialNavigationPath.empty() &&
         initialNavigationPath != navigationWorkspace_.ActiveContext().currentPath) {
         navigationWorkspace_.Navigate(initialNavigationPath);

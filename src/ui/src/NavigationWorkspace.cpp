@@ -499,6 +499,32 @@ ParsedPath ParseNavigationPath(const std::wstring& input) {
     return {std::move(full), {}};
 }
 
+std::wstring ResolveInitialNavigationPath(bool restorePreviousSession,
+                                          const std::wstring& lastLocation,
+                                          const std::wstring& startupLocation) {
+    if (restorePreviousSession && !lastLocation.empty()) {
+        const auto parsedLastLocation = ParseNavigationPath(lastLocation);
+        if (parsedLastLocation.error.empty() && !parsedLastLocation.path.empty()) {
+            const DWORD attributes = GetFileAttributesW(parsedLastLocation.path.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES &&
+                (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                return parsedLastLocation.path;
+            }
+            const DWORD error = GetLastError();
+            if (attributes == INVALID_FILE_ATTRIBUTES &&
+                (error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD)) {
+                return parsedLastLocation.path;
+            }
+        }
+    }
+
+    if (!startupLocation.empty()) {
+        const auto parsedStartup = ParseNavigationPath(startupLocation);
+        if (parsedStartup.error.empty()) return parsedStartup.path;
+    }
+    return {};
+}
+
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input) {
     const auto parsed = ParseNavigationPath(input);
     auto& context = workspace.ActiveContext();
