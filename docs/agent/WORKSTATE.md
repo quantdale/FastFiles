@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T19:00:00+08:00
-Status: READY — PRODUCTION-MARKER GUARD VALIDATED; COMMIT PENDING
+Last updated: 2026-08-11T19:05:00+08:00
+Status: READY — PRODUCTION-MARKER GUARD COMMITTED; EXTERNAL RELEASE BLOCKERS REMAIN
 
 ## Authorized system-level visual matrix (2026-08-11)
 
@@ -237,10 +237,13 @@ Status: READY — PRODUCTION-MARKER GUARD VALIDATED; COMMIT PENDING
   slice contains no C++ changes.
 - Evidence: `openspec/changes/address-engineering-audit-findings/evidence/
   production-debug-marker-20260811.md`; task 8.1 is checked.
-- Slice status: VALIDATED; implementation, workflow, task update, and evidence
-  are ready to commit.
-- NEXT EXACT ACTION: normalize touched files to CRLF, inspect the diff, and
-  commit this slice while leaving external release blockers unresolved.
+- Slice status: COMPLETE; implementation, workflow, task update, and evidence
+  are committed as `2b07d64` (`Add production debug-marker CI guard`).
+  Debug/Analyze/Release builds remain green from the preceding IPC slice; Debug
+  and Release CTest passed 45/45, the verifier passed, and strict OpenSpec
+  validation passed 45/45.
+- NEXT EXACT ACTION: continue with the next remaining local OpenSpec task while
+  leaving external release blockers unresolved.
 
 ## Stale persisted startup location (2026-08-11)
 
