@@ -1,7 +1,44 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-11T12:28:00+08:00
-Status: READY — DIAGNOSTIC BUILD-GUARD FIX VERIFIED; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-11T13:34:00+08:00
+Status: READY — LOCAL STARTUP/VERIFIER GATES VERIFIED; EXTERNAL RELEASE BLOCKERS REMAIN
+
+## Stale persisted startup location (2026-08-11)
+
+- Computer Use reproduced a real degraded-mode startup defect: the UI restored
+  the deleted visual-acceptance fixture path from `workspace-state.json`,
+  leaving the shell rooted in a stale location instead of falling back to
+  `This PC`/the configured startup location.
+- Root cause: `WindowShell::Initialize` copied `lastLocation` directly into
+  `initialNavigationPath` without parsing it or checking that it still named a
+  directory. This bypassed the existing address-bar invalid-path contract.
+- Bounded fix: `ResolveInitialNavigationPath` now validates persisted paths,
+  restores only existing directories, preserves access-denied destinations for
+  the destination view's permission state, and falls back to the configured
+  startup path for deleted, malformed, or file-valued state. `WindowShell`
+  uses this resolver; no IPC, engine, or security behavior changed.
+- Regression coverage: `ffnavigation_tests` verifies existing-directory
+  restore, deleted/malformed/file fallback, and synthetic `This PC` fallback.
+  Focused test passed; Debug build passed; serial Debug CTest passed 44/44
+  after one isolated transient `fffileoperations_tests` conflict-dialog
+  failure (focused rerun and complete rerun passed).
+- Analyze and Release builds passed; serial Release CTest passed 44/44 after
+  the same isolated conflict-dialog retry pattern. Computer Use relaunched the
+  rebuilt Debug UI and observed `This PC` as the restored breadcrumb with the
+  stale fixture name absent; the UI was then closed and the exact sibling
+  Engine process was cleaned up.
+- The startup restore fix is committed as `12bdf1b`. The
+  `verify/core/Toolchain.psm1` TEMP/TMP canonicalization fix and this
+  checkpoint are committed in the follow-up validation commit; its full
+  `verify.ps1 build` rerun passed. The CMake diagnostic guard fix is committed
+  as `565b90e`.
+- Final local checkpoint is `bd150b3`; the worktree is clean. OpenSpec tasks
+  4.2, 4.5–4.8, and 5.1–5.3 remain open because signed release material,
+  clean-host privilege evidence, and system-level visual rows are still
+  unavailable; no privileged path or security pin was weakened.
+- NEXT EXACT ACTION: obtain the documented external signing/elevation/
+  clean-host/visual-matrix prerequisites and execute only those remaining
+  gates; no safe local implementation frontier remains in this slice.
 
 ## Diagnostic escape-hatch build guard (2026-08-11)
 
@@ -21,7 +58,7 @@ Status: READY — DIAGNOSTIC BUILD-GUARD FIX VERIFIED; EXTERNAL RELEASE BLOCKERS
   targets, and Release CTest passed 44/44 with the documented user TEMP/TMP
   override. The default shell's x86 library mismatch was harness-only and was
   eliminated by `Launch-VsDevShell.ps1 -Arch amd64 -HostArch amd64`.
-- The bounded CMake fix is ready to commit with this checkpoint. Remaining
+- The bounded CMake fix is committed as `565b90e`. Remaining
   release blockers are the explicitly external signing/elevation/clean-host
   evidence and system-level visual matrix rows; no task is marked complete
   without that evidence.
