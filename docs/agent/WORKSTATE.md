@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:56:48+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 9 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:59:11+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 10 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -124,8 +124,9 @@ down watcher/snapshot/client state. The lifecycle test passed 10/10 direct CLI
 stress runs after the fix and the focused watcher/lifecycle/publisher/aggregate
 CTest batch passed 4/4. Slice 7 is committed as `7b9f8fa` (`Prevent UI server
 callback teardown race`). Slice 8 is committed as `66bffd0` (`Preserve Unicode
-workspace state`). Slice 9 is committed as `273dd2d` (`Prevent in-batch
-transfer overwrites`). Exact next action: choose another evidence-backed local
+workspace state`). Slice 9 is committed as `273dd2d` (`Prevent in-batch transfer
+overwrites`). Slice 10 is committed as `7edef8c` (`Preserve pending selection
+across path casing`). Exact next action: choose another evidence-backed local
 hardening frontier; do not reopen completed areas without new evidence.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
@@ -249,6 +250,25 @@ hardening frontier; do not reopen completed areas without new evidence.
   distinct contents under Replace/apply-to-all. Debug focused policy/e2e tests
   and Analyze policy build pass. Slice status: COMPLETE; product commit
   `273dd2d` (`Prevent in-batch transfer overwrites`).
+
+## Overnight slice 10 — pending-selection path identity investigation
+
+- Severity: MEDIUM UI correctness risk directly downstream of the committed
+  Windows snapshot path-identity seam. `ColumnView::RefreshColumnFromSnapshot`
+  applies a pending selected result only when `column.path == pendingPath`,
+  while search/file-operation paths and watcher/snapshot keys can differ only
+  by case on Windows.
+- Reproducer shape: open a result whose requested parent is `c:\fixture` while
+  the refreshed column is keyed as `C:\Fixture`; the row data refreshes but the
+  pending result selection is never applied because the exact comparison fails.
+- Fix: `MatchesPendingSnapshotPath` now applies `ffprotocol::WindowsPathEqual`
+  while preserving the existing empty-parent unconstrained behavior; the
+  ColumnView refresh path consumes this helper.
+- Regression validation: focused `ffsnapshot_aggregate_tests` passed with equal,
+  empty, and unequal parent-path cases; the real `FastFiles` target and its
+  Analyze target rebuilt successfully, and `ffui_text_encoding_tests` remained
+  green. Slice status: COMPLETE; product commit `7edef8c` (`Preserve pending
+  selection across path casing`).
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
