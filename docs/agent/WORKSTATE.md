@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T21:42:24+08:00
-Status: READY TO COMMIT — MAIN UI GEOMETRY HARDENING VALIDATED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T21:47:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -68,7 +68,33 @@ Status: READY TO COMMIT — MAIN UI GEOMETRY HARDENING VALIDATED; PRIOR EXTERNAL
   sidebar/chrome-aware Search and Storage positioning; bounded narrow Search
   and Storage arrangements; WM_DPICHANGED child-surface repositioning; and
   suppression of stale browse Details/status painting under alternate surfaces.
-  No unrelated subsystem was changed.
+  No unrelated subsystem was changed. Product commit: `c4868e5`
+  (`Fix main shell content geometry`).
+
+## Overnight local production-hardening campaign (2026-08-12)
+
+- The preceding main-shell geometry campaign is COMPLETE. Its root cause,
+  implementation, deterministic tests, CLI runtime evidence, build gates,
+  verifier, OpenSpec validation, and commit are recorded above.
+- This campaign is now the single active frontier. It must remain CLI-only,
+  preserve the known signed/elevated/clean-host/visual external blockers, and
+  use one evidence-backed product slice at a time.
+- Starting campaign HEAD: `c4868e5`; starting worktree was clean after the
+  geometry commit. No campaign-created FastFiles UI/Engine process remains;
+  the existing service PID `21148` was not modified.
+- First triage method: inspect existing tests and source ownership for
+  Priority A/B defects, then run focused deterministic/runtime probes before
+  changing code. Do not reopen completed search optimization, shortcut
+  persistence/routing, selection identity, Storage category filtering,
+  authentication/signing, MFT/USN, installer/service, clean-host, or direct
+  visual work without new evidence.
+
+## Overnight campaign NEXT EXACT ACTION
+
+Run a bounded source/test triage of navigation, watcher/live refresh, file
+operations, Details semantics, snapshot recovery, Engine lifecycle, and
+settings/startup persistence. Select exactly one reproducible local defect;
+record the hypothesis and test path before implementation.
 
 ## Session continuation reconciliation (2026-08-12)
 
