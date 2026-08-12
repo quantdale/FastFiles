@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:24:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY FIX IN PROGRESS; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:35:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -95,10 +95,12 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY
 
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
-changes`). Slice 3 is now the single Priority B watcher/lifecycle frontier:
-fix the proven case-variant duplicate-watch key policy and rerun its focused
-regression. Do not reopen completed transfer-planner or Details slices without
-new evidence. Run the final full validation only after the remaining local
+changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
+insensitive`). Begin exactly one new Priority A/D persistence frontier: establish
+whether workspace-state persistence can leave a corrupt/truncated file and
+whether an atomic replacement is locally safe under the existing contract.
+Do not reopen completed transfer-planner, Details, or watcher slices without new
+evidence. Run the final full validation only after the remaining local
 hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
@@ -181,6 +183,21 @@ hardening slices are complete.
 - Next implementation: use ordinal case-insensitive path equality for map
   lookup and every LRU/de-registration operation, while retaining the first
   registration's callback/path for the existing idempotent contract.
+
+## Overnight slice 3 — watcher case-insensitive key implementation
+
+- Root cause confirmed by the new failing test: the raw-key `std::map` admitted
+  both normal and upper-case spellings of one Windows directory, so both
+  overlapped workers delivered the same file change.
+- Fix: `CaseInsensitivePathLess` uses `CompareStringOrdinal(..., TRUE)` for
+  map identity; LRU refresh, replacement, and `Unwatch` use the same ordinal
+  case-insensitive equality. The first registration's callback and path remain
+  authoritative, and `UnwatchAll` still moves the correctly-typed map while
+  holding the mutex before joining workers.
+- Validation: the new real-filesystem reproducer passed, including canonical
+  callback-only delivery; the existing watcher publish/restart, LRU eviction,
+  injected overflow, give-up, navigation, and Details aggregate tests passed
+  3/3; the Analyze watcher target built cleanly. Product commit: `e5352d1`.
 
 ## Session continuation reconciliation (2026-08-12)
 
