@@ -151,11 +151,17 @@ Focused Debug search/protocol/drift tests pass, the full Debug CTest tree passes
 49/49, and the focused Analyze build of `FastFiles` plus `ffsearch_scan_tests`
 passes cleanly. No signing/authentication or production pin behavior changed.
 
-NEXT EXACT ACTION: inspect the documented constant-time thumbprint comparison
-finding in the authentication ownership path. If the comparison is still a
-direct equality over secret-derived signature bytes, make the smallest local
-constant-time fix with focused negative/positive tests; keep placeholder pins
-fail-closed and do not attempt external signing validation.
+The documented constant-time thumbprint comparison is already complete in the
+current source: `VerifyPinnedSignature` calls
+`ConstantTimeThumbprintEqual`, and the focused authenticode tests cover equal,
+different, placeholder, and partially populated pins. No authentication change
+was made by this campaign.
+
+NEXT EXACT ACTION: inspect the deferred explicit USN journal cleanup finding
+(`INFO-20260804-K7P2VN-002`) in the engine/service-connection ownership path.
+Only implement a cleanup fix if the current shutdown path leaves a concrete
+open journal/session resource or lacks a safe idempotent close; preserve the
+closed command protocol and fail-closed authentication.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
