@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:48:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 14 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:59:00+08:00
+Status: LOCAL HARDENING CAMPAIGN COMPLETE — LOCAL ENGINEERING EXHAUSTED; EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -206,11 +206,27 @@ zero on capacity/unstarted publication and `UiServer` exposes publish failure
 to the requesting/subscribed UI. No additional evidence-backed local defect
 was found in those paths during this bounded pass.
 
-NEXT EXACT ACTION: normalize the two touched first-party files to repository
-CRLF, inspect and commit Slice 14, then run the final Debug/Analyze/Release
-builds, serial CTest trees, verifier doctor/build, strict OpenSpec validation,
-and CLI runtime/orphan-process smoke. Do not repeat the inconclusive large
-benchmark timeout or reopen the external signing/clean-host/visual blockers.
+Final gates complete after Slice 14: Debug, Analyze, and Release builds passed;
+serial Debug and Release CTest passed 49/49 each; `verify.ps1 doctor` reported
+the installed compiler/SDK/CMake/Ninja and diagnostics prerequisites available
+with only optional tools/providers skipped; `verify.ps1 build` passed; and
+pinned strict OpenSpec validation passed 45/45. `ffdoc_drift_tests` passed in
+both CTest trees. The final CLI smoke launched the rebuilt Debug Engine and UI,
+confirmed the real `FastFilesMainWindow` and read-only selection diagnostic,
+observed a responsive UI, then closed the UI and stopped the exact campaign
+Engine. A first probe harness class-lookup race was cleaned and is not treated
+as product evidence; no new navigation claim is made from that injection.
+Only the pre-existing service PID `21148` remains. Final source and docs are
+committed; worktree is clean.
+
+Remaining local engineering frontiers: NONE. External gates remain: authorized
+production signing and non-placeholder peer pins; signed/elevated privileged
+MFT/USN validation; clean-host/provider validation; and direct visual/interactive
+acceptance including the Treemap `% of Parent` assertion. Do not repeat the
+inconclusive large benchmark timeout or reopen these external blockers.
+
+NEXT EXACT ACTION: none — deliver the final campaign report; do not merge to
+main or push.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
