@@ -18,11 +18,6 @@ constexpr DWORD kNotifyFilter =
 // against a directory that changes faster than the buffer can drain.
 constexpr int kMaxConsecutiveWatchOverflows = 8;
 
-bool SamePathCaseInsensitive(const std::wstring& left, const std::wstring& right) noexcept {
-    return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
-                                right.data(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
-}
-
 std::wstring ExtendedApiPath(const std::wstring& path) {
     if (path.starts_with(L"\\\\?\\") || path.starts_with(L"\\\\.\\")) {
         return path;
@@ -35,12 +30,6 @@ std::wstring ExtendedApiPath(const std::wstring& path) {
     }
     return path;
 }
-}
-
-bool DirectoryWatcher::CaseInsensitivePathLess::operator()(const std::wstring& left,
-                                                            const std::wstring& right) const noexcept {
-    return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
-                                right.data(), static_cast<int>(right.size()), TRUE) == CSTR_LESS_THAN;
 }
 
 DirectoryWatcher::~DirectoryWatcher() {
@@ -57,7 +46,7 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
             // Refresh recency so an actively browsed path is never the
             // eviction victim (recovery-degraded-browsing 5.1).
             auto it = std::find_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
-                return SamePathCaseInsensitive(watchedPath, path);
+                return ffprotocol::WindowsPathEqual(watchedPath, path);
             });
             if (it != accessOrder_.end()) {
                 accessOrder_.erase(it);
@@ -72,7 +61,7 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
             toStop.push_back(std::move(existing->second));
             watches_.erase(existing);
             accessOrder_.erase(std::remove_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
-                return SamePathCaseInsensitive(watchedPath, path);
+                return ffprotocol::WindowsPathEqual(watchedPath, path);
             }), accessOrder_.end());
         }
 
@@ -329,7 +318,7 @@ void DirectoryWatcher::Unwatch(const std::wstring& path) {
         entry = std::move(it->second);
         watches_.erase(it);
         accessOrder_.erase(std::remove_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
-            return SamePathCaseInsensitive(watchedPath, path);
+            return ffprotocol::WindowsPathEqual(watchedPath, path);
         }), accessOrder_.end());
     }
     StopEntry(*entry);

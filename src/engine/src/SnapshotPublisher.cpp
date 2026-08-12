@@ -80,16 +80,36 @@ void SnapshotPublisher::Stop() {
 uint64_t SnapshotPublisher::Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
                                     PublishTimings* timings) {
     using Clock = std::chrono::steady_clock;
+    const auto serializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    std::vector<uint8_t> serialized = ffprotocol::SerializeSnapshot(directories);
+    const double serializationMs = timings != nullptr
+        ? std::chrono::duration<double, std::milli>(Clock::now() - serializationStart).count()
+        : 0.0;
+    return PublishSerialized(std::move(serialized), timings, serializationMs);
+}
+
+uint64_t SnapshotPublisher::Publish(const ffprotocol::CaseInsensitiveSnapshotMap& directories,
+                                    PublishTimings* timings) {
+    using Clock = std::chrono::steady_clock;
+    const auto serializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    std::vector<uint8_t> serialized = ffprotocol::SerializeSnapshot(directories);
+    const double serializationMs = timings != nullptr
+        ? std::chrono::duration<double, std::milli>(Clock::now() - serializationStart).count()
+        : 0.0;
+    return PublishSerialized(std::move(serialized), timings, serializationMs);
+}
+
+uint64_t SnapshotPublisher::PublishSerialized(std::vector<uint8_t> serialized,
+                                               PublishTimings* timings,
+                                               double serializationMs) {
+    using Clock = std::chrono::steady_clock;
     std::lock_guard<std::mutex> lock(publishMutex_);
     if (view_ == nullptr) {
         return 0;
     }
 
-    const auto serializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-    std::vector<uint8_t> serialized = ffprotocol::SerializeSnapshot(directories);
     if (timings != nullptr) {
-        timings->serializationMs =
-            std::chrono::duration<double, std::milli>(Clock::now() - serializationStart).count();
+        timings->serializationMs = serializationMs;
         timings->serializedBytes = serialized.size();
     }
     if (serialized.size() > ffprotocol::kSnapshotSlotCapacityBytes) {

@@ -125,7 +125,7 @@ private:
     SnapshotPublisher snapshot_;
 
     std::mutex directoriesMutex_;
-    std::map<std::wstring, ffprotocol::SnapshotDirectory> directories_;
+    ffprotocol::CaseInsensitiveSnapshotMap directories_;
 
     std::mutex clientsMutex_;
     std::vector<ClientConnectionPtr> subscribedClients_;

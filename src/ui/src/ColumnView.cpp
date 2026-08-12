@@ -6,6 +6,7 @@
 #include "UiStyle.h"
 #include "IconCache.h"
 #include "ffui/SelectionIdentity.h"
+#include "ffui/SnapshotPathLookup.h"
 #include "ffprotocol/Diagnostics.h"
 
 #include <algorithm>
@@ -555,8 +556,8 @@ std::wstring ColumnView::RootPath() const {
 void ColumnView::RefreshColumnFromSnapshot(Column& column,
                                            const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
                                            uint64_t generation) {
-    auto it = snapshot.find(column.path);
-    if (it == snapshot.end()) {
+    const auto* directory = FindSnapshotDirectory(snapshot, column.path);
+    if (directory == nullptr) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                       ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_PATH_MISS,
                                       column.path, {}, L"ui-snapshot-path-miss", ERROR_FILE_NOT_FOUND, 0});
@@ -565,21 +566,20 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
         }
         return; // an initial request may not have reached the published view yet
     }
-    const auto& directory = it->second;
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                   ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_COLUMN_REFRESH,
                                   column.path, {}, L"ui-snapshot-column-refresh",
-                                  0, static_cast<uint64_t>(directory.entries.size())});
+                                  0, static_cast<uint64_t>(directory->entries.size())});
 
-    if (directory.status == ffprotocol::DirectoryEnumerationStatus::AccessDenied) {
+    if (directory->status == ffprotocol::DirectoryEnumerationStatus::AccessDenied) {
         ApplyColumnFailure(column, SnapshotFailureReason::AccessDenied, generation);
         return;
     }
-    if (directory.status == ffprotocol::DirectoryEnumerationStatus::NotFound) {
+    if (directory->status == ffprotocol::DirectoryEnumerationStatus::NotFound) {
         ApplyColumnFailure(column, SnapshotFailureReason::NoLongerAvailable, generation);
         return;
     }
-    if (directory.status == ffprotocol::DirectoryEnumerationStatus::IoError) {
+    if (directory->status == ffprotocol::DirectoryEnumerationStatus::IoError) {
         ApplyColumnFailure(column, SnapshotFailureReason::EnumerationFailed, generation);
         return;
     }
@@ -598,8 +598,8 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
     const std::wstring pendingPath = pendingSelectionPath_;
     bool pendingApplied = false;
     column.items.clear();
-    column.items.reserve(directory.entries.size());
-    for (const auto& entry : directory.entries) {
+    column.items.reserve(directory->entries.size());
+    for (const auto& entry : directory->entries) {
         column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes, entry.attributes,
                                 static_cast<uint64_t>(entry.fileIdLow), static_cast<uint64_t>(entry.fileIdHigh),
                                 entry.volumeRowId});
@@ -685,12 +685,12 @@ void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::Director
                           : SnapshotFailureReason::NoLongerAvailable));
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (auto& column : columns_) {
-        if (column.path == path) {
+        if (ffprotocol::WindowsPathEqual(column.path, path)) {
             ApplyColumnFailure(column, failure);
         }
     }
     for (auto& column : columns2_) {
-        if (column.path == path) {
+        if (ffprotocol::WindowsPathEqual(column.path, path)) {
             ApplyColumnFailure(column, failure);
         }
     }
@@ -720,10 +720,10 @@ void ColumnView::MarkSnapshotLoadFailed(uint64_t generation) {
 void ColumnView::MarkPathLoading(const std::wstring& path) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (auto& column : columns_) {
-        if (column.path == path) column.freshness.BeginRequest();
+        if (ffprotocol::WindowsPathEqual(column.path, path)) column.freshness.BeginRequest();
     }
     for (auto& column : columns2_) {
-        if (column.path == path) column.freshness.BeginRequest();
+        if (ffprotocol::WindowsPathEqual(column.path, path)) column.freshness.BeginRequest();
     }
 }
 

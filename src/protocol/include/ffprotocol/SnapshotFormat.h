@@ -6,6 +6,8 @@
 #include <string>
 #include <vector>
 
+#include "WindowsPath.h"
+
 namespace ffprotocol {
 
 // Layout of the shared memory-mapped snapshot section FastFilesEngine
@@ -81,12 +83,16 @@ struct SnapshotDirectory {
     uint64_t parentIdHigh = 0;
 };
 
+using CaseInsensitiveSnapshotMap =
+    std::map<std::wstring, SnapshotDirectory, CaseInsensitivePathLess>;
+
 // Serializes the given view of directories in path-sorted order (the
 // caller passes a std::map, which is already ordered) into the flat
 // format: [u32 directoryCount] { [len-prefixed path][u32 status][u32
 // entryCount] { [u8 isDirectory][u64 size][u32 attributes]
 // [len-prefixed name] } }.
 std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories);
+std::vector<uint8_t> SerializeSnapshot(const CaseInsensitiveSnapshotMap& directories);
 
 // Parses a buffer produced by SerializeSnapshot. Returns std::nullopt on
 // any malformed input (truncated buffer, declared length exceeding what

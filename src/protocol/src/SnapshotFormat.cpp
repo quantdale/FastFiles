@@ -82,7 +82,8 @@ private:
 
 } // namespace
 
-std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories) {
+template <typename DirectoryMap>
+std::vector<uint8_t> SerializeSnapshotImpl(const DirectoryMap& directories) {
     std::vector<uint8_t> buffer;
     AppendU32(buffer, static_cast<uint32_t>(directories.size()));
 
@@ -110,6 +111,14 @@ std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDire
         }
     }
     return buffer;
+}
+
+std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories) {
+    return SerializeSnapshotImpl(directories);
+}
+
+std::vector<uint8_t> SerializeSnapshot(const CaseInsensitiveSnapshotMap& directories) {
+    return SerializeSnapshotImpl(directories);
 }
 
 std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uint8_t* data, size_t size) {

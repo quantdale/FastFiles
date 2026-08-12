@@ -42,11 +42,16 @@ public:
     // exceeds the bounded 256 MiB slot capacity).
     uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
                      PublishTimings* timings = nullptr);
+    uint64_t Publish(const ffprotocol::CaseInsensitiveSnapshotMap& directories,
+                     PublishTimings* timings = nullptr);
 
     const std::wstring& SectionName() const noexcept { return sectionName_; }
     uint64_t CurrentGeneration() const noexcept { return generation_.load(); }
 
 private:
+    uint64_t PublishSerialized(std::vector<uint8_t> serialized, PublishTimings* timings,
+                               double serializationMs);
+
     HANDLE mapping_ = nullptr;
     uint8_t* view_ = nullptr;
     std::wstring sectionName_;

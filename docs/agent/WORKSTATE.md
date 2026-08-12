@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-12T23:44:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — LIFECYCLE FRONTIER REVIEWED; NO NEW PRODUCT DEFECT; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 6 CASE-INSENSITIVE SNAPSHOT IDENTITY VALIDATED; LIFECYCLE RACE NEXT; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -108,15 +108,19 @@ product cleanup defect was established. The first probe had a path-normalization
 harness bug (`Win32_Process.ExecutablePath` used a `\\?\\` prefix); the exact
 diagnostic Engine it left was immediately terminated after path validation.
 
-The navigation/filesystem audit has now established one directly related defect:
-Windows path identity is case-insensitive, but the Engine's published directory
-map and UI snapshot lookups are case-sensitive. If a directory is first watched
-as `C:\\Fixture` and later browsed as `c:\\fixture`, the watcher retains the first
-spelling and refreshes that map key while the active column looks up the second
-spelling. The active column can therefore retain stale rows after a live file
-change. Add a focused regression for duplicate snapshot keys and case-variant
-lookup, then implement the shared path-identity seam. Do not broaden this into a
-general navigation rewrite.
+Slice 6 implementation is complete in the working tree and ready to commit:
+Windows path identity is now shared through `ffprotocol::WindowsPathEqual` and
+`CaseInsensitivePathLess`. Engine snapshot ownership uses a case-insensitive
+ordered map and a matching `SnapshotPublisher` overload without copying the
+large map; the watcher reuses the same comparator. UI column refresh, directory
+errors, loading markers, and snapshot subtree aggregation use exact lookup with
+an ordinal-insensitive fallback. The first stored path spelling remains the
+display key. Focused publisher, aggregate, watcher, protocol, and fuzz tests
+pass. Commit this slice, then investigate the newly reproducible intermittent
+UI-server lifecycle crash separately. Exact next action after commit: run the
+existing lifecycle test repeatedly under the CLI, confirm whether detached
+`UiServer::HandleConnection` threads outlive `UiServer::Stop`, and fix only that
+proven ownership/shutdown race.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -140,7 +144,7 @@ general navigation rewrite.
   cleanup defect was established. No source/product commit is needed for this
   frontier.
 
-## Overnight slice 6 — case-insensitive snapshot path identity investigation
+## Overnight slice 6 — case-insensitive snapshot path identity implementation
 
 - Severity: MEDIUM UI correctness/live-refresh risk in degraded browsing, with
   a direct connection to the committed case-insensitive watcher-key fix.
@@ -151,17 +155,21 @@ general navigation rewrite.
   lookup/equality. `DirectoryWatcher` now deliberately coalesces case variants
   into one watch, so the old duplicate-watch behavior can no longer mask this
   mismatch.
-- Reproducer shape: request a disposable directory once with its normal casing,
-  request the same directory with ASCII casing changed, then create a file. The
-  watcher refreshes the first path key; the active second-spelling column does
-  not consume that generation. A pure snapshot aggregate case-variant test and
-  a real `UiServer` published-map duplicate test will make the failure
-  deterministic before the fix.
-- Planned fix: give Engine snapshot ownership a case-insensitive ordered path
-  key, provide the matching publisher overload without copying the large map,
-  and use the same ordinal-insensitive lookup/equality in UI snapshot consumers.
-  Preserve the first stored path spelling for display and do not alter file
-  identity semantics.
+- Reproducer shape was reduced to deterministic ownership tests: two path keys
+  differing only by ASCII case now coalesce in `CaseInsensitiveSnapshotMap`, and
+  a subtree whose child key uses different casing remains a complete aggregate.
+  The source path proves the live-watch variant: `DirectoryWatcher` coalesces
+  the watch while `UiServer` previously stored the callback's first spelling.
+- Fix: add `src/protocol/include/ffprotocol/WindowsPath.h`, use the shared
+  comparator for `UiServer::directories_` and `DirectoryWatcher`, add the
+  publisher serialization overload, and add `ffui::FindSnapshotDirectory` for
+  UI exact-then-case-insensitive lookup. `ColumnView` error/loading matching
+  and `SnapshotAggregate` cycle guards use the same identity rule.
+- Regression coverage: `ffengine_snapshot_publisher_tests` verifies map
+  coalescing and the custom publisher overload; `ffsnapshot_aggregate_tests`
+  verifies a case-variant child; `ffengine_directory_watcher_tests`,
+  `ffprotocol_tests`, and `ffprotocol_fuzz_tests` remain green. Focused result:
+  5/5. No selection volume/FRN identity semantics changed.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 

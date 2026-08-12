@@ -7,6 +7,7 @@
 #include <string>
 
 #include "ffprotocol/SnapshotFormat.h"
+#include "ffui/SnapshotPathLookup.h"
 
 namespace ffui {
 
@@ -40,18 +41,19 @@ inline bool AddSnapshotCount(uint64_t& destination, uint64_t value) {
 
 inline SnapshotAggregate AggregateSnapshotDirectory(
     const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
-    const std::wstring& path, std::set<std::wstring>& activePaths) {
+    const std::wstring& path,
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess>& activePaths) {
     if (!activePaths.insert(path).second) {
         return {0, 0, false};
     }
 
-    const auto found = snapshot.find(path);
-    if (found == snapshot.end() || found->second.status != ffprotocol::DirectoryEnumerationStatus::Success) {
+    const auto* found = FindSnapshotDirectory(snapshot, path);
+    if (found == nullptr || found->status != ffprotocol::DirectoryEnumerationStatus::Success) {
         return {0, 0, false};
     }
 
     SnapshotAggregate result{0, 0, true};
-    for (const auto& entry : found->second.entries) {
+    for (const auto& entry : found->entries) {
         if (!AddSnapshotCount(result.itemCount, 1)) result.complete = false;
         if (!entry.isDirectory) {
             if (!AddSnapshotCount(result.totalSizeBytes, entry.sizeBytes)) result.complete = false;
@@ -74,7 +76,7 @@ inline SnapshotAggregate AggregateSnapshotDirectory(
 inline SnapshotAggregate AggregateSnapshotDirectory(
     const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
     const std::wstring& path) {
-    std::set<std::wstring> activePaths;
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> activePaths;
     return detail::AggregateSnapshotDirectory(snapshot, path, activePaths);
 }
 

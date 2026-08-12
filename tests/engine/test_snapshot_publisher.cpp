@@ -209,10 +209,27 @@ void TestPublisherUnderThreadContention() {
     publisher.Stop();
 }
 
+void TestCaseVariantSnapshotKeysCoalesce() {
+    ffprotocol::CaseInsensitiveSnapshotMap snapshot;
+    snapshot.emplace(L"C:\\Fixture", MakeDirectory(L"first.txt", 11));
+    snapshot.emplace(L"c:\\fixture", MakeDirectory(L"second.txt", 22));
+    Check(snapshot.size() == 1 && snapshot.begin()->second.entries.front().name == L"first.txt",
+          "case-variant snapshot keys preserve one Windows directory and first spelling");
+
+    ffengine::SnapshotPublisher publisher;
+    Check(publisher.Start(GetCurrentProcessId() + 4),
+          "case-insensitive snapshot publisher starts");
+    if (publisher.SectionName().empty()) return;
+    Check(publisher.Publish(snapshot) == 1,
+          "case-insensitive snapshot map uses the publisher overload");
+    publisher.Stop();
+}
+
 } // namespace
 
 int main() {
     TestPublisherUsesPerSlotDescriptors();
     TestPublisherUnderThreadContention();
+    TestCaseVariantSnapshotKeysCoalesce();
     return FailureCount() == 0 ? 0 : 1;
 }

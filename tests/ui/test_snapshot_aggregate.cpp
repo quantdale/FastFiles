@@ -53,6 +53,16 @@ void TestMissingDescendantIsPartial() {
           "partial aggregate retains known file bytes as a lower bound");
 }
 
+void TestCaseVariantDescendantIsTheSameWindowsDirectory() {
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot;
+    snapshot[L"C:\\"] = Success({Folder(L"Fixture")});
+    snapshot[L"c:\\fixture"] = Success({File(L"live.txt", 19)});
+
+    const auto result = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\");
+    Check(result.complete && result.itemCount == 2 && result.totalSizeBytes == 19,
+          "snapshot aggregation resolves case-variant Windows directory keys");
+}
+
 void TestUnavailableRoot() {
     std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot;
     snapshot[L"C:\\"].status = ffprotocol::DirectoryEnumerationStatus::AccessDenied;
@@ -66,6 +76,7 @@ void TestUnavailableRoot() {
 int main() {
     TestCompleteKnownSubtree();
     TestMissingDescendantIsPartial();
+    TestCaseVariantDescendantIsTheSameWindowsDirectory();
     TestUnavailableRoot();
     return FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
