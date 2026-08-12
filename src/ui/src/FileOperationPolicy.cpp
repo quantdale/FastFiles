@@ -2,7 +2,10 @@
 
 #include <cwctype>
 #include <filesystem>
+#include <set>
 #include <unordered_set>
+
+#include "ffprotocol/WindowsPath.h"
 
 namespace ffui {
 
@@ -18,7 +21,7 @@ std::wstring Join(const std::wstring& folder, const std::wstring& name) {
 }
 
 std::wstring DestinationKey(const std::wstring& path) {
-    return Upper(std::filesystem::path(path).lexically_normal().wstring());
+    return std::filesystem::path(path).lexically_normal().wstring();
 }
 
 } // namespace
@@ -63,7 +66,7 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
     const std::vector<std::wstring>& sources, const std::wstring& destinationFolder,
     const PathExists& exists, const ConflictPrompt& prompt) {
     std::vector<TransferPlanItem> result;
-    std::unordered_set<std::wstring> plannedDestinations;
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> plannedDestinations;
     const auto isOccupied = [&](const std::wstring& path) {
         return plannedDestinations.contains(DestinationKey(path)) || exists(path);
     };

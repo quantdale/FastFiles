@@ -86,6 +86,20 @@ int main() {
               !(*duplicateReplace)[1].replacesExisting && duplicateReplacePrompts == 1,
           "Replace cannot overwrite an earlier item in the same transfer batch");
 
+    int unicodeCasePrompts = 0;
+    const auto unicodeCaseNames = BuildTransferPlan(
+        {L"C:\\source-a\\é.txt", L"C:\\source-b\\É.txt"}, L"D:\\target",
+        [](const std::wstring&) { return false; },
+        [&](const std::wstring&, const std::wstring&) {
+            ++unicodeCasePrompts;
+            return ConflictDecision{ConflictChoice::KeepBoth, false};
+        });
+    Check(unicodeCaseNames && unicodeCaseNames->size() == 2 &&
+              (*unicodeCaseNames)[0].destinationName.empty() &&
+              (*unicodeCaseNames)[1].destinationName == L"É (2).txt" &&
+              unicodeCasePrompts == 1,
+          "Unicode case-variant source names were assigned distinct destinations");
+
     OperationHistory history;
     history.PushRename(L"C:\\old.txt", L"C:\\new.txt");
     history.PushMove({{L"C:\\one.txt", L"D:\\one.txt"}});

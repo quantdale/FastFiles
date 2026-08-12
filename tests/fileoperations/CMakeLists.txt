@@ -4,7 +4,7 @@ add_executable(fffileoperations_tests
   ../../src/ui/src/ConflictDialog.cpp
   ../../src/ui/src/OleDragDrop.cpp
 )
-target_include_directories(fffileoperations_tests PRIVATE ../../src/ui/src)
+target_include_directories(fffileoperations_tests PRIVATE ../../src/ui/src ../../src/protocol/include)
 target_link_libraries(fffileoperations_tests PRIVATE shell32 ole32)
 add_test(NAME fffileoperations_tests COMMAND fffileoperations_tests)
 
@@ -13,7 +13,7 @@ add_executable(fffileoperations_e2e_tests
   ../../src/ui/src/FileOperations.cpp
   ../../src/ui/src/FileOperationPolicy.cpp
 )
-target_include_directories(fffileoperations_e2e_tests PRIVATE ../../src/ui/src)
+target_include_directories(fffileoperations_e2e_tests PRIVATE ../../src/ui/src ../../src/protocol/include)
 target_link_libraries(fffileoperations_e2e_tests PRIVATE shell32 ole32 advapi32)
 add_test(NAME fffileoperations_e2e_tests COMMAND fffileoperations_e2e_tests)
 
