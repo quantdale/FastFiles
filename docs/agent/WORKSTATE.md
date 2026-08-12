@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:35:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:46:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 4 WORKSPACE PERSISTENCE ATOMICITY IN PROGRESS; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -96,12 +96,12 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
-insensitive`). Begin exactly one new Priority A/D persistence frontier: establish
-whether workspace-state persistence can leave a corrupt/truncated file and
-whether an atomic replacement is locally safe under the existing contract.
-Do not reopen completed transfer-planner, Details, or watcher slices without new
-evidence. Run the final full validation only after the remaining local
-hardening slices are complete.
+insensitive`). Slice 4 is now the single Priority A/D persistence frontier:
+replace direct workspace-state truncation with the existing atomic-save pattern,
+then validate successful replacement and failure cleanup. Do not reopen
+completed transfer-planner, Details, watcher, or version-validation slices
+without new evidence. Run the final full validation only after the remaining
+local hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -198,6 +198,22 @@ hardening slices are complete.
   callback-only delivery; the existing watcher publish/restart, LRU eviction,
   injected overflow, give-up, navigation, and Details aggregate tests passed
   3/3; the Analyze watcher target built cleanly. Product commit: `e5352d1`.
+
+## Overnight slice 4 — workspace-state persistence atomicity investigation
+
+- Priority: HIGH persistence/recovery correctness. `NavigationWorkspace::SaveState`
+  currently opens `workspace-state.json` with `std::ios::trunc` and streams the
+  replacement directly into the live file. A process termination, power loss,
+  or write error after truncation can therefore leave the only recoverable
+  workspace state incomplete. This is a source-proven failure window; direct
+  crash injection is intentionally not claimed.
+- Existing repository precedent: `ShortcutMap::Save` already writes a sibling
+  `.tmp` file and uses `MoveFileExW` with `MOVEFILE_REPLACE_EXISTING |
+  MOVEFILE_WRITE_THROUGH`, preserving the old target until the replacement is
+  ready. The workspace persistence path should use the same bounded policy.
+- A prior test already proves normal save/load and corrupt-file fallback. The
+  next step is to add deterministic success/temporary-artifact checks, implement
+  the atomic replacement, and verify the navigation target in Debug and Analyze.
 
 ## Session continuation reconciliation (2026-08-12)
 
