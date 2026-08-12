@@ -88,6 +88,7 @@ private:
         wchar_t driveLetter = L'\0';
         uint64_t journalId = 0;
         bool journalIdKnown = false;
+        bool journalOpenRequested = false;
         // close-independent-validation-gaps 4.6: an initial or
         // reconciliation scan keeps the durable projection current in
         // batches, but defers the expensive complete snapshot export until
@@ -123,6 +124,9 @@ private:
 
     void ReconciliationSchedulerLoop();
     void RefreshProjectionScanState();
+    void SendSessionTeardown(ffprotocol::VolumeId ephemeralId, const VolumeSession& session);
+    bool RequestJournalOpen(ffprotocol::VolumeId ephemeralId, uint64_t resumeUsn,
+                            ffindexstore::VolumeRowId expectedDurableId);
 
     IndexPipeline& pipeline_;
     PrivilegedConnection& connection_;
@@ -130,6 +134,7 @@ private:
     VolumeUnavailableCallback onVolumeUnavailable_;
 
     std::mutex mutex_;
+    std::mutex requestMutex_;
     std::map<uint32_t, VolumeSession> sessionsByEphemeralId_; // keyed by ffprotocol::VolumeId::value
     std::vector<ffprotocol::VolumeSetting> configuredVolumes_;
     // close-independent-validation-gaps 4.6: serializing the full directory

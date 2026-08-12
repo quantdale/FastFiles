@@ -61,6 +61,20 @@ VolumeSessionManager::~VolumeSessionManager() {
     Stop();
 }
 
+void VolumeSessionManager::SendSessionTeardown(ffprotocol::VolumeId ephemeralId,
+                                                const VolumeSession& session) {
+    std::lock_guard<std::mutex> requestLock(requestMutex_);
+    if (!active_.load()) {
+        return;
+    }
+    const ffprotocol::StopVolumeScanRequest stop{ephemeralId};
+    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan), &stop, sizeof(stop));
+    if (session.journalOpenRequested) {
+        const ffprotocol::CloseUsnJournalRequest close{ephemeralId};
+        connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::CloseUsnJournal), &close, sizeof(close));
+    }
+}
+
 void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSetting> volumes) {
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toStop;
     {
@@ -91,12 +105,7 @@ void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSet
         }
     }
     for (const auto& [ephemeralId, session] : toStop) {
-        if (active_.load()) {
-            const ffprotocol::StopVolumeScanRequest stop{ephemeralId};
-            connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan), &stop, sizeof(stop));
-            const ffprotocol::CloseUsnJournalRequest close{ephemeralId};
-            connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::CloseUsnJournal), &close, sizeof(close));
-        }
+        SendSessionTeardown(ephemeralId, session);
         // The unavailable callback's contract is "withdraw this drive's
         // published directories" -- which is exactly what disabling needs.
         if (onVolumeUnavailable_) {
@@ -199,6 +208,23 @@ void VolumeSessionManager::Stop() {
     if (reconciliationThread_.joinable()) {
         reconciliationThread_.join();
     }
+
+    std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> sessions;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sessions.reserve(sessionsByEphemeralId_.size());
+        for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
+            sessions.emplace_back(ffprotocol::VolumeId{ephemeralValue}, session);
+        }
+    }
+    for (const auto& [ephemeralId, session] : sessions) {
+        SendSessionTeardown(ephemeralId, session);
+    }
+    active_ = false;
+    // The manager owns the callback registrations and must stop the source
+    // before its destructor returns; otherwise the connection's reader could
+    // dispatch into this object after the manager has been destroyed.
+    connection_.Stop();
 }
 
 void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
@@ -224,7 +250,7 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
 
 void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes) {
     std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> toStart;
-    std::vector<VolumeSession> unavailable;
+    std::vector<std::pair<ffprotocol::VolumeId, VolumeSession>> unavailable;
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -278,7 +304,7 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
         for (auto it = sessionsByEphemeralId_.begin(); it != sessionsByEphemeralId_.end();) {
             if (std::find(seenEphemeral.begin(), seenEphemeral.end(), it->first) == seenEphemeral.end()) {
                 pipeline_.SetVolumeAvailable(it->second.durableId, false, NowAsFileTime());
-                unavailable.push_back(it->second);
+                unavailable.emplace_back(ffprotocol::VolumeId{it->first}, it->second);
                 it = sessionsByEphemeralId_.erase(it);
             } else {
                 ++it;
@@ -291,7 +317,8 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
     for (const auto& [ephemeralId, session] : toStart) {
         StartOrResumeVolume(ephemeralId, session);
     }
-    for (const auto& session : unavailable) {
+    for (const auto& [ephemeralId, session] : unavailable) {
+        SendSessionTeardown(ephemeralId, session);
         if (onVolumeUnavailable_) {
             onVolumeUnavailable_(session.durableId, session.driveLetter);
         }
@@ -335,8 +362,40 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     // position -- OnJournalOpened reconciles the JournalId mismatch case
     // once the service's ack reports the volume's *current* journal
     // identity, since that isn't known until the service replies.
-    ffprotocol::OpenUsnJournalRequest request{ephemeralId, meta ? meta->resumeUsn : 0};
-    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal), &request, sizeof(request));
+    RequestJournalOpen(ephemeralId, meta ? meta->resumeUsn : 0, session.durableId);
+}
+
+bool VolumeSessionManager::RequestJournalOpen(ffprotocol::VolumeId ephemeralId, uint64_t resumeUsn,
+                                              ffindexstore::VolumeRowId expectedDurableId) {
+    if (!running_.load()) {
+        return false;
+    }
+    std::lock_guard<std::mutex> requestLock(requestMutex_);
+    if (!running_.load()) {
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(ephemeralId.value);
+        if (it == sessionsByEphemeralId_.end() ||
+            (expectedDurableId != 0 && it->second.durableId != expectedDurableId)) {
+            return false;
+        }
+        it->second.journalOpenRequested = true;
+    }
+
+    const ffprotocol::OpenUsnJournalRequest request{ephemeralId, resumeUsn};
+    if (connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal), &request, sizeof(request))) {
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = sessionsByEphemeralId_.find(ephemeralId.value);
+    if (it != sessionsByEphemeralId_.end() &&
+        (expectedDurableId == 0 || it->second.durableId == expectedDurableId)) {
+        it->second.journalOpenRequested = false;
+    }
+    return false;
 }
 
 void VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId) {
@@ -422,6 +481,7 @@ void VolumeSessionManager::OnJournalOpened(ffprotocol::VolumeId volumeId, uint64
         }
         it->second.journalId = journalId;
         it->second.journalIdKnown = true;
+        it->second.journalOpenRequested = true;
         durableId = it->second.durableId;
     }
 
@@ -495,8 +555,7 @@ void VolumeSessionManager::OnJournalResumeInvalid(ffprotocol::VolumeId volumeId)
         pipeline_.SetJournalPosition(durableId, journalId, 0);
     }
     TriggerReconciliation(volumeId, durableId);
-    ffprotocol::OpenUsnJournalRequest request{volumeId, 0};
-    connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal), &request, sizeof(request));
+    RequestJournalOpen(volumeId, 0, durableId);
 }
 
 void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force) {

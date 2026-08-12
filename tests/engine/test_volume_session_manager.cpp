@@ -1,7 +1,10 @@
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <windows.h>
 
+#include "ffipc/PipeFraming.h"
 #include "IndexPipeline.h"
 #include "../TestSupport.h"
 
@@ -13,6 +16,46 @@ using namespace fftest;
 #undef private
 
 namespace {
+
+struct PipeCapture {
+    HANDLE server = INVALID_HANDLE_VALUE;
+    HANDLE client = INVALID_HANDLE_VALUE;
+
+    ~PipeCapture() {
+        if (client != INVALID_HANDLE_VALUE) CloseHandle(client);
+        if (server != INVALID_HANDLE_VALUE) CloseHandle(server);
+    }
+};
+
+std::unique_ptr<PipeCapture> CreatePipeCapture() {
+    const std::wstring name = L"\\\\.\\pipe\\FastFilesVolumeSessionTest-" +
+                              std::to_wstring(GetCurrentProcessId()) + L"-" +
+                              std::to_wstring(GetTickCount64());
+    auto capture = std::make_unique<PipeCapture>();
+    capture->server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_OUTBOUND,
+                                       PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                                       1, 4096, 4096, 0, nullptr);
+    if (capture->server == INVALID_HANDLE_VALUE) return nullptr;
+    capture->client = CreateFileW(name.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (capture->client == INVALID_HANDLE_VALUE) return nullptr;
+    if (ConnectNamedPipe(capture->server, nullptr) == FALSE && GetLastError() != ERROR_PIPE_CONNECTED) {
+        return nullptr;
+    }
+    return capture;
+}
+
+std::optional<uint16_t> ReadCapturedMessage(HANDLE client) {
+    const auto frame = ffipc::ReadFrame(client);
+    if (!frame) return std::nullopt;
+    return frame->header.messageType;
+}
+
+bool HasCapturedBytes(HANDLE client) {
+    DWORD available = 0;
+    const bool peeked = PeekNamedPipe(client, nullptr, 0, nullptr, &available, nullptr) != FALSE;
+    return peeked && available != 0;
+}
+
 void AddSession(ffengine::VolumeSessionManager& manager, ffindexstore::VolumeRowId volumeId) {
     manager.sessionsByEphemeralId_.emplace(7, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
 }
@@ -78,7 +121,13 @@ void TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume() {
 
     ffengine::PrivilegedConnection connection;
     ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "volume disappearance creates a capture pipe");
+    if (!capture) return;
+    connection.activePipe_ = capture->server;
     AddSession(manager, volumeId);
+    manager.active_ = true;
+    manager.sessionsByEphemeralId_.at(7).journalOpenRequested = true;
     ffindexstore::VolumeRowId callbackVolume = 0;
     wchar_t callbackDrive = L'\0';
     manager.SetVolumeUnavailableCallback([&](ffindexstore::VolumeRowId id, wchar_t driveLetter) {
@@ -93,6 +142,12 @@ void TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume() {
     Check(metadata && !metadata->available, "a disappeared volume is retained but marked unavailable");
     Check(callbackVolume == volumeId && callbackDrive == L'C',
           "a disappeared volume requests withdrawal of its published drive snapshot");
+    const auto stopMessage = ReadCapturedMessage(capture->client);
+    const auto closeMessage = ReadCapturedMessage(capture->client);
+    Check(stopMessage == static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan),
+          "a disappeared volume explicitly stops its service scan");
+    Check(closeMessage == static_cast<uint16_t>(ffprotocol::MessageType::CloseUsnJournal),
+          "a disappeared volume explicitly closes its open journal");
 }
 
 void TestCollectVolumeStatusReportsReachableScannedVolumes() {
@@ -197,7 +252,12 @@ void TestDisableTearsDownSessionLive() {
 
     ffengine::PrivilegedConnection connection;
     ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "disable teardown creates a capture pipe");
+    if (!capture) return;
+    connection.activePipe_ = capture->server;
     AddSession(manager, volumeId);
+    manager.active_ = true;
     ffindexstore::VolumeRowId callbackVolume = 0;
     wchar_t callbackDrive = L'\0';
     manager.SetVolumeUnavailableCallback([&](ffindexstore::VolumeRowId id, wchar_t driveLetter) {
@@ -214,6 +274,12 @@ void TestDisableTearsDownSessionLive() {
           "settings-and-appearance 9.2: a disabled volume's session is torn down immediately, no restart");
     Check(callbackVolume == volumeId && callbackDrive == L'C',
           "disabling withdraws the drive's published directories");
+    Check(ReadCapturedMessage(capture->client) == static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan),
+          "disabling a session explicitly stops its service scan");
+    Check(ReadCapturedMessage(capture->client) == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "disabling a session refreshes the service volume list");
+    Check(!HasCapturedBytes(capture->client),
+          "disabling a session without a journal acknowledgement does not send an invalid CloseUsnJournal");
 
     ffprotocol::VolumeSetting enabled;
     enabled.key = L"C:";
@@ -225,6 +291,33 @@ void TestDisableTearsDownSessionLive() {
     connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
     Check(manager.sessionsByEphemeralId_.size() == 1,
           "the re-enumeration poll restarts the re-enabled volume's session");
+}
+
+void TestStopClosesOwnedJournalBeforeConnectionShutdown() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_journal_shutdown.db")),
+          "pipeline opens for journal-shutdown test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 82;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "journal shutdown creates a capture pipe");
+    if (!capture) return;
+    connection.activePipe_ = capture->server;
+    {
+        ffengine::VolumeSessionManager manager(pipeline, connection);
+        AddSession(manager, volumeId);
+        manager.sessionsByEphemeralId_.at(7).journalOpenRequested = true;
+        manager.active_ = true;
+        manager.Start();
+        manager.Stop();
+    }
+    Check(ReadCapturedMessage(capture->client) == static_cast<uint16_t>(ffprotocol::MessageType::StopVolumeScan),
+          "manager shutdown stops each owned service scan before connection teardown");
+    Check(ReadCapturedMessage(capture->client) == static_cast<uint16_t>(ffprotocol::MessageType::CloseUsnJournal),
+          "manager shutdown closes each acknowledged journal before connection teardown");
 }
 
 void TestPauseShownInStatusAndDropsBatchesWithoutAdvancing() {
@@ -383,6 +476,7 @@ int main() {
     TestCollectVolumeStatusReportsReachableScannedVolumes();
     TestCollectVolumeStatusSkipsDisabledAndUntracked();
     TestDisableTearsDownSessionLive();
+    TestStopClosesOwnedJournalBeforeConnectionShutdown();
     TestPauseShownInStatusAndDropsBatchesWithoutAdvancing();
     TestInitialScanBatchesDoNotRepeatWholeSnapshotExports();
     TestPendingDecisionForObservedUnselectedVolume();
