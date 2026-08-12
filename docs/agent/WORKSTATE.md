@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:45:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 12 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-13T00:12:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 13 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -162,6 +162,26 @@ NEXT EXACT ACTION: inspect the deferred explicit USN journal cleanup finding
 Only implement a cleanup fix if the current shutdown path leaves a concrete
 open journal/session resource or lacks a safe idempotent close; preserve the
 closed command protocol and fail-closed authentication.
+
+Slice 13 is committed as `30c76c1` (`Close engine-owned USN sessions on
+teardown`). The audit proved that the service-side journal worker already closes
+its raw volume handle and joins on Close/disconnect, but the engine erased
+disappeared/disabled sessions without sending their connection-scoped Stop and
+Close requests, and shutdown did not drain owned sessions before stopping the
+privileged connection. `VolumeSessionManager` now tracks whether an Open was
+actually requested, serializes Open versus teardown requests, sends Stop then
+Close only for owned journal requests, drains sessions before connection stop,
+and removes the old invalid Close-on-disable behavior. Focused lifecycle tests
+cover disappearance, disable-before-ack, and shutdown ordering; the test passed
+20 consecutive direct runs, full Debug CTest passed 49/49, and Debug/Analyze
+engine/session-manager builds passed. No service command, authentication, or
+raw-volume policy changed.
+
+NEXT EXACT ACTION: perform the bounded local error-handling audit of persistence,
+navigation, file operations, engine connection, watcher setup, and snapshot
+publication. Pick one reproducible silent-failure or data-loss risk only if its
+current behavior is concretely unsafe; otherwise record the paths as expected
+benign/recoverable and proceed to final build/verifier/OpenSpec gates.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
