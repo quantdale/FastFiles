@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:16:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:24:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 3 WATCHER CASE-INSENSITIVE KEY FIX IN PROGRESS; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -95,11 +95,11 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS COMMITTED;
 
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
-changes`). Begin exactly one new Priority B watcher/lifecycle triage frontier:
-prove or disprove case-variant duplicate directory watches before changing the
-watcher key policy. Do not reopen completed transfer-planner or Details slices
-without new evidence. Run the final full validation only after the remaining
-local hardening slices are complete.
+changes`). Slice 3 is now the single Priority B watcher/lifecycle frontier:
+fix the proven case-variant duplicate-watch key policy and rerun its focused
+regression. Do not reopen completed transfer-planner or Details slices without
+new evidence. Run the final full validation only after the remaining local
+hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -164,6 +164,23 @@ local hardening slices are complete.
   new test built cleanly. Product commit: `9b3828d` (`Refresh Details folder
   aggregates after state changes`). Full campaign gates remain deferred until
   the next bounded slices are complete.
+
+## Overnight slice 3 — watcher case-insensitive key investigation
+
+- Severity: MEDIUM reliability/resource risk in degraded browsing. Windows
+  treats directory paths case-insensitively, but `DirectoryWatcher` used raw
+  `std::wstring` keys for both its watch map and LRU deque. Two casing variants
+  could therefore open two overlapped directory handles, invoke two callbacks,
+  republish duplicate work, and consume two of the 32 watch slots.
+- Reproducer: `TestCaseVariantPathIsIdempotent` registered the same disposable
+  directory once with its normal path and once with an upper-case variant,
+  created one file, and observed both callbacks before the fix. The focused
+  `ffengine_directory_watcher_tests` failed only the new idempotence assertion;
+  all pre-existing watcher lifecycle, LRU, overflow, and give-up assertions
+  passed.
+- Next implementation: use ordinal case-insensitive path equality for map
+  lookup and every LRU/de-registration operation, while retaining the first
+  registration's callback/path for the existing idempotent contract.
 
 ## Session continuation reconciliation (2026-08-12)
 
