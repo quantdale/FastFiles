@@ -1,7 +1,13 @@
 #include "QuickActions.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
+#include <limits>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <utility>
 
 namespace ffui {
 namespace {
@@ -94,6 +100,97 @@ bool CopyPathsToClipboard(HWND owner, const std::vector<std::wstring>& paths) {
         text += path;
     }
     return !paths.empty() && CopyTextToClipboard(owner, text);
+}
+
+bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bool cut) {
+    if (paths.empty()) return false;
+    size_t characterCount = 1; // The double-null terminator.
+    for (const auto& path : paths) {
+        if (path.empty() || characterCount > std::numeric_limits<size_t>::max() / sizeof(wchar_t) ||
+            path.size() > (std::numeric_limits<size_t>::max() / sizeof(wchar_t)) - characterCount - 1) {
+            return false;
+        }
+        characterCount += path.size() + 1;
+    }
+    if (characterCount > (std::numeric_limits<size_t>::max() - sizeof(DROPFILES)) / sizeof(wchar_t)) {
+        return false;
+    }
+    const size_t bytes = sizeof(DROPFILES) + characterCount * sizeof(wchar_t);
+    if (!OpenClipboard(owner)) return false;
+    struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
+    if (!EmptyClipboard()) return false;
+    HGLOBAL memory = GlobalAlloc(GHND, bytes);
+    if (memory == nullptr) return false;
+    auto* drop = static_cast<DROPFILES*>(GlobalLock(memory));
+    if (drop == nullptr) {
+        GlobalFree(memory);
+        return false;
+    }
+    drop->pFiles = sizeof(DROPFILES);
+    drop->fWide = TRUE;
+    wchar_t* destination = reinterpret_cast<wchar_t*>(reinterpret_cast<uint8_t*>(drop) + sizeof(DROPFILES));
+    for (const auto& path : paths) {
+        std::memcpy(destination, path.c_str(), path.size() * sizeof(wchar_t));
+        destination += path.size();
+        *destination++ = L'\0';
+    }
+    *destination = L'\0';
+    GlobalUnlock(memory);
+    if (SetClipboardData(CF_HDROP, memory) == nullptr) {
+        GlobalFree(memory);
+        return false;
+    }
+
+    const UINT effectFormat = RegisterClipboardFormatW(L"Preferred DropEffect");
+    if (effectFormat != 0) {
+        HGLOBAL effectMemory = GlobalAlloc(GHND, sizeof(DWORD));
+        if (effectMemory != nullptr) {
+            auto* effect = static_cast<DWORD*>(GlobalLock(effectMemory));
+            if (effect != nullptr) {
+                *effect = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+                GlobalUnlock(effectMemory);
+                if (SetClipboardData(effectFormat, effectMemory) == nullptr) {
+                    GlobalFree(effectMemory);
+                }
+            } else {
+                GlobalFree(effectMemory);
+            }
+        }
+    }
+    return true;
+}
+
+std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
+    cut = false;
+    std::vector<std::wstring> paths;
+    if (!OpenClipboard(owner)) return paths;
+    struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
+    auto* drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
+    if (drop == nullptr) return paths;
+    const UINT count = DragQueryFileW(drop, 0xFFFFFFFFu, nullptr, 0);
+    paths.reserve(count);
+    for (UINT index = 0; index < count; ++index) {
+        const UINT length = DragQueryFileW(drop, index, nullptr, 0);
+        if (length == 0) continue;
+        std::wstring path(static_cast<size_t>(length) + 1, L'\0');
+        if (DragQueryFileW(drop, index, path.data(), length + 1) != 0) {
+            path.resize(length);
+            paths.push_back(std::move(path));
+        }
+    }
+    const UINT effectFormat = RegisterClipboardFormatW(L"Preferred DropEffect");
+    if (effectFormat != 0) {
+        if (auto* effect = static_cast<const DWORD*>(GetClipboardData(effectFormat)); effect != nullptr) {
+            cut = (*effect & DROPEFFECT_MOVE) != 0;
+        }
+    }
+    return paths;
+}
+
+bool HasFilesOnClipboard(HWND owner) {
+    if (!OpenClipboard(owner)) return false;
+    struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
+    return GetClipboardData(CF_HDROP) != nullptr;
 }
 
 std::vector<std::wstring> PathsRelativeTo(const std::vector<std::wstring>& paths,

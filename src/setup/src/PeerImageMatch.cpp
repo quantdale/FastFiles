@@ -7,6 +7,26 @@
 
 namespace ffsetup {
 
+namespace {
+
+// QueryFullProcessImageNameW and the launch path can spell the same local
+// image with or without the Win32 extended-length prefix. Normalize only
+// those namespace aliases before the exact directory/filename comparison;
+// device paths and all other namespaces remain non-equivalent.
+std::wstring NormalizePathNamespace(std::wstring path) {
+    constexpr wchar_t kExtendedUncPrefix[] = L"\\\\?\\UNC\\";
+    constexpr wchar_t kExtendedPathPrefix[] = L"\\\\?\\";
+    if (path.rfind(kExtendedUncPrefix, 0) == 0) {
+        return L"\\\\" + path.substr(std::size(kExtendedUncPrefix) - 1);
+    }
+    if (path.rfind(kExtendedPathPrefix, 0) == 0) {
+        return path.substr(std::size(kExtendedPathPrefix) - 1);
+    }
+    return path;
+}
+
+} // namespace
+
 bool IsExpectedInstalledBinary(const std::wstring& processImagePath,
                                const std::wstring& expectedInstallDir,
                                const std::wstring& expectedFileName) {
@@ -19,8 +39,8 @@ bool IsExpectedInstalledBinary(const std::wstring& processImagePath,
         return false;
     }
 
-    std::wstring fullPath(canonicalPath);
-    std::wstring dir(canonicalInstallDir);
+    std::wstring fullPath = NormalizePathNamespace(canonicalPath);
+    std::wstring dir = NormalizePathNamespace(canonicalInstallDir);
     if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) {
         dir.pop_back();
     }

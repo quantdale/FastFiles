@@ -1,7 +1,10 @@
 #include "ffindexstore/Store.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
+#include <limits>
 
 #include "sqlite3.h"
 
@@ -45,6 +48,18 @@ constexpr char kSchemaSql[] =
     "  PRIMARY KEY (volume_id, frn_low, frn_high)"
     ") WITHOUT ROWID;"
     "CREATE INDEX IF NOT EXISTS idx_entries_parent ON entries(volume_id, parent_frn_low, parent_frn_high);";
+
+uint64_t NowEpochSeconds() {
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count());
+}
+
+uint64_t DatabaseFileSize(const std::string& path) {
+    std::error_code error;
+    const uintmax_t size = std::filesystem::file_size(path, error);
+    if (error || size > std::numeric_limits<uint64_t>::max()) return 0;
+    return static_cast<uint64_t>(size);
+}
 
 // Manual, dependency-free UTF-16 <-> UTF-8 conversion (surrogate-pair
 // aware) so this library has no platform-specific text-conversion
@@ -241,6 +256,10 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
         return false;
     }
 
+    dbPathUtf8_ = dbPathUtf8;
+    lastVacuumTimeSeconds_ = NowEpochSeconds();
+    lastVacuumSizeBytes_ = DatabaseFileSize(dbPathUtf8_);
+
     return true;
 }
 
@@ -249,6 +268,9 @@ void Store::Close() {
         sqlite3_close(db_);
         db_ = nullptr;
     }
+    dbPathUtf8_.clear();
+    lastVacuumTimeSeconds_ = 0;
+    lastVacuumSizeBytes_ = 0;
 }
 
 bool Store::CheckpointPassive() {
@@ -277,6 +299,36 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     if (approxWalBytes > thresholdBytes) {
         return sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_RESTART, nullptr, nullptr) == SQLITE_OK;
     }
+    return true;
+}
+
+bool Store::Analyze() {
+    return db_ != nullptr && ExecSql(db_, "ANALYZE;");
+}
+
+bool Store::VacuumIfDue(bool userIdle, uint64_t nowEpochSeconds, uint64_t intervalHours,
+                        uint64_t sizeGrowthPercent) {
+    if (db_ == nullptr || !userIdle || dbPathUtf8_.empty()) return false;
+    constexpr uint64_t kSecondsPerHour = 60 * 60;
+    const uint64_t intervalSeconds = intervalHours > std::numeric_limits<uint64_t>::max() / kSecondsPerHour
+        ? std::numeric_limits<uint64_t>::max()
+        : intervalHours * kSecondsPerHour;
+    if (nowEpochSeconds < lastVacuumTimeSeconds_ ||
+        nowEpochSeconds - lastVacuumTimeSeconds_ < intervalSeconds) {
+        return false;
+    }
+
+    const uint64_t currentSize = DatabaseFileSize(dbPathUtf8_);
+    if (currentSize <= lastVacuumSizeBytes_) return false;
+    const uint64_t growth = currentSize - lastVacuumSizeBytes_;
+    if (sizeGrowthPercent != 0 &&
+        (lastVacuumSizeBytes_ > std::numeric_limits<uint64_t>::max() / sizeGrowthPercent ||
+         growth <= (lastVacuumSizeBytes_ * sizeGrowthPercent) / 100)) {
+        return false;
+    }
+    if (!ExecSql(db_, "VACUUM;")) return false;
+    lastVacuumTimeSeconds_ = nowEpochSeconds;
+    lastVacuumSizeBytes_ = DatabaseFileSize(dbPathUtf8_);
     return true;
 }
 
@@ -362,6 +414,14 @@ std::optional<VolumeMetadata> Store::GetVolumeMetadata(VolumeRowId volumeRowId) 
 }
 
 std::vector<VolumeMetadata> Store::GetAllVolumes() {
+    return GetAllVolumesImpl(true);
+}
+
+std::vector<VolumeMetadata> Store::GetAllVolumesWithoutEntryCounts() {
+    return GetAllVolumesImpl(false);
+}
+
+std::vector<VolumeMetadata> Store::GetAllVolumesImpl(const bool includeEntryCounts) {
     std::vector<VolumeMetadata> result;
     if (db_ == nullptr) {
         return result;
@@ -373,7 +433,9 @@ std::vector<VolumeMetadata> Store::GetAllVolumes() {
     }
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         auto meta = ReadVolumeMetadataRow(stmt);
-        meta.entryCount = CountEntries(meta.rowId);
+        if (includeEntryCounts) {
+            meta.entryCount = CountEntries(meta.rowId);
+        }
         result.push_back(std::move(meta));
     }
     return result;
@@ -555,8 +617,18 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
         }
     }
 
-    ExecSql(db_, ok ? "COMMIT;" : "ROLLBACK;");
-    return ok;
+    if (!ok) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
+    // The commit result is part of the operation's contract. Returning true
+    // after a failed COMMIT would let IndexPipeline apply changes to the
+    // in-memory projection that never became durable.
+    if (!ExecSql(db_, "COMMIT;")) {
+        ExecSql(db_, "ROLLBACK;");
+        return false;
+    }
+    return true;
 }
 
 bool Store::ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor) {

@@ -1,5 +1,13 @@
 #include "IndexPipeline.h"
 
+#include <algorithm>
+#include <chrono>
+#include <cwctype>
+#include <limits>
+
+#include "ffprotocol/Diagnostics.h"
+#include "VolumeIdentity.h"
+
 namespace ffengine {
 
 namespace {
@@ -27,6 +35,90 @@ std::wstring ToWString(std::u16string_view text) {
         result.push_back(static_cast<wchar_t>(ch));
     }
     return result;
+}
+
+std::u16string ToU16String(std::wstring_view text) {
+    std::u16string result;
+    result.reserve(text.size());
+    for (wchar_t ch : text) {
+        result.push_back(static_cast<char16_t>(ch));
+    }
+    return result;
+}
+
+std::wstring NormalizeVolumePrefix(std::wstring value) {
+    if (value.size() < 2 || value[1] != L':') {
+        return {};
+    }
+    value.resize(2);
+    value[0] = static_cast<wchar_t>(towupper(value[0]));
+    return value;
+}
+
+// Projection::ReconstructPath includes the volume-root entry's stored name.
+// The UI path model replaces that synthetic component with the mounted volume
+// prefix, so remove only the exact root component and preserve every real
+// descendant.  The walk is bounded by the projection's parent chain and is
+// defensive against a malformed/cyclic chain.
+std::wstring StripVolumeRootName(const ffindexstore::Projection& projection,
+                                 ffindexstore::VolumeRowId volumeId,
+                                 ffindexstore::FileId current,
+                                 std::wstring reconstructed) {
+    for (size_t depth = 0; depth <= projection.EntryCount(); ++depth) {
+        const auto* currentEntry = projection.Find(volumeId, current);
+        if (currentEntry == nullptr) break;
+        if (currentEntry->parentFrn == currentEntry->frn) {
+            const std::wstring rootName = ToWString(projection.Names().Get(currentEntry->nameId));
+            if (rootName.empty()) return reconstructed;
+            if (reconstructed == rootName) return {};
+            if (reconstructed.size() > rootName.size() &&
+                reconstructed[rootName.size()] == L'\\' &&
+                _wcsnicmp(reconstructed.c_str(), rootName.c_str(), rootName.size()) == 0) {
+                reconstructed.erase(0, rootName.size() + 1);
+            }
+            return reconstructed;
+        }
+        current = currentEntry->parentFrn;
+    }
+    return reconstructed;
+}
+
+bool MaterializeCandidateFolder(const ffindexstore::Projection& projection,
+                                const std::unordered_map<ffindexstore::VolumeRowId, std::wstring>& prefixes,
+                                ffsearch::Candidate& candidate) {
+    const auto prefixIt = prefixes.find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId));
+    if (prefixIt == prefixes.end()) return false;
+    const auto* entry = projection.Find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId),
+                                        ffindexstore::FileId{candidate.id, 0});
+    if (entry == nullptr) return false;
+    if (entry->parentFrn == entry->frn) {
+        // The root candidate intentionally keeps the same empty folder that
+        // the eager path used; its user-facing root is stored in name.
+        return true;
+    }
+    const auto parentPath = projection.ReconstructPath(
+        static_cast<ffindexstore::VolumeRowId>(candidate.volumeId), entry->parentFrn);
+    if (!parentPath.reachedRoot) return false;
+    const std::wstring reconstructedParent = StripVolumeRootName(
+        projection, static_cast<ffindexstore::VolumeRowId>(candidate.volumeId), entry->parentFrn,
+        ToWString(parentPath.path));
+    candidate.folder = prefixIt->second + L"\\" + reconstructedParent;
+    return true;
+}
+
+ffsearch::Candidate MakeOwnedCandidate(const ffsearch::CandidateView& view) {
+    ffsearch::Candidate candidate;
+    candidate.name = ToWString(view.name);
+    candidate.folder.assign(view.folder);
+    candidate.sizeBytes = view.sizeBytes;
+    candidate.modifiedTime = view.modifiedTime;
+    candidate.isDirectory = view.isDirectory;
+    candidate.createdTime = view.createdTime;
+    candidate.volumeId = view.volumeId;
+    candidate.id = view.id;
+    candidate.parentId = view.parentId;
+    candidate.persistentIndexed = view.persistentIndexed;
+    return candidate;
 }
 
 ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
@@ -59,11 +151,16 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV1& record) {
 // frames at the default 4 KiB page size (~16 MB) -- past that, a passive
 // checkpoint is escalated to a full RESTART checkpoint.
 constexpr uint64_t kWalForceCheckpointThresholdBytes = 4000ULL * 4096;
+// Win32 ERROR_NOT_ENOUGH_MEMORY, kept numeric so this engine translation unit
+// does not acquire a direct windows.h dependency for one diagnostic field.
+constexpr uint32_t kErrorNotEnoughMemory = 8;
 
 } // namespace
 
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     std::lock_guard<std::mutex> lock(mutex_);
+    recordsSinceAnalyze_ = 0;
+    projectionMemoryWarningIssued_ = false;
     if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
         return false;
     }
@@ -73,15 +170,63 @@ bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed
 void IndexPipeline::Close() {
     std::lock_guard<std::mutex> lock(mutex_);
     store_.Close();
+    recordsSinceAnalyze_ = 0;
+    projectionMemoryWarningIssued_ = false;
 }
 
-void IndexPipeline::RunStoreMaintenance() {
+void IndexPipeline::SetBulkScanActive(const bool active) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    projection_.SetBulkScanActive(active);
+}
+
+void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHours,
+                                         uint64_t vacuumSizeGrowthPercent) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!store_.IsOpen()) {
         return;
     }
     store_.CheckpointPassive();
     store_.CheckpointIfWalExceeds(kWalForceCheckpointThresholdBytes);
+    if (userIdle) {
+        const uint64_t nowEpochSeconds = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count());
+        store_.VacuumIfDue(true, nowEpochSeconds, vacuumIntervalHours, vacuumSizeGrowthPercent);
+    }
+}
+
+void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
+    if (recordCount == 0) {
+        return;
+    }
+    const uint64_t count = static_cast<uint64_t>(recordCount);
+    if (recordsSinceAnalyze_ > std::numeric_limits<uint64_t>::max() - count) {
+        recordsSinceAnalyze_ = kAnalyzeRecordThreshold;
+    } else {
+        recordsSinceAnalyze_ += count;
+    }
+    if (recordsSinceAnalyze_ < kAnalyzeRecordThreshold) {
+        return;
+    }
+    // address-engineering-audit-findings 5.1: ANALYZE runs only after the
+    // durable batch commits. A failed maintenance operation never makes an
+    // already-committed ingestion look failed; retaining the threshold makes
+    // the next batch retry the statistics refresh.
+    if (store_.Analyze()) {
+        recordsSinceAnalyze_ %= kAnalyzeRecordThreshold;
+    }
+}
+
+void IndexPipeline::MaybeReportProjectionMemoryPressureLocked() {
+    const bool pressure = projection_.IsMemoryPressureHigh();
+    if (pressure && !projectionMemoryWarningIssued_) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_PROJECTION_MEMORY_PRESSURE,
+                                      {}, {}, L"projection-memory-pressure", kErrorNotEnoughMemory,
+                                      projection_.EstimatedMemoryBytes()});
+        projectionMemoryWarningIssued_ = true;
+    } else if (!pressure) {
+        projectionMemoryWarningIssued_ = false;
+    }
 }
 
 void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
@@ -112,6 +257,7 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
             }
             volumeIds.push_back(meta.rowId);
         }
+        MaybeReportProjectionMemoryPressureLocked();
     }
     // Invoked outside the lock: a rebuild-completion callback typically
     // publishes a snapshot, which may itself call back into
@@ -187,9 +333,11 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
+    MaybeAnalyzeAfterBulkInsertLocked(changes.size());
     for (const auto& change : changes) {
         projection_.Upsert(volumeId, change.record);
     }
+    MaybeReportProjectionMemoryPressureLocked();
 
     auto reconciling = reconciliationSeen_.find(volumeId);
     if (reconciling != reconciliationSeen_.end()) {
@@ -224,6 +372,12 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    // close-independent-validation-gaps 4.6: compact at the batch boundary,
+    // never once per record. CompactStorage rebuilds every projection index;
+    // invoking it from Projection::Upsert turns a large volume scan into an
+    // O(N) compaction storm once the bounded memory policy is reached.
+    projection_.EnforceMemoryLimitNow();
+    MaybeReportProjectionMemoryPressureLocked();
     return true;
 }
 
@@ -241,6 +395,13 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
+    size_t upsertCount = 0;
+    for (const auto& change : changes) {
+        if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+            ++upsertCount;
+        }
+    }
+    MaybeAnalyzeAfterBulkInsertLocked(upsertCount);
     for (const auto& change : changes) {
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
             projection_.Upsert(volumeId, change.record);
@@ -265,6 +426,8 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    projection_.EnforceMemoryLimitNow();
+    MaybeReportProjectionMemoryPressureLocked();
     return true;
 }
 
@@ -354,8 +517,8 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
     std::lock_guard<std::mutex> lock(mutex_);
+    projection_.ReloadEvictedVolume(store_, id);
     std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
-
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
             return; // only directories become a listing key; files are listed as their parent's entries below
@@ -373,9 +536,14 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
         if (entry.parentFrn == entry.frn) {
             fullPath = rootPathPrefix; // this entry IS the volume root
         } else if (pathResult.reachedRoot) {
-            const size_t firstSeparator = reconstructed.find(L'\\');
-            fullPath = rootPathPrefix + L"\\"
-                + (firstSeparator == std::wstring::npos ? reconstructed : reconstructed.substr(firstSeparator + 1));
+            // ReconstructPath includes the root entry's on-disk name at the
+            // front of the string.  That name is commonly empty, but valid
+            // volumes can expose a non-empty synthetic root name (for example
+            // ".").  Strip exactly that root component; stripping through the
+            // first separator would incorrectly turn Users\\Alice into Alice.
+            const std::wstring relative = StripVolumeRootName(projection_, id, entry.frn, reconstructed);
+            fullPath = rootPathPrefix;
+            if (!relative.empty()) fullPath += L"\\" + relative;
         } else {
             // Defensive fallback for a broken/incomplete parent chain --
             // should never happen on a well-formed volume.
@@ -416,7 +584,378 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
 
 std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
     std::lock_guard<std::mutex> lock(mutex_);
+    projection_.ReloadEvictedVolume(store_, volumeId);
     return projection_.GetFolderAggregate(volumeId, parentFrn);
+}
+
+ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
+                                                               SearchTimings* timings) {
+    using Clock = std::chrono::steady_clock;
+    const auto totalStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    const bool detailedDiagnostics = timings != nullptr && timings->detailedDiagnostics;
+    const bool projectionOnly = timings != nullptr && timings->projectionOnly;
+    const auto setTotal = [&] {
+        if (timings != nullptr) {
+            timings->totalMs = std::chrono::duration<double, std::milli>(Clock::now() - totalStart).count();
+        }
+    };
+    ffprotocol::IndexedSearchResponse result;
+    result.requestId = request.requestId;
+    if (request.requestId == 0 || !ffprotocol::IsIndexedSearchScopeValid(request.scope) ||
+        !ffprotocol::IsIndexedSearchSortValid(request.sortField) || request.query.empty() ||
+        request.query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars ||
+        request.scopePath.size() > ffprotocol::kMaxPathLengthChars || request.maxResults == 0) {
+        result.status = ffprotocol::IndexedSearchStatus::InvalidRequest;
+        setTotal();
+        return result;
+    }
+
+    const auto queryStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    ffsearch::SearchRequest searchRequest;
+    searchRequest.query = ffsearch::ParseQuery(request.query, ffsearch::FilterRegistry::WithDefaults());
+    searchRequest.scope = static_cast<ffsearch::SearchScope>(request.scope);
+    searchRequest.scopePath = request.scopePath;
+    searchRequest.sortField = static_cast<ffsearch::SortField>(request.sortField);
+    searchRequest.descending = request.descending;
+    searchRequest.maxResults = (std::min)(static_cast<size_t>(request.maxResults),
+                                          static_cast<size_t>(ffprotocol::kMaxIndexedSearchResultCount));
+    searchRequest.persistentOnly = true;
+    if (timings != nullptr) {
+        timings->queryParseMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - queryStart).count();
+    }
+
+    std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
+    double lazyPathMaterializationMs = 0.0;
+    double candidateNameMaterializationMs = 0.0;
+    double namePoolLookupMs = 0.0;
+    double nameViewConstructionMs = 0.0;
+    std::chrono::steady_clock::time_point candidateStart{};
+    size_t projectionRowsExamined = 0;
+    size_t projectionEntriesVisited = 0;
+    size_t namePoolLookups = 0;
+    size_t emptyNamesRejected = 0;
+    size_t nameViewsConstructed = 0;
+    ffsearch::SearchDiagnostics searchDiagnostics;
+    searchDiagnostics.projectionOnly = projectionOnly;
+    const bool collectSearchDiagnostics = detailedDiagnostics || projectionOnly;
+    size_t candidateObjectsMaterialized = 0;
+    size_t candidateNameCopies = 0;
+    ffsearch::SearchResponse search;
+    std::chrono::steady_clock::time_point searchStart{};
+
+    if (searchRequest.query.viewCompatible) {
+        // The NamePool storage is immutable for the duration of the
+        // projection lock. Evaluate views while that lock is held, then only
+        // copy accepted rows into owning Candidates. This keeps non-matches
+        // allocation-free and makes the view lifetime explicit.
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!store_.IsOpen()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+        projection_.ReloadAllEvictedVolumes(store_);
+
+        prefixes.reserve(volumeRules_.size() + 4);
+        std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
+        disabledVolumes.reserve(volumeRules_.size());
+        for (const auto& [volumeId, setting] : volumeRules_) {
+            if (!setting.enabled) {
+                disabledVolumes.insert(volumeId);
+                continue;
+            }
+            if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
+                prefixes.emplace(volumeId, prefix);
+            }
+        }
+        const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
+        if (timings != nullptr) {
+            timings->sqliteMetadataMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();
+        }
+        for (const auto& metadataEntry : metadata) {
+            if (!metadataEntry.available || disabledVolumes.contains(metadataEntry.rowId) || prefixes.contains(metadataEntry.rowId)) {
+                continue;
+            }
+            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadataEntry.key);
+            if (driveLetter != L'\0') {
+                std::wstring prefix;
+                prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
+                prefix.push_back(L':');
+                prefixes.emplace(metadataEntry.rowId, std::move(prefix));
+            }
+        }
+        if (prefixes.empty()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+        const auto singlePrefixIt = prefixes.size() == 1 ? prefixes.begin() : prefixes.end();
+        const ffindexstore::VolumeRowId singleVolumeId = singlePrefixIt == prefixes.end()
+            ? 0 : singlePrefixIt->first;
+        const std::wstring* singlePrefix = singlePrefixIt == prefixes.end() ? nullptr : &singlePrefixIt->second;
+
+        searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        candidateStart = searchStart;
+        bool continueEnumeration = true;
+        const ffsearch::CandidateViewMaterializer materialize = [&](const ffsearch::CandidateView& view) {
+            const auto materializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            ++candidateNameCopies;
+            auto candidate = MakeOwnedCandidate(view);
+            const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            const bool pathMaterialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+            if (timings != nullptr) {
+                const double pathElapsed =
+                    std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
+                lazyPathMaterializationMs += pathElapsed;
+                candidateNameMaterializationMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - materializationStart).count() - pathElapsed;
+                if (pathMaterialized) ++timings->lazyPathMaterializationCount;
+            }
+            if (!pathMaterialized) return std::optional<ffsearch::Candidate>{};
+            ++candidateObjectsMaterialized;
+            return std::optional<ffsearch::Candidate>(std::move(candidate));
+        };
+        const bool filenameIndexEligible = searchRequest.query.simpleLiteralName &&
+                                           searchRequest.query.simpleLiteralFolded.size() >= 3;
+        const std::optional<std::vector<uint32_t>> filenameCandidates = filenameIndexEligible
+            ? projection_.FilenameCandidateIndices(searchRequest.query.simpleLiteralFolded)
+            : std::nullopt;
+        if (timings != nullptr) {
+            timings->filenameIndexUsed = filenameCandidates.has_value();
+            timings->filenameIndexCandidateCount = filenameCandidates.has_value() ? filenameCandidates->size() : 0;
+        }
+        const ffsearch::CandidateViewEnumerator enumerate = [&](const ffsearch::CandidateViewVisitor& visit) {
+            const auto enumerationStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+            const auto visitEntry = [&](const ffindexstore::ProjectionEntry& entry) {
+                if (!continueEnumeration) return;
+                if (detailedDiagnostics) ++projectionEntriesVisited;
+                const std::wstring* prefix = singlePrefix;
+                if (prefix == nullptr) {
+                    const auto prefixIt = prefixes.find(entry.volumeRowId);
+                    if (prefixIt == prefixes.end()) return;
+                    prefix = &prefixIt->second;
+                } else if (entry.volumeRowId != singleVolumeId) {
+                    return;
+                }
+                ++projectionRowsExamined;
+                std::u16string rootName;
+                std::u16string_view name;
+                if (entry.parentFrn == entry.frn) {
+                    // The root's on-disk name is not user-facing. Use the
+                    // mounted drive root exactly as the snapshot/UI path model does.
+                    rootName = ToU16String(*prefix + L"\\");
+                    name = rootName;
+                } else {
+                    const auto nameLookupStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+                    if (detailedDiagnostics) ++namePoolLookups;
+                    name = projection_.Names().Get(entry.nameId);
+                    if (detailedDiagnostics) {
+                        namePoolLookupMs +=
+                            std::chrono::duration<double, std::milli>(Clock::now() - nameLookupStart).count();
+                    }
+                    if (name.empty()) {
+                        if (detailedDiagnostics) ++emptyNamesRejected;
+                        return;
+                    }
+                }
+                const auto nameViewStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
+                const bool nameAsciiLower = entry.parentFrn != entry.frn && entry.nameAsciiLower;
+                const ffsearch::CandidateView view{
+                    name,
+                    {},
+                    entry.sizeBytes,
+                    entry.lastModifiedTime,
+                    (entry.attributes & kFileAttributeDirectory) != 0,
+                    entry.creationTime,
+                    static_cast<int64_t>(entry.volumeRowId),
+                    entry.frn.low,
+                    entry.parentFrn.low,
+                    true,
+                    nameAsciiLower,
+                };
+                if (detailedDiagnostics) {
+                    ++nameViewsConstructed;
+                    nameViewConstructionMs +=
+                        std::chrono::duration<double, std::milli>(Clock::now() - nameViewStart).count();
+                }
+                continueEnumeration = visit(view);
+            };
+            if (filenameCandidates.has_value()) {
+                for (const uint32_t index : *filenameCandidates) {
+                    if (!continueEnumeration) break;
+                    visitEntry(projection_.EntryAt(index));
+                }
+            } else {
+                projection_.ForEachEntryValue(visitEntry);
+            }
+            if (detailedDiagnostics) {
+                timings->projectionEnumerationMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();
+            }
+        };
+        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize, {},
+                                               collectSearchDiagnostics ? &searchDiagnostics : nullptr);
+        lock.unlock();
+    } else {
+        std::vector<ffsearch::Candidate> candidates;
+        // A future custom FilterRegistry entry without a view predicate uses
+        // the established owning path as a correctness-preserving fallback.
+        std::unique_lock<std::mutex> lock(mutex_);
+        if (!store_.IsOpen()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+        projection_.ReloadAllEvictedVolumes(store_);
+
+        prefixes.reserve(volumeRules_.size() + 4);
+        std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
+        disabledVolumes.reserve(volumeRules_.size());
+        for (const auto& [volumeId, setting] : volumeRules_) {
+            if (!setting.enabled) {
+                disabledVolumes.insert(volumeId);
+                continue;
+            }
+            if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
+                prefixes.emplace(volumeId, prefix);
+            }
+        }
+        const auto sqliteStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
+        if (timings != nullptr) {
+            timings->sqliteMetadataMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - sqliteStart).count();
+        }
+        for (const auto& metadataEntry : metadata) {
+            if (!metadataEntry.available || disabledVolumes.contains(metadataEntry.rowId) || prefixes.contains(metadataEntry.rowId)) {
+                continue;
+            }
+            const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadataEntry.key);
+            if (driveLetter != L'\0') {
+                std::wstring prefix;
+                prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
+                prefix.push_back(L':');
+                prefixes.emplace(metadataEntry.rowId, std::move(prefix));
+            }
+        }
+        if (prefixes.empty()) {
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
+
+        candidateStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        candidates.reserve(projection_.EntryCount());
+        projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
+                                      const ffindexstore::ProjectionEntry& entry) {
+            const auto prefixIt = prefixes.find(key.volumeRowId);
+            if (prefixIt == prefixes.end()) return;
+            ++projectionRowsExamined;
+            ffsearch::Candidate candidate;
+            candidate.volumeId = static_cast<int64_t>(key.volumeRowId);
+            candidate.id = entry.frn.low;
+            candidate.parentId = entry.parentFrn.low;
+            candidate.sizeBytes = entry.sizeBytes;
+            candidate.modifiedTime = entry.lastModifiedTime;
+            candidate.createdTime = entry.creationTime;
+            candidate.isDirectory = (entry.attributes & kFileAttributeDirectory) != 0;
+            candidate.persistentIndexed = true;
+            if (entry.parentFrn == entry.frn) {
+                candidate.name = prefixIt->second + L"\\";
+            } else {
+                candidate.name = ToWString(projection_.Names().Get(entry.nameId));
+                if (candidate.name.empty()) return;
+            }
+            candidates.push_back(std::move(candidate));
+        });
+        lock.unlock();
+        candidateObjectsMaterialized = candidates.size();
+        candidateNameCopies = candidates.size();
+        const double lightweightCandidateMaterializationMs = timings != nullptr
+            ? std::chrono::duration<double, std::milli>(Clock::now() - candidateStart).count()
+            : 0.0;
+        if (timings != nullptr) timings->candidateMaterializationMs = lightweightCandidateMaterializationMs;
+        searchStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+        std::optional<std::unique_lock<std::mutex>> pathLock;
+        search = ffsearch::ExecuteSearchLazy(
+            candidates, searchRequest,
+            [&](ffsearch::Candidate& candidate) {
+                if (!pathLock.has_value()) pathLock.emplace(mutex_);
+                const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+                const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+                if (timings != nullptr) {
+                    lazyPathMaterializationMs +=
+                        std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
+                    if (materialized) ++timings->lazyPathMaterializationCount;
+                }
+                return materialized;
+            });
+        pathLock.reset();
+    }
+    if (timings != nullptr) {
+        const double searchElapsed =
+            std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
+        timings->projectionTraversalMs = searchElapsed;
+        timings->namePoolLookupMs = namePoolLookupMs;
+        timings->nameViewConstructionMs = nameViewConstructionMs;
+        timings->candidateMaterializationMs = candidateNameMaterializationMs + lazyPathMaterializationMs;
+        timings->lightweightCandidateMaterializationMs = candidateNameMaterializationMs;
+        timings->lazyPathMaterializationMs = lazyPathMaterializationMs;
+        timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - candidateNameMaterializationMs - lazyPathMaterializationMs);
+        timings->candidateCount = projectionRowsExamined;
+        timings->projectionEntriesVisited = projectionEntriesVisited;
+        timings->projectionRowsExamined = projectionRowsExamined;
+        timings->namePoolLookups = namePoolLookups;
+        timings->emptyNamesRejected = emptyNamesRejected;
+        timings->nameViewsConstructed = nameViewsConstructed;
+        timings->candidateObjectsMaterialized = candidateObjectsMaterialized;
+        timings->candidateNameCopies = candidateNameCopies;
+        timings->candidatesVisited = search.candidatesVisited;
+        timings->queryPredicateEvaluations = searchDiagnostics.match.predicateEvaluations;
+        timings->queryTermEvaluations = searchDiagnostics.match.termEvaluations;
+        timings->caseInsensitiveComparisons = searchDiagnostics.match.caseInsensitiveComparisons;
+        timings->caseFoldOperations = searchDiagnostics.match.caseFoldOperations;
+        timings->substringSearches = searchDiagnostics.match.substringSearches;
+        timings->globMatches = searchDiagnostics.match.globMatches;
+        timings->prefixChecks = searchDiagnostics.match.prefixChecks;
+        timings->extensionPredicates = searchDiagnostics.match.extensionPredicates;
+        timings->metadataPredicates = searchDiagnostics.match.metadataPredicates;
+        timings->earlyRejects = searchDiagnostics.match.earlyRejects;
+        timings->predicateMatches = searchDiagnostics.match.predicateMatches;
+        timings->pathNeededDecisions = searchDiagnostics.pathNeededDecisions;
+        timings->pathLookups = searchDiagnostics.pathLookups;
+        timings->matchedRows = searchDiagnostics.matchedRows;
+        timings->predicateDispatchMs = searchDiagnostics.match.predicateDispatchMs;
+        timings->substringMatchingMs = searchDiagnostics.match.substringMatchingMs;
+        timings->globMatchingMs = searchDiagnostics.match.globMatchingMs;
+        timings->extensionMatchingMs = searchDiagnostics.match.extensionMatchingMs;
+        timings->metadataMatchingMs = searchDiagnostics.match.metadataMatchingMs;
+        timings->folderMatchingMs = searchDiagnostics.match.folderMatchingMs;
+        timings->matchedRowHandlingMs = searchDiagnostics.matchedRowHandlingMs;
+        timings->resultCount = search.results.size();
+        timings->searchResultObjectsMaterialized = search.results.size();
+        timings->truncated = search.truncated;
+    }
+    result.status = ffprotocol::IndexedSearchStatus::Completed;
+    result.truncated = search.truncated;
+    result.candidates.reserve(search.results.size());
+    const auto responseStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    for (const auto& matched : search.results) {
+        const auto& candidate = matched.candidate;
+        result.candidates.push_back({candidate.name, candidate.folder, candidate.sizeBytes,
+                                     candidate.modifiedTime, candidate.isDirectory,
+                                     candidate.createdTime, candidate.volumeId, candidate.id,
+                                     candidate.parentId, candidate.persistentIndexed});
+    }
+    if (timings != nullptr) {
+        timings->responseMaterializationMs =
+            std::chrono::duration<double, std::milli>(Clock::now() - responseStart).count();
+        setTotal();
+    }
+    return result;
 }
 
 } // namespace ffengine

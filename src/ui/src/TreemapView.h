@@ -2,6 +2,7 @@
 
 #include <d2d1_1.h>
 #include <dwrite.h>
+#include <atomic>
 #include <functional>
 #include <map>
 #include <memory>
@@ -18,36 +19,57 @@
 
 namespace ffui {
 
+class CategoryEngine;
+
+constexpr UINT WM_APP_TREEMAP_AGGREGATE = WM_APP + 12;
+
+struct TreemapAggregatePayload {
+    uint64_t generation = 0;
+    std::wstring path;
+    ffprotocol::FolderAggregateStatus status = ffprotocol::FolderAggregateStatus::NotFound;
+    uint64_t totalSizeBytes = 0;
+};
+
 class TreemapView {
 public:
+    using NavigateHandler = std::function<void(const std::wstring& path, bool isDirectory)>;
     TreemapView() = default;
     ~TreemapView();
 
     bool Initialize(HWND owner, EngineClient* engine,
-                    std::function<void(const std::wstring& path)> navigate);
+                    NavigateHandler navigate);
     void ShowAndFocus(const std::wstring& currentPath);
     void Hide();
     bool Visible() const { return visible_; }
     void Reposition();
     void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
     bool HandleNotify(LPARAM lParam);
+    bool HandleAggregateCompletion(LPARAM lParam);
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
     bool HandleLButtonDown(WPARAM wParam, LPARAM lParam);
     void SetDarkTheme(bool dark);
+    void SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId);
     void OnSnapshotUpdated();
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
 
 private:
     void BuildTree(const std::wstring& path);
+    void RebuildLayout();
+    static TreemapNode* FindNode(TreemapNode* root, const std::wstring& path);
+    static uint64_t RecomputeTotals(TreemapNode& node);
 
     HWND owner_ = nullptr;
     EngineClient* engine_ = nullptr;
-    std::function<void(const std::wstring& path)> navigate_;
+    NavigateHandler navigate_;
 
     std::unique_ptr<TreemapNode> root_;
     std::vector<TreemapRect> layout_;
     std::wstring currentPath_;
+    const CategoryEngine* categoryEngine_ = nullptr;
+    std::wstring categoryId_;
     bool visible_ = false;
+    uint64_t buildGeneration_ = 0;
+    std::shared_ptr<std::atomic<bool>> lifetime_ = std::make_shared<std::atomic<bool>>(true);
 
     // The treemap is drawn under the shell's Translate(sidebar, chrome)
     // transform and scaled by viewport/100; hit-testing stores the same

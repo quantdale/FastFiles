@@ -108,4 +108,17 @@ CategoryMatch CategoryEngine::Match(const std::wstring& fileName) const {
     return result;
 }
 
+bool CategoryEngine::Matches(const std::wstring& fileName, const std::wstring& categoryId) const {
+    if (categoryId.empty()) return true;
+
+    const CategoryMatch match = Match(fileName);
+    const bool configuredCategory = std::any_of(
+        categories_.begin(), categories_.end(),
+        [&categoryId](const CategoryDefinition& category) { return category.id == categoryId; });
+    if (configuredCategory) {
+        return match.matched && match.categoryId == categoryId;
+    }
+    return categoryId == L"other" && !match.matched;
+}
+
 } // namespace ffui

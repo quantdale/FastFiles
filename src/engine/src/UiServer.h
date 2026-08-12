@@ -2,6 +2,7 @@
 #include <atomic>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -26,6 +27,15 @@ namespace ffengine {
 // NewGeneration/EngineStatus notifications to every subscribed client.
 class UiServer {
 public:
+    using FrameWriter = std::function<bool(HANDLE, uint16_t, const void*, uint32_t)>;
+    using PipeCanceller = std::function<void(HANDLE)>;
+
+    explicit UiServer(FrameWriter frameWriter = {}, PipeCanceller pipeCanceller = {});
+    ~UiServer();
+
+    UiServer(const UiServer&) = delete;
+    UiServer& operator=(const UiServer&) = delete;
+
     bool Start(DWORD sessionId);
     void Stop();
 
@@ -52,6 +62,8 @@ public:
     std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
     using OnRequestFolderAggregate = std::function<std::optional<ffindexstore::Projection::FolderAggregate>(ffindexstore::VolumeRowId, ffindexstore::FileId)>;
     OnRequestFolderAggregate onRequestFolderAggregate;
+    using OnRequestIndexedSearch = std::function<ffprotocol::IndexedSearchResponse(const ffprotocol::IndexedSearchRequest&)>;
+    OnRequestIndexedSearch onRequestIndexedSearch;
     // settings-and-appearance §7.3: supplies the per-volume condition
     // report (VolumeStatusRecords) on demand; the engine derives it from
     // its own connection/scan/reconciliation state. Empty vector == no
@@ -65,17 +77,47 @@ public:
     std::function<void(uint8_t scope, bool paused)> onSetIndexingPaused;
 
 private:
+    struct ClientConnection {
+        ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller);
+
+        bool Write(uint16_t messageType, const void* payload = nullptr, uint32_t payloadSize = 0);
+        void Cancel();
+        void Close();
+        HANDLE Pipe() const noexcept { return pipe_; }
+
+        void CancelPendingWriteLocked();
+
+        HANDLE pipe_ = INVALID_HANDLE_VALUE;
+        HANDLE writerThread_ = nullptr;
+        FrameWriter frameWriter_;
+        PipeCanceller pipeCanceller_;
+        std::mutex writeMutex_;
+        std::mutex stateMutex_;
+        bool closing_ = false;
+    };
+
+    using ClientConnectionPtr = std::shared_ptr<ClientConnection>;
+
     void HandleConnection(HANDLE pipe);
-    void HandleRequestDirectory(HANDLE pipe, const std::wstring& path);
-    void HandleRequestFolderAggregate(HANDLE pipe, const std::vector<uint8_t>& framePayload);
+    void HandleRequestDirectory(const ClientConnectionPtr& client, const std::wstring& path);
+    void HandleRequestFolderAggregate(const ClientConnectionPtr& client, const std::vector<uint8_t>& framePayload);
+    bool HandleRequestIndexedSearch(const ClientConnectionPtr& client, const std::vector<uint8_t>& framePayload);
     void OnDirectoryChanged(const std::wstring& path);
-    void RepublishAndBroadcastGeneration();
-    void BroadcastEngineStatus(HANDLE toSinglePipe = nullptr);
-    bool SendUnavailableVolumes(HANDLE pipe);
-    bool SendForgetUnavailableVolumeResult(HANDLE pipe, int64_t volumeRowId);
-    bool SendFolderAggregateResult(HANDLE pipe, uint64_t requestId, ffprotocol::FolderAggregateStatus status,
+    // recovery-degraded-browsing 4.2: returns false when the publish failed
+    // (e.g. slot capacity exceeded) so the requesting client can be told
+    // instead of silently keeping stale data.
+    bool RepublishAndBroadcastGeneration();
+    void BroadcastEngineStatus(const ClientConnectionPtr& toSingleClient = nullptr);
+    bool SendDirectoryError(const ClientConnectionPtr& client, const std::wstring& path,
+                            ffprotocol::DirectoryErrorReason reason);
+    void BroadcastDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason);
+    bool SendUnavailableVolumes(const ClientConnectionPtr& client);
+    bool SendForgetUnavailableVolumeResult(const ClientConnectionPtr& client, int64_t volumeRowId);
+    bool SendFolderAggregateResult(const ClientConnectionPtr& client, uint64_t requestId,
+                                   ffprotocol::FolderAggregateStatus status,
                                    uint64_t itemCount, uint64_t totalSizeBytes);
-    bool SendVolumeStatus(HANDLE pipe);
+    bool SendIndexedSearchResult(const ClientConnectionPtr& client, const ffprotocol::IndexedSearchResponse& response);
+    bool SendVolumeStatus(const ClientConnectionPtr& client);
 
     ffipc::PipeListener listener_;
     ffsetup::OwnedSecurityDescriptor securityDescriptor_;
@@ -86,8 +128,12 @@ private:
     std::map<std::wstring, ffprotocol::SnapshotDirectory> directories_;
 
     std::mutex clientsMutex_;
-    std::vector<HANDLE> subscribedPipes_;
+    std::vector<ClientConnectionPtr> subscribedClients_;
 
+    FrameWriter frameWriter_;
+    PipeCanceller pipeCanceller_;
+
+    std::atomic<bool> running_{false};
     std::atomic<bool> engineActive_{false};
 };
 

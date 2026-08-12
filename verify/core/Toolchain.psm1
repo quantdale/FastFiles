@@ -92,6 +92,26 @@ function Enter-DevEnvironment {
     $ninjaDir = Split-Path $Toolchain.NinjaExe -Parent
     $env:PATH = "$cmakeDir;$ninjaDir;$env:PATH"
 
+    # GetTempPathW can reject an 8.3-form TEMP/TMP value on this host even when
+    # the corresponding long directory exists. Canonicalize only existing
+    # process-local directories so CTest child processes see the same usable
+    # temp root as interactive PowerShell, without changing the user's profile.
+    foreach ($temporaryVariable in @('TEMP', 'TMP')) {
+        $temporaryPath = [Environment]::GetEnvironmentVariable($temporaryVariable, 'Process')
+        if ([string]::IsNullOrWhiteSpace($temporaryPath)) {
+            continue
+        }
+        try {
+            $resolvedTemporaryPath = (Get-Item -LiteralPath $temporaryPath -ErrorAction Stop).FullName
+            if (Test-Path -LiteralPath $resolvedTemporaryPath -PathType Container) {
+                [Environment]::SetEnvironmentVariable($temporaryVariable, $resolvedTemporaryPath, 'Process')
+            }
+        } catch {
+            # Preserve the original value; the child tool will report a real
+            # temp-directory failure if it cannot use it.
+        }
+    }
+
     # CMakePresets.json resolves CMAKE_MAKE_PROGRAM via this env var so the preset
     # file itself never hard-codes a host-specific path.
     $env:FASTFILES_NINJA_EXE = $Toolchain.NinjaExe

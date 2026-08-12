@@ -3,6 +3,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -31,6 +33,7 @@ struct ProjectionEntry {
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
     uint32_t attributes = 0;
+    bool nameAsciiLower = false;
 };
 
 // The compact, RAM-resident view of the index that search/browse/storage-
@@ -47,6 +50,32 @@ struct ProjectionEntry {
 // already requiring the caller to serialize Publish() calls.
 class Projection {
 public:
+    static constexpr size_t kDefaultMaximumMemoryBytes = 500ULL * 1024ULL * 1024ULL;
+
+    // A zero value restores the production default. The limit is measured
+    // from the projection's owned capacity and index storage, not from the
+    // database file size.
+    void SetMaximumMemoryBytes(size_t maximumBytes);
+    size_t MaximumMemoryBytes() const noexcept { return maximumMemoryBytes_; }
+    size_t EstimatedMemoryBytes() const noexcept;
+    bool IsMemoryPressureHigh() const noexcept;
+    // Applies the bounded LRU policy after a complete ingestion mutation
+    // batch. Upsert deliberately does not compact per record: compaction
+    // rebuilds every projection index and must not turn a large scan into an
+    // O(N) operation for every record.
+    void EnforceMemoryLimitNow();
+    // Initial/reconciliation scans are bulk mutations. Disable the expensive
+    // eviction/compaction path and the optional filename accelerator while a
+    // scan is active; canonical matching remains correct and the durable
+    // store is authoritative.
+    void SetBulkScanActive(bool active) noexcept;
+
+    // Evicted subtrees remain durable in Store. The engine calls this before
+    // serving a volume-specific browse/aggregate/search operation.
+    bool NeedsReload(VolumeRowId volumeRowId) const;
+    bool ReloadEvictedVolume(Store& store, VolumeRowId volumeRowId);
+    bool ReloadAllEvictedVolumes(Store& store);
+
     // task 2.5: pre-size before a bulk rebuild.
     void Reserve(size_t expectedEntryCount);
 
@@ -65,6 +94,13 @@ public:
     void RemoveVolume(VolumeRowId volumeRowId);
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
+
+    // Returns a conservative candidate set for an already ASCII-folded
+    // simple literal. nullopt means the secondary accelerator is ineligible
+    // or unavailable, so callers must use the canonical live-entry scan.
+    // Returned slot indices belong to this projection generation and are
+    // valid only while the caller holds the projection's synchronization.
+    std::optional<std::vector<uint32_t>> FilenameCandidateIndices(std::u16string_view foldedNeedle) const;
 
     // task 2.3: parent->children lookup for directory-listing/Column-View
     // style access. Returns empty span if the parent has no known children
@@ -112,19 +148,50 @@ public:
     // array directly, so tombstoned/reused slots are never visited.
     template <typename Fn>
     void ForEachEntry(Fn&& fn) const {
-        for (const auto& [key, index] : idToIndex_) {
+        idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
             fn(key, entries_[index]);
+        });
+    }
+
+    template <typename Fn>
+    void ForEachEntryValue(Fn&& fn) const {
+        if (denseIterationOrderValid_) {
+            for (const ProjectionEntry& entry : entries_) fn(entry);
+        } else {
+            idToIndex_.ForEachValue([&](const uint32_t index) { fn(entries_[index]); });
         }
     }
 
 private:
+    void EnforceMemoryLimit();
+    void EnforceMemoryLimitTo(size_t targetBytes);
+    void EnforceMemoryLimitOnceTo(size_t targetBytes);
+    std::optional<EntryKey> LeastRecentlyUsedEntry() const;
+    void EvictSubtree(const EntryKey& rootKey);
+    void CompactStorage();
+    void Touch(const EntryKey& key) const noexcept;
+    void CompactEntriesForIterationOrder();
     void RemoveFromChildrenList(const EntryKey& parentKey, uint32_t index);
+    void RebuildFilenameIndex();
+    void AddFilenameIndexEntry(uint32_t index);
+    void RemoveFilenameIndexEntry(uint32_t index, std::u16string_view name);
+    void InvalidateFilenameIndex() noexcept;
 
     NamePool namePool_;
     std::vector<ProjectionEntry> entries_; // dense array; freed slots reused via freeList_
     std::vector<uint32_t> freeList_;
     FlatHashMap<EntryKey, uint32_t, EntryKeyHash> idToIndex_;
     FlatChildrenMap parentToChildren_;
+    bool denseIterationOrderValid_ = false;
+    std::unordered_map<uint64_t, std::vector<uint32_t>> filenameTrigramPostings_;
+    std::vector<uint32_t> filenameNonAsciiEntries_;
+    bool filenameIndexValid_ = true;
+    bool filenameIndexBuilding_ = false;
+    size_t maximumMemoryBytes_ = kDefaultMaximumMemoryBytes;
+    mutable uint64_t accessClock_ = 0;
+    mutable std::unordered_map<EntryKey, uint64_t, EntryKeyHash> lastAccess_;
+    std::unordered_set<VolumeRowId> evictedVolumes_;
+    bool enforcingMemoryLimit_ = true;
 };
 
 } // namespace ffindexstore

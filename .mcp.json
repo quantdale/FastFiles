@@ -1,8 +1,19 @@
 {
   "mcpServers": {
-    "fetch": {
-      "command": "python",
-      "args": ["-m", "mcp_server_fetch"]
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--allow-unrestricted-file-access"
+      ]
+    },
+    "context7": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@upstash/context7-mcp@latest"
+      ]
     },
     "github": {
       "command": "npx",
@@ -10,6 +21,10 @@
       "env": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"
       }
+    },
+    "fetch": {
+      "command": "python",
+      "args": ["-m", "mcp_server_fetch"]
     }
   }
 }

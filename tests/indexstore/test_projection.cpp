@@ -1,6 +1,8 @@
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <string>
+#include <windows.h>
 
 #include "ffindexstore/Projection.h"
 #include "ffindexstore/Store.h"
@@ -196,6 +198,121 @@ void TestManyDistinctParentsDoNotStallGrowth() {
     const auto children = proj.ChildIndices(1, FileId{100, 0});
     Check(children.size() == 3, "first directory still lists exactly its own children");
 }
+
+bool CandidateContains(const Projection& projection, const std::vector<uint32_t>& candidates, uint64_t id) {
+    return std::any_of(candidates.begin(), candidates.end(), [&](const uint32_t index) {
+        return projection.EntryAt(index).frn.low == id;
+    });
+}
+
+void TestFilenameTrigramCandidatesTrackMutations() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"unique_component_7391.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"UNIQUE_COMPONENT_7391-copy.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"\u6771\u4EAC_component_7391.txt"));
+    proj.Upsert(1, MakeEntry(103, 5, u"report.txt"));
+
+    const auto candidates = proj.FilenameCandidateIndices(u"component_7391");
+    Check(candidates.has_value(), "eligible filename terms use the trigram candidate index");
+    if (!candidates) return;
+    Check(CandidateContains(proj, *candidates, 100), "matching ASCII filename is a candidate");
+    Check(CandidateContains(proj, *candidates, 101), "uppercase ASCII filename is a candidate");
+    Check(CandidateContains(proj, *candidates, 102), "non-ASCII filename is conservatively retained");
+    Check(!CandidateContains(proj, *candidates, 103), "non-matching filename is rejected by postings");
+
+    Check(!proj.FilenameCandidateIndices(u"ph").has_value(), "two-character terms use the canonical fallback");
+    Check(!proj.FilenameCandidateIndices(u"\u6771\u4EAC").has_value(), "Unicode terms use the canonical fallback");
+
+    proj.Remove(1, FileId{100, 0});
+    auto afterRemove = proj.FilenameCandidateIndices(u"component_7391");
+    Check(afterRemove.has_value() && !CandidateContains(proj, *afterRemove, 100),
+          "deleting an entry removes its trigram candidates");
+
+    proj.Upsert(1, MakeEntry(103, 5, u"renamed_component_7391.txt"));
+    auto afterRename = proj.FilenameCandidateIndices(u"component_7391");
+    Check(afterRename.has_value() && CandidateContains(proj, *afterRename, 103),
+          "renaming an entry adds its new trigram candidates");
+}
+
+void TestProjectionEvictsLruAndReloadsFromStore() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"old.txt"));
+    proj.Upsert(1, MakeEntry(101, 5, u"middle.txt"));
+    proj.Upsert(1, MakeEntry(102, 5, u"recent.txt"));
+    const size_t beforeLimit = proj.EstimatedMemoryBytes();
+    Check(beforeLimit > 1, "projection reports owned memory before eviction");
+
+    // Refresh entry 100 so entry 101 is the least-recently-used non-root
+    // candidate. A one-byte reduction forces the bounded LRU policy to act.
+    Check(proj.Find(1, FileId{100, 0}) != nullptr, "LRU fixture entry is present before touch");
+    proj.SetMaximumMemoryBytes(beforeLimit - 1);
+    Check(proj.NeedsReload(1), "eviction records that durable volume data needs reload");
+    Check(proj.Find(1, FileId{100, 0}) != nullptr, "recently touched entry survives LRU eviction");
+    Check(proj.Find(1, FileId{101, 0}) == nullptr, "least-recently-used entry is evicted first");
+
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_eviction_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+    Store store;
+    Check(store.Open(dbPath.string()), "eviction reload fixture store opens");
+    VolumeKey volumeKey;
+    volumeKey.serialNumber = 7391;
+    const auto volumeId = store.GetOrCreateVolume(volumeKey);
+    Check(volumeId.has_value(), "eviction reload fixture volume is created");
+    if (volumeId.has_value()) {
+        Check(store.ApplyBatch(*volumeId, {
+            {EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)},
+            {EntryChangeKind::Upsert, MakeEntry(100, 5, u"old.txt")},
+            {EntryChangeKind::Upsert, MakeEntry(101, 5, u"middle.txt")},
+            {EntryChangeKind::Upsert, MakeEntry(102, 5, u"recent.txt")},
+        }), "eviction reload fixture rows are durable");
+        Projection reload;
+        reload.RebuildVolumeFromStore(store, *volumeId, store.CountEntries(*volumeId));
+        const size_t loadedBytes = reload.EstimatedMemoryBytes();
+        reload.SetMaximumMemoryBytes(loadedBytes - 1);
+        Check(reload.NeedsReload(*volumeId), "reloaded projection records its eviction");
+        reload.SetMaximumMemoryBytes(Projection::kDefaultMaximumMemoryBytes);
+        Check(reload.ReloadEvictedVolume(store, *volumeId), "evicted volume reload succeeds from SQLite");
+        Check(!reload.NeedsReload(*volumeId), "successful SQLite reload clears the eviction marker");
+        Check(reload.EntryCount() == 4 && reload.Find(*volumeId, FileId{101, 0}) != nullptr,
+              "SQLite reload restores the evicted directory data");
+    }
+    store.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+}
+
+void TestProjectionMemoryPressureSignal() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    const size_t usage = proj.EstimatedMemoryBytes();
+    proj.SetMaximumMemoryBytes(usage);
+    Check(proj.IsMemoryPressureHigh(), "projection exposes a high-memory pressure signal near its limit");
+}
+
+void TestProjectionMemoryLimitRunsAtBatchBoundary() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    const size_t bound = proj.EstimatedMemoryBytes() * 2 + 1;
+    proj.SetMaximumMemoryBytes(bound);
+    proj.SetBulkScanActive(true);
+    for (uint64_t id = 100; id < 1'100; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"deferred.txt"));
+    }
+    Check(!proj.NeedsReload(1), "an individual projection upsert does not compact the whole index");
+    proj.EnforceMemoryLimitNow();
+    Check(!proj.NeedsReload(1), "bulk scan mode defers eviction compaction while ingesting");
+    Check(!proj.FilenameCandidateIndices(u"deferred").has_value(),
+          "bulk scan mode invalidates only the optional filename accelerator");
+    proj.SetBulkScanActive(false);
+    proj.EnforceMemoryLimitNow();
+    Check(proj.NeedsReload(1), "the post-scan batch boundary enforces the bounded LRU policy");
+}
 } // namespace
 
 int main() {
@@ -210,6 +327,10 @@ int main() {
     TestRebuildFromStoreMatchesPersistedData();
     TestFolderAggregateCountsSubtree();
     TestManyDistinctParentsDoNotStallGrowth();
+    TestFilenameTrigramCandidatesTrackMutations();
+    TestProjectionEvictsLruAndReloadsFromStore();
+    TestProjectionMemoryPressureSignal();
+    TestProjectionMemoryLimitRunsAtBatchBoundary();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

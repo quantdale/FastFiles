@@ -13,19 +13,27 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <windowsx.h>
 #include <winreg.h>
+
+#ifdef _DEBUG
+#include "ffui/SelectionDiagnostics.h"
+#endif
 
 namespace ffui {
 
 namespace {
 constexpr wchar_t kWindowClassName[] = L"FastFilesMainWindow";
 constexpr UINT WM_APP_REPAINT = WM_APP + 1;
+constexpr UINT WM_APP_SNAPSHOT_UPDATED = WM_APP + 11;
 constexpr UINT kMenuCopy = 1001;
 constexpr UINT kMenuCut = 1002;
 constexpr UINT kMenuPaste = 1003;
@@ -58,6 +66,17 @@ constexpr UINT_PTR kUiScrollAnimTimer = 0xF1F2;
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
     return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
+float CurrentDpiScale() {
+    return (std::max)(0.01f, ffui::UiScale(1.0f));
+}
+
+bool IsNativeTextInput(HWND hwnd) {
+    if (hwnd == nullptr) return false;
+    wchar_t className[32]{};
+    const int length = GetClassNameW(hwnd, className, static_cast<int>(std::size(className)));
+    return length > 0 && (_wcsicmp(className, L"Edit") == 0 || _wcsicmp(className, L"RichEdit20W") == 0);
 }
 
 std::wstring FileNameOf(const std::wstring& path) {
@@ -103,6 +122,35 @@ std::wstring FormatUnavailableVolume(const ffprotocol::UnavailableVolumeRecord& 
     return std::wstring(guidText) + L"  (serial " + serialText + L", "
         + std::to_wstring(record.entryCount) + L" indexed entries)";
 }
+
+#ifdef _DEBUG
+std::wstring FormatSelectionProbeIdentity(const std::optional<SelectionIdentity>& identity) {
+    if (!identity) return {};
+    if (!identity->hasStableFileId) return L"path:" + identity->path;
+    return L"indexed:" + std::to_wstring(identity->volumeRowId) + L":" +
+           std::to_wstring(identity->fileIdHigh) + L":" + std::to_wstring(identity->fileIdLow);
+}
+
+std::wstring FormatSelectionProbeState(const SelectionDiagnostics& diagnostics) {
+    const std::wstring selectedPath = diagnostics.selectedIdentity
+        ? diagnostics.selectedIdentity->path : std::wstring{};
+    const std::wstring focusedIdentity = FormatSelectionProbeIdentity(diagnostics.focusedIdentity);
+    const std::wstring selectedIdentity = FormatSelectionProbeIdentity(diagnostics.selectedIdentity);
+    std::wstring visibleItems;
+    for (const auto& item : diagnostics.visibleItemNames) {
+        if (!visibleItems.empty()) visibleItems += L"|";
+        visibleItems += item;
+    }
+    return L"ActivePath=" + diagnostics.activePath + L"\n" +
+           L"VisibleItems=" + visibleItems + L"\n" +
+           L"SelectedPath=" + selectedPath + L"\n" +
+           L"SelectedIdentity=" + selectedIdentity + L"\n" +
+           L"SelectedIndex=" + std::to_wstring(diagnostics.selectedIndex) + L"\n" +
+           L"FocusedIdentity=" + focusedIdentity + L"\n" +
+           L"FocusedIndex=" + std::to_wstring(diagnostics.focusedIndex) + L"\n" +
+           L"OperationTarget=" + diagnostics.operationTarget + L"\n";
+}
+#endif
 }
 
 WindowShell::WindowShell() : previewController_([this](uint64_t requestId, PreviewResult result) {
@@ -123,21 +171,70 @@ void WindowShell::NavigateWorkspace(const std::wstring& path, const std::wstring
     RequestRepaint();
 }
 
-float WindowShell::NavigationViewportWidth() const {
-    RECT client{};
-    GetClientRect(hwnd_, &client);
-    return static_cast<float>((std::max)(0L, client.right - client.left - navigationSidebar_.Width()));
+void WindowShell::NavigateColumnViewTo(const std::wstring& path) {
+    if (path.empty()) columnView_.NavigateToComputerRoot();
+    else columnView_.NavigateToPath(path);
 }
 
-std::filesystem::path WindowShell::ShortcutSettingsPath() const {
-    std::vector<wchar_t> buffer(32768);
-    const DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0 || length >= buffer.size()) return {};
-    return std::filesystem::path(buffer.data()) / L"FastFiles" / L"shortcuts.json";
+void WindowShell::SaveActiveTabViewState() {
+    // A mouse click updates the workspace pane after ColumnView hit-testing;
+    // keep the model's active-pane choice authoritative before persisting.
+    navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
+    const size_t paneCount = navigationWorkspace_.ActivePaneCount();
+    for (size_t pane = 0; pane < paneCount; ++pane) {
+        auto& context = navigationWorkspace_.PaneContext(pane);
+        std::vector<std::wstring> columnPaths;
+        int focusedIndex = 0;
+        float scrollOffset = 0.0f;
+        columnView_.SavePaneState(static_cast<int>(pane), columnPaths, focusedIndex, scrollOffset);
+        context.columnPaths = std::move(columnPaths);
+        context.columnSelections = {focusedIndex};
+        context.columnScrollOffsets = {scrollOffset};
+        if (focusedIndex >= 0 && focusedIndex < static_cast<int>(context.columnPaths.size())) {
+            context.currentPath = context.columnPaths[static_cast<size_t>(focusedIndex)];
+        }
+    }
+}
+
+void WindowShell::RestoreActiveTabViewState() {
+    const bool dualPane = navigationWorkspace_.ActivePaneCount() == 2;
+    columnView_.SetDualPane(dualPane);
+    for (size_t pane = 0; pane < navigationWorkspace_.ActivePaneCount(); ++pane) {
+        const auto& context = navigationWorkspace_.PaneContext(pane);
+        columnView_.ActivatePane(static_cast<int>(pane));
+        if (context.columnPaths.empty() ||
+            (context.columnPaths.size() == 1 && context.columnPaths.front().empty())) {
+            if (context.currentPath.empty()) columnView_.NavigateToComputerRoot();
+            else columnView_.NavigateToPath(context.currentPath);
+            continue;
+        }
+        columnView_.RestorePaneState(
+            static_cast<int>(pane), context.columnPaths,
+            context.columnSelections.empty() ? 0 : context.columnSelections.front(),
+            context.columnScrollOffsets.empty() ? 0.0f : context.columnScrollOffsets.front());
+    }
+    columnView_.ActivatePane(static_cast<int>(navigationWorkspace_.ActivePaneIndex()));
+}
+
+float WindowShell::NavigationViewportWidth() const {
+    return CurrentDetailsLayout().availableColumnWidthDip;
+}
+
+ffui::DetailsLayout WindowShell::CurrentDetailsLayout() const {
+    RECT client{};
+    GetClientRect(hwnd_, &client);
+    const float scale = CurrentDpiScale();
+    const float sceneWidthPixels = static_cast<float>(client.right - client.left) -
+                                   static_cast<float>(navigationSidebar_.Width()) * scale;
+    const float sceneHeightPixels = static_cast<float>(client.bottom - client.top) -
+                                    static_cast<float>(kNavigationChromeHeight) * scale;
+    return ffui::ComputeDetailsLayout(sceneWidthPixels, sceneHeightPixels, detailsPaneVisible_, scale,
+                                      columnView_.IsDualPane());
 }
 
 CommandContext WindowShell::CurrentCommandContext() const {
-    return {ClassifySelection(columnView_.ActiveSelectionItems()), !clipboardPaths_.empty()};
+    return {ClassifySelection(columnView_.ActiveSelectionItems()),
+            !clipboardPaths_.empty() || HasFilesOnClipboard(hwnd_)};
 }
 
 bool WindowShell::InitializeCommands() {
@@ -150,11 +247,21 @@ bool WindowShell::InitializeCommands() {
             if (commandId == L"file.copy" || commandId == L"file.cut") {
                 clipboardPaths_ = paths;
                 clipboardIsCut_ = commandId == L"file.cut";
+                // Keep the app-local vector as a fallback for a clipboard that
+                // is temporarily owned by another process, but publish the
+                // normal shell format whenever possible so Explorer and other
+                // file managers can paste this selection.
+                CopyFilesToClipboard(hwnd_, paths, clipboardIsCut_);
             } else if (commandId == L"file.paste") {
                 const std::wstring destination = columnView_.ActivePanePath();
-                if (!clipboardPaths_.empty() && !destination.empty()) {
-                    if (QueueTransfer(clipboardPaths_, destination,
-                                      clipboardIsCut_ ? FileOperationKind::Move : FileOperationKind::Copy) && clipboardIsCut_) {
+                bool externalCut = false;
+                std::vector<std::wstring> pathsToPaste = clipboardPaths_;
+                if (pathsToPaste.empty()) pathsToPaste = ReadFilesFromClipboard(hwnd_, externalCut);
+                const bool cut = clipboardPaths_.empty() ? externalCut : clipboardIsCut_;
+                if (!pathsToPaste.empty() && !destination.empty()) {
+                    if (QueueTransfer(pathsToPaste, destination,
+                                      cut ? FileOperationKind::Move : FileOperationKind::Copy) &&
+                        cut && !clipboardPaths_.empty()) {
                         clipboardPaths_.clear();
                     }
                 }
@@ -241,13 +348,29 @@ bool WindowShell::InitializeCommands() {
                 const std::wstring target = paths.size() == 1 ? paths.front() : columnView_.ActivePanePath();
                 if (!target.empty()) LaunchTerminalHere(hwnd_, target);
             } else if (commandId == L"item.properties") {
-                RefreshSelectionPresentation();
-                SetWindowTextW(hwnd_, L"FastFiles — Properties");
-                RequestRepaint();
+                if (paths.size() == 1 &&
+                    !SHObjectProperties(hwnd_, SHOP_FILEPATH, paths.front().c_str(), nullptr)) {
+                    MessageBoxW(hwnd_, L"Windows could not open the item properties.",
+                                L"Properties", MB_OK | MB_ICONERROR);
+                }
             } else if (commandId == L"selection.select-all") {
                 columnView_.SelectAll();
                 RefreshSelectionPresentation();
                 RequestRepaint();
+            } else if (commandId == L"navigation.up") {
+                const auto parentPath = ParentNavigationPath(columnView_.ActivePanePath());
+                if (parentPath.has_value()) {
+                    if (parentPath->empty()) {
+                        navigationWorkspace_.Navigate({});
+                        columnView_.NavigateToComputerRoot();
+                        RefreshSelectionPresentation();
+                        navigationChrome_.Refresh();
+                        navigationSidebar_.Refresh();
+                        RequestRepaint();
+                    } else {
+                        NavigateWorkspace(*parentPath);
+                    }
+                }
             } else if (commandId == L"navigation.refresh") {
                 columnView_.RefreshActiveColumn();
             } else if (commandId == L"search.focus") {
@@ -262,15 +385,25 @@ bool WindowShell::InitializeCommands() {
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
                 navigationChrome_.FocusAddressBar();
+            } else if (commandId == L"navigation.add-bookmark") {
+                const std::wstring path = columnView_.ActivePanePath();
+                if (!path.empty()) {
+                    navigationWorkspace_.AddBookmark(path);
+                    navigationWorkspace_.FlushState();
+                    navigationSidebar_.Refresh();
+                    RequestRepaint();
+                }
             } else if (commandId == L"navigation.new-tab") {
+                SaveActiveTabViewState();
                 navigationWorkspace_.OpenTab();
-                columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                RestoreActiveTabViewState();
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
                 RequestRepaint();
             } else if (commandId == L"navigation.close-tab") {
+                SaveActiveTabViewState();
                 if (navigationWorkspace_.CloseActiveTab()) {
-                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    RestoreActiveTabViewState();
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
                     RequestRepaint();
@@ -279,27 +412,12 @@ bool WindowShell::InitializeCommands() {
                 const size_t count = navigationWorkspace_.TabCount();
                 if (count > 1) {
                     const size_t current = navigationWorkspace_.ActiveTabIndex();
-                    std::vector<std::wstring> savedPaths;
-                    int savedFocus = 0;
-                    float savedScroll = 0.0f;
-                    columnView_.SaveActivePaneState(savedPaths, savedFocus, savedScroll);
-                    auto& currentContext = navigationWorkspace_.ActiveContext();
-                    currentContext.columnPaths = savedPaths;
-                    currentContext.columnSelections = {savedFocus};
-                    currentContext.columnScrollOffsets = {savedScroll};
-                    
+                    SaveActiveTabViewState();
                     const size_t next = commandId == L"navigation.next-tab"
                         ? (current + 1) % count
                         : (current + count - 1) % count;
                     if (navigationWorkspace_.SwitchTab(next)) {
-                        const auto& newContext = navigationWorkspace_.ActiveContext();
-                        if (!newContext.columnPaths.empty()) {
-                            columnView_.RestoreActivePaneState(newContext.columnPaths,
-                                newContext.columnSelections.empty() ? 0 : newContext.columnSelections[0],
-                                newContext.columnScrollOffsets.empty() ? 0.0f : newContext.columnScrollOffsets[0]);
-                        } else {
-                            columnView_.NavigateToPath(newContext.currentPath);
-                        }
+                        RestoreActiveTabViewState();
                         RefreshSelectionPresentation();
                         navigationChrome_.Refresh();
                         RequestRepaint();
@@ -307,7 +425,7 @@ bool WindowShell::InitializeCommands() {
                 }
             } else if (commandId == L"navigation.reopen-tab") {
                 if (navigationWorkspace_.ReopenClosedTab()) {
-                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    RestoreActiveTabViewState();
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
                     RequestRepaint();
@@ -315,15 +433,23 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"navigation.back" || commandId == L"navigation.forward") {
                 const bool moved = commandId == L"navigation.back" ? navigationWorkspace_.GoBack() : navigationWorkspace_.GoForward();
                 if (moved) {
-                    columnView_.NavigateToPath(navigationWorkspace_.ActiveContext().currentPath);
+                    NavigateColumnViewTo(navigationWorkspace_.ActiveContext().currentPath);
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
                     RequestRepaint();
                 }
             } else if (commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
-                if (navigationWorkspace_.IsDualPane()) navigationWorkspace_.DisableDualPane();
-                else navigationWorkspace_.EnableDualPane();
+                const bool enabled = !navigationWorkspace_.IsDualPane();
+                if (enabled) navigationWorkspace_.EnableDualPane();
+                else navigationWorkspace_.DisableDualPane();
+                // Keep the rendered ColumnView model in lockstep with the
+                // workspace state. Previously the command only changed the
+                // model, leaving ColumnView's dual-pane renderer disabled.
+                columnView_.SetDualPane(enabled);
                 navigationChrome_.Refresh();
+                RequestRepaint();
+            } else if (commandId == L"view.toggle-details-pane") {
+                detailsPaneVisible_ = !detailsPaneVisible_;
                 RequestRepaint();
             } else if (commandId == L"file.rename" && paths.size() == 1) {
                 const std::filesystem::path source(paths.front());
@@ -343,12 +469,32 @@ bool WindowShell::InitializeCommands() {
         };
     }};
     if (!RegisterBaselineCommands(commandRegistry_, handlers)) return false;
-    const auto shortcutPath = ShortcutSettingsPath();
-    if (shortcutPath.empty()) shortcuts_.ResetDefaults(commandRegistry_);
-    else shortcuts_.Load(shortcutPath, commandRegistry_, [](const std::wstring& message) { OutputDebugStringW((message + L"\n").c_str()); });
+    const auto shortcutPath = ffprotocol::ShortcutSettingsPath();
+    std::error_code shortcutError;
+    const bool canonicalExists = !shortcutPath.empty() && std::filesystem::exists(shortcutPath, shortcutError);
+    if (canonicalExists) {
+        shortcuts_.Load(shortcutPath, commandRegistry_, [](const std::wstring& message) {
+            OutputDebugStringW((message + L"\n").c_str());
+        });
+    } else {
+        shortcuts_.ResetDefaults(commandRegistry_);
+        const ffprotocol::LegacyShortcutSettings legacy = ffprotocol::LoadLegacyShortcutSettings();
+        if (legacy.sectionPresent) {
+            if (!legacy.valid) {
+                OutputDebugStringW(L"Legacy shortcut settings were malformed; defaults retained.\n");
+            } else {
+                shortcuts_.ImportLegacy(legacy.bindings, commandRegistry_, [](const std::wstring& message) {
+                    OutputDebugStringW((message + L"\n").c_str());
+                });
+            }
+            // Persist the migration result once. From this point forward the
+            // general settings shortcut section is never consulted again.
+            if (!shortcutPath.empty()) shortcuts_.Save(shortcutPath);
+        }
+    }
     if (!commandPalette_.Initialize(hwnd_, &commandRegistry_, &shortcuts_,
                                     [this](const std::wstring& id) { InvokeCommand(id); })) return false;
-    return searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
+    if (!searchPanel_.Initialize(hwnd_, &engineClient_, [this](const ffsearch::Candidate& candidate,
                                                                   const ffsearch::PathReconstruction& path) {
         const std::wstring navigationPath = candidate.isDirectory
             ? (std::filesystem::path(candidate.folder) / candidate.name).wstring()
@@ -359,7 +505,9 @@ bool WindowShell::InitializeCommands() {
         RefreshSelectionPresentation();
         navigationChrome_.Refresh();
         RequestRepaint();
-    }, settings_.retainSearchHistory);
+    }, settings_.retainSearchHistory)) return false;
+    searchPanel_.SetDefaultScope(settings_.defaultSearchScope);
+    return true;
 }
 
 bool WindowShell::QueueTransfer(const std::vector<std::wstring>& paths, const std::wstring& destination,
@@ -441,8 +589,9 @@ bool WindowShell::InvokeCommand(const std::wstring& commandId) {
     return true;
 }
 
-bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope) {
+bool WindowShell::DispatchShortcut(const MSG& message, ShortcutScope scope, bool nativeEditFocused) {
     if (message.message != WM_KEYDOWN && message.message != WM_SYSKEYDOWN) return false;
+    if (!IsShortcutDispatchAllowed(scope, nativeEditFocused)) return false;
     uint8_t modifiers = ModifierNone;
     if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) modifiers |= ModifierControl;
     if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) modifiers |= ModifierShift;
@@ -497,7 +646,10 @@ LRESULT CALLBACK WindowShell::WndProcThunk(HWND hwnd, UINT message, WPARAM wPara
 bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
-    windowClass.style = CS_HREDRAW | CS_VREDRAW;
+    // Request the native double-click message sequence so a file's ordinary
+    // file-manager gesture (select, then double-click to open) is distinct
+    // from the single-click folder activation used by Column View.
+    windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
     windowClass.lpfnWndProc = &WindowShell::WndProcThunk;
     windowClass.hInstance = instance;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
@@ -538,18 +690,29 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         return false;
     }
     settings_ = ffprotocol::LoadSettings();
+    const std::wstring initialNavigationPath = ResolveInitialNavigationPath(
+        settings_.restorePreviousSession, navigationWorkspace_.State().lastLocation,
+        settings_.startupLocation);
+    if (!initialNavigationPath.empty() &&
+        initialNavigationPath != navigationWorkspace_.ActiveContext().currentPath) {
+        navigationWorkspace_.Navigate(initialNavigationPath);
+    }
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
+    if (!initialNavigationPath.empty()) {
+        columnView_.NavigateToPath(initialNavigationPath);
+    }
     // The icon cache posts WM_APP_ICON_READY to hwnd_ when a type icon resolves;
     // the shell repaints on that message. The column view draws the cached
     // bitmap (16 DIP) with a themed glyph placeholder until it arrives.
     iconCache_ = std::make_unique<ffui::IconCache>(hwnd_);
     columnView_.SetIconCache(iconCache_.get());
-    if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const std::wstring& path) {
-            columnView_.NavigateToPath(path);
+    if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const std::wstring& path, bool restoreTabState) {
+            if (restoreTabState) RestoreActiveTabViewState();
+            else NavigateColumnViewTo(path);
             RefreshSelectionPresentation();
             RequestRepaint();
-        })) return false;
+        }, [this] { SaveActiveTabViewState(); })) return false;
     if (!navigationSidebar_.Initialize(hwnd_, &navigationWorkspace_, [this](const NavigationSidebar::NavigationTarget& target) {
             if (target.path.empty()) {
                 columnView_.ShowUnavailableLocation(target.displayName);
@@ -557,9 +720,13 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 RequestRepaint();
                 return;
             }
-            if (target.openInNewTab) navigationWorkspace_.OpenTab(target.path);
+            if (target.openInNewTab) {
+                SaveActiveTabViewState();
+                navigationWorkspace_.OpenTab(target.path);
+                RestoreActiveTabViewState();
+            }
             else navigationWorkspace_.Navigate(target.path);
-            columnView_.NavigateToPath(target.path);
+            if (!target.openInNewTab) columnView_.NavigateToPath(target.path);
             RefreshSelectionPresentation();
             navigationChrome_.Refresh();
             navigationSidebar_.Refresh();
@@ -568,8 +735,21 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     if (!fileOperations_.Start(hwnd_)) return false;
     if (!InitializeCommands()) return false;
     if (!storageAnalysis_.Initialize(hwnd_, &engineClient_,
-        [this](const std::wstring& path) {
-            if (!path.empty()) navigationWorkspace_.Navigate(path);
+        [this](const std::wstring& path, bool isDirectory) {
+            if (!path.empty()) {
+                if (!isDirectory) {
+                    if (!OpenWithDefaultApplication(hwnd_, path)) {
+                        MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
+                    }
+                    return;
+                }
+                navigationWorkspace_.Navigate(path);
+                columnView_.NavigateToPath(path);
+                RefreshSelectionPresentation();
+                navigationChrome_.Refresh();
+                navigationSidebar_.Refresh();
+                RequestRepaint();
+            }
         },
         [this]() {
             storageAnalysis_.Hide();
@@ -578,7 +758,8 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         [this](const std::wstring& commandId, const std::vector<std::wstring>& /*paths*/) {
             InvokeCommand(commandId);
         })) return false;
-    if (!settingsDialog_.Initialize(hwnd_, &settings_, &navigationWorkspace_,
+    storageAnalysis_.SetCategories(settings_.storageCategories);
+    if (!settingsDialog_.Initialize(hwnd_, &settings_, &commandRegistry_, &shortcuts_, &navigationWorkspace_,
         [this]() {
             SaveAndNotifySettings();
             ApplyTheme();
@@ -616,23 +797,32 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     dropTarget_.Attach(dropTarget);
 
     engineClient_.Start(
-        [this] {
-            columnView_.OnSnapshotUpdated();
-            storageAnalysis_.OnSnapshotUpdated();
-            PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
+        [this](uint64_t generation) {
+            // ReaderLoop must stay dedicated to draining the pipe. Snapshot
+            // parsing and owner-window/ListView work can be expensive and
+            // must run on the UI thread; doing it inline here can fill the
+            // synchronous pipe and prevent the next directory request from
+            // ever reaching UiServer.
+            uint64_t pending = pendingSnapshotGeneration_.load();
+            while (generation > pending &&
+                   !pendingSnapshotGeneration_.compare_exchange_weak(pending, generation)) {
+            }
+            if (!snapshotRefreshPosted_.exchange(true)) {
+                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+            }
         },
-        [this](bool active) {
-            columnView_.SetEngineStatus(active);
-            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, active ? 1 : 0, 0);
+        [this](EngineConnectionState state, bool privilegedPathActive) {
+            columnView_.SetEngineStatus(state, privilegedPathActive);
+            PostMessageW(hwnd_, WM_APP_ENGINE_STATUS, static_cast<WPARAM>(state), privilegedPathActive ? 1 : 0);
         },
         [this](const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
             columnView_.OnDirectoryError(path, reason);
             PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
         });
 
-    engineClient_.RequestFolderAggregate(0, 0, 0, [this](uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
-        ffui::PostFolderAggregateResult(hwnd_, WM_APP_FOLDER_AGGREGATE, requestId, status, itemCount, totalSizeBytes);
-    });
+    // recovery-degraded-browsing 3.2: the status chip's retry affordance for
+    // the Engine unavailable state.
+    columnView_.SetRetryEngineCallback([this] { engineClient_.RetryConnect(); });
 
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
@@ -643,10 +833,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
 int WindowShell::RunMessageLoop() {
     MSG msg{};
     while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+        const HWND focused = GetFocus();
+        const bool nativeEditFocused = IsNativeTextInput(focused) || IsNativeTextInput(msg.hwnd) ||
+            focused == inlineRename_ || msg.hwnd == inlineRename_;
+        // Global shortcuts are checked before child-control routing. A
+        // successful dispatch consumes this message exactly once, so it can
+        // never fall through to a second command or the native edit.
+        if (DispatchShortcut(msg, ShortcutScope::Global, nativeEditFocused)) continue;
         if (commandPalette_.HandleMessage(msg)) continue;
         if (settingsDialog_.HandleMessage(msg)) continue;
-        if (DispatchShortcut(msg, ShortcutScope::Global)) continue;
-        if (!commandPalette_.Visible() && msg.hwnd != inlineRename_ && DispatchShortcut(msg, ShortcutScope::ActiveView)) continue;
+        if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }
@@ -747,7 +943,11 @@ void WindowShell::HandleAnimationTimer(bool ensureRunning) {
 }
 
 void WindowShell::SaveAndNotifySettings() {
-    if (ffprotocol::SaveSettings(settings_)) {
+    const bool settingsSaved = ffprotocol::SaveSettings(settings_);
+    const auto shortcutPath = ffprotocol::ShortcutSettingsPath();
+    const bool shortcutsSaved = !shortcutPath.empty() && shortcuts_.Save(shortcutPath);
+    if (settingsSaved && shortcutsSaved) {
+        storageAnalysis_.SetCategories(settings_.storageCategories);
         engineClient_.ReloadIndexingConfig();
     }
 }
@@ -757,9 +957,10 @@ void WindowShell::Render() {
     GetClientRect(hwnd_, &clientRect);
     const float clientWidth = static_cast<float>((std::max)(0L, clientRect.right - clientRect.left));
     const float clientHeight = static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top));
+    const auto detailsLayout = CurrentDetailsLayout();
     D2D1_SIZE_F viewportSize = D2D1::SizeF(
-        NavigationViewportWidth(),
-        static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top - kNavigationChromeHeight)));
+        detailsLayout.availableColumnWidthDip,
+        detailsLayout.viewportHeightDip);
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
 
@@ -801,7 +1002,7 @@ void WindowShell::Render() {
     } else {
         columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
     }
-    RenderDetails(context, viewportSize);
+    RenderDetails(context, detailsLayout);
     context->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Cross-fade composite: draw the captured previous frame over the freshly
@@ -877,18 +1078,21 @@ std::wstring WindowShell::FileTypeFor(const std::wstring& path) const {
     return found == fileTypes_.end() || found->second.empty() ? fallback : found->second;
 }
 
-void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewportSize) {
-    constexpr float kPanelWidth = 300.0f;
+void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::DetailsLayout& layout) {
     constexpr float kStatusHeight = 26.0f;
     constexpr float kProgressHeight = 3.0f;
-    const float left = std::max(0.0f, viewportSize.width - kPanelWidth);
+    const float sceneWidth = layout.viewportWidthDip;
+    const float sceneHeight = layout.viewportHeightDip;
+    const bool drawFullPane = layout.paneVisible && !layout.paneCollapsed &&
+                              layout.detailsRect.right > layout.detailsRect.left;
+    const float left = layout.detailsRect.left;
     // Elevated details card: the pane floats ~8 DIP inside the viewport as a
     // rounded surfaceElevated card; the status bar stays a full-width strip
     // below it, separated by a subtle divider.
     const float inset = ffui::UiMetrics::kSpaceS;
-    const float statusTop = viewportSize.height - kStatusHeight;
+    const float statusTop = sceneHeight - kStatusHeight;
     const float cardLeft = left + inset;
-    const float cardRight = viewportSize.width - inset;
+    const float cardRight = layout.detailsRect.right - inset;
     const float cardTop = ColumnView::kBadgeHeight + inset;
     const float cardBottom = statusTop - inset;
     const float pad = inset;
@@ -909,15 +1113,24 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
         // system colors so the user's accessibility palette is never overridden.
         ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOW)), &detailsBrush_);
         ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOWTEXT)), &detailsTextBrush_);
-        context->FillRectangle(D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get());
     } else {
         ffui::UiEnsureSolidBrush(context, theme.surfaceElevated, &detailsBrush_);
         ffui::UiEnsureSolidBrush(context, theme.text, &detailsTextBrush_);
         ffui::UiEnsureSolidBrush(context, theme.dividerSubtle, &dividerBrush_);
-        ffui::UiFillRoundedRect(context, D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get(), ffui::UiMetrics::kRadiusMedium);
+    }
+    if (drawFullPane) {
+        if (highContrast) {
+            context->FillRectangle(D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get());
+        } else {
+            ffui::UiFillRoundedRect(context, D2D1::RectF(cardLeft, cardTop, cardRight, cardBottom), detailsBrush_.Get(), ffui::UiMetrics::kRadiusMedium);
+        }
+    } else if (layout.paneCollapsed) {
+        context->FillRectangle(D2D1::RectF(layout.detailsRect.left, 0.0f,
+                                           layout.detailsRect.right, sceneHeight), detailsBrush_.Get());
     }
     const SelectionSummary summary = columnView_.CurrentSelectionSummary();
     const auto selection = summary.items.size() == 1 ? std::optional<FileDescriptor>(summary.items.front()) : std::nullopt;
+    if (drawFullPane) {
     std::wstring info = L"Properties\n\n";
     if (summary.items.empty()) info += L"No selection";
     else if (summary.items.size() > 1) {
@@ -938,16 +1151,15 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
                 lastAggregateRequestVolumeRowId_ = selection->volumeRowId;
                 lastAggregateRequestFrnLow_ = selection->fileIdLow;
                 lastAggregateRequestFrnHigh_ = selection->fileIdHigh;
-                const uint64_t requestId = engineClient_.LastRequestId() + 1;
-                pendingAggregateRequestId_ = requestId;
+                uint64_t requestId = 0;
                 pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
                 pendingAggregateItemCount_ = 0;
                 pendingAggregateTotalSize_ = 0;
-                engineClient_.RequestFolderAggregate(
+                requestId = engineClient_.RequestFolderAggregate(
                     static_cast<int64_t>(selection->volumeRowId),
                     selection->fileIdLow, selection->fileIdHigh,
-                    [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
-                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
+                    [this](uint64_t engineRequestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
+                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{engineRequestId, status, itemCount, totalSizeBytes});
                         const HWND target = hwnd_;
                         if (target != nullptr
                             && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
@@ -955,6 +1167,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
                             payload.release();
                         }
                     });
+                pendingAggregateRequestId_ = requestId;
             }
             if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Pending) {
                 info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
@@ -973,38 +1186,58 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
             info += L"Attributes: " + FormatAttributes(selection->attributes);
         }
     }
+    const float infoTop = cardTop + pad;
+    const float infoWidth = (std::max)(0.0f, cardRight - cardLeft - 2.0f * pad);
+    float infoHeight = 120.0f;
+    Microsoft::WRL::ComPtr<IDWriteTextLayout> infoLayout;
+    if (detailsTextFormat_ && infoWidth > 0.0f &&
+        SUCCEEDED(renderer_.DWriteFactory()->CreateTextLayout(
+            info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
+            infoWidth, (std::numeric_limits<float>::max)(), &infoLayout))) {
+        DWRITE_TEXT_METRICS infoMetrics{};
+        if (SUCCEEDED(infoLayout->GetMetrics(&infoMetrics))) {
+            infoHeight = (std::max)(0.0f, infoMetrics.height);
+        }
+    }
+    // Long paths can wrap across several lines. Let DirectWrite determine the
+    // property block height, then place the preview below it so metadata never
+    // paints into the preview region.
+    const float previewTop = (std::min)(cardBottom,
+        (std::max)(cardTop + 135.0f, infoTop + infoHeight + pad));
+    const float infoBottom = (std::min)(previewTop - pad, cardBottom);
     context->DrawText(info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(cardLeft + pad, cardTop + pad, cardRight - pad, cardTop + 120), detailsTextBrush_.Get());
+        D2D1::RectF(cardLeft + pad, infoTop, cardRight - pad, infoBottom), detailsTextBrush_.Get());
     PreviewResult preview;
     { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
-    const float previewTop = cardTop + 135;
-    if (!settings_.previewEnabled) {
+    const float previewBottom = cardBottom - pad;
+    if (previewTop < previewBottom && !settings_.previewEnabled) {
         const std::wstring text = L"Preview disabled";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
-    } else if (preview.kind == PreviewKind::Image) {
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+    } else if (previewTop < previewBottom && preview.kind == PreviewKind::Image) {
         if (!previewBitmap_ && !preview.pixels.empty()) {
             const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
             context->CreateBitmap(D2D1::SizeU(preview.width, preview.height), preview.pixels.data(), preview.width * 4, &properties, &previewBitmap_);
         }
-        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad));
-    } else {
+        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom));
+    } else if (previewTop < previewBottom) {
         std::wstring text = preview.kind == PreviewKind::Text ? preview.text : (selection && !selection->isDirectory ? L"No preview available" : L"");
         if (preview.truncated) text += L"\n\n[Preview truncated]";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, cardBottom - pad), detailsTextBrush_.Get());
+            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+    }
     }
     const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +
         ffui::FormatSize(summary.knownSizeBytes) + L"  •  " + columnView_.CurrentPath();
     // Status bar: full-width strip under the card, separated by a subtle
     // divider and carrying the slim file-operation progress bar (the primary
     // progress surface; the window title keeps its textual progress too).
-    context->FillRectangle(D2D1::RectF(0, statusTop, viewportSize.width, viewportSize.height), detailsBrush_.Get());
+    context->FillRectangle(D2D1::RectF(0, statusTop, sceneWidth, sceneHeight), detailsBrush_.Get());
     if (!highContrast) {
-        context->DrawLine(D2D1::Point2F(0, statusTop), D2D1::Point2F(viewportSize.width, statusTop), dividerBrush_.Get(), 1.0f);
+        context->DrawLine(D2D1::Point2F(0, statusTop), D2D1::Point2F(sceneWidth, statusTop), dividerBrush_.Get(), 1.0f);
     }
     if (fileOpInProgress_) {
-        const float progressWidth = viewportSize.width * std::clamp(fileOpProgress_, 0.0f, 1.0f);
+        const float progressWidth = sceneWidth * std::clamp(fileOpProgress_, 0.0f, 1.0f);
         const D2D1_RECT_F progressRect = D2D1::RectF(0, statusTop + kStatusHeight - kProgressHeight, progressWidth, statusTop + kStatusHeight);
         if (highContrast) {
             ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHT)), &progressBrush_);
@@ -1015,7 +1248,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, D2D1_SIZE_F viewpor
         }
     }
     context->DrawText(status.c_str(), static_cast<UINT32>(status.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(8, statusTop, viewportSize.width - 8, viewportSize.height), detailsTextBrush_.Get());
+        D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight), detailsTextBrush_.Get());
 }
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
@@ -1058,6 +1291,23 @@ void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
 
 LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+#ifdef _DEBUG
+        case WM_COPYDATA: {
+            const auto* request = reinterpret_cast<const COPYDATASTRUCT*>(lParam);
+            if (request == nullptr || request->dwData != ffui::kSelectionDiagnosticsQuery ||
+                wParam == 0 || request->cbData != 0) {
+                return DefWindowProcW(hwnd, message, wParam, lParam);
+            }
+            const std::wstring payload = FormatSelectionProbeState(columnView_.CurrentSelectionDiagnostics());
+            COPYDATASTRUCT response{};
+            response.dwData = ffui::kSelectionDiagnosticsResponse;
+            response.cbData = static_cast<DWORD>((payload.size() + 1) * sizeof(wchar_t));
+            response.lpData = const_cast<wchar_t*>(payload.c_str());
+            SendMessageW(reinterpret_cast<HWND>(wParam), WM_COPYDATA,
+                         reinterpret_cast<WPARAM>(hwnd), reinterpret_cast<LPARAM>(&response));
+            return TRUE;
+        }
+#endif
         case WM_SIZE: {
             const UINT width = LOWORD(lParam);
             const UINT height = HIWORD(lParam);
@@ -1103,16 +1353,47 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RequestRepaint();
             return 0;
 
-        case WM_APP_ENGINE_STATUS:
-            engineActive_ = wParam != 0;
+        case WM_APP_SNAPSHOT_UPDATED:
+            snapshotRefreshPosted_ = false;
+            {
+                const uint64_t generation = pendingSnapshotGeneration_.exchange(0);
+                columnView_.OnSnapshotUpdated(generation);
+            }
+            searchPanel_.OnSnapshotUpdated();
+            storageAnalysis_.OnSnapshotUpdated();
+            RequestRepaint();
+            if (pendingSnapshotGeneration_.load() != 0 && !snapshotRefreshPosted_.exchange(true)) {
+                PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
+            }
+            return 0;
+
+        case WM_APP_ENGINE_STATUS: {
+            // wParam carries the EngineConnectionState; lParam is the
+            // privileged-path-active flag fanned out to the index-dependent
+            // surfaces. Keep all ColumnView model work on the owner thread:
+            // this message is posted by EngineClient's management thread.
+            const EngineConnectionState state = static_cast<EngineConnectionState>(wParam);
+            columnView_.OnEngineConnectionState(state);
+            if (state == EngineConnectionState::Connected) {
+                // A restarted engine owns a fresh snapshot mapping. Replay
+                // the visible columns so reconnects cannot leave the browser
+                // showing empty/stale columns indefinitely.
+                columnView_.RefreshAllColumns();
+            }
+            engineActive_ = lParam != 0;
             searchPanel_.SetEngineActive(engineActive_);
             settingsDialog_.SetEngineActive(engineActive_);
             storageAnalysis_.SetEngineActive(engineActive_);
             RequestRepaint();
             return 0;
+        }
 
         case WM_APP_SEARCH_COMPLETE:
             searchPanel_.HandleCompletion(lParam);
+            return 0;
+
+        case WM_APP_INDEXED_SEARCH_COMPLETE:
+            searchPanel_.HandleIndexedCompletion(lParam);
             return 0;
 
         case WM_TIMER:
@@ -1146,11 +1427,20 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_NOTIFY:
             if (searchPanel_.HandleNotify(lParam)) return 0;
+            if (storageAnalysis_.HandleNotify(lParam)) return 0;
             return DefWindowProcW(hwnd, message, wParam, lParam);
 
         case WM_DRAWITEM:
+            if (commandPalette_.HandleDrawItem(lParam)) return TRUE;
             if (searchPanel_.HandleDrawItem(lParam)) return TRUE;
             return DefWindowProcW(hwnd, message, wParam, lParam);
+
+        case WM_CTLCOLOREDIT:
+        case WM_CTLCOLORLISTBOX: {
+            const LRESULT paletteBrush = commandPalette_.HandleCtlColor(message, wParam, lParam);
+            if (paletteBrush != 0) return paletteBrush;
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
 
         case WM_APP_PREVIEW_READY:
             RequestRepaint();
@@ -1259,6 +1549,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_APP_TREEMAP_AGGREGATE:
+            storageAnalysis_.HandleTreemapCompletion(lParam);
+            return 0;
+
         case WM_APP_FILE_OPERATION_CONFLICT: {
             auto* question = reinterpret_cast<FileOperationConflictQuestion*>(lParam);
             if (question == nullptr) return 0;
@@ -1342,19 +1636,30 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_LBUTTONDOWN: {
             if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
-                const int x = GET_X_LPARAM(lParam);
-                const int y = GET_Y_LPARAM(lParam);
+                // Treemap layout and hit-testing use DIPs, while WM mouse
+                // coordinates are physical pixels.  Convert at the same
+                // boundary as ColumnView so hover/click targets remain
+                // aligned at 125%/150% DPI.
+                const float scale = CurrentDpiScale();
+                const int x = static_cast<int>(std::lround(static_cast<float>(GET_X_LPARAM(lParam)) / scale));
+                const int y = static_cast<int>(std::lround(static_cast<float>(GET_Y_LPARAM(lParam)) / scale));
                 if (storageAnalysis_.HandleLButtonDown(wParam, MAKELPARAM(x, y))) {
                     return 0;
                 }
             }
+            const float scale = CurrentDpiScale();
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
-                static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
+                static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
+                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
+            const float viewportWidth = NavigationViewportWidth();
+            if (point.x < 0.0f || point.x >= viewportWidth || point.y < 0.0f) {
+                return 0;
+            }
             columnView_.OnMouseDown(
-                point, scrollOffset_, NavigationViewportWidth(),
+                point, scrollOffset_, viewportWidth,
                 (GetKeyState(VK_CONTROL) & 0x8000) != 0,
                 (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+            navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
             dragOrigin_ = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             dragArmed_ = !columnView_.ActiveSelectionPaths().empty();
             RefreshSelectionPresentation();
@@ -1368,11 +1673,27 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
         }
 
+        case WM_LBUTTONDBLCLK: {
+            // The first click in the native double-click sequence has already
+            // selected the item (and, for a folder, populated the next
+            // column).  Only a selected file should be opened here; folders
+            // intentionally retain Finder-style single-click navigation and
+            // must not be activated a second time against a newly focused
+            // column.
+            const auto selection = columnView_.ActiveSelectionItems();
+            if (ShouldOpenSelectionOnDoubleClick(selection)) {
+                InvokeCommand(L"item.open");
+            }
+            dragArmed_ = false;
+            return 0;
+        }
+
         case WM_MOUSEMOVE: {
             const bool inTreemap = storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap;
             if (inTreemap) {
-                const int x = GET_X_LPARAM(lParam);
-                const int y = GET_Y_LPARAM(lParam);
+                const float scale = CurrentDpiScale();
+                const int x = static_cast<int>(std::lround(static_cast<float>(GET_X_LPARAM(lParam)) / scale));
+                const int y = static_cast<int>(std::lround(static_cast<float>(GET_Y_LPARAM(lParam)) / scale));
                 if (storageAnalysis_.HandleMouseMove(wParam, MAKELPARAM(x, y))) {
                     RequestRepaint();
                     return 0;
@@ -1389,10 +1710,16 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             // unchanged) so rows can animate a hover overlay. TME_LEAVE is
             // re-armed so the leave that must cancel the hover is observed.
             if (!inTreemap) {
+                const float scale = CurrentDpiScale();
                 D2D1_POINT_2F point = D2D1::Point2F(
-                    static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
-                    static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
-                columnView_.OnMouseMove(point, scrollOffset_, NavigationViewportWidth());
+                    static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
+                    static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
+                const float viewportWidth = NavigationViewportWidth();
+                if (point.x < 0.0f || point.x >= viewportWidth || point.y < 0.0f) {
+                    columnView_.OnMouseLeave();
+                    return 0;
+                }
+                columnView_.OnMouseMove(point, scrollOffset_, viewportWidth);
                 if (columnView_.HoverAnimating()) {
                     HandleAnimationTimer(true);
                 }
@@ -1417,10 +1744,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_RBUTTONDOWN: {
+            const float scale = CurrentDpiScale();
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam) - navigationSidebar_.Width()),
-                static_cast<float>(GET_Y_LPARAM(lParam) - kNavigationChromeHeight));
+                static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
+                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
             columnView_.OnMouseDown(point, scrollOffset_, NavigationViewportWidth(), false, false);
+            navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
@@ -1434,9 +1763,22 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_MOUSEWHEEL: {
             const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
             const float viewportWidth = NavigationViewportWidth();
+            RECT client{};
+            GetClientRect(hwnd_, &client);
+            const float viewportHeight = (std::max)(0.0f,
+                static_cast<float>(client.bottom - client.top) / CurrentDpiScale() -
+                static_cast<float>(kNavigationChromeHeight));
+            if ((GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) == 0) {
+                // Normal wheel input scrolls rows. Shift+wheel retains the
+                // Finder-style horizontal column scrolling path below.
+                columnView_.ScrollVertical(-static_cast<float>(delta) / 2.0f, viewportHeight);
+                RequestRepaint();
+                return 0;
+            }
             POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             ScreenToClient(hwnd_, &pt);
-            const float effectiveX = pt.x - static_cast<float>(navigationSidebar_.Width());
+            const float effectiveX = static_cast<float>(pt.x) / CurrentDpiScale() -
+                                     static_cast<float>(navigationSidebar_.Width());
             const uint64_t now = GetTickCount64();
 
             if (columnView_.IsDualPane()) {
@@ -1503,6 +1845,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 return 0;
             }
             columnView_.OnKeyDown(static_cast<int>(wParam));
+            if (wParam == VK_UP || wParam == VK_DOWN) {
+                RECT client{};
+                GetClientRect(hwnd_, &client);
+                const float viewportHeight = (std::max)(0.0f,
+                    static_cast<float>(client.bottom - client.top) / CurrentDpiScale() -
+                    static_cast<float>(kNavigationChromeHeight));
+                columnView_.EnsureFocusedItemVisible(viewportHeight);
+            }
             RefreshSelectionPresentation();
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -28,14 +29,26 @@ struct Settings {
     bool restorePreviousSession = true;
     bool previewEnabled = true;
     unsigned long long maxAutoPreviewBytes = 16ULL * 1024ULL * 1024ULL;
-    std::vector<std::pair<std::wstring, std::wstring>> shortcuts;
+    unsigned long long vacuumIntervalHours = 24;
+    unsigned long long vacuumSizeGrowthPercent = 10;
     std::vector<std::pair<std::wstring, std::wstring>> storageCategories;
+};
+
+// The general settings file used to carry a separate, display-oriented
+// shortcut list. It is retained only as a one-time migration input; runtime
+// shortcut state belongs to the UI command system's dedicated configuration.
+struct LegacyShortcutSettings {
+    bool sectionPresent = false;
+    bool valid = true;
+    std::vector<std::pair<std::wstring, std::wstring>> bindings;
 };
 
 // All file mutation is performed by FastFiles. Engine calls Load only.
 std::wstring SettingsPath();
+std::wstring ShortcutSettingsPath();
 Settings DefaultSettings();
 Settings LoadSettings(bool preserveCorruptFile = true);
+LegacyShortcutSettings LoadLegacyShortcutSettings();
 bool SaveSettings(const Settings& settings);
 bool ResetSettings();
 bool IsPathIncluded(const VolumeSetting& volume, const std::wstring& canonicalPath) noexcept;

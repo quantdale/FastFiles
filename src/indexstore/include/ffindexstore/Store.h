@@ -72,6 +72,15 @@ public:
     // "Risks"). Returns false only on an I/O/database error; a WAL file
     // under the threshold is a normal, successful no-op.
     bool CheckpointIfWalExceeds(uint64_t thresholdBytes);
+    // address-engineering-audit-findings 5.1: refresh SQLite query-planner
+    // statistics after a sufficiently large ingestion batch.
+    bool Analyze();
+    // address-engineering-audit-findings 5.2: run VACUUM only during an
+    // idle window after the configured interval and size-growth gates pass.
+    // nowEpochSeconds is injectable so the gating policy is deterministic in
+    // tests; the production caller passes current wall-clock seconds.
+    bool VacuumIfDue(bool userIdle, uint64_t nowEpochSeconds, uint64_t intervalHours,
+                     uint64_t sizeGrowthPercent);
 
     // --- Volume metadata (tasks.md 1.3, section 7/8's persistence needs) ---
 
@@ -82,6 +91,9 @@ public:
     std::optional<VolumeRowId> GetOrCreateVolume(const VolumeKey& key);
     std::optional<VolumeMetadata> GetVolumeMetadata(VolumeRowId volumeRowId);
     std::vector<VolumeMetadata> GetAllVolumes();
+    // Indexed search needs volume identity/availability only; this avoids
+    // counting every entry when the caller does not need entryCount.
+    std::vector<VolumeMetadata> GetAllVolumesWithoutEntryCounts();
 
     // tasks.md 7.2/7.3: mark availability without touching entries.
     bool SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp);
@@ -134,7 +146,12 @@ public:
     FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 
 private:
+    std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
+
     sqlite3* db_ = nullptr;
+    std::string dbPathUtf8_;
+    uint64_t lastVacuumTimeSeconds_ = 0;
+    uint64_t lastVacuumSizeBytes_ = 0;
 };
 
 } // namespace ffindexstore

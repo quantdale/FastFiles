@@ -8,6 +8,12 @@ add_library(ffmftparser STATIC
 target_include_directories(ffmftparser PUBLIC src)
 target_compile_features(ffmftparser PUBLIC cxx_std_20)
 
+add_library(ffusnparser STATIC
+  src/UsnRecordParser.cpp
+)
+target_include_directories(ffusnparser PUBLIC src)
+target_compile_features(ffusnparser PUBLIC cxx_std_20)
+
 add_library(ffindexsvcprobes STATIC
   src/PrivilegeVerification.cpp
   src/VolumeEnumeration.cpp
@@ -28,4 +34,4 @@ add_executable(FastFilesIndexSvc
   src/UsnJournalReader.cpp
 )
 
-target_link_libraries(FastFilesIndexSvc PRIVATE ffprotocol ffipc ffsetup ffmftparser ffindexsvcprobes)
+target_link_libraries(FastFilesIndexSvc PRIVATE ffprotocol ffipc ffsetup ffmftparser ffusnparser ffindexsvcprobes)

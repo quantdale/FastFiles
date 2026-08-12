@@ -1,6 +1,8 @@
 #include "ffsearch/Search.h"
+#include "ffsearch/Path.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cwctype>
 #include <unordered_map>
 #include <unordered_set>
@@ -19,12 +21,12 @@ bool OrdinalStartsWith(std::wstring_view value, std::wstring_view prefix) {
         prefix.data(), static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
 }
 
-bool InScope(const Candidate& candidate, SearchScope scope, const std::wstring& root) {
+bool InScope(const Candidate& candidate, SearchScope scope, const std::wstring& root, bool persistentOnly) {
+    if (persistentOnly && !candidate.persistentIndexed) return false;
     if (scope == SearchScope::AllIndexedLocations) return true;
     if (scope == SearchScope::CurrentFolder) return OrdinalEqual(candidate.folder, root);
     if (scope == SearchScope::CurrentDrive) {
-        if (root.size() < 2 || candidate.folder.size() < 2) return false;
-        return towupper(root[0]) == towupper(candidate.folder[0]) && root[1] == L':' && candidate.folder[1] == L':';
+        return SameVolume(root, candidate.folder);
     }
     if (OrdinalEqual(candidate.folder, root)) return true;
     if (!OrdinalStartsWith(candidate.folder, root)) return false;
@@ -80,10 +82,14 @@ void SortResults(std::vector<SearchResult>& results, SortField field, bool desce
     std::stable_sort(results.begin(), results.end(), compare);
 }
 
-SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
-                             const std::function<bool()>& cancelled) {
+SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
+                                 const std::vector<Candidate>& candidates, const SearchRequest& request,
+                                 const CandidateMaterializer& materialize,
+                                 const std::function<bool()>& cancelled) {
     SearchResponse response;
     const size_t chunkSize = (std::max)(size_t{1}, request.chunkSize);
+    const bool folderNeededForEvaluation = request.scope != SearchScope::AllIndexedLocations ||
+                                           request.query.requiresFolder;
     for (size_t index = 0; index < candidates.size(); ++index) {
         if (index % chunkSize == 0 && cancelled && cancelled()) {
             response.cancelled = true;
@@ -91,11 +97,100 @@ SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const Sea
             return response;
         }
         ++response.candidatesVisited;
-        const Candidate& candidate = candidates[index];
-        if (!InScope(candidate, request.scope, request.scopePath)) continue;
+        Candidate* mutableCandidate = mutableCandidates == nullptr ? nullptr : &(*mutableCandidates)[index];
+        const Candidate& candidate = mutableCandidate == nullptr ? candidates[index] : *mutableCandidate;
+        if (!request.query.MatchesWithoutFolder(candidate)) continue;
+        if (folderNeededForEvaluation && materialize &&
+            (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
+        if (!InScope(candidate, request.scope, request.scopePath, request.persistentOnly)) continue;
         if (!request.query.Matches(candidate)) continue;
+        if (!folderNeededForEvaluation && materialize &&
+            (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
         response.results.push_back({candidate, ClassifyMatch(candidate, request.query.primaryTerm)});
+        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
+            response.truncated = true;
+            break;
+        }
     }
+    SortResults(response.results, request.sortField, request.descending);
+    return response;
+}
+
+SearchResponse ExecuteSearch(const std::vector<Candidate>& candidates, const SearchRequest& request,
+                             const std::function<bool()>& cancelled) {
+    return ExecuteSearchCore(nullptr, candidates, request, {}, cancelled);
+}
+
+SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const SearchRequest& request,
+                                  const CandidateMaterializer& materialize,
+                                  const std::function<bool()>& cancelled) {
+    return ExecuteSearchCore(&candidates, candidates, request, materialize, cancelled);
+}
+
+SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
+                                  const SearchRequest& request,
+                                  const CandidateViewMaterializer& materialize,
+                                  const std::function<bool()>& cancelled,
+                                  SearchDiagnostics* diagnostics) {
+    SearchResponse response;
+    if (!request.query.viewCompatible) return response;
+
+    const size_t chunkSize = (std::max)(size_t{1}, request.chunkSize);
+    const bool folderNeededForEvaluation = request.scope != SearchScope::AllIndexedLocations ||
+                                           request.query.requiresFolder;
+    bool stopped = false;
+    auto visitLambda = [&](const CandidateView& candidate) {
+        if (stopped) return false;
+        if (response.candidatesVisited % chunkSize == 0 && cancelled && cancelled()) {
+            response.cancelled = true;
+            response.results.clear();
+            stopped = true;
+            return false;
+        }
+        ++response.candidatesVisited;
+        if (diagnostics != nullptr && diagnostics->projectionOnly) return true;
+
+        std::optional<Candidate> ownedCandidate;
+        if (diagnostics != nullptr) ++diagnostics->pathNeededDecisions;
+        if (folderNeededForEvaluation) {
+            if (!request.query.MatchesViewWithoutFolder(candidate,
+                                                        diagnostics != nullptr ? &diagnostics->match : nullptr)) {
+                return true;
+            }
+            if (diagnostics != nullptr) ++diagnostics->pathLookups;
+            ownedCandidate = materialize(candidate);
+            if (!ownedCandidate || !InScope(*ownedCandidate, request.scope, request.scopePath,
+                                            request.persistentOnly) || !request.query.Matches(*ownedCandidate)) {
+                return true;
+            }
+        } else {
+            if (!request.query.MatchesView(candidate,
+                                           diagnostics != nullptr ? &diagnostics->match : nullptr)) return true;
+            if (diagnostics != nullptr) ++diagnostics->pathLookups;
+            ownedCandidate = materialize(candidate);
+            if (!ownedCandidate) return true;
+        }
+
+        const auto matchedRowStart = diagnostics != nullptr ? std::chrono::steady_clock::now()
+                                                             : std::chrono::steady_clock::time_point{};
+        Candidate owned = std::move(*ownedCandidate);
+        const MatchTier tier = ClassifyMatch(owned, request.query.primaryTerm);
+        response.results.push_back({std::move(owned), tier});
+        if (diagnostics != nullptr) {
+            ++diagnostics->matchedRows;
+            diagnostics->matchedRowHandlingMs +=
+                std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - matchedRowStart).count();
+        }
+        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
+            response.truncated = true;
+            stopped = true;
+            return false;
+        }
+        return true;
+    };
+    const CandidateViewVisitor visit(visitLambda);
+    enumerate(visit);
+    if (response.cancelled) return response;
     SortResults(response.results, request.sortField, request.descending);
     return response;
 }

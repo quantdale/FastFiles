@@ -186,6 +186,11 @@ std::wstring SettingsPath() {
     return directory.empty() ? std::wstring{} : directory + L"\\settings.json";
 }
 
+std::wstring ShortcutSettingsPath() {
+    const std::wstring directory = AppDirectory();
+    return directory.empty() ? std::wstring{} : directory + L"\\shortcuts.json";
+}
+
 Settings DefaultSettings() {
     Settings settings;
     DWORD drives = GetLogicalDrives();
@@ -200,9 +205,39 @@ Settings DefaultSettings() {
         volume.rules.push_back({root + L"System Volume Information", false});
         settings.indexing.push_back(std::move(volume));
     }
-    settings.shortcuts = {{L"Back", L"Alt+Left"}, {L"Forward", L"Alt+Right"}, {L"Settings", L"Ctrl+,"}};
     settings.storageCategories = {{L"Documents", L".doc;.docx;.pdf;.txt"}, {L"Images", L".png;.jpg;.jpeg;.gif"}};
     return settings;
+}
+
+LegacyShortcutSettings LoadLegacyShortcutSettings() {
+    LegacyShortcutSettings result;
+    const std::wstring path = SettingsPath();
+    if (path.empty()) return result;
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return result;
+    const std::string bytes((std::istreambuf_iterator<char>(file)), {});
+    const auto decoded = DecodeUtf8(bytes);
+    if (!decoded || !JsonValidator(*decoded).Validate()) {
+        result.valid = false;
+        return result;
+    }
+    const std::wstring& text = *decoded;
+    const std::wregex sectionPattern(LR"re("shortcuts"\s*:\s*\{\s*"bindings"\s*:)re");
+    result.sectionPresent = std::regex_search(text, sectionPattern);
+    if (!result.sectionPresent) return result;
+
+    const std::wregex shortcutPattern(LR"re(\{\s*"command"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"binding"\s*:\s*"((?:\\.|[^"])*)"\s*\})re");
+    const std::wsregex_iterator regexEnd;
+    for (std::wsregex_iterator it(text.begin(), text.end(), shortcutPattern); it != regexEnd; ++it) {
+        const auto command = Unescape((*it)[1]);
+        const auto binding = Unescape((*it)[2]);
+        if (!command || !binding) {
+            result.valid = false;
+            continue;
+        }
+        result.bindings.emplace_back(*command, *binding);
+    }
+    return result;
 }
 
 Settings LoadSettings(bool preserveCorruptFile) {
@@ -253,6 +288,14 @@ Settings LoadSettings(bool preserveCorruptFile) {
             try { result.maxAutoPreviewBytes = std::stoull(match[1]); }
             catch (const std::exception&) { LogFallback(L"Invalid preview section; preview defaults loaded."); }
         } else if (HasJsonField(text, L"maxAutoPreviewBytes")) LogFallback(L"Invalid preview section; preview defaults loaded.");
+        if (std::regex_search(text, match, std::wregex(LR"re("vacuumIntervalHours"\s*:\s*([0-9]+))re"))) {
+            try { result.vacuumIntervalHours = std::stoull(match[1]); }
+            catch (const std::exception&) { LogFallback(L"Invalid maintenance section; maintenance defaults loaded."); }
+        } else if (HasJsonField(text, L"vacuumIntervalHours")) LogFallback(L"Invalid maintenance section; maintenance defaults loaded.");
+        if (std::regex_search(text, match, std::wregex(LR"re("vacuumSizeGrowthPercent"\s*:\s*([0-9]+))re"))) {
+            try { result.vacuumSizeGrowthPercent = std::stoull(match[1]); }
+            catch (const std::exception&) { LogFallback(L"Invalid maintenance section; maintenance defaults loaded."); }
+        } else if (HasJsonField(text, L"vacuumSizeGrowthPercent")) LogFallback(L"Invalid maintenance section; maintenance defaults loaded.");
 
         std::vector<VolumeSetting> volumes;
         const std::wsregex_iterator regexEnd;
@@ -273,16 +316,6 @@ Settings LoadSettings(bool preserveCorruptFile) {
         }
         if (!volumes.empty() || std::regex_search(text, std::wregex(LR"re("volumes"\s*:\s*\[\s*\])re"))) {
             result.indexing = std::move(volumes);
-        }
-
-        std::vector<std::pair<std::wstring, std::wstring>> shortcuts;
-        const std::wregex shortcutPattern(LR"re(\{\s*"command"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"binding"\s*:\s*"((?:\\.|[^"])*)"\s*\})re");
-        for (std::wsregex_iterator it(text.begin(), text.end(), shortcutPattern); it != regexEnd; ++it) {
-            const auto command = Unescape((*it)[1]); const auto binding = Unescape((*it)[2]);
-            if (command && binding) shortcuts.emplace_back(*command, *binding);
-        }
-        if (!shortcuts.empty() || std::regex_search(text, std::wregex(LR"re("bindings"\s*:\s*\[\s*\])re"))) {
-            result.shortcuts = std::move(shortcuts);
         }
 
         std::vector<std::pair<std::wstring, std::wstring>> categories;
@@ -320,12 +353,9 @@ bool SaveSettings(const Settings& settings) {
     file << L"]},\n  \"search\": {\"defaultSearchScope\":\"" << Escape(settings.defaultSearchScope) << L"\",\"retainSearchHistory\":" << (settings.retainSearchHistory ? L"true" : L"false")
          << L"},\n  \"appearance\": {\"theme\":\"" << ThemeName(settings.theme)
          << L"\"},\n  \"navigation\": {\"startupLocation\":\"" << Escape(settings.startupLocation) << L"\",\"restorePreviousSession\":" << (settings.restorePreviousSession ? L"true" : L"false")
-         << L"},\n  \"shortcuts\": {\"bindings\":[";
-    for (size_t i = 0; i < settings.shortcuts.size(); ++i) {
-        if (i) file << L",";
-        file << L"{\"command\":\"" << Escape(settings.shortcuts[i].first) << L"\",\"binding\":\"" << Escape(settings.shortcuts[i].second) << L"\"}";
-    }
-    file << L"]},\n  \"preview\": {\"previewEnabled\":" << (settings.previewEnabled ? L"true" : L"false") << L",\"maxAutoPreviewBytes\":" << settings.maxAutoPreviewBytes
+         << L"},\n  \"preview\": {\"previewEnabled\":" << (settings.previewEnabled ? L"true" : L"false") << L",\"maxAutoPreviewBytes\":" << settings.maxAutoPreviewBytes
+         << L"},\n  \"maintenance\": {\"vacuumIntervalHours\":" << settings.vacuumIntervalHours
+         << L",\"vacuumSizeGrowthPercent\":" << settings.vacuumSizeGrowthPercent
          << L"},\n  \"storage-analysis\": {\"categories\":[";
     for (size_t i = 0; i < settings.storageCategories.size(); ++i) {
         if (i) file << L",";

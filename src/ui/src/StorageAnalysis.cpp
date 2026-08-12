@@ -3,6 +3,8 @@
 #include "TreemapView.h"
 #include "UITheme.h"
 #include "Util.h"
+#include "ffui/SnapshotAggregate.h"
+#include "ffsearch/Path.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
@@ -55,14 +57,6 @@ void SetSortIndicator(HWND list, int column, bool ascending) {
     }
 }
 
-std::wstring FormatPercent(uint64_t part, uint64_t whole) {
-    if (whole == 0) return L"—";
-    const double pct = static_cast<double>(part) / static_cast<double>(whole) * 100.0;
-    wchar_t buffer[64]{};
-    swprintf_s(buffer, L"%.1f%%", pct);
-    return buffer;
-}
-
 } // namespace
 
 StorageAnalysis::~StorageAnalysis() {
@@ -70,7 +64,7 @@ StorageAnalysis::~StorageAnalysis() {
 }
 
 bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
-                                 std::function<void(const std::wstring& path)> navigate,
+                                 std::function<void(const std::wstring& path, bool isDirectory)> navigate,
                                  std::function<void()> close,
                                  std::function<void(const std::wstring& commandId, const std::vector<std::wstring>& paths)> invokeCommand) {
     owner_ = owner;
@@ -141,25 +135,56 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     // Wire the treemap into the storage panel so it renders the current folder
     // when the Treemap view mode is selected. Treemap navigation updates the
     // panel's current path and rebuilds the tree, then delegates to the shell.
-    treemapView_.Initialize(owner_, engine_, [this](const std::wstring& path) {
+    treemapView_.Initialize(owner_, engine_, [this](const std::wstring& path, bool isDirectory) {
         currentPath_ = path;
-        treemapView_.ShowAndFocus(path);
-        if (navigate_) navigate_(path);
+        if (isDirectory) {
+            treemapView_.ShowAndFocus(path);
+        }
+        if (navigate_) navigate_(path, isDirectory);
     });
+    treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
     return true;
+}
+
+void StorageAnalysis::SetCategories(const std::vector<std::pair<std::wstring, std::wstring>>& categories) {
+    categoryEngine_.LoadFromSettings(categories);
+    if (categoryFilter_ != nullptr) {
+        PopulateCategoryFilter();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
+        if (visible_) RefreshData();
+    }
 }
 
 void StorageAnalysis::PopulateCategoryFilter() {
     if (!categoryFilter_) return;
     ComboBox_ResetContent(categoryFilter_);
-    // storage-analysis 5.4: "All categories" plus one entry per shipped/user
-    // category definition; directories are never filtered out.
+    categoryFilterIds_.clear();
+    categoryFilterIds_.push_back(L"");
     ComboBox_AddString(categoryFilter_, L"All categories");
     const auto& categories = categoryEngine_.GetCategories();
     for (const auto& cat : categories) {
+        categoryFilterIds_.push_back(cat.id);
         ComboBox_AddString(categoryFilter_, const_cast<wchar_t*>(cat.displayName.c_str()));
     }
-    ComboBox_SetCurSel(categoryFilter_, 0);
+
+    int selected = 0;
+    for (size_t i = 1; i < categoryFilterIds_.size(); ++i) {
+        if (categoryFilterIds_[i] == activeCategoryId_) {
+            selected = static_cast<int>(i);
+            break;
+        }
+    }
+    if (selected == 0) activeCategoryId_.clear();
+    ComboBox_SetCurSel(categoryFilter_, selected);
+}
+
+void StorageAnalysis::UpdateCategoryFilterFromControl() {
+    activeCategoryId_.clear();
+    if (!categoryFilter_) return;
+    const int selected = ComboBox_GetCurSel(categoryFilter_);
+    if (selected >= 0 && selected < static_cast<int>(categoryFilterIds_.size())) {
+        activeCategoryId_ = categoryFilterIds_[static_cast<size_t>(selected)];
+    }
 }
 
 void StorageAnalysis::ApplyCategoryFilter() {
@@ -167,17 +192,11 @@ void StorageAnalysis::ApplyCategoryFilter() {
     // category, recalculating percentages relative to the filtered scope.
     // Directories stay (they can be drilled into); files whose category does
     // not match the filter are removed from the list.
-    if (!categoryFilter_) return;
-    const int sel = ComboBox_GetCurSel(categoryFilter_);
-    if (sel <= 0) return; // index 0 = "All categories"
-    wchar_t buffer[128]{};
-    ComboBox_GetLBText(categoryFilter_, sel, buffer);
-    const std::wstring catName = buffer;
+    if (activeCategoryId_.empty()) return;
     items_.erase(std::remove_if(items_.begin(), items_.end(),
-                                [this, &catName](const DrillItem& item) {
+                                [this](const DrillItem& item) {
                                     if (item.isDirectory) return false;
-                                    auto match = categoryEngine_.Match(item.name);
-                                    return match.matched ? match.categoryName != catName : catName != L"Other";
+                                    return !categoryEngine_.Matches(item.name, activeCategoryId_);
                                 }),
                  items_.end());
 }
@@ -186,13 +205,11 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
-    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
-                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_SHOW);
     // Open on the storage overview (2.1): the volume list is the entry point
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
     viewMode_ = ViewMode::Overview;
-    treemapView_.Hide();
+    ApplyModeVisibility();
     RefreshData();
     Reposition();
     SetFocus(overview_);
@@ -202,9 +219,7 @@ void StorageAnalysis::Hide() {
     if (!visible_) return;
     visible_ = false;
     KillTimer(owner_, kRefreshTimer);
-    for (HWND c : {back_, up_, list_, overview_, status_, overviewButton_, categoryFilter_, drillDown_,
-                   largestFolders_, largestFiles_, byCategory_, treemap_}) ShowWindow(c, SW_HIDE);
-    treemapView_.Hide();
+    ApplyModeVisibility();
     items_.clear();
     volumes_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
@@ -219,20 +234,48 @@ void StorageAnalysis::Reposition() {
     const int height = static_cast<int>(client.bottom);
     const int top = Scaled(static_cast<int>(ffui::UiMetrics::kChromeHeight)); // below navigation chrome
     const int buttonHeight = Scaled(28);
-    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), SWP_SHOWWINDOW);
+    constexpr UINT kLayoutFlags = SWP_NOACTIVATE;
+    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, kLayoutFlags);
+    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, kLayoutFlags);
+    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, kLayoutFlags);
+    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, kLayoutFlags);
+    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, kLayoutFlags);
+    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, kLayoutFlags);
+    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, kLayoutFlags);
+    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), kLayoutFlags);
     const int listTop = top + buttonHeight + Scaled(8);
     const int listHeight = (std::max)(Scaled(80), height - top - buttonHeight - Scaled(20));
-    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
-    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
+    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
+}
+
+void StorageAnalysis::ApplyModeVisibility() {
+    const auto apply = [this](HWND control, StorageControl semanticControl) {
+        if (control == nullptr) return;
+        const bool show = visible_ && StorageControlVisible(viewMode_, semanticControl);
+        ShowWindow(control, show ? SW_SHOW : SW_HIDE);
+    };
+
+    apply(back_, StorageControl::Back);
+    apply(up_, StorageControl::Up);
+    apply(overviewButton_, StorageControl::OverviewButton);
+    apply(drillDown_, StorageControl::DrillDownButton);
+    apply(largestFolders_, StorageControl::LargestFoldersButton);
+    apply(largestFiles_, StorageControl::LargestFilesButton);
+    apply(byCategory_, StorageControl::ByCategoryButton);
+    apply(treemap_, StorageControl::TreemapButton);
+    apply(list_, StorageControl::List);
+    apply(overview_, StorageControl::OverviewList);
+    apply(categoryFilter_, StorageControl::CategoryFilter);
+    apply(status_, StorageControl::Status);
+
+    if (visible_ && StorageControlVisible(viewMode_, StorageControl::TreemapSurface)) {
+        if (!treemapView_.Visible()) treemapView_.ShowAndFocus(currentPath_);
+    } else {
+        treemapView_.Hide();
+    }
 }
 
 void StorageAnalysis::RefreshOverview() {
@@ -349,14 +392,22 @@ void StorageAnalysis::RefreshOverview() {
 void StorageAnalysis::RefreshData() {
     if (!visible_) return;
 
+    // A refresh invalidates all outstanding row requests. Request IDs are
+    // monotonic, so a late callback from the previous listing cannot be
+    // mistaken for a row in this listing.
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pending_.clear();
+    }
+    parentAggregateTotal_ = 0;
+    parentAggregateKnown_ = false;
+    parentAggregatePending_ = false;
+    parentRequestId_ = 0;
+
     // storage-analysis 2.1: the overview is the entry point; list mode views
     // are skipped entirely while it is active.
     if (viewMode_ == ViewMode::Overview) {
         RefreshOverview();
-        ShowWindow(list_, SW_HIDE);
-        ShowWindow(overview_, SW_SHOW);
-        ShowWindow(categoryFilter_, SW_HIDE);
-        ShowWindow(status_, SW_SHOW);
         return;
     }
     if (!engine_) return;
@@ -401,7 +452,20 @@ void StorageAnalysis::RefreshData() {
         item.fileIdHigh = entry.fileIdHigh;
         item.parentFrnLow = entry.parentIdLow;
         item.parentFrnHigh = entry.parentIdHigh;
-        item.calculating = entry.isDirectory;
+        item.calculating = entry.isDirectory && entry.volumeRowId != 0;
+        if (entry.isDirectory && entry.volumeRowId == 0) {
+            // Degraded snapshots do not have FRNs or a durable projection to
+            // answer the aggregate request.  Sum the portion already present
+            // in the immutable snapshot instead of leaving every directory in
+            // a perpetual "Calculating" state.  Missing descendants remain
+            // explicitly partial and therefore cannot produce a misleading
+            // percentage or claim complete volume coverage.
+            const auto aggregate = ffui::AggregateSnapshotDirectory(
+                *snapshot, ffui::JoinSnapshotPath(targetPath, entry.name));
+            item.totalSizeBytes = aggregate.totalSizeBytes;
+            item.calculating = false;
+            item.aggregateFailed = !aggregate.complete;
+        }
         items_.push_back(item);
     }
 
@@ -445,23 +509,42 @@ void StorageAnalysis::RefreshData() {
         ApplyCategoryFilter();
     }
 
-    const bool showList = viewMode_ != ViewMode::Treemap;
-    ShowWindow(list_, showList ? SW_SHOW : SW_HIDE);
-    ShowWindow(overview_, SW_HIDE);
-    ShowWindow(status_, showList ? SW_SHOW : SW_HIDE);
+    if (directory.volumeRowId == 0) {
+        const auto aggregate = ffui::AggregateSnapshotDirectory(*snapshot, targetPath);
+        parentAggregateTotal_ = aggregate.totalSizeBytes;
+        parentAggregateKnown_ = aggregate.complete;
+        parentAggregatePending_ = false;
+    } else {
+        RequestAggregateForParent(directory);
+    }
+
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
 
     // Request aggregates for all directories
-    uint64_t requestId = 1;
     for (size_t i = 0; i < items_.size(); ++i) {
         if (items_[i].isDirectory && items_[i].volumeRowId != 0) {
-            items_[i].requestId = requestId++;
+            items_[i].requestId = nextRequestId_++;
             RequestAggregateForItem(i);
         }
     }
 
     SortItems(sortColumn_, sortAscending_);
+}
+
+void StorageAnalysis::RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory) {
+    if (!engine_ || directory.volumeRowId == 0) return;
+    const uint64_t requestId = nextRequestId_++;
+    parentRequestId_ = requestId;
+    parentAggregatePending_ = true;
+    engine_->RequestFolderAggregate(
+        directory.volumeRowId, directory.directoryIdLow, directory.directoryIdHigh,
+        [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status,
+               uint64_t itemCount, uint64_t totalSizeBytes) {
+            ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE,
+                                             requestId, status,
+                                             itemCount, totalSizeBytes);
+        });
 }
 
 void StorageAnalysis::RequestAggregateForItem(size_t index) {
@@ -477,16 +560,54 @@ void StorageAnalysis::RequestAggregateForItem(size_t index) {
 
     engine_->RequestFolderAggregate(
         item.volumeRowId, item.fileIdLow, item.fileIdHigh,
-        [this, requestId](uint64_t reqId, ffprotocol::FolderAggregateStatus status,
+        [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status,
                           uint64_t itemCount, uint64_t totalSizeBytes) {
-            if (reqId != requestId) return;
+            // EngineClient's callback is already scoped to this request.  The
+            // storage view intentionally uses its own compact request IDs for
+            // ListView bookkeeping, so comparing the engine's global ID here
+            // would discard every aggregate result after the first request.
             ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE, requestId, status, itemCount, totalSizeBytes);
         });
+}
+
+std::pair<uint64_t, bool> StorageAnalysis::CurrentParentTotals() const {
+    if (parentAggregateKnown_) {
+        return {parentAggregateTotal_, true};
+    }
+    if (parentAggregatePending_) {
+        return {0, false};
+    }
+    uint64_t total = 0;
+    bool known = true;
+    for (const auto& item : items_) {
+        if (item.isDirectory && (item.calculating || item.aggregateFailed)) {
+            known = false;
+        }
+        if (UINT64_MAX - total < item.totalSizeBytes) {
+            // A representationally impossible parent total must not wrap and
+            // produce a plausible-looking percentage.
+            return {0, false};
+        }
+        total += item.totalSizeBytes;
+    }
+    return {total, known};
 }
 
 void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
                                             ffprotocol::FolderAggregateStatus status,
                                             uint64_t /*itemCount*/, uint64_t totalSizeBytes) {
+    if (requestId == parentRequestId_) {
+        parentAggregatePending_ = false;
+        parentAggregateKnown_ = status == ffprotocol::FolderAggregateStatus::Resolved;
+        parentAggregateTotal_ = parentAggregateKnown_ ? totalSizeBytes : 0;
+        // The percentage and size sort keys depend on the parent aggregate.
+        // Re-sort after the asynchronous parent result arrives so an owner-
+        // data list does not keep the provisional order indefinitely.
+        SortItems(sortColumn_, sortAscending_);
+        ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
+        InvalidateRect(list_, nullptr, FALSE);
+        return;
+    }
     std::lock_guard<std::mutex> lock(pendingMutex_);
     auto it = std::find_if(pending_.begin(), pending_.end(),
                            [requestId](const PendingRequest& r) { return r.requestId == requestId; });
@@ -500,11 +621,17 @@ void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
     if (status == ffprotocol::FolderAggregateStatus::Resolved) {
         itemIt->totalSizeBytes = totalSizeBytes;
         itemIt->calculating = false;
+        itemIt->aggregateFailed = false;
     } else if (status == ffprotocol::FolderAggregateStatus::NotFound) {
         itemIt->totalSizeBytes = 0;
         itemIt->calculating = false;
+        itemIt->aggregateFailed = true;
     }
 
+    // Folder size and percentage columns are sortable; the completed value can
+    // change the item's relative position, so refresh the ordering before the
+    // owner-data list repaints.
+    SortItems(sortColumn_, sortAscending_);
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
 }
@@ -515,29 +642,41 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
 
-    auto getSortKey = [this](const DrillItem& item, int col) -> std::pair<int, uint64_t> {
+    struct SortKey {
+        int group = 0;
+        bool known = true;
+        double value = 0.0;
+    };
+    const auto [parentTotal, parentKnown] = CurrentParentTotals();
+    auto getSortKey = [parentTotal, parentKnown](const DrillItem& item, int col) -> SortKey {
         switch (col) {
-            case 0: return {item.isDirectory ? 0 : 1, 0}; // name: folders first, then name
-            case 1: return {item.isDirectory ? 0 : 1, 0}; // type: folders first
-            case 2: return {item.isDirectory ? 0 : 1, item.sizeBytes}; // size
-            case 3: return {item.isDirectory ? 0 : 1, item.totalSizeBytes}; // subtree size
+            case 0: return {item.isDirectory ? 0 : 1, true, 0.0}; // name: folders first, then name
+            case 1: return {item.isDirectory ? 0 : 1, true, 0.0}; // type: folders first
+            case 2: return {item.isDirectory ? 0 : 1, true, static_cast<double>(item.sizeBytes)}; // size
+            case 3: return {item.isDirectory ? 0 : 1, !item.calculating && !item.aggregateFailed,
+                                   static_cast<double>(item.totalSizeBytes)}; // subtree size
             case 4: {
-                uint64_t parentTotal = 0;
-                for (const auto& sibling : items_) {
-                    if (sibling.isDirectory) parentTotal += sibling.totalSizeBytes;
-                }
-                return {item.isDirectory ? 0 : 1, parentTotal > 0 ? (item.totalSizeBytes * 1000000ULL / parentTotal) : 0};
+                const auto percentage = ComputeStoragePercentage(
+                    item.totalSizeBytes, parentTotal, parentKnown &&
+                    (!item.isDirectory || (!item.calculating && !item.aggregateFailed)));
+                return {item.isDirectory ? 0 : 1, percentage.known, percentage.sortKey};
             }
-            case 5: return {0, item.lastModifiedTime}; // modified
-            default: return {0, 0};
+            case 5: return {0, true, static_cast<double>(item.lastModifiedTime)}; // modified
+            default: return {0, true, 0.0};
         }
     };
 
     std::sort(items_.begin(), items_.end(), [this, column, ascending, getSortKey](const DrillItem& a, const DrillItem& b) {
         const auto keyA = getSortKey(a, column);
         const auto keyB = getSortKey(b, column);
-        if (keyA.first != keyB.first) return ascending ? keyA.first < keyB.first : keyA.first > keyB.first;
-        if (keyA.second != keyB.second) return ascending ? keyA.second < keyB.second : keyA.second > keyB.second;
+        if (keyA.group != keyB.group) return ascending ? keyA.group < keyB.group : keyA.group > keyB.group;
+        if (keyA.known != keyB.known) return ascending ? keyA.known > keyB.known : keyA.known < keyB.known;
+        const bool equalValue = column == 4
+            ? StoragePercentageNearlyEqual(keyA.value, keyB.value)
+            : keyA.value == keyB.value;
+        if (!equalValue) {
+            return ascending ? keyA.value < keyB.value : keyA.value > keyB.value;
+        }
         // tie-break on name
         return ascending ? _wcsicmp(a.name.c_str(), b.name.c_str()) < 0 : _wcsicmp(a.name.c_str(), b.name.c_str()) > 0;
     });
@@ -562,6 +701,8 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam);
     if (id == kCategoryFilterId && HIWORD(wParam) == CBN_SELCHANGE) {
+        UpdateCategoryFilterFromControl();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         RefreshData();
         return true;
     }
@@ -571,13 +712,11 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     }
     if (id == kUpId) {
         if (!currentPath_.empty()) {
-            size_t slash = currentPath_.find_last_of(L"\\/");
-            if (slash != std::wstring::npos && slash >= 3) {
-                std::wstring parent = currentPath_.substr(0, slash);
-                if (parent.size() == 2 && parent[1] == L':') parent += L"\\";
+            const std::wstring parent = ffsearch::ParentPath(currentPath_);
+            if (!parent.empty()) {
                 currentPath_ = parent;
                 RefreshData();
-                if (navigate_) navigate_(currentPath_);
+                if (navigate_) navigate_(currentPath_, true);
             }
         }
         return true;
@@ -610,8 +749,10 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
 }
 
 void StorageAnalysis::SetViewMode(ViewMode mode) {
-    if (viewMode_ == mode) return;
-    const bool leavingTreemap = viewMode_ == ViewMode::Treemap;
+    if (viewMode_ == mode) {
+        ApplyModeVisibility();
+        return;
+    }
     viewMode_ = mode;
     CheckRadioButton(owner_, kOverviewId, kTreemapId,
                      mode == ViewMode::Overview ? kOverviewId :
@@ -619,11 +760,7 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
                      mode == ViewMode::LargestFolders ? kLargestFoldersId :
                      mode == ViewMode::LargestFiles ? kLargestFilesId :
                      mode == ViewMode::ByCategory ? kByCategoryId : kTreemapId);
-    if (mode == ViewMode::Treemap) {
-        treemapView_.ShowAndFocus(currentPath_);
-    } else if (leavingTreemap) {
-        treemapView_.Hide();
-    }
+    ApplyModeVisibility();
     RefreshData();
 }
 
@@ -646,7 +783,7 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 }
                 currentPath_ = vol.rootPath;
                 SetViewMode(ViewMode::DrillDown);
-                if (navigate_) navigate_(currentPath_);
+                if (navigate_) navigate_(currentPath_, true);
             }
             return true;
         }
@@ -673,21 +810,19 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 break;
             case 3:
                 if (item.isDirectory) {
-                    text = item.calculating ? L"Calculating…" : ffui::FormatSize(item.totalSizeBytes);
+                    if (item.calculating) text = L"Calculating…";
+                    else if (item.aggregateFailed) text = L"Partial";
+                    else text = ffui::FormatSize(item.totalSizeBytes);
                 } else {
                     text = ffui::FormatSize(item.totalSizeBytes);
                 }
                 break;
             case 4: {
-                if (item.isDirectory && !item.calculating && item.totalSizeBytes > 0) {
-                    uint64_t parentTotal = 0;
-                    for (const auto& sibling : items_) {
-                        if (sibling.isDirectory) parentTotal += sibling.totalSizeBytes;
-                    }
-                    text = FormatPercent(item.totalSizeBytes, parentTotal);
-                } else {
-                    text = L"—";
-                }
+                const auto [parentTotal, parentKnown] = CurrentParentTotals();
+                const auto percentage = ComputeStoragePercentage(
+                    item.totalSizeBytes, parentTotal, parentKnown &&
+                    (!item.isDirectory || (!item.calculating && !item.aggregateFailed)));
+                text = percentage.display;
                 break;
             }
             case 5:
@@ -721,10 +856,10 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 std::wstring childPath = ffui::JoinPath(currentPath_, item.name);
                 currentPath_ = childPath;
                 RefreshData();
-                if (navigate_) navigate_(currentPath_);
+                if (navigate_) navigate_(currentPath_, true);
             } else if (navigate_) {
                 std::wstring filePath = ffui::JoinPath(currentPath_, item.name);
-                navigate_(filePath);
+                navigate_(filePath, false);
             }
         }
         return true;
@@ -755,6 +890,10 @@ bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
     HandleAggregateResult(payload->requestId, payload->status, payload->itemCount, payload->totalSizeBytes);
     delete payload;
     return true;
+}
+
+bool StorageAnalysis::HandleTreemapCompletion(LPARAM lParam) {
+    return treemapView_.HandleAggregateCompletion(lParam);
 }
 
 void StorageAnalysis::SetEngineActive(bool active) {

@@ -14,6 +14,8 @@
 #include "ffprotocol/Records.h"
 #include "ffprotocol/Settings.h"
 #include "ffprotocol/SnapshotFormat.h"
+#include "ffprotocol/UiProtocol.h"
+#include "ffsearch/Search.h"
 
 namespace ffengine {
 
@@ -31,6 +33,63 @@ namespace ffengine {
 // caller) do not need to coordinate with each other.
 class IndexPipeline {
 public:
+    // Optional attribution seam for the explicit scalability benchmark. The
+    // normal product path passes no timing object and remains behaviorally
+    // unchanged; the fields describe the real SearchIndexed stages rather
+    // than adding production logging.
+    struct SearchTimings {
+        bool detailedDiagnostics = false;
+        bool projectionOnly = false;
+        double sqliteMetadataMs = 0.0;
+        double projectionTraversalMs = 0.0;
+        double projectionEnumerationMs = 0.0;
+        double namePoolLookupMs = 0.0;
+        double nameViewConstructionMs = 0.0;
+        double candidateMaterializationMs = 0.0;
+        double lightweightCandidateMaterializationMs = 0.0;
+        double lazyPathMaterializationMs = 0.0;
+        double queryParseMs = 0.0;
+        double matchFilterSortMs = 0.0;
+        double predicateDispatchMs = 0.0;
+        double substringMatchingMs = 0.0;
+        double globMatchingMs = 0.0;
+        double extensionMatchingMs = 0.0;
+        double metadataMatchingMs = 0.0;
+        double folderMatchingMs = 0.0;
+        double matchedRowHandlingMs = 0.0;
+        double responseMaterializationMs = 0.0;
+        double totalMs = 0.0;
+        size_t candidateCount = 0;
+        size_t projectionEntriesVisited = 0;
+        size_t projectionRowsExamined = 0;
+        size_t namePoolLookups = 0;
+        size_t emptyNamesRejected = 0;
+        size_t nameViewsConstructed = 0;
+        size_t candidateObjectsMaterialized = 0;
+        size_t candidateNameCopies = 0;
+        size_t candidatesVisited = 0;
+        size_t queryPredicateEvaluations = 0;
+        size_t queryTermEvaluations = 0;
+        size_t caseInsensitiveComparisons = 0;
+        size_t caseFoldOperations = 0;
+        size_t substringSearches = 0;
+        size_t globMatches = 0;
+        size_t prefixChecks = 0;
+        size_t extensionPredicates = 0;
+        size_t metadataPredicates = 0;
+        size_t earlyRejects = 0;
+        size_t predicateMatches = 0;
+        size_t pathNeededDecisions = 0;
+        size_t pathLookups = 0;
+        size_t matchedRows = 0;
+        size_t resultCount = 0;
+        size_t searchResultObjectsMaterialized = 0;
+        size_t lazyPathMaterializationCount = 0;
+        size_t filenameIndexCandidateCount = 0;
+        bool filenameIndexUsed = false;
+        bool truncated = false;
+    };
+
     // outIntegrityFailed (optional, task 1.7): set to true when the open
     // failed specifically because the existing file failed its integrity
     // check, so the caller can apply the rebuild-from-fresh-scan fallback
@@ -45,13 +104,20 @@ public:
     // every call and escalates to a forced checkpoint once the WAL has
     // grown past the threshold (design.md "Risks": unbounded WAL growth
     // under sustained write bursts). No-op if the store was never opened.
-    void RunStoreMaintenance();
+    void RunStoreMaintenance(bool userIdle = false, uint64_t vacuumIntervalHours = 24,
+                             uint64_t vacuumSizeGrowthPercent = 10);
 
     // task 3.1/3.2: rebuilds every volume already known to the durable
     // store, invoking onVolumeRebuilt once per volume as soon as that
     // volume's rebuild completes (not gated on every volume finishing).
     using VolumeRebuiltCallback = std::function<void(ffindexstore::VolumeRowId)>;
     void RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt);
+
+    // close-independent-validation-gaps 4.6: initial and reconciliation
+    // scans are bulk projection mutations. Their durable writes continue
+    // normally, while the projection defers compaction and its optional
+    // filename accelerator until the bulk scan is no longer active.
+    void SetBulkScanActive(bool active);
 
     ffindexstore::VolumeRowId ResolveVolume(const ffindexstore::VolumeKey& key);
     std::optional<ffindexstore::VolumeMetadata> GetVolumeMetadata(ffindexstore::VolumeRowId id);
@@ -121,6 +187,15 @@ public:
     // the folder is known, or std::nullopt if it is not.
     std::optional<ffindexstore::Projection::FolderAggregate> GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn);
 
+    // Executes a bounded query against the durable in-memory projection. The
+    // returned candidates carry reconstructed parent folders so the UI can
+    // navigate a result without requiring the entire index over IPC. The
+    // projection lock is held while copying lightweight candidate data;
+    // matching and sorting happen after that copy, and lazy folder
+    // reconstruction reacquires the lock only for path-dependent survivors.
+    ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
+                                                    SearchTimings* timings = nullptr);
+
 private:
     std::mutex mutex_;
     ffindexstore::Store store_;
@@ -138,6 +213,15 @@ private:
     // projection (deferred: decided on the next reconciliation pass rather
     // than risk dropping a record whose inclusion is genuinely undecided).
     bool IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn);
+
+    // address-engineering-audit-findings 5.1: keep planner statistics fresh
+    // without adding ANALYZE work to every small journal update. The counter
+    // is retained when ANALYZE fails so a later ingestion batch retries it.
+    static constexpr uint64_t kAnalyzeRecordThreshold = 10'000;
+    void MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount);
+    void MaybeReportProjectionMemoryPressureLocked();
+    uint64_t recordsSinceAnalyze_ = 0;
+    bool projectionMemoryWarningIssued_ = false;
 
     struct FileIdHash {
         size_t operator()(const ffindexstore::FileId& id) const noexcept {

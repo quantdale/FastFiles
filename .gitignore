@@ -11,6 +11,9 @@ verify/.signing/
 
 # Build artifact output.
 dist/
+*.obj
+__pycache__/
+*.pyc
 
 # Merged audit dump (superseded by codebase-audit/).
 all-edit-with-results-*.md

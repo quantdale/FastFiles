@@ -1,3 +1,30 @@
+add_library(ffsetup STATIC
+  src/SecurityDescriptors.cpp
+  src/ServiceRegistration.cpp
+  src/GroupSetup.cpp
+  src/InstallDirAcl.cpp
+  src/PeerImageMatch.cpp
+  src/ScheduledTaskRegistration.cpp
+  src/AuthenticodeVerification.cpp
+)
+
+target_include_directories(ffsetup PUBLIC
+  "${FASTFILES_GENERATED_INCLUDE_DIR}"
+  include
+)
+target_compile_features(ffsetup PUBLIC cxx_std_20)
+
+target_link_libraries(ffsetup PUBLIC
+  advapi32
+  netapi32
+  ole32
+  oleaut32
+  wintrust
+  crypt32
+  taskschd
+  comsuppw
+)
+
 # Diagnostic-only escape hatch for the pinned Authenticode checks
 # (AuthenticodeVerification.cpp). Never enabled in a shipped configuration:
 # Release and any distribution candidate must keep the fail-closed path
@@ -13,27 +40,3 @@ if(FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
   endif()
   target_compile_definitions(ffsetup PRIVATE FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
 endif()
-
-add_library(ffsetup STATIC
-  src/SecurityDescriptors.cpp
-  src/ServiceRegistration.cpp
-  src/GroupSetup.cpp
-  src/InstallDirAcl.cpp
-  src/PeerImageMatch.cpp
-  src/ScheduledTaskRegistration.cpp
-  src/AuthenticodeVerification.cpp
-)
-
-target_include_directories(ffsetup PUBLIC include)
-target_compile_features(ffsetup PUBLIC cxx_std_20)
-
-target_link_libraries(ffsetup PUBLIC
-  advapi32
-  netapi32
-  ole32
-  oleaut32
-  wintrust
-  crypt32
-  taskschd
-  comsuppw
-)

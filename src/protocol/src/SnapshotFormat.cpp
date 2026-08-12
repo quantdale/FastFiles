@@ -136,6 +136,9 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
             || !reader.ReadU32(entryCount)) {
             return std::nullopt;
         }
+        if (statusRaw > static_cast<uint32_t>(DirectoryEnumerationStatus::IoError)) {
+            return std::nullopt;
+        }
 
         // Every entry contributes at least 1 (isDirectory) + 4 (name
         // length prefix) bytes -- reject an implausible declared count

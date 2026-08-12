@@ -285,6 +285,43 @@ void TestPauseShownInStatusAndDropsBatchesWithoutAdvancing() {
           "batches apply again after resume -- resume continues from the stored position, not from zero");
 }
 
+void TestInitialScanBatchesDoNotRepeatWholeSnapshotExports() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_snapshot_scan_throttle.db")),
+          "pipeline opens for scan snapshot-throttle test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 81;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    size_t snapshotCount = 0;
+    manager.SetSnapshotReadyCallback(
+        [&](ffindexstore::VolumeRowId, std::map<std::wstring, ffprotocol::SnapshotDirectory> directories) {
+            ++snapshotCount;
+            Check(!directories.empty(), "the completion export contains the indexed directory tree");
+        });
+    manager.Start();
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+
+    const std::vector<ffprotocol::MftRecordV1> batch{
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"ScanRoot", 0x10, 0),
+        MakeMftRecord(101, 100, u"during-scan.txt", 0, 17),
+    };
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{1, 2, 3}, batch);
+    Check(pipeline.GetVolumeMetadata(volumeId)->entryCount == 3,
+          "scan batches still commit to the durable projection while publication is deferred");
+    Check(snapshotCount == 0, "an in-progress scan batch does not export the complete snapshot");
+
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(snapshotCount == 1, "ScanComplete forces one complete snapshot export");
+    Check(!manager.sessionsByEphemeralId_.at(7).scanInProgress,
+          "ScanComplete clears the publication suppression state");
+}
+
 void TestPendingDecisionForObservedUnselectedVolume() {
     ffengine::IndexPipeline pipeline;
     Check(pipeline.Open(FreshDbPath("engine_test_pending_decision.db")),
@@ -347,6 +384,7 @@ int main() {
     TestCollectVolumeStatusSkipsDisabledAndUntracked();
     TestDisableTearsDownSessionLive();
     TestPauseShownInStatusAndDropsBatchesWithoutAdvancing();
+    TestInitialScanBatchesDoNotRepeatWholeSnapshotExports();
     TestPendingDecisionForObservedUnselectedVolume();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

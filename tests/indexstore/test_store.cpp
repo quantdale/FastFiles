@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <string>
 
 #include "ffindexstore/Store.h"
@@ -134,6 +135,27 @@ void TestVolumeMetadataRoundTrips() {
     Check(meta->lastSeenTime == 42, "last-seen timestamp is recorded");
 }
 
+void TestAllVolumeMetadataCanSkipEntryCounts() {
+    Store store;
+    store.Open(FreshDbPath("ffindexstore_test_metadata_without_counts.db"));
+    VolumeKey key;
+    key.serialNumber = 8;
+    const auto vol = *store.GetOrCreateVolume(key);
+    EntryRecord entry;
+    entry.id = FileId{100, 0};
+    entry.parentId = FileId{100, 0};
+    entry.name = u"root";
+    Check(store.ApplyBatch(vol, {{EntryChangeKind::Upsert, entry}}),
+          "metadata count probe stores an entry");
+
+    const auto counted = store.GetAllVolumes();
+    const auto uncounted = store.GetAllVolumesWithoutEntryCounts();
+    Check(counted.size() == 1 && counted[0].entryCount == 1,
+          "the existing all-volume metadata API retains entry counts");
+    Check(uncounted.size() == 1 && uncounted[0].rowId == vol && uncounted[0].entryCount == 0,
+          "the search metadata API returns identity without scanning entry counts");
+}
+
 void TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes() {
     Store store;
     store.Open(FreshDbPath("ffindexstore_test_disconnect.db"));
@@ -230,6 +252,31 @@ void TestDataSurvivesReopenAfterClose() {
     Check(reopened.CountEntries(vol) == 1, "committed data survives close/reopen (WAL durability)");
 }
 
+void TestVacuumGatingByIdleIntervalAndGrowth() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_vacuum_gating.db");
+    Store store;
+    Check(store.Open(dbPath), "database opens for VACUUM gating");
+    VolumeKey key;
+    key.serialNumber = 1;
+    const auto vol = *store.GetOrCreateVolume(key);
+
+    constexpr uint64_t kFarFuture = std::numeric_limits<uint64_t>::max();
+    Check(!store.VacuumIfDue(false, kFarFuture, 0, 0), "VACUUM requires an idle window");
+    Check(!store.VacuumIfDue(true, kFarFuture, 0, 10), "VACUUM skips when the database has not grown");
+
+    std::vector<EntryChange> changes;
+    changes.reserve(1'000);
+    const std::u16string longName(256, u'x');
+    for (uint64_t index = 0; index < 1'000; ++index) {
+        changes.push_back({EntryChangeKind::Upsert, MakeEntry(1'000 + index, 1'000 + index, longName)});
+    }
+    Check(store.ApplyBatch(vol, changes), "bulk rows apply for VACUUM growth gating");
+    Check(store.CheckpointPassive(), "the growth fixture is checkpointed before VACUUM evaluation");
+    Check(!store.VacuumIfDue(true, 0, 24, 10), "VACUUM honors the interval gate");
+    Check(store.VacuumIfDue(true, kFarFuture, 0, 10), "VACUUM runs after idle, interval, and growth gates pass");
+    Check(!store.VacuumIfDue(true, kFarFuture, 0, 10), "a successful VACUUM resets the growth baseline");
+}
+
 void TestGetFolderAggregateFromStore() {
     const std::string dbPath = FreshDbPath("ffindexstore_test_folder_agg.db");
     Store store;
@@ -271,10 +318,12 @@ int main() {
     TestEntryIdentityIsKeyedByVolumeAndFrnNotPath();
     TestBatchUpsertAndRemove();
     TestVolumeMetadataRoundTrips();
+    TestAllVolumeMetadataCanSkipEntryCounts();
     TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes();
     TestForgetVolumeIsExplicitAndRemovesEntries();
     TestWalReplayRecoversCommittedDataWithoutAnExplicitCheckpoint();
     TestDataSurvivesReopenAfterClose();
+    TestVacuumGatingByIdleIntervalAndGrowth();
     TestGetFolderAggregateFromStore();
 
     if (fftest::FailureCount() > 0) {

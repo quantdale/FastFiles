@@ -1,9 +1,11 @@
 add_executable(FastFiles WIN32
   src/Main.cpp
+  src/FastFiles.rc
   src/WindowShell.cpp
   src/Renderer.cpp
   src/ColumnView.cpp
   src/EngineClient.cpp
+  src/EngineDiscovery.cpp
   src/FileOperations.cpp
   src/FileOperationPolicy.cpp
   src/ConflictDialog.cpp
@@ -27,6 +29,11 @@ add_executable(FastFiles WIN32
 )
 
 target_include_directories(FastFiles PRIVATE include)
+
+# The explicit RT_MANIFEST resource below carries Common Controls v6,
+# PerMonitorV2, and longPathAware declarations.  Disable MSVC's automatic
+# second manifest resource so the linker does not emit a duplicate RT_MANIFEST.
+target_link_options(FastFiles PRIVATE "/MANIFEST:NO")
 
 target_link_libraries(FastFiles PRIVATE
   ffprotocol

@@ -1,9 +1,13 @@
 #include "TreemapView.h"
+#include "CategoryEngine.h"
+#include "TreemapFilter.h"
 #include "UITheme.h"
 #include "UiStyle.h"
+#include "ffui/SnapshotAggregate.h"
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <shlwapi.h>
 #include <windowsx.h>
 
@@ -19,11 +23,12 @@ constexpr int kPadding = 2;
 } // namespace
 
 TreemapView::~TreemapView() {
+    if (lifetime_) lifetime_->store(false, std::memory_order_release);
     Hide();
 }
 
 bool TreemapView::Initialize(HWND owner, EngineClient* engine,
-                             std::function<void(const std::wstring& path)> navigate) {
+                             NavigateHandler navigate) {
     owner_ = owner;
     engine_ = engine;
     navigate_ = std::move(navigate);
@@ -43,6 +48,49 @@ void TreemapView::Hide() {
     root_.reset();
     layout_.clear();
     hoveredNode_ = nullptr;
+}
+
+TreemapNode* TreemapView::FindNode(TreemapNode* root, const std::wstring& path) {
+    if (root == nullptr) return nullptr;
+    if (root->path == path) return root;
+    for (const auto& child : root->children) {
+        if (auto* found = FindNode(child.get(), path)) return found;
+    }
+    return nullptr;
+}
+
+uint64_t TreemapView::RecomputeTotals(TreemapNode& node) {
+    if (!node.isDirectory || node.aggregateResolved) return node.totalSizeBytes;
+
+    uint64_t total = 0;
+    bool incomplete = false;
+    for (auto& child : node.children) {
+        const uint64_t childTotal = RecomputeTotals(*child);
+        if (UINT64_MAX - total < childTotal) {
+            total = 0;
+            incomplete = true;
+            break;
+        }
+        total += childTotal;
+        incomplete = incomplete || child->calculating || child->aggregateFailed;
+    }
+    node.totalSizeBytes = total;
+    node.calculating = incomplete;
+    return node.totalSizeBytes;
+}
+
+void TreemapView::RebuildLayout() {
+    layout_.clear();
+    if (!root_ || root_->children.empty()) return;
+
+    std::vector<TreemapNode*> nodes;
+    nodes.reserve(root_->children.size());
+    for (const auto& child : root_->children) nodes.push_back(child.get());
+    std::sort(nodes.begin(), nodes.end(), [](TreemapNode* left, TreemapNode* right) {
+        return left->totalSizeBytes > right->totalSizeBytes;
+    });
+    LayoutTreemap(layout_, kPadding, kPadding, 100.0f - 2 * kPadding,
+                  100.0f - 2 * kPadding, nodes, 0);
 }
 
 void TreemapView::Reposition() {
@@ -80,7 +128,17 @@ void TreemapView::SetDarkTheme(bool dark) {
     calculatingBrush_.Reset();
 }
 
+void TreemapView::SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId) {
+    categoryEngine_ = categoryEngine;
+    categoryId_ = categoryId;
+    if (visible_) {
+        BuildTree(currentPath_);
+        InvalidateRect(owner_, nullptr, FALSE);
+    }
+}
+
 void TreemapView::BuildTree(const std::wstring& path) {
+    const uint64_t generation = ++buildGeneration_;
     root_ = std::make_unique<TreemapNode>();
     root_->name = path.empty() ? L"Computer" : path;
     root_->path = path;
@@ -96,29 +154,111 @@ void TreemapView::BuildTree(const std::wstring& path) {
     const auto& directory = it->second;
     if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) return;
 
-    std::vector<TreemapNode*> nodes;
+    const bool categoryFilterActive = categoryEngine_ != nullptr && !categoryId_.empty();
+
+    const auto joinPath = [](const std::wstring& base, const std::wstring& name) {
+        if (base.empty()) return name;
+        if (base.back() == L'\\' || base.back() == L'/') return base + name;
+        return base + L"\\" + name;
+    };
+
+    const HWND targetWindow = owner_;
+    const auto lifetime = lifetime_;
+    const auto engine = engine_;
+    const auto requestAggregate = [engine, targetWindow, lifetime, generation, categoryFilterActive](const TreemapNode& node) {
+        if (engine == nullptr || targetWindow == nullptr || node.volumeRowId == 0 ||
+            (node.fileIdLow == 0 && node.fileIdHigh == 0) || !node.calculating || categoryFilterActive) {
+            return;
+        }
+        const std::wstring nodePath = node.path;
+        engine->RequestFolderAggregate(
+            node.volumeRowId, node.fileIdLow, node.fileIdHigh,
+            [targetWindow, lifetime, generation, nodePath](uint64_t /*requestId*/,
+                                                            ffprotocol::FolderAggregateStatus status,
+                                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes) {
+                if (!lifetime->load(std::memory_order_acquire)) return;
+                auto payload = std::make_unique<TreemapAggregatePayload>();
+                payload->generation = generation;
+                payload->path = nodePath;
+                payload->status = status;
+                payload->totalSizeBytes = totalSizeBytes;
+                if (PostMessageW(targetWindow, WM_APP_TREEMAP_AGGREGATE, 0,
+                                 reinterpret_cast<LPARAM>(payload.get()))) {
+                    payload.release();
+                }
+            });
+    };
+
+    // Directory entries in degraded snapshots do not carry recursive sizes.
+    // Reconstruct the aggregate from any browsed child directories already
+    // present in the same immutable snapshot. Unknown subtrees remain marked
+    // calculating rather than being rendered as misleading zero-byte tiles.
+    const std::function<uint64_t(TreemapNode&)> populate = [&](TreemapNode& parent) -> uint64_t {
+        const auto directoryIt = snapshot->find(parent.path);
+        if (directoryIt == snapshot->end() ||
+            directoryIt->second.status != ffprotocol::DirectoryEnumerationStatus::Success) {
+            parent.calculating = true;
+            return 0;
+        }
+
+        uint64_t total = 0;
+        bool incomplete = false;
+        for (const auto& entry : directoryIt->second.entries) {
+            auto child = std::make_unique<TreemapNode>();
+            child->name = entry.name;
+            child->path = joinPath(parent.path, entry.name);
+            child->isDirectory = entry.isDirectory;
+            child->sizeBytes = entry.sizeBytes;
+            child->totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
+            child->calculating = entry.isDirectory;
+            child->volumeRowId = entry.volumeRowId;
+            child->fileIdLow = entry.fileIdLow;
+            child->fileIdHigh = entry.fileIdHigh;
+            child->depth = parent.depth + 1;
+            child->parent = &parent;
+            if (child->isDirectory) {
+                child->totalSizeBytes = populate(*child);
+                if (child->calculating || child->aggregateFailed) incomplete = true;
+                requestAggregate(*child);
+            }
+            if (UINT64_MAX - total < child->totalSizeBytes) {
+                total = UINT64_MAX;
+                incomplete = true;
+            } else {
+                total += child->totalSizeBytes;
+            }
+            parent.children.push_back(std::move(child));
+        }
+        parent.totalSizeBytes = total;
+        parent.calculating = incomplete;
+        return total;
+    };
+
     for (const auto& entry : directory.entries) {
         auto node = std::make_unique<TreemapNode>();
         node->name = entry.name;
-        node->path = (path.empty() ? L"" : path + L"\\") + entry.name;
+        node->path = joinPath(path, entry.name);
         node->isDirectory = entry.isDirectory;
         node->sizeBytes = entry.sizeBytes;
         node->totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
         node->calculating = entry.isDirectory;
+        node->volumeRowId = entry.volumeRowId;
+        node->fileIdLow = entry.fileIdLow;
+        node->fileIdHigh = entry.fileIdHigh;
         node->depth = 1;
-        nodes.push_back(node.get());
+        node->parent = root_.get();
+        if (node->isDirectory) {
+            node->totalSizeBytes = populate(*node);
+            requestAggregate(*node);
+        }
         root_->children.push_back(std::move(node));
     }
 
-    // Sort: larger first for better layout
-    std::sort(nodes.begin(), nodes.end(), [](TreemapNode* a, TreemapNode* b) {
-        return a->totalSizeBytes > b->totalSizeBytes;
-    });
-
-    layout_.clear();
-    if (!root_->children.empty()) {
-        LayoutTreemap(layout_, kPadding, kPadding, 100.0f - 2 * kPadding, 100.0f - 2 * kPadding, nodes, 0);
+    if (categoryFilterActive) {
+        FilterTreemapTree(*root_, *categoryEngine_, categoryId_);
     }
+
+    RebuildLayout();
 }
 
 void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
@@ -192,6 +332,32 @@ bool TreemapView::HandleNotify(LPARAM lParam) {
     return false;
 }
 
+bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
+    std::unique_ptr<TreemapAggregatePayload> payload(reinterpret_cast<TreemapAggregatePayload*>(lParam));
+    if (!payload || !visible_ || payload->generation != buildGeneration_) return true;
+    if (categoryEngine_ != nullptr && !categoryId_.empty()) return true;
+
+    TreemapNode* node = FindNode(root_.get(), payload->path);
+    if (node == nullptr || !node->isDirectory) return true;
+
+    if (payload->status == ffprotocol::FolderAggregateStatus::Resolved) {
+        node->totalSizeBytes = payload->totalSizeBytes;
+        node->calculating = false;
+        node->aggregateResolved = true;
+        node->aggregateFailed = false;
+    } else {
+        node->totalSizeBytes = 0;
+        node->calculating = true;
+        node->aggregateResolved = false;
+        node->aggregateFailed = true;
+    }
+
+    if (root_) RecomputeTotals(*root_);
+    RebuildLayout();
+    InvalidateRect(owner_, nullptr, FALSE);
+    return true;
+}
+
 bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
     if (!visible_) return false;
     // lParam holds raw client coordinates; the treemap is drawn under the
@@ -200,9 +366,8 @@ bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
     const float clientX = static_cast<float>(GET_X_LPARAM(lParam));
     const float clientY = static_cast<float>(GET_Y_LPARAM(lParam));
     if (viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) return false;
-    const auto [x, y] = TreemapClientToNormalized(clientX, clientY, offsetX_, offsetY_,
-                                                  viewportSize_.width, viewportSize_.height);
-    TreemapNode* node = HitTest(layout_, x, y);
+    TreemapNode* node = HitTestClientPoint(layout_, clientX, clientY, offsetX_, offsetY_,
+                                           viewportSize_.width, viewportSize_.height);
     if (node != hoveredNode_) {
         hoveredNode_ = node;
         return true;
@@ -210,10 +375,21 @@ bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
     return false;
 }
 
-bool TreemapView::HandleLButtonDown(WPARAM /*wParam*/, LPARAM /*lParam*/) {
-    if (!visible_ || !hoveredNode_) return false;
-    if (navigate_ && !hoveredNode_->path.empty()) {
-        navigate_(hoveredNode_->path);
+bool TreemapView::HandleLButtonDown(WPARAM /*wParam*/, LPARAM lParam) {
+    if (!visible_ || layout_.empty() || viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) {
+        return false;
+    }
+
+    // Resolve the click independently of hover state. A view switch does not
+    // guarantee a subsequent WM_MOUSEMOVE (for example when the pointer is
+    // already stationary over a tile), so requiring hoveredNode_ made the
+    // first click on a freshly opened treemap a no-op.
+    const float clientX = static_cast<float>(GET_X_LPARAM(lParam));
+    const float clientY = static_cast<float>(GET_Y_LPARAM(lParam));
+    hoveredNode_ = HitTestClientPoint(layout_, clientX, clientY, offsetX_, offsetY_,
+                                       viewportSize_.width, viewportSize_.height);
+    if (navigate_ && hoveredNode_ != nullptr && !hoveredNode_->path.empty()) {
+        navigate_(hoveredNode_->path, hoveredNode_->isDirectory);
         return true;
     }
     return false;

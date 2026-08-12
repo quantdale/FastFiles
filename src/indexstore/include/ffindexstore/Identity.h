@@ -58,10 +58,18 @@ constexpr bool operator!=(const EntryKey& a, const EntryKey& b) noexcept { retur
 
 struct EntryKeyHash {
     size_t operator()(const EntryKey& key) const noexcept {
-        size_t h = std::hash<int64_t>{}(key.volumeRowId);
-        h ^= std::hash<uint64_t>{}(key.frn.low) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        h ^= std::hash<uint64_t>{}(key.frn.high) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
-        return h;
+        // address-engineering-audit-findings 3.2: FlatHashMap bounds linear
+        // probing at 64 steps, so the in-memory identity hash must retain a
+        // well-distributed low-bit pattern for power-of-two bucket counts.
+        uint64_t h = static_cast<uint64_t>(key.volumeRowId);
+        h ^= key.frn.low + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        h ^= key.frn.high + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        h ^= h >> 30;
+        h *= 0xbf58476d1ce4e5b9ULL;
+        h ^= h >> 27;
+        h *= 0x94d049bb133111ebULL;
+        h ^= h >> 31;
+        return static_cast<size_t>(h);
     }
 };
 

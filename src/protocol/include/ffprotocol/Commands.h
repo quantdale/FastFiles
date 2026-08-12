@@ -22,8 +22,8 @@ enum class MessageType : uint16_t {
     Heartbeat = 12,
     HeartbeatAck = 13,
 
-    // index-storage-and-scanning: additive extensions replacing the
-    // stub replies for StartVolumeScan/OpenUsnJournal
+    // index-storage-and-scanning: additive streaming responses for
+    // StartVolumeScan/OpenUsnJournal
     // (design.md "Migration Plan" -- greenfield, no deployed clients to
     // stay wire-compatible with yet, so these are plain new values rather
     // than a versioned/negotiated extension). Streamed asynchronously by

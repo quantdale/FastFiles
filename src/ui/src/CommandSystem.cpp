@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <cwctype>
 #include <fstream>
+#include <limits>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <windows.h>
 
 namespace ffui {
@@ -98,6 +100,52 @@ std::wstring FormatModifiers(uint8_t modifiers) {
     return result;
 }
 
+std::wstring Trim(std::wstring value) {
+    const auto whitespace = [](wchar_t ch) { return iswspace(ch) != 0; };
+    const auto first = std::find_if_not(value.begin(), value.end(), whitespace);
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), whitespace).base();
+    if (first >= last) return {};
+    return {first, last};
+}
+
+bool EqualsInsensitive(const std::wstring& left, const std::wstring& right) {
+    if (left.size() != right.size()) return false;
+    return std::equal(left.begin(), left.end(), right.begin(),
+                      [](wchar_t a, wchar_t b) { return towlower(a) == towlower(b); });
+}
+
+bool IsValidChord(KeyChord chord) {
+    return chord.virtualKey != 0 && (chord.modifiers & ~(ModifierControl | ModifierShift | ModifierAlt)) == 0;
+}
+
+std::optional<std::wstring> UnescapeJson(const std::wstring& value) {
+    std::wstring result;
+    for (size_t index = 0; index < value.size(); ++index) {
+        if (value[index] != L'\\') {
+            result.push_back(value[index]);
+            continue;
+        }
+        if (++index >= value.size()) return std::nullopt;
+        if (value[index] != L'\\' && value[index] != L'"') return std::nullopt;
+        result.push_back(value[index]);
+    }
+    return result;
+}
+
+bool IsShortcutDocument(const std::wstring& json) {
+    static const std::wregex document(
+        LR"json(^\s*\{\s*(?:"version"\s*:\s*[0-9]+\s*,\s*)?"bindings"\s*:\s*\[[\s\S]*\]\s*\}\s*$)json");
+    return std::regex_match(json, document);
+}
+
+const CommandDescriptor* FindLegacyCommand(const std::wstring& text, const CommandRegistry& registry) {
+    if (const auto* exact = registry.Find(text)) return exact;
+    for (const auto& command : registry.Commands()) {
+        if (EqualsInsensitive(command.displayName, text)) return &command;
+    }
+    return nullptr;
+}
+
 bool ScopesOverlap(ShortcutScope, ShortcutScope) {
     // A global binding is checked before active-view dispatch, so duplicate
     // chords in either scope overlap in the application input chain.
@@ -175,7 +223,7 @@ bool RegisterFileOperationCommands(CommandRegistry& registry, const BaselineHand
     ok = RegisterOne(registry, handlers, L"file.rename", L"Rename", L"File", kSingleItem, ShortcutScope::ActiveView, KeyChord{VK_F2, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"file.delete", L"Delete", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"file.delete-permanently", L"Delete Permanently", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierShift}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.undo", L"Undo Last File Operation", L"File", kAnySelection, ShortcutScope::Global, KeyChord{'Z', ModifierControl}) && ok;
+    ok = RegisterOne(registry, handlers, L"file.undo", L"Undo Last File Operation", L"File", kAnySelection, ShortcutScope::ActiveView, KeyChord{'Z', ModifierControl}) && ok;
     return ok;
 }
 
@@ -183,6 +231,7 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     bool ok = true;
     ok = RegisterOne(registry, handlers, L"navigation.back", L"Back", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_LEFT, ModifierAlt}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.forward", L"Forward", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_RIGHT, ModifierAlt}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.up", L"Up", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_BACK, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.refresh", L"Refresh", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_F5, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.focus-path", L"Focus Path Entry", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'L', ModifierControl}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.new-tab", L"New Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', ModifierControl}) && ok;
@@ -190,8 +239,10 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     ok = RegisterOne(registry, handlers, L"navigation.next-tab", L"Next Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_TAB, ModifierControl}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.previous-tab", L"Previous Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_TAB, static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.reopen-tab", L"Reopen Closed Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
+    ok = RegisterOne(registry, handlers, L"navigation.add-bookmark", L"Add to Bookmarks", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'D', ModifierControl}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Column View", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-dual-pane", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
+    ok = RegisterOne(registry, handlers, L"view.toggle-details-pane", L"Toggle Details Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"selection.select-all", L"Select All", L"Selection", kAnySelection, ShortcutScope::ActiveView, KeyChord{'A', ModifierControl}) && ok;
     return ok;
 }
@@ -233,7 +284,9 @@ bool RegisterBaselineCommands(CommandRegistry& registry, const BaselineHandlers&
 void ShortcutMap::ResetDefaults(const CommandRegistry& registry) {
     defaults_.clear();
     customizations_.clear();
+    commandScopes_.clear();
     for (const auto& command : registry.Commands()) {
+        commandScopes_.emplace(command.commandId, command.scope);
         if (command.defaultShortcut) defaults_.emplace(command.commandId, ShortcutBinding{command.commandId, *command.defaultShortcut, command.scope});
     }
 }
@@ -266,9 +319,10 @@ std::vector<ShortcutBinding> ShortcutMap::EffectiveBindings() const {
 }
 
 RebindResult ShortcutMap::Rebind(const std::wstring& commandId, KeyChord chord, bool reassignConflict) {
+    if (!IsValidChord(chord)) return RebindResult::InvalidBinding;
     const ShortcutBinding* existing = FindByCommand(commandId);
-    if (existing == nullptr && !defaults_.contains(commandId)) return RebindResult::UnknownCommand;
-    const ShortcutScope scope = existing ? existing->scope : defaults_.at(commandId).scope;
+    if (existing == nullptr && !commandScopes_.contains(commandId)) return RebindResult::UnknownCommand;
+    const ShortcutScope scope = existing ? existing->scope : commandScopes_.at(commandId);
     for (const auto& binding : EffectiveBindings()) {
         if (binding.commandId != commandId && binding.chord == chord && ScopesOverlap(binding.scope, scope)) {
             if (!reassignConflict) return RebindResult::Conflict;
@@ -282,9 +336,100 @@ RebindResult ShortcutMap::Rebind(const std::wstring& commandId, KeyChord chord, 
 }
 
 bool ShortcutMap::Remove(const std::wstring& commandId) {
-    if (!defaults_.contains(commandId) && !customizations_.contains(commandId)) return false;
+    if (!commandScopes_.contains(commandId) && !defaults_.contains(commandId) && !customizations_.contains(commandId)) return false;
     customizations_[commandId] = std::nullopt;
     return true;
+}
+
+std::optional<KeyChord> ShortcutMap::ParseKeyChord(const std::wstring& text) {
+    const std::wstring value = Trim(text);
+    if (value.empty()) return std::nullopt;
+
+    std::vector<std::wstring> tokens;
+    size_t start = 0;
+    while (start <= value.size()) {
+        const size_t separator = value.find(L'+', start);
+        const size_t end = separator == std::wstring::npos ? value.size() : separator;
+        const std::wstring token = Trim(value.substr(start, end - start));
+        if (token.empty()) return std::nullopt;
+        tokens.push_back(token);
+        if (separator == std::wstring::npos) break;
+        start = separator + 1;
+    }
+
+    uint8_t modifiers = ModifierNone;
+    for (size_t index = 0; index + 1 < tokens.size(); ++index) {
+        const std::wstring token = Lower(tokens[index]);
+        if (token == L"ctrl" || token == L"control") modifiers |= ModifierControl;
+        else if (token == L"shift") modifiers |= ModifierShift;
+        else if (token == L"alt") modifiers |= ModifierAlt;
+        else return std::nullopt;
+    }
+
+    const std::wstring key = Lower(tokens.back());
+    uint16_t virtualKey = 0;
+    if (key.size() == 1 && ((key.front() >= L'a' && key.front() <= L'z') ||
+                            (key.front() >= L'0' && key.front() <= L'9'))) {
+        virtualKey = static_cast<uint16_t>(towupper(key.front()));
+    } else if (key == L"delete") {
+        virtualKey = VK_DELETE;
+    } else if (key == L"left") {
+        virtualKey = VK_LEFT;
+    } else if (key == L"right") {
+        virtualKey = VK_RIGHT;
+    } else if (key == L"up") {
+        virtualKey = VK_UP;
+    } else if (key == L"down") {
+        virtualKey = VK_DOWN;
+    } else if (key == L"backspace") {
+        virtualKey = VK_BACK;
+    } else if (key == L"tab") {
+        virtualKey = VK_TAB;
+    } else if (key == L"escape" || key == L"esc") {
+        virtualKey = VK_ESCAPE;
+    } else if (key == L",") {
+        virtualKey = VK_OEM_COMMA;
+    } else if (key.size() >= 2 && key.front() == L'f') {
+        try {
+            const unsigned long functionKey = std::stoul(key.substr(1));
+            if (functionKey >= 1 && functionKey <= 24) {
+                virtualKey = static_cast<uint16_t>(VK_F1 + functionKey - 1);
+            }
+        } catch (const std::exception&) {
+            return std::nullopt;
+        }
+    }
+    if (virtualKey == 0) return std::nullopt;
+    return KeyChord{virtualKey, modifiers};
+}
+
+bool ShortcutMap::ImportLegacy(const std::vector<std::pair<std::wstring, std::wstring>>& entries,
+                               const CommandRegistry& registry,
+                               const std::function<void(const std::wstring&)>& log) {
+    bool valid = true;
+    for (const auto& [commandText, bindingText] : entries) {
+        const auto* descriptor = FindLegacyCommand(commandText, registry);
+        if (descriptor == nullptr) {
+            if (log) log(L"Ignoring unresolved legacy shortcut command: " + commandText);
+            continue;
+        }
+        if (Trim(bindingText).empty()) {
+            Remove(descriptor->commandId);
+            continue;
+        }
+        const auto chord = ParseKeyChord(bindingText);
+        if (!chord) {
+            if (log) log(L"Ignoring malformed legacy shortcut binding for: " + descriptor->commandId);
+            valid = false;
+            continue;
+        }
+        const RebindResult rebound = Rebind(descriptor->commandId, *chord, false);
+        if (rebound != RebindResult::Applied) {
+            if (log) log(L"Ignoring conflicting legacy shortcut binding for: " + descriptor->commandId);
+            valid = false;
+        }
+    }
+    return valid;
 }
 
 bool ShortcutMap::Load(const std::filesystem::path& path, const CommandRegistry& registry,
@@ -296,26 +441,68 @@ bool ShortcutMap::Load(const std::filesystem::path& path, const CommandRegistry&
     buffer << input.rdbuf();
     const std::wstring json = buffer.str();
     try {
-        const std::wregex entry(LR"json(\{\s*"commandId"\s*:\s*"([^"]+)"\s*,\s*"key"\s*:\s*([0-9]+)\s*,\s*"modifiers"\s*:\s*"([CSA]*)"\s*\})json");
+        if (!IsShortcutDocument(json)) throw std::runtime_error("malformed shortcut document");
+        const std::wregex entry(LR"json(\{\s*"commandId"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"key"\s*:\s*([0-9]+)\s*,\s*"modifiers"\s*:\s*"([CSA]*)"\s*\})json");
+        const std::wregex unbound(LR"json(\{\s*"commandId"\s*:\s*"((?:\\.|[^"])*)"\s*,\s*"unbound"\s*:\s*true\s*\})json");
+        const std::wregex commandToken(LR"json("commandId"\s*:)json");
+        size_t parsedEntries = 0;
+        std::vector<std::pair<std::wstring, ShortcutBinding>> bindings;
+        std::vector<std::wstring> unboundCommands;
+        std::vector<std::wstring> seenCommands;
         for (std::wsregex_iterator current(json.begin(), json.end(), entry), end; current != end; ++current) {
-            const std::wstring id = (*current)[1];
+            const auto decodedId = UnescapeJson((*current)[1]);
+            if (!decodedId) throw std::runtime_error("malformed shortcut command id");
+            const std::wstring id = *decodedId;
+            if (std::ranges::find(seenCommands, id) != seenCommands.end()) {
+                throw std::runtime_error("duplicate shortcut command id");
+            }
+            seenCommands.push_back(id);
+            ++parsedEntries;
             const auto* descriptor = registry.Find(id);
             if (descriptor == nullptr) {
                 if (log) log(L"Ignoring unresolved shortcut command: " + id);
                 continue;
             }
-            const auto key = static_cast<uint16_t>(std::stoul((*current)[2].str()));
-            const auto modifiers = ParseModifiers((*current)[3]);
-            customizations_[id] = ShortcutBinding{id, {key, modifiers}, descriptor->scope};
+            const unsigned long key = std::stoul((*current)[2].str());
+            if (key > std::numeric_limits<uint16_t>::max()) throw std::runtime_error("shortcut key out of range");
+            const uint8_t modifiers = ParseModifiers((*current)[3]);
+            if (!IsValidChord({static_cast<uint16_t>(key), modifiers})) {
+                throw std::runtime_error("invalid shortcut chord");
+            }
+            bindings.emplace_back(id, ShortcutBinding{id, {static_cast<uint16_t>(key), modifiers}, descriptor->scope});
         }
-        const std::wregex unbound(LR"json(\{\s*"commandId"\s*:\s*"([^"]+)"\s*,\s*"unbound"\s*:\s*true\s*\})json");
         for (std::wsregex_iterator current(json.begin(), json.end(), unbound), end; current != end; ++current) {
-            const std::wstring id = (*current)[1];
+            const auto decodedId = UnescapeJson((*current)[1]);
+            if (!decodedId) throw std::runtime_error("malformed shortcut command id");
+            const std::wstring id = *decodedId;
+            if (std::ranges::find(seenCommands, id) != seenCommands.end()) {
+                throw std::runtime_error("duplicate shortcut command id");
+            }
+            seenCommands.push_back(id);
+            ++parsedEntries;
             if (registry.Find(id) == nullptr) {
                 if (log) log(L"Ignoring unresolved shortcut command: " + id);
                 continue;
             }
-            customizations_[id] = std::nullopt;
+            unboundCommands.push_back(id);
+        }
+        size_t declaredEntries = 0;
+        for (std::wsregex_iterator current(json.begin(), json.end(), commandToken), end; current != end; ++current) {
+            ++declaredEntries;
+        }
+        if (parsedEntries != declaredEntries) throw std::runtime_error("unrecognized shortcut binding entry");
+
+        for (const auto& id : unboundCommands) customizations_[id] = std::nullopt;
+        for (const auto& [id, binding] : bindings) customizations_[id] = binding;
+
+        const auto effective = EffectiveBindings();
+        for (size_t left = 0; left < effective.size(); ++left) {
+            for (size_t right = left + 1; right < effective.size(); ++right) {
+                if (effective[left].chord == effective[right].chord &&
+                    ScopesOverlap(effective[left].scope, effective[right].scope)) {
+                    throw std::runtime_error("conflicting shortcut bindings");
+                }
+            }
         }
     } catch (const std::exception&) {
         if (log) log(L"Shortcut customization file is malformed; defaults restored.");
@@ -327,9 +514,10 @@ bool ShortcutMap::Load(const std::filesystem::path& path, const CommandRegistry&
 
 bool ShortcutMap::Save(const std::filesystem::path& path) const {
     std::error_code error;
-    std::filesystem::create_directories(path.parent_path(), error);
+    if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path(), error);
     if (error) return false;
-    std::wofstream output(path, std::ios::trunc);
+    const std::filesystem::path temporary = path.wstring() + L".tmp";
+    std::wofstream output(temporary, std::ios::trunc);
     if (!output) return false;
     output << L"{\n  \"version\": 1,\n  \"bindings\": [";
     bool first = true;
@@ -344,7 +532,9 @@ bool ShortcutMap::Save(const std::filesystem::path& path) const {
         first = false;
     }
     output << L"\n  ]\n}\n";
-    return static_cast<bool>(output);
+    output.close();
+    if (!output) return false;
+    return MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
 }
 
 bool ShortcutMap::IsWindowsReserved(KeyChord chord) {
@@ -374,11 +564,20 @@ std::wstring FormatKeyChord(KeyChord chord) {
     if ((chord.modifiers & ModifierControl) != 0) result += L"Ctrl+";
     if ((chord.modifiers & ModifierShift) != 0) result += L"Shift+";
     if ((chord.modifiers & ModifierAlt) != 0) result += L"Alt+";
-    if (chord.virtualKey >= 'A' && chord.virtualKey <= 'Z') result.push_back(static_cast<wchar_t>(chord.virtualKey));
+    if ((chord.virtualKey >= 'A' && chord.virtualKey <= 'Z') ||
+        (chord.virtualKey >= '0' && chord.virtualKey <= '9')) {
+        result.push_back(static_cast<wchar_t>(chord.virtualKey));
+    }
     else if (chord.virtualKey == VK_DELETE) result += L"Delete";
     else if (chord.virtualKey >= VK_F1 && chord.virtualKey <= VK_F24) result += L"F" + std::to_wstring(chord.virtualKey - VK_F1 + 1);
     else if (chord.virtualKey == VK_LEFT) result += L"Left";
     else if (chord.virtualKey == VK_RIGHT) result += L"Right";
+    else if (chord.virtualKey == VK_UP) result += L"Up";
+    else if (chord.virtualKey == VK_DOWN) result += L"Down";
+    else if (chord.virtualKey == VK_BACK) result += L"Backspace";
+    else if (chord.virtualKey == VK_TAB) result += L"Tab";
+    else if (chord.virtualKey == VK_ESCAPE) result += L"Esc";
+    else if (chord.virtualKey == VK_OEM_COMMA) result += L",";
     else result += L"Key " + std::to_wstring(chord.virtualKey);
     return result;
 }

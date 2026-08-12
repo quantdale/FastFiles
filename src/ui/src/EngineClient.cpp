@@ -5,8 +5,11 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <thread>
 
+#include "EngineDiscovery.h"
 #include "ffipc/PipeFraming.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffsetup/Identifiers.h"
 
 namespace ffui {
@@ -14,6 +17,55 @@ namespace ffui {
 namespace {
 using ffprotocol::UiMessageType;
 constexpr std::chrono::milliseconds kReconnectDelay{2000};
+// recovery-degraded-browsing D2: at most this many connect attempts per
+// cycle (~10 s at the 2 s cadence) before the explicit Unavailable state.
+constexpr int kMaxConnectAttempts = 5;
+
+bool ReadUiFrame(HANDLE pipe, std::atomic<bool>& running, ffipc::ReceivedFrame& frame) {
+    for (;;) {
+        DWORD bytesAvailable = 0;
+        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &bytesAvailable, nullptr)) return false;
+        if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
+            auto parsed = ffipc::ReadFrame(pipe);
+            if (!parsed) return false;
+            frame = std::move(*parsed);
+            return true;
+        }
+        if (!running.load()) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+}
+
+uint32_t LoadSharedU32(const uint32_t* value) {
+    // The UI deliberately maps the section with FILE_MAP_READ.  An
+    // InterlockedCompareExchange-based load is not read-only: when the
+    // comparand matches it performs a store and faults on this mapping.
+    // Snapshot fields are naturally aligned and the process is 64-bit, so an
+    // acquire barrier followed by a volatile load gives the required
+    // cross-process publication ordering without mutating shared memory.
+    MemoryBarrier();
+    return *reinterpret_cast<const volatile uint32_t*>(value);
+}
+
+uint64_t LoadSharedU64(const uint64_t* value) {
+    MemoryBarrier();
+    return *reinterpret_cast<const volatile uint64_t*>(value);
+}
+
+bool WaitForNamedPipe(const std::wstring& pipeName, const std::atomic<bool>& running,
+                      DWORD timeoutMilliseconds) {
+    const ULONGLONG deadline = GetTickCount64() + timeoutMilliseconds;
+    while (running.load()) {
+        if (WaitNamedPipeW(pipeName.c_str(), 200)) {
+            return true;
+        }
+        if (GetTickCount64() >= deadline) {
+            return false;
+        }
+        Sleep(50);
+    }
+    return false;
+}
 }
 
 EngineClient::~EngineClient() {
@@ -30,22 +82,82 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
     if (length == 0) {
         return;
     }
-    std::wstring directory(ownPath, length);
-    const size_t lastSlash = directory.find_last_of(L"\\/");
-    if (lastSlash == std::wstring::npos) {
-        return;
+
+    // recovery-degraded-browsing D1: deterministic candidate order (same
+    // dir, dev sibling, install dir); only validated regular files are
+    // launched, and every failure is logged to the diagnostics log.
+    bool launched = false;
+    DWORD lastError = ERROR_FILE_NOT_FOUND;
+    for (const std::wstring& candidate : EngineDiscoveryCandidates(std::wstring(ownPath, length))) {
+        const EngineExecutableValidation validation = ValidateEngineExecutable(candidate);
+        if (!validation.Accepted()) {
+            if (validation.status != EngineExecutableValidationStatus::NotRegularFile) {
+                ffprotocol::DiagnosticEvent rejection{};
+                rejection.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+                rejection.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_SIGNATURE_REJECTED;
+                rejection.path = candidate;
+                rejection.state = EngineExecutableValidationStatusName(validation.status);
+                rejection.errorCode = ERROR_INVALID_DATA;
+                if (validation.signerThumbprint.has_value()) {
+                    rejection.signatureThumbprint = ffsetup::ThumbprintToHex(*validation.signerThumbprint);
+                } else {
+                    rejection.signatureThumbprint = L"<none>";
+                }
+                ffprotocol::AppendDiagnostic(rejection);
+            }
+            continue;
+        }
+        const std::wstring launchPath = validation.canonicalPath.empty() ? candidate : validation.canonicalPath;
+        STARTUPINFOW startupInfo{};
+        startupInfo.cb = sizeof(startupInfo);
+        PROCESS_INFORMATION processInfo{};
+        if (CreateProcessW(launchPath.c_str(), nullptr, nullptr, nullptr, FALSE, 0, nullptr, nullptr,
+                           &startupInfo, &processInfo)) {
+            CloseHandle(processInfo.hThread);
+            CloseHandle(processInfo.hProcess);
+            ffprotocol::DiagnosticEvent launchedEvent{};
+            launchedEvent.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+            launchedEvent.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCHED;
+            launchedEvent.path = launchPath;
+            launchedEvent.state = L"engine-launched";
+            launchedEvent.signatureThumbprint = validation.signerThumbprint.has_value()
+                ? ffsetup::ThumbprintToHex(*validation.signerThumbprint)
+                : L"<development-override>";
+            ffprotocol::AppendDiagnostic(launchedEvent);
+            // Give the just-launched helper a short, bounded readiness
+            // window before ConnectAndSubscribe performs its first open.
+            // Without this, the normal interval between CreateProcess and
+            // PipeListener::Start is reported as a failed connection and a
+            // later retry can launch a duplicate helper if startup is slow.
+            if (!WaitForNamedPipe(pipeName, running_, 10000)) {
+                ffprotocol::DiagnosticEvent pipeEvent{};
+                pipeEvent.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+                pipeEvent.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PIPE_NOT_READY;
+                pipeEvent.path = launchPath;
+                pipeEvent.state = L"engine-pipe-not-ready-after-launch";
+                pipeEvent.errorCode = GetLastError();
+                pipeEvent.signatureThumbprint = launchedEvent.signatureThumbprint;
+                ffprotocol::AppendDiagnostic(pipeEvent);
+            }
+            launched = true;
+            break;
+        }
+        lastError = GetLastError();
+        ffprotocol::DiagnosticEvent launchFailure{};
+        launchFailure.category = ffprotocol::DiagnosticCategory::VolumeStateTransition;
+        launchFailure.code = ffprotocol::DiagnosticCode::FFDIAG_ENGINE_LAUNCH_FAILED;
+        launchFailure.path = launchPath;
+        launchFailure.state = L"engine-launch-failed";
+        launchFailure.errorCode = lastError;
+        launchFailure.signatureThumbprint = validation.signerThumbprint.has_value()
+            ? ffsetup::ThumbprintToHex(*validation.signerThumbprint)
+            : L"<development-override>";
+        ffprotocol::AppendDiagnostic(launchFailure);
     }
-    directory = directory.substr(0, lastSlash);
-
-    std::wstring commandLine = L"\"" + directory + L"\\" + ffsetup::kEngineExeName + L"\"";
-
-    STARTUPINFOW startupInfo{};
-    startupInfo.cb = sizeof(startupInfo);
-    PROCESS_INFORMATION processInfo{};
-    if (CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
-                        &startupInfo, &processInfo)) {
-        CloseHandle(processInfo.hThread);
-        CloseHandle(processInfo.hProcess);
+    if (!launched) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_NOT_FOUND,
+                                      {}, {}, L"engine-not-found", lastError, 0});
     }
 }
 
@@ -63,6 +175,8 @@ bool EngineClient::MapSnapshotSection(const std::wstring& sectionName) {
     std::lock_guard<std::mutex> lock(mappingMutex_);
     mappingHandle_ = mapping;
     mappedView_ = view;
+    snapshotSectionName_ = sectionName;
+    snapshotRemapRequested_.store(false);
     return true;
 }
 
@@ -76,42 +190,115 @@ void EngineClient::UnmapSnapshotSection() {
         CloseHandle(mappingHandle_);
         mappingHandle_ = nullptr;
     }
+    snapshotSectionName_.clear();
 }
 
 std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClient::ReadSnapshot() const {
+    auto result = ReadSnapshotWithGeneration();
+    if (!result) return std::nullopt;
+    return std::move(result->directories);
+}
+
+std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() const {
     std::lock_guard<std::mutex> lock(mappingMutex_);
     if (mappedView_ == nullptr) {
         return std::nullopt;
     }
     const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(mappedView_);
-    const uint32_t activeSlot = header->activeSlot;
-    const uint32_t dataSize = header->activeSlotDataSize;
+    for (int attempt = 0; attempt != 8; ++attempt) {
+        if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
+            // address-engineering-audit-findings 4.3: do not parse an
+            // incompatible shared-memory layout; the reader loop remaps on
+            // the next NewGeneration notification.
+            snapshotRemapRequested_.store(true);
+            UnmapViewOfFile(mappedView_);
+            mappedView_ = nullptr;
+            CloseHandle(mappingHandle_);
+            mappingHandle_ = nullptr;
+            return std::nullopt;
+        }
+        const uint64_t generationBefore = LoadSharedU64(&header->generation);
+        if (generationBefore == 0) {
+            std::this_thread::yield();
+            continue;
+        }
+        const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
+        if (activeSlot > 1) {
+            std::this_thread::yield();
+            continue;
+        }
+        const uint32_t dataSize = LoadSharedU32(&header->slotDataSize[activeSlot]);
+        if (dataSize > ffprotocol::kSnapshotSlotCapacityBytes) {
+            std::this_thread::yield();
+            continue;
+        }
 
-    const uint8_t* slotBase = mappedView_ + sizeof(ffprotocol::SnapshotSharedHeader) +
-        static_cast<size_t>(activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-    return ffprotocol::ParseSnapshot(slotBase, dataSize);
+        const uint8_t* slotBase = mappedView_ + sizeof(ffprotocol::SnapshotSharedHeader) +
+            static_cast<size_t>(activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
+        // Copy the selected slot before parsing. Parsing directly from the
+        // shared mapping leaves a second-publish window in which the writer
+        // can reuse that slot while the UI is still walking a large scan
+        // snapshot, producing a false malformed/read-failed result.
+        std::vector<uint8_t> serialized(dataSize);
+        if (dataSize != 0) {
+            std::memcpy(serialized.data(), slotBase, dataSize);
+        }
+
+        // A concurrent publish may have flipped slots while copying. Retry a
+        // bounded number of times rather than exposing a torn generation.
+        if (LoadSharedU64(&header->generation) == generationBefore &&
+            LoadSharedU32(&header->activeSlot) == activeSlot &&
+            LoadSharedU32(&header->slotDataSize[activeSlot]) == dataSize) {
+            auto parsed = ffprotocol::ParseSnapshot(serialized.data(), serialized.size());
+            if (parsed) {
+                return SnapshotReadResult{generationBefore, std::move(*parsed)};
+            }
+        }
+        std::this_thread::yield();
+    }
+    return std::nullopt;
 }
 
 bool EngineClient::ConnectAndSubscribe() {
+    const auto fail = [](const wchar_t* state, DWORD error) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
+                                      {}, {}, state, error, 0});
+        // Preserve the stage-specific status across diagnostic-file I/O so
+        // ManagementLoop's aggregate failure record remains meaningful.
+        SetLastError(error);
+        return false;
+    };
+
     HANDLE pipe = CreateFileW(enginePipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) {
-        return false;
+        return fail(L"engine-connect-open-failed", GetLastError());
     }
     DWORD mode = PIPE_READMODE_BYTE;
-    SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+    if (!SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr)) {
+        const DWORD error = GetLastError();
+        CloseHandle(pipe);
+        return fail(L"engine-connect-mode-failed", error);
+    }
 
     if (!ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::Subscribe))) {
+        const DWORD error = GetLastError();
         CloseHandle(pipe);
-        return false;
+        return fail(L"engine-connect-subscribe-write-failed", error);
     }
     auto reply = ffipc::ReadFrame(pipe);
-    if (!reply || ffprotocol::ToUiMessageType(reply->header.messageType) != UiMessageType::SubscribeAck) {
+    if (!reply) {
+        const DWORD error = GetLastError();
         CloseHandle(pipe);
-        return false;
+        return fail(L"engine-connect-subscribe-read-failed", error);
+    }
+    if (ffprotocol::ToUiMessageType(reply->header.messageType) != UiMessageType::SubscribeAck) {
+        CloseHandle(pipe);
+        return fail(L"engine-connect-unexpected-reply", ERROR_INVALID_DATA);
     }
     if (reply->payload.size() < sizeof(ffprotocol::SubscribeAckPayload)) {
         CloseHandle(pipe);
-        return false;
+        return fail(L"engine-connect-short-ack", ERROR_INVALID_DATA);
     }
 
     ffprotocol::SubscribeAckPayload header{};
@@ -119,63 +306,103 @@ bool EngineClient::ConnectAndSubscribe() {
     const size_t expectedSize = sizeof(header) + static_cast<size_t>(header.sectionNameLengthChars) * sizeof(wchar_t);
     if (reply->payload.size() != expectedSize) {
         CloseHandle(pipe);
-        return false;
+        return fail(L"engine-connect-malformed-ack", ERROR_INVALID_DATA);
     }
     std::wstring sectionName(
         reinterpret_cast<const wchar_t*>(reply->payload.data() + sizeof(header)), header.sectionNameLengthChars);
 
     if (!MapSnapshotSection(sectionName)) {
+        const DWORD error = GetLastError();
         CloseHandle(pipe);
-        return false;
+        return fail(L"engine-connect-snapshot-map-failed", error);
     }
 
-    pipe_ = pipe;
+    {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        // Stop() may race a slow handshake. Do not publish a newly-connected
+        // handle after shutdown has begun, and never replace a live handle
+        // behind the writer's back.
+        if (!running_.load() || pipe_.load() != INVALID_HANDLE_VALUE) {
+            CloseHandle(pipe);
+            return false;
+        }
+        pipe_ = pipe;
+    }
+    announcedGeneration_ = header.generationId;
+    // Wake the invalidation worker after the control pipe becomes usable. Any
+    // directory requests queued while the engine was starting must remain
+    // pending until this point; dropping them leaves the corresponding column
+    // permanently empty.
+    invalidationCv_.notify_all();
+    ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_SUCCEEDED,
+                                  {}, {}, L"engine-connect-succeeded", 0, 0});
     return true;
 }
 
 void EngineClient::ReaderLoop() {
     for (;;) {
         HANDLE pipe = pipe_.load();
-        auto frame = ffipc::ReadFrame(pipe);
-        if (!frame) {
+        ffipc::ReceivedFrame frame;
+        if (!ReadUiFrame(pipe, running_, frame)) {
             break;
         }
-        auto messageType = ffprotocol::ToUiMessageType(frame->header.messageType);
+        auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
         if (!messageType) {
             break;
         }
 
         switch (*messageType) {
             case UiMessageType::NewGeneration:
-                if (onNewGeneration_) {
-                    onNewGeneration_();
+                if (frame.payload.size() != sizeof(ffprotocol::NewGenerationPayload)) break;
+                {
+                    ffprotocol::NewGenerationPayload payload{};
+                    std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+                    if (payload.generationId == 0) break;
+                    uint64_t announced = announcedGeneration_.load();
+                    while (payload.generationId > announced &&
+                           !announcedGeneration_.compare_exchange_weak(announced, payload.generationId)) {
+                    }
+                    if (payload.generationId <= announced) break;
+                    if (snapshotRemapRequested_.exchange(false)) {
+                        std::wstring sectionName;
+                        {
+                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
+                            sectionName = snapshotSectionName_;
+                        }
+                        if (!sectionName.empty() && !MapSnapshotSection(sectionName)) {
+                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
+                            snapshotSectionName_ = sectionName;
+                            snapshotRemapRequested_.store(true);
+                        }
+                    }
+                    if (onNewGeneration_) onNewGeneration_(payload.generationId);
                 }
                 break;
 
             case UiMessageType::EngineStatus: {
-                if (frame->payload.size() != sizeof(ffprotocol::EngineStatusPayload)) {
+                if (frame.payload.size() != sizeof(ffprotocol::EngineStatusPayload)) {
                     break;
                 }
                 ffprotocol::EngineStatusPayload status{};
-                std::memcpy(&status, frame->payload.data(), sizeof(status));
-                if (onStatus_) {
-                    onStatus_(status.status == ffprotocol::PrivilegedPathStatus::Active);
-                }
+                std::memcpy(&status, frame.payload.data(), sizeof(status));
+                SetConnectionState(EngineConnectionState::Connected,
+                                   status.status == ffprotocol::PrivilegedPathStatus::Active);
                 break;
             }
 
             case UiMessageType::DirectoryError: {
-                if (frame->payload.size() < sizeof(ffprotocol::DirectoryErrorPayload)) {
+                if (frame.payload.size() < sizeof(ffprotocol::DirectoryErrorPayload)) {
                     break;
                 }
                 ffprotocol::DirectoryErrorPayload header{};
-                std::memcpy(&header, frame->payload.data(), sizeof(header));
+                std::memcpy(&header, frame.payload.data(), sizeof(header));
                 const size_t expected = sizeof(header) + static_cast<size_t>(header.pathLengthChars) * sizeof(wchar_t);
-                if (frame->payload.size() != expected) {
+                if (frame.payload.size() != expected) {
                     break;
                 }
                 std::wstring path(
-                    reinterpret_cast<const wchar_t*>(frame->payload.data() + sizeof(header)), header.pathLengthChars);
+                    reinterpret_cast<const wchar_t*>(frame.payload.data() + sizeof(header)), header.pathLengthChars);
                 if (onDirectoryError_) {
                     onDirectoryError_(path, header.reason);
                 }
@@ -183,19 +410,19 @@ void EngineClient::ReaderLoop() {
             }
 
             case UiMessageType::UnavailableVolumes: {
-                if (frame->payload.size() < sizeof(ffprotocol::UnavailableVolumesHeader)) {
+                if (frame.payload.size() < sizeof(ffprotocol::UnavailableVolumesHeader)) {
                     break;
                 }
                 ffprotocol::UnavailableVolumesHeader header{};
-                std::memcpy(&header, frame->payload.data(), sizeof(header));
+                std::memcpy(&header, frame.payload.data(), sizeof(header));
                 const size_t expected = sizeof(header)
                     + static_cast<size_t>(header.count) * sizeof(ffprotocol::UnavailableVolumeRecord);
-                if (expected != frame->payload.size()) {
+                if (expected != frame.payload.size()) {
                     break;
                 }
                 std::vector<ffprotocol::UnavailableVolumeRecord> records(header.count);
                 if (!records.empty()) {
-                    std::memcpy(records.data(), frame->payload.data() + sizeof(header),
+                    std::memcpy(records.data(), frame.payload.data() + sizeof(header),
                                 records.size() * sizeof(ffprotocol::UnavailableVolumeRecord));
                 }
                 UnavailableVolumesCallback callback;
@@ -210,11 +437,11 @@ void EngineClient::ReaderLoop() {
             }
 
             case UiMessageType::ForgetUnavailableVolumeResult: {
-                if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumeResultPayload)) {
+                if (frame.payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumeResultPayload)) {
                     break;
                 }
                 ffprotocol::ForgetUnavailableVolumeResultPayload payload{};
-                std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+                std::memcpy(&payload, frame.payload.data(), sizeof(payload));
                 if (!ffprotocol::IsForgetUnavailableVolumeStatusValid(payload.status)) {
                     break;
                 }
@@ -230,11 +457,11 @@ void EngineClient::ReaderLoop() {
             }
 
             case UiMessageType::FolderAggregateResult: {
-                if (frame->payload.size() != sizeof(ffprotocol::FolderAggregateResultPayload)) {
+                if (frame.payload.size() != sizeof(ffprotocol::FolderAggregateResultPayload)) {
                     break;
                 }
                 ffprotocol::FolderAggregateResultPayload payload{};
-                std::memcpy(&payload, frame->payload.data(), sizeof(payload));
+                std::memcpy(&payload, frame.payload.data(), sizeof(payload));
                 if (!ffprotocol::IsFolderAggregateStatusValid(payload.status)) {
                     break;
                 }
@@ -253,20 +480,41 @@ void EngineClient::ReaderLoop() {
                 break;
             }
 
+            case UiMessageType::IndexedSearchResult: {
+                const auto response = ffprotocol::ParseIndexedSearchResponse(
+                    frame.payload.data(), frame.payload.size());
+                if (!response) {
+                    break;
+                }
+                IndexedSearchCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+                    auto it = indexedSearchCallbacks_.find(response->requestId);
+                    if (it != indexedSearchCallbacks_.end()) {
+                        callback = std::move(it->second);
+                        indexedSearchCallbacks_.erase(it);
+                    }
+                }
+                if (callback) {
+                    callback(std::move(*response));
+                }
+                break;
+            }
+
             case UiMessageType::VolumeStatus: {
-                if (frame->payload.size() < sizeof(ffprotocol::VolumeStatusHeader)) {
+                if (frame.payload.size() < sizeof(ffprotocol::VolumeStatusHeader)) {
                     break;
                 }
                 ffprotocol::VolumeStatusHeader header{};
-                std::memcpy(&header, frame->payload.data(), sizeof(header));
+                std::memcpy(&header, frame.payload.data(), sizeof(header));
                 const size_t expected = sizeof(header)
                     + static_cast<size_t>(header.count) * sizeof(ffprotocol::VolumeStatusRecord);
-                if (expected != frame->payload.size()) {
+                if (expected != frame.payload.size()) {
                     break;
                 }
                 std::vector<ffprotocol::VolumeStatusRecord> records(header.count);
                 if (!records.empty()) {
-                    std::memcpy(records.data(), frame->payload.data() + sizeof(header),
+                    std::memcpy(records.data(), frame.payload.data() + sizeof(header),
                                 records.size() * sizeof(ffprotocol::VolumeStatusRecord));
                 }
                 VolumeStatusCallback callback;
@@ -288,32 +536,91 @@ void EngineClient::ReaderLoop() {
 
 void EngineClient::ManagementLoop() {
     while (running_) {
+        SetConnectionState(EngineConnectionState::Starting, false);
         LaunchEngineIfNotRunning(enginePipeName_);
 
-        if (!ConnectAndSubscribe()) {
-            if (onStatus_) {
-                onStatus_(false);
+        // recovery-degraded-browsing D2: bounded attempt cycle. After
+        // kMaxConnectAttempts the loop parks in the Unavailable state until
+        // RetryConnect() or Stop() -- never an infinite silent retry loop.
+        bool connected = false;
+        int attempts = 0;
+        while (running_ && !connected && attempts < kMaxConnectAttempts) {
+            ++attempts;
+            if (ConnectAndSubscribe()) {
+                connected = true;
+                break;
             }
-            std::this_thread::sleep_for(kReconnectDelay);
-            continue;
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
+                                          {}, {}, L"engine-connect-failed", GetLastError(), 0});
+            if (!WaitForRetryDelay()) {
+                return;
+            }
         }
-
-        ReaderLoop(); // blocks until disconnect
-
-        HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
-        if (pipe != INVALID_HANDLE_VALUE) {
-            CloseHandle(pipe);
-        }
-        UnmapSnapshotSection();
-        if (onStatus_) {
-            onStatus_(false);
-        }
-
         if (!running_) {
             break;
         }
-        std::this_thread::sleep_for(kReconnectDelay);
+        if (!connected) {
+            SetConnectionState(EngineConnectionState::Unavailable, false);
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_UNAVAILABLE,
+                                          {}, {}, L"engine-unavailable", 0, 0});
+            std::unique_lock<std::mutex> lock(retryMutex_);
+            retryCv_.wait(lock, [this] { return !running_ || retryRequested_.exchange(false); });
+            continue;
+        }
+
+        SetConnectionState(EngineConnectionState::Connected, false);
+        ReaderLoop(); // blocks until disconnect
+
+        ClosePipe();
+        FailIndexedSearchCallbacks();
+        invalidationCv_.notify_all();
+        UnmapSnapshotSection();
+        if (!running_) {
+            break;
+        }
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DISCONNECTED,
+                                      {}, {}, L"engine-disconnected", 0, 0});
+        // Loop: re-enter Starting and run the same bounded reconnect cycle.
     }
+}
+
+void EngineClient::SetConnectionState(EngineConnectionState state, bool privilegedPathActive) {
+    if (onStatus_) {
+        onStatus_(state, privilegedPathActive);
+    }
+}
+
+void EngineClient::FailIndexedSearchCallbacks() {
+    std::vector<std::pair<uint64_t, IndexedSearchCallback>> callbacks;
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+        callbacks.reserve(indexedSearchCallbacks_.size());
+        for (auto& [requestId, callback] : indexedSearchCallbacks_) {
+            callbacks.emplace_back(requestId, std::move(callback));
+        }
+        indexedSearchCallbacks_.clear();
+    }
+    for (auto& [requestId, callback] : callbacks) {
+        if (!callback) continue;
+        ffprotocol::IndexedSearchResponse response;
+        response.requestId = requestId;
+        response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+        callback(std::move(response));
+    }
+}
+
+bool EngineClient::WaitForRetryDelay() {
+    std::unique_lock<std::mutex> lock(retryMutex_);
+    retryCv_.wait_for(lock, kReconnectDelay, [this] { return !running_ || retryRequested_.exchange(false); });
+    return running_;
+}
+
+void EngineClient::RetryConnect() {
+    retryRequested_ = true;
+    retryCv_.notify_all();
 }
 
 void EngineClient::Start(GenerationCallback onNewGeneration, StatusCallback onStatus, DirectoryErrorCallback onDirectoryError) {
@@ -338,6 +645,7 @@ void EngineClient::Stop() {
     }
     running_ = false;
     invalidationCv_.notify_all();
+    retryCv_.notify_all();
 
     // CancelSynchronousIo targets whatever blocking call this specific
     // thread currently has pending (the reader loop's ReadFile), which is
@@ -349,10 +657,7 @@ void EngineClient::Stop() {
         CancelSynchronousIo(invalidationThread_.native_handle());
     }
 
-    HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
-    if (pipe != INVALID_HANDLE_VALUE) {
-        CloseHandle(pipe);
-    }
+    ClosePipe();
     if (managementThread_.joinable()) {
         managementThread_.join();
     }
@@ -363,13 +668,18 @@ void EngineClient::Stop() {
 }
 
 void EngineClient::RequestDirectory(const std::wstring& path) {
-    if (path.empty() || !running_) return;
+    if (path.empty() || path.size() > ffprotocol::kMaxPathLengthChars || !running_) return;
     {
         std::lock_guard<std::mutex> lock(invalidationMutex_);
         if (std::find(invalidationQueue_.begin(), invalidationQueue_.end(), path) == invalidationQueue_.end()) {
             invalidationQueue_.push_back(path);
         }
     }
+    // Production state-transition evidence for separating input/hit-test
+    // failures from pipe or engine failures during degraded browsing.
+    ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_QUEUED,
+                                  path, {}, L"ui-directory-request-queued", 0, 0});
     invalidationCv_.notify_one();
 }
 
@@ -378,36 +688,85 @@ void EngineClient::InvalidationLoop() {
         std::wstring path;
         {
             std::unique_lock<std::mutex> lock(invalidationMutex_);
-            invalidationCv_.wait(lock, [this] { return !running_ || !invalidationQueue_.empty(); });
+            invalidationCv_.wait(lock, [this] {
+                return !running_ || (!invalidationQueue_.empty() && pipe_.load() != INVALID_HANDLE_VALUE);
+            });
             if (!running_) break;
-            path = std::move(invalidationQueue_.front());
-            invalidationQueue_.pop_front();
+            // Do not remove the request until the frame has been accepted by
+            // the pipe.  The previous implementation popped first and lost
+            // every request issued during startup/reconnect.
+            path = invalidationQueue_.front();
         }
-        SendDirectoryRequest(path);
+        if (SendDirectoryRequest(path)) {
+            std::lock_guard<std::mutex> lock(invalidationMutex_);
+            if (!invalidationQueue_.empty() && invalidationQueue_.front() == path) {
+                invalidationQueue_.pop_front();
+            }
+        }
     }
 }
 
-void EngineClient::SendDirectoryRequest(const std::wstring& path) {
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
-        return;
-    }
+bool EngineClient::SendDirectoryRequest(const std::wstring& path) {
+    if (path.empty() || path.size() > ffprotocol::kMaxPathLengthChars) return false;
 
     std::vector<uint8_t> payload(sizeof(ffprotocol::RequestDirectoryHeader) + path.size() * sizeof(wchar_t));
     ffprotocol::RequestDirectoryHeader header{static_cast<uint16_t>(path.size())};
     std::memcpy(payload.data(), &header, sizeof(header));
     std::memcpy(payload.data() + sizeof(header), path.data(), path.size() * sizeof(wchar_t));
 
+    if (WriteCurrentFrame(static_cast<uint16_t>(UiMessageType::RequestDirectory), payload.data(),
+                          static_cast<uint32_t>(payload.size()))) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_DIRECTORY_REQUEST_SENT,
+                                      path, {}, L"ui-directory-request-sent", 0, 0});
+        return true;
+    }
+    invalidationCv_.notify_all();
+    return false;
+}
+
+void EngineClient::ClosePipe() {
     std::lock_guard<std::mutex> lock(writeMutex_);
-    ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::RequestDirectory), payload.data(),
-                       static_cast<uint32_t>(payload.size()));
+    HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
+    if (pipe != INVALID_HANDLE_VALUE) {
+        // Cancel any synchronous read/write still associated with this
+        // connection before closing the handle. The owning worker is also
+        // cancelled by Stop(); this call covers the reconnect path.
+        CancelIoEx(pipe, nullptr);
+        CloseHandle(pipe);
+    }
+    for (HANDLE retired : retiredPipes_) {
+        if (retired != INVALID_HANDLE_VALUE) {
+            CloseHandle(retired);
+        }
+    }
+    retiredPipes_.clear();
+}
+
+bool EngineClient::WriteCurrentFrame(uint16_t messageType, const void* payload, uint32_t payloadSize) {
+    std::lock_guard<std::mutex> lock(writeMutex_);
+    const HANDLE pipe = pipe_.load();
+    if (pipe == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    if (ffipc::WriteFrame(pipe, messageType, payload, payloadSize)) {
+        return true;
+    }
+
+    // A failed write means the reader loop may still be blocked on this
+    // connection. Mark the exact handle stale while holding the writer lock;
+    // ClosePipe() will then serialize the eventual close/reconnect and close
+    // the retired handle, avoiding both a use-after-close and a handle leak.
+    HANDLE expected = pipe;
+    if (pipe_.compare_exchange_strong(expected, INVALID_HANDLE_VALUE)) {
+        retiredPipes_.push_back(pipe);
+        CancelIoEx(pipe, nullptr);
+    }
+    return false;
 }
 
 void EngineClient::ReloadIndexingConfig() {
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) return;
-    std::lock_guard<std::mutex> lock(writeMutex_);
-    ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ReloadIndexingConfig));
+    WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::ReloadIndexingConfig));
 }
 
 void EngineClient::RequestUnavailableVolumes(UnavailableVolumesCallback callback) {
@@ -415,23 +774,7 @@ void EngineClient::RequestUnavailableVolumes(UnavailableVolumesCallback callback
         std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
         onUnavailableVolumes_ = std::move(callback);
     }
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
-        UnavailableVolumesCallback unavailable;
-        {
-            std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
-            unavailable = std::move(onUnavailableVolumes_);
-        }
-        if (unavailable) {
-            unavailable({});
-        }
-        return;
-    }
-    bool sent = false;
-    {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestUnavailableVolumes));
-    }
+    const bool sent = WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::RequestUnavailableVolumes));
     if (!sent) {
         UnavailableVolumesCallback unavailable;
         {
@@ -449,25 +792,9 @@ void EngineClient::ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailabl
         std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
         onForgetUnavailableVolume_ = std::move(callback);
     }
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
-        ForgetUnavailableVolumeCallback failed;
-        {
-            std::lock_guard<std::mutex> lock(volumeCallbackMutex_);
-            failed = std::move(onForgetUnavailableVolume_);
-        }
-        if (failed) {
-            failed({volumeRowId, ffprotocol::ForgetUnavailableVolumeStatus::Failed});
-        }
-        return;
-    }
     const ffprotocol::ForgetUnavailableVolumePayload payload{volumeRowId};
-    bool sent = false;
-    {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolume),
-                                 &payload, sizeof(payload));
-    }
+    const bool sent = WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::ForgetUnavailableVolume),
+                                        &payload, sizeof(payload));
     if (!sent) {
         ForgetUnavailableVolumeCallback failed;
         {
@@ -480,27 +807,11 @@ void EngineClient::ForgetUnavailableVolume(int64_t volumeRowId, ForgetUnavailabl
     }
 }
 
-void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {
-    const uint64_t requestId = ++lastRequestId_;
+uint64_t EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFrnLow, uint64_t parentFrnHigh, FolderAggregateCallback callback) {
+    const uint64_t requestId = lastRequestId_.fetch_add(1) + 1;
     {
         std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
         aggregateCallbacks_[requestId] = std::move(callback);
-    }
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
-        FolderAggregateCallback failed;
-        {
-            std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
-            auto it = aggregateCallbacks_.find(requestId);
-            if (it != aggregateCallbacks_.end()) {
-                failed = std::move(it->second);
-                aggregateCallbacks_.erase(it);
-            }
-        }
-        if (failed) {
-            failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
-        }
-        return;
     }
     ffprotocol::RequestFolderAggregatePayload payload{};
     payload.requestId = requestId;
@@ -508,12 +819,8 @@ void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFr
     payload.parentFrnLow = parentFrnLow;
     payload.parentFrnHigh = parentFrnHigh;
 
-    bool sent = false;
-    {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestFolderAggregate),
-                                 &payload, sizeof(payload));
-    }
+    const bool sent = WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::RequestFolderAggregate),
+                                        &payload, sizeof(payload));
     if (!sent) {
         FolderAggregateCallback failed;
         {
@@ -528,14 +835,12 @@ void EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t parentFr
             failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
         }
     }
+    return requestId;
 }
 
 void EngineClient::SetIndexingPaused(uint8_t scope, bool paused) {
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) return;
     const ffprotocol::SetIndexingPausedPayload payload{scope, paused ? 1u : 0u};
-    std::lock_guard<std::mutex> lock(writeMutex_);
-    ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::SetIndexingPaused), &payload, sizeof(payload));
+    WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::SetIndexingPaused), &payload, sizeof(payload));
 }
 
 void EngineClient::RequestVolumeStatus(VolumeStatusCallback callback) {
@@ -543,23 +848,7 @@ void EngineClient::RequestVolumeStatus(VolumeStatusCallback callback) {
         std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);
         onVolumeStatus_ = std::move(callback);
     }
-    HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
-        VolumeStatusCallback failed;
-        {
-            std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);
-            failed = std::move(onVolumeStatus_);
-        }
-        if (failed) {
-            failed({});
-        }
-        return;
-    }
-    bool sent = false;
-    {
-        std::lock_guard<std::mutex> lock(writeMutex_);
-        sent = ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestVolumeStatus));
-    }
+    const bool sent = WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::RequestVolumeStatus));
     if (!sent) {
         VolumeStatusCallback failed;
         {
@@ -570,6 +859,67 @@ void EngineClient::RequestVolumeStatus(VolumeStatusCallback callback) {
             failed({});
         }
     }
+}
+
+uint64_t EngineClient::RequestIndexedSearch(const std::wstring& query, uint8_t scope,
+                                            const std::wstring& scopePath, uint8_t sortField,
+                                            bool descending, uint32_t maxResults,
+                                            IndexedSearchCallback callback) {
+    const uint64_t requestId = lastRequestId_.fetch_add(1) + 1;
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+        indexedSearchCallbacks_[requestId] = std::move(callback);
+    }
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = requestId;
+    request.scope = scope;
+    request.sortField = sortField;
+    request.descending = descending;
+    request.maxResults = maxResults;
+    request.query = query;
+    request.scopePath = scopePath;
+    const auto payload = ffprotocol::SerializeIndexedSearchRequest(request);
+    if (payload.empty()) {
+        IndexedSearchCallback failed;
+        {
+            std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+            auto it = indexedSearchCallbacks_.find(requestId);
+            if (it != indexedSearchCallbacks_.end()) {
+                failed = std::move(it->second);
+                indexedSearchCallbacks_.erase(it);
+            }
+        }
+        if (failed) {
+            ffprotocol::IndexedSearchResponse response;
+            response.requestId = requestId;
+            response.status = payload.empty() ? ffprotocol::IndexedSearchStatus::InvalidRequest
+                                               : ffprotocol::IndexedSearchStatus::Unavailable;
+            failed(std::move(response));
+        }
+        return requestId;
+    }
+
+    const bool sent = WriteCurrentFrame(static_cast<uint16_t>(UiMessageType::RequestIndexedSearch),
+                                        payload.data(), static_cast<uint32_t>(payload.size()));
+    if (!sent) {
+        IndexedSearchCallback failed;
+        {
+            std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+            auto it = indexedSearchCallbacks_.find(requestId);
+            if (it != indexedSearchCallbacks_.end()) {
+                failed = std::move(it->second);
+                indexedSearchCallbacks_.erase(it);
+            }
+        }
+        if (failed) {
+            ffprotocol::IndexedSearchResponse response;
+            response.requestId = requestId;
+            response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            failed(std::move(response));
+        }
+    }
+    return requestId;
 }
 
 } // namespace ffui

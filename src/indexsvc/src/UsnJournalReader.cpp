@@ -12,6 +12,7 @@
 
 #include "MftParser.h"
 #include "PrivilegeVerification.h"
+#include "UsnRecordParser.h"
 #include "WriteDeadline.h"
 
 namespace ffindexsvc {
@@ -28,8 +29,8 @@ bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId
                         uint64_t currentUsn, WriteDeadlineState* deadline) {
     ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
@@ -49,8 +50,8 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline);
-    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
+    WriteDeadlineGuard deadlineGuard(deadline, pipe);
+    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
                               payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
@@ -207,20 +208,27 @@ JournalStreamOutcome RunUsnJournalStream(
         std::memcpy(&nextUsn, readBuffer.data(), sizeof(USN));
 
         size_t offset = sizeof(USN);
-        while (offset + sizeof(USN_RECORD_V2) <= readBytesReturned) {
-            const auto* record = reinterpret_cast<const USN_RECORD_V2*>(readBuffer.data() + offset);
-            if (record->RecordLength == 0 || offset + record->RecordLength > readBytesReturned) {
+        while (offset + sizeof(USN_RECORD_COMMON_HEADER) <= readBytesReturned) {
+            USN_RECORD_COMMON_HEADER common{};
+            std::memcpy(&common, readBuffer.data() + offset, sizeof(common));
+            if (common.RecordLength == 0 || offset + common.RecordLength > readBytesReturned) {
                 break; // malformed trailing record -- stop parsing this read, next iteration continues from nextUsn
             }
 
-            ffprotocol::UsnDeltaV1 delta{};
-            delta.fixed.usn = static_cast<uint64_t>(record->Usn);
-            delta.fixed.fileReferenceNumber = record->FileReferenceNumber;
-            delta.fixed.parentFileReferenceNumber = record->ParentFileReferenceNumber;
-            delta.fixed.reason = record->Reason;
-            std::memcpy(&delta.fixed.timestamp, &record->TimeStamp, sizeof(delta.fixed.timestamp));
+            const auto decoded = DecodeUsnRecord(readBuffer.data() + offset, common.RecordLength);
+            if (!decoded) {
+                offset += common.RecordLength;
+                continue;
+            }
 
-            auto enriched = TryReenrichFromMft(volumeHandle, record->FileReferenceNumber, recordSize, bytesPerSector,
+            ffprotocol::UsnDeltaV1 delta{};
+            delta.fixed.usn = decoded->usn;
+            delta.fixed.fileReferenceNumber = decoded->fileReferenceNumber;
+            delta.fixed.parentFileReferenceNumber = decoded->parentFileReferenceNumber;
+            delta.fixed.reason = decoded->reason;
+            delta.fixed.timestamp = decoded->timestamp;
+
+            auto enriched = TryReenrichFromMft(volumeHandle, decoded->fileReferenceNumber, recordSize, bytesPerSector,
                                                 mftOutputBuffer, mftScratch);
             if (enriched) {
                 delta.fixed.parentFileReferenceNumber = enriched->parentFileReferenceNumber;
@@ -233,7 +241,7 @@ JournalStreamOutcome RunUsnJournalStream(
                 // field rather than dropping the record entirely --
                 // tasks.md 5.3/5.4 still require forwarding the change.
                 delta.fixed.sizeBytes = 0;
-                delta.fixed.fileAttributes = record->FileAttributes;
+                delta.fixed.fileAttributes = decoded->fileAttributes;
                 // FileNameOffset/FileNameLength are untrusted on-disk bytes.
                 // The outer loop only bounds RecordLength against the read
                 // buffer; the name range must also be verified to lie within
@@ -242,22 +250,18 @@ JournalStreamOutcome RunUsnJournalStream(
                 // forwarding; the offset below still advances) rather than
                 // forward a truncated/garbage name -- consistent with the
                 // reject-whole-record discipline.
-                if (static_cast<DWORD>(record->FileNameOffset) + record->FileNameLength > record->RecordLength) {
-                    offset += record->RecordLength;
-                    continue;
-                }
                 const auto* nameStart =
-                    reinterpret_cast<const char16_t*>(reinterpret_cast<const uint8_t*>(record) + record->FileNameOffset);
-                delta.fileName.assign(nameStart, record->FileNameLength / sizeof(char16_t));
+                    reinterpret_cast<const char16_t*>(readBuffer.data() + offset + decoded->fileNameOffset);
+                delta.fileName.assign(nameStart, decoded->fileNameLength / sizeof(char16_t));
             }
             delta.fixed.fileNameLengthChars = static_cast<uint16_t>(delta.fileName.size());
 
             if (ffprotocol::IsFileNameLengthValid(delta.fixed.fileNameLengthChars)) {
                 batch.push_back(std::move(delta));
-                latestUsnInBatch = static_cast<uint64_t>(record->Usn);
+                latestUsnInBatch = decoded->usn;
             }
 
-            offset += record->RecordLength;
+            offset += common.RecordLength;
         }
 
         startUsn = nextUsn;

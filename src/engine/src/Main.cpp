@@ -21,7 +21,9 @@
 #include <vector>
 
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/PinnedSignatures.h"
 #include "ffsetup/ScheduledTaskRegistration.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Settings.h"
 
 #include "IdleManager.h"
@@ -91,25 +93,65 @@ void DeleteIndexDatabaseFiles(const std::string& dbPathUtf8) {
 // window and no significant recent filesystem-change activity.
 constexpr std::chrono::milliseconds kIdleTimeout{10 * 60 * 1000};
 
+const wchar_t* ConnectionStateName(ffengine::ConnectionState state) {
+    switch (state) {
+        case ffengine::ConnectionState::Disconnected: return L"disconnected";
+        case ffengine::ConnectionState::Connecting: return L"connecting";
+        case ffengine::ConnectionState::Handshaking: return L"handshaking";
+        case ffengine::ConnectionState::Active: return L"active";
+    }
+    return L"unknown";
+}
+
+const wchar_t* UnavailableReasonName(ffengine::UnavailableReason reason) {
+    switch (reason) {
+        case ffengine::UnavailableReason::None: return L"none";
+        case ffengine::UnavailableReason::ServiceNotRunning: return L"service-not-running";
+        case ffengine::UnavailableReason::UnverifiedServiceIdentity: return L"unverified-service-identity";
+        case ffengine::UnavailableReason::HandshakeRejected: return L"handshake-rejected";
+        case ffengine::UnavailableReason::IncompatibleProtocolVersion: return L"incompatible-protocol-version";
+        case ffengine::UnavailableReason::IdleDropped: return L"idle-dropped";
+    }
+    return L"unknown";
+}
+
 } // namespace
 
 int wmain() {
+#ifndef _DEBUG
+    if (!ffsetup::ArePinnedSignaturesConfigured()) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED,
+                                      {}, {}, L"authenticode-pins-unconfigured", ERROR_INVALID_DATA, 0});
+        std::fwprintf(stderr,
+                      L"FastFilesEngine: refusing non-debug startup because Authenticode pins are not provisioned.\n");
+        return 1;
+    }
+#endif
+
     const std::wstring ownPath = GetOwnPath();
     const std::wstring installDir = DirectoryOf(ownPath);
-
-    // Task 4.1: idempotently (re-)ensure the per-user Scheduled Task
-    // registration is current -- best-effort; the installer is the
-    // primary place this happens (task 6.1), but self-healing here means
-    // a manually-copied or repaired install still ends up registered.
-    ffsetup::RegisterEngineScheduledTask(ownPath);
 
     DWORD sessionId = 0;
     ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
 
     ffengine::UiServer uiServer;
     if (!uiServer.Start(sessionId)) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_UI_SERVER_START_FAILED,
+                                      ownPath, {}, L"engine-ui-server-start-failed", GetLastError(), 0});
         return 1;
     }
+
+    // Task 4.1: idempotently (re-)ensure the per-user Scheduled Task
+    // registration is current -- best-effort; the installer is the
+    // primary place this happens (task 6.1), but self-healing here means
+    // a manually-copied or repaired install still ends up registered.
+    // Keep this after UiServer::Start: Task Scheduler COM registration can
+    // take several seconds on a cold desktop, and the UI control pipe must
+    // become reachable immediately so the application does not spend its
+    // bounded connection window retrying a helper that is already running.
+    ffsetup::RegisterEngineScheduledTask(ownPath);
 
     ffengine::IndexPipeline indexPipeline;
     const std::string dbPathUtf8 = GetIndexDatabasePathUtf8();
@@ -117,6 +159,9 @@ int wmain() {
         bool integrityFailed = false;
         bool opened = indexPipeline.Open(dbPathUtf8, &integrityFailed);
         if (!opened && integrityFailed) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_CORRUPT_DB,
+                                          {}, {}, L"index-database-corrupt", ERROR_INVALID_DATA, 0});
             // Task 1.7's defined fallback: an existing database that fails
             // its integrity check is never trusted -- delete it (plus its
             // WAL/SHM siblings) and reopen a fresh, empty store, which the
@@ -130,6 +175,9 @@ int wmain() {
             opened = indexPipeline.Open(dbPathUtf8);
         }
         if (!opened) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_DATABASE_OPEN_FAILED,
+                                          {}, {}, L"index-database-open-failed", ERROR_OPEN_FAILED, 0});
             // An unopenable durable store (for reasons other than
             // integrity, or if the delete-and-reopen fallback itself
             // failed) is not fatal to the process -- the engine still
@@ -180,6 +228,9 @@ int wmain() {
     uiServer.onRequestFolderAggregate = [&indexPipeline](ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) -> std::optional<ffindexstore::Projection::FolderAggregate> {
         return indexPipeline.GetFolderAggregate(volumeId, parentFrn);
     };
+    uiServer.onRequestIndexedSearch = [&indexPipeline](const ffprotocol::IndexedSearchRequest& request) {
+        return indexPipeline.SearchIndexed(request);
+    };
     uiServer.onRequestVolumeStatus = [&volumeSessions] {
         return volumeSessions.CollectVolumeStatus();
     };
@@ -209,6 +260,15 @@ int wmain() {
         if (!meta || !meta->available) {
             return;
         }
+        if (!meta->scanComplete) {
+            // close-independent-validation-gaps 4.6: an interrupted initial
+            // scan is rebuilt into the projection for durable correctness,
+            // but its complete snapshot export is deferred. Exporting a
+            // large incomplete volume synchronously here would block the
+            // privileged connection from starting and delay cursor resume;
+            // VolumeSessionManager forces the current view at ScanComplete.
+            return;
+        }
         const wchar_t driveLetter = ffengine::ResolveDriveLetterForVolumeKey(meta->key);
         if (driveLetter == L'\0') {
             return; // not currently mounted -- nothing to publish under yet
@@ -219,14 +279,33 @@ int wmain() {
         uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshot(volumeId, prefix));
     });
 
-    privilegedConnection.Start(installDir, [&uiServer, &volumeSessions](ffengine::ConnectionState state, ffengine::UnavailableReason) {
+    privilegedConnection.Start(installDir, [&uiServer, &volumeSessions](ffengine::ConnectionState state,
+                                                                         ffengine::UnavailableReason reason) {
+        // Keep the privileged-path failure stage visible in the metadata-only
+        // diagnostic log. The UI intentionally exposes only degraded mode;
+        // support and verification need to distinguish service absence from
+        // mutual-authentication failure without logging peer contents.
+        if (state == ffengine::ConnectionState::Disconnected && reason != ffengine::UnavailableReason::None) {
+            const std::wstring detail = std::wstring(L"privileged-connection-")
+                + ConnectionStateName(state) + L"/" + UnavailableReasonName(reason);
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
+                                          {}, {}, detail, ERROR_INVALID_DATA, 0});
+        }
         uiServer.SetEngineStatus(state == ffengine::ConnectionState::Active);
         volumeSessions.OnConnectionStateChanged(state);
     });
 
     idleManager.Start(
         kIdleTimeout,
-        [&privilegedConnection] { privilegedConnection.DropForIdle(); },
+        [&privilegedConnection, &indexPipeline] {
+            const auto settings = ffprotocol::LoadSettings(false);
+            // address-engineering-audit-findings 5.2: the idle callback is
+            // the only production path allowed to attempt expensive VACUUM.
+            indexPipeline.RunStoreMaintenance(true, settings.vacuumIntervalHours,
+                                               settings.vacuumSizeGrowthPercent);
+            privilegedConnection.DropForIdle();
+        },
         [&privilegedConnection] { privilegedConnection.RequestReconnect(); });
 
     // This process has no message loop or console of its own -- it's a
@@ -234,6 +313,9 @@ int wmain() {
     // lazily by the UI); it simply runs until the logon session ends.
     HANDLE parkEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (parkEvent == nullptr) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_PARK_EVENT_FAILED,
+                                      ownPath, {}, L"engine-park-event-failed", GetLastError(), 0});
         return 1;
     }
     WaitForSingleObject(parkEvent, INFINITE);

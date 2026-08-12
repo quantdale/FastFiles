@@ -11,4 +11,4 @@ add_executable(FastFilesEngine
   src/VolumeSessionManager.cpp
 )
 
-target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup ffindexstore Rpcrt4 Shell32 Ole32)
+target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup ffindexstore ffsearch Rpcrt4 Shell32 Ole32)

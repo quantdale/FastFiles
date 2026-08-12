@@ -3,6 +3,10 @@ target_link_libraries(ffmftparser_tests PRIVATE ffmftparser)
 
 add_test(NAME ffmftparser_tests COMMAND ffmftparser_tests)
 
+add_executable(ffusnrecord_tests test_usn_record_parser.cpp)
+target_link_libraries(ffusnrecord_tests PRIVATE ffusnparser)
+add_test(NAME ffusnrecord_tests COMMAND ffusnrecord_tests)
+
 add_executable(ffprivilege_diagnostics_tests test_privilege_diagnostics.cpp)
 target_link_libraries(ffprivilege_diagnostics_tests PRIVATE ffindexsvcprobes)
 add_test(NAME ffprivilege_diagnostics_tests COMMAND ffprivilege_diagnostics_tests)
@@ -16,4 +20,4 @@ add_executable(ffconnection_registry_tests test_connection_registry.cpp
 target_link_libraries(ffconnection_registry_tests PRIVATE ffprotocol)
 target_include_directories(ffconnection_registry_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
 add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
-set_tests_properties(ffmftparser_tests ffprivilege_diagnostics_tests ffcommand_surface_tests ffconnection_registry_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests ffconnection_registry_tests PROPERTIES TIMEOUT 120)

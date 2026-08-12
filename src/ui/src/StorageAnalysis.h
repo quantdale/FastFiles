@@ -4,11 +4,14 @@
 #include <functional>
 #include <mutex>
 #include <thread>
+#include <utility>
 #include <vector>
 #include <windows.h>
 
 #include "CategoryEngine.h"
 #include "EngineClient.h"
+#include "ffui/StorageVisibility.h"
+#include "ffui/StoragePercentage.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
@@ -23,9 +26,12 @@ public:
     StorageAnalysis() = default;
     ~StorageAnalysis();
     bool Initialize(HWND owner, EngineClient* engine,
-                    std::function<void(const std::wstring& path)> navigate,
+                    std::function<void(const std::wstring& path, bool isDirectory)> navigate,
                     std::function<void()> close,
                     std::function<void(const std::wstring& commandId, const std::vector<std::wstring>& paths)> invokeCommand);
+    // Applies persisted category definitions to the category view and its
+    // filter. Safe before or after controls are created.
+    void SetCategories(const std::vector<std::pair<std::wstring, std::wstring>>& categories);
     void ShowAndFocus(const std::wstring& currentPath, bool engineActive);
     void Hide();
     bool Visible() const { return visible_; }
@@ -35,6 +41,7 @@ public:
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);
     bool HandleTimer(UINT_PTR timerId);
     bool HandleCompletion(LPARAM lParam);
+    bool HandleTreemapCompletion(LPARAM lParam);
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
     bool HandleLButtonDown(WPARAM wParam, LPARAM lParam);
     void SetEngineActive(bool active);
@@ -42,7 +49,7 @@ public:
     void OnSnapshotUpdated();
     void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
 
-    enum class ViewMode { Overview, DrillDown, LargestFolders, LargestFiles, ByCategory, Treemap };
+    using ViewMode = StorageViewMode;
     void SetViewMode(ViewMode mode);
     ViewMode GetViewMode() const { return viewMode_; }
 
@@ -61,6 +68,7 @@ private:
         uint64_t parentFrnLow = 0;
         uint64_t parentFrnHigh = 0;
         bool calculating = false;
+        bool aggregateFailed = false;
         uint64_t requestId = 0;
     };
 
@@ -81,11 +89,15 @@ private:
 
     void RefreshData();
     void RefreshOverview();
+    void ApplyModeVisibility();
     void RequestAggregateForItem(size_t index);
+    void RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory);
+    std::pair<uint64_t, bool> CurrentParentTotals() const;
     void HandleAggregateResult(uint64_t requestId, ffprotocol::FolderAggregateStatus status,
                                uint64_t itemCount, uint64_t totalSizeBytes);
     void SortItems(int column, bool ascending);
     void PopulateCategoryFilter();
+    void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
 
     HWND owner_ = nullptr;
@@ -103,11 +115,13 @@ private:
     HWND treemap_ = nullptr;
 
     EngineClient* engine_ = nullptr;
-    std::function<void(const std::wstring& path)> navigate_;
+    std::function<void(const std::wstring& path, bool isDirectory)> navigate_;
     std::function<void()> close_;
     std::function<void(const std::wstring& commandId, const std::vector<std::wstring>& paths)> invokeCommand_;
     CategoryEngine categoryEngine_;
     TreemapView treemapView_;
+    std::vector<std::wstring> categoryFilterIds_;
+    std::wstring activeCategoryId_; // empty means All categories
 
     std::vector<DrillItem> items_;
     std::vector<VolumeItem> volumes_;    // storage-overview rows
@@ -122,6 +136,11 @@ private:
 
     std::vector<PendingRequest> pending_;
     std::mutex pendingMutex_;
+    uint64_t nextRequestId_ = 1;
+    uint64_t parentAggregateTotal_ = 0;
+    bool parentAggregateKnown_ = false;
+    bool parentAggregatePending_ = false;
+    uint64_t parentRequestId_ = 0;
 };
 
 } // namespace ffui

@@ -28,6 +28,8 @@ Three-process privileged/unprivileged split (rationale and decisions in
   `openspec/changes/close-independent-validation-gaps/` (storage "% of parent" correctness,
   responsive details-pane layout, service-account doc consistency, pinned-authentication
   hardening). Its `tasks.md` is the source of truth.
+- Recovery work (engine discovery/launch reliability, connection-state visibility,
+  degraded-browsing hardening): `openspec/changes/recovery-degraded-browsing/`.
 
 ## Tests
 

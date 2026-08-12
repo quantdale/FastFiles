@@ -1,9 +1,12 @@
 #include "ColumnView.h"
+#include "EngineStatusPolicy.h"
 #include "SelectionModel.h"
 #include "UITheme.h"
 #include "UiAnimation.h"
 #include "UiStyle.h"
 #include "IconCache.h"
+#include "ffui/SelectionIdentity.h"
+#include "ffprotocol/Diagnostics.h"
 
 #include <algorithm>
 #include <cwchar>
@@ -38,12 +41,23 @@ std::wstring FileExtensionOf(const std::wstring& fileName) {
     return fileName.substr(dot + 1);
 }
 
+void ClearUnavailableColumn(Column& column) {
+    column.items.clear();
+    column.selectedIndices.clear();
+    column.selectionAnchor = -1;
+    column.focusIndex = -1;
+}
+
+void ApplyColumnFailure(Column& column, SnapshotFailureReason reason, uint64_t generation = 0) {
+    if (!column.freshness.Fail(reason, generation)) return;
+    if (column.freshness.state == SnapshotViewState::Unavailable) {
+        ClearUnavailableColumn(column);
+    }
+}
+
 } // namespace
 
-void ColumnView::Initialize(EngineClient* engineClient) {
-    engineClient_ = engineClient;
-
-    std::lock_guard<std::mutex> lock(columnsMutex_);
+Column ColumnView::MakeComputerRootColumn() {
     Column root;
     root.path = L""; // sentinel: not engine-backed, populated directly below
 
@@ -53,7 +67,12 @@ void ColumnView::Initialize(EngineClient* engineClient) {
             continue;
         }
         wchar_t rootPath[] = {letter, L':', L'\\', L'\0'};
-        if (GetDriveTypeW(rootPath) != DRIVE_FIXED) {
+        // Keep the synthetic root consistent with the sidebar's logical-drive
+        // list. Removable, optical, RAM-disk, and mapped network roots are
+        // valid navigation targets too; inaccessible media is surfaced by
+        // the normal degraded enumeration error state after activation.
+        const UINT driveType = GetDriveTypeW(rootPath);
+        if (driveType == DRIVE_UNKNOWN || driveType == DRIVE_NO_ROOT_DIR) {
             continue;
         }
         ColumnItem item;
@@ -61,8 +80,14 @@ void ColumnView::Initialize(EngineClient* engineClient) {
         item.isDirectory = true;
         root.items.push_back(std::move(item));
     }
+    return root;
+}
 
-    columns_.push_back(std::move(root));
+void ColumnView::Initialize(EngineClient* engineClient) {
+    engineClient_ = engineClient;
+
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    columns_.push_back(MakeComputerRootColumn());
     focusedColumnIndex_ = 0;
 }
 
@@ -83,6 +108,8 @@ void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
         column.path = path;
         columns.push_back(std::move(column));
         focusedIndex = static_cast<int>(columns.size()) - 1;
+        if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+        else verticalScrollOffset2_ = 0.0f;
     }
     if (engineClient_) {
         engineClient_->RequestDirectory(path);
@@ -203,6 +230,13 @@ void ColumnView::OnKeyDown(int virtualKey) {
 
 void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth, bool control, bool shift) {
     if (clientPoint.y < kBadgeHeight) {
+        // recovery-degraded-browsing D3: the top status chip is the retry
+        // affordance for the Engine unavailable state only (modernize-ui-
+        // appearance 3.6 kept the chip non-interactive; the Unavailable
+        // state now genuinely offers an action).
+        if (engineState_.load() == EngineConnectionState::Unavailable && retryEngineCallback_) {
+            retryEngineCallback_();
+        }
         return;
     }
     
@@ -215,9 +249,10 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
     }
     
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
-    const int columnIndex = static_cast<int>((clientPoint.x + effectiveScrollOffset) / kColumnWidth);
-    const int itemIndex = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
-    ActivateItem(columnIndex, itemIndex, control, shift);
+    const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
+                                          viewportWidth, dualPane_, activePane_);
+    ActivateItem(hit.columnIndex, hit.itemIndex, control, shift);
 }
 
 void ColumnView::SetIconCache(IconCache* iconCache) {
@@ -240,8 +275,11 @@ void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         }
     }
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
-    hoverColumn_ = static_cast<int>((clientPoint.x + effectiveScrollOffset) / kColumnWidth);
-    hoverItem_ = static_cast<int>((clientPoint.y - kBadgeHeight) / kRowHeight);
+    const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
+                                          viewportWidth, dualPane_, activePane_);
+    hoverColumn_ = hit.columnIndex;
+    hoverItem_ = hit.itemIndex;
     hoverActive_ = true;
     hoverEnterMs_ = static_cast<uint64_t>(GetTickCount64());
     hoverOpacity_.AnimateTo(1.0f, kUiAnimationDefaultMs, hoverEnterMs_);
@@ -308,23 +346,98 @@ void ColumnView::SelectAll() {
 
 void ColumnView::RefreshActiveColumn() {
     const std::wstring path = ActivePanePath();
-    if (!path.empty() && engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    if (!path.empty() && engineClient_ != nullptr) {
+        MarkPathLoading(path);
+        engineClient_->RequestDirectory(path);
+    }
+}
+
+void ColumnView::RefreshAllColumns() {
+    if (engineClient_ == nullptr) return;
+    std::vector<std::wstring> paths;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        const auto collect = [&paths](std::vector<Column>& columns) {
+            for (const auto& column : columns) {
+                if (!column.path.empty()) paths.push_back(column.path);
+            }
+            for (auto& column : columns) {
+                if (!column.path.empty()) column.freshness.BeginRequest();
+            }
+        };
+        collect(columns_);
+        collect(columns2_);
+    }
+    for (const auto& path : paths) engineClient_->RequestDirectory(path);
+}
+
+void ColumnView::ScrollVertical(float delta, float viewportHeight) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    auto& columns = ActiveColumns();
+    const int focusedIndex = ActiveFocusedColumnIndex();
+    const size_t itemCount = focusedIndex >= 0 && focusedIndex < static_cast<int>(columns.size())
+        ? columns[focusedIndex].items.size() : 0;
+    const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+    const float maximum = (std::max)(0.0f, static_cast<float>(itemCount) * kRowHeight - visibleHeight);
+    float& offset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    offset = std::clamp(offset + delta, 0.0f, maximum);
+}
+
+void ColumnView::EnsureFocusedItemVisible(float viewportHeight) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    auto& columns = ActiveColumns();
+    const int focusedIndex = ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
+    const int itemIndex = columns[focusedIndex].focusIndex;
+    if (itemIndex < 0) return;
+    const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+    const float top = static_cast<float>(itemIndex) * kRowHeight;
+    const float bottom = top + kRowHeight;
+    float& offset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    if (top < offset) offset = top;
+    else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
+    const float maximum = (std::max)(0.0f, static_cast<float>(columns[focusedIndex].items.size()) * kRowHeight - visibleHeight);
+    offset = std::clamp(offset, 0.0f, maximum);
 }
 
 void ColumnView::NavigateToPath(const std::wstring& path, const std::wstring& selectName) {
     if (path.empty()) return;
+    const std::vector<std::wstring> paths = BuildNavigationPathChain(path);
+    if (paths.empty()) return;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
         int& focusedIndex = ActiveFocusedColumnIndex();
         columns.clear();
-        Column column;
-        column.path = path;
-        columns.push_back(std::move(column));
-        focusedIndex = 0;
+        for (const auto& columnPath : paths) {
+            Column column;
+            column.path = columnPath;
+            columns.push_back(std::move(column));
+        }
+        focusedIndex = static_cast<int>(columns.size()) - 1;
+        if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+        else verticalScrollOffset2_ = 0.0f;
         pendingSelectionName_ = selectName;
+        pendingSelectionPath_ = selectName.empty() ? std::wstring{} : paths.back();
     }
-    if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    if (engineClient_ != nullptr) {
+        for (const auto& columnPath : paths) engineClient_->RequestDirectory(columnPath);
+    }
+}
+
+void ColumnView::NavigateToComputerRoot() {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    auto& columns = ActiveColumns();
+    columns.clear();
+    columns.push_back(MakeComputerRootColumn());
+    ActiveFocusedColumnIndex() = 0;
+    if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+    else verticalScrollOffset2_ = 0.0f;
+    pendingSelectionName_.clear();
+    pendingSelectionPath_.clear();
+    hoverColumn_ = -1;
+    hoverItem_ = -1;
+    hoverActive_ = false;
 }
 
 void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirectory) {
@@ -364,6 +477,9 @@ void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirect
         }
         focusedIndex = static_cast<int>(columns.size()) - 1;
         pendingSelectionName_ = selectedName;
+        pendingSelectionPath_ = paths.empty() ? std::wstring{} : paths.back();
+        if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+        else verticalScrollOffset2_ = 0.0f;
     }
     for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
     if (isDirectory && engineClient_ != nullptr) engineClient_->RequestDirectory(fullPath);
@@ -381,14 +497,23 @@ void ColumnView::NavigateToHierarchy(const std::vector<std::wstring>& segments, 
     }
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        columns_.clear();
+        // Search results are opened in the pane that currently owns focus.
+        // The old implementation always rebuilt pane 0, so activating a
+        // complete result from the right pane silently changed the left pane
+        // instead and left the visible right pane unchanged.
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        columns.clear();
         for (const auto& path : paths) {
             Column column;
             column.path = path;
-            columns_.push_back(std::move(column));
+            columns.push_back(std::move(column));
         }
-        focusedColumnIndex_ = static_cast<int>(columns_.size()) - 1;
+        focusedIndex = static_cast<int>(columns.size()) - 1;
         pendingSelectionName_ = segments.back();
+        pendingSelectionPath_ = paths.back();
+        if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+        else verticalScrollOffset2_ = 0.0f;
     }
     for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
     if (isDirectory && engineClient_ != nullptr) {
@@ -427,26 +552,51 @@ std::wstring ColumnView::RootPath() const {
     return {};
 }
 
-void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot) {
+void ColumnView::RefreshColumnFromSnapshot(Column& column,
+                                           const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
+                                           uint64_t generation) {
     auto it = snapshot.find(column.path);
     if (it == snapshot.end()) {
-        return; // not published yet
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_PATH_MISS,
+                                      column.path, {}, L"ui-snapshot-path-miss", ERROR_FILE_NOT_FOUND, 0});
+        if (column.freshness.HasLastKnownGood()) {
+            ApplyColumnFailure(column, SnapshotFailureReason::PathMissing, generation);
+        }
+        return; // an initial request may not have reached the published view yet
     }
     const auto& directory = it->second;
+    ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                  ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_COLUMN_REFRESH,
+                                  column.path, {}, L"ui-snapshot-column-refresh",
+                                  0, static_cast<uint64_t>(directory.entries.size())});
 
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::AccessDenied) {
-        column.error = ColumnErrorState::AccessDenied;
-        column.items.clear();
+        ApplyColumnFailure(column, SnapshotFailureReason::AccessDenied, generation);
         return;
     }
     if (directory.status == ffprotocol::DirectoryEnumerationStatus::NotFound) {
-        column.error = ColumnErrorState::NoLongerAvailable;
-        column.items.clear();
+        ApplyColumnFailure(column, SnapshotFailureReason::NoLongerAvailable, generation);
+        return;
+    }
+    if (directory.status == ffprotocol::DirectoryEnumerationStatus::IoError) {
+        ApplyColumnFailure(column, SnapshotFailureReason::EnumerationFailed, generation);
         return;
     }
 
-    column.error = ColumnErrorState::None;
-    const std::set<int> oldSelection = column.selectedIndices;
+    if (!column.freshness.AcceptGeneration(generation)) return;
+    std::vector<SelectionIdentity> previousIdentities;
+    previousIdentities.reserve(column.items.size());
+    for (const auto& item : column.items) {
+        previousIdentities.push_back(MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                                           item.fileIdLow, item.fileIdHigh));
+    }
+    const SelectionIndexState previousState{column.selectedIndices, column.selectionAnchor, column.focusIndex};
+    const SelectionIdentityState previousSelection =
+        CaptureSelectionIdentityState(previousIdentities, previousState);
+    const std::wstring pendingName = pendingSelectionName_;
+    const std::wstring pendingPath = pendingSelectionPath_;
+    bool pendingApplied = false;
     column.items.clear();
     column.items.reserve(directory.entries.size());
     for (const auto& entry : directory.entries) {
@@ -460,32 +610,53 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column, const std::map<std::w
         }
         return _wcsicmp(a.name.c_str(), b.name.c_str()) < 0;
     });
-    if (!pendingSelectionName_.empty()) {
+    std::vector<SelectionIdentity> refreshedIdentities;
+    refreshedIdentities.reserve(column.items.size());
+    for (const auto& item : column.items) {
+        refreshedIdentities.push_back(MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                                            item.fileIdLow, item.fileIdHigh));
+    }
+    const SelectionIndexState restoredState = RestoreSelectionIndexState(refreshedIdentities, previousSelection);
+    column.selectedIndices = restoredState.selectedIndices;
+    column.selectionAnchor = restoredState.selectionAnchor;
+    column.focusIndex = restoredState.focusIndex;
+    if (!pendingName.empty() && (pendingPath.empty() || column.path == pendingPath)) {
         for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
-            if (_wcsicmp(column.items[index].name.c_str(), pendingSelectionName_.c_str()) == 0) {
-                SelectSingle(column, index);
+            if (_wcsicmp(column.items[index].name.c_str(), pendingName.c_str()) == 0) {
+                column.selectedIndices.insert(index);
+                column.selectionAnchor = index;
+                column.focusIndex = index;
+                pendingApplied = true;
                 break;
             }
         }
+    }
+    if (pendingApplied) {
         pendingSelectionName_.clear();
-    }
-    column.selectedIndices.clear();
-    for (int index : oldSelection) {
-        if (index >= 0 && index < static_cast<int>(column.items.size())) {
-            column.selectedIndices.insert(index);
-        }
-    }
-    if (column.focusIndex >= static_cast<int>(column.items.size())) {
-        column.focusIndex = -1;
+        pendingSelectionPath_.clear();
     }
 }
 
-void ColumnView::OnSnapshotUpdated() {
+void ColumnView::OnSnapshotUpdated(uint64_t announcedGeneration) {
     if (!engineClient_) {
         return;
     }
-    auto snapshot = engineClient_->ReadSnapshot();
-    if (!snapshot) {
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        for (auto& column : columns_) {
+            if (!column.path.empty()) column.freshness.AnnounceGeneration(announcedGeneration);
+        }
+        for (auto& column : columns2_) {
+            if (!column.path.empty()) column.freshness.AnnounceGeneration(announcedGeneration);
+        }
+    }
+    auto snapshot = engineClient_->ReadSnapshotWithGeneration();
+    if (!snapshot || (announcedGeneration != 0 && snapshot->generation < announcedGeneration)) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_READ_FAILED,
+                                      {}, {}, L"ui-snapshot-read-failed", ERROR_INVALID_DATA,
+                                      announcedGeneration});
+        MarkSnapshotLoadFailed(announcedGeneration);
         return;
     }
     std::lock_guard<std::mutex> lock(columnsMutex_);
@@ -493,32 +664,34 @@ void ColumnView::OnSnapshotUpdated() {
         if (column.path.empty()) {
             continue; // the synthetic root (drive list) column isn't engine-backed
         }
-        RefreshColumnFromSnapshot(column, *snapshot);
+        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
     }
     for (auto& column : columns2_) {
         if (column.path.empty()) {
             continue;
         }
-        RefreshColumnFromSnapshot(column, *snapshot);
+        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
     }
 }
 
 void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::DirectoryErrorReason reason) {
+    const SnapshotFailureReason failure =
+        reason == ffprotocol::DirectoryErrorReason::AccessDenied
+            ? SnapshotFailureReason::AccessDenied
+            : (reason == ffprotocol::DirectoryErrorReason::PublishFailed
+                   ? SnapshotFailureReason::PublishFailed
+                   : (reason == ffprotocol::DirectoryErrorReason::EnumerationFailed
+                          ? SnapshotFailureReason::EnumerationFailed
+                          : SnapshotFailureReason::NoLongerAvailable));
     std::lock_guard<std::mutex> lock(columnsMutex_);
     for (auto& column : columns_) {
         if (column.path == path) {
-            column.error = reason == ffprotocol::DirectoryErrorReason::AccessDenied
-                ? ColumnErrorState::AccessDenied
-                : ColumnErrorState::NoLongerAvailable;
-            column.items.clear();
+            ApplyColumnFailure(column, failure);
         }
     }
     for (auto& column : columns2_) {
         if (column.path == path) {
-            column.error = reason == ffprotocol::DirectoryErrorReason::AccessDenied
-                ? ColumnErrorState::AccessDenied
-                : ColumnErrorState::NoLongerAvailable;
-            column.items.clear();
+            ApplyColumnFailure(column, failure);
         }
     }
 }
@@ -527,14 +700,58 @@ void ColumnView::ShowUnavailableLocation(const std::wstring& displayName) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     Column column;
     column.path = displayName.empty() ? L"Unavailable location" : displayName;
-    column.error = ColumnErrorState::NoLongerAvailable;
+    column.freshness.Fail(SnapshotFailureReason::NoLongerAvailable);
     columns_ = {std::move(column)};
     focusedColumnIndex_ = 0;
     pendingSelectionName_.clear();
+    pendingSelectionPath_.clear();
 }
 
-void ColumnView::SetEngineStatus(bool active) {
-    engineActive_ = active;
+void ColumnView::MarkSnapshotLoadFailed(uint64_t generation) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    for (auto& column : columns_) {
+        if (!column.path.empty()) ApplyColumnFailure(column, SnapshotFailureReason::SnapshotLoadFailed, generation);
+    }
+    for (auto& column : columns2_) {
+        if (!column.path.empty()) ApplyColumnFailure(column, SnapshotFailureReason::SnapshotLoadFailed, generation);
+    }
+}
+
+void ColumnView::MarkPathLoading(const std::wstring& path) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    for (auto& column : columns_) {
+        if (column.path == path) column.freshness.BeginRequest();
+    }
+    for (auto& column : columns2_) {
+        if (column.path == path) column.freshness.BeginRequest();
+    }
+}
+
+void ColumnView::OnEngineConnectionState(EngineConnectionState state) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto apply = [state](std::vector<Column>& columns) {
+        for (auto& column : columns) {
+            if (column.path.empty()) continue;
+            if (state == EngineConnectionState::Connected) {
+                column.freshness.ResetForNewSource();
+            } else if (state == EngineConnectionState::Unavailable) {
+                ApplyColumnFailure(column, SnapshotFailureReason::Disconnected);
+            } else if (column.freshness.HasLastKnownGood()) {
+                ApplyColumnFailure(column, SnapshotFailureReason::Disconnected);
+            }
+        }
+    };
+    apply(columns_);
+    apply(columns2_);
+}
+
+void ColumnView::SetEngineStatus(EngineConnectionState state, bool privilegedPathActive) {
+    engineState_ = state;
+    privilegedPathActive_ = privilegedPathActive;
+}
+
+void ColumnView::SetRetryEngineCallback(std::function<void()> retryEngine) {
+    retryEngineCallback_ = std::move(retryEngine);
 }
 
 void ColumnView::SetDarkTheme(bool dark) {
@@ -597,6 +814,42 @@ SelectionSummary ColumnView::CurrentSelectionSummary() const {
     return summary;
 }
 
+#ifdef _DEBUG
+SelectionDiagnostics ColumnView::CurrentSelectionDiagnostics() const {
+    SelectionDiagnostics diagnostics;
+    const std::vector<std::wstring> operationTargets = ActiveSelectionPaths();
+    if (!operationTargets.empty()) diagnostics.operationTarget = operationTargets.front();
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
+    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
+    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
+        return diagnostics;
+    }
+
+    const Column& column = columns[focusedIndex];
+    diagnostics.activePath = column.path;
+    diagnostics.visibleItemNames.reserve(column.items.size());
+    for (const auto& item : column.items) diagnostics.visibleItemNames.push_back(item.name);
+    const auto makeIdentity = [&column](int itemIndex) {
+        const ColumnItem& item = column.items[static_cast<size_t>(itemIndex)];
+        return MakeSelectionIdentity(column.path, item.name, item.volumeRowId,
+                                     item.fileIdLow, item.fileIdHigh);
+    };
+    for (const int index : column.selectedIndices) {
+        if (index >= 0 && index < static_cast<int>(column.items.size())) {
+            diagnostics.selectedIndex = index;
+            diagnostics.selectedIdentity = makeIdentity(index);
+            break;
+        }
+    }
+    if (column.focusIndex >= 0 && column.focusIndex < static_cast<int>(column.items.size())) {
+        diagnostics.focusedIndex = column.focusIndex;
+        diagnostics.focusedIdentity = makeIdentity(column.focusIndex);
+    }
+    return diagnostics;
+}
+#endif
+
 std::wstring ColumnView::CurrentPath() const {
     const std::wstring path = ActivePanePath();
     return path.empty() ? L"Computer" : path;
@@ -642,16 +895,28 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
     context->Clear(theme.background);
 
-    // Task 3.6: engine-connection-status text as a rounded chip (paint-only,
-    // deliberately non-interactive).
+    // recovery-degraded-browsing D3: engine-connection-status text as a
+    // rounded chip. Paint-only except for the Unavailable state, where a
+    // click retries the engine connection (see OnMouseDown).
     D2D1_RECT_F badgeRect = D2D1::RectF(8.0f, 4.0f, viewportSize.width - 8.0f, kBadgeHeight - 4.0f);
-    ffui::UiFillRoundedRect(context, badgeRect,
-                            engineActive_ ? badgeActiveBrush_.Get() : badgeDegradedBrush_.Get(),
-                            ffui::UiMetrics::kRadiusSmall);
-    const wchar_t* badgeText = engineActive_ ? L"Instant search: enabled" : L"Instant search: basic — click to enable";
+    const EngineConnectionState connectionState = engineState_.load();
+    const bool privilegedActive = privilegedPathActive_.load();
+    const EngineStatusPresentation statusPresentation =
+        GetEngineStatusPresentation(connectionState, privilegedActive);
+    ID2D1SolidColorBrush* badgeBrush = badgeDegradedBrush_.Get();
+    ID2D1SolidColorBrush* badgeTextBrush = badgeDegradedTextBrush_.Get();
+    if (statusPresentation.privilegedPathActive) {
+        badgeBrush = badgeActiveBrush_.Get();
+        badgeTextBrush = badgeActiveTextBrush_.Get();
+    } else if (connectionState == EngineConnectionState::Connected) {
+        badgeBrush = badgeDegradedBrush_.Get();
+        badgeTextBrush = badgeDegradedTextBrush_.Get();
+    }
+    ffui::UiFillRoundedRect(context, badgeRect, badgeBrush, ffui::UiMetrics::kRadiusSmall);
     D2D1_RECT_F badgeTextRect = D2D1::RectF(16.0f, 4.0f, viewportSize.width - 16.0f, kBadgeHeight - 4.0f);
-    context->DrawText(badgeText, static_cast<UINT32>(wcslen(badgeText)), badgeTextFormat_.Get(), badgeTextRect,
-                      engineActive_ ? badgeActiveTextBrush_.Get() : badgeDegradedTextBrush_.Get());
+    context->DrawText(statusPresentation.text, static_cast<UINT32>(wcslen(statusPresentation.text)),
+                      badgeTextFormat_.Get(), badgeTextRect,
+                      badgeTextBrush);
 
     // High Contrast: drive every selection through the system highlight
     // (UiEnsureSolidBrush compares colors and reuses the cached brush) and
@@ -668,7 +933,8 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
     std::lock_guard<std::mutex> lock(columnsMutex_);
 
-    auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll, bool isActivePane) {
+    auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll,
+                          float verticalScrollOffset, bool isActivePane) {
         for (int i = 0; i < static_cast<int>(columns.size()); ++i) {
             const float x = paneX + i * kColumnWidth - paneScroll;
             if (x + kColumnWidth < paneX || x > paneX + paneWidth) {
@@ -682,25 +948,66 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
             context->DrawLine(D2D1_POINT_2F{x + kColumnWidth, kBadgeHeight}, D2D1_POINT_2F{x + kColumnWidth, viewportSize.height},
                               dividerBrush_.Get(), 1.0f);
 
-            if (column.error != ColumnErrorState::None) {
-                const wchar_t* message = column.error == ColumnErrorState::AccessDenied
-                    ? L"You don't have permission to view this folder."
-                    : L"This folder is no longer available.";
+            const auto unavailableMessage = [&column]() {
+                switch (column.freshness.failure) {
+                    case SnapshotFailureReason::AccessDenied:
+                        return L"You don't have permission to view this folder.";
+                    case SnapshotFailureReason::PublishFailed:
+                        return L"Unable to load this location — snapshot publication failed.";
+                    case SnapshotFailureReason::EnumerationFailed:
+                        return L"Unable to load this location — the folder could not be read.";
+                    case SnapshotFailureReason::SnapshotLoadFailed:
+                        return L"Unable to load this location — snapshot data could not be read.";
+                    case SnapshotFailureReason::Disconnected:
+                        return L"Unable to load this location — the engine is unavailable.";
+                    case SnapshotFailureReason::PathMissing:
+                    case SnapshotFailureReason::NoLongerAvailable:
+                        return L"This folder is no longer available.";
+                    case SnapshotFailureReason::None:
+                        break;
+                }
+                return L"Unable to load this location.";
+            };
+            const auto statusMessage = [&column]() {
+                if (column.freshness.state == SnapshotViewState::Loading) return L"Refreshing…";
+                if (column.freshness.failure == SnapshotFailureReason::Disconnected) {
+                    return L"Showing previous results — engine disconnected.";
+                }
+                if (column.freshness.failure == SnapshotFailureReason::PublishFailed) {
+                    return L"Showing previous results — refresh failed (snapshot publication failed).";
+                }
+                return L"Showing previous results — refresh failed.";
+            };
+            if (column.freshness.state == SnapshotViewState::Unavailable) {
+                const wchar_t* message = unavailableMessage();
                 D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
                 context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), messageRect, errorBrush_.Get());
                 continue;
             }
 
+            float contentTop = kBadgeHeight;
+            if (column.freshness.state == SnapshotViewState::Loading ||
+                column.freshness.state == SnapshotViewState::StaleWithError) {
+                const wchar_t* message = statusMessage();
+                D2D1_RECT_F statusRect = D2D1::RectF(x + 8, kBadgeHeight + 4, x + kColumnWidth - 8,
+                                                     kBadgeHeight + 24);
+                context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), statusRect,
+                                  column.freshness.state == SnapshotViewState::StaleWithError
+                                      ? errorBrush_.Get() : textSecondaryBrush_.Get());
+                contentTop += 24.0f;
+            }
+
             if (column.items.empty()) {
+                if (column.freshness.state != SnapshotViewState::Current) continue;
                 const wchar_t* emptyMessage = L"This folder is empty";
-                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
+                D2D1_RECT_F messageRect = D2D1::RectF(x + 8, contentTop + 8, x + kColumnWidth - 8, viewportSize.height - 8);
                 context->DrawText(emptyMessage, static_cast<UINT32>(wcslen(emptyMessage)), textFormat_.Get(), messageRect, textSecondaryBrush_.Get());
                 continue;
             }
 
             for (int r = 0; r < static_cast<int>(column.items.size()); ++r) {
-                const float y = kBadgeHeight + r * kRowHeight;
-                if (y + kRowHeight < kBadgeHeight || y > viewportSize.height) {
+                const float y = contentTop + r * kRowHeight - verticalScrollOffset;
+                if (y + kRowHeight < contentTop || y > viewportSize.height) {
                     continue;
                 }
 
@@ -771,19 +1078,39 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
     if (dualPane_) {
         const float paneWidth = viewportSize.width / 2.0f;
-        RenderPane(columns_, 0.0f, paneWidth, scrollOffset, activePane_ == 0);
+        RenderPane(columns_, 0.0f, paneWidth, scrollOffset, verticalScrollOffset_, activePane_ == 0);
         context->DrawLine(D2D1_POINT_2F{paneWidth, kBadgeHeight}, D2D1_POINT_2F{paneWidth, viewportSize.height},
                            borderBrush_.Get(), 2.0f);
-        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2, activePane_ == 1);
+        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2, verticalScrollOffset2_, activePane_ == 1);
     } else {
-        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset, true);
+        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset, verticalScrollOffset_, true);
     }
 }
 
 void ColumnView::SetDualPane(bool enabled) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (dualPane_ == enabled) return;
+    if (enabled) {
+        // NavigationWorkspace creates the second context at the current
+        // location. Clone the visible column model so the new pane is useful
+        // immediately instead of presenting an empty surface until another
+        // navigation event occurs.
+        columns2_ = columns_;
+        focusedColumnIndex2_ = focusedColumnIndex_;
+        scrollOffset2_ = scrollOffset_;
+        verticalScrollOffset2_ = verticalScrollOffset_;
+    }
     dualPane_ = enabled;
     if (!enabled) {
+        // NavigationWorkspace keeps whichever pane was active when the user
+        // disabled dual-pane mode. Promote that pane's rendered model to the
+        // single-pane slot instead of silently reverting to the old left pane.
+        if (activePane_ == 1) {
+            columns_ = std::move(columns2_);
+            focusedColumnIndex_ = focusedColumnIndex2_;
+            scrollOffset_ = scrollOffset2_;
+            verticalScrollOffset_ = verticalScrollOffset2_;
+        }
         columns2_.clear();
         activePane_ = 0;
     }
@@ -813,10 +1140,21 @@ float& ColumnView::ActiveScrollOffset() {
 }
 
 void ColumnView::SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, int& outFocusedIndex, float& outScrollOffset) const {
+    SavePaneState(activePane_, outColumnPaths, outFocusedIndex, outScrollOffset);
+}
+
+void ColumnView::SavePaneState(int paneIndex, std::vector<std::wstring>& outColumnPaths,
+                               int& outFocusedIndex, float& outScrollOffset) const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    const auto& columns = ActiveColumns();
-    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
-    const float& scrollOffset = const_cast<ColumnView*>(this)->ActiveScrollOffset();
+    if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_)) {
+        outColumnPaths.clear();
+        outFocusedIndex = 0;
+        outScrollOffset = 0.0f;
+        return;
+    }
+    const auto& columns = paneIndex == 0 ? columns_ : columns2_;
+    const int focusedIndex = paneIndex == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+    const float scrollOffset = paneIndex == 0 ? scrollOffset_ : scrollOffset2_;
     outColumnPaths.clear();
     outColumnPaths.reserve(columns.size());
     for (const auto& column : columns) {
@@ -827,12 +1165,18 @@ void ColumnView::SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, 
 }
 
 void ColumnView::RestoreActivePaneState(const std::vector<std::wstring>& columnPaths, int focusedIndex, float scrollOffset) {
+    RestorePaneState(activePane_, columnPaths, focusedIndex, scrollOffset);
+}
+
+void ColumnView::RestorePaneState(int paneIndex, const std::vector<std::wstring>& columnPaths,
+                                  int focusedIndex, float scrollOffset) {
     if (columnPaths.empty()) return;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        auto& columns = ActiveColumns();
-        int& focusedIndexRef = ActiveFocusedColumnIndex();
-        float& scrollOffsetRef = ActiveScrollOffset();
+        if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_)) return;
+        auto& columns = paneIndex == 0 ? columns_ : columns2_;
+        int& focusedIndexRef = paneIndex == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        float& scrollOffsetRef = paneIndex == 0 ? scrollOffset_ : scrollOffset2_;
         columns.clear();
         for (const auto& path : columnPaths) {
             Column column;
@@ -843,7 +1187,7 @@ void ColumnView::RestoreActivePaneState(const std::vector<std::wstring>& columnP
         scrollOffsetRef = scrollOffset;
     }
     for (const auto& path : columnPaths) {
-        if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+        if (!path.empty() && engineClient_ != nullptr) engineClient_->RequestDirectory(path);
     }
 }
 

@@ -14,6 +14,17 @@ namespace {
 constexpr size_t kMaxRecentlyClosedTabs = 16;
 
 bool IsAbsolutePath(const std::wstring& path) {
+    if (path.starts_with(L"\\\\.\\")) {
+        // Device namespaces are not filesystem navigation targets. In
+        // particular, never turn an address-bar entry into a raw device path.
+        return false;
+    }
+    if (path.starts_with(L"\\\\?\\")) {
+        const bool extendedDrive = path.size() >= 7 && std::iswalpha(path[4]) &&
+                                    path[5] == L':' && path[6] == L'\\';
+        const bool extendedUnc = path.starts_with(L"\\\\?\\UNC\\");
+        return extendedDrive || extendedUnc;
+    }
     return (path.size() >= 3 && std::iswalpha(path[0]) && path[1] == L':' && path[2] == L'\\') ||
            (path.size() >= 3 && path[0] == L'\\' && path[1] == L'\\' && path[2] != L'\\');
 }
@@ -63,7 +74,13 @@ bool ParseQuoted(const std::wstring& json, size_t quote, std::wstring& value, si
     if (quote >= json.size() || json[quote] != L'"') return false;
     size_t end = quote + 1;
     while (end < json.size()) {
-        if (json[end] == L'"' && (end == quote + 1 || json[end - 1] != L'\\')) break;
+        if (json[end] == L'"') {
+            size_t slashCount = 0;
+            for (size_t cursor = end; cursor > quote && json[cursor - 1] == L'\\'; --cursor) {
+                ++slashCount;
+            }
+            if ((slashCount % 2) == 0) break;
+        }
         ++end;
     }
     if (end >= json.size()) return false;
@@ -101,6 +118,10 @@ NavigationWorkspace::Tab& NavigationWorkspace::ActiveTab() { return tabs_[active
 const NavigationWorkspace::Tab& NavigationWorkspace::ActiveTab() const { return tabs_[activeTab_]; }
 NavigationContext& NavigationWorkspace::ActiveContext() { return ActiveTab().panes[ActiveTab().activePane]; }
 const NavigationContext& NavigationWorkspace::ActiveContext() const { return ActiveTab().panes[ActiveTab().activePane]; }
+NavigationContext& NavigationWorkspace::PaneContext(size_t paneIndex) { return ActiveTab().panes.at(paneIndex); }
+const NavigationContext& NavigationWorkspace::PaneContext(size_t paneIndex) const { return ActiveTab().panes.at(paneIndex); }
+size_t NavigationWorkspace::ActivePaneIndex() const { return ActiveTab().activePane; }
+size_t NavigationWorkspace::ActivePaneCount() const { return ActiveTab().panes.size(); }
 
 std::wstring NavigationWorkspace::TabPath(size_t index) const {
     if (index >= tabs_.size() || tabs_[index].panes.empty()) return {};
@@ -143,6 +164,40 @@ bool NavigationWorkspace::GoForward() {
 std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
     const std::wstring& path = ActiveContext().currentPath;
     std::vector<BreadcrumbSegment> result{{L"This PC", L""}};
+    if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
+        std::iswalpha(path[4]) && path[5] == L':' && path[6] == L'\\') {
+        std::wstring accumulated = path.substr(0, 7);
+        result.push_back({path.substr(4, 2), accumulated});
+        size_t start = 7;
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+            if (!component.empty()) {
+                if (accumulated.back() != L'\\') accumulated += L'\\';
+                accumulated += component;
+                result.push_back({component, accumulated});
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
+    if (path.starts_with(L"\\\\?\\UNC\\")) {
+        std::wstring accumulated = L"\\\\?\\UNC\\";
+        size_t start = accumulated.size();
+        while (start < path.size()) {
+            const size_t end = path.find(L'\\', start);
+            const std::wstring component = path.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+            if (!component.empty()) {
+                accumulated += component;
+                result.push_back({component, accumulated});
+                accumulated += L'\\';
+            }
+            if (end == std::wstring::npos) break;
+            start = end + 1;
+        }
+        return result;
+    }
     if (path.size() >= 3 && path[1] == L':' && path[2] == L'\\') {
         std::wstring accumulated = path.substr(0, 3);
         result.push_back({path.substr(0, 2), accumulated});
@@ -181,7 +236,7 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
 void NavigationWorkspace::BeginAddressBarEdit() {
     auto& context = ActiveContext();
     context.addressBarMode = AddressBarMode::EditableText;
-    context.addressBarText = context.currentPath;
+    context.addressBarText = context.currentPath.empty() ? L"This PC" : context.currentPath;
     context.addressBarError.clear();
 }
 
@@ -254,6 +309,13 @@ std::optional<std::wstring> NavigationWorkspace::OtherPanePath() const {
 }
 
 void NavigationWorkspace::AddBookmark(const std::wstring& path, std::wstring name) {
+    if (path.empty()) return;
+    const bool alreadyPresent = std::any_of(state_.bookmarks.begin(), state_.bookmarks.end(),
+        [&path](const Bookmark& bookmark) {
+            return CompareStringOrdinal(bookmark.path.data(), static_cast<int>(bookmark.path.size()),
+                                        path.data(), static_cast<int>(path.size()), TRUE) == CSTR_EQUAL;
+        });
+    if (alreadyPresent) return;
     state_.bookmarks.push_back({path, name.empty() ? DefaultBookmarkName(path) : std::move(name)});
     stateDirty_ = true;
 }
@@ -335,6 +397,8 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     state.drivesCollapsed = ReadBoolean(json, L"drivesCollapsed");
     state.knownFoldersCollapsed = ReadBoolean(json, L"knownFoldersCollapsed");
     state.bookmarksCollapsed = ReadBoolean(json, L"bookmarksCollapsed");
+    size_t lastLocationCursor = 0;
+    ExtractJsonString(json, L"lastLocation", 0, state.lastLocation, lastLocationCursor);
 
     size_t cursor = 0;
     std::wstring path;
@@ -370,7 +434,8 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
     if (error) return false;
     std::wofstream output(file, std::ios::trunc);
     if (!output) return false;
-    output << L"{\n  \"version\": 1,\n  \"sidebarCollapsed\": "
+    output << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
+            << L"\",\n  \"sidebarCollapsed\": "
             << (state.sidebarCollapsed ? L"true" : L"false") << L",\n  \"drivesCollapsed\": "
             << (state.drivesCollapsed ? L"true" : L"false") << L",\n  \"knownFoldersCollapsed\": "
             << (state.knownFoldersCollapsed ? L"true" : L"false") << L",\n  \"bookmarksCollapsed\": "
@@ -389,6 +454,11 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
 }
 
 bool NavigationWorkspace::FlushState() {
+    const std::wstring currentPath = ActiveContext().currentPath;
+    if (state_.lastLocation != currentPath) {
+        state_.lastLocation = currentPath;
+        stateDirty_ = true;
+    }
     if (!stateDirty_) return true;
     const bool saved = SaveState(state_);
     if (saved) stateDirty_ = false;
@@ -401,6 +471,7 @@ ParsedPath ParseNavigationPath(const std::wstring& input) {
     if (first == std::wstring::npos) return {{}, L"Enter an absolute path."};
     std::wstring value = input.substr(first, last - first + 1);
     if (value.size() >= 2 && value.front() == L'"' && value.back() == L'"') value = value.substr(1, value.size() - 2);
+    if (_wcsicmp(value.c_str(), L"This PC") == 0) return {{}, {}};
     std::replace(value.begin(), value.end(), L'/', L'\\');
     const DWORD needed = ExpandEnvironmentStringsW(value.c_str(), nullptr, 0);
     if (needed != 0) {
@@ -409,14 +480,49 @@ ParsedPath ParseNavigationPath(const std::wstring& input) {
         expanded.pop_back();
         value = std::move(expanded);
     }
+    const bool extendedPath = value.starts_with(L"\\\\?\\");
+    if (value.starts_with(L"\\\\.\\")) return {{}, L"Device paths are not valid navigation targets."};
     if (!IsAbsolutePath(value)) return {{}, L"Paths must begin with a drive or UNC root."};
-    if (value.find_first_of(L"<>|?*") != std::wstring::npos) return {{}, L"The path contains reserved characters."};
+    const size_t reservedSearchStart = extendedPath ? 4 : 0;
+    if (value.find_first_of(L"<>|?*", reservedSearchStart) != std::wstring::npos) {
+        return {{}, L"The path contains reserved characters."};
+    }
     std::wstring full(32768, L'\0');
     const DWORD size = GetFullPathNameW(value.c_str(), static_cast<DWORD>(full.size()), full.data(), nullptr);
     if (size == 0 || size >= full.size()) return {{}, L"The path is invalid."};
     full.resize(size);
-    while (full.size() > 3 && full.back() == L'\\') full.pop_back();
+    // Keep the trailing separator on an extended drive root (`\\?\\C:\\`),
+    // where trimming it would turn a root into the invalid `\\?\\C:` form.
+    if (!extendedPath) {
+        while (full.size() > 3 && full.back() == L'\\') full.pop_back();
+    }
     return {std::move(full), {}};
+}
+
+std::wstring ResolveInitialNavigationPath(bool restorePreviousSession,
+                                          const std::wstring& lastLocation,
+                                          const std::wstring& startupLocation) {
+    if (restorePreviousSession && !lastLocation.empty()) {
+        const auto parsedLastLocation = ParseNavigationPath(lastLocation);
+        if (parsedLastLocation.error.empty() && !parsedLastLocation.path.empty()) {
+            const DWORD attributes = GetFileAttributesW(parsedLastLocation.path.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES &&
+                (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+                return parsedLastLocation.path;
+            }
+            const DWORD error = GetLastError();
+            if (attributes == INVALID_FILE_ATTRIBUTES &&
+                (error == ERROR_ACCESS_DENIED || error == ERROR_PRIVILEGE_NOT_HELD)) {
+                return parsedLastLocation.path;
+            }
+        }
+    }
+
+    if (!startupLocation.empty()) {
+        const auto parsedStartup = ParseNavigationPath(startupLocation);
+        if (parsedStartup.error.empty()) return parsedStartup.path;
+    }
+    return {};
 }
 
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input) {
@@ -426,6 +532,10 @@ PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std:
         context.addressBarError = parsed.error;
         context.addressBarMode = AddressBarMode::EditableText;
         return PathCommitResult::Invalid;
+    }
+    if (parsed.path.empty()) {
+        workspace.Navigate({});
+        return PathCommitResult::Navigated;
     }
     const DWORD attributes = GetFileAttributesW(parsed.path.c_str());
     if (attributes == INVALID_FILE_ATTRIBUTES) {
@@ -443,6 +553,65 @@ PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std:
     }
     workspace.Navigate(parsed.path);
     return PathCommitResult::Navigated;
+}
+
+std::optional<std::wstring> ParentNavigationPath(const std::wstring& path) {
+    if (path.empty()) {
+        return std::nullopt;
+    }
+
+    std::wstring normalized = path;
+    const bool extendedDrive = normalized.size() >= 7 && normalized.starts_with(L"\\\\?\\") &&
+                               std::iswalpha(normalized[4]) && normalized[5] == L':' && normalized[6] == L'\\';
+    if (extendedDrive) {
+        while (normalized.size() > 7 && normalized.back() == L'\\') normalized.pop_back();
+        if (normalized.size() == 7) return std::wstring{};
+        const size_t slash = normalized.find_last_of(L'\\');
+        if (slash < 6) return std::wstring{};
+        return normalized.substr(0, slash == 6 ? 7 : slash);
+    }
+
+    while (normalized.size() > 3 && (normalized.back() == L'\\' || normalized.back() == L'/')) {
+        normalized.pop_back();
+    }
+
+    if (normalized.starts_with(L"\\\\?\\UNC\\")) {
+        const size_t serverEnd = normalized.find(L'\\', 8);
+        if (serverEnd == std::wstring::npos) return std::wstring{};
+        const size_t shareEnd = normalized.find(L'\\', serverEnd + 1);
+        if (shareEnd == std::wstring::npos || normalized.size() == shareEnd) return std::wstring{};
+        const size_t slash = normalized.find_last_of(L'\\');
+        if (slash < shareEnd) return std::wstring{};
+        return normalized.substr(0, slash);
+    }
+
+    // A drive root's parent is the synthetic This-PC root, not itself.
+    if (normalized.size() == 3 && std::iswalpha(normalized[0]) && normalized[1] == L':' && normalized[2] == L'\\') {
+        return std::wstring{};
+    }
+
+    // Treat a UNC server and share root as a single navigable root. The
+    // standard filesystem parent operation is not consistent about whether
+    // `\\server\share` is its own parent across Windows library versions.
+    if (normalized.rfind(L"\\\\", 0) == 0) {
+        const size_t serverEnd = normalized.find(L'\\', 2);
+        if (serverEnd == std::wstring::npos) {
+            return std::wstring{};
+        }
+        const size_t shareEnd = normalized.find(L'\\', serverEnd + 1);
+        if (shareEnd == std::wstring::npos) {
+            return std::wstring{};
+        }
+        if (normalized.size() == shareEnd) {
+            return std::wstring{};
+        }
+    }
+
+    const std::wstring parent = std::filesystem::path(normalized).parent_path().wstring();
+    if (parent.empty() || parent == normalized) {
+        return std::nullopt;
+    }
+    return parent;
 }
 
 } // namespace ffui

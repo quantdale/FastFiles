@@ -17,7 +17,9 @@
 #include <string>
 
 #include "ffipc/PipeListener.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffsetup/Identifiers.h"
+#include "ffsetup/PinnedSignatures.h"
 #include "ffsetup/SecurityDescriptors.h"
 
 #include "ConnectionRegistry.h"
@@ -261,7 +263,8 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 
     const bool ctrlStarted = g_ctrlListener.Start(
         ffsetup::kCtrlPipeName, &g_pipeSecurityDescriptor.attributes,
-        [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); });
+        [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); },
+        /*useOverlapped=*/true);
 
     if (!ctrlStarted) {
         StopEverything();
@@ -277,6 +280,17 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t* argv[]) {
+#ifndef _DEBUG
+    if (!ffsetup::ArePinnedSignaturesConfigured()) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED,
+                                      {}, {}, L"authenticode-pins-unconfigured", ERROR_INVALID_DATA, 0});
+        std::fwprintf(stderr,
+                      L"FastFilesIndexSvc: refusing non-debug startup because Authenticode pins are not provisioned.\n");
+        return 1;
+    }
+#endif
+
     g_argc = argc;
     g_argv = argv;
 

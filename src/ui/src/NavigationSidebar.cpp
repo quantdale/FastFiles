@@ -1,6 +1,7 @@
 #include "NavigationSidebar.h"
 #include "UITheme.h"
 #include "UiStyle.h"
+#include "QuickActions.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -14,6 +15,10 @@ constexpr int kCollapsedWidth = 32;
 constexpr int kChromeHeight = 72;
 constexpr int kHeaderHeight = 28;
 constexpr int kItemHeight = 26;
+constexpr UINT kBookmarkRename = 1;
+constexpr UINT kBookmarkRemove = 2;
+constexpr UINT kBookmarkMoveUp = 3;
+constexpr UINT kBookmarkMoveDown = 4;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -271,6 +276,56 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                 }
                 return 0;
             }
+            return 0;
+        }
+        case WM_CONTEXTMENU: {
+            if (!workspace_ || workspace_->State().sidebarCollapsed) return 0;
+            POINT screenPoint{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            if (screenPoint.x == -1 && screenPoint.y == -1) {
+                if (hoveredRow_ < 0 || static_cast<size_t>(hoveredRow_) >= rows_.size()) return 0;
+                const RECT& row = rows_[static_cast<size_t>(hoveredRow_)].bounds;
+                screenPoint = {row.left + 8, row.top + (row.bottom - row.top) / 2};
+                ClientToScreen(hwnd, &screenPoint);
+            }
+            POINT clientPoint = screenPoint;
+            ScreenToClient(hwnd, &clientPoint);
+            const Row* bookmarkRow = nullptr;
+            for (const auto& row : rows_) {
+                if (row.kind == RowKind::Item && row.section == 2 && PtInRect(&row.bounds, clientPoint)) {
+                    bookmarkRow = &row;
+                    break;
+                }
+            }
+            if (bookmarkRow == nullptr || bookmarkRow->item >= workspace_->State().bookmarks.size()) return 0;
+
+            HMENU menu = CreatePopupMenu();
+            if (menu == nullptr) return 0;
+            AppendMenuW(menu, MF_STRING, kBookmarkRename, L"Rename");
+            AppendMenuW(menu, MF_STRING, kBookmarkRemove, L"Remove");
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, bookmarkRow->item == 0 ? MF_GRAYED : MF_STRING,
+                        kBookmarkMoveUp, L"Move Up");
+            AppendMenuW(menu, bookmarkRow->item + 1 >= workspace_->State().bookmarks.size() ? MF_GRAYED : MF_STRING,
+                        kBookmarkMoveDown, L"Move Down");
+            const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                                 screenPoint.x, screenPoint.y, 0, hwnd, nullptr);
+            DestroyMenu(menu);
+            const size_t index = bookmarkRow->item;
+            if (command == kBookmarkRename) {
+                const auto& bookmark = workspace_->State().bookmarks[index];
+                const auto name = PromptForLeafName(owner_, L"Rename Bookmark", bookmark.displayName);
+                if (name) workspace_->RenameBookmark(index, *name);
+            } else if (command == kBookmarkRemove) {
+                workspace_->RemoveBookmark(index);
+            } else if (command == kBookmarkMoveUp && index > 0) {
+                workspace_->ReorderBookmark(index, index - 1);
+            } else if (command == kBookmarkMoveDown && index + 1 < workspace_->State().bookmarks.size()) {
+                workspace_->ReorderBookmark(index, index + 1);
+            } else {
+                return 0;
+            }
+            workspace_->FlushState();
+            Refresh();
             return 0;
         }
     }

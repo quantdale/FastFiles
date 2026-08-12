@@ -32,6 +32,11 @@ public:
 
     size_t UniqueNameCount() const noexcept { return table_.size(); }
     size_t ArenaSizeChars() const noexcept { return arena_.size(); }
+    size_t MemoryUsageBytes() const noexcept {
+        return arena_.capacity() * sizeof(char16_t) + table_.capacity() * sizeof(Slot)
+            + hashBuckets_.bucket_count() * sizeof(void*)
+            + hashBuckets_.size() * (sizeof(uint64_t) + sizeof(std::vector<NameId>));
+    }
 
 private:
     struct Slot {

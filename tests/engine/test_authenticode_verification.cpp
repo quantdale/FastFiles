@@ -167,6 +167,33 @@ void TestMatchingPinAcceptsSignedBinary() {
     }
 }
 
+void TestThumbprintComparison() {
+    const ffsetup::Thumbprint first = ThumbprintWithByte(0, 0x12);
+    const ffsetup::Thumbprint same = ThumbprintWithByte(0, 0x12);
+    const ffsetup::Thumbprint different = ThumbprintWithByte(19, 0x34);
+    Check(ffsetup::ConstantTimeThumbprintEqual(first, same),
+          "thumbprint comparison accepts identical fixed-size digests");
+    Check(!ffsetup::ConstantTimeThumbprintEqual(first, different),
+          "thumbprint comparison rejects a difference at the final byte");
+}
+
+void TestPartiallyPopulatedPinsRejectUnpinnedPeer() {
+    const auto signedBinary = FirstSignedSystemBinary();
+    if (!signedBinary.has_value()) {
+        std::fprintf(stderr, "SKIP: no signed system binary found to prove partial-pin rejection\n");
+        return;
+    }
+    const std::optional<ffsetup::Thumbprint> actual = SignedThumbprint(*signedBinary);
+    Check(actual.has_value(), "partial pin set: re-derived thumbprint of the signed binary");
+    if (actual.has_value()) {
+        Check(ffsetup::VerifyPinnedSignature(*signedBinary, *actual),
+              "partial pin set: the populated peer pin remains usable");
+        const ffsetup::Thumbprint placeholder{};
+        Check(!ffsetup::VerifyPinnedSignature(*signedBinary, placeholder),
+              "partial pin set: the peer whose pin remains placeholder is rejected");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -175,5 +202,7 @@ int main() {
     TestUnsignedBinaryRejectedWithConfiguredPin();
     TestMismatchedPinRejectsSignedBinary();
     TestMatchingPinAcceptsSignedBinary();
+    TestThumbprintComparison();
+    TestPartiallyPopulatedPinsRejectUnpinnedPeer();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
