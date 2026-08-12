@@ -1,4 +1,5 @@
 #include "ffui/SnapshotAggregate.h"
+#include "ffui/SnapshotPathLookup.h"
 
 #include <cstdlib>
 #include <initializer_list>
@@ -71,6 +72,15 @@ void TestUnavailableRoot() {
           "unavailable directory produces an unknown zero aggregate");
 }
 
+void TestPendingSelectionPathIdentity() {
+    Check(ffui::MatchesPendingSnapshotPath(L"C:\\Fixture", L"c:\\fixture"),
+          "pending selection accepts case-variant Windows parent paths");
+    Check(ffui::MatchesPendingSnapshotPath(L"C:\\Fixture", L""),
+          "pending selection without a parent constraint remains applicable");
+    Check(!ffui::MatchesPendingSnapshotPath(L"C:\\Fixture", L"C:\\Other"),
+          "pending selection rejects a different Windows parent path");
+}
+
 } // namespace
 
 int main() {
@@ -78,5 +88,6 @@ int main() {
     TestMissingDescendantIsPartial();
     TestCaseVariantDescendantIsTheSameWindowsDirectory();
     TestUnavailableRoot();
+    TestPendingSelectionPathIdentity();
     return FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

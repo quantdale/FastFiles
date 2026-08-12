@@ -620,7 +620,7 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
     column.selectedIndices = restoredState.selectedIndices;
     column.selectionAnchor = restoredState.selectionAnchor;
     column.focusIndex = restoredState.focusIndex;
-    if (!pendingName.empty() && (pendingPath.empty() || column.path == pendingPath)) {
+    if (!pendingName.empty() && MatchesPendingSnapshotPath(column.path, pendingPath)) {
         for (int index = 0; index < static_cast<int>(column.items.size()); ++index) {
             if (_wcsicmp(column.items[index].name.c_str(), pendingName.c_str()) == 0) {
                 column.selectedIndices.insert(index);

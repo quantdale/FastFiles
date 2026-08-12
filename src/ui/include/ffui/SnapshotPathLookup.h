@@ -2,10 +2,16 @@
 
 #include <map>
 #include <string>
+#include <string_view>
 
 #include "ffprotocol/SnapshotFormat.h"
 
 namespace ffui {
+
+inline bool MatchesPendingSnapshotPath(std::wstring_view columnPath,
+                                       std::wstring_view pendingPath) noexcept {
+    return pendingPath.empty() || ffprotocol::WindowsPathEqual(columnPath, pendingPath);
+}
 
 // Snapshot paths originate from both Win32 enumeration and the indexed
 // projection. Their spelling can differ even though Windows resolves them to
