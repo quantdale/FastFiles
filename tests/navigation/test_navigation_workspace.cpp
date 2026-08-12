@@ -117,6 +117,9 @@ void TestWorkspacePersistenceFallback() {
     workspace.MarkStateDirty();
     Check(workspace.HasPendingStateSave() && workspace.FlushState(), "workspace changes flush through the debounced save boundary");
     WorkspaceState loaded{};
+    const auto temporaryStateFile = std::filesystem::path(localAppData) / L"FastFiles" / L"workspace-state.json.tmp";
+    Check(!std::filesystem::exists(temporaryStateFile),
+          "successful workspace save removes its temporary replacement file");
     Check(NavigationWorkspace::LoadState(loaded) && loaded.bookmarks.size() == 1 &&
           loaded.bookmarks.front().displayName == L"Projects" && loaded.bookmarks.front().path == L"C:\\Projects" &&
           loaded.sidebarCollapsed && loaded.bookmarksCollapsed && loaded.lastLocation == L"C:\\",

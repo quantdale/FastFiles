@@ -444,7 +444,8 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
     std::error_code error;
     std::filesystem::create_directories(std::filesystem::path(file).parent_path(), error);
     if (error) return false;
-    std::wofstream output(file, std::ios::trunc);
+    const std::wstring temporary = file + L".tmp";
+    std::wofstream output(temporary, std::ios::trunc);
     if (!output) return false;
     output << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
             << L"\",\n  \"sidebarCollapsed\": "
@@ -462,7 +463,16 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
         output << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentlyClosedTabs[i]) << L"\"";
     }
     output << L"]\n}\n";
-    return static_cast<bool>(output);
+    output.close();
+    if (!output) {
+        DeleteFileW(temporary.c_str());
+        return false;
+    }
+    if (!MoveFileExW(temporary.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        DeleteFileW(temporary.c_str());
+        return false;
+    }
+    return true;
 }
 
 bool NavigationWorkspace::FlushState() {
