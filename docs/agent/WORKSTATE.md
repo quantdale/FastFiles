@@ -1,13 +1,13 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T12:05:00+08:00
+Last updated: 2026-08-12T12:25:00+08:00
 Status: COMPLETE — LOCAL GATES REVALIDATED; EXTERNAL RELEASE GATES OPEN
 
 ## Session continuation reconciliation (2026-08-12)
 
 - The worktree was clean on `recovery/fast-files-20260809` at the preceding
-  product commit `66c45f2` (`Fixes`); this documentation checkpoint is now the
-  current local commit.
+  product commit `66c45f2` (`Fixes`); the documentation and hygiene checkpoints
+  are recorded in the commits immediately following it.
 - The earlier current-session notes that described changes as uncommitted at
   `4196a5d` are stale; those bounded-probe, path-identity, diagnostic,
   validator, USN V2/V3, watcher-startup, snapshot-capacity, and ingestion fixes
@@ -29,6 +29,18 @@ Status: COMPLETE — LOCAL GATES REVALIDATED; EXTERNAL RELEASE GATES OPEN
   signed active/degraded service validation, expired-signer release evidence,
   clean-host privilege matrix, and the real aggregate-backed `% of Parent`
   visual sum. No pins were changed and no Computer Use was used.
+- Merge-range hygiene also found eight root-level compiler `.obj` files and the
+  one-off `write_report2.py` report writer committed by the migration snapshot;
+  none is referenced by source/build guidance. They are removed, and `.obj`,
+  Python bytecode, and `__pycache__` are now ignored.
+- The full OpenSpec pending-task audit confirms the remaining autonomous/
+  zero-touch rows are environment-gated only: disposable-provider tasks
+  `autonomous-runtime-verification` 2.3–2.4 and
+  `zero-touch-autonomous-engineering` 6.3–6.4/6.6 require a supported Windows
+  guest, installation media, secure guest channel, and snapshot-restorable
+  evidence. Current `verify.ps1 doctor` reports Hyper-V/Sandbox unavailable;
+  no Windows media, guest OS, or WinRM channel is available. Those rows remain
+  `[ ]` with their machine-backed `REQUIRED-BUT-UNAVAILABLE` notes.
 
 ## Historical signed-test validation record (2026-08-12)
 
