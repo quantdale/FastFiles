@@ -70,6 +70,19 @@ bool ReadBoolean(const std::wstring& json, const wchar_t* name) {
     return value != std::wstring::npos && json.compare(value, 4, L"true") == 0;
 }
 
+bool HasSupportedVersion(const std::wstring& json) {
+    const std::wstring marker = L"\"version\"";
+    const size_t key = json.find(marker);
+    if (key == std::wstring::npos) return false;
+    const size_t colon = json.find(L':', key + marker.size());
+    if (colon == std::wstring::npos) return false;
+    const size_t value = json.find_first_not_of(L" \t\r\n", colon + 1);
+    if (value == std::wstring::npos || json[value] != L'1') return false;
+    const size_t after = value + 1;
+    return after == json.size() || std::iswspace(json[after]) ||
+           json[after] == L',' || json[after] == L'}';
+}
+
 bool ParseQuoted(const std::wstring& json, size_t quote, std::wstring& value, size_t& next) {
     if (quote >= json.size() || json[quote] != L'"') return false;
     size_t end = quote + 1;
@@ -391,8 +404,7 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     std::wstringstream buffer;
     buffer << input.rdbuf();
     const std::wstring json = buffer.str();
-    const size_t version = json.find(L"\"version\"");
-    if (version == std::wstring::npos || json.find(L'1', version) == std::wstring::npos) return true;
+    if (!HasSupportedVersion(json)) return true;
     state.sidebarCollapsed = ReadBoolean(json, L"sidebarCollapsed");
     state.drivesCollapsed = ReadBoolean(json, L"drivesCollapsed");
     state.knownFoldersCollapsed = ReadBoolean(json, L"knownFoldersCollapsed");

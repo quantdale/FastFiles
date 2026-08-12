@@ -129,6 +129,14 @@ void TestWorkspacePersistenceFallback() {
     }
     NavigationWorkspace::LoadState(loaded);
     Check(loaded.bookmarks.empty(), "corrupt workspace state falls back to empty state");
+
+    {
+        std::wofstream unsupported(stateFile, std::ios::trunc);
+        unsupported << L"{\"version\": 10, \"bookmarks\": [{\"path\": \"C:\\\\Unexpected\", \"displayName\": \"Unexpected\"}]}";
+    }
+    NavigationWorkspace::LoadState(loaded);
+    Check(loaded.bookmarks.empty(), "unsupported workspace state versions are ignored");
+
     std::filesystem::remove_all(localAppData, error);
     if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
     else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());
