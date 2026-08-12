@@ -6,6 +6,7 @@
 #include <map>
 
 #include "ffui/DetailsLayout.h"
+#include "ffui/DetailsAggregateState.h"
 #include "ffui/ShellLayout.h"
 #include "ColumnView.h"
 #include "CommandPalette.h"
@@ -138,13 +139,10 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap1> crossFadeBitmap_;
     bool fileOpInProgress_ = false;
     float fileOpProgress_ = 0.0f;
-    uint64_t pendingAggregateRequestId_ = 0;
+    ffui::FolderAggregateRequestState aggregateRequest_;
     ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
     uint64_t pendingAggregateItemCount_ = 0;
     uint64_t pendingAggregateTotalSize_ = 0;
-    int64_t lastAggregateRequestVolumeRowId_ = 0;
-    uint64_t lastAggregateRequestFrnLow_ = 0;
-    uint64_t lastAggregateRequestFrnHigh_ = 0;
 };
 
 } // namespace ffui

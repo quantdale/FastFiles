@@ -1059,6 +1059,12 @@ void WindowShell::Render() {
 void WindowShell::RefreshSelectionPresentation() {
     previewBitmap_.Reset();
     const auto selection = columnView_.CurrentSelection();
+    // Details aggregates are keyed by folder identity, but a cleared/file
+    // selection must also invalidate the request so reselecting that folder
+    // cannot reuse an old result after the selection context changed.
+    if (!selection || !selection->isDirectory) {
+        aggregateRequest_.Invalidate();
+    }
     std::lock_guard<std::mutex> lock(previewMutex_);
     preview_ = {};
     if (!settings_.previewEnabled || !selection || selection->isDirectory || selection->sizeBytes > settings_.maxAutoPreviewBytes) {
@@ -1171,10 +1177,10 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         info += L"Extension: " + extensionLabel + L"\n";
         info += L"Path: " + selection->path + L"\n";
         if (selection->isDirectory) {
-            if (selection->volumeRowId != lastAggregateRequestVolumeRowId_ || selection->fileIdLow != lastAggregateRequestFrnLow_ || selection->fileIdHigh != lastAggregateRequestFrnHigh_) {
-                lastAggregateRequestVolumeRowId_ = selection->volumeRowId;
-                lastAggregateRequestFrnLow_ = selection->fileIdLow;
-                lastAggregateRequestFrnHigh_ = selection->fileIdHigh;
+            const ffui::FolderAggregateKey aggregateKey{
+                static_cast<int64_t>(selection->volumeRowId), selection->fileIdLow, selection->fileIdHigh};
+            if (aggregateRequest_.NeedsRequest(aggregateKey)) {
+                aggregateRequest_.Begin(aggregateKey);
                 uint64_t requestId = 0;
                 pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
                 pendingAggregateItemCount_ = 0;
@@ -1191,7 +1197,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                             payload.release();
                         }
                     });
-                pendingAggregateRequestId_ = requestId;
+                aggregateRequest_.SetRequestId(requestId);
             }
             if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Pending) {
                 info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
@@ -1386,6 +1392,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_APP_SNAPSHOT_UPDATED:
             snapshotRefreshPosted_ = false;
+            // Folder aggregates are derived from the published projection,
+            // so a new snapshot generation must not reuse the old Details
+            // result even when the selected folder keeps the same identity.
+            aggregateRequest_.Invalidate();
             {
                 const uint64_t generation = pendingSnapshotGeneration_.exchange(0);
                 columnView_.OnSnapshotUpdated(generation);
@@ -1565,7 +1575,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             // Stale-result gating: only accept the response that matches the
             // request the UI still considers current.
-            if (payload->requestId == pendingAggregateRequestId_) {
+            if (aggregateRequest_.Accepts(payload->requestId)) {
                 pendingAggregateStatus_ = payload->status;
                 pendingAggregateItemCount_ = payload->itemCount;
                 pendingAggregateTotalSize_ = payload->totalSizeBytes;
