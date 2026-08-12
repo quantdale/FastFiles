@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:51:25+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 8 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:56:48+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 9 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -124,7 +124,8 @@ down watcher/snapshot/client state. The lifecycle test passed 10/10 direct CLI
 stress runs after the fix and the focused watcher/lifecycle/publisher/aggregate
 CTest batch passed 4/4. Slice 7 is committed as `7b9f8fa` (`Prevent UI server
 callback teardown race`). Slice 8 is committed as `66bffd0` (`Preserve Unicode
-workspace state`). Exact next action: choose another evidence-backed local
+workspace state`). Slice 9 is committed as `273dd2d` (`Prevent in-batch
+transfer overwrites`). Exact next action: choose another evidence-backed local
 hardening frontier; do not reopen completed areas without new evidence.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
@@ -221,6 +222,33 @@ hardening frontier; do not reopen completed areas without new evidence.
   fallback cases pass in `ffnavigation_tests`. Debug focused build/test and
   Analyze `ffnavigation_tests`/`FastFiles` build pass with no warnings. Slice
   status: COMPLETE; product commit `66bffd0` (`Preserve Unicode workspace state`).
+
+## Overnight slice 9 — in-batch transfer Replace collision investigation
+
+- Severity: HIGH data-integrity risk. `BuildTransferPlan` reserves destination
+  keys across one batch, but its `Replace` branch still emits an empty
+  `destinationName` for a collision caused only by an earlier planned item.
+  Two selected files with the same basename can therefore be submitted to the
+  same destination path, allowing the later transfer to overwrite the earlier
+  one.
+- Planned reproducer: pass two same-named sources to an empty destination and
+  return `ConflictChoice::Replace` with apply-to-all. The safe invariant is that
+  every non-skipped plan item has a distinct destination; an in-batch collision
+  must use a generated keep-both name even when Replace was chosen for an
+  already-existing destination.
+- Planned fix: distinguish planned occupancy from pre-existing occupancy in the
+  policy seam. Preserve explicit Replace only for a destination that existed
+  before this batch; resolve an in-batch collision with a non-colliding generated
+  name. Do not weaken user-confirmed Replace for an external existing item.
+- Fix: the planner now separates `plannedCollision` from `externalCollision`.
+  Replace remains available for an existing destination, while a planned
+  collision falls through to the existing keep-both name generator.
+- Regression validation: the new policy case fails before the fix and passes
+  after it; the external-Replace preservation case passes; the real
+  `fffileoperations_e2e_tests` fixture confirms both same-named sources retain
+  distinct contents under Replace/apply-to-all. Debug focused policy/e2e tests
+  and Analyze policy build pass. Slice status: COMPLETE; product commit
+  `273dd2d` (`Prevent in-batch transfer overwrites`).
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
