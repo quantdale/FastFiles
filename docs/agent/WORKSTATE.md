@@ -108,12 +108,15 @@ product cleanup defect was established. The first probe had a path-normalization
 harness bug (`Win32_Process.ExecutablePath` used a `\\?\\` prefix); the exact
 diagnostic Engine it left was immediately terminated after path validation.
 
-Next, begin one bounded Priority A/C navigation and filesystem-edge audit using
-the existing disposable-fixture tests. Change code only if a reproducible wrong
-path, stale column/selection, deleted-context crash, or unsafe operation is
-established. Do not reopen completed transfer-planner, Details, watcher,
-persistence, or lifecycle slices without new evidence. Run final full validation
-only after remaining local hardening slices are complete.
+The navigation/filesystem audit has now established one directly related defect:
+Windows path identity is case-insensitive, but the Engine's published directory
+map and UI snapshot lookups are case-sensitive. If a directory is first watched
+as `C:\\Fixture` and later browsed as `c:\\fixture`, the watcher retains the first
+spelling and refreshes that map key while the active column looks up the second
+spelling. The active column can therefore retain stale rows after a live file
+change. Add a focused regression for duplicate snapshot keys and case-variant
+lookup, then implement the shared path-identity seam. Do not broaden this into a
+general navigation rewrite.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -136,6 +139,29 @@ only after remaining local hardening slices are complete.
   designed. No stale-state, duplicate-launch, reconnect, hang, or product
   cleanup defect was established. No source/product commit is needed for this
   frontier.
+
+## Overnight slice 6 — case-insensitive snapshot path identity investigation
+
+- Severity: MEDIUM UI correctness/live-refresh risk in degraded browsing, with
+  a direct connection to the committed case-insensitive watcher-key fix.
+- Source proof: `UiServer::directories_` and `SnapshotFormat` use the default
+  case-sensitive `std::map`; `UiServer::OnDirectoryChanged` receives the first
+  watched spelling, while `ColumnView::RefreshColumnFromSnapshot`,
+  `SnapshotAggregate`, and `ColumnView::OnDirectoryError` use exact path
+  lookup/equality. `DirectoryWatcher` now deliberately coalesces case variants
+  into one watch, so the old duplicate-watch behavior can no longer mask this
+  mismatch.
+- Reproducer shape: request a disposable directory once with its normal casing,
+  request the same directory with ASCII casing changed, then create a file. The
+  watcher refreshes the first path key; the active second-spelling column does
+  not consume that generation. A pure snapshot aggregate case-variant test and
+  a real `UiServer` published-map duplicate test will make the failure
+  deterministic before the fix.
+- Planned fix: give Engine snapshot ownership a case-insensitive ordered path
+  key, provide the matching publisher overload without copying the large map,
+  and use the same ordinal-insensitive lookup/equality in UI snapshot consumers.
+  Preserve the first stored path spelling for display and do not alter file
+  identity semantics.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
