@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:46:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 4 WORKSPACE PERSISTENCE ATOMICITY IN PROGRESS; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:58:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 4 WORKSPACE PERSISTENCE COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -96,12 +96,13 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 4 WORKSPACE PERSISTENCE ATOMIC
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
-insensitive`). Slice 4 is now the single Priority A/D persistence frontier:
-replace direct workspace-state truncation with the existing atomic-save pattern,
-then validate successful replacement and failure cleanup. Do not reopen
-completed transfer-planner, Details, watcher, or version-validation slices
-without new evidence. Run the final full validation only after the remaining
-local hardening slices are complete.
+insensitive`). Slice 4 is committed as `4cb44e3` (`Atomically save workspace
+state`). Begin exactly one new Priority A/B engine/UI lifecycle frontier:
+review and exercise the existing EngineClient stop/reconnect ownership for a
+reproducible orphan or stale-state defect before changing it. Do not reopen
+completed transfer-planner, Details, watcher, or persistence slices without new
+evidence. Run the final full validation only after the remaining local
+hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -214,6 +215,22 @@ local hardening slices are complete.
 - A prior test already proves normal save/load and corrupt-file fallback. The
   next step is to add deterministic success/temporary-artifact checks, implement
   the atomic replacement, and verify the navigation target in Debug and Analyze.
+
+## Overnight slice 4 — workspace-state persistence atomicity implementation
+
+- Root cause confirmed by source audit: workspace persistence truncated the live
+  file before serialization completed, unlike the already-hardened shortcut
+  persistence path. A crash/write failure could destroy the last usable state.
+- Fix: serialize to `workspace-state.json.tmp`, close/check the stream, then
+  replace the target with `MoveFileExW(MOVEFILE_REPLACE_EXISTING |
+  MOVEFILE_WRITE_THROUGH)`; failed serialization/replacement removes the temp
+  file and leaves the old target untouched.
+- Regression coverage: navigation persistence now asserts the sibling temporary
+  replacement is absent after a successful flush; existing save/load and corrupt
+  fallback coverage remains in the same test.
+- Validation: Debug and Analyze `ffnavigation_tests` passed; product commit
+  `4cb44e3` (`Atomically save workspace state`). Direct power-loss behavior was
+  not simulated or claimed.
 
 ## Session continuation reconciliation (2026-08-12)
 
