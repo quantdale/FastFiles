@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:40:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 6 COMMITTED; SLICE 7 UI-SERVER CALLBACK LIFETIME RACE CONFIRMED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:45:55+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 7 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -116,9 +116,15 @@ large map; the watcher reuses the same comparator. UI column refresh, directory
 errors, loading markers, and snapshot subtree aggregation use exact lookup with
 an ordinal-insensitive fallback. The first stored path spelling remains the
 display key. Focused publisher, aggregate, watcher, protocol, and fuzz tests
-pass. Exact next action: fix the proven `UiServer::HandleConnection` callback
-ownership/shutdown race, then stress the lifecycle test again before returning
-to broader local audits.
+pass. Slice 7 is implemented in the working tree: the callback gate is shared
+only by `UiServer`, listener callbacks register before touching the server, late
+callbacks close their pipe after the stop mark, and `UiServer::Stop` cancels
+subscribed clients, stops accepting, waits for registered callbacks, then tears
+down watcher/snapshot/client state. The lifecycle test passed 10/10 direct CLI
+stress runs after the fix and the focused watcher/lifecycle/publisher/aggregate
+CTest batch passed 4/4. Slice 7 is committed as `7b9f8fa` (`Prevent UI server
+callback teardown race`). Exact next action: choose one new evidence-backed
+local hardening frontier; do not reopen completed areas without new evidence.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -169,7 +175,7 @@ to broader local audits.
   `ffprotocol_tests`, and `ffprotocol_fuzz_tests` remain green. Focused result:
   5/5. No selection volume/FRN identity semantics changed.
 
-## Overnight slice 7 — UI-server callback lifetime investigation
+## Overnight slice 7 — UI-server callback lifetime race fix
 
 - Severity: HIGH lifecycle/reliability risk. A five-run direct CLI stress batch
   of `ffengine_ui_server_lifecycle_tests` reproduced one access violation
@@ -183,12 +189,18 @@ to broader local audits.
   snapshot/client state without a callback-lifetime barrier. The fault address
   symbolized into `std::_Iterator_base12::_Adopt_unlocked`, consistent with a
   detached callback racing container teardown.
-- Planned smallest safe fix: add a shared UI-server connection gate captured by
+- Fix implemented: add a shared UI-server connection gate captured by
   the listener callback. Callbacks register before touching `this`, callbacks
   arriving after stop close their pipe without dereferencing the server, and
   `UiServer::Stop` marks the gate stopping, cancels subscribed clients, stops
   accepting, and waits for registered callbacks before snapshot/client teardown.
   Do not change the privileged service listener or pipe protocol in this slice.
+- Regression validation: the existing lifecycle test passed 10/10 direct CLI
+  stress runs after the fix. The focused watcher/lifecycle/publisher/aggregate
+  CTest batch passed 4/4. The Debug lifecycle target and `FastFilesEngine`
+  rebuilt successfully. No privileged service listener or pipe protocol changed.
+- Slice status: COMPLETE; implementation and focused validation are committed as
+  `7b9f8fa` (`Prevent UI server callback teardown race`).
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
