@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:18:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 5 WORKSPACE RESTORE-BOUND COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:44:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — LIFECYCLE FRONTIER REVIEWED; NO NEW PRODUCT DEFECT; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -98,12 +98,44 @@ Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after stat
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
 insensitive`). Slice 4 is committed as `4cb44e3` (`Atomically save workspace
 state`). Slice 5 is committed as `db7adf3` (`Bound restored recently closed
-tabs`). Begin exactly one new Priority B/C lifecycle frontier: run a bounded
-CLI launch/close/reconnect review against the current EngineClient and UI state
-machine, and change code only if a reproducible stale-state, duplicate-launch,
-or cleanup defect is established. Do not reopen completed transfer-planner,
-Details, watcher, or persistence slices without new evidence. Run the final full
-validation only after the remaining local hardening slices are complete.
+tabs`). The bounded Priority B/C lifecycle frontier is now reviewed: the
+diagnostic UI launched the exact sibling Engine, remained responsive through an
+Engine termination/relaunch, and closed via WM_CLOSE. The Engine remaining after
+UI close is intentional: `src/engine/src/Main.cpp` documents a per-logon
+background helper that parks until logon-session end, while `WindowShell::Run`
+stops only its UI-side `EngineClient`. No duplicate-launch, stale-state, or
+product cleanup defect was established. The first probe had a path-normalization
+harness bug (`Win32_Process.ExecutablePath` used a `\\?\\` prefix); the exact
+diagnostic Engine it left was immediately terminated after path validation.
+
+Next, begin one bounded Priority A/C navigation and filesystem-edge audit using
+the existing disposable-fixture tests. Change code only if a reproducible wrong
+path, stale column/selection, deleted-context crash, or unsafe operation is
+established. Do not reopen completed transfer-planner, Details, watcher,
+persistence, or lifecycle slices without new evidence. Run final full validation
+only after remaining local hardening slices are complete.
+
+## Overnight lifecycle frontier — no product defect (2026-08-12)
+
+- Source review covered `EngineClient::Start/Stop`, the bounded
+  `ManagementLoop`, `ConnectAndSubscribe`, `WindowShell::Run`, and the Engine
+  parking contract in `src/engine/src/Main.cpp`. UI shutdown stops the UI-side
+  client and closes the UI window; the Engine is intentionally a per-logon
+  background helper and is not owned for termination by the UI.
+- Diagnostic runtime probe: UI PID `32800`, main HWND `1181734`, initial exact
+  diagnostic Engine PID `34700`, replacement PID `13500`. After terminating
+  only PID `34700` after executable-path validation, the UI observed the
+  replacement and remained non-hung; `WM_CLOSE` exited the UI normally.
+- The replacement Engine remained after UI close by design. The exact
+  campaign-created diagnostic Engine was then terminated and final exact-path
+  process checks were empty. The first probe's process matcher missed the
+  `\\?\\` Win32 executable-path prefix and left PID `33408`; that harness
+  artifact was identified and cleaned immediately, with no source impact.
+- Normal production Debug launch remains fail-closed because the local Engine
+  is unsigned; the supported diagnostic opt-in launched and connected as
+  designed. No stale-state, duplicate-launch, reconnect, hang, or product
+  cleanup defect was established. No source/product commit is needed for this
+  frontier.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
