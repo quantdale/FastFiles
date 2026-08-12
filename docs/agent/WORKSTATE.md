@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:06:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 5 WORKSPACE RESTORE-BOUND INVESTIGATION; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:18:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 5 WORKSPACE RESTORE-BOUND COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -97,12 +97,13 @@ Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
 insensitive`). Slice 4 is committed as `4cb44e3` (`Atomically save workspace
-state`). Slice 5 is now the single Priority D persistence frontier: enforce the
-existing recently-closed-tab restore bound and add a malformed-input regression
-before changing any broader settings behavior. Do not reopen completed
-transfer-planner, Details, watcher, or atomic/version persistence slices without
-new evidence. Run the final full validation only after the remaining local
-hardening slices are complete.
+state`). Slice 5 is committed as `db7adf3` (`Bound restored recently closed
+tabs`). Begin exactly one new Priority B/C lifecycle frontier: run a bounded
+CLI launch/close/reconnect review against the current EngineClient and UI state
+machine, and change code only if a reproducible stale-state, duplicate-launch,
+or cleanup defect is established. Do not reopen completed transfer-planner,
+Details, watcher, or persistence slices without new evidence. Run the final full
+validation only after the remaining local hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -231,6 +232,21 @@ hardening slices are complete.
 - Validation: Debug and Analyze `ffnavigation_tests` passed; product commit
   `4cb44e3` (`Atomically save workspace state`). Direct power-loss behavior was
   not simulated or claimed.
+
+## Overnight slice 5 — workspace restore bound implementation
+
+- Root cause confirmed: `LoadState` bypassed the same 16-entry limit enforced by
+  `CloseActiveTab` and could restore all entries from a malformed local array.
+- Fix: the parser stops adding entries at `kMaxRecentlyClosedTabs`, retaining
+  the newest entries in the persisted front-to-back order without changing the
+  supported runtime queue contract.
+- Regression: the disposable navigation profile writes 20 persisted entries
+  and requires exactly the first 16 to load. Before the fix the focused
+  `ffnavigation_tests` failed this assertion; after the fix it passed.
+- Validation: Debug and Analyze `ffnavigation_tests` passed; product commit
+  `db7adf3` (`Bound restored recently closed tabs`). A separate maximum for
+  persisted bookmarks remains a `SPEC_AMBIGUITY`/deferred item because no
+  product limit exists in the current contract.
 
 ## Overnight slice 5 — workspace restore bound investigation
 
