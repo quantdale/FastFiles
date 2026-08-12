@@ -1,7 +1,25 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-13T00:00:00+08:00
-Status: LOCAL HARDENING CAMPAIGN COMPLETE — LOCAL ENGINEERING EXHAUSTED; EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-13T05:20:00+08:00
+Status: CLI RELEASE PREPARATION COMPLETE — EXTERNAL RELEASE GATES PRESERVED
+
+## Release-readiness campaign reconciliation (2026-08-13)
+
+- Fresh-session repository truth is `main` at `3ab36e7463b982a0f6f05318a5f370edf8d2c0a1`; the starting worktree was clean. The older `77d4dc2` checkpoint in this file is historical and is superseded by the current Git state.
+- Current Release candidate outputs are `build/release/src/ui/FastFiles.exe`, `build/release/src/engine/FastFilesEngine.exe`, `build/release/src/indexsvc/FastFilesIndexSvc.exe`, and `build/release/src/installer/FastFilesSetup.exe`; all inspected outputs are x64, unsigned, and have no embedded file/product version metadata. No production certificate, private key, PFX, password, or pin was supplied.
+- Release configuration already rejects missing/all-zero Release pins and generates `PinnedSignaturesConfig.h`; the source fallback remains placeholder/all-zero as required. Ignored CMake cache values are not production evidence and must not be treated as authorized pins.
+- The existing installer is a native directory package that installs the three product binaries and setup into `%ProgramFiles%\FastFiles`; the service is LocalSystem. Install validation now checks the constrained-broker account model.
+- The development host is not a clean host: FastFiles service/process/task/group/install and state resources were found. Elevation is also unavailable in the current shell. No install, uninstall, service mutation, or cleanup was performed.
+- `close-independent-validation-gaps` remains the active OpenSpec change. External tasks 4.5–4.8 and 5.1 remain open; no external signing, authenticated elevated MFT/USN, clean-host, or direct-rendered visual PASS may be claimed.
+- The local release-execution frontier is complete: deterministic artifact manifest, safe external-provider signing seam, leaf-pin derivation and validation, signature matrix, canonical release-readiness/privileged-path driver, portable clean-host kit and evidence import, plus focused verifier tests. These tools fail early and remain fail-closed with unsigned/placeholder artifacts.
+- Implementation milestone: `verify/release/` now contains the reusable manifest/signature/pin module, external-provider `sign-release.ps1`, candidate-only `derive-pin.ps1`, `New-ReleaseKit.ps1`, read-only clean-host preflight/cleanup/import scripts, `ReleaseReadiness.ps1`, and the transactional `privileged-release.ps1`. `verify.ps1 release-readiness` and the verifier README expose the canonical entry point. `fftest index-aggregate` is a first-party read-only aggregate/query probe for the future signed runtime path.
+- Focused validation: all release PowerShell files parse; `verify/release/tests/Test-ReleaseTooling.ps1` passes 20/20, including malformed/non-x64 PE and self-signed development-certificate rejection. Generated unsigned kits have deterministic hashes and include `fftest.exe`; clean-host preflight returns `CLEAN_HOST_PRECONDITION_FAILED`; the privileged driver returns `BLOCKED_EXTERNAL` before mutation; the evidence importer rejects the current non-PASS bundle.
+- The committed default `verify.ps1 release-readiness -Mode privileged` generated a temporary package and returned exit code 2 with `AUTHORIZED_SIGNING_REQUIRED`, `CLEAN_HOST_PRECONDITION_FAILED`, and transaction cleanup `PASS`. The driver now requires separately observed journal evidence before USN PASS; current diagnostics report `NOT_SEPARATELY_INSTRUMENTED`, so no USN PASS is claimed.
+- Final committed-state gates: Debug, Analyze, and Release builds are PASS/no work; Debug CTest 49/49 PASS; Release CTest 49/49 PASS; verifier build PASS; doctor PASS with optional tools skipped; focused `ffintake_gate_ps_tests` and `ffdoc_drift_tests` PASS; strict OpenSpec validation 45/45 PASS. The current Release artifacts remain x64, unsigned, with null version-resource metadata.
+- Focused commits: `52ad5b5` release readiness tooling, `43633cc` aggregate probe, `dd29ad1` LocalSystem service validation alignment. Final HEAD at this checkpoint is `dd29ad1`.
+- External blockers are authorized production signing material/provider, real production leaf thumbprints, an elevated host for signed authenticated MFT/USN runtime validation, and a genuinely clean Windows host. Direct rendered `% of Parent` evidence remains intentionally outside this CLI-only session.
+
+NEXT EXACT ACTION: provide the generated portable kit to an authorized signing workflow and a separate clean elevated Windows host; sign, derive and review production leaf pins, then run the privileged driver and import only a validated PASS evidence bundle. Do not alter external blocker task checkboxes from this session.
 
 ## Final direct visual acceptance attempt (2026-08-13)
 
