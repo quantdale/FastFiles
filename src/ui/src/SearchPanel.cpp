@@ -6,6 +6,7 @@
 #include "Util.h"
 #include "ffui/SearchLayout.h"
 
+#include <array>
 #include <algorithm>
 #include <commctrl.h>
 #include <commoncontrols.h>
@@ -188,6 +189,8 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     COMBOBOXINFO comboInfo{sizeof(comboInfo)};
     if (GetComboBoxInfo(query_, &comboInfo) && comboInfo.hwndItem) {
         queryEdit_ = comboInfo.hwndItem;
+        SendMessageW(queryEdit_, EM_LIMITTEXT,
+                     static_cast<WPARAM>(ffprotocol::kMaxIndexedSearchQueryLengthChars), 0);
         SetWindowSubclass(queryEdit_, SearchEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     }
     SetWindowSubclass(status_, StatusProc, 2, reinterpret_cast<DWORD_PTR>(this));
@@ -327,8 +330,8 @@ bool SearchPanel::HandleTimer(UINT_PTR timerId) {
 }
 
 void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
-    wchar_t queryText[1024]{};
-    GetWindowTextW(query_, queryText, static_cast<int>(std::size(queryText)));
+    std::array<wchar_t, static_cast<size_t>(ffprotocol::kMaxIndexedSearchQueryLengthChars) + 1> queryText{};
+    GetWindowTextW(query_, queryText.data(), static_cast<int>(queryText.size()));
     ++generation_;
     currentGeneration_ = generation_;
     if (queryText[0] == L'\0') {
@@ -340,7 +343,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     }
     Work work;
     work.generation = generation_;
-    work.request.query = ffsearch::ParseQuery(queryText, ffsearch::FilterRegistry::WithDefaults());
+    work.request.query = ffsearch::ParseQuery(queryText.data(), ffsearch::FilterRegistry::WithDefaults());
     work.request.scope = static_cast<ffsearch::SearchScope>((std::max)(0, static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0))));
     work.request.scopePath = currentPath_;
     work.request.sortField = static_cast<ffsearch::SortField>((std::max)(0, static_cast<int>(SendMessageW(sort_, CB_GETCURSEL, 0, 0))));
@@ -353,7 +356,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     work.request.persistentOnly = persistentCoverage_ &&
         static_cast<int>(work.request.scope) >= static_cast<int>(ffsearch::SearchScope::CurrentFolderAndSubfolders);
     currentPrimaryTerm_ = work.request.query.primaryTerm;
-    if (recordHistory) RecordHistory(queryText);
+    if (recordHistory) RecordHistory(queryText.data());
 
     const bool broadIndexedScope = static_cast<int>(work.request.scope) >=
         static_cast<int>(ffsearch::SearchScope::CurrentFolderAndSubfolders);
@@ -365,7 +368,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
         indexedRequest.sortField = static_cast<uint8_t>(work.request.sortField);
         indexedRequest.descending = work.request.descending;
         indexedRequest.maxResults = static_cast<uint32_t>(work.request.maxResults);
-        indexedRequest.query = queryText;
+        indexedRequest.query = queryText.data();
         indexedRequest.scopePath = currentPath_;
         engine_->RequestIndexedSearch(
             indexedRequest.query, indexedRequest.scope, indexedRequest.scopePath,

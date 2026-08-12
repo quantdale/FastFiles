@@ -1,10 +1,12 @@
 #include "ffsearch/Search.h"
 #include "ffsearch/History.h"
 #include "ffsearch/Path.h"
+#include "ffprotocol/UiProtocol.h"
 
 #include <cstdio>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <windows.h>
 #include "../TestSupport.h"
 
@@ -184,6 +186,33 @@ int main() {
               && unicodeReloaded.Queries().front() == L"café"
               && unicodeReloaded.Queries().back() == L"résumé データ",
           "non-ASCII history round-trips through UTF-8 without truncation");
+
+    const auto boundedHistoryPath = std::filesystem::temp_directory_path() / L"fastfiles-search-tests" / L"history-bounded.txt";
+    ffsearch::SearchHistory boundedHistory;
+    const std::wstring maximumQuery(ffprotocol::kMaxIndexedSearchQueryLengthChars, L'x');
+    Check(boundedHistory.Record(maximumQuery, boundedHistoryPath),
+          "search history accepts the protocol maximum query length");
+    Check(boundedHistory.Queries().size() == 1 && boundedHistory.Queries().front().size() ==
+              ffprotocol::kMaxIndexedSearchQueryLengthChars,
+          "search history retains a maximum-length query without truncating it");
+    Check(!boundedHistory.Record(maximumQuery + L'x', boundedHistoryPath) &&
+              boundedHistory.Queries().size() == 1,
+          "search history rejects a query above the protocol maximum");
+    Check(!std::filesystem::exists(boundedHistoryPath.wstring() + L".tmp"),
+          "search history atomic save removes its temporary file after commit");
+
+    const auto malformedHistoryPath = std::filesystem::temp_directory_path() / L"fastfiles-search-tests" / L"history-malformed.txt";
+    {
+        std::ofstream malformed(malformedHistoryPath, std::ios::binary | std::ios::trunc);
+        malformed << "1\tvalid query\n2\t";
+        const char invalidUtf8[] = {static_cast<char>(0xC3), static_cast<char>(0x28), '\n'};
+        malformed.write(invalidUtf8, static_cast<std::streamsize>(sizeof(invalidUtf8)));
+        malformed << "3\t" << std::string(ffprotocol::kMaxIndexedSearchQueryLengthChars + 1, 'y') << '\n';
+    }
+    ffsearch::SearchHistory malformedHistory;
+    Check(malformedHistory.Load(malformedHistoryPath) && malformedHistory.Queries().size() == 1 &&
+              malformedHistory.Queries().front() == L"valid query",
+          "search history ignores malformed UTF-8 and overlong persisted queries");
 
     std::error_code cleanupError;
     std::filesystem::remove(historyPath.parent_path(), cleanupError);
