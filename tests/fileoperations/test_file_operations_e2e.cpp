@@ -176,6 +176,25 @@ int main() {
           "Replace did not overwrite the destination");
     Check(!event->reversibleOperation, "overwrite was incorrectly recorded as undoable");
 
+    const auto duplicateSourceA = root / L"duplicate-source-a";
+    const auto duplicateSourceB = root / L"duplicate-source-b";
+    std::filesystem::create_directories(duplicateSourceA);
+    std::filesystem::create_directories(duplicateSourceB);
+    WriteText(duplicateSourceA / L"same.txt", "first source");
+    WriteText(duplicateSourceB / L"same.txt", "second source");
+    conflictQuestionCount = 0;
+    conflictDecision = {ffui::ConflictChoice::Replace, true};
+    ffui::FileOperationRequest duplicateCopy{};
+    duplicateCopy.kind = ffui::FileOperationKind::Copy;
+    duplicateCopy.destination = destination.wstring();
+    duplicateCopy.sources = {(duplicateSourceA / L"same.txt").wstring(),
+                             (duplicateSourceB / L"same.txt").wstring()};
+    event = Run(operations, std::move(duplicateCopy));
+    Check(event->failures.empty() && conflictQuestionCount == 1 &&
+              ReadText(destination / L"same.txt") == "first source" &&
+              ReadText(destination / L"same (2).txt") == "second source",
+          "in-batch Replace collision overwrote an earlier source");
+
     ffui::FileOperationRequest link{};
     link.kind = ffui::FileOperationKind::Link;
     link.sources = {(source / L"valid.txt").wstring()};

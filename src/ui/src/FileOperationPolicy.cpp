@@ -74,7 +74,9 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
     for (const auto& source : sources) {
         const std::wstring originalName = std::filesystem::path(source).filename().wstring();
         const std::wstring destinationPath = Join(destinationFolder, originalName);
-        if (!isOccupied(destinationPath)) {
+        const bool plannedCollision = plannedDestinations.contains(DestinationKey(destinationPath));
+        const bool externalCollision = exists(destinationPath);
+        if (!plannedCollision && !externalCollision) {
             result.push_back({source, {}, false});
             reserve(destinationPath);
             continue;
@@ -89,7 +91,9 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
         }
         if (choice == ConflictChoice::Cancel) return std::nullopt;
         if (choice == ConflictChoice::Skip) continue;
-        if (choice == ConflictChoice::Replace) {
+        // Replace is safe only for an item that existed before this batch.
+        // A planned collision would otherwise overwrite an earlier source.
+        if (choice == ConflictChoice::Replace && !plannedCollision) {
             result.push_back({source, {}, true});
             reserve(destinationPath);
             continue;

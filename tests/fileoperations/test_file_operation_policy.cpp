@@ -37,6 +37,17 @@ int main() {
     Check(plan && plan->size() == 2 && (*plan)[0].destinationName == L"file (3).txt", "keep-both plan wrong");
     Check(prompts == 1, "apply-to-all prompted more than once");
 
+    int externalReplacePrompts = 0;
+    const auto externalReplace = BuildTransferPlan({L"C:\\source\\file.txt"}, L"D:\\target", exists,
+        [&](const std::wstring&, const std::wstring&) {
+            ++externalReplacePrompts;
+            return ConflictDecision{ConflictChoice::Replace, false};
+        });
+    Check(externalReplace && externalReplace->size() == 1 &&
+              (*externalReplace)[0].destinationName.empty() &&
+              (*externalReplace)[0].replacesExisting && externalReplacePrompts == 1,
+          "Replace still applies to an existing destination item");
+
     occupied.insert(L"D:\\target\\other.txt");
     prompts = 0;
     const auto skipped = BuildTransferPlan({L"C:\\source\\file.txt", L"C:\\source\\other.txt"}, L"D:\\target", exists,
@@ -59,6 +70,21 @@ int main() {
               (*duplicateNames)[1].destinationName == L"duplicate (2).txt" &&
               duplicatePrompts == 1,
           "duplicate source names were not assigned distinct destinations");
+
+    int duplicateReplacePrompts = 0;
+    const auto duplicateReplace = BuildTransferPlan(
+        {L"C:\\source-a\\duplicate.txt", L"C:\\source-b\\duplicate.txt"}, L"D:\\target",
+        [](const std::wstring&) { return false; },
+        [&](const std::wstring&, const std::wstring&) {
+            ++duplicateReplacePrompts;
+            return ConflictDecision{ConflictChoice::Replace, true};
+        });
+    Check(duplicateReplace && duplicateReplace->size() == 2 &&
+              (*duplicateReplace)[0].destinationName.empty() &&
+              !(*duplicateReplace)[0].replacesExisting &&
+              (*duplicateReplace)[1].destinationName == L"duplicate (2).txt" &&
+              !(*duplicateReplace)[1].replacesExisting && duplicateReplacePrompts == 1,
+          "Replace cannot overwrite an earlier item in the same transfer batch");
 
     OperationHistory history;
     history.PushRename(L"C:\\old.txt", L"C:\\new.txt");
