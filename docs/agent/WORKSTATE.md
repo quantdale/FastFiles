@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:44:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 6 CASE-INSENSITIVE SNAPSHOT IDENTITY VALIDATED; LIFECYCLE RACE NEXT; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:40:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 6 COMMITTED; SLICE 7 UI-SERVER CALLBACK LIFETIME RACE CONFIRMED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -108,7 +108,7 @@ product cleanup defect was established. The first probe had a path-normalization
 harness bug (`Win32_Process.ExecutablePath` used a `\\?\\` prefix); the exact
 diagnostic Engine it left was immediately terminated after path validation.
 
-Slice 6 implementation is complete in the working tree and ready to commit:
+Slice 6 is committed as `26918d6` (`Unify Windows snapshot path identity`).
 Windows path identity is now shared through `ffprotocol::WindowsPathEqual` and
 `CaseInsensitivePathLess`. Engine snapshot ownership uses a case-insensitive
 ordered map and a matching `SnapshotPublisher` overload without copying the
@@ -116,11 +116,9 @@ large map; the watcher reuses the same comparator. UI column refresh, directory
 errors, loading markers, and snapshot subtree aggregation use exact lookup with
 an ordinal-insensitive fallback. The first stored path spelling remains the
 display key. Focused publisher, aggregate, watcher, protocol, and fuzz tests
-pass. Commit this slice, then investigate the newly reproducible intermittent
-UI-server lifecycle crash separately. Exact next action after commit: run the
-existing lifecycle test repeatedly under the CLI, confirm whether detached
-`UiServer::HandleConnection` threads outlive `UiServer::Stop`, and fix only that
-proven ownership/shutdown race.
+pass. Exact next action: fix the proven `UiServer::HandleConnection` callback
+ownership/shutdown race, then stress the lifecycle test again before returning
+to broader local audits.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -170,6 +168,27 @@ proven ownership/shutdown race.
   verifies a case-variant child; `ffengine_directory_watcher_tests`,
   `ffprotocol_tests`, and `ffprotocol_fuzz_tests` remain green. Focused result:
   5/5. No selection volume/FRN identity semantics changed.
+
+## Overnight slice 7 — UI-server callback lifetime investigation
+
+- Severity: HIGH lifecycle/reliability risk. A five-run direct CLI stress batch
+  of `ffengine_ui_server_lifecycle_tests` reproduced one access violation
+  (`0xC0000005`); the other four runs passed. The same test passed once under
+  CTest and then failed once in a six-test focused CTest batch, so this is a
+  timing-sensitive race rather than a deterministic assertion failure.
+- Root cause path: `PipeListener::Start` creates detached threads for
+  `onConnect_`. `UiServer::HandleConnection` can still remove its client from
+  `clientsMutex_`, use `snapshot_`, or close its pipe after `UiServer::Stop`
+  has returned. `UiServer::Stop` currently stops the listener and then destroys
+  snapshot/client state without a callback-lifetime barrier. The fault address
+  symbolized into `std::_Iterator_base12::_Adopt_unlocked`, consistent with a
+  detached callback racing container teardown.
+- Planned smallest safe fix: add a shared UI-server connection gate captured by
+  the listener callback. Callbacks register before touching `this`, callbacks
+  arriving after stop close their pipe without dereferencing the server, and
+  `UiServer::Stop` marks the gate stopping, cancels subscribed clients, stops
+  accepting, and waits for registered callbacks before snapshot/client teardown.
+  Do not change the privileged service listener or pipe protocol in this slice.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
