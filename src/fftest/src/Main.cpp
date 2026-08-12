@@ -3,8 +3,10 @@
 #include <sddl.h>
 
 #include <algorithm>
+#include <cwchar>
 #include <cstdio>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <thread>
 #include <utility>
@@ -13,6 +15,7 @@
 #include "ClientAuthentication.h"
 #include "PrivilegeVerification.h"
 #include "ffprotocol/Commands.h"
+#include "ffindexstore/Store.h"
 
 namespace {
 
@@ -158,6 +161,60 @@ int RunMappingProbe(const wchar_t* mappingName) {
                 readable ? "PASS" : "FAIL", JsonEscape(WideToUtf8(mappingName)).c_str(),
                 JsonBool(readable), error);
     return readable ? kProbePass : kProbeFail;
+}
+
+bool ParseUnsignedArgument(const wchar_t* value, uint64_t& parsed) {
+    if (value == nullptr || *value == L'\0') return false;
+    wchar_t* end = nullptr;
+    const unsigned long long candidate = std::wcstoull(value, &end, 10);
+    if (end == value || *end != L'\0' || candidate > std::numeric_limits<uint64_t>::max()) return false;
+    parsed = static_cast<uint64_t>(candidate);
+    return true;
+}
+
+int RunIndexAggregateProbe(const wchar_t* databasePath, const wchar_t* folderName,
+                           uint64_t expectedItems, uint64_t expectedBytes) {
+    std::string databasePathUtf8 = WideToUtf8(databasePath);
+    ffindexstore::Store store;
+    bool integrityFailed = false;
+    if (!store.Open(databasePathUtf8, &integrityFailed)) {
+        std::printf("{\"tool\":\"fftest\",\"probe\":\"index-aggregate\",\"status\":\"FAIL\",\"integrityFailed\":%s}\n",
+                    JsonBool(integrityFailed));
+        return kProbeFail;
+    }
+
+    std::u16string target;
+    for (const wchar_t character : std::wstring(folderName)) {
+        target.push_back(static_cast<char16_t>(character));
+    }
+    uint64_t matches = 0;
+    bool passed = false;
+    int64_t matchingVolume = 0;
+    uint64_t observedItems = 0;
+    uint64_t observedBytes = 0;
+    for (const auto& volume : store.GetAllVolumes()) {
+        store.ForEachEntry(volume.rowId, [&](const ffindexstore::EntryRecord& record) {
+            if (record.name != target || (record.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0) return;
+            ++matches;
+            const auto aggregate = store.GetFolderAggregate(volume.rowId, record.id);
+            observedItems = aggregate.itemCount;
+            observedBytes = aggregate.totalSizeBytes;
+            if (aggregate.itemCount == expectedItems && aggregate.totalSizeBytes == expectedBytes) {
+                passed = true;
+                matchingVolume = volume.rowId;
+            }
+        });
+    }
+    store.Close();
+    std::printf(
+        "{\"tool\":\"fftest\",\"probe\":\"index-aggregate\",\"status\":\"%s\","
+        "\"folder\":\"%s\",\"matches\":%llu,\"expectedItems\":%llu,"
+        "\"expectedBytes\":%llu,\"observedItems\":%llu,\"observedBytes\":%llu,"
+        "\"matchingVolume\":%lld}\n",
+        passed ? "PASS" : "FAIL", JsonEscape(WideToUtf8(folderName)).c_str(), matches,
+        expectedItems, expectedBytes, observedItems, observedBytes,
+        static_cast<long long>(matchingVolume));
+    return passed ? kProbePass : kProbeFail;
 }
 
 
@@ -378,7 +435,7 @@ int RunHandshakeImpostorProbe(const wchar_t* installDirectory) {
 }
 
 void PrintUsage() {
-    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|walk <root>|streams <file>|handshake-impostor <install-dir>>\n");
+    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|walk <root>|streams <file>|handshake-impostor <install-dir>|index-aggregate <db> <folder> <items> <bytes>>\n");
 }
 
 } // namespace
@@ -395,6 +452,15 @@ int wmain(int argc, wchar_t** argv) {
     if (_wcsicmp(argv[1], L"walk") == 0 && argc == 3) return RunWalkProbe(argv[2]);
     if (_wcsicmp(argv[1], L"streams") == 0 && argc == 3) return RunStreamsProbe(argv[2]);
     if (_wcsicmp(argv[1], L"handshake-impostor") == 0 && argc == 3) return RunHandshakeImpostorProbe(argv[2]);
+    if (_wcsicmp(argv[1], L"index-aggregate") == 0 && argc == 6) {
+        uint64_t expectedItems = 0;
+        uint64_t expectedBytes = 0;
+        if (!ParseUnsignedArgument(argv[4], expectedItems) || !ParseUnsignedArgument(argv[5], expectedBytes)) {
+            PrintUsage();
+            return kUsageError;
+        }
+        return RunIndexAggregateProbe(argv[2], argv[3], expectedItems, expectedBytes);
+    }
     PrintUsage();
     return kUsageError;
 }
