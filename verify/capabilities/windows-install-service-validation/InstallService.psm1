@@ -387,10 +387,13 @@ function Invoke-InstallServiceCapability {
             $configPath = Join-Path $ArtifactsDir 'service-config.json'
             $config | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $configPath -Encoding utf8
             $artifacts += [pscustomobject]@{ path = 'artifacts/windows-install-service-validation/service-config.json'; type = 'service-config' }
-            $serviceAccountOk = $config.service.startName -ieq 'NT SERVICE\FastFilesIndexSvc'
+            # The privileged broker deliberately runs as LocalSystem. The old
+            # virtual-service-account expectation belonged to the superseded
+            # privilege model and made a correctly configured installation fail.
+            $serviceAccountOk = $config.service.startName -ieq 'LocalSystem'
             $startModeOk = $config.service.startMode -eq 'Auto'
             $delayedOk = [bool]$config.service.delayedAutoStart
-            $results += New-InstallSubResult -Id 'service-account-start-mode' -Status $(if ($serviceAccountOk -and $startModeOk) { 'PASS' } else { 'FAIL' }) -Reason $(if (-not ($serviceAccountOk -and $startModeOk)) { 'service-account-or-start-mode-mismatch' }) -DurationMs 0 -Detail "startName=$($config.service.startName); startMode=$($config.service.startMode)"
+            $results += New-InstallSubResult -Id 'service-account-start-mode' -Status $(if ($serviceAccountOk -and $startModeOk) { 'PASS' } else { 'FAIL' }) -Reason $(if (-not ($serviceAccountOk -and $startModeOk)) { 'service-account-or-start-mode-mismatch' }) -DurationMs 0 -Detail "startName=$($config.service.startName); startMode=$($config.service.startMode); model=LocalSystem-constrained-broker"
             $results += New-InstallSubResult -Id 'service-delayed-start' -Status $(if ($delayedOk) { 'PASS' } else { 'FAIL' }) -Reason $(if (-not $delayedOk) { 'delayed-auto-start-not-configured' }) -DurationMs 0 -Detail "delayedAutoStart=$delayedOk"
 
             $security = Get-ServiceSecurityCheck
