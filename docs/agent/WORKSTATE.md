@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:03:23+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 11 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:22:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — BENCHMARK RUN INCONCLUSIVE AFTER BOUNDED TIMEOUT; SLICE 11 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -127,8 +127,19 @@ callback teardown race`). Slice 8 is committed as `66bffd0` (`Preserve Unicode
 workspace state`). Slice 9 is committed as `273dd2d` (`Prevent in-batch transfer
 overwrites`). Slice 10 is committed as `7edef8c` (`Preserve pending selection
 across path casing`). Slice 11 is committed as `2c30a7c` (`Use Windows identity
-for transfer reservations`). Exact next action: choose another evidence-backed
-local hardening frontier; do not reopen completed areas without new evidence.
+for transfer reservations`). The complete Debug CTest tree now passes 49/49,
+including `ffdoc_drift_tests` after the explicit mixed-line-ending cleanup of
+18 previously touched first-party files; no semantic source diff resulted from
+that normalization. The existing Release large-index benchmark target built
+successfully, but the correctly quoted 10-minute run of the default 10K/100K/
+500K/1M workload did not finish or emit its end-of-run JSON before the bounded
+shell timeout. The exact benchmark PID `17624` was verified by executable path,
+stopped, and left no benchmark process or fixture behind. The earlier failed
+attempt was only a PowerShell argument-splitting mistake; after the corrected
+run timed out, this method is considered inconclusive rather than a product
+regression. Do not repeat the same full benchmark method; retain the earlier
+completed Release benchmark artifact/results as the authoritative performance
+baseline and choose another evidence-backed local hardening frontier.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
