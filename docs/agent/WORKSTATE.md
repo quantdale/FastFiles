@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:58:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 4 WORKSPACE PERSISTENCE COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:06:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 5 WORKSPACE RESTORE-BOUND INVESTIGATION; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -97,11 +97,11 @@ Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
 insensitive`). Slice 4 is committed as `4cb44e3` (`Atomically save workspace
-state`). Begin exactly one new Priority A/B engine/UI lifecycle frontier:
-review and exercise the existing EngineClient stop/reconnect ownership for a
-reproducible orphan or stale-state defect before changing it. Do not reopen
-completed transfer-planner, Details, watcher, or persistence slices without new
-evidence. Run the final full validation only after the remaining local
+state`). Slice 5 is now the single Priority D persistence frontier: enforce the
+existing recently-closed-tab restore bound and add a malformed-input regression
+before changing any broader settings behavior. Do not reopen completed
+transfer-planner, Details, watcher, or atomic/version persistence slices without
+new evidence. Run the final full validation only after the remaining local
 hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
@@ -231,6 +231,18 @@ hardening slices are complete.
 - Validation: Debug and Analyze `ffnavigation_tests` passed; product commit
   `4cb44e3` (`Atomically save workspace state`). Direct power-loss behavior was
   not simulated or claimed.
+
+## Overnight slice 5 — workspace restore bound investigation
+
+- Severity: MEDIUM persistence/recovery resource risk. Runtime close-tab logic
+  enforces `kMaxRecentlyClosedTabs == 16`, but `LoadState` appended every
+  `recentlyClosedTabs` entry from disk without that bound. A malformed or stale
+  local profile could therefore restore an arbitrarily large queue and make
+  startup/reopen behavior diverge from the supported model.
+- Reproducer plan: persist more than 16 closed-tab entries in the disposable
+  navigation profile and assert the loaded queue exceeds the runtime bound
+  before the fix. The implementation should retain only the newest 16 entries
+  in file order, matching `push_front` + `pop_back` semantics.
 
 ## Session continuation reconciliation (2026-08-12)
 
