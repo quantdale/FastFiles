@@ -23,6 +23,7 @@ Fixed, non-interactive verb set:
 | `gate` | Resolve the change's gate policy against the latest run | no |
 | `list` | Enumerate discovered capabilities (incl. rejected ones) | no |
 | `doctor` | Probe environment readiness; never provisions anything | no |
+| `release-readiness` | Validate the Release artifact set, signatures, pins, clean-host preflight, and privileged-path prerequisites | report: no; privileged: only after all gates are ready |
 
 Exit codes: `0` PASS, `1` FAIL, `2` SKIPPED, `3` HARNESS ERROR, `10` NOT-YET-IMPLEMENTED
 (reserved; no verb currently scaffolds).
@@ -128,7 +129,31 @@ pwsh ./verify/verify.ps1 run -Change <change-id> -SkipAnalyze
 pwsh ./verify/verify.ps1 install -Change <change-id> -Elevate   # one-time UAC
 pwsh ./verify/verify.ps1 repair -Change <change-id>
 pwsh ./verify/verify.ps1 gate -Change <change-id>
+pwsh ./verify/verify.ps1 release-readiness -Mode report
+pwsh ./verify/verify.ps1 release-readiness -Mode gate
+pwsh ./verify/verify.ps1 release-readiness -Mode privileged -Elevate
 ```
+
+`release-readiness` returns `2` (`BLOCKED_EXTERNAL`) when the current artifact set
+is locally inspectable but authorized signing material, production pins, elevation,
+or a genuinely clean host is unavailable. It returns `1` for a local artifact or
+validation defect. `-Mode report` is read-only; `-Mode privileged` delegates to
+`verify/release/privileged-release.ps1` and refuses to install over a contaminated
+host. The signing wrapper accepts only explicitly supplied external certificate-store
+or PFX configuration, rejects self-signed development certificates, and never writes
+pins or private material into the repository.
+
+The portable clean-host kit is generated outside Git with:
+
+```powershell
+pwsh ./verify/release/New-ReleaseKit.ps1 -BuildRoot ./build/release -OutputDirectory <kit>
+```
+
+The kit's preflight is read-only and reports `CLEAN_HOST_PRECONDITION_FAILED`
+instead of cleaning an existing FastFiles installation. A PASS evidence bundle can
+be copied into a reviewed evidence directory with
+`verify/release/import-clean-host-result.ps1`; that importer never changes OpenSpec
+task state.
 
 `verify/runs/` and `verify/baselines/` are execution evidence — untracked, not source.
 

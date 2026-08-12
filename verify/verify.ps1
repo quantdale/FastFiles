@@ -3,7 +3,8 @@
     FastFiles autonomous runtime-verification harness — entry point.
 
 .DESCRIPTION
-    Exposes the fixed verb set (build, install, run, diagnose, report, repair, gate).
+    Exposes the fixed verb set (build, install, run, diagnose, report, repair, gate,
+    release-readiness).
     Every verb is non-interactive and returns one of the documented exit codes below.
     See verify/README.md for the full extensibility/usage guide.
 
@@ -20,7 +21,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor')]
+    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor', 'release-readiness')]
     [string] $Verb,
 
     [string] $Change = 'ad-hoc',
@@ -34,7 +35,13 @@ param(
     [switch] $ElevatedChild,
     [ValidateSet('human', 'json')]
     [string] $Format = 'human',
-    [string] $RunTimestamp
+    [string] $RunTimestamp,
+    [ValidateSet('report', 'gate', 'privileged')]
+    [string] $Mode = 'report',
+    [string] $ArtifactRoot,
+    [string] $PackageDirectory,
+    [string] $OutputDirectory,
+    [string] $ExpectedSignerThumbprint
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +78,12 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     if ($SkipAnalyze) { $childArgs += '-SkipAnalyze' }
     if ($SkipTests) { $childArgs += '-SkipTests' }
     if ($RunTimestamp) { $childArgs += @('-RunTimestamp', $RunTimestamp) }
+    if ($Format -ne 'human') { $childArgs += @('-Format', $Format) }
+    if ($Mode -ne 'report') { $childArgs += @('-Mode', $Mode) }
+    if ($ArtifactRoot) { $childArgs += @('-ArtifactRoot', $ArtifactRoot) }
+    if ($PackageDirectory) { $childArgs += @('-PackageDirectory', $PackageDirectory) }
+    if ($OutputDirectory) { $childArgs += @('-OutputDirectory', $OutputDirectory) }
+    if ($ExpectedSignerThumbprint) { $childArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
     $quotedArgs = ($childArgs | ForEach-Object { ConvertTo-ProcessArgument -Value $_ }) -join ' '
     $child = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList $quotedArgs -Verb RunAs -Wait -PassThru
     exit $child.ExitCode
@@ -228,6 +241,16 @@ function Write-RunReports {
 }
 
 switch ($Verb) {
+    'release-readiness' {
+        $releaseScript = Join-Path $VerifyRoot 'release\ReleaseReadiness.ps1'
+        $releaseArgs = @('-NoProfile', '-File', $releaseScript, '-Mode', $Mode, '-OutputFormat', $Format)
+        if ($ArtifactRoot) { $releaseArgs += @('-ArtifactRoot', $ArtifactRoot) }
+        if ($PackageDirectory) { $releaseArgs += @('-PackageDirectory', $PackageDirectory) }
+        if ($OutputDirectory) { $releaseArgs += @('-OutputDirectory', $OutputDirectory) }
+        if ($ExpectedSignerThumbprint) { $releaseArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
+        & (Get-Command pwsh).Source @releaseArgs
+        exit $LASTEXITCODE
+    }
     'build' {
         $result = Invoke-VerificationRun -CapabilityFilter @('windows-build-validation')
         Write-Host ''
