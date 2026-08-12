@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T21:49:38+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 1 COMMITTED; MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:02:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS INVESTIGATION; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -9,9 +9,11 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 1 COMMITTED; MAIN UI GEOMETRY 
   one bounded product slice: establish and harden the main-shell geometry
   authority. The prior signed/elevated/clean-host/aggregate-backed external
   blockers remain recorded below and are not being erased or reopened.
-- Repository reconciliation: current checkout is `main` at `c98b223`; the
-  worktree was clean at session start. Older recovery-branch/hash statements in
-  this file are historical and Git/source are authoritative for this session.
+- Repository reconciliation for this completed slice is historical: the
+  geometry implementation is committed as `c4868e5`; the current checkout is
+  `main` at the later overnight checkpoint recorded below. Older
+  recovery-branch/hash statements in this file remain historical and
+  Git/source are authoritative.
 - Final source ownership map: `WindowShell::HandleMessage(WM_SIZE/WM_DPICHANGED)`
   drives native repositioning; `WindowShell::CurrentShellLayout()` calls
   `ffui::ComputeMainShellLayout`, whose scene-local DetailsLayout is translated
@@ -45,9 +47,9 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 1 COMMITTED; MAIN UI GEOMETRY 
   post-sidebar origin. Final clipped-shell capture visibly shows Navigation
   Chrome, Sidebar, and native controls; the topmost-target isolation capture
   hides them again.
-- Current implementation frontier: review and stage the bounded shell-geometry
-  diff, commit the focused product slice, then reconcile final HEAD and
-  WORKSTATE. Do not begin another UI slice automatically.
+- Previous implementation frontier: the bounded shell-geometry diff was
+  reviewed and committed as `c4868e5`; no evidence-backed geometry issue
+  remains. Do not reopen that slice without new evidence.
 - Validation complete: Debug, Analyze, and Release builds passed; Debug and
   Release serial CTest passed `48/48`; `verify.ps1 doctor` and
   `verify.ps1 build` passed; strict OpenSpec validation passed `45/45`.
@@ -92,9 +94,11 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 1 COMMITTED; MAIN UI GEOMETRY 
 ## Overnight campaign NEXT EXACT ACTION
 
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
-Begin exactly one new Priority A/B triage frontier; do not reopen the
-completed transfer-planner slice without new evidence. Run the final full
-validation only after the remaining local hardening slices are complete.
+Slice 2 is currently scoped to stale folder aggregate data in Details. Run its
+focused baseline, then implement the smallest generation/selection invalidation
+seam and regression test if the source evidence reproduces the risk. Do not
+reopen the completed transfer-planner slice without new evidence. Run the final
+full validation only after the remaining local hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -117,6 +121,29 @@ validation only after the remaining local hardening slices are complete.
 - Analyze Debug targets passed with no warning/error output; the focused Debug
   policy and end-to-end tests passed 2/2. Final full Debug/Analyze/Release
   validation remains a campaign-end gate, not a reason to reopen this slice.
+
+## Overnight slice 2 — Details folder aggregate freshness investigation
+
+- Priority: HIGH UI correctness/data freshness risk; this is a direct match for
+  the campaign requirement that Details must not show metadata from a previous
+  selection or stale snapshot.
+- Source evidence: `WindowShell::RenderDetails` caches the last folder request
+  only by `(volumeRowId, fileIdLow, fileIdHigh)`. The `WM_APP_SNAPSHOT_UPDATED`
+  handler refreshes ColumnView/Search/Storage but does not invalidate that key,
+  so a selected folder whose children change can retain the old item count and
+  total size indefinitely. Selection clearing/reselecting the same folder also
+  does not reset the key because `RefreshSelectionPresentation` only manages
+  preview state. `WM_APP_FOLDER_AGGREGATE` correctly gates late replies by
+  request ID, so invalidation can safely reject an older response.
+- Related source points: `src/ui/src/WindowShell.cpp` (`RenderDetails`,
+  `RefreshSelectionPresentation`, `WM_APP_SNAPSHOT_UPDATED`, and
+  `WM_APP_FOLDER_AGGREGATE`) and `src/ui/src/EngineClient.cpp`
+  (`RequestFolderAggregate`). The engine reads the current projection when a
+  request arrives; the missing piece is the UI refresh trigger.
+- Baseline status: no source change has been made for this slice. The focused
+  `ffnavigation_tests` and `ffengine_directory_watcher_tests` baseline passed
+  2/2. The next action is a deterministic test seam for the invalidation policy
+  before implementation.
 
 ## Session continuation reconciliation (2026-08-12)
 
