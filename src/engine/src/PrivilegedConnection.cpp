@@ -7,6 +7,7 @@
 #include <iterator>
 
 #include "ffprotocol/Version.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffsetup/AuthenticodeVerification.h"
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/PeerImageMatch.h"
@@ -141,26 +142,36 @@ bool PrivilegedConnection::SendRequest(uint16_t messageType, const void* payload
 }
 
 bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
+    const auto reject = [](const wchar_t* stage, DWORD error) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
+                                      {}, {}, stage, error, 0});
+        return false;
+    };
+
     ULONG serverPid = 0;
     if (!GetNamedPipeServerProcessId(pipe, &serverPid)) {
-        return false;
+        return reject(L"service-identity-server-pid", GetLastError());
     }
     HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, serverPid);
     if (process == nullptr) {
-        return false;
+        return reject(L"service-identity-open-process", GetLastError());
     }
 
     auto imagePath = GetProcessImagePath(process);
     CloseHandle(process);
     if (!imagePath) {
-        return false;
+        return reject(L"service-identity-image-path", GetLastError());
     }
 
     if (!ffsetup::IsExpectedInstalledBinary(*imagePath, installDir_, ffsetup::kIndexSvcExeName)) {
-        return false;
+        return reject(L"service-identity-image-path-mismatch", ERROR_INVALID_DATA);
     }
 
-    return ffsetup::VerifyPinnedSignature(*imagePath, ffsetup::kExpectedIndexSvcSignatureThumbprint);
+    if (!ffsetup::VerifyPinnedSignature(*imagePath, ffsetup::kExpectedIndexSvcSignatureThumbprint)) {
+        return reject(L"service-identity-signature", ERROR_INVALID_DATA);
+    }
+    return true;
 }
 
 HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
@@ -405,7 +416,21 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
                 ackCv.notify_all();
                 break;
             }
-            DispatchReceivedFrame(*frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+            try {
+                DispatchReceivedFrame(*frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+            } catch (...) {
+                // A callback owns durable/index projection work and may still
+                // encounter a bounded allocation or data-structure failure
+                // even after frame validation. Never let an exception escape
+                // this reader thread into std::terminate; disconnect so the
+                // normal engine retry/degraded-mode path can recover.
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DISCONNECTED,
+                                              {}, {}, L"active-frame-dispatch-exception", ERROR_UNHANDLED_EXCEPTION, 0});
+                protocolViolation = true;
+                ackCv.notify_all();
+                break;
+            }
             if (protocolViolation.load()) {
                 ackCv.notify_all();
                 break;

@@ -39,7 +39,7 @@ public:
 
     // Replaces the full published view and flips to a new generation.
     // Returns the new generation ID, or 0 on failure (e.g. serialized size
-    // exceeds the bounded 64 MiB slot capacity).
+    // exceeds the bounded 256 MiB slot capacity).
     uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
                      PublishTimings* timings = nullptr);
 

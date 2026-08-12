@@ -294,6 +294,25 @@ void TestProjectionMemoryPressureSignal() {
     proj.SetMaximumMemoryBytes(usage);
     Check(proj.IsMemoryPressureHigh(), "projection exposes a high-memory pressure signal near its limit");
 }
+
+void TestProjectionMemoryLimitRunsAtBatchBoundary() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    const size_t bound = proj.EstimatedMemoryBytes() * 2 + 1;
+    proj.SetMaximumMemoryBytes(bound);
+    proj.SetBulkScanActive(true);
+    for (uint64_t id = 100; id < 1'100; ++id) {
+        proj.Upsert(1, MakeEntry(id, 5, u"deferred.txt"));
+    }
+    Check(!proj.NeedsReload(1), "an individual projection upsert does not compact the whole index");
+    proj.EnforceMemoryLimitNow();
+    Check(!proj.NeedsReload(1), "bulk scan mode defers eviction compaction while ingesting");
+    Check(!proj.FilenameCandidateIndices(u"deferred").has_value(),
+          "bulk scan mode invalidates only the optional filename accelerator");
+    proj.SetBulkScanActive(false);
+    proj.EnforceMemoryLimitNow();
+    Check(proj.NeedsReload(1), "the post-scan batch boundary enforces the bounded LRU policy");
+}
 } // namespace
 
 int main() {
@@ -311,6 +330,7 @@ int main() {
     TestFilenameTrigramCandidatesTrackMutations();
     TestProjectionEvictsLruAndReloadsFromStore();
     TestProjectionMemoryPressureSignal();
+    TestProjectionMemoryLimitRunsAtBatchBoundary();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

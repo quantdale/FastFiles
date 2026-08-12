@@ -83,6 +83,12 @@ private:
         wchar_t driveLetter = L'\0';
         uint64_t journalId = 0;
         bool journalIdKnown = false;
+        // close-independent-validation-gaps 4.6: an initial or
+        // reconciliation scan keeps the durable projection current in
+        // batches, but defers the expensive complete snapshot export until
+        // ScanComplete. Journal-only updates remain publishable once the
+        // scan has finished.
+        bool scanInProgress = false;
     };
 
     void OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes);
@@ -101,7 +107,7 @@ private:
     // missed events, rather than an unconditional full rescan discarding
     // existing rows.
     void TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
-    void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter);
+    void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force = false);
     // True when the volume's indexing is currently paused (globally or by
     // letter). Callers must hold mutex_.
     bool IsPausedLocked(wchar_t driveLetter) const;
@@ -111,6 +117,7 @@ private:
     void ResumeAffectedSessions(const std::vector<wchar_t>& affectedLetters);
 
     void ReconciliationSchedulerLoop();
+    void RefreshProjectionScanState();
 
     IndexPipeline& pipeline_;
     PrivilegedConnection& connection_;
@@ -120,6 +127,12 @@ private:
     std::mutex mutex_;
     std::map<uint32_t, VolumeSession> sessionsByEphemeralId_; // keyed by ffprotocol::VolumeId::value
     std::vector<ffprotocol::VolumeSetting> configuredVolumes_;
+    // close-independent-validation-gaps 4.6: serializing the full directory
+    // snapshot for every MFT/USN batch starves the ingestion path and lets a
+    // reader race a rapidly reused shared-memory slot. Durable ingestion is
+    // still batch-by-batch; UI publication is coalesced and the completion
+    // path forces the final view.
+    std::map<ffindexstore::VolumeRowId, std::chrono::steady_clock::time_point> lastSnapshotPublish_;
     // settings-and-appearance §9.3/D9: drive letters the engine has
     // observed (last EnumerateVolumes poll) that have no matching entry
     // in the persisted volume selection -- surfaced as pending-decision

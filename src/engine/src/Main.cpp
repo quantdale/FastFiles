@@ -93,6 +93,28 @@ void DeleteIndexDatabaseFiles(const std::string& dbPathUtf8) {
 // window and no significant recent filesystem-change activity.
 constexpr std::chrono::milliseconds kIdleTimeout{10 * 60 * 1000};
 
+const wchar_t* ConnectionStateName(ffengine::ConnectionState state) {
+    switch (state) {
+        case ffengine::ConnectionState::Disconnected: return L"disconnected";
+        case ffengine::ConnectionState::Connecting: return L"connecting";
+        case ffengine::ConnectionState::Handshaking: return L"handshaking";
+        case ffengine::ConnectionState::Active: return L"active";
+    }
+    return L"unknown";
+}
+
+const wchar_t* UnavailableReasonName(ffengine::UnavailableReason reason) {
+    switch (reason) {
+        case ffengine::UnavailableReason::None: return L"none";
+        case ffengine::UnavailableReason::ServiceNotRunning: return L"service-not-running";
+        case ffengine::UnavailableReason::UnverifiedServiceIdentity: return L"unverified-service-identity";
+        case ffengine::UnavailableReason::HandshakeRejected: return L"handshake-rejected";
+        case ffengine::UnavailableReason::IncompatibleProtocolVersion: return L"incompatible-protocol-version";
+        case ffengine::UnavailableReason::IdleDropped: return L"idle-dropped";
+    }
+    return L"unknown";
+}
+
 } // namespace
 
 int wmain() {
@@ -238,6 +260,15 @@ int wmain() {
         if (!meta || !meta->available) {
             return;
         }
+        if (!meta->scanComplete) {
+            // close-independent-validation-gaps 4.6: an interrupted initial
+            // scan is rebuilt into the projection for durable correctness,
+            // but its complete snapshot export is deferred. Exporting a
+            // large incomplete volume synchronously here would block the
+            // privileged connection from starting and delay cursor resume;
+            // VolumeSessionManager forces the current view at ScanComplete.
+            return;
+        }
         const wchar_t driveLetter = ffengine::ResolveDriveLetterForVolumeKey(meta->key);
         if (driveLetter == L'\0') {
             return; // not currently mounted -- nothing to publish under yet
@@ -248,7 +279,19 @@ int wmain() {
         uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshot(volumeId, prefix));
     });
 
-    privilegedConnection.Start(installDir, [&uiServer, &volumeSessions](ffengine::ConnectionState state, ffengine::UnavailableReason) {
+    privilegedConnection.Start(installDir, [&uiServer, &volumeSessions](ffengine::ConnectionState state,
+                                                                         ffengine::UnavailableReason reason) {
+        // Keep the privileged-path failure stage visible in the metadata-only
+        // diagnostic log. The UI intentionally exposes only degraded mode;
+        // support and verification need to distinguish service absence from
+        // mutual-authentication failure without logging peer contents.
+        if (state == ffengine::ConnectionState::Disconnected && reason != ffengine::UnavailableReason::None) {
+            const std::wstring detail = std::wstring(L"privileged-connection-")
+                + ConnectionStateName(state) + L"/" + UnavailableReasonName(reason);
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
+                                          {}, {}, detail, ERROR_INVALID_DATA, 0});
+        }
         uiServer.SetEngineStatus(state == ffengine::ConnectionState::Active);
         volumeSessions.OnConnectionStateChanged(state);
     });

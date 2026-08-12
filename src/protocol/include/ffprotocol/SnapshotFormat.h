@@ -19,10 +19,10 @@ namespace ffprotocol {
 // sides are built from the same source tree, so there is no
 // cross-version compatibility concern the way there is for the named-pipe
 // protocols in Commands.h/UiProtocol.h.
-// A 64 MiB slot keeps ordinary large folders and a useful bounded set of
-// browsed roots usable without changing the zero-IPC format. Publication still
-// fails closed above this explicit bound and the UI surfaces that failure.
-constexpr size_t kSnapshotSlotCapacityBytes = 64 * 1024 * 1024;
+// A 256 MiB slot keeps a complete large-volume projection usable without
+// changing the zero-IPC format. Publication still fails closed above this
+// explicit bound and the UI surfaces that failure.
+constexpr size_t kSnapshotSlotCapacityBytes = 256 * 1024 * 1024;
 // address-engineering-audit-findings 4.1: the mapping header is versioned so
 // a UI never interprets a section written by an incompatible engine layout.
 constexpr uint32_t kSnapshotFormatVersion = 1;

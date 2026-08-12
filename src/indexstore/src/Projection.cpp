@@ -62,7 +62,22 @@ void EraseSorted(std::vector<uint32_t>& values, uint32_t value) {
 
 void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
     maximumMemoryBytes_ = maximumBytes == 0 ? kDefaultMaximumMemoryBytes : maximumBytes;
+    // An explicit limit change is synchronous and strict; ingestion uses the
+    // lower-watermark wrapper below so ordinary batches have headroom.
+    EnforceMemoryLimitTo(maximumMemoryBytes_);
+}
+
+void Projection::EnforceMemoryLimitNow() {
     EnforceMemoryLimit();
+}
+
+void Projection::SetBulkScanActive(const bool active) noexcept {
+    if (active) {
+        InvalidateFilenameIndex();
+        enforcingMemoryLimit_ = false;
+    } else {
+        enforcingMemoryLimit_ = true;
+    }
 }
 
 size_t Projection::EstimatedMemoryBytes() const noexcept {
@@ -112,8 +127,10 @@ void Projection::Touch(const EntryKey& key) const noexcept {
 
 std::optional<EntryKey> Projection::LeastRecentlyUsedEntry() const {
     std::optional<EntryKey> oldest;
+    std::optional<EntryKey> oldestDirectory;
     std::optional<EntryKey> rootFallback;
     uint64_t oldestTimestamp = std::numeric_limits<uint64_t>::max();
+    uint64_t oldestDirectoryTimestamp = std::numeric_limits<uint64_t>::max();
     uint64_t rootTimestamp = std::numeric_limits<uint64_t>::max();
     idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
         const ProjectionEntry& entry = entries_[index];
@@ -126,12 +143,19 @@ std::optional<EntryKey> Projection::LeastRecentlyUsedEntry() const {
             }
             return;
         }
+        if ((entry.attributes & kFileAttributeDirectory) != 0) {
+            if (!oldestDirectory || timestamp < oldestDirectoryTimestamp) {
+                oldestDirectory = key;
+                oldestDirectoryTimestamp = timestamp;
+            }
+            return;
+        }
         if (!oldest || timestamp < oldestTimestamp) {
             oldest = key;
             oldestTimestamp = timestamp;
         }
     });
-    return oldest.has_value() ? oldest : rootFallback;
+    return oldestDirectory.has_value() ? oldestDirectory : (oldest.has_value() ? oldest : rootFallback);
 }
 
 void Projection::EvictSubtree(const EntryKey& rootKey) {
@@ -167,6 +191,11 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
 }
 
 void Projection::CompactStorage() {
+    // Free the optional accelerator before allocating replacement projection
+    // tables. Keeping old postings alive until the end of this copy can make
+    // memory pressure compaction briefly require several times the bounded
+    // projection budget; canonical search remains correct while invalidated.
+    InvalidateFilenameIndex();
     std::vector<ProjectionEntry> compacted;
     compacted.reserve(idToIndex_.size());
     FlatHashMap<EntryKey, uint32_t, EntryKeyHash> compactedIds;
@@ -191,12 +220,19 @@ void Projection::CompactStorage() {
     parentToChildren_ = std::move(compactedChildren);
     namePool_ = std::move(compactedNames);
     denseIterationOrderValid_ = true;
-    RebuildFilenameIndex();
 }
 
 void Projection::EnforceMemoryLimit() {
     if (!enforcingMemoryLimit_) return;
-    while (EstimatedMemoryBytes() > maximumMemoryBytes_) {
+    // Leave headroom after a compaction so the next ingestion batches do not
+    // immediately re-enter the full-index rebuild path.
+    const size_t lowWatermark = maximumMemoryBytes_ - maximumMemoryBytes_ / 5;
+    EnforceMemoryLimitOnceTo(lowWatermark);
+}
+
+void Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_) return;
+    while (EstimatedMemoryBytes() > targetBytes) {
         const auto victim = LeastRecentlyUsedEntry();
         if (!victim.has_value()) break;
         const size_t before = EstimatedMemoryBytes();
@@ -204,6 +240,14 @@ void Projection::EnforceMemoryLimit() {
         CompactStorage();
         if (EstimatedMemoryBytes() >= before && idToIndex_.empty()) break;
     }
+}
+
+void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
+    if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return;
+    const auto victim = LeastRecentlyUsedEntry();
+    if (!victim.has_value()) return;
+    EvictSubtree(*victim);
+    CompactStorage();
 }
 
 bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId) {
@@ -397,7 +441,6 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     }
     Touch(key);
     AddFilenameIndexEntry(index);
-    EnforceMemoryLimit();
 }
 
 void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {

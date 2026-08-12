@@ -1,6 +1,7 @@
 #include "DirectoryWatcher.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -37,6 +38,7 @@ DirectoryWatcher::~DirectoryWatcher() {
 
 void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged) {
     std::vector<std::unique_ptr<WatchEntry>> toStop;
+    std::shared_ptr<WatchStartupState> startupState;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto existing = watches_.find(path);
@@ -96,21 +98,22 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
                 auto entry = std::make_unique<WatchEntry>();
                 entry->directoryHandle = directoryHandle;
                 entry->stopEvent = stopEvent;
+                startupState = entry->startupState;
 
                 const auto stopRequested = entry->stopRequested;
                 const auto finished = entry->finished;
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                 const TestCompletionProvider testCompletionProvider = testCompletionProvider_;
                 entry->thread = std::thread([directoryHandle, stopEvent, path,
-                                             callback = std::move(onChanged), stopRequested, finished,
+                                             callback = std::move(onChanged), stopRequested, finished, startupState,
                                              testCompletionProvider] {
-                    WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished,
+                    WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished, startupState,
                               testCompletionProvider);
                 });
 #else
                 entry->thread = std::thread([directoryHandle, stopEvent, path,
-                                             callback = std::move(onChanged), stopRequested, finished] {
-                    WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished);
+                                             callback = std::move(onChanged), stopRequested, finished, startupState] {
+                    WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished, startupState);
                 });
 #endif
 
@@ -123,26 +126,56 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
     for (auto& entry : toStop) {
         StopEntry(*entry); // outside the lock: StopEntry joins the thread
     }
+
+    if (startupState) {
+        std::unique_lock<std::mutex> lock(startupState->mutex);
+        startupState->condition.wait_for(lock, std::chrono::seconds(1), [&startupState] {
+            return startupState->signaled;
+        });
+    }
 }
 
 void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const std::wstring& path,
                                  const ChangeCallback& callback,
                                  const std::shared_ptr<std::atomic_bool>& stopRequested,
                                  const std::shared_ptr<std::atomic_bool>& finished
+                                 , const std::shared_ptr<WatchStartupState>& startupState
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                                  , const TestCompletionProvider& testCompletionProvider
 #endif
                                  ) {
+    bool startupSignaled = false;
+    const auto signalStartup = [&] {
+        if (startupSignaled) {
+            return;
+        }
+        startupSignaled = true;
+        {
+            std::lock_guard<std::mutex> lock(startupState->mutex);
+            startupState->signaled = true;
+        }
+        startupState->condition.notify_all();
+    };
+
     std::vector<uint8_t> buffer(64 * 1024);
     int consecutiveOverflows = 0;
     HANDLE ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (ioEvent == nullptr) {
+        signalStartup();
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
                                       ffprotocol::DiagnosticCode::FFDIAG_WATCH_EVENT_CREATE_FAILED,
                                       path, {}, L"watch-event-create-failed", GetLastError(), 0});
         finished->store(true);
         return;
     }
+
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+    if (testCompletionProvider) {
+        // The injected provider does not issue a real overlapped read, so its
+        // worker is ready as soon as the event object exists.
+        signalStartup();
+    }
+#endif
 
     OVERLAPPED overlapped{};
     overlapped.hEvent = ioEvent;
@@ -211,6 +244,12 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
         if (!started) {
             error = GetLastError();
         }
+
+        // Do not let callers race the first directory change with worker
+        // startup. A successful or pending call has armed the real watcher;
+        // an immediate failure has made the watch terminal and also releases
+        // the caller from the bounded startup wait.
+        signalStartup();
 
         // ReadDirectoryChangesW is being used with an OVERLAPPED structure.
         // In that mode lpBytesReturned is not populated by the initial call;

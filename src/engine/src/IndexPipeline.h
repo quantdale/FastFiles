@@ -113,6 +113,12 @@ public:
     using VolumeRebuiltCallback = std::function<void(ffindexstore::VolumeRowId)>;
     void RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt);
 
+    // close-independent-validation-gaps 4.6: initial and reconciliation
+    // scans are bulk projection mutations. Their durable writes continue
+    // normally, while the projection defers compaction and its optional
+    // filename accelerator until the bulk scan is no longer active.
+    void SetBulkScanActive(bool active);
+
     ffindexstore::VolumeRowId ResolveVolume(const ffindexstore::VolumeKey& key);
     std::optional<ffindexstore::VolumeMetadata> GetVolumeMetadata(ffindexstore::VolumeRowId id);
     std::vector<ffindexstore::VolumeMetadata> GetAllVolumes();

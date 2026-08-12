@@ -59,6 +59,16 @@ public:
     size_t MaximumMemoryBytes() const noexcept { return maximumMemoryBytes_; }
     size_t EstimatedMemoryBytes() const noexcept;
     bool IsMemoryPressureHigh() const noexcept;
+    // Applies the bounded LRU policy after a complete ingestion mutation
+    // batch. Upsert deliberately does not compact per record: compaction
+    // rebuilds every projection index and must not turn a large scan into an
+    // O(N) operation for every record.
+    void EnforceMemoryLimitNow();
+    // Initial/reconciliation scans are bulk mutations. Disable the expensive
+    // eviction/compaction path and the optional filename accelerator while a
+    // scan is active; canonical matching remains correct and the durable
+    // store is authoritative.
+    void SetBulkScanActive(bool active) noexcept;
 
     // Evicted subtrees remain durable in Store. The engine calls this before
     // serving a volume-specific browse/aggregate/search operation.
@@ -154,6 +164,8 @@ public:
 
 private:
     void EnforceMemoryLimit();
+    void EnforceMemoryLimitTo(size_t targetBytes);
+    void EnforceMemoryLimitOnceTo(size_t targetBytes);
     std::optional<EntryKey> LeastRecentlyUsedEntry() const;
     void EvictSubtree(const EntryKey& rootKey);
     void CompactStorage();

@@ -174,6 +174,11 @@ void IndexPipeline::Close() {
     projectionMemoryWarningIssued_ = false;
 }
 
+void IndexPipeline::SetBulkScanActive(const bool active) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    projection_.SetBulkScanActive(active);
+}
+
 void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHours,
                                          uint64_t vacuumSizeGrowthPercent) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -367,6 +372,11 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    // close-independent-validation-gaps 4.6: compact at the batch boundary,
+    // never once per record. CompactStorage rebuilds every projection index;
+    // invoking it from Projection::Upsert turns a large volume scan into an
+    // O(N) compaction storm once the bounded memory policy is reached.
+    projection_.EnforceMemoryLimitNow();
     MaybeReportProjectionMemoryPressureLocked();
     return true;
 }
@@ -416,6 +426,7 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
             projection_.Remove(volumeId, removal.record.id);
         }
     }
+    projection_.EnforceMemoryLimitNow();
     MaybeReportProjectionMemoryPressureLocked();
     return true;
 }

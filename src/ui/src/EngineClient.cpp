@@ -205,7 +205,7 @@ std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() con
         return std::nullopt;
     }
     const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(mappedView_);
-    for (int attempt = 0; attempt != 3; ++attempt) {
+    for (int attempt = 0; attempt != 8; ++attempt) {
         if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
             // address-engineering-audit-findings 4.3: do not parse an
             // incompatible shared-memory layout; the reader loop remaps on
@@ -218,24 +218,43 @@ std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() con
             return std::nullopt;
         }
         const uint64_t generationBefore = LoadSharedU64(&header->generation);
-        if (generationBefore == 0) return std::nullopt;
+        if (generationBefore == 0) {
+            std::this_thread::yield();
+            continue;
+        }
         const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
-        if (activeSlot > 1) return std::nullopt;
+        if (activeSlot > 1) {
+            std::this_thread::yield();
+            continue;
+        }
         const uint32_t dataSize = LoadSharedU32(&header->slotDataSize[activeSlot]);
-        if (dataSize > ffprotocol::kSnapshotSlotCapacityBytes) return std::nullopt;
+        if (dataSize > ffprotocol::kSnapshotSlotCapacityBytes) {
+            std::this_thread::yield();
+            continue;
+        }
 
         const uint8_t* slotBase = mappedView_ + sizeof(ffprotocol::SnapshotSharedHeader) +
             static_cast<size_t>(activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-        auto parsed = ffprotocol::ParseSnapshot(slotBase, dataSize);
-        if (!parsed) return std::nullopt;
+        // Copy the selected slot before parsing. Parsing directly from the
+        // shared mapping leaves a second-publish window in which the writer
+        // can reuse that slot while the UI is still walking a large scan
+        // snapshot, producing a false malformed/read-failed result.
+        std::vector<uint8_t> serialized(dataSize);
+        if (dataSize != 0) {
+            std::memcpy(serialized.data(), slotBase, dataSize);
+        }
 
-        // A concurrent publish may have flipped slots while parsing. Retry a
+        // A concurrent publish may have flipped slots while copying. Retry a
         // bounded number of times rather than exposing a torn generation.
         if (LoadSharedU64(&header->generation) == generationBefore &&
             LoadSharedU32(&header->activeSlot) == activeSlot &&
             LoadSharedU32(&header->slotDataSize[activeSlot]) == dataSize) {
-            return SnapshotReadResult{generationBefore, std::move(*parsed)};
+            auto parsed = ffprotocol::ParseSnapshot(serialized.data(), serialized.size());
+            if (parsed) {
+                return SnapshotReadResult{generationBefore, std::move(*parsed)};
+            }
         }
+        std::this_thread::yield();
     }
     return std::nullopt;
 }

@@ -395,7 +395,7 @@ function Invoke-UiAutomationValidationCapability {
         $badgeStatus = if ($degradedVisible) { 'PASS' } else { 'SKIPPED' }
         $badgeReason = if ($degradedVisible) { $null } else { 'connected-state-observed' }
 [void]$subResults.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail 'Connection badge state recorded: degraded text visible via UIA (STATIC "degraded mode") iff the engine did not connect to the running service; painted badge is Direct2D with no UIA provider. Degraded-mode evidence is captured in the zero-touch 3.4/3.10 scenarios of the current run.'))
-        [void]$subResults.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'No privileged MFT/USN scan is available in this session (FastFilesIndexSvc not running; scan API stubbed); the mid-scan "Calculating..." path cannot be exercised'))
+        [void]$subResults.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'No authenticated privileged MFT/USN scan is available in this session (service unavailable or mutual authentication failed); the mid-scan "Calculating..." path cannot be exercised'))
         [void]$subResults.Add((New-UiaVSubResult -Id 'treemap-readability-click-precision' -Status 'SKIPPED' -Reason 'treemap-drawn-on-d2d-surface' -DurationMs 0 -Detail 'Treemap is Direct2D painted with no UIA provider; readability/click precision cannot be verified through UIA geometry'))
 
         # Scenario 3.11 - search panel via palette.

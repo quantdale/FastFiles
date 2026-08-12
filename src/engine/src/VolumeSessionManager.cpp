@@ -103,6 +103,7 @@ void VolumeSessionManager::ReloadConfiguration(std::vector<ffprotocol::VolumeSet
             onVolumeUnavailable_(session.durableId, session.driveLetter);
         }
     }
+    RefreshProjectionScanState();
     // Re-enumeration makes newly enabled volumes enter the normal session
     // start path without waiting for an engine restart.
     if (active_.load()) {
@@ -207,8 +208,12 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
         // connection -- clearing this on every non-Active transition
         // means the next Active period starts clean and re-derives
         // durable identity from a fresh EnumerateVolumes (task 7.1).
-        std::lock_guard<std::mutex> lock(mutex_);
-        sessionsByEphemeralId_.clear();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            sessionsByEphemeralId_.clear();
+            lastSnapshotPublish_.clear();
+        }
+        pipeline_.SetBulkScanActive(false);
         return;
     }
     const bool wasActive = active_.exchange(true);
@@ -281,6 +286,8 @@ void VolumeSessionManager::OnVolumeList(std::vector<ffprotocol::VolumeInfo> volu
         }
     }
 
+    RefreshProjectionScanState();
+
     for (const auto& [ephemeralId, session] : toStart) {
         StartOrResumeVolume(ephemeralId, session);
     }
@@ -310,6 +317,14 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
     // unconditional full rescan (spec "Volume Reconnection Triggers
     // Resume-or-Reconcile, Not Blind Rescan").
     if (!meta || !meta->scanComplete) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = sessionsByEphemeralId_.find(ephemeralId.value);
+            if (it != sessionsByEphemeralId_.end() && it->second.durableId == session.durableId) {
+                it->second.scanInProgress = true;
+            }
+        }
+        RefreshProjectionScanState();
         std::vector<uint8_t> cursor = meta ? meta->scanCursor : std::vector<uint8_t>{};
         auto payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, cursor, 0);
         connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
@@ -325,6 +340,14 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
 }
 
 void VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(ephemeralId.value);
+        if (it != sessionsByEphemeralId_.end() && it->second.durableId == durableId) {
+            it->second.scanInProgress = true;
+        }
+    }
+    RefreshProjectionScanState();
     pipeline_.BeginReconciliationPass(durableId);
     // Reconciliation is deliberately lower priority than an initial scan:
     // it is a correctness backstop and must not compete with foreground
@@ -365,6 +388,7 @@ void VolumeSessionManager::OnScanBatch(
 void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
+    bool anyScanInProgress = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
@@ -373,14 +397,19 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
         }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
+        it->second.scanInProgress = false;
+        anyScanInProgress = std::any_of(
+            sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
+            [](const auto& entry) { return entry.second.scanInProgress; });
     }
 
+    pipeline_.SetBulkScanActive(anyScanInProgress);
     pipeline_.MarkScanComplete(durableId);
     if (pipeline_.IsReconciliationPassActive(durableId)) {
         pipeline_.FinishReconciliationPass(durableId);
         pipeline_.SetLastReconciliationTime(durableId, NowAsFileTime());
     }
-    RepublishSnapshot(durableId, driveLetter);
+    RepublishSnapshot(durableId, driveLetter, true);
 }
 
 void VolumeSessionManager::OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn) {
@@ -470,14 +499,44 @@ void VolumeSessionManager::OnJournalResumeInvalid(ffprotocol::VolumeId volumeId)
     connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal), &request, sizeof(request));
 }
 
-void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter) {
+void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force) {
     if (!onSnapshotReady_) {
         return;
+    }
+    constexpr auto kSnapshotPublishInterval = std::chrono::milliseconds(500);
+    const auto now = std::chrono::steady_clock::now();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const bool scanInProgress = std::any_of(
+            sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
+            [durableId](const auto& entry) {
+                return entry.second.durableId == durableId && entry.second.scanInProgress;
+            });
+        if (!force && scanInProgress) {
+            return;
+        }
+        const auto previous = lastSnapshotPublish_.find(durableId);
+        if (!force && previous != lastSnapshotPublish_.end()
+            && now - previous->second < kSnapshotPublishInterval) {
+            return;
+        }
+        lastSnapshotPublish_[durableId] = now;
     }
     std::wstring prefix;
     prefix.push_back(driveLetter);
     prefix.push_back(L':');
     onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshot(durableId, prefix));
+}
+
+void VolumeSessionManager::RefreshProjectionScanState() {
+    bool anyScanInProgress = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        anyScanInProgress = std::any_of(
+            sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
+            [](const auto& entry) { return entry.second.scanInProgress; });
+    }
+    pipeline_.SetBulkScanActive(anyScanInProgress);
 }
 
 std::vector<ffprotocol::VolumeStatusRecord> VolumeSessionManager::CollectVolumeStatus() {

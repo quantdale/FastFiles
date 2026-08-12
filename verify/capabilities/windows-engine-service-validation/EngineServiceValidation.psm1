@@ -66,12 +66,16 @@ function Invoke-EngineServiceValidationCapability {
     if ($scText -match 'DELAYED_AUTO_START\s*:\s*(YES|NO)') { $delayedStart = $Matches[1] }
     elseif ($scText -match 'AUTO_START\s*\(DELAYED\)') { $delayedStart = 'YES' }
     $serviceIssues = @()
-    if ($startName -notlike 'NT SERVICE\*') { $serviceIssues += "startName='$startName' (expected NT SERVICE virtual account)" }
+    # The privileged service deliberately runs as LocalSystem as a constrained
+    # broker.  The old virtual-service-account expectation belonged to the
+    # superseded privilege model and made a correctly configured installation
+    # fail validation.
+    if ($startName -ne 'LocalSystem') { $serviceIssues += "startName='$startName' (expected LocalSystem constrained broker)" }
     if ($startMode -notin @('Auto', 'Automatic')) { $serviceIssues += "startMode='$startMode' (expected automatic)" }
     if ($delayedStart -ne 'YES') { $serviceIssues += "delayedStart='$delayedStart' (expected YES)" }
     $subResults += New-ServiceSubResult -Id 'service-identity-and-start' -Status $(if (@($serviceIssues).Count -eq 0) { 'PASS' } else { 'FAIL' }) `
         -Reason $(if (@($serviceIssues).Count -eq 0) { $null } else { 'service-config-unexpected' }) -DurationMs 0 `
-        -Detail "startName=$startName; startMode=$startMode; delayedStart=$delayedStart"
+        -Detail "startName=$startName; startMode=$startMode; delayedStart=$delayedStart; model=LocalSystem-constrained-broker"
 
     $handshakeOutcome = Invoke-FFTestProbe -FftestExe $fftestExe -Arguments @('handshake-impostor', $script:InstallDir) -LogPath (Join-Path $ArtifactsDir 'handshake-impostor.log')
     $artifacts += [pscustomobject]@{ path = "artifacts/windows-engine-service-validation/handshake-impostor.log"; type = 'probe-log' }

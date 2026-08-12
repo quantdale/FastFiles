@@ -1,7 +1,153 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T02:00:44+08:00
-Status: READY — LOCAL VALIDATION COMPLETE; ELEVATED SESSION REQUIRED FOR SERVICE CLEANUP; EXTERNAL RELEASE BLOCKERS REMAIN
+Last updated: 2026-08-12T10:34:18+08:00
+Status: COMPLETE — V2/V3 USN JOURNAL VALIDATION SLICE; EXTERNAL RELEASE GATES OPEN
+
+## Current-session reconciliation (2026-08-12)
+
+- Git has the current bounded-probe, path-identity, diagnostic, validator, and
+  focused-test changes uncommitted on `recovery/fast-files-20260809` at
+  `4196a5d`; preserve all of them.
+- The current PowerShell session is elevated and interactive. The registered
+  `FastFilesIndexSvc` is running as `LocalSystem` with delayed automatic start.
+  A reversible signed-test installation is active under
+  `C:\Program Files\FastFiles`; it uses a disposable test certificate only for
+  runtime validation and must be restored before handoff.
+- Local doctor passes the VS toolset, Windows SDK, CMake, Ninja, and Application
+  Verifier checks. Hyper-V is present but no guest OS/install media is available.
+- Tier-1 privilege/IPC probes passed, and the engine-service validator now
+  correctly models the LocalSystem constrained broker. The path-identity fix
+  normalizes only Win32 extended-length aliases, allowing authenticated
+  engine/service image comparison without weakening directory or signer checks.
+- The signed-test runtime reached `active`; the service opened `\\.\C:` as
+  `NT AUTHORITY\SYSTEM` with SeBackupPrivilege held and enabled. The first
+  real scan exposed a `FlatHashMap` probe-bound exception; bounded grow-and-
+  retry recovery is implemented and the focused hash/projection tests pass.
+- After redeploying the rebuilt signed-test Engine, the process remains
+  responsive and the durable entry count is increasing (424,477 observed at
+  04:53; roughly 866 MB working set), with `scan_complete=0` while the
+  scan is still running. The USN cursor advanced on every sample; no second
+  abort, projection-pressure, or snapshot-publication failure has occurred.
+- A full-suite run exposed an intermittent `DirectoryWatcher` startup race:
+  `Watch` could return before its worker armed the first
+  `ReadDirectoryChangesW`, losing an immediate post-browse change. A bounded
+  startup handshake now releases the caller after the first overlapped read is
+  armed (or the worker has failed). The focused lifecycle test passed 10/10
+  repeated runs, and the full Debug suite passed 46/46 afterward.
+- The rebuilt Debug tree passed the full 46-test CTest suite; the `/analyze`
+  tree completed all 83 targets cleanly; and `pwsh ./verify/verify.ps1 build`
+  passed after the generated Release cache was explicitly provisioned with
+  ephemeral test pins. The first harness attempt correctly failed closed on
+  stale empty Release cache pins; no source pin was changed.
+- The 64 MiB snapshot slot was too small for the live projection: publication
+  began failing at 462,744 entries with `ERROR_WRITE_FAULT` while the scan
+  remained responsive. The shared protocol capacity is now an explicit,
+  bounded 256 MiB per slot. The first replacement missed the Engine because
+  Windows exposed its process path with a `\\?\` prefix; normalized exact-path
+  stopping/copying corrected that, and the installed Engine hash now matches
+  the rebuilt artifact.
+- After the corrected deployment, the entry count resumed from 462,744 to
+  464,225 in 50 seconds, the USN cursor advanced, Engine working set stayed
+  around 637–646 MiB, and no new snapshot-publication failure appeared after
+  the deployment (the last observed old failure epoch was 1786483438).
+- A later runtime sample reached 685,365 entries with `scan_complete=0` and a
+  stable cursor while the Engine stayed CPU-bound at roughly one full core and
+  its working set oscillated around 2.5–2.8 GiB. The targeted diagnostics showed
+  an earlier transient `service-not-running` reconnect cycle, but the service
+  is now Running and the Engine is Active with no recent connect or snapshot
+  failure. Source tracing confirms that the 500 ms throttle can still invoke a
+  complete `ExportDirectorySnapshot` after every long export; that export holds
+  the projection mutex, then `UiServer` serializes/copies the entire volume
+  again. This is the current scan-progress plateau hypothesis, not a host-memory
+  exhaustion finding.
+- After installing the scan-publication fix and relaunching against the
+  persisted 710,867-row database, the Engine remained in the synchronous
+  startup `RebuildAll`/snapshot callback for several minutes: the cursor stayed
+  at `8646672712`, working set oscillated around 3.1–5.2 GiB, and CPU advanced
+  at roughly one core while the service remained Running and the UI/Engine
+  connection was Active. `Main.cpp` currently exports every available rebuilt
+  volume before `PrivilegedConnection.Start()`, including an incomplete scan;
+  the next correction is to rebuild that projection but defer its full snapshot
+  publication so scan resumption is not gated by a multi-gigabyte temporary
+  export.
+- With startup publication deferred, the new Engine reached `active` and the
+  cursor advanced immediately, proving the startup gate works. It then stalled
+  at 721,389 entries/cursor `8646877936` while CPU continued at one core and
+  working set oscillated between 3.6–4.7 GiB. The projection reported roughly
+  420 MiB of owned memory. Source inspection found `Projection::Upsert` invokes
+  the full LRU `EnforceMemoryLimit`/`CompactStorage` path for every record;
+  once the 500 MiB bound is approached, real-volume ingestion enters an O(N)
+  compaction storm. The bounded policy itself remains required, so enforcement
+  will move to the end of each already-committed MFT/USN batch.
+- The first batch-boundary redeploy still repeated compaction roughly once per
+  batch: the exact-ceiling policy had no headroom, and `CompactStorage` rebuilt
+  the optional filename-trigram accelerator while the old structures were
+  still resident. Samples reached 6.4 GiB working set while the cursor held.
+  The next bounded correction is an 80% low-water mark plus fail-safe
+  invalidation of that optional accelerator during eviction compaction; the
+  canonical search path remains available when the accelerator is invalid.
+- Directory-first eviction plus one compaction per batch bounded the number of
+  compactions but still produced a 10 GiB working-set peak. The old trigram
+  postings remain allocated until the end of `CompactStorage`, so the peak
+  path still holds old postings, old projection tables, and new tables at once.
+  The next correction is to invalidate/clear that optional accelerator before
+  allocating the replacement projection tables.
+- The final active-scan policy clears the optional filename postings and defers
+  eviction compaction for the duration of initial/reconciliation scans. The
+  signed-test runtime then reached `scan_complete=1`; over six samples the USN
+  cursor advanced continuously, entry count remained live, and Engine working
+  set stayed roughly 0.8–1.2 GiB. This is the first sustained real-volume
+  evidence that ingestion no longer enters the compaction/export hot loop. The
+  optional filename accelerator is intentionally invalidated for that runtime
+  projection; canonical search remains the correctness path.
+- The exact USN probe file was present in the included Temp subtree and its
+  `fsutil usn readjournal C:` records were confirmed as USN major version 3
+  (`File create` and `File create | Close`), while the Engine cursor advanced
+  and no durable row appeared. `UsnJournalReader.cpp` currently casts every
+  record to `USN_RECORD_V2`, so it reads the V3 128-bit-ID layout at the wrong
+  offsets and drops the record at filename validation. The next implementation
+  slice is a bounded V2/V3 decoder; NTFS V3 IDs have the existing 64-bit FRN in
+  the low half, matching the current wire/storage model.
+- The bounded V2/V3 decoder is implemented in `UsnRecordParser.{h,cpp}` and
+  `UsnJournalReader.cpp` now selects by the untrusted common header, validates
+  the full record/name range, and rejects non-zero V3 ID high halves instead of
+  truncating. `ffusnrecord_tests` covers V2, V3, unsupported versions, malformed
+  ranges, odd UTF-16 lengths, and high-half rejection. Debug build/focused CTest
+  pass. After the signed service redeploy, the fresh V3 probe
+  `FastFiles-usn-probe-20260812-1004-v3.tmp` appeared in SQLite on attempt 3
+  and disappeared after the exact file delete on attempt 8; `scan_complete=1`
+  and `resume_usn` advanced throughout. The disposable file is removed.
+- Read-only `PRAGMA integrity_check` returned `ok` before restart. The exact
+  installed UI/Engine pair was stopped and relaunched (new PIDs), then sampled
+  six times over 25 seconds: the Engine stayed alive, the durable count stayed
+  at 768,952, `scan_complete` stayed `1`, and only `resume_usn` advanced from
+  8650197432 to 8650344960. This is persisted journal-resume evidence without
+  a blind MFT rescan; the service remained Running.
+- The focused snapshot/lifecycle tests passed, the rebuilt Debug tree and full
+  CTest suite passed 46/46, the `/analyze` tree rebuilt all 62 affected targets
+  cleanly, and `pwsh ./verify/verify.ps1 build` passed. Those gates predate the
+  final active-scan policy; the focused regressions for the policy pass and the
+  signed-test runtime now reaches scan completion without a new snapshot
+  failure.
+- After normalizing the ten touched mixed-line-ending files to CRLF, the full
+  Debug build completed and the documented TEMP/TMP-profile CTest passed 47/47,
+  including protocol fuzzing, the new USN V2/V3 test, all UI/engine/setup tests,
+  and `ffdoc_drift_tests`.
+- The Analyze configure/build was first interrupted after Ninja had continued
+  in the background; a later incremental invocation with the required
+  `FASTFILES_NINJA_EXE` path returned `ninja: no work to do` with exit 0. The
+  Analyze tree is therefore complete and clean for this source state.
+- The verification harness `pwsh ./verify/verify.ps1 build` passed
+  (`windows-build-validation`). Cleanup then restored all four original
+  installed executables byte-for-byte, left the user DB/settings intact, left
+  `FastFilesIndexSvc` Running/Automatic, removed both disposable USN probe
+  files, and removed the disposable test certificate thumbprint from
+  CurrentUser My/Root and LocalMachine Root. No UI/Engine test process remains.
+- NEXT RECOMMENDED SLICE: obtain the production signing material and an
+  authorized clean-host/VM matrix, then execute the still-open external
+  OpenSpec gates 4.2/4.5–4.8 and 5.1. Do not start that slice automatically;
+  production signing, clean-host/VM validation, and other external evidence
+  remain unresolved.
 
 ## Authenticated engine-launch hardening slice (2026-08-12)
 

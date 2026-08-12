@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <map>
@@ -52,19 +53,27 @@ public:
     void UnwatchAll();
 
 private:
+    struct WatchStartupState {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool signaled = false;
+    };
+
     struct WatchEntry {
         HANDLE directoryHandle = INVALID_HANDLE_VALUE;
         HANDLE stopEvent = nullptr;
         std::thread thread;
         std::shared_ptr<std::atomic_bool> stopRequested = std::make_shared<std::atomic_bool>(false);
         std::shared_ptr<std::atomic_bool> finished = std::make_shared<std::atomic_bool>(false);
+        std::shared_ptr<WatchStartupState> startupState = std::make_shared<WatchStartupState>();
     };
 
     void StopEntry(WatchEntry& entry);
     static void WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const std::wstring& path,
                           const ChangeCallback& callback,
                           const std::shared_ptr<std::atomic_bool>& stopRequested,
-                          const std::shared_ptr<std::atomic_bool>& finished
+                          const std::shared_ptr<std::atomic_bool>& finished,
+                          const std::shared_ptr<WatchStartupState>& startupState
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                           , const TestCompletionProvider& testCompletionProvider
 #endif

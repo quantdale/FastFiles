@@ -25,6 +25,24 @@ struct ConstantHash {
     size_t operator()(int) const noexcept { return 0; }
 };
 
+struct DeferredLowBitHash {
+    size_t operator()(int key) const noexcept {
+        return static_cast<size_t>(key) << 7;
+    }
+};
+
+void TestProbeBoundTriggersBoundedGrowth() {
+    ffindexstore::FlatHashMap<int, int, DeferredLowBitHash> map;
+    for (int key = 0; key < 80; ++key) {
+        map.insert(key, key * 3);
+    }
+
+    Check(map.size() == 80, "a long valid probe run is recovered by growing the table");
+    Check(map.bucket_count() >= 256, "probe-bound recovery grows to a table with usable low bits");
+    Check(map.find(79) != nullptr && *map.find(79) == 237,
+          "probe-bound recovery preserves the inserted value");
+}
+
 void TestProbeDistanceAbortsInsertion() {
     ffindexstore::FlatHashMap<int, int, ConstantHash> map;
     bool threw = false;
@@ -47,6 +65,7 @@ void TestProbeDistanceAbortsInsertion() {
 
 int main() {
     TestOperatorBracketGrowsBeforeFullCapacity();
+    TestProbeBoundTriggersBoundedGrowth();
     TestProbeDistanceAbortsInsertion();
 
     if (fftest::FailureCount() > 0) {

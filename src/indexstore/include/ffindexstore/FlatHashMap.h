@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <utility>
@@ -57,11 +58,7 @@ public:
     bool contains(const Key& key) const { return find(key) != nullptr; }
 
     Value& operator[](const Key& key) {
-        EnsureInsertCapacity();
-        const ProbeResult probe = find_slot(key);
-        if (probe.exhausted) {
-            throw std::runtime_error("FlatHashMap probe distance exceeded 64 steps");
-        }
+        const ProbeResult probe = FindInsertSlot(key);
         if (probe.index < keys_.size() && states_[probe.index] == 1) {
             return values_[probe.index];
         }
@@ -81,11 +78,7 @@ public:
     }
 
     void insert(const Key& key, const Value& value) {
-        EnsureInsertCapacity();
-        const ProbeResult probe = find_slot(key);
-        if (probe.exhausted) {
-            throw std::runtime_error("FlatHashMap probe distance exceeded 64 steps");
-        }
+        const ProbeResult probe = FindInsertSlot(key);
         if (probe.index < keys_.size() && states_[probe.index] == 1) {
             values_[probe.index] = value;
             return;
@@ -181,14 +174,33 @@ private:
         std::vector<Key> old_keys = std::move(keys_);
         std::vector<Value> old_values = std::move(values_);
         std::vector<uint8_t> old_states = std::move(states_);
-        keys_.assign(new_buckets, Key{});
-        values_.assign(new_buckets, Value{});
-        states_.assign(new_buckets, 0);
-        count_ = 0;
-        for (size_t i = 0; i < old_keys.size(); ++i) {
-            if (old_states[i] == 1) {
-                insert(old_keys[i], old_values[i]);
+
+        // A bounded probe is a safety property, but a valid real-world key
+        // distribution can still form a run longer than the bound at the
+        // current power-of-two size. Rebuild at progressively larger sizes
+        // until every existing entry has a bounded placement. This keeps
+        // the limit finite without turning an ordinary NTFS FRN pattern into
+        // an uncaught exception on the ingestion thread.
+        for (;;) {
+            keys_.assign(new_buckets, Key{});
+            values_.assign(new_buckets, Value{});
+            states_.assign(new_buckets, 0);
+            count_ = 0;
+            bool placed = true;
+            for (size_t i = 0; i < old_keys.size(); ++i) {
+                if (old_states[i] == 1 && !PlaceWithoutGrowth(old_keys[i], old_values[i])) {
+                    placed = false;
+                    break;
+                }
             }
+            if (placed) {
+                return;
+            }
+
+            if (new_buckets > std::numeric_limits<size_t>::max() / 2) {
+                throw std::length_error("FlatHashMap cannot find a bounded probe layout");
+            }
+            new_buckets *= 2;
         }
     }
 
@@ -200,6 +212,40 @@ private:
         } else if (count_ >= keys_.size() * 3 / 4) {
             grow(keys_.size() * 2);
         }
+    }
+
+    ProbeResult FindInsertSlot(const Key& key) {
+        size_t rehashes = 0;
+        for (;;) {
+            EnsureInsertCapacity();
+            const ProbeResult probe = find_slot(key);
+            if (!probe.exhausted) {
+                return probe;
+            }
+            if (rehashes++ >= 8) {
+                throw std::runtime_error("FlatHashMap probe distance exceeded 64 steps");
+            }
+            if (keys_.size() > std::numeric_limits<size_t>::max() / 2) {
+                throw std::length_error("FlatHashMap probe table is too large");
+            }
+            grow(keys_.size() * 2);
+        }
+    }
+
+    bool PlaceWithoutGrowth(const Key& key, const Value& value) {
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted) {
+            return false;
+        }
+        if (probe.index < keys_.size() && states_[probe.index] == 1) {
+            values_[probe.index] = value;
+            return true;
+        }
+        keys_[probe.index] = key;
+        values_[probe.index] = value;
+        states_[probe.index] = 1;
+        ++count_;
+        return true;
     }
 
     ProbeResult find_slot(const Key& key) const {
@@ -223,6 +269,7 @@ private:
 class FlatChildrenMap {
 public:
     using Value = std::vector<uint32_t>;
+    static constexpr size_t kMaxProbeDistance = 64;
 
     size_t size() const noexcept { return keys_.size(); }
     bool empty() const noexcept { return keys_.empty(); }
@@ -233,10 +280,10 @@ public:
     }
 
     std::span<const uint32_t> find(const EntryKey& key) const {
-        size_t idx = find_slot(key);
-        if (idx == keys_.size() || states_[idx] != 1) return {};
-        size_t off = offsets_[idx];
-        size_t cnt = counts_[idx];
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted || probe.index == keys_.size() || states_[probe.index] != 1) return {};
+        size_t off = offsets_[probe.index];
+        size_t cnt = counts_[probe.index];
         return std::span<const uint32_t>(&values_[off], cnt);
     }
 
@@ -256,10 +303,25 @@ public:
     // Insert a single child index for `key`. Appends to the existing
     // value's contiguous slice, or creates a new one.
     void insert(const EntryKey& key, uint32_t childIndex) {
-        if (count_ + 1 > keys_.size() * 7 / 10) {
-            grow(keys_.empty() ? 8 : keys_.size() * 2);
+        size_t idx = 0;
+        size_t rehashes = 0;
+        for (;;) {
+            if (count_ + 1 > keys_.size() * 7 / 10) {
+                grow(keys_.empty() ? 8 : keys_.size() * 2);
+            }
+            const ProbeResult probe = find_slot(key);
+            if (!probe.exhausted) {
+                idx = probe.index;
+                break;
+            }
+            if (rehashes++ >= 8) {
+                throw std::runtime_error("FlatChildrenMap probe distance exceeded 64 steps");
+            }
+            if (keys_.size() > std::numeric_limits<size_t>::max() / 2) {
+                throw std::length_error("FlatChildrenMap probe table is too large");
+            }
+            grow(keys_.size() * 2);
         }
-        size_t idx = find_slot(key);
         if (idx < keys_.size() && states_[idx] == 1) {
             // zero-touch-autonomous-engineering: a multi-child directory's
             // slice must stay contiguous so find() returns exactly its
@@ -299,8 +361,9 @@ public:
 
     // Remove `childIndex` from the slice stored at `key`.
     void remove(const EntryKey& key, uint32_t childIndex) {
-        size_t idx = find_slot(key);
-        if (idx == keys_.size() || states_[idx] != 1) return;
+        const ProbeResult probe = find_slot(key);
+        if (probe.exhausted || probe.index == keys_.size() || states_[probe.index] != 1) return;
+        const size_t idx = probe.index;
         size_t off = offsets_[idx];
         size_t cnt = counts_[idx];
         for (size_t i = 0; i < cnt; ++i) {
@@ -322,9 +385,15 @@ public:
         states_.clear();
         offsets_.clear();
         counts_.clear();
+        count_ = 0;
     }
 
 private:
+    struct ProbeResult {
+        size_t index = 0;
+        bool exhausted = false;
+    };
+
     std::vector<EntryKey> keys_;
     std::vector<uint32_t> values_; // contiguous storage for all child-index slices
     std::vector<uint8_t> states_;
@@ -350,47 +419,53 @@ private:
         std::vector<uint8_t> old_states = std::move(states_);
         std::vector<size_t> old_offsets = std::move(offsets_);
         std::vector<size_t> old_counts = std::move(counts_);
-        keys_.assign(new_buckets, EntryKey{});
-        values_.clear();
-        states_.assign(new_buckets, 0);
-        offsets_.assign(new_buckets, 0);
-        counts_.assign(new_buckets, 0);
-        count_ = 0;
-        for (size_t i = 0; i < old_keys.size(); ++i) {
-            if (old_states[i] == 1) {
-                EntryKey key = old_keys[i];
-                size_t cnt = old_counts[i];
-                size_t off = old_offsets[i];
-                size_t idx = find_slot(key);
-                if (idx == keys_.size()) {
-                    idx = keys_.size();
-                    keys_.push_back(key);
-                    states_.push_back(1);
-                    offsets_.push_back(values_.size());
-                    counts_.push_back(cnt);
-                    values_.insert(values_.end(), old_values.begin() + off, old_values.begin() + off + cnt);
-                    ++count_;
-                } else {
-                    keys_[idx] = key;
-                    states_[idx] = 1;
-                    offsets_[idx] = values_.size();
-                    counts_[idx] = cnt;
-                    values_.insert(values_.end(), old_values.begin() + off, old_values.begin() + off + cnt);
-                    ++count_;
+        for (;;) {
+            keys_.assign(new_buckets, EntryKey{});
+            values_.clear();
+            states_.assign(new_buckets, 0);
+            offsets_.assign(new_buckets, 0);
+            counts_.assign(new_buckets, 0);
+            count_ = 0;
+            bool placed = true;
+            for (size_t i = 0; i < old_keys.size(); ++i) {
+                if (old_states[i] != 1) {
+                    continue;
                 }
+                const size_t cnt = old_counts[i];
+                const size_t off = old_offsets[i];
+                const ProbeResult probe = find_slot(old_keys[i]);
+                if (probe.exhausted) {
+                    placed = false;
+                    break;
+                }
+                const size_t index = probe.index;
+                keys_[index] = old_keys[i];
+                states_[index] = 1;
+                offsets_[index] = values_.size();
+                counts_[index] = cnt;
+                values_.insert(values_.end(), old_values.begin() + off, old_values.begin() + off + cnt);
+                ++count_;
             }
+            if (placed) {
+                return;
+            }
+            if (new_buckets > std::numeric_limits<size_t>::max() / 2) {
+                throw std::length_error("FlatChildrenMap cannot find a bounded probe layout");
+            }
+            new_buckets *= 2;
         }
     }
 
-    size_t find_slot(const EntryKey& key) const {
-        if (keys_.empty()) return 0;
+    ProbeResult find_slot(const EntryKey& key) const {
+        if (keys_.empty()) return ProbeResult{0, false};
         size_t mask = keys_.size() - 1;
         size_t idx = EntryKeyHash{}(key) & mask;
-        for (;;) {
-            if (states_[idx] == 0) return idx;
-            if (states_[idx] == 1 && keys_[idx] == key) return idx;
+        for (size_t distance = 0; distance < kMaxProbeDistance; ++distance) {
+            if (states_[idx] == 0) return ProbeResult{idx, false};
+            if (states_[idx] == 1 && keys_[idx] == key) return ProbeResult{idx, false};
             idx = (idx + 1) & mask;
         }
+        return ProbeResult{keys_.size(), true};
     }
 };
 
