@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:59:11+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 10 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:03:23+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 11 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -126,8 +126,9 @@ CTest batch passed 4/4. Slice 7 is committed as `7b9f8fa` (`Prevent UI server
 callback teardown race`). Slice 8 is committed as `66bffd0` (`Preserve Unicode
 workspace state`). Slice 9 is committed as `273dd2d` (`Prevent in-batch transfer
 overwrites`). Slice 10 is committed as `7edef8c` (`Preserve pending selection
-across path casing`). Exact next action: choose another evidence-backed local
-hardening frontier; do not reopen completed areas without new evidence.
+across path casing`). Slice 11 is committed as `2c30a7c` (`Use Windows identity
+for transfer reservations`). Exact next action: choose another evidence-backed
+local hardening frontier; do not reopen completed areas without new evidence.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -269,6 +270,27 @@ hardening frontier; do not reopen completed areas without new evidence.
   Analyze target rebuilt successfully, and `ffui_text_encoding_tests` remained
   green. Slice status: COMPLETE; product commit `7edef8c` (`Preserve pending
   selection across path casing`).
+
+## Overnight slice 11 — Unicode transfer identity investigation
+
+- Severity: HIGH data-integrity risk if confirmed. `FileOperationPolicy` derives
+  planned destination keys with locale-dependent `std::towupper`, whereas the
+  Windows path identity authority is `CompareStringOrdinal(..., TRUE)`. A
+  non-ASCII case pair such as `é.txt` and `É.txt` may therefore bypass the
+  reservation set and target one Windows destination twice.
+- Planned reproducer: two sources with those same-Windows-name case variants,
+  an empty destination, and no external conflicts must still yield two distinct
+  destination names under the transfer policy.
+- Fix: normalized destination keys now live in a `std::set` using
+  `ffprotocol::CaseInsensitivePathLess`, so reservation identity follows
+  `CompareStringOrdinal(..., TRUE)` rather than locale-dependent uppercasing.
+  The direct file-operation test targets now include the protocol public header
+  directory required by this shared authority.
+- Regression validation: the new `é.txt`/`É.txt` policy case fails before the
+  fix and passes after it; the existing in-batch Replace and external Replace
+  cases remain green; real `fffileoperations_e2e_tests` passes. Debug focused
+  policy/e2e and Analyze policy/e2e builds pass. Slice status: COMPLETE; product
+  commit `2c30a7c` (`Use Windows identity for transfer reservations`).
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
