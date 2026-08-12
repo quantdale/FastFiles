@@ -53,6 +53,10 @@ public:
     void UnwatchAll();
 
 private:
+    struct CaseInsensitivePathLess {
+        bool operator()(const std::wstring& left, const std::wstring& right) const noexcept;
+    };
+
     struct WatchStartupState {
         std::mutex mutex;
         std::condition_variable condition;
@@ -80,7 +84,7 @@ private:
                           );
 
     std::mutex mutex_;
-    std::map<std::wstring, std::unique_ptr<WatchEntry>> watches_;
+    std::map<std::wstring, std::unique_ptr<WatchEntry>, CaseInsensitivePathLess> watches_;
     std::deque<std::wstring> accessOrder_; // least-recently-watched first
 #ifdef FF_DIRECTORY_WATCHER_TESTING
     TestCompletionProvider testCompletionProvider_;

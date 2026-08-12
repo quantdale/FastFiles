@@ -36,6 +36,21 @@ void CreateFileIn(const std::filesystem::path& root, const wchar_t* name) {
     Check(!output.fail(), "fixture file is created");
 }
 
+std::wstring CaseVariant(const std::wstring& path) {
+    std::wstring variant = path;
+    bool changed = false;
+    for (wchar_t& character : variant) {
+        if (character >= L'a' && character <= L'z') {
+            character = static_cast<wchar_t>(character - (L'a' - L'A'));
+            changed = true;
+        }
+    }
+    if (!changed || variant == path) {
+        variant += L"\\.";
+    }
+    return variant;
+}
+
 void WaitForNotification(std::condition_variable& condition, std::mutex& mutex,
                         int& notifications, const char* description) {
     std::unique_lock<std::mutex> lock(mutex);
@@ -99,6 +114,45 @@ void TestWatcherPublishesAndStops() {
     std::error_code ec;
     std::filesystem::remove_all(root, ec);
     Check(!std::filesystem::exists(root), "watcher fixture is removed");
+}
+
+void TestCaseVariantPathIsIdempotent() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::wstring variant = CaseVariant(root.wstring());
+    std::mutex mutex;
+    std::condition_variable condition;
+    int originalNotifications = 0;
+    int variantNotifications = 0;
+
+    {
+        ffengine::DirectoryWatcher watcher;
+        watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++originalNotifications;
+            condition.notify_all();
+        });
+        watcher.Watch(variant, [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(mutex);
+            ++variantNotifications;
+            condition.notify_all();
+        });
+
+        CreateFileIn(root, L"case-variant.txt");
+        std::unique_lock<std::mutex> lock(mutex);
+        const bool notified = condition.wait_for(lock, std::chrono::seconds(5), [&] {
+            return originalNotifications + variantNotifications > 0;
+        });
+        Check(notified, "case-variant watcher test receives a filesystem notification");
+        lock.unlock();
+        Sleep(200);
+        Check(originalNotifications > 0, "the first registration remains the canonical callback");
+        Check(variantNotifications == 0,
+              "case-variant Watch calls are idempotent and do not create duplicate callbacks");
+    }
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "case-variant watcher fixture is removed");
 }
 
 void TestWatcherEvictsLeastRecentlyUsedRoot() {
@@ -266,6 +320,7 @@ void TestWatcherGivesUpAfterEightInjectedOverflows() {
 
 int main() {
     TestWatcherPublishesAndStops();
+    TestCaseVariantPathIsIdempotent();
     TestWatcherEvictsLeastRecentlyUsedRoot();
 #ifdef FF_DIRECTORY_WATCHER_TESTING
     TestWatcherRecoversFromInjectedOverflow();

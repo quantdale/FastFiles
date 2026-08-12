@@ -18,6 +18,11 @@ constexpr DWORD kNotifyFilter =
 // against a directory that changes faster than the buffer can drain.
 constexpr int kMaxConsecutiveWatchOverflows = 8;
 
+bool SamePathCaseInsensitive(const std::wstring& left, const std::wstring& right) noexcept {
+    return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
+                                right.data(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
 std::wstring ExtendedApiPath(const std::wstring& path) {
     if (path.starts_with(L"\\\\?\\") || path.starts_with(L"\\\\.\\")) {
         return path;
@@ -30,6 +35,12 @@ std::wstring ExtendedApiPath(const std::wstring& path) {
     }
     return path;
 }
+}
+
+bool DirectoryWatcher::CaseInsensitivePathLess::operator()(const std::wstring& left,
+                                                            const std::wstring& right) const noexcept {
+    return CompareStringOrdinal(left.data(), static_cast<int>(left.size()),
+                                right.data(), static_cast<int>(right.size()), TRUE) == CSTR_LESS_THAN;
 }
 
 DirectoryWatcher::~DirectoryWatcher() {
@@ -45,10 +56,12 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
         if (existing != watches_.end() && !existing->second->finished->load()) {
             // Refresh recency so an actively browsed path is never the
             // eviction victim (recovery-degraded-browsing 5.1).
-            auto it = std::find(accessOrder_.begin(), accessOrder_.end(), path);
+            auto it = std::find_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
+                return SamePathCaseInsensitive(watchedPath, path);
+            });
             if (it != accessOrder_.end()) {
                 accessOrder_.erase(it);
-                accessOrder_.push_back(path);
+                accessOrder_.push_back(existing->first);
             }
             return;
         }
@@ -58,7 +71,9 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
             // actually restart monitoring that directory.
             toStop.push_back(std::move(existing->second));
             watches_.erase(existing);
-            accessOrder_.erase(std::remove(accessOrder_.begin(), accessOrder_.end(), path), accessOrder_.end());
+            accessOrder_.erase(std::remove_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
+                return SamePathCaseInsensitive(watchedPath, path);
+            }), accessOrder_.end());
         }
 
         const std::wstring apiPath = ExtendedApiPath(path);
@@ -313,17 +328,18 @@ void DirectoryWatcher::Unwatch(const std::wstring& path) {
         }
         entry = std::move(it->second);
         watches_.erase(it);
-        accessOrder_.erase(std::remove(accessOrder_.begin(), accessOrder_.end(), path), accessOrder_.end());
+        accessOrder_.erase(std::remove_if(accessOrder_.begin(), accessOrder_.end(), [&](const std::wstring& watchedPath) {
+            return SamePathCaseInsensitive(watchedPath, path);
+        }), accessOrder_.end());
     }
     StopEntry(*entry);
 }
 
 void DirectoryWatcher::UnwatchAll() {
-    std::map<std::wstring, std::unique_ptr<WatchEntry>> toStop;
+    decltype(watches_) toStop;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         toStop = std::move(watches_);
-        watches_.clear();
         accessOrder_.clear();
     }
     for (auto& [path, entry] : toStop) {
