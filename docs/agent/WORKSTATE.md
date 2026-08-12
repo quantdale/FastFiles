@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:22:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — BENCHMARK RUN INCONCLUSIVE AFTER BOUNDED TIMEOUT; SLICE 11 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:45:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 12 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -140,6 +140,22 @@ run timed out, this method is considered inconclusive rather than a product
 regression. Do not repeat the same full benchmark method; retain the earlier
 completed Release benchmark artifact/results as the authoritative performance
 baseline and choose another evidence-backed local hardening frontier.
+
+Slice 12 is committed as `3f3691a` (`Bound and atomically persist search
+history`). `SearchPanel` now applies the protocol's 4095 UTF-16-character limit
+to the native edit and reads the complete bounded value instead of truncating
+at 1023 characters. `SearchHistory` rejects overlong records and persisted
+entries, bounds raw history lines, rejects malformed UTF-8, and writes through
+a temporary file with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`.
+Focused Debug search/protocol/drift tests pass, the full Debug CTest tree passes
+49/49, and the focused Analyze build of `FastFiles` plus `ffsearch_scan_tests`
+passes cleanly. No signing/authentication or production pin behavior changed.
+
+NEXT EXACT ACTION: inspect the documented constant-time thumbprint comparison
+finding in the authentication ownership path. If the comparison is still a
+direct equality over secret-derived signature bytes, make the smallest local
+constant-time fix with focused negative/positive tests; keep placeholder pins
+fail-closed and do not attempt external signing validation.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
