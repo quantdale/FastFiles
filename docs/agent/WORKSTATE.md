@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:45:55+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 7 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:51:25+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 8 COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -123,8 +123,9 @@ subscribed clients, stops accepting, waits for registered callbacks, then tears
 down watcher/snapshot/client state. The lifecycle test passed 10/10 direct CLI
 stress runs after the fix and the focused watcher/lifecycle/publisher/aggregate
 CTest batch passed 4/4. Slice 7 is committed as `7b9f8fa` (`Prevent UI server
-callback teardown race`). Exact next action: choose one new evidence-backed
-local hardening frontier; do not reopen completed areas without new evidence.
+callback teardown race`). Slice 8 is committed as `66bffd0` (`Preserve Unicode
+workspace state`). Exact next action: choose another evidence-backed local
+hardening frontier; do not reopen completed areas without new evidence.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
@@ -201,6 +202,25 @@ local hardening frontier; do not reopen completed areas without new evidence.
   rebuilt successfully. No privileged service listener or pipe protocol changed.
 - Slice status: COMPLETE; implementation and focused validation are committed as
   `7b9f8fa` (`Prevent UI server callback teardown race`).
+
+## Overnight slice 8 — Unicode workspace persistence investigation
+
+- Severity: MEDIUM persistence/data-integrity risk. A new deterministic extension
+  of `ffnavigation_tests` saves a bookmark, last location, and recently closed
+  tab containing `日本語`, `é`, `Ω`, and an emoji, then reloads the state. The
+  pre-fix test fails both the save and round-trip assertions.
+- Root cause: `NavigationWorkspace::SaveState` and `LoadState` use locale-
+  dependent `std::wofstream`/`std::wifstream` for a user path-bearing JSON file.
+  The existing `/utf-8` compiler setting only governs source decoding and does
+  not make these runtime streams UTF-8.
+- Fix: serialize the existing JSON document to explicit UTF-8 bytes and decode
+  UTF-8 bytes before the existing parser, retaining empty/default-state fallback
+  for unreadable, invalid-UTF-8, or malformed content. The JSON schema and path
+  identity semantics are unchanged.
+- Regression validation: Unicode path/name/emoji round-trip and invalid UTF-8
+  fallback cases pass in `ffnavigation_tests`. Debug focused build/test and
+  Analyze `ffnavigation_tests`/`FastFiles` build pass with no warnings. Slice
+  status: COMPLETE; product commit `66bffd0` (`Preserve Unicode workspace state`).
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
