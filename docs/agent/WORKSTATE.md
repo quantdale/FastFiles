@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T21:47:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T21:48:22+08:00
+Status: READY TO COMMIT SLICE 1 — BATCH DESTINATION RESERVATION; MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -91,10 +91,31 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — MAIN UI GEOMETRY COMMITTED; PRIOR EX
 
 ## Overnight campaign NEXT EXACT ACTION
 
-Run a bounded source/test triage of navigation, watcher/live refresh, file
-operations, Details semantics, snapshot recovery, Engine lifecycle, and
-settings/startup persistence. Select exactly one reproducible local defect;
-record the hypothesis and test path before implementation.
+Slice 1 is implemented and focused Debug validation is green. Run the
+corresponding Analyze target and inspect the staged diff, then commit the
+batch-destination fix plus its regression test. After the commit, continue
+with exactly one new Priority A/B triage frontier.
+
+## Overnight slice 1 — reserve destinations within one transfer batch
+
+- Severity: HIGH correctness risk for copy/move batches with duplicate source
+  filenames from different folders; the pre-fix planner could assign the same
+  destination to multiple sources under `FOF_NOCONFIRMATION`.
+- Reproducer: the new deterministic policy case passes two distinct source
+  paths named `duplicate.txt` into an empty destination and requires the
+  second plan item to become `duplicate (2).txt`. Before the fix it failed and
+  never invoked the conflict prompt.
+- Root cause: `BuildTransferPlan` consulted only the external `exists` callback;
+  it did not reserve destinations already assigned earlier in the same plan.
+- Fix: keep normalized, case-insensitive Windows destination keys for all
+  planned non-skipped outputs; use that reservation set in conflict and
+  keep-both candidate checks.
+- Focused validation: Debug `fffileoperations_tests` passed after the expected
+  pre-fix failure; Debug `fffileoperations_e2e_tests` passed, including copy,
+  move, rename, recycle/restore, conflict, cancellation, vanished/locked
+  sources, permission failure, and link operations.
+- Pending for this slice: Analyze build, staged-diff review, commit, then full
+  validation at the final campaign gate.
 
 ## Session continuation reconciliation (2026-08-12)
 

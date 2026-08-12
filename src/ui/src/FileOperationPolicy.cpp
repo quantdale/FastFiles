@@ -17,6 +17,10 @@ std::wstring Join(const std::wstring& folder, const std::wstring& name) {
     return (std::filesystem::path(folder) / name).wstring();
 }
 
+std::wstring DestinationKey(const std::wstring& path) {
+    return Upper(std::filesystem::path(path).lexically_normal().wstring());
+}
+
 } // namespace
 
 bool IsValidFileName(const std::wstring& name, std::wstring* reason) {
@@ -59,12 +63,20 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
     const std::vector<std::wstring>& sources, const std::wstring& destinationFolder,
     const PathExists& exists, const ConflictPrompt& prompt) {
     std::vector<TransferPlanItem> result;
+    std::unordered_set<std::wstring> plannedDestinations;
+    const auto isOccupied = [&](const std::wstring& path) {
+        return plannedDestinations.contains(DestinationKey(path)) || exists(path);
+    };
+    const auto reserve = [&](const std::wstring& path) {
+        plannedDestinations.insert(DestinationKey(path));
+    };
     std::optional<ConflictChoice> remainingChoice;
     for (const auto& source : sources) {
         const std::wstring originalName = std::filesystem::path(source).filename().wstring();
         const std::wstring destinationPath = Join(destinationFolder, originalName);
-        if (!exists(destinationPath)) {
+        if (!isOccupied(destinationPath)) {
             result.push_back({source, {}, false});
+            reserve(destinationPath);
             continue;
         }
         ConflictChoice choice;
@@ -79,11 +91,13 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
         if (choice == ConflictChoice::Skip) continue;
         if (choice == ConflictChoice::Replace) {
             result.push_back({source, {}, true});
+            reserve(destinationPath);
             continue;
         }
-        const std::wstring newName = GenerateKeepBothName(destinationFolder, originalName, exists);
+        const std::wstring newName = GenerateKeepBothName(destinationFolder, originalName, isOccupied);
         if (newName.empty()) return std::nullopt;
         result.push_back({source, newName, false});
+        reserve(Join(destinationFolder, newName));
     }
     return result;
 }

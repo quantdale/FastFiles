@@ -46,6 +46,20 @@ int main() {
         });
     Check(skipped && skipped->empty() && prompts == 1, "skip/apply-all plan wrong");
 
+    int duplicatePrompts = 0;
+    const auto duplicateNames = BuildTransferPlan(
+        {L"C:\\source-a\\duplicate.txt", L"C:\\source-b\\duplicate.txt"}, L"D:\\target",
+        [](const std::wstring&) { return false; },
+        [&](const std::wstring&, const std::wstring&) {
+            ++duplicatePrompts;
+            return ConflictDecision{ConflictChoice::KeepBoth, false};
+        });
+    Check(duplicateNames && duplicateNames->size() == 2 &&
+              (*duplicateNames)[0].destinationName.empty() &&
+              (*duplicateNames)[1].destinationName == L"duplicate (2).txt" &&
+              duplicatePrompts == 1,
+          "duplicate source names were not assigned distinct destinations");
+
     OperationHistory history;
     history.PushRename(L"C:\\old.txt", L"C:\\new.txt");
     history.PushMove({{L"C:\\one.txt", L"D:\\one.txt"}});
