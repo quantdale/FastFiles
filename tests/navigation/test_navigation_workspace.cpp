@@ -140,6 +140,21 @@ void TestWorkspacePersistenceFallback() {
     NavigationWorkspace::LoadState(loaded);
     Check(loaded.bookmarks.empty(), "unsupported workspace state versions are ignored");
 
+    {
+        std::wofstream oversized(stateFile, std::ios::trunc);
+        oversized << L"{\"version\": 1, \"recentlyClosedTabs\": [";
+        for (int index = 0; index < 20; ++index) {
+            if (index != 0) oversized << L", ";
+            oversized << L"\"C:\\\\Closed-" << index << L"\"";
+        }
+        oversized << L"]}";
+    }
+    NavigationWorkspace::LoadState(loaded);
+    Check(loaded.recentlyClosedTabs.size() == 16 &&
+              loaded.recentlyClosedTabs.front() == L"C:\\Closed-0" &&
+              loaded.recentlyClosedTabs.back() == L"C:\\Closed-15",
+          "workspace restore keeps the supported recently-closed-tab bound");
+
     std::filesystem::remove_all(localAppData, error);
     if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
     else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());

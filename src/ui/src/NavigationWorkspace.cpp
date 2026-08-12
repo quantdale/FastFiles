@@ -426,7 +426,8 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     const size_t open = closedKey == std::wstring::npos ? std::wstring::npos : json.find(L'[', closedKey);
     const size_t close = open == std::wstring::npos ? std::wstring::npos : json.find(L']', open + 1);
     cursor = open == std::wstring::npos ? 0 : open + 1;
-    while (open != std::wstring::npos && close != std::wstring::npos && cursor < close) {
+    while (open != std::wstring::npos && close != std::wstring::npos && cursor < close &&
+           state.recentlyClosedTabs.size() < kMaxRecentlyClosedTabs) {
         const size_t quote = json.find(L'"', cursor);
         if (quote == std::wstring::npos || quote >= close) break;
         std::wstring closedPath;
