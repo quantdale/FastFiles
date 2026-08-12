@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-13T00:12:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 13 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T23:48:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 14 COMMITTED; DEBUG FULL SUITE GREEN; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -182,6 +182,35 @@ navigation, file operations, engine connection, watcher setup, and snapshot
 publication. Pick one reproducible silent-failure or data-loss risk only if its
 current behavior is concretely unsafe; otherwise record the paths as expected
 benign/recoverable and proceed to final build/verifier/OpenSpec gates.
+
+Slice 14 is implemented in the working tree: `UiServer::Start` now rolls back
+the snapshot mapping and connection gate when security-descriptor or listener
+startup fails, and clears the owned descriptor after a pipe-name collision.
+The concrete failure was reproduced by squatting the exact UI pipe name: before
+the fix, `OpenFileMappingW` could still open the server's named snapshot after
+`Start` returned false; the failed object also had no safe retry boundary. A
+focused lifecycle test now verifies the mapping is gone and that the same
+server can start after the collision is released. The focused CTest passed and
+the test passed through ten direct CLI repetitions. Product commit:
+`72516f0` (`Rollback failed UI server starts`).
+
+Bounded error-handling audit conclusion: `NavigationWorkspace` uses atomic
+replacement and preserves the prior state on write failure; malformed state
+falls back without blocking startup. File-operation submission, shell callback,
+conflict, cancellation, and permission failures become completion/cancelled
+events rather than silent success, with overwrite guarded by the transfer plan.
+`EngineClient` fails pending callbacks on disconnect/write failure and retains
+queued directory requests across reconnect; `DirectoryWatcher` re-enumerates
+on overflow and records terminal worker failures; `SnapshotPublisher` returns
+zero on capacity/unstarted publication and `UiServer` exposes publish failure
+to the requesting/subscribed UI. No additional evidence-backed local defect
+was found in those paths during this bounded pass.
+
+NEXT EXACT ACTION: normalize the two touched first-party files to repository
+CRLF, inspect and commit Slice 14, then run the final Debug/Analyze/Release
+builds, serial CTest trees, verifier doctor/build, strict OpenSpec validation,
+and CLI runtime/orphan-process smoke. Do not repeat the inconclusive large
+benchmark timeout or reopen the external signing/clean-host/visual blockers.
 
 ## Overnight lifecycle frontier — no product defect (2026-08-12)
 
