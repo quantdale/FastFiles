@@ -1,16 +1,44 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T10:34:18+08:00
-Status: COMPLETE — V2/V3 USN JOURNAL VALIDATION SLICE; EXTERNAL RELEASE GATES OPEN
+Last updated: 2026-08-12T12:05:00+08:00
+Status: COMPLETE — LOCAL GATES REVALIDATED; EXTERNAL RELEASE GATES OPEN
 
-## Current-session reconciliation (2026-08-12)
+## Session continuation reconciliation (2026-08-12)
 
-- Git has the current bounded-probe, path-identity, diagnostic, validator, and
-  focused-test changes uncommitted on `recovery/fast-files-20260809` at
-  `4196a5d`; preserve all of them.
-- The current PowerShell session is elevated and interactive. The registered
-  `FastFilesIndexSvc` is running as `LocalSystem` with delayed automatic start.
-  A reversible signed-test installation is active under
+- The worktree was clean on `recovery/fast-files-20260809` at the preceding
+  product commit `66c45f2` (`Fixes`); this documentation checkpoint is now the
+  current local commit.
+- The earlier current-session notes that described changes as uncommitted at
+  `4196a5d` are stale; those bounded-probe, path-identity, diagnostic,
+  validator, USN V2/V3, watcher-startup, snapshot-capacity, and ingestion fixes
+  are included in `66c45f2`.
+- This continuation will not use Computer Use or alter signing pins. The next
+  exact action was to rerun the x64 Debug/Analyze/full CTest local gates, then
+  audit merge readiness and retain only the genuine signed/elevated/clean-host/
+  aggregate-backed external blockers.
+- Revalidation passed: Debug configure/build clean; Debug CTest 47/47; Analyze
+  configure/build clean; Release CTest 47/47; `verify.ps1 doctor` passed all
+  available toolchain/SDK/Application Verifier checks; `verify.ps1 build`
+  passed `windows-build-validation`; and pinned OpenSpec strict validation
+  passed 45/45.
+- Release fail-closed validation passed in a fresh unprovisioned cache: CMake
+  rejected absent thumbprints before generation. The branch range has no merge
+  conflict markers; the only hygiene defect found was the extra EOF blank line
+  in `ENGINEERING_AUDIT_REPORT.md`, now removed.
+- Genuine blockers remain unchanged: authorized production signing material and
+  signed active/degraded service validation, expired-signer release evidence,
+  clean-host privilege matrix, and the real aggregate-backed `% of Parent`
+  visual sum. No pins were changed and no Computer Use was used.
+
+## Historical signed-test validation record (2026-08-12)
+
+- The bounded-probe, path-identity, diagnostic, validator, and focused-test
+  changes described below were uncommitted at `4196a5d` during the earlier
+  signed-test session; they are now included in clean commit `66c45f2`.
+- During that earlier signed-test session, PowerShell was elevated and
+  interactive. The registered `FastFilesIndexSvc` was running as `LocalSystem`
+  with delayed automatic start. A reversible signed-test installation was
+  active under
   `C:\Program Files\FastFiles`; it uses a disposable test certificate only for
   runtime validation and must be restored before handoff.
 - Local doctor passes the VS toolset, Windows SDK, CMake, Ninja, and Application
