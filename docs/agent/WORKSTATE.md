@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T23:59:00+08:00
+Last updated: 2026-08-13T00:00:00+08:00
 Status: LOCAL HARDENING CAMPAIGN COMPLETE — LOCAL ENGINEERING EXHAUSTED; EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
@@ -96,8 +96,10 @@ Status: LOCAL HARDENING CAMPAIGN COMPLETE — LOCAL ENGINEERING EXHAUSTED; EXTER
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
 Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
 changes`). Slice 3 is committed as `e5352d1` (`Make directory watch keys case
-insensitive`). Slice 4 is committed as `4cb44e3` (`Atomically save workspace
-state`). Slice 5 is committed as `db7adf3` (`Bound restored recently closed
+insensitive`). Slice 4 also includes the workspace-format guard committed as
+`688a47b` (`Reject unsupported workspace state versions`); its atomic save
+implementation is committed as `4cb44e3` (`Atomically save workspace state`).
+Slice 5 is committed as `db7adf3` (`Bound restored recently closed
 tabs`). The bounded Priority B/C lifecycle frontier is now reviewed: the
 diagnostic UI launched the exact sibling Engine, remained responsive through an
 Engine termination/relaunch, and closed via WM_CLOSE. The Engine remaining after
@@ -206,7 +208,8 @@ zero on capacity/unstarted publication and `UiServer` exposes publish failure
 to the requesting/subscribed UI. No additional evidence-backed local defect
 was found in those paths during this bounded pass.
 
-Final gates complete after Slice 14: Debug, Analyze, and Release builds passed;
+Final gates complete after Slice 14 (with the earlier workspace-format guard):
+Debug, Analyze, and Release builds passed;
 serial Debug and Release CTest passed 49/49 each; `verify.ps1 doctor` reported
 the installed compiler/SDK/CMake/Ninja and diagnostics prerequisites available
 with only optional tools/providers skipped; `verify.ps1 build` passed; and
