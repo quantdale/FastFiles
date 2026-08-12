@@ -3,6 +3,40 @@
 Last updated: 2026-08-13T00:00:00+08:00
 Status: LOCAL HARDENING CAMPAIGN COMPLETE — LOCAL ENGINEERING EXHAUSTED; EXTERNAL RELEASE BLOCKERS PRESERVED
 
+## Final direct visual acceptance attempt (2026-08-13)
+
+- Fresh-session reconciliation: branch `main`; starting HEAD and final HEAD
+  remain `77d4dc2893941cfc044f5fe827628d2a85e6a500`; the source worktree was
+  clean before this documentation checkpoint. No product source or OpenSpec
+  task was changed.
+- The exact remaining OpenSpec requirement is
+  `close-independent-validation-gaps` task 5.1: the interactive Light/Dark,
+  DPI, animation, High Contrast, width, Details, and pane matrix, plus a real
+  aggregate-backed drill-down whose rendered `% of Parent` values sum within
+  tolerance. Task 5.1 remains open. The retained 2026-08-11 evidence still
+  truthfully records degraded rows as `—`/`Partial` and does not substitute
+  headless percentage tests for rendered evidence.
+- Current checkout health was re-established without reopening backend work:
+  Debug configure/build passed with Ninja reporting no work; the focused shell,
+  storage, Treemap, and percentage tests passed 6/6; full Debug and Release
+  CTest each passed 49/49; Analyze and Release configure/build passed; the
+  verifier build and doctor passed; strict OpenSpec validation passed 45/45.
+- Computer Use was requested and initialized using the required `@oai/sky`
+  path, but the native pipe was unavailable. The initial discovery call, the
+  prescribed immediate retry, and a fresh Node-session retry all failed with:
+  `Computer Use native pipe is unavailable: failed to connect native pipe: The
+  system cannot find the file specified.` No Fast Files window was opened or
+  visually inspected, no screenshot was captured, no fixture was created, and
+  no Windows display/accessibility setting was changed. This campaign therefore
+  adds no direct visual PASS claim and classifies task 5.1 as
+  `BLOCKED — SYSTEM/ENVIRONMENT LIMITATION` for this session.
+- NEXT EXACT ACTION: rerun the direct visual campaign in a session where the
+  Computer Use native pipe is available; launch the rebuilt Debug application,
+  first seek legitimate aggregate-backed data for the `% of Parent` fixture,
+  then execute the remaining shell/Storage/Treemap/text/focus/status/DPI matrix
+  and retain only the required evidence. Do not check task 5.1 from this
+  checkpoint alone.
+
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
 - This session temporarily supersedes the prior final-validation frontier with
