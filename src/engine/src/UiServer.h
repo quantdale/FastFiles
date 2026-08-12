@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <map>
 #include <memory>
@@ -77,6 +78,32 @@ public:
     std::function<void(uint8_t scope, bool paused)> onSetIndexingPaused;
 
 private:
+    struct ConnectionGate {
+        void Release() noexcept {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (active != 0) {
+                --active;
+            }
+            if (active == 0) {
+                condition.notify_all();
+            }
+        }
+
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool stopping = false;
+        size_t active = 0;
+    };
+
+    struct ConnectionRegistration {
+        std::shared_ptr<ConnectionGate> gate;
+        ~ConnectionRegistration() {
+            if (gate != nullptr) {
+                gate->Release();
+            }
+        }
+    };
+
     struct ClientConnection {
         ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller);
 
@@ -129,6 +156,7 @@ private:
 
     std::mutex clientsMutex_;
     std::vector<ClientConnectionPtr> subscribedClients_;
+    std::shared_ptr<ConnectionGate> connectionGate_;
 
     FrameWriter frameWriter_;
     PipeCanceller pipeCanceller_;

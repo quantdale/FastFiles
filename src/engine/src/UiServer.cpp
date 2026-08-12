@@ -160,6 +160,7 @@ UiServer::~UiServer() {
 }
 
 bool UiServer::Start(DWORD sessionId) {
+    connectionGate_ = std::make_shared<ConnectionGate>();
     if (!snapshot_.Start(sessionId)) {
         return false;
     }
@@ -174,8 +175,20 @@ bool UiServer::Start(DWORD sessionId) {
     swprintf(pipeName, std::size(pipeName), ffsetup::kUiCtrlPipeNameFormat, sessionId);
 
     running_ = true;
+    const auto connectionGate = connectionGate_;
     if (!listener_.Start(pipeName, &securityDescriptor_.attributes,
-                         [this](HANDLE pipe) { HandleConnection(pipe); })) {
+                         [this, connectionGate](HANDLE pipe) {
+                             {
+                                 std::lock_guard<std::mutex> lock(connectionGate->mutex);
+                                 if (connectionGate->stopping) {
+                                     CloseHandle(pipe);
+                                     return;
+                                 }
+                                 ++connectionGate->active;
+                             }
+                             ConnectionRegistration registration{connectionGate};
+                             HandleConnection(pipe);
+                         })) {
         running_ = false;
         return false;
     }
@@ -184,7 +197,11 @@ bool UiServer::Start(DWORD sessionId) {
 
 void UiServer::Stop() {
     running_ = false;
-    listener_.Stop();
+    const auto connectionGate = connectionGate_;
+    if (connectionGate != nullptr) {
+        std::lock_guard<std::mutex> lock(connectionGate->mutex);
+        connectionGate->stopping = true;
+    }
 
     // Cancel before joining watcher callbacks. A callback may already be in
     // ClientConnection::Write, and CancelIoEx must run before that callback's
@@ -197,6 +214,19 @@ void UiServer::Stop() {
     }
     for (const auto& client : clients) {
         client->Cancel();
+    }
+
+    listener_.Stop();
+
+    // PipeListener invokes connections on detached threads. Do not tear down
+    // snapshot/client state until every callback that passed the gate has
+    // returned; callbacks arriving after the stop mark close their pipe
+    // without dereferencing this server.
+    if (connectionGate != nullptr) {
+        std::unique_lock<std::mutex> lock(connectionGate->mutex);
+        connectionGate->condition.wait(lock, [&connectionGate] {
+            return connectionGate->active == 0;
+        });
     }
 
     watcher_.UnwatchAll();
