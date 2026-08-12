@@ -119,6 +119,12 @@ std::wstring PipeName(DWORD sessionId) {
     return buffer;
 }
 
+std::wstring SnapshotSectionName(DWORD sessionId) {
+    wchar_t buffer[128]{};
+    swprintf(buffer, std::size(buffer), ffsetup::kSnapshotSectionNameFormat, sessionId);
+    return buffer;
+}
+
 HANDLE ConnectToServer(const std::wstring& pipeName) {
     const ULONGLONG deadline = GetTickCount64() + static_cast<ULONGLONG>(kWaitDeadline.count());
     while (GetTickCount64() < deadline) {
@@ -267,6 +273,26 @@ void TestIdleShutdown() {
     std::filesystem::remove_all(root, error);
 }
 
+void TestFailedStartRollsBackSnapshot() {
+    const DWORD sessionId = GetCurrentProcessId() + 4;
+    const std::wstring pipeName = PipeName(sessionId);
+    HANDLE squatter = CreateNamedPipeW(pipeName.c_str(), PIPE_ACCESS_DUPLEX,
+                                       PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                                       PIPE_UNLIMITED_INSTANCES, 4096, 4096, 0, nullptr);
+    Check(squatter != INVALID_HANDLE_VALUE, "UI pipe collision fixture is created");
+    if (squatter == INVALID_HANDLE_VALUE) return;
+
+    ffengine::UiServer server;
+    Check(!server.Start(sessionId), "UI server rejects a pre-existing pipe name");
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, SnapshotSectionName(sessionId).c_str());
+    Check(mapping == nullptr, "failed UI server start rolls back its snapshot mapping");
+    if (mapping != nullptr) CloseHandle(mapping);
+
+    CloseHandle(squatter);
+    Check(server.Start(sessionId), "UI server can restart after a failed start is rolled back");
+    server.Stop();
+}
+
 } // namespace
 
 int main() {
@@ -274,5 +300,6 @@ int main() {
     TestBlockedPublicationShutdown();
     TestDisconnectDuringPublication();
     TestIdleShutdown();
+    TestFailedStartRollsBackSnapshot();
     return FailureCount() == 0 ? 0 : 1;
 }

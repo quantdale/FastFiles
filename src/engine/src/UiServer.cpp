@@ -162,11 +162,14 @@ UiServer::~UiServer() {
 bool UiServer::Start(DWORD sessionId) {
     connectionGate_ = std::make_shared<ConnectionGate>();
     if (!snapshot_.Start(sessionId)) {
+        connectionGate_.reset();
         return false;
     }
 
     auto descriptor = ffsetup::BuildCurrentUserPipeSecurityDescriptor();
     if (!descriptor) {
+        snapshot_.Stop();
+        connectionGate_.reset();
         return false;
     }
     securityDescriptor_ = std::move(*descriptor);
@@ -190,6 +193,9 @@ bool UiServer::Start(DWORD sessionId) {
                              HandleConnection(pipe);
                          })) {
         running_ = false;
+        snapshot_.Stop();
+        securityDescriptor_ = {};
+        connectionGate_.reset();
         return false;
     }
     return true;
