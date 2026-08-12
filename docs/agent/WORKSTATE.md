@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T22:02:00+08:00
-Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS INVESTIGATION; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T22:16:00+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -94,11 +94,12 @@ Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 2 DETAILS FRESHNESS INVESTIGAT
 ## Overnight campaign NEXT EXACT ACTION
 
 Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
-Slice 2 is currently scoped to stale folder aggregate data in Details. Run its
-focused baseline, then implement the smallest generation/selection invalidation
-seam and regression test if the source evidence reproduces the risk. Do not
-reopen the completed transfer-planner slice without new evidence. Run the final
-full validation only after the remaining local hardening slices are complete.
+Slice 2 is committed as `9b3828d` (`Refresh Details folder aggregates after state
+changes`). Begin exactly one new Priority B watcher/lifecycle triage frontier:
+prove or disprove case-variant duplicate directory watches before changing the
+watcher key policy. Do not reopen completed transfer-planner or Details slices
+without new evidence. Run the final full validation only after the remaining
+local hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -122,7 +123,7 @@ full validation only after the remaining local hardening slices are complete.
   policy and end-to-end tests passed 2/2. Final full Debug/Analyze/Release
   validation remains a campaign-end gate, not a reason to reopen this slice.
 
-## Overnight slice 2 — Details folder aggregate freshness investigation
+## Overnight slice 2 — Details folder aggregate freshness investigation checkpoint
 
 - Priority: HIGH UI correctness/data freshness risk; this is a direct match for
   the campaign requirement that Details must not show metadata from a previous
@@ -140,10 +141,29 @@ full validation only after the remaining local hardening slices are complete.
   `WM_APP_FOLDER_AGGREGATE`) and `src/ui/src/EngineClient.cpp`
   (`RequestFolderAggregate`). The engine reads the current projection when a
   request arrives; the missing piece is the UI refresh trigger.
-- Baseline status: no source change has been made for this slice. The focused
-  `ffnavigation_tests` and `ffengine_directory_watcher_tests` baseline passed
-  2/2. The next action is a deterministic test seam for the invalidation policy
-  before implementation.
+- Baseline status at the investigation checkpoint: no source change had been
+  made yet. The focused `ffnavigation_tests` and
+  `ffengine_directory_watcher_tests` baseline passed 2/2; the implementation
+  and final focused validation are recorded in the completion section below.
+
+## Overnight slice 2 — Details folder aggregate freshness implementation
+
+- Root cause confirmed: `ColumnView::OnSnapshotUpdated` refreshes rows from a
+  newer published generation without changing a selected folder's volume/FRN
+  identity, while `WindowShell::RenderDetails` previously treated that
+  identity as an indefinitely valid aggregate cache key. Clearing selection or
+  selecting a file also left the old key alive.
+- Fix: `FolderAggregateRequestState` is the small UI-thread-owned request seam.
+  Snapshot publication invalidates it; a non-directory/no selection invalidates
+  it; a different folder identity starts a new request; and old posted replies
+  are rejected by request ID after invalidation.
+- Regression coverage: `ffdetails_aggregate_state_tests` covers initial reuse,
+  forced refresh after invalidation, late-result rejection, and selection-key
+  changes. The focused aggregate/snapshot/navigation/watcher set passed 5/5.
+- Validation: Debug FastFiles and the new test built; Analyze FastFiles and the
+  new test built cleanly. Product commit: `9b3828d` (`Refresh Details folder
+  aggregates after state changes`). Full campaign gates remain deferred until
+  the next bounded slices are complete.
 
 ## Session continuation reconciliation (2026-08-12)
 
