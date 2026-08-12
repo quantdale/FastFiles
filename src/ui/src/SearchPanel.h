@@ -16,6 +16,7 @@
 #include <wrl/client.h>
 
 #include "EngineClient.h"
+#include "ffui/ShellLayout.h"
 #include "ffsearch/Search.h"
 #include "ffsearch/History.h"
 #include "Util.h"
@@ -36,11 +37,12 @@ public:
     // uses stable semantic names while the combo labels explain degraded
     // coverage, so this translation belongs at the UI seam.
     void SetDefaultScope(const std::wstring& scopeName);
-    void ShowAndFocus(const std::wstring& currentPath, bool engineActive);
+    void ShowAndFocus(const std::wstring& currentPath, bool engineActive,
+                      const ShellLayoutRect& surfaceRect);
     void Hide();
     void SetDarkTheme(bool dark);
     bool Visible() const { return visible_; }
-    void Reposition();
+    void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
     bool HandleDrawItem(LPARAM lParam);

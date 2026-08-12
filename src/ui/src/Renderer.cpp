@@ -66,7 +66,9 @@ bool Renderer::Initialize(HWND hwnd) {
     if (FAILED(DCompositionCreateDevice(dxgiDevice_.Get(), IID_PPV_ARGS(&dcompDevice_)))) {
         return false;
     }
-    if (FAILED(dcompDevice_->CreateTargetForHwnd(hwnd_, TRUE, &dcompTarget_))) {
+    // Keep the DirectComposition visual below native child HWNDs.  The shell
+    // intentionally mixes the Direct2D workspace with Win32 chrome/surfaces.
+    if (FAILED(dcompDevice_->CreateTargetForHwnd(hwnd_, FALSE, &dcompTarget_))) {
         return false;
     }
     if (FAILED(dcompDevice_->CreateVisual(&dcompVisual_))) {

@@ -3,12 +3,14 @@
 #include "TreemapView.h"
 #include "UITheme.h"
 #include "Util.h"
+#include "ffui/StorageLayout.h"
 #include "ffui/SnapshotAggregate.h"
 #include "ffsearch/Path.h"
 
 #include <commctrl.h>
 #include <windowsx.h>
 #include <algorithm>
+#include <cmath>
 
 namespace ffui {
 namespace {
@@ -201,7 +203,8 @@ void StorageAnalysis::ApplyCategoryFilter() {
                  items_.end());
 }
 
-void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineActive) {
+void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineActive,
+                                   const ShellLayoutRect& surfaceRect) {
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
@@ -211,7 +214,7 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     viewMode_ = ViewMode::Overview;
     ApplyModeVisibility();
     RefreshData();
-    Reposition();
+    Reposition(surfaceRect);
     SetFocus(overview_);
 }
 
@@ -226,29 +229,33 @@ void StorageAnalysis::Hide() {
     ListView_DeleteAllItems(overview_);
 }
 
-void StorageAnalysis::Reposition() {
+void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
     if (!visible_) return;
-    RECT client{};
-    GetClientRect(owner_, &client);
-    const int width = static_cast<int>(client.right);
-    const int height = static_cast<int>(client.bottom);
-    const int top = Scaled(static_cast<int>(ffui::UiMetrics::kChromeHeight)); // below navigation chrome
-    const int buttonHeight = Scaled(28);
+    const auto scaledDip = [](float dip) {
+        return static_cast<int>(std::lround(ffui::UiScale(dip)));
+    };
+    const auto layout = ffui::ComputeStorageSurfaceLayout(surfaceRect);
     constexpr UINT kLayoutFlags = SWP_NOACTIVATE;
-    SetWindowPos(back_, HWND_TOP, Scaled(12), top, Scaled(80), buttonHeight, kLayoutFlags);
-    SetWindowPos(up_, HWND_TOP, Scaled(96), top, Scaled(80), buttonHeight, kLayoutFlags);
-    SetWindowPos(overviewButton_, HWND_TOP, Scaled(180), top, Scaled(100), buttonHeight, kLayoutFlags);
-    SetWindowPos(drillDown_, HWND_TOP, Scaled(284), top, Scaled(110), buttonHeight, kLayoutFlags);
-    SetWindowPos(largestFolders_, HWND_TOP, Scaled(398), top, Scaled(120), buttonHeight, kLayoutFlags);
-    SetWindowPos(largestFiles_, HWND_TOP, Scaled(522), top, Scaled(110), buttonHeight, kLayoutFlags);
-    SetWindowPos(byCategory_, HWND_TOP, Scaled(636), top, Scaled(110), buttonHeight, kLayoutFlags);
-    SetWindowPos(treemap_, HWND_TOP, Scaled(750), top, Scaled(90), buttonHeight, kLayoutFlags);
-    SetWindowPos(categoryFilter_, HWND_TOP, Scaled(844), top, (std::max)(Scaled(140), width - Scaled(1084)), buttonHeight, kLayoutFlags);
-    SetWindowPos(status_, HWND_TOP, (std::max)(Scaled(988), width - Scaled(200)), top + Scaled(4), (std::max)(Scaled(100), width - Scaled(992)), Scaled(20), kLayoutFlags);
-    const int listTop = top + buttonHeight + Scaled(8);
-    const int listHeight = (std::max)(Scaled(80), height - top - buttonHeight - Scaled(20));
-    SetWindowPos(list_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
-    SetWindowPos(overview_, HWND_TOP, Scaled(12), listTop, width - Scaled(24), listHeight, kLayoutFlags);
+    const auto place = [scaledDip, kLayoutFlags](HWND control, const ShellLayoutRect& rect) {
+        const int left = scaledDip(rect.left);
+        const int top = scaledDip(rect.top);
+        const int right = scaledDip(rect.right);
+        const int bottom = scaledDip(rect.bottom);
+        SetWindowPos(control, HWND_TOP, left, top, (std::max)(0, right - left),
+                     (std::max)(0, bottom - top), kLayoutFlags);
+    };
+    place(back_, layout.buttons[0]);
+    place(up_, layout.buttons[1]);
+    place(overviewButton_, layout.buttons[2]);
+    place(drillDown_, layout.buttons[3]);
+    place(largestFolders_, layout.buttons[4]);
+    place(largestFiles_, layout.buttons[5]);
+    place(byCategory_, layout.buttons[6]);
+    place(treemap_, layout.buttons[7]);
+    place(categoryFilter_, layout.categoryFilter);
+    place(status_, layout.status);
+    place(list_, layout.list);
+    place(overview_, layout.overview);
 }
 
 void StorageAnalysis::ApplyModeVisibility() {

@@ -4,10 +4,12 @@
 #include "IconCache.h"
 #include "UITheme.h"
 #include "Util.h"
+#include "ffui/SearchLayout.h"
 
 #include <algorithm>
 #include <commctrl.h>
 #include <commoncontrols.h>
+#include <cmath>
 #include <cwctype>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -223,13 +225,14 @@ void SearchPanel::SetDefaultScope(const std::wstring& scopeName) {
     SendMessageW(scope_, CB_SETCURSEL, index, 0);
 }
 
-void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActive) {
+void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActive,
+                               const ShellLayoutRect& surfaceRect) {
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
     for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_SHOW);
     UpdateScopeAvailability(false);
-    Reposition();
+    Reposition(surfaceRect);
     SetFocus(GetWindow(query_, GW_CHILD));
 }
 
@@ -258,19 +261,29 @@ void SearchPanel::SetDarkTheme(bool dark) {
     lastSearchDpi_ = -1.0f;
 }
 
-void SearchPanel::Reposition() {
+void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
     if (!visible_) return;
-    RECT client{}; GetClientRect(owner_, &client);
-    const int width = static_cast<int>(client.right);
-    const int height = static_cast<int>(client.bottom);
-    const int top = Scaled(static_cast<int>(ffui::UiMetrics::kChromeHeight)); // below navigation chrome
-    SetWindowPos(query_, HWND_TOP, Scaled(12), top, (std::max)(Scaled(180), width - Scaled(700)), Scaled(300), SWP_SHOWWINDOW);
-    SetWindowPos(scope_, HWND_TOP, (std::max)(Scaled(194), width - Scaled(508)), top, Scaled(210), Scaled(300), SWP_SHOWWINDOW);
-    SetWindowPos(sort_, HWND_TOP, (std::max)(Scaled(406), width - Scaled(296)), top, Scaled(126), Scaled(300), SWP_SHOWWINDOW);
-    SetWindowPos(sortDirection_, HWND_TOP, width - Scaled(158), top, Scaled(146), Scaled(26), SWP_SHOWWINDOW);
-    SetWindowPos(status_, HWND_TOP, Scaled(12), top + Scaled(32), width - Scaled(150), Scaled(24), SWP_SHOWWINDOW);
-    SetWindowPos(clearHistory_, HWND_TOP, width - Scaled(126), top + Scaled(28), Scaled(114), Scaled(26), SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, Scaled(12), top + Scaled(60), width - Scaled(24), (std::max)(Scaled(80), height - top - Scaled(72)), SWP_SHOWWINDOW);
+    const auto scaledDip = [](float dip) {
+        return static_cast<int>(std::lround(ffui::UiScale(dip)));
+    };
+    const auto layout = ffui::ComputeSearchSurfaceLayout(surfaceRect);
+    const auto place = [scaledDip](HWND control, const ShellLayoutRect& rect, int heightDip) {
+        const int left = scaledDip(rect.left);
+        const int top = scaledDip(rect.top);
+        const int right = scaledDip(rect.right);
+        SetWindowPos(control, HWND_TOP, left, top, (std::max)(0, right - left),
+                     Scaled(heightDip), SWP_SHOWWINDOW);
+    };
+    // Combo-box parents keep their existing 300-DIP dropdown height; the
+    // closed control rectangle in SearchSurfaceLayout supplies the shared
+    // horizontal/vertical placement.
+    place(query_, layout.query, 300);
+    place(scope_, layout.scope, 300);
+    place(sort_, layout.sort, 300);
+    place(sortDirection_, layout.direction, 26);
+    place(status_, layout.status, 24);
+    place(clearHistory_, layout.clearHistory, 26);
+    place(list_, layout.list, static_cast<int>(layout.list.Height()));
 }
 
 bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {

@@ -6,6 +6,7 @@
 #include <map>
 
 #include "ffui/DetailsLayout.h"
+#include "ffui/ShellLayout.h"
 #include "ColumnView.h"
 #include "CommandPalette.h"
 #include "CommandSystem.h"
@@ -68,7 +69,7 @@ private:
     void SaveActiveTabViewState();
     void RestoreActiveTabViewState();
     float NavigationViewportWidth() const;
-    ffui::DetailsLayout CurrentDetailsLayout() const;
+    ffui::MainShellLayout CurrentShellLayout() const;
 
     HWND hwnd_ = nullptr;
     Renderer renderer_;

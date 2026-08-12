@@ -10,6 +10,7 @@
 
 #include "CategoryEngine.h"
 #include "EngineClient.h"
+#include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
 #include "ffui/StoragePercentage.h"
 #include "ffprotocol/SnapshotFormat.h"
@@ -32,10 +33,11 @@ public:
     // Applies persisted category definitions to the category view and its
     // filter. Safe before or after controls are created.
     void SetCategories(const std::vector<std::pair<std::wstring, std::wstring>>& categories);
-    void ShowAndFocus(const std::wstring& currentPath, bool engineActive);
+    void ShowAndFocus(const std::wstring& currentPath, bool engineActive,
+                      const ShellLayoutRect& surfaceRect);
     void Hide();
     bool Visible() const { return visible_; }
-    void Reposition();
+    void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);

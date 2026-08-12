@@ -59,7 +59,6 @@ constexpr UINT WM_APP_FORGET_VOLUME_RESULT = WM_APP + 5;
 constexpr UINT WM_APP_FOLDER_AGGREGATE = WM_APP + 9;
 constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
 constexpr UINT kContextCommandBase = 20000;
-constexpr int kNavigationChromeHeight = 72;
 constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
 constexpr UINT_PTR kUiScrollAnimTimer = 0xF1F2;
 
@@ -217,19 +216,27 @@ void WindowShell::RestoreActiveTabViewState() {
 }
 
 float WindowShell::NavigationViewportWidth() const {
-    return CurrentDetailsLayout().availableColumnWidthDip;
+    return CurrentShellLayout().details.availableColumnWidthDip;
 }
 
-ffui::DetailsLayout WindowShell::CurrentDetailsLayout() const {
+ffui::MainShellLayout WindowShell::CurrentShellLayout() const {
     RECT client{};
     GetClientRect(hwnd_, &client);
     const float scale = CurrentDpiScale();
-    const float sceneWidthPixels = static_cast<float>(client.right - client.left) -
-                                   static_cast<float>(navigationSidebar_.Width()) * scale;
-    const float sceneHeightPixels = static_cast<float>(client.bottom - client.top) -
-                                    static_cast<float>(kNavigationChromeHeight) * scale;
-    return ffui::ComputeDetailsLayout(sceneWidthPixels, sceneHeightPixels, detailsPaneVisible_, scale,
-                                      columnView_.IsDualPane());
+    // Search and Storage are alternate workspace surfaces.  They replace the
+    // browse/details board, so their native controls and treemap receive the
+    // full post-navigation content rect rather than reserving a stale details
+    // pane underneath them.
+    const bool reserveDetails = detailsPaneVisible_ &&
+        !searchPanel_.Visible() && !storageAnalysis_.Visible();
+    return ffui::ComputeMainShellLayout(
+        static_cast<float>((std::max)(0L, client.right - client.left)),
+        static_cast<float>((std::max)(0L, client.bottom - client.top)),
+        static_cast<float>(navigationSidebar_.Width()),
+        ffui::UiMetrics::kChromeHeight,
+        reserveDetails,
+        scale,
+        columnView_.IsDualPane());
 }
 
 CommandContext WindowShell::CurrentCommandContext() const {
@@ -374,9 +381,14 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"navigation.refresh") {
                 columnView_.RefreshActiveColumn();
             } else if (commandId == L"search.focus") {
-                searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_);
+                storageAnalysis_.Hide();
+                searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_,
+                                           CurrentShellLayout().contentRect);
+                RequestRepaint();
             } else if (commandId == L"storage.analyze") {
-                storageAnalysis_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_);
+                searchPanel_.Hide();
+                storageAnalysis_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_,
+                                              CurrentShellLayout().contentRect);
                 RequestRepaint();
             } else if (commandId == L"app.settings") {
                 DrawMenuBar(hwnd_);
@@ -536,9 +548,13 @@ LRESULT CALLBACK WindowShell::InlineRenameProc(HWND hwnd, UINT message, WPARAM w
 void WindowShell::BeginInlineRename(const std::wstring& path) {
     FinishInlineRename(false);
     inlineRenamePath_ = path;
-    const int x = static_cast<int>(ffui::UiScale(navigationSidebar_.Width() + columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth - scrollOffset_ + 28.0f));
+    const auto shellLayout = CurrentShellLayout();
+    const int x = static_cast<int>(ffui::UiScale(shellLayout.contentRect.left +
+                                                 columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth -
+                                                 scrollOffset_ + 28.0f));
     const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
-    const int y = static_cast<int>(ffui::UiScale(kNavigationChromeHeight + ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight));
+    const int y = static_cast<int>(ffui::UiScale(shellLayout.contentRect.top +
+                                                 ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight));
     inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
                                     WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, Scaled(205), Scaled(24), hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
@@ -660,7 +676,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     }
 
     hwnd_ = CreateWindowExW(
-        0, kWindowClassName, L"FastFiles", WS_OVERLAPPEDWINDOW,
+        0, kWindowClassName, L"FastFiles", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1024, 640,
         nullptr, nullptr, instance, this);
     if (hwnd_ == nullptr) {
@@ -957,7 +973,8 @@ void WindowShell::Render() {
     GetClientRect(hwnd_, &clientRect);
     const float clientWidth = static_cast<float>((std::max)(0L, clientRect.right - clientRect.left));
     const float clientHeight = static_cast<float>((std::max)(0L, clientRect.bottom - clientRect.top));
-    const auto detailsLayout = CurrentDetailsLayout();
+    const auto shellLayout = CurrentShellLayout();
+    const auto& detailsLayout = shellLayout.details;
     D2D1_SIZE_F viewportSize = D2D1::SizeF(
         detailsLayout.availableColumnWidthDip,
         detailsLayout.viewportHeightDip);
@@ -994,15 +1011,22 @@ void WindowShell::Render() {
         columnView_.SetScrollOffset2(scrollAnim2_.Value());
     }
 
-    context->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(navigationSidebar_.Width()), static_cast<float>(kNavigationChromeHeight)));
+    context->SetTransform(D2D1::Matrix3x2F::Translation(shellLayout.contentRect.left,
+                                                        shellLayout.contentRect.top));
     if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
         storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize,
-                                       static_cast<float>(navigationSidebar_.Width()),
-                                       static_cast<float>(kNavigationChromeHeight));
+                                       shellLayout.contentRect.left,
+                                       shellLayout.contentRect.top);
     } else {
         columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
     }
-    RenderDetails(context, detailsLayout);
+    // Search and Storage own the alternate workspace surface, including its
+    // status/control region.  Do not leave the browse Details/status layer
+    // underneath their native children; it would create a stale overlapping
+    // strip at the bottom of their lists.
+    if (!searchPanel_.Visible() && !storageAnalysis_.Visible()) {
+        RenderDetails(context, detailsLayout);
+    }
     context->SetTransform(D2D1::Matrix3x2F::Identity());
 
     // Cross-fade composite: draw the captured previous frame over the freshly
@@ -1315,8 +1339,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             navigationChrome_.Reposition();
             navigationSidebar_.Reposition();
             commandPalette_.Reposition();
-            searchPanel_.Reposition();
-            storageAnalysis_.Reposition();
+            const auto shellLayout = CurrentShellLayout();
+            searchPanel_.Reposition(shellLayout.contentRect);
+            storageAnalysis_.Reposition(shellLayout.contentRect);
             RequestRepaint();
             return 0;
         }
@@ -1326,6 +1351,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                          suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
             renderer_.Resize(static_cast<UINT>(suggested->right - suggested->left), static_cast<UINT>(suggested->bottom - suggested->top));
+            navigationChrome_.Reposition();
+            navigationSidebar_.Reposition();
+            commandPalette_.Reposition();
+            const auto shellLayout = CurrentShellLayout();
+            searchPanel_.Reposition(shellLayout.contentRect);
+            storageAnalysis_.Reposition(shellLayout.contentRect);
             // Type icons are bitmap-resolution-dependent; drop the cached
             // bitmaps so they re-resolve at the new DPI scale on the next paint.
             if (iconCache_) {
@@ -1647,11 +1678,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     return 0;
                 }
             }
+            const auto shellLayout = CurrentShellLayout();
             const float scale = CurrentDpiScale();
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
-                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
-            const float viewportWidth = NavigationViewportWidth();
+                static_cast<float>(GET_X_LPARAM(lParam)) / scale - shellLayout.contentRect.left,
+                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - shellLayout.contentRect.top);
+            const float viewportWidth = shellLayout.details.availableColumnWidthDip;
             if (point.x < 0.0f || point.x >= viewportWidth || point.y < 0.0f) {
                 return 0;
             }
@@ -1710,11 +1742,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             // unchanged) so rows can animate a hover overlay. TME_LEAVE is
             // re-armed so the leave that must cancel the hover is observed.
             if (!inTreemap) {
+                const auto shellLayout = CurrentShellLayout();
                 const float scale = CurrentDpiScale();
                 D2D1_POINT_2F point = D2D1::Point2F(
-                    static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
-                    static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
-                const float viewportWidth = NavigationViewportWidth();
+                    static_cast<float>(GET_X_LPARAM(lParam)) / scale - shellLayout.contentRect.left,
+                    static_cast<float>(GET_Y_LPARAM(lParam)) / scale - shellLayout.contentRect.top);
+                const float viewportWidth = shellLayout.details.availableColumnWidthDip;
                 if (point.x < 0.0f || point.x >= viewportWidth || point.y < 0.0f) {
                     columnView_.OnMouseLeave();
                     return 0;
@@ -1744,11 +1777,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_RBUTTONDOWN: {
+            const auto shellLayout = CurrentShellLayout();
             const float scale = CurrentDpiScale();
             D2D1_POINT_2F point = D2D1::Point2F(
-                static_cast<float>(GET_X_LPARAM(lParam)) / scale - navigationSidebar_.Width(),
-                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - kNavigationChromeHeight);
-            columnView_.OnMouseDown(point, scrollOffset_, NavigationViewportWidth(), false, false);
+                static_cast<float>(GET_X_LPARAM(lParam)) / scale - shellLayout.contentRect.left,
+                static_cast<float>(GET_Y_LPARAM(lParam)) / scale - shellLayout.contentRect.top);
+            columnView_.OnMouseDown(point, scrollOffset_, shellLayout.details.availableColumnWidthDip, false, false);
             navigationWorkspace_.ActivatePane(static_cast<size_t>(columnView_.ActivePane()));
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
@@ -1762,12 +1796,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_MOUSEWHEEL: {
             const short delta = GET_WHEEL_DELTA_WPARAM(wParam);
-            const float viewportWidth = NavigationViewportWidth();
-            RECT client{};
-            GetClientRect(hwnd_, &client);
-            const float viewportHeight = (std::max)(0.0f,
-                static_cast<float>(client.bottom - client.top) / CurrentDpiScale() -
-                static_cast<float>(kNavigationChromeHeight));
+            const auto shellLayout = CurrentShellLayout();
+            const float viewportWidth = shellLayout.details.availableColumnWidthDip;
+            const float viewportHeight = shellLayout.details.viewportHeightDip;
             if ((GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) == 0) {
                 // Normal wheel input scrolls rows. Shift+wheel retains the
                 // Finder-style horizontal column scrolling path below.
@@ -1778,7 +1809,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             POINT pt{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             ScreenToClient(hwnd_, &pt);
             const float effectiveX = static_cast<float>(pt.x) / CurrentDpiScale() -
-                                     static_cast<float>(navigationSidebar_.Width());
+                                     shellLayout.contentRect.left;
             const uint64_t now = GetTickCount64();
 
             if (columnView_.IsDualPane()) {
@@ -1810,10 +1841,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_CONTEXTMENU: {
             POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (point.x == -1 && point.y == -1) {
+                const auto shellLayout = CurrentShellLayout();
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
-                point = {static_cast<LONG>(ffui::UiScale(navigationSidebar_.Width() + column * ColumnView::kColumnWidth - scrollOffset_ + 24.0f)),
-                         static_cast<LONG>(ffui::UiScale(kNavigationChromeHeight + ColumnView::kBadgeHeight + (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight))};
+                point = {static_cast<LONG>(ffui::UiScale(shellLayout.contentRect.left +
+                                                        column * ColumnView::kColumnWidth - scrollOffset_ + 24.0f)),
+                         static_cast<LONG>(ffui::UiScale(shellLayout.contentRect.top +
+                                                        ColumnView::kBadgeHeight +
+                                                        (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight))};
                 ClientToScreen(hwnd_, &point);
             }
             if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {
@@ -1846,12 +1881,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             columnView_.OnKeyDown(static_cast<int>(wParam));
             if (wParam == VK_UP || wParam == VK_DOWN) {
-                RECT client{};
-                GetClientRect(hwnd_, &client);
-                const float viewportHeight = (std::max)(0.0f,
-                    static_cast<float>(client.bottom - client.top) / CurrentDpiScale() -
-                    static_cast<float>(kNavigationChromeHeight));
-                columnView_.EnsureFocusedItemVisible(viewportHeight);
+                columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
             }
             RefreshSelectionPresentation();
             const std::wstring activePath = columnView_.ActivePanePath();

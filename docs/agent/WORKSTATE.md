@@ -1,7 +1,74 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T12:45:00+08:00
-Status: COMPLETE — LOCAL GATES REVALIDATED; EXTERNAL RELEASE GATES OPEN
+Last updated: 2026-08-12T21:42:24+08:00
+Status: READY TO COMMIT — MAIN UI GEOMETRY HARDENING VALIDATED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+
+## Active frontier — main UI geometry hardening (2026-08-12)
+
+- This session temporarily supersedes the prior final-validation frontier with
+  one bounded product slice: establish and harden the main-shell geometry
+  authority. The prior signed/elevated/clean-host/aggregate-backed external
+  blockers remain recorded below and are not being erased or reopened.
+- Repository reconciliation: current checkout is `main` at `c98b223`; the
+  worktree was clean at session start. Older recovery-branch/hash statements in
+  this file are historical and Git/source are authoritative for this session.
+- Final source ownership map: `WindowShell::HandleMessage(WM_SIZE/WM_DPICHANGED)`
+  drives native repositioning; `WindowShell::CurrentShellLayout()` calls
+  `ffui::ComputeMainShellLayout`, whose scene-local DetailsLayout is translated
+  to global client-space rectangles. `WindowShell::Render()` applies the same
+  content origin to Direct2D ColumnView/Treemap and the mouse/rename paths;
+  ColumnView rendering and hit-testing consume the same details-adjusted width.
+- Root cause is now proven in the renderer/child-window seam: the main HWND
+  lacked `WS_CLIPCHILDREN`, while the DirectComposition target was created with
+  `topmost=TRUE`. The native Navigation Chrome, Navigation Sidebar, Search,
+  and Storage HWNDs had correct rectangles but were covered by the opaque
+  composition visual, producing the apparent upper-left dead region and
+  inconsistent edges. A CLI capture with `topmost=TRUE` remained blank even
+  after clipping; the final pair `WS_CLIPCHILDREN` + `topmost=FALSE` exposed
+  the child surfaces in their measured rectangles.
+- Baseline Debug geometry at 96 DPI: client `1008x581`; chrome
+  `{0,0,1008,72}`; sidebar `{0,72,220,581}`; post-navigation content
+  `{220,72,1008,581}`; default visible DetailsLayout scene width `788`,
+  column viewport `{220,72,708,581}`, details pane `{708,72,1008,581}`.
+  The wrong visual layer hid the first 220-DIP sidebar region; it did not
+  represent an intentional extra reservation.
+- The authoritative seam is `ffui::ComputeMainShellLayout` in
+  `src/ui/include/ffui/ShellLayout.h`. WindowShell rendering, hit-testing,
+  rename placement, resize/DPI repositioning, Search, and Storage consume its
+  content/details result. `SearchLayout.h` and `StorageLayout.h` add bounded
+  alternate-surface control arrangements; `tests/ui/test_shell_layout.cpp`
+  covers shell, Search, Storage, details, dual-pane, resize, short/narrow,
+  and 96/120/144/192-DPI DIP invariants.
+- CLI evidence: pre-fix child enumeration measured Search query/list at
+  `{12,72,...}` / `{12,132,...}` over the sidebar; final enumeration measures
+  Search at `{232,72,...}` / `{232,132,996,569}` and Storage at the same
+  post-sidebar origin. Final clipped-shell capture visibly shows Navigation
+  Chrome, Sidebar, and native controls; the topmost-target isolation capture
+  hides them again.
+- Current implementation frontier: review and stage the bounded shell-geometry
+  diff, commit the focused product slice, then reconcile final HEAD and
+  WORKSTATE. Do not begin another UI slice automatically.
+- Validation complete: Debug, Analyze, and Release builds passed; Debug and
+  Release serial CTest passed `48/48`; `verify.ps1 doctor` and
+  `verify.ps1 build` passed; strict OpenSpec validation passed `45/45`.
+  Final CLI runtime launched rebuilt Debug, measured the base/Search/Storage
+  HWNDs, exercised Storage open/close, and shut down with no UI/Engine orphan;
+  the persistent service PID was left untouched. Final CLI captures are
+  `C:\Users\Michael Roy\AppData\Local\Temp\fastfiles-final-base.png` and
+  `fastfiles-final-search.png`.
+- Final CLI stress acceptance additionally resized through
+  `1500x900 -> 1000x700 -> 700x700 -> 1600x900`, verified Search at each
+  resized state (including the compact 700-pixel fallback), then drove the
+  existing command palette with held native key events through Details hidden,
+  Details restored, Dual Pane enabled, and Storage Analysis. The final run
+  closed normally; no new UI/Engine process remained and service PID `21148`
+  remained running. Earlier failed driver attempts were harness-only
+  focus/PowerShell binding mistakes and did not alter source or product state.
+- Directly related shell fixes included: shared shell rectangle authority;
+  sidebar/chrome-aware Search and Storage positioning; bounded narrow Search
+  and Storage arrangements; WM_DPICHANGED child-surface repositioning; and
+  suppression of stale browse Details/status painting under alternate surfaces.
+  No unrelated subsystem was changed.
 
 ## Session continuation reconciliation (2026-08-12)
 
