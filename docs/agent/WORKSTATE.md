@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-12T21:48:22+08:00
-Status: READY TO COMMIT SLICE 1 — BATCH DESTINATION RESERVATION; MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
+Last updated: 2026-08-12T21:49:38+08:00
+Status: LOCAL HARDENING CAMPAIGN ACTIVE — SLICE 1 COMMITTED; MAIN UI GEOMETRY COMMITTED; PRIOR EXTERNAL RELEASE BLOCKERS PRESERVED
 
 ## Active frontier — main UI geometry hardening (2026-08-12)
 
@@ -91,10 +91,10 @@ Status: READY TO COMMIT SLICE 1 — BATCH DESTINATION RESERVATION; MAIN UI GEOME
 
 ## Overnight campaign NEXT EXACT ACTION
 
-Slice 1 is implemented and focused Debug validation is green. Run the
-corresponding Analyze target and inspect the staged diff, then commit the
-batch-destination fix plus its regression test. After the commit, continue
-with exactly one new Priority A/B triage frontier.
+Slice 1 is committed as `a8b236d` (`Reserve duplicate transfer destinations`).
+Begin exactly one new Priority A/B triage frontier; do not reopen the
+completed transfer-planner slice without new evidence. Run the final full
+validation only after the remaining local hardening slices are complete.
 
 ## Overnight slice 1 — reserve destinations within one transfer batch
 
@@ -114,8 +114,9 @@ with exactly one new Priority A/B triage frontier.
   pre-fix failure; Debug `fffileoperations_e2e_tests` passed, including copy,
   move, rename, recycle/restore, conflict, cancellation, vanished/locked
   sources, permission failure, and link operations.
-- Pending for this slice: Analyze build, staged-diff review, commit, then full
-  validation at the final campaign gate.
+- Analyze Debug targets passed with no warning/error output; the focused Debug
+  policy and end-to-end tests passed 2/2. Final full Debug/Analyze/Release
+  validation remains a campaign-end gate, not a reason to reopen this slice.
 
 ## Session continuation reconciliation (2026-08-12)
 
