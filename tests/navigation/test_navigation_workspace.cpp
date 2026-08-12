@@ -125,6 +125,21 @@ void TestWorkspacePersistenceFallback() {
           loaded.sidebarCollapsed && loaded.bookmarksCollapsed && loaded.lastLocation == L"C:\\",
           "workspace state persists bookmarks, location, and sidebar state");
 
+    const std::wstring unicodePath = L"C:\\日本語\\é\\Ω";
+    const std::wstring unicodeName = L"旅行 📁";
+    workspace.Navigate(unicodePath);
+    workspace.State().bookmarks = {{unicodePath, unicodeName}};
+    workspace.State().lastLocation = unicodePath;
+    workspace.State().recentlyClosedTabs = {unicodePath};
+    workspace.MarkStateDirty();
+    Check(workspace.FlushState(), "workspace state accepts Unicode paths and labels");
+    WorkspaceState unicodeLoaded{};
+    Check(NavigationWorkspace::LoadState(unicodeLoaded) && unicodeLoaded.lastLocation == unicodePath &&
+          unicodeLoaded.bookmarks.size() == 1 && unicodeLoaded.bookmarks.front().path == unicodePath &&
+          unicodeLoaded.bookmarks.front().displayName == unicodeName &&
+          unicodeLoaded.recentlyClosedTabs.size() == 1 && unicodeLoaded.recentlyClosedTabs.front() == unicodePath,
+          "workspace state round-trips Unicode paths and labels");
+
     const auto stateFile = localAppData / L"FastFiles" / L"workspace-state.json";
     {
         std::wofstream corrupt(stateFile, std::ios::trunc);
@@ -132,6 +147,16 @@ void TestWorkspacePersistenceFallback() {
     }
     NavigationWorkspace::LoadState(loaded);
     Check(loaded.bookmarks.empty(), "corrupt workspace state falls back to empty state");
+
+    {
+        std::ofstream invalidUtf8(stateFile, std::ios::binary | std::ios::trunc);
+        invalidUtf8 << "{\"version\": 1, \"lastLocation\": \"";
+        invalidUtf8.put(static_cast<char>(0xff));
+        invalidUtf8 << "\"}";
+    }
+    NavigationWorkspace::LoadState(loaded);
+    Check(loaded.bookmarks.empty() && loaded.lastLocation.empty(),
+          "invalid UTF-8 workspace state falls back to empty state");
 
     {
         std::wofstream unsupported(stateFile, std::ios::trunc);

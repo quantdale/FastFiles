@@ -4,6 +4,7 @@
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <shlobj.h>
 #include <windows.h>
@@ -12,6 +13,32 @@ namespace ffui {
 namespace {
 
 constexpr size_t kMaxRecentlyClosedTabs = 16;
+
+std::optional<std::wstring> Utf8ToWide(const std::string& value) {
+    if (value.empty()) return std::wstring{};
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                           static_cast<int>(value.size()), nullptr, 0);
+    if (length <= 0) return std::nullopt;
+    std::wstring result(static_cast<size_t>(length), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                            static_cast<int>(value.size()), result.data(), length) <= 0) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+std::optional<std::string> WideToUtf8(const std::wstring& value) {
+    if (value.empty()) return std::string{};
+    const int length = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                                           static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+    if (length <= 0) return std::nullopt;
+    std::string result(static_cast<size_t>(length), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                            static_cast<int>(value.size()), result.data(), length, nullptr, nullptr) <= 0) {
+        return std::nullopt;
+    }
+    return result;
+}
 
 bool IsAbsolutePath(const std::wstring& path) {
     if (path.starts_with(L"\\\\.\\")) {
@@ -399,11 +426,13 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     state = {};
     const std::wstring file = StateFilePath();
     if (file.empty()) return false;
-    std::wifstream input(file);
+    std::ifstream input(file, std::ios::binary);
     if (!input) return true;
-    std::wstringstream buffer;
-    buffer << input.rdbuf();
-    const std::wstring json = buffer.str();
+    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    if (input.bad()) return true;
+    const auto decoded = Utf8ToWide(bytes);
+    if (!decoded) return true;
+    const std::wstring& json = *decoded;
     if (!HasSupportedVersion(json)) return true;
     state.sidebarCollapsed = ReadBoolean(json, L"sidebarCollapsed");
     state.drivesCollapsed = ReadBoolean(json, L"drivesCollapsed");
@@ -446,9 +475,8 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
     std::filesystem::create_directories(std::filesystem::path(file).parent_path(), error);
     if (error) return false;
     const std::wstring temporary = file + L".tmp";
-    std::wofstream output(temporary, std::ios::trunc);
-    if (!output) return false;
-    output << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
+    std::wostringstream document;
+    document << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
             << L"\",\n  \"sidebarCollapsed\": "
             << (state.sidebarCollapsed ? L"true" : L"false") << L",\n  \"drivesCollapsed\": "
             << (state.drivesCollapsed ? L"true" : L"false") << L",\n  \"knownFoldersCollapsed\": "
@@ -456,14 +484,19 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
             << (state.bookmarksCollapsed ? L"true" : L"false") << L",\n  \"bookmarks\": [";
     for (size_t i = 0; i < state.bookmarks.size(); ++i) {
         const auto& bookmark = state.bookmarks[i];
-        output << (i ? L"," : L"") << L"\n    {\"path\": \"" << EscapeJson(bookmark.path)
+        document << (i ? L"," : L"") << L"\n    {\"path\": \"" << EscapeJson(bookmark.path)
                 << L"\", \"displayName\": \"" << EscapeJson(bookmark.displayName) << L"\"}";
     }
-    output << L"\n  ],\n  \"recentlyClosedTabs\": [";
+    document << L"\n  ],\n  \"recentlyClosedTabs\": [";
     for (size_t i = 0; i < state.recentlyClosedTabs.size(); ++i) {
-        output << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentlyClosedTabs[i]) << L"\"";
+        document << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentlyClosedTabs[i]) << L"\"";
     }
-    output << L"]\n}\n";
+    document << L"]\n}\n";
+    const auto encoded = WideToUtf8(document.str());
+    if (!encoded) return false;
+    std::ofstream output(temporary, std::ios::trunc | std::ios::binary);
+    if (!output) return false;
+    output.write(encoded->data(), static_cast<std::streamsize>(encoded->size()));
     output.close();
     if (!output) {
         DeleteFileW(temporary.c_str());
