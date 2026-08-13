@@ -30,7 +30,6 @@
 #include <string>
 #include <vector>
 
-#include "ffsetup/Identifiers.h"
 #include "ffsetup/SecurityDescriptors.h"
 #include "../TestSupport.h"
 
@@ -339,35 +338,32 @@ void TestCurrentUserPipeDescriptor() {
 }  // namespace
 
 int main() {
-    // The installed names are preferred so a machine with FastFiles already
-    // installed also exercises the same identity values used in production.
-    // Clean hosts use stable well-known SIDs and still run every ACL check.
-    const auto clientSid = ffsetup::LookupAccountSid(ffsetup::kAuthorizedClientGroupName);
+    // The installed names are deliberately not consulted here. A unit test
+    // must not change behavior based on whether a previous installer run or
+    // an unrelated local account happens to exist on the host. The explicit-
+    // SID builder seams below are the same production ACL construction code;
+    // stable well-known SIDs make every hosted run exercise every assertion.
     const auto clientFixture = WellKnownSid(WinBuiltinUsersSid);
-    const auto serviceSid = ffsetup::LookupAccountSid(ffsetup::kServiceVirtualAccountName);
     const auto serviceFixture = WellKnownSid(WinLocalServiceSid);
-    PSID clientGroup = clientSid ? clientSid->Get() : (clientFixture ? clientFixture->Get() : nullptr);
-    PSID serviceAccount = serviceSid ? serviceSid->Get() : (serviceFixture ? serviceFixture->Get() : nullptr);
+    PSID clientGroup = clientFixture ? clientFixture->Get() : nullptr;
+    PSID serviceAccount = serviceFixture ? serviceFixture->Get() : nullptr;
     Check(clientGroup != nullptr, "client-group fixture SID is available");
     Check(serviceAccount != nullptr, "service-account fixture SID is available");
 
-    if (!clientSid.has_value()) {
-        std::fprintf(stderr,
-                     "INFO: local group '%ls' is absent; using WinBuiltinUsersSid as a deterministic ACL fixture\n",
-                     ffsetup::kAuthorizedClientGroupName);
-    }
-    if (!serviceSid.has_value()) {
-        std::fprintf(stderr,
-                     "INFO: service account '%ls' is absent; using WinLocalServiceSid as a deterministic ACL fixture\n",
-                     ffsetup::kServiceVirtualAccountName);
-    }
+    std::fprintf(stderr,
+                 "INFO: security-descriptor test uses WinBuiltinUsersSid and WinLocalServiceSid fixtures\n");
 
     std::wstring clientSidString;
     if (clientGroup != nullptr) {
         const auto sidString = SidToString(clientGroup);
         Check(sidString.has_value(), "client group SID converts to a string");
         if (sidString.has_value()) {
-            clientSidString = *sidString;
+            Check(*sidString == L"S-1-5-32-545",
+                  "client group fixture is the expected well-known Users SID");
+            // ConvertSecurityDescriptorToStringSecurityDescriptorW emits
+            // WinBuiltinUsersSid using its canonical SDDL alias (BU), not
+            // the expanded SID text returned by ConvertSidToStringSidW.
+            clientSidString = L"BU";
         }
     }
 
