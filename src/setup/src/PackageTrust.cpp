@@ -160,7 +160,7 @@ std::optional<Sha256Digest> HashHandle(HANDLE handle) noexcept {
         if (!SetFilePointerEx(handle, zero, nullptr, FILE_BEGIN)) {
             break;
         }
-        std::array<uint8_t, kIoBufferBytes> buffer{};
+        std::vector<uint8_t> buffer(kIoBufferBytes);
         bool readSucceeded = true;
         for (;;) {
             DWORD bytesRead = 0;
@@ -256,8 +256,11 @@ std::optional<RawInspection> InspectPath(const std::wstring& path,
                                           const std::vector<Thumbprint>& approvedSigners,
                                           const PackageSignatureVerifier& verifier) noexcept {
     HANDLE handle = OpenRegularFile(path);
-    if (handle == INVALID_HANDLE_VALUE || !IsRegularNonReparseFile(handle)) {
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+    if (!IsRegularNonReparseFile(handle)) {
+        CloseHandle(handle);
         return std::nullopt;
     }
     const auto identity = GetIdentity(handle);
@@ -421,8 +424,11 @@ bool ValidateTrustedPackageSet(const std::wstring& packageRoot, const PackageMan
 
 std::optional<Sha256Digest> ComputeSha256FileAtPath(const std::wstring& path) noexcept {
     HANDLE handle = OpenRegularFile(path);
-    if (handle == INVALID_HANDLE_VALUE || !IsRegularNonReparseFile(handle)) {
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return std::nullopt;
+    }
+    if (!IsRegularNonReparseFile(handle)) {
+        CloseHandle(handle);
         return std::nullopt;
     }
     const auto digest = HashHandle(handle);
@@ -489,7 +495,7 @@ bool CopyTrustedPackageFile(TrustedPackageFile& source, const std::wstring& dest
     do {
         LARGE_INTEGER zero{};
         if (!SetFilePointerEx(source.Handle(), zero, nullptr, FILE_BEGIN)) break;
-        std::array<uint8_t, kIoBufferBytes> buffer{};
+        std::vector<uint8_t> buffer(kIoBufferBytes);
         bool readSucceeded = true;
         for (;;) {
             DWORD bytesRead = 0;
