@@ -1,7 +1,7 @@
 # FastFiles Audit Remediation Workstate
 
-Last updated: 2026-08-13T06:45:00+08:00
-Status: IMPLEMENTED — FF-AUDIT-10 release metadata slice; commit pending
+Last updated: 2026-08-13T06:55:00+08:00
+Status: IMPLEMENTED — FF-AUDIT-10 committed; full validation matrix pending
 
 ## Mission
 
@@ -13,7 +13,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `802d7e2` (`docs: checkpoint overlapped IPC remediation`; latest committed checkpoint)
+- HEAD: `054128b` (`build: embed canonical Windows version metadata`; FF-AUDIT-10 slice committed)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -35,7 +35,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IMPLEMENTED | UI client/server now use overlapped reads/writes; UI listener retains accepted threads and cancellation duplicates; product polling path removed | Debug framing/UI lifecycle PASS 2/2; Analyze focused CTest PASS 3/3; `ffdoc_drift_tests` PASS 1/1; Service/Engine/UI targets build | `f262219` |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IMPLEMENTED | Removed the `PrivilegedConnection` handshake helper thread and `CancelSynchronousIo` join; shared framing uses event-backed overlapped operations, absolute deadlines, bounded cancellation collection, and bounded quarantine | Framing tests cover no peer, partial-frame, peer-death, and stalled-write cases; `ffengine_volume_session_manager_tests` PASS; Analyze focused CTest PASS 3/3 | `f262219` |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
-| FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | IMPLEMENTED | Single repository `VERSION` source feeds generated C++ metadata and VERSIONINFO resources for all four product executables plus `fftest`; release-kit/readiness paths validate final metadata | Debug resource build PASS; direct `FileVersionInfo` 5/5; release-tooling 31/31; setup/drift 3/3 | pending commit |
+| FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | VALIDATED | Single repository `VERSION` source feeds generated C++ metadata and VERSIONINFO resources for all four product executables plus `fftest`; release-kit/readiness paths validate final metadata | Debug resource build PASS; direct `FileVersionInfo` 5/5; release-tooling 31/31; setup/drift 3/3; readiness version metadata PASS | `054128b` |
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
 | GAP-B | HIGH | Installer regression coverage | IMPLEMENTED | First-class setup package-trust and installer source-policy targets cover manifest, signer, hash, identity, reparse, staging, promotion, rollback candidates, and relay removal | Focused setup CTest PASS, 4/4 | — |
 | GAP-C | MEDIUM | ASAN not continuously gated | IMPLEMENTED | Added a CI ASAN protocol-fuzz job with VS developer-runtime activation; exclusions are limited to the applicable core target | Local ASAN fuzz pass; CI execution remains external | — |
@@ -246,6 +246,7 @@ UI external-validation notes.
     FastFilesSetup/fftest, and release-tooling checks for product/file,
     identity, and descriptive metadata. Debug/release-tooling validation now
     passes; the focused commit and optimized/final matrix remain.
+18. Committed the version metadata/release validation slice as `054128b`.
 
 ## Validation Evidence
 
@@ -259,6 +260,10 @@ UI external-validation notes.
   `Test-ReleaseTooling.ps1` PASS 31/31; focused setup plus drift CTest PASS
   3/3. `New-ReleaseKit.ps1` generated a kit with version metadata PASS and
   remains `productionReady=false` because signing is still external.
+- `ReleaseReadiness.ps1 -Mode report` against rebuilt Debug artifacts reports
+  artifact integrity/version metadata PASS and expected overall exit 2
+  (`BLOCKED_EXTERNAL`) for unsigned artifacts and the contaminated/non-elevated
+  host; it does not turn external signing into a local PASS.
 
 - Initial `git status --short`: PASS (clean).
 - Initial branch/HEAD/origin checks: PASS; all point to `main`/`403f849`.
@@ -467,7 +472,7 @@ UI external-validation notes.
   verifier validation remains later.
 - IPC slice commit: `f262219`, `refactor: use bounded overlapped pipe I/O`.
 - Version-resource slice is implemented and focused-validated; its commit SHA
-  must be recorded immediately after the targeted commit.
+  is `054128b` (`build: embed canonical Windows version metadata`).
 
 ## External Blockers
 
@@ -515,5 +520,5 @@ UI external-validation notes.
 
 ## Next Exact Action
 
-Commit the focused FF-AUDIT-10 version-resource/release-tooling slice after
-rechecking that only remediation-owned files are staged.
+Run the post-commit Debug full CTest gate, then continue through release-test,
+Analyze, ASAN, verifier, OpenSpec, and final deep re-audit validation.
