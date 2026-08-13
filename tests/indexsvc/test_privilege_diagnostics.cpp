@@ -2,6 +2,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -74,8 +75,17 @@ int main() {
     // path is a per-machine temp file so this is side-effect-free to tests.
     const std::wstring logPath = ffprotocol::DiagnosticLogPath();
     std::error_code fileError;
-    const ULONGLONG logBytesBefore = logPath.empty()
-        ? 0 : static_cast<ULONGLONG>(std::filesystem::file_size(std::filesystem::path(logPath), fileError));
+    ULONGLONG logBytesBefore = 0;
+    if (!logPath.empty()) {
+        const auto existingSize = std::filesystem::file_size(std::filesystem::path(logPath), fileError);
+        // A clean hosted runner has no diagnostics file yet. Treat that as
+        // an empty append point; converting file_size's error sentinel to an
+        // unsigned offset would seek past the new record and make this test
+        // depend on a previous test run.
+        if (!fileError) {
+            logBytesBefore = static_cast<ULONGLONG>(existingSize);
+        }
+    }
     LogStartupTokenDiagnostic();
     Check(!logPath.empty(), "startup-token: diagnostic log path resolves");
 
@@ -84,12 +94,19 @@ int main() {
     // explicit `privilegeEnabled=0` as a failed fresh token (task 2.3).
     // Mirror that exact from-offset scan and assert the field contract so a
     // serializer/parser drift breaks a unit test rather than the installer.
-    {
+    if (!logPath.empty()) {
+        std::error_code afterError;
+        const auto logBytesAfter = std::filesystem::file_size(std::filesystem::path(logPath), afterError);
+        Check(!afterError && static_cast<ULONGLONG>(logBytesAfter) > logBytesBefore,
+              "startup-token: diagnostic append creates fresh bytes");
+
         bool sawStartupToken = false;
         bool hasAccountIdentity = false;
         bool hasPrivilegeState = false;
         std::wifstream log(logPath, std::ios::binary);
-        log.seekg(static_cast<std::streamoff>(logBytesBefore));
+        if (logBytesBefore <= static_cast<ULONGLONG>(std::numeric_limits<std::streamoff>::max())) {
+            log.seekg(static_cast<std::streamoff>(logBytesBefore));
+        }
         std::wstring line;
         while (std::getline(log, line)) {
             if (line.find(L"state=startup-token") != std::wstring::npos) {

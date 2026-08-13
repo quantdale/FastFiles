@@ -121,11 +121,10 @@ std::optional<OwnedSecurityDescriptor> BuildServiceObjectSecurityDescriptor(PSID
     return BuildFromExplicitAccess(entries, 3);
 }
 
-std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexcept {
+std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptorForSid(PSID serviceSid) noexcept {
     auto systemSid = GetLocalSystemSid();
     auto adminSid = GetBuiltinAdministratorsSid();
-    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
-    if (!systemSid || !adminSid || !serviceSid) {
+    if (!systemSid || !adminSid || serviceSid == nullptr) {
         return std::nullopt;
     }
 
@@ -133,9 +132,16 @@ std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexce
     EXPLICIT_ACCESS_W entries[3] = {
         MakeGrant(systemSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
         MakeGrant(adminSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
-        MakeGrant(serviceSid->Get(), FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
+        MakeGrant(serviceSid, FILE_ALL_ACCESS, GRANT_ACCESS, inherit),
     };
     return BuildFromExplicitAccess(entries, 3);
+}
+
+std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexcept {
+    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
+    return serviceSid
+        ? BuildAdminOnlySecurityDescriptorForSid(serviceSid->Get())
+        : std::nullopt;
 }
 
 std::optional<OwnedSecurityDescriptor> BuildCurrentUserPipeSecurityDescriptor() noexcept {
@@ -165,11 +171,11 @@ std::optional<OwnedSecurityDescriptor> BuildCurrentUserPipeSecurityDescriptor() 
     return BuildFromExplicitAccess(entries, 2);
 }
 
-std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID clientGroupSid) noexcept {
+std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptorForSids(
+    PSID clientGroupSid, PSID serviceSid) noexcept {
     auto systemSid = GetLocalSystemSid();
     auto adminSid = GetBuiltinAdministratorsSid();
-    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
-    if (!systemSid || !adminSid || !serviceSid || clientGroupSid == nullptr) {
+    if (!systemSid || !adminSid || serviceSid == nullptr || clientGroupSid == nullptr) {
         return std::nullopt;
     }
 
@@ -180,13 +186,20 @@ std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID cl
         // SCM creates the process under this virtual account, which must
         // be able to load the service image and its adjacent DLLs. It does
         // not receive write access to the protected install directory.
-        MakeGrant(serviceSid->Get(), GENERIC_READ | GENERIC_EXECUTE, GRANT_ACCESS, inherit),
+        MakeGrant(serviceSid, GENERIC_READ | GENERIC_EXECUTE, GRANT_ACCESS, inherit),
         // Admin/TrustedInstaller-write-only: the client group may read and
         // execute the installed binaries but never write into the
         // directory (design.md D4 DLL/binary hardening).
         MakeGrant(clientGroupSid, GENERIC_READ | GENERIC_EXECUTE, GRANT_ACCESS, inherit),
     };
     return BuildFromExplicitAccess(entries, 4);
+}
+
+std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID clientGroupSid) noexcept {
+    auto serviceSid = LookupAccountSid(kServiceVirtualAccountName);
+    return serviceSid
+        ? BuildInstallDirSecurityDescriptorForSids(clientGroupSid, serviceSid->Get())
+        : std::nullopt;
 }
 
 } // namespace ffsetup

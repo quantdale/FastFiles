@@ -60,11 +60,24 @@ std::optional<OwnedSecurityDescriptor> BuildServiceObjectSecurityDescriptor(PSID
 // install-dir ACL).
 std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptor(PSID clientGroupSid) noexcept;
 
+// Constructs the install-directory descriptor from already resolved SIDs.
+// The production wrapper resolves the installed service account before
+// calling this function; deterministic tests can supply stable well-known
+// fixture SIDs without changing production account resolution.
+std::optional<OwnedSecurityDescriptor> BuildInstallDirSecurityDescriptorForSids(
+    PSID clientGroupSid, PSID serviceSid) noexcept;
+
 // Security descriptor granting full control only to SYSTEM, Administrators,
 // and the service's own virtual account -- never the authorized client
 // group. Used for the service's log and crash-dump directories (task 3.12),
 // since those can contain sensitive data from a SeBackupPrivilege process.
 std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptor() noexcept;
+
+// Constructs the same admin-only descriptor from an already resolved service
+// SID. The production wrapper above resolves the installed virtual-account
+// name; this seam also lets tests exercise the exact ACL on a clean host that
+// has not installed the service yet.
+std::optional<OwnedSecurityDescriptor> BuildAdminOnlySecurityDescriptorForSid(PSID serviceSid) noexcept;
 
 // Security descriptor for FastFilesEngine's same-privilege, UI-facing pipe
 // (design.md D3): read+write for SYSTEM and the current process's own

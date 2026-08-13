@@ -15,11 +15,11 @@
 //   (d) the install dir grants the client group read+execute, never write;
 //   (e) the admin-only dirs never contain the client group SID.
 //
-// The client group is created at install time, so it may not exist on a dev
-// machine. The group-dependent builders all return std::nullopt for a null
-// client-group SID, so those assertions are skipped with a printed note when
-// LookupAccountSid cannot resolve the group (mirrors the skip pattern in
-// tests/engine/test_authenticode_verification.cpp).
+// The client group and service virtual account are created at install time,
+// so neither is guaranteed to exist on a clean hosted runner. The test uses
+// stable well-known SID fixtures when those accounts are absent, while still
+// exercising the same production ACL construction functions. This keeps the
+// security assertions real instead of silently skipping the ACL surface.
 
 #include <windows.h>
 #include <sddl.h>
@@ -59,6 +59,16 @@ std::optional<std::wstring> SidToString(PSID sid) {
     std::wstring result(text);
     LocalFree(text);
     return result;
+}
+
+std::optional<ffsetup::OwnedSid> WellKnownSid(WELL_KNOWN_SID_TYPE type) {
+    std::vector<uint8_t> buffer(SECURITY_MAX_SID_SIZE);
+    DWORD size = static_cast<DWORD>(buffer.size());
+    if (!CreateWellKnownSid(type, nullptr, buffer.data(), &size)) {
+        return std::nullopt;
+    }
+    buffer.resize(size);
+    return ffsetup::OwnedSid(std::move(buffer));
 }
 
 // Splits an SDDL string into its parenthesized ACE segments, e.g.
@@ -260,8 +270,9 @@ void TestServiceObjectDescriptor(PSID clientGroupSid, const std::wstring& client
           "service object: client group ACE grants no SERVICE_ALL_ACCESS (SD)");
 }
 
-void TestInstallDirDescriptor(PSID clientGroupSid, const std::wstring& clientSidString) {
-    const auto sd = ffsetup::BuildInstallDirSecurityDescriptor(clientGroupSid);
+void TestInstallDirDescriptor(PSID clientGroupSid, PSID serviceSid,
+                              const std::wstring& clientSidString) {
+    const auto sd = ffsetup::BuildInstallDirSecurityDescriptorForSids(clientGroupSid, serviceSid);
     Check(sd.has_value(), "install dir: BuildInstallDirSecurityDescriptor succeeds");
     if (!sd.has_value()) {
         return;
@@ -290,8 +301,8 @@ void TestInstallDirDescriptor(PSID clientGroupSid, const std::wstring& clientSid
     }
 }
 
-void TestAdminOnlyDescriptor(const std::wstring& clientSidString) {
-    const auto sd = ffsetup::BuildAdminOnlySecurityDescriptor();
+void TestAdminOnlyDescriptor(PSID serviceSid, const std::wstring& clientSidString) {
+    const auto sd = ffsetup::BuildAdminOnlySecurityDescriptorForSid(serviceSid);
     Check(sd.has_value(), "admin-only: BuildAdminOnlySecurityDescriptor succeeds");
     if (!sd.has_value()) {
         return;
@@ -328,31 +339,46 @@ void TestCurrentUserPipeDescriptor() {
 }  // namespace
 
 int main() {
-    // The client group (FastFilesUsers) is created at install time, so it may
-    // not exist on a dev machine. The group-dependent builders return
-    // std::nullopt when handed a null SID, so those assertions are skipped
-    // with a printed note when the group cannot be resolved.
+    // The installed names are preferred so a machine with FastFiles already
+    // installed also exercises the same identity values used in production.
+    // Clean hosts use stable well-known SIDs and still run every ACL check.
     const auto clientSid = ffsetup::LookupAccountSid(ffsetup::kAuthorizedClientGroupName);
-    std::wstring clientSidString;
+    const auto clientFixture = WellKnownSid(WinBuiltinUsersSid);
+    const auto serviceSid = ffsetup::LookupAccountSid(ffsetup::kServiceVirtualAccountName);
+    const auto serviceFixture = WellKnownSid(WinLocalServiceSid);
+    PSID clientGroup = clientSid ? clientSid->Get() : (clientFixture ? clientFixture->Get() : nullptr);
+    PSID serviceAccount = serviceSid ? serviceSid->Get() : (serviceFixture ? serviceFixture->Get() : nullptr);
+    Check(clientGroup != nullptr, "client-group fixture SID is available");
+    Check(serviceAccount != nullptr, "service-account fixture SID is available");
+
     if (!clientSid.has_value()) {
         std::fprintf(stderr,
-                     "SKIP: local group '%ls' not resolvable on this host; "
-                     "skipping the pipe/service-object/install-dir client-group assertions\n",
+                     "INFO: local group '%ls' is absent; using WinBuiltinUsersSid as a deterministic ACL fixture\n",
                      ffsetup::kAuthorizedClientGroupName);
-    } else {
-        const auto sidString = SidToString(clientSid->Get());
+    }
+    if (!serviceSid.has_value()) {
+        std::fprintf(stderr,
+                     "INFO: service account '%ls' is absent; using WinLocalServiceSid as a deterministic ACL fixture\n",
+                     ffsetup::kServiceVirtualAccountName);
+    }
+
+    std::wstring clientSidString;
+    if (clientGroup != nullptr) {
+        const auto sidString = SidToString(clientGroup);
         Check(sidString.has_value(), "client group SID converts to a string");
         if (sidString.has_value()) {
             clientSidString = *sidString;
         }
     }
 
-    TestAdminOnlyDescriptor(clientSidString);
+    if (serviceAccount != nullptr) {
+        TestAdminOnlyDescriptor(serviceAccount, clientSidString);
+    }
     TestCurrentUserPipeDescriptor();
-    if (!clientSidString.empty()) {
-        TestPipeDescriptor(clientSid->Get(), clientSidString);
-        TestServiceObjectDescriptor(clientSid->Get(), clientSidString);
-        TestInstallDirDescriptor(clientSid->Get(), clientSidString);
+    if (clientGroup != nullptr && serviceAccount != nullptr && !clientSidString.empty()) {
+        TestPipeDescriptor(clientGroup, clientSidString);
+        TestServiceObjectDescriptor(clientGroup, clientSidString);
+        TestInstallDirDescriptor(clientGroup, serviceAccount, clientSidString);
     }
 
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

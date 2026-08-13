@@ -88,7 +88,14 @@ jobs:
           $ctestExit = $LASTEXITCODE
           $ctestOutput | ForEach-Object { Write-Host $_ }
           if ($ctestExit -ne 0) {
-            $detail = (($ctestOutput | Select-Object -Last 12) -join ' ')
+            $diagnosticLines = @($ctestOutput | Where-Object {
+              $_ -match 'AddressSanitizer|ERROR:|SUMMARY:|READ of size|WRITE of size|heap-|stack-|use-after|buffer-overflow|^\s*#\d+'
+            })
+            $detail = if ($diagnosticLines.Count -gt 0) {
+              $diagnosticLines -join ' '
+            } else {
+              ($ctestOutput | Select-Object -Last 12) -join ' '
+            }
             $detail = $detail.Substring(0, [Math]::Min(1200, $detail.Length)).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
             Write-Output "::error title=CTest failure::$detail"
             exit $ctestExit
