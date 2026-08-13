@@ -10,7 +10,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `1f578ef` (`docs: checkpoint indexed search cancellation`; IPC slice ready to commit)
+- HEAD: `f262219` (`refactor: use bounded overlapped pipe I/O`; IPC slice committed)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -29,8 +29,8 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IMPLEMENTED | Immutable generation-sized mappings, explicit format v2, bounded 256 MiB payload rejection, checked two-pass direct serialization, and in-place UI parsing are committed | Focused tests 3/3; 100K/500K/1M full corpus runs PASS; 2M reached durable insert, rebuild, actual 230,709,659-byte snapshot publication, and retained last-stage diagnostics before the projection probe exceeded the 900 s benchmark bound | `d69401f` |
 | FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
 | FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a lock-backed UI callback lifetime guard | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | `18a361e` |
-| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IMPLEMENTED | UI client/server now use overlapped reads/writes; UI listener retains accepted threads and cancellation duplicates; product polling path removed | `ffipc_framing_tests` PASS 1/1; `ffengine_ui_server_lifecycle_tests` PASS 1/1; Engine/UI/Service Debug targets build; final Analyze rerun pending | pending commit |
-| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IMPLEMENTED | Removed the `PrivilegedConnection` handshake helper thread and `CancelSynchronousIo` join; shared framing uses event-backed overlapped operations, absolute deadlines, bounded cancellation collection, and bounded quarantine | Framing tests cover no peer, partial-frame, peer-death, and stalled-write cases; `ffengine_volume_session_manager_tests` PASS; final Analyze rerun pending | pending commit |
+| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IMPLEMENTED | UI client/server now use overlapped reads/writes; UI listener retains accepted threads and cancellation duplicates; product polling path removed | Debug framing/UI lifecycle PASS 2/2; Analyze focused CTest PASS 3/3; `ffdoc_drift_tests` PASS 1/1; Service/Engine/UI targets build | `f262219` |
+| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IMPLEMENTED | Removed the `PrivilegedConnection` handshake helper thread and `CancelSynchronousIo` join; shared framing uses event-backed overlapped operations, absolute deadlines, bounded cancellation collection, and bounded quarantine | Framing tests cover no peer, partial-frame, peer-death, and stalled-write cases; `ffengine_volume_session_manager_tests` PASS; Analyze focused CTest PASS 3/3 | `f262219` |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
 | FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | OPEN | Canonical VERSIONINFO source pending | Artifact inspection pending | — |
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
@@ -444,6 +444,7 @@ UI external-validation notes.
   rerun: 3/3 focused tests in 0.87 s, plus `ffdoc_drift_tests` 1/1 in 0.93 s.
   The slice is ready for its targeted commit; full Debug/release-test/
   verifier validation remains later.
+- IPC slice commit: `f262219`, `refactor: use bounded overlapped pipe I/O`.
 
 ## External Blockers
 
@@ -472,6 +473,9 @@ UI external-validation notes.
   serialization/UI payload copies.
 - `18a361e` — cancel superseded indexed searches with per-connection worker
   tokens, cooperative loop checks, and teardown-safe UI callback ownership.
+- `f262219` — use bounded event-backed overlapped framing for both live pipe
+  seams, remove UI polling and handshake helper-thread timeouts, and join
+  listener-owned connection threads.
 
 ## Current Risks
 
@@ -483,14 +487,14 @@ UI external-validation notes.
   production claim is allowed until focused and full validation pass.
 - FF-AUDIT-06 has focused evidence but still needs the full post-remediation
   Debug/release-test/verifier matrix before it can be marked VALIDATED.
-- FF-AUDIT-07/08 are now the single active implementation frontier. Do not
-  start version-resource work until the UI and privileged pipe lifecycles have
-  one cancellation/teardown model and their focused stress tests pass.
+- FF-AUDIT-07/08 focused validation is complete, but full post-remediation
+  Debug/release-test/verifier validation remains outstanding.
 - The implementation frontier for FF-AUDIT-07/08 is complete and ready for a
   focused commit. Remaining work is validation, then the release-resource
   slice.
 
 ## Next Exact Action
 
-Commit the reviewed FF-AUDIT-07/08 shared-overlapped IPC slice, then update
-this workstate with its SHA and begin FF-AUDIT-10 version-resource work.
+Begin FF-AUDIT-10: inspect every shipped executable target and existing `.rc`
+files, establish one canonical CMake version source, add VERSIONINFO resources,
+and add final-artifact metadata validation.
