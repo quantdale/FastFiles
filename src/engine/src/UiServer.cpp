@@ -282,8 +282,7 @@ bool UiServer::Start(DWORD sessionId) {
                              }
                              ConnectionRegistration registration{connectionGate};
                              HandleConnection(pipe);
-                         },
-                         /*useOverlapped=*/true)) {
+                         })) {
         running_ = false;
         snapshot_.Stop();
         securityDescriptor_ = {};

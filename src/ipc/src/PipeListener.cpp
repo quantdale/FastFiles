@@ -14,8 +14,7 @@ PipeListener::~PipeListener() {
 }
 
 HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
-    const DWORD openMode = PIPE_ACCESS_DUPLEX
-        | (useOverlapped_ ? FILE_FLAG_OVERLAPPED : 0)
+    const DWORD openMode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
         | (isFirstInstance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
 
     return CreateNamedPipeW(
@@ -26,12 +25,10 @@ HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
 }
 
 bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES* securityAttributes,
-                         std::function<void(HANDLE)> onConnect, const bool useOverlapped) {
+                         std::function<void(HANDLE)> onConnect) {
     pipeName_ = pipeName;
     securityAttributes_ = securityAttributes;
     onConnect_ = std::move(onConnect);
-    useOverlapped_ = useOverlapped;
-
     HANDLE firstInstance = CreateInstance(/*isFirstInstance=*/true);
     if (firstInstance == INVALID_HANDLE_VALUE) {
         // Spec "Pipe-name collision fails loudly": most commonly
@@ -59,20 +56,17 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
             }
 
             OVERLAPPED connectOverlapped{};
-            HANDLE connectEvent = nullptr;
-            if (useOverlapped_) {
-                connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-                if (connectEvent == nullptr) {
-                    CloseHandle(currentInstance);
-                    break;
-                }
-                connectOverlapped.hEvent = connectEvent;
+            HANDLE connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (connectEvent == nullptr) {
+                CloseHandle(currentInstance);
+                break;
             }
+            connectOverlapped.hEvent = connectEvent;
 
             pendingInstance_.store(currentInstance, std::memory_order_release);
-            BOOL connected = ConnectNamedPipe(currentInstance, useOverlapped_ ? &connectOverlapped : nullptr);
+            BOOL connected = ConnectNamedPipe(currentInstance, &connectOverlapped);
             DWORD error = connected ? ERROR_SUCCESS : GetLastError();
-            if (!connected && useOverlapped_ && error == ERROR_IO_PENDING) {
+            if (!connected && error == ERROR_IO_PENDING) {
                 const DWORD waitResult = WaitForSingleObject(connectEvent, INFINITE);
                 if (waitResult == WAIT_OBJECT_0) {
                     DWORD ignored = 0;
@@ -111,9 +105,9 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
             HANDLE cancellationHandle = INVALID_HANDLE_VALUE;
             if (!DuplicateHandle(GetCurrentProcess(), acceptedConnection, GetCurrentProcess(),
                                  &cancellationHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-                // Do not hand a live connection to a detached/untracked
-                // callback if the listener cannot retain an independent
-                // cancellation handle for its shutdown barrier.
+                // Do not hand a live connection to an untracked callback if
+                // the listener cannot retain an independent cancellation
+                // handle for its shutdown barrier.
                 CloseHandle(acceptedConnection);
                 currentInstance = CreateInstance(/*isFirstInstance=*/false);
                 if (currentInstance == INVALID_HANDLE_VALUE) {
@@ -170,29 +164,13 @@ void PipeListener::Stop() {
         CancelIoEx(pending, nullptr);
     }
 
-    if (!useOverlapped_ && acceptThread_.joinable()) {
-        CancelSynchronousIo(reinterpret_cast<HANDLE>(acceptThread_.native_handle()));
-    }
-
-    // Keep the throwaway connection as a fallback for synchronous listeners
-    // on Windows versions or transient states where cancellation cannot locate
-    // the pending operation. Overlapped listeners have a direct cancellation
-    // path and never need to grant a self-client access to their pipe.
-    if (!useOverlapped_) {
-        HANDLE unstick = CreateFileW(pipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                                     OPEN_EXISTING, 0, nullptr);
-        if (unstick != INVALID_HANDLE_VALUE) {
-            CloseHandle(unstick);
-        }
-    }
-
     if (acceptThread_.joinable()) {
         acceptThread_.join();
     }
 
     // Accepted product connections are all overlapped. Cancel each tracked
-    // handle before joining its callback; this is what makes listener Stop a
-    // real teardown barrier instead of leaving detached connection threads.
+    // handle before joining its callback; this makes listener Stop a real
+    // teardown barrier with no detached connection threads.
     {
         std::lock_guard<std::mutex> lock(connectionMutex_);
         for (const HANDLE pipe : connectionHandles_) {

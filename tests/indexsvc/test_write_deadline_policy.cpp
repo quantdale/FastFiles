@@ -57,6 +57,12 @@ void TestServiceUsesBoundedSharedWrites() {
         fftest::Check(source.find("RunWithWriteDeadline") == std::string::npos,
                       joinDescription.c_str());
     }
+
+    const std::string listener = ReadText(root / "src" / "ipc" / "src" / "PipeListener.cpp");
+    fftest::Check(listener.find("FILE_FLAG_OVERLAPPED") != std::string::npos,
+                  "shared pipe listener always creates overlapped instances");
+    fftest::Check(listener.find("CancelSynchronousIo") == std::string::npos,
+                  "shared pipe listener has no synchronous cancellation fallback");
 }
 
 } // namespace

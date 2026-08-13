@@ -17,7 +17,7 @@ namespace ffipc {
 // Stop() cancels tracked overlapped handles and joins every callback before
 // returning, so an accepted connection cannot outlive the listener.
 //
-// Reused by both FastFilesIndexSvc (Ctrl/Data pipes, ACL'd to the
+    // Reused by both FastFilesIndexSvc (Ctrl/Data pipes, ACL'd to the
 // authorized client group) and FastFilesEngine (its own same-privilege
 // UI-facing pipe, ACL'd to the current user) -- each caller builds and
 // owns its own security descriptor rather than this class assuming one
@@ -34,7 +34,7 @@ public:
     // as fatal and refuse to proceed, not silently continue without the
     // expected pipe.
     bool Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES* securityAttributes,
-               std::function<void(HANDLE)> onConnect, bool useOverlapped = false);
+               std::function<void(HANDLE)> onConnect);
 
     void Stop();
 
@@ -44,8 +44,6 @@ private:
 
     std::wstring pipeName_;
     const SECURITY_ATTRIBUTES* securityAttributes_ = nullptr;
-    bool useOverlapped_ = false;
-
     std::function<void(HANDLE)> onConnect_;
     std::thread acceptThread_;
     std::atomic<bool> running_{false};
