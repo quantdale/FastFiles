@@ -124,6 +124,7 @@ private:
 
     std::wstring enginePipeName_;
     std::atomic<HANDLE> pipe_{INVALID_HANDLE_VALUE};
+    std::atomic<HANDLE> connectingPipe_{INVALID_HANDLE_VALUE};
     // A failed writer cancels the reader before the management thread can
     // leave ReaderLoop. Retain that exact handle until ClosePipe() runs so a
     // failed write cannot leak the old connection.

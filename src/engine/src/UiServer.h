@@ -119,7 +119,6 @@ private:
         void Close();
         HANDLE Pipe() const noexcept { return pipe_; }
 
-        void CancelPendingWriteLocked();
         void CancelIndexedSearches();
         void IndexedSearchWorker();
 
@@ -130,7 +129,6 @@ private:
         };
 
         HANDLE pipe_ = INVALID_HANDLE_VALUE;
-        HANDLE writerThread_ = nullptr;
         FrameWriter frameWriter_;
         PipeCanceller pipeCanceller_;
         std::mutex writeMutex_;

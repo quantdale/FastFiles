@@ -25,36 +25,6 @@ constexpr std::chrono::milliseconds kHeartbeatAckTimeout{10000};
 constexpr std::chrono::milliseconds kInitialBackoff{1000};
 constexpr std::chrono::milliseconds kMaxBackoff{60000};
 
-// Reads one frame with a bounded wait: spawns a reader thread for the
-// single blocking ReadFile, and forcibly cancels it via
-// CancelSynchronousIo if the timeout elapses before the read completes --
-// so a deadlocked-but-not-broken pipe can't wedge the caller forever
-// (spec "Heartbeat timeout is treated as disconnection"). Used only for
-// the pre-Active handshake exchange; the Active state's own reader thread
-// (see ActiveLoop) handles everything once the connection is up.
-std::optional<ffipc::ReceivedFrame> ReadFrameWithTimeout(HANDLE pipe, std::chrono::milliseconds timeout) {
-    std::optional<ffipc::ReceivedFrame> result;
-    std::atomic<bool> done{false};
-    HANDLE readerThreadHandle = nullptr;
-    HANDLE readyEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-
-    std::thread reader([&] {
-        result = ffipc::ReadFrame(pipe);
-        done = true;
-        SetEvent(readyEvent);
-    });
-    readerThreadHandle = reader.native_handle();
-
-    const DWORD waitResult = WaitForSingleObject(readyEvent, static_cast<DWORD>(timeout.count()));
-    if (waitResult != WAIT_OBJECT_0) {
-        CancelSynchronousIo(readerThreadHandle);
-    }
-    reader.join();
-    CloseHandle(readyEvent);
-
-    return done ? result : std::nullopt;
-}
-
 std::optional<std::wstring> GetProcessImagePath(HANDLE processHandle) {
     wchar_t buffer[MAX_PATH * 4];
     DWORD size = static_cast<DWORD>(std::size(buffer));
@@ -106,6 +76,14 @@ void PrivilegedConnection::Stop() {
         return;
     }
     running_ = false;
+    const HANDLE connecting = connectingPipe_.load(std::memory_order_acquire);
+    if (connecting != nullptr) {
+        CancelIoEx(connecting, nullptr);
+    }
+    const HANDLE active = activePipe_.load(std::memory_order_acquire);
+    if (active != nullptr) {
+        CancelIoEx(active, nullptr);
+    }
     RequestReconnect(); // wake the loop so it observes running_ == false promptly
     if (lifecycleThread_.joinable()) {
         lifecycleThread_.join();
@@ -138,7 +116,9 @@ bool PrivilegedConnection::SendRequest(uint16_t messageType, const void* payload
     if (activePipe_.load() != pipe) {
         return false;
     }
-    return ffipc::WriteFrame(pipe, messageType, payload, payloadSize);
+    return ffipc::WriteFrameOverlapped(
+        pipe, messageType, payload, payloadSize,
+        std::chrono::steady_clock::now() + std::chrono::seconds(5));
 }
 
 bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
@@ -179,8 +159,10 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
 
     HANDLE pipe = INVALID_HANDLE_VALUE;
     while (running_) {
-        pipe = CreateFileW(ffsetup::kCtrlPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        pipe = CreateFileW(ffsetup::kCtrlPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                           FILE_FLAG_OVERLAPPED, nullptr);
         if (pipe != INVALID_HANDLE_VALUE) {
+            connectingPipe_.store(pipe, std::memory_order_release);
             break;
         }
         if (GetLastError() != ERROR_PIPE_BUSY) {
@@ -196,6 +178,10 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
         }
     }
     if (!running_) {
+        connectingPipe_.store(nullptr, std::memory_order_release);
+        if (pipe != INVALID_HANDLE_VALUE) {
+            CloseHandle(pipe);
+        }
         return nullptr;
     }
 
@@ -207,6 +193,7 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     // anything it says -- symmetric to the service's own client
     // verification (design.md D4 "Symmetric Mutual Authentication").
     if (!VerifyServiceIdentity(pipe)) {
+        connectingPipe_.store(nullptr, std::memory_order_release);
         CloseHandle(pipe);
         SetState(ConnectionState::Disconnected, UnavailableReason::UnverifiedServiceIdentity);
         return nullptr;
@@ -215,14 +202,18 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     SetState(ConnectionState::Handshaking, UnavailableReason::None);
 
     ffprotocol::HandshakeRequest request{ffprotocol::kCurrentProtocolVersion};
-    if (!ffipc::WriteFrame(pipe, static_cast<uint16_t>(MessageType::Handshake), &request, sizeof(request))) {
+    if (!ffipc::WriteFrameOverlapped(
+            pipe, static_cast<uint16_t>(MessageType::Handshake), &request, sizeof(request),
+            std::chrono::steady_clock::now() + kHandshakeReplyTimeout)) {
+        connectingPipe_.store(nullptr, std::memory_order_release);
         CloseHandle(pipe);
         SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);
         return nullptr;
     }
 
-    auto reply = ReadFrameWithTimeout(pipe, kHandshakeReplyTimeout);
+    auto reply = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::now() + kHandshakeReplyTimeout);
     if (!reply) {
+        connectingPipe_.store(nullptr, std::memory_order_release);
         CloseHandle(pipe);
         SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);
         return nullptr;
@@ -231,6 +222,7 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     switch (static_cast<MessageType>(reply->header.messageType)) {
         case MessageType::HandshakeAck: {
             if (reply->payload.size() != sizeof(ffprotocol::HandshakeAckPayload)) {
+                connectingPipe_.store(nullptr, std::memory_order_release);
                 CloseHandle(pipe);
                 SetState(ConnectionState::Disconnected, UnavailableReason::HandshakeRejected);
                 return nullptr;
@@ -239,12 +231,14 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
             std::memcpy(&ack, reply->payload.data(), sizeof(ack));
             if (!ffprotocol::IsVersionCompatible(ffprotocol::kCurrentProtocolVersion, ack.negotiatedVersion)
                 || ack.negotiatedVersion.major > ffprotocol::kCurrentProtocolVersion.major) {
+                connectingPipe_.store(nullptr, std::memory_order_release);
                 CloseHandle(pipe);
                 SetState(ConnectionState::Disconnected, UnavailableReason::IncompatibleProtocolVersion);
                 return nullptr;
             }
             negotiatedMajor_ = ack.negotiatedVersion.major;
             negotiatedMinor_ = ack.negotiatedVersion.minor;
+            connectingPipe_.store(nullptr, std::memory_order_release);
             return pipe;
         }
 
@@ -253,12 +247,14 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
             // transient error to keep retrying at the same cadence --
             // the service self-heals its own build staleness (task 3.9),
             // so this condition is expected to resolve on its own.
+            connectingPipe_.store(nullptr, std::memory_order_release);
             CloseHandle(pipe);
             SetState(ConnectionState::Disconnected, UnavailableReason::IncompatibleProtocolVersion);
             return nullptr;
 
         case MessageType::HandshakeReject:
         default:
+            connectingPipe_.store(nullptr, std::memory_order_release);
             CloseHandle(pipe);
             SetState(ConnectionState::Disconnected, UnavailableReason::HandshakeRejected);
             return nullptr;
@@ -401,7 +397,7 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
     std::mutex ackMutex;
     std::condition_variable ackCv;
 
-    // A single reader thread owns every ReadFrame call on this connection
+    // A single reader thread owns every overlapped frame read on this connection
     // for its Active lifetime -- HeartbeatAck feeds the heartbeat-wait
     // below, every other message type is dispatched to whichever
     // scan/journal callback applies (index-storage-and-scanning tasks.md
@@ -410,7 +406,8 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
     // lockstep reply to a request.
     std::thread reader([&] {
         for (;;) {
-            auto frame = ffipc::ReadFrame(pipe);
+            auto frame = ffipc::ReadFrameOverlapped(
+                pipe, std::chrono::steady_clock::time_point::max());
             if (!frame) {
                 protocolViolation = true; // read failure/disconnect -- reuse the same teardown path
                 ackCv.notify_all();
@@ -437,8 +434,6 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
             }
         }
     });
-    HANDLE readerNativeHandle = reader.native_handle();
-
     while (running_ && !idleDropped_ && !protocolViolation.load()) {
         {
             std::lock_guard<std::mutex> lock(ackMutex);
@@ -447,7 +442,9 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
         bool sendOk;
         {
             std::lock_guard<std::mutex> lock(writeMutex_);
-            sendOk = ffipc::WriteFrame(pipe, static_cast<uint16_t>(MessageType::Heartbeat));
+            sendOk = ffipc::WriteFrameOverlapped(
+                pipe, static_cast<uint16_t>(MessageType::Heartbeat), nullptr, 0,
+                std::chrono::steady_clock::now() + kHeartbeatAckTimeout);
         }
         if (!sendOk) {
             break;
@@ -471,13 +468,18 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
     }
 
     activePipe_ = nullptr;
-    // Unblock the reader thread's in-flight ReadFile (it has no other
-    // cancellation hook) before joining it.
-    CancelSynchronousIo(readerNativeHandle);
+    // Unblock the reader and any concurrent writer through the same
+    // overlapped handle. The reader owns its event/operation state and will
+    // return before the pipe handle is finally closed below.
+    CancelIoEx(pipe, nullptr);
     reader.join();
 
     const bool wasIdleDropped = idleDropped_.load();
-    CloseHandle(pipe);
+    {
+        std::lock_guard<std::mutex> lock(writeMutex_);
+        CancelIoEx(pipe, nullptr);
+        CloseHandle(pipe);
+    }
     if (wasIdleDropped) {
         SetState(ConnectionState::Disconnected, UnavailableReason::IdleDropped);
     } else {

@@ -2,8 +2,10 @@
 #include <windows.h>
 #include <atomic>
 #include <functional>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace ffipc {
 
@@ -11,7 +13,9 @@ namespace ffipc {
 // each connection (FILE_FLAG_FIRST_PIPE_INSTANCE only on the very first
 // instance, so a name already squatted by another process fails loudly at
 // startup -- indexsvc task 3.2, spec "Pipe-name collision fails loudly"),
-// and invokes `onConnect` on a dedicated thread per accepted client.
+// and invokes `onConnect` on a retained, joinable thread per accepted client.
+// Stop() cancels tracked overlapped handles and joins every callback before
+// returning, so an accepted connection cannot outlive the listener.
 //
 // Reused by both FastFilesIndexSvc (Ctrl/Data pipes, ACL'd to the
 // authorized client group) and FastFilesEngine (its own same-privilege
@@ -36,6 +40,7 @@ public:
 
 private:
     HANDLE CreateInstance(bool isFirstInstance) noexcept;
+    void JoinConnectionThreads();
 
     std::wstring pipeName_;
     const SECURITY_ATTRIBUTES* securityAttributes_ = nullptr;
@@ -44,6 +49,10 @@ private:
     std::function<void(HANDLE)> onConnect_;
     std::thread acceptThread_;
     std::atomic<bool> running_{false};
+    std::atomic<HANDLE> pendingInstance_{INVALID_HANDLE_VALUE};
+    std::mutex connectionMutex_;
+    std::vector<HANDLE> connectionHandles_;
+    std::vector<std::thread> connectionThreads_;
 };
 
 } // namespace ffipc

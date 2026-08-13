@@ -18,24 +18,11 @@ namespace ffui {
 namespace {
 using ffprotocol::UiMessageType;
 constexpr std::chrono::milliseconds kReconnectDelay{2000};
+constexpr std::chrono::milliseconds kHandshakeTimeout{5000};
+constexpr std::chrono::milliseconds kPipeWriteTimeout{5000};
 // recovery-degraded-browsing D2: at most this many connect attempts per
 // cycle (~10 s at the 2 s cadence) before the explicit Unavailable state.
 constexpr int kMaxConnectAttempts = 5;
-
-bool ReadUiFrame(HANDLE pipe, std::atomic<bool>& running, ffipc::ReceivedFrame& frame) {
-    for (;;) {
-        DWORD bytesAvailable = 0;
-        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &bytesAvailable, nullptr)) return false;
-        if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
-            auto parsed = ffipc::ReadFrame(pipe);
-            if (!parsed) return false;
-            frame = std::move(*parsed);
-            return true;
-        }
-        if (!running.load()) return false;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-}
 
 std::wstring GenerationSectionName(const std::wstring& prefix, uint64_t generation) {
     return prefix + L"." + std::to_wstring(generation);
@@ -283,33 +270,41 @@ bool EngineClient::ConnectAndSubscribe() {
         return false;
     };
 
-    HANDLE pipe = CreateFileW(enginePipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+    HANDLE pipe = CreateFileW(enginePipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                              FILE_FLAG_OVERLAPPED, nullptr);
     if (pipe == INVALID_HANDLE_VALUE) {
         return fail(L"engine-connect-open-failed", GetLastError());
     }
+    connectingPipe_.store(pipe, std::memory_order_release);
     DWORD mode = PIPE_READMODE_BYTE;
     if (!SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr)) {
         const DWORD error = GetLastError();
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-mode-failed", error);
     }
 
-    if (!ffipc::WriteFrame(pipe, static_cast<uint16_t>(UiMessageType::Subscribe))) {
+    if (!ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(UiMessageType::Subscribe), nullptr, 0,
+                                     std::chrono::steady_clock::now() + kHandshakeTimeout)) {
         const DWORD error = GetLastError();
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-subscribe-write-failed", error);
     }
-    auto reply = ffipc::ReadFrame(pipe);
+    auto reply = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::now() + kHandshakeTimeout);
     if (!reply) {
         const DWORD error = GetLastError();
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-subscribe-read-failed", error);
     }
     if (ffprotocol::ToUiMessageType(reply->header.messageType) != UiMessageType::SubscribeAck) {
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-unexpected-reply", ERROR_INVALID_DATA);
     }
     if (reply->payload.size() < sizeof(ffprotocol::SubscribeAckPayload)) {
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-short-ack", ERROR_INVALID_DATA);
     }
@@ -318,6 +313,7 @@ bool EngineClient::ConnectAndSubscribe() {
     std::memcpy(&header, reply->payload.data(), sizeof(header));
     const size_t expectedSize = sizeof(header) + static_cast<size_t>(header.sectionNameLengthChars) * sizeof(wchar_t);
     if (reply->payload.size() != expectedSize) {
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-malformed-ack", ERROR_INVALID_DATA);
     }
@@ -326,6 +322,7 @@ bool EngineClient::ConnectAndSubscribe() {
 
     if (!MapSnapshotGeneration(sectionName, header.generationId)) {
         const DWORD error = GetLastError();
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
         CloseHandle(pipe);
         return fail(L"engine-connect-snapshot-map-failed", error);
     }
@@ -336,10 +333,12 @@ bool EngineClient::ConnectAndSubscribe() {
         // handle after shutdown has begun, and never replace a live handle
         // behind the writer's back.
         if (!running_.load() || pipe_.load() != INVALID_HANDLE_VALUE) {
+            connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
             CloseHandle(pipe);
             return false;
         }
         pipe_ = pipe;
+        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
     }
     announcedGeneration_ = header.generationId;
     // Wake the invalidation worker after the control pipe becomes usable. Any
@@ -356,10 +355,9 @@ bool EngineClient::ConnectAndSubscribe() {
 void EngineClient::ReaderLoop() {
     for (;;) {
         HANDLE pipe = pipe_.load();
-        ffipc::ReceivedFrame frame;
-        if (!ReadUiFrame(pipe, running_, frame)) {
-            break;
-        }
+        auto parsed = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::time_point::max());
+        if (!parsed) break;
+        ffipc::ReceivedFrame frame = std::move(*parsed);
         auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
         if (!messageType) {
             break;
@@ -655,14 +653,16 @@ void EngineClient::Stop() {
     invalidationCv_.notify_all();
     retryCv_.notify_all();
 
-    // CancelSynchronousIo targets whatever blocking call this specific
-    // thread currently has pending (the reader loop's ReadFile), which is
-    // more robust than CancelIoEx(handle) racing a concurrent CloseHandle.
-    if (managementThread_.joinable()) {
-        CancelSynchronousIo(managementThread_.native_handle());
+    // Both the reader and writer paths use overlapped operations. Cancel the
+    // exact handles before joining their owners; no helper-thread join is
+    // allowed to define the shutdown deadline.
+    const HANDLE connecting = connectingPipe_.load(std::memory_order_acquire);
+    if (connecting != INVALID_HANDLE_VALUE) {
+        CancelIoEx(connecting, nullptr);
     }
-    if (invalidationThread_.joinable()) {
-        CancelSynchronousIo(invalidationThread_.native_handle());
+    const HANDLE current = pipe_.load(std::memory_order_acquire);
+    if (current != INVALID_HANDLE_VALUE) {
+        CancelIoEx(current, nullptr);
     }
 
     ClosePipe();
@@ -734,12 +734,17 @@ bool EngineClient::SendDirectoryRequest(const std::wstring& path) {
 }
 
 void EngineClient::ClosePipe() {
+    const HANDLE current = pipe_.load(std::memory_order_acquire);
+    if (current != INVALID_HANDLE_VALUE) {
+        CancelIoEx(current, nullptr);
+    }
     std::lock_guard<std::mutex> lock(writeMutex_);
     HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
     if (pipe != INVALID_HANDLE_VALUE) {
-        // Cancel any synchronous read/write still associated with this
-        // connection before closing the handle. The owning worker is also
-        // cancelled by Stop(); this call covers the reconnect path.
+        // Cancel any overlapped read/write still associated with this
+        // connection before closing the handle. The pre-lock cancellation
+        // above is what prevents a blocked writer from holding writeMutex_
+        // forever while shutdown waits to acquire it.
         CancelIoEx(pipe, nullptr);
         CloseHandle(pipe);
     }
@@ -757,7 +762,9 @@ bool EngineClient::WriteCurrentFrame(uint16_t messageType, const void* payload, 
     if (pipe == INVALID_HANDLE_VALUE) {
         return false;
     }
-    if (ffipc::WriteFrame(pipe, messageType, payload, payloadSize)) {
+    if (ffipc::WriteFrameOverlapped(
+            pipe, messageType, payload, payloadSize,
+            std::chrono::steady_clock::now() + kPipeWriteTimeout)) {
         return true;
     }
 

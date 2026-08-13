@@ -24,33 +24,14 @@ namespace {
 using ffprotocol::UiMessageType;
 
 bool DefaultFrameWriter(HANDLE pipe, uint16_t messageType, const void* payload, uint32_t payloadSize) {
-    return ffipc::WriteFrame(pipe, messageType, payload, payloadSize);
+    return ffipc::WriteFrameOverlapped(
+        pipe, messageType, payload, payloadSize,
+        std::chrono::steady_clock::now() + std::chrono::seconds(5));
 }
 
 void DefaultPipeCanceller(HANDLE pipe) {
     if (pipe != INVALID_HANDLE_VALUE) {
         CancelIoEx(pipe, nullptr);
-    }
-}
-
-// Synchronous named-pipe handles cannot keep a blocking ReadFile pending
-// while another thread writes on the same handle. Poll for a complete frame
-// header so outbound UI notifications and inbound control requests can make
-// progress concurrently (the service control loop uses the same pattern).
-bool ReadUiFrame(HANDLE pipe, std::atomic<bool>& running, ffipc::ReceivedFrame& frame) {
-    for (;;) {
-        DWORD bytesAvailable = 0;
-        if (!PeekNamedPipe(pipe, nullptr, 0, nullptr, &bytesAvailable, nullptr)) {
-            return false;
-        }
-        if (bytesAvailable >= sizeof(ffprotocol::FrameHeader)) {
-            auto parsed = ffipc::ReadFrame(pipe);
-            if (!parsed) return false;
-            frame = std::move(*parsed);
-            return true;
-        }
-        if (!running.load()) return false;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 }
 
@@ -86,42 +67,31 @@ bool UiServer::ClientConnection::Write(uint16_t messageType, const void* payload
     // Serialize complete frames for this connection, but do not hold the
     // connection state lock while the external pipe write can block.
     std::lock_guard<std::mutex> writeLock(writeMutex_);
-    HANDLE writerThread = OpenThread(THREAD_TERMINATE, FALSE, GetCurrentThreadId());
     HANDLE pipe = INVALID_HANDLE_VALUE;
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         if (closing_) {
-            if (writerThread != nullptr) {
-                CloseHandle(writerThread);
-            }
             return false;
         }
         pipe = pipe_;
-        writerThread_ = writerThread;
     }
-    const bool written = frameWriter_(pipe, messageType, payload, payloadSize);
-    {
-        std::lock_guard<std::mutex> stateLock(stateMutex_);
-        writerThread_ = nullptr;
-    }
-    if (writerThread != nullptr) {
-        CloseHandle(writerThread);
-    }
-    return written;
-}
-
-void UiServer::ClientConnection::CancelPendingWriteLocked() {
-    if (writerThread_ != nullptr) {
-        CancelSynchronousIo(writerThread_);
-    }
+    return frameWriter_(pipe, messageType, payload, payloadSize);
 }
 
 void UiServer::ClientConnection::Cancel() {
     CancelIndexedSearches();
-    std::lock_guard<std::mutex> stateLock(stateMutex_);
-    if (!closing_) {
-        CancelPendingWriteLocked();
-        pipeCanceller_(pipe_);
+    HANDLE pipe = INVALID_HANDLE_VALUE;
+    {
+        std::lock_guard<std::mutex> stateLock(stateMutex_);
+        if (!closing_) {
+            pipe = pipe_;
+        }
+    }
+    if (pipe != INVALID_HANDLE_VALUE) {
+        // CancelIoEx is safe to issue from the server's stop thread and
+        // unwinds either an overlapped read owned by HandleConnection or an
+        // overlapped write owned by a notification/callback thread.
+        pipeCanceller_(pipe);
     }
 }
 
@@ -246,7 +216,6 @@ void UiServer::ClientConnection::Close() {
         }
         closing_ = true;
         pipe = pipe_;
-        CancelPendingWriteLocked();
     }
 
     // Cancel before waiting for a concurrent writer. A writer that already
@@ -313,7 +282,8 @@ bool UiServer::Start(DWORD sessionId) {
                              }
                              ConnectionRegistration registration{connectionGate};
                              HandleConnection(pipe);
-                         })) {
+                         },
+                         /*useOverlapped=*/true)) {
         running_ = false;
         snapshot_.Stop();
         securityDescriptor_ = {};
@@ -691,11 +661,12 @@ void UiServer::HandleConnection(HANDLE pipe) {
     bool subscribed = false;
 
     for (;;) {
-        ffipc::ReceivedFrame frame;
-        if (!ReadUiFrame(client->Pipe(), running_, frame)) {
+        auto frame = ffipc::ReadFrameOverlapped(
+            client->Pipe(), std::chrono::steady_clock::time_point::max());
+        if (!frame) {
             break;
         }
-        auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
+        auto messageType = ffprotocol::ToUiMessageType(frame->header.messageType);
         if (!messageType) {
             break; // unrecognized message type: protocol violation
         }
@@ -723,20 +694,20 @@ void UiServer::HandleConnection(HANDLE pipe) {
             }
 
             case UiMessageType::RequestDirectory: {
-                if (frame.payload.size() < sizeof(ffprotocol::RequestDirectoryHeader)) {
+                if (frame->payload.size() < sizeof(ffprotocol::RequestDirectoryHeader)) {
                     goto disconnected;
                 }
                 ffprotocol::RequestDirectoryHeader header{};
-                std::memcpy(&header, frame.payload.data(), sizeof(header));
+                std::memcpy(&header, frame->payload.data(), sizeof(header));
                 if (!ffprotocol::IsUiPathLengthValid(header.pathLengthChars)) {
                     goto disconnected;
                 }
                 const size_t expectedSize = sizeof(header) + static_cast<size_t>(header.pathLengthChars) * sizeof(wchar_t);
-                if (frame.payload.size() != expectedSize) {
+                if (frame->payload.size() != expectedSize) {
                     goto disconnected;
                 }
                 std::wstring path(
-                    reinterpret_cast<const wchar_t*>(frame.payload.data() + sizeof(header)), header.pathLengthChars);
+                    reinterpret_cast<const wchar_t*>(frame->payload.data() + sizeof(header)), header.pathLengthChars);
                 ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                               ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED,
                                               path, {}, L"engine-directory-request-received", 0, 0});
@@ -745,18 +716,18 @@ void UiServer::HandleConnection(HANDLE pipe) {
             }
 
             case UiMessageType::ReloadIndexingConfig:
-                if (!frame.payload.empty()) goto disconnected;
+                if (!frame->payload.empty()) goto disconnected;
                 if (onReloadIndexingConfig) onReloadIndexingConfig();
                 break;
 
             case UiMessageType::RequestUnavailableVolumes:
-                if (!frame.payload.empty() || !SendUnavailableVolumes(client)) goto disconnected;
+                if (!frame->payload.empty() || !SendUnavailableVolumes(client)) goto disconnected;
                 break;
 
     case UiMessageType::ForgetUnavailableVolume: {
-        if (frame.payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
+        if (frame->payload.size() != sizeof(ffprotocol::ForgetUnavailableVolumePayload)) goto disconnected;
         ffprotocol::ForgetUnavailableVolumePayload payload{};
-        std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+        std::memcpy(&payload, frame->payload.data(), sizeof(payload));
         if (payload.volumeRowId <= 0 || !SendForgetUnavailableVolumeResult(client, payload.volumeRowId)) {
             goto disconnected;
         }
@@ -764,31 +735,31 @@ void UiServer::HandleConnection(HANDLE pipe) {
     }
 
     case UiMessageType::RequestFolderAggregate: {
-        if (frame.payload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) goto disconnected;
-        HandleRequestFolderAggregate(client, frame.payload);
+        if (frame->payload.size() != sizeof(ffprotocol::RequestFolderAggregatePayload)) goto disconnected;
+        HandleRequestFolderAggregate(client, frame->payload);
         break;
     }
 
     case UiMessageType::RequestIndexedSearch:
-        if (!HandleRequestIndexedSearch(client, frame.payload)) goto disconnected;
+        if (!HandleRequestIndexedSearch(client, frame->payload)) goto disconnected;
         break;
 
     case UiMessageType::CancelIndexedSearch: {
-        if (frame.payload.size() != sizeof(ffprotocol::CancelIndexedSearchPayload)) goto disconnected;
+        if (frame->payload.size() != sizeof(ffprotocol::CancelIndexedSearchPayload)) goto disconnected;
         ffprotocol::CancelIndexedSearchPayload payload{};
-        std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+        std::memcpy(&payload, frame->payload.data(), sizeof(payload));
         client->CancelIndexedSearch(payload.requestId);
         break;
     }
 
     case UiMessageType::RequestVolumeStatus:
-        if (!frame.payload.empty() || !SendVolumeStatus(client)) goto disconnected;
+        if (!frame->payload.empty() || !SendVolumeStatus(client)) goto disconnected;
         break;
 
     case UiMessageType::SetIndexingPaused: {
-        if (frame.payload.size() != sizeof(ffprotocol::SetIndexingPausedPayload)) goto disconnected;
+        if (frame->payload.size() != sizeof(ffprotocol::SetIndexingPausedPayload)) goto disconnected;
         ffprotocol::SetIndexingPausedPayload payload{};
-        std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+        std::memcpy(&payload, frame->payload.data(), sizeof(payload));
         const wchar_t letter = static_cast<wchar_t>(towupper(static_cast<wchar_t>(payload.scope)));
         if (payload.scope != 0 && (letter < L'A' || letter > L'Z')) goto disconnected;
         if (payload.paused > 1) goto disconnected;

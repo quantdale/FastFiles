@@ -214,24 +214,81 @@ void TestOverlappedReadTimesOut() {
           "overlapped timeout remains bounded");
 }
 
-void TestSynchronousReadFallbackCompletesAndTimesOut() {
-    AnonymousPipe pipe = MakePipe();
-    Check(pipe.read != nullptr && pipe.write != nullptr, "synchronous fallback pipe is created");
-    if (pipe.read == nullptr || pipe.write == nullptr) return;
+void TestPartialHeaderTimesOut() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "partial-header pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
 
-    bool writeResult = false;
-    std::thread writer([&] {
-        writeResult = ffipc::WriteFrame(pipe.write,
-            static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), nullptr, 0);
-    });
-    const auto received = ffipc::ReadFrameWithTimeout(
-        pipe.read, std::chrono::steady_clock::now() + std::chrono::seconds(2));
-    writer.join();
-    Check(writeResult && received.has_value(), "non-overlapped test handle uses the bounded read fallback");
+    ffprotocol::FrameHeader header{};
+    header.totalLength = sizeof(header);
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    Check(WriteFile(pipe.client, &header, sizeof(header) - 1, &written, nullptr) != FALSE
+              && written == sizeof(header) - 1,
+          "partial frame header bytes are delivered");
+    const auto started = std::chrono::steady_clock::now();
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, started + std::chrono::milliseconds(100));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    Check(!received.has_value(), "partial frame header returns no frame");
+    Check(elapsed < std::chrono::seconds(2), "partial header timeout has a real wall-clock bound");
+}
 
-    const auto timeout = ffipc::ReadFrameWithTimeout(
-        pipe.read, std::chrono::steady_clock::now() + std::chrono::milliseconds(100));
-    Check(!timeout.has_value(), "non-overlapped fallback also returns on timeout");
+void TestPeerDeathDuringFrameReturns() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "peer-death pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + sizeof(uint32_t));
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    Check(WriteFile(pipe.client, &header, sizeof(header), &written, nullptr) != FALSE
+              && written == sizeof(header),
+          "peer-death frame header is delivered");
+    CloseHandle(pipe.client);
+    pipe.client = nullptr;
+    Check(!ffipc::ReadFrameOverlapped(
+              pipe.server, std::chrono::steady_clock::now() + std::chrono::seconds(2)).has_value(),
+          "peer death during a payload returns a bounded read failure");
+}
+
+void TestOverlappedWriteTimesOutWhenPeerDoesNotRead() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "stalled-write pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+
+    std::vector<uint8_t> payload(ffprotocol::kMaxFrameSize - sizeof(ffprotocol::FrameHeader), 0x5A);
+    const auto started = std::chrono::steady_clock::now();
+    const bool written = ffipc::WriteFrameOverlapped(
+        pipe.server, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch), payload.data(),
+        static_cast<uint32_t>(payload.size()), started + std::chrono::milliseconds(100));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    Check(!written, "stalled overlapped write is cancelled");
+    Check(elapsed < std::chrono::seconds(2), "stalled write has a real wall-clock bound");
+}
+
+void TestPartialFrameReadTimesOutWithoutAHelperThread() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "partial-frame timeout pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + sizeof(uint32_t));
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    Check(WriteFile(pipe.client, &header, sizeof(header), &written, nullptr) != FALSE
+              && written == sizeof(header),
+          "partial-frame header is delivered before the payload stalls");
+    const auto started = std::chrono::steady_clock::now();
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, started + std::chrono::milliseconds(100));
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    Check(!received.has_value(), "partial-frame payload stall returns no frame");
+    Check(elapsed < std::chrono::seconds(2), "partial-frame timeout has a real wall-clock bound");
 }
 
 } // namespace
@@ -242,6 +299,9 @@ int main() {
     TestMalformedHeadersRejectedWithoutPayloadRead();
     TestRealNamedPipeHandshakeRoundTrips();
     TestOverlappedReadTimesOut();
-    TestSynchronousReadFallbackCompletesAndTimesOut();
+    TestPartialHeaderTimesOut();
+    TestPeerDeathDuringFrameReturns();
+    TestOverlappedWriteTimesOutWhenPeerDoesNotRead();
+    TestPartialFrameReadTimesOutWithoutAHelperThread();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

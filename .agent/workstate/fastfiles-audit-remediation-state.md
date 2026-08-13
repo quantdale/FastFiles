@@ -10,11 +10,11 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `1f578ef` (`docs: checkpoint indexed search cancellation`; IPC workstream checkpoint)
+- HEAD: `1f578ef` (`docs: checkpoint indexed search cancellation`; IPC slice ready to commit)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
-- Remediation-owned modified files: the committed files above plus the current snapshot slice: `.agent/workstate/fastfiles-audit-remediation-state.md`, `src/protocol/include/ffprotocol/SnapshotFormat.h`, `src/protocol/src/SnapshotFormat.cpp`, `src/engine/src/SnapshotPublisher.h`, `src/engine/src/SnapshotPublisher.cpp`, `src/engine/src/UiServer.h`, `src/engine/src/UiServer.cpp`, `src/ui/src/EngineClient.h`, `src/ui/src/EngineClient.cpp`, `tests/engine/test_snapshot_publisher.cpp`, and `tests/engine/bench_large_index_scalability.cpp`.
+- Remediation-owned modified files: `src/engine/src/PrivilegedConnection.cpp`, `src/engine/src/PrivilegedConnection.h`, `src/engine/src/UiServer.cpp`, `src/engine/src/UiServer.h`, `src/ipc/include/ffipc/PipeFraming.h`, `src/ipc/include/ffipc/PipeListener.h`, `src/ipc/src/PipeFraming.cpp`, `src/ipc/src/PipeListener.cpp`, `src/ui/src/EngineClient.cpp`, `src/ui/src/EngineClient.h`, and `tests/ipc/test_pipe_framing.cpp`, plus this workstate. The earlier snapshot/cancellation files are committed.
 - Unrelated dirty files to preserve: none observed at start; re-check before every commit.
 - Historical repository workstate: `docs/agent/WORKSTATE.md` (contains older release/UI checkpoints and was stale relative to the starting HEAD). Mission plan: `.agent/execplans/fastfiles-audit-remediation.md`.
 - Mission workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`.
@@ -29,8 +29,8 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IMPLEMENTED | Immutable generation-sized mappings, explicit format v2, bounded 256 MiB payload rejection, checked two-pass direct serialization, and in-place UI parsing are committed | Focused tests 3/3; 100K/500K/1M full corpus runs PASS; 2M reached durable insert, rebuild, actual 230,709,659-byte snapshot publication, and retained last-stage diagnostics before the projection probe exceeded the 900 s benchmark bound | `d69401f` |
 | FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
 | FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a lock-backed UI callback lifetime guard | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | `18a361e` |
-| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IN_PROGRESS | Replacing UI listener/client reads and writes with the shared overlapped framing path; removing idle polling and joining listener-owned connection threads | Existing ffipc overlapped tests pass; UI/service migration and shutdown stress tests pending | — |
-| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IN_PROGRESS | Removing the PrivilegedConnection helper-thread timeout and using handle-bound overlapped handshake/active reads with `CancelIoEx` | Existing 100 ms overlapped timeout test passes; handshake/partial-frame/shutdown deadline tests pending | — |
+| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IMPLEMENTED | UI client/server now use overlapped reads/writes; UI listener retains accepted threads and cancellation duplicates; product polling path removed | `ffipc_framing_tests` PASS 1/1; `ffengine_ui_server_lifecycle_tests` PASS 1/1; Engine/UI/Service Debug targets build; final Analyze rerun pending | pending commit |
+| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IMPLEMENTED | Removed the `PrivilegedConnection` handshake helper thread and `CancelSynchronousIo` join; shared framing uses event-backed overlapped operations, absolute deadlines, bounded cancellation collection, and bounded quarantine | Framing tests cover no peer, partial-frame, peer-death, and stalled-write cases; `ffengine_volume_session_manager_tests` PASS; final Analyze rerun pending | pending commit |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
 | FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | OPEN | Canonical VERSIONINFO source pending | Artifact inspection pending | — |
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
@@ -228,6 +228,14 @@ UI external-validation notes.
    state whose mutex is held across owner access; destruction acquires the same
    mutex before marking the state dead, so a late reader callback cannot race
    into a destroyed `SearchPanel`.
+16. FF-AUDIT-07/08 implementation: converted live UI↔Engine and Engine↔Service
+   pipe handles to `FILE_FLAG_OVERLAPPED`, removed `PeekNamedPipe` polling and
+   the privileged handshake reader thread, and routed frame reads/writes
+   through shared event-backed `ffipc` operations. A cancelled operation is
+   collected within a bounded grace period or retained in a bounded quarantine
+   so returning from a deadline cannot free state still referenced by Windows.
+   `PipeListener` now retains accepted threads and duplicate cancellation
+   handles and joins them during Stop.
 
 ## Validation Evidence
 
@@ -371,6 +379,12 @@ UI external-validation notes.
 - After replacing the callback's atomic-only lifetime check with a mutex-backed
   lifetime state, the developer-environment Debug build and focused CTest pass
   again: 3/3 in 1.82 s. `git diff --check` also passes.
+- FF-AUDIT-07/08 focused Debug validation: `ffipc_framing_tests` PASS 1/1 in
+  0.53 s, including no-peer timeout, partial header, payload stall, peer death,
+  and a stalled 1 MiB write. `ffengine_ui_server_lifecycle_tests` PASS 1/1 in
+  0.14 s, including listener shutdown and cancellation. The service, engine,
+  and UI targets build under Debug; Analyze target build passed before the
+  final framing-test additions and must be rerun for this exact diff.
 
 ## Known Failures
 
@@ -426,6 +440,10 @@ UI external-validation notes.
 - The cancellation slice is not yet through the full Debug/release-test/
   verifier matrix; focused Debug/Analyze tests pass and the slice is ready for
   its targeted commit.
+- FF-AUDIT-07/08 focused slice now passes the exact `/analyze` build and CTest
+  rerun: 3/3 focused tests in 0.87 s, plus `ffdoc_drift_tests` 1/1 in 0.93 s.
+  The slice is ready for its targeted commit; full Debug/release-test/
+  verifier validation remains later.
 
 ## External Blockers
 
@@ -468,9 +486,11 @@ UI external-validation notes.
 - FF-AUDIT-07/08 are now the single active implementation frontier. Do not
   start version-resource work until the UI and privileged pipe lifecycles have
   one cancellation/teardown model and their focused stress tests pass.
+- The implementation frontier for FF-AUDIT-07/08 is complete and ready for a
+  focused commit. Remaining work is validation, then the release-resource
+  slice.
 
 ## Next Exact Action
 
-Implement the shared bounded-overlapped read/write and listener ownership
-changes in `src/ipc`, then migrate `EngineClient`, `UiServer`, and
-`PrivilegedConnection` to it before adding the stall/shutdown regressions.
+Commit the reviewed FF-AUDIT-07/08 shared-overlapped IPC slice, then update
+this workstate with its SHA and begin FF-AUDIT-10 version-resource work.

@@ -134,6 +134,7 @@ private:
     // session orchestrator) both write to the same handle.
     std::mutex writeMutex_;
     std::atomic<HANDLE> activePipe_{nullptr};
+    std::atomic<HANDLE> connectingPipe_{nullptr};
 
     std::thread lifecycleThread_;
     std::mutex wakeMutex_;
