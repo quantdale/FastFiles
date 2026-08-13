@@ -851,6 +851,17 @@ void EngineClient::SetIndexingPaused(uint8_t scope, bool paused) {
     WriteCurrentFrame(static_cast<uint16_t>(ffprotocol::UiMessageType::SetIndexingPaused), &payload, sizeof(payload));
 }
 
+void EngineClient::CancelIndexedSearch(uint64_t requestId) {
+    if (requestId == 0) return;
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+        indexedSearchCallbacks_.erase(requestId);
+    }
+    ffprotocol::CancelIndexedSearchPayload payload{requestId};
+    WriteCurrentFrame(static_cast<uint16_t>(UiMessageType::CancelIndexedSearch),
+                      &payload, sizeof(payload));
+}
+
 void EngineClient::RequestVolumeStatus(VolumeStatusCallback callback) {
     {
         std::lock_guard<std::mutex> lock(volumeStatusCallbackMutex_);

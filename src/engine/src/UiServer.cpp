@@ -74,7 +74,13 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
 } // namespace
 
 UiServer::ClientConnection::ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller)
-    : pipe_(pipe), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {}
+    : pipe_(pipe), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {
+    indexedSearchThread_ = std::thread(&ClientConnection::IndexedSearchWorker, this);
+}
+
+UiServer::ClientConnection::~ClientConnection() {
+    Close();
+}
 
 bool UiServer::ClientConnection::Write(uint16_t messageType, const void* payload, uint32_t payloadSize) {
     // Serialize complete frames for this connection, but do not hold the
@@ -111,6 +117,7 @@ void UiServer::ClientConnection::CancelPendingWriteLocked() {
 }
 
 void UiServer::ClientConnection::Cancel() {
+    CancelIndexedSearches();
     std::lock_guard<std::mutex> stateLock(stateMutex_);
     if (!closing_) {
         CancelPendingWriteLocked();
@@ -118,7 +125,119 @@ void UiServer::ClientConnection::Cancel() {
     }
 }
 
+void UiServer::ClientConnection::StartIndexedSearch(
+    const ffprotocol::IndexedSearchRequest& request, const OnRequestIndexedSearch& handler) {
+    // audit-remediation FF-AUDIT-06: keep the pipe reader free to consume a
+    // cancel/superseding request while the projection search runs.
+    const auto cancellation = std::make_shared<std::atomic<bool>>(false);
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchMutex_);
+        if (indexedSearchStopping_) return;
+        if (activeIndexedSearchCancellation_ != nullptr) {
+            activeIndexedSearchCancellation_->store(true, std::memory_order_release);
+        }
+        if (pendingIndexedSearch_.has_value()) {
+            pendingIndexedSearch_->cancellation->store(true, std::memory_order_release);
+        }
+        pendingIndexedSearch_ = IndexedSearchTask{request, handler, cancellation};
+    }
+    indexedSearchCondition_.notify_one();
+}
+
+bool UiServer::ClientConnection::CancelIndexedSearch(uint64_t requestId) {
+    if (requestId == 0) return false;
+    bool cancelled = false;
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchMutex_);
+        if (pendingIndexedSearch_.has_value() && pendingIndexedSearch_->request.requestId == requestId) {
+            pendingIndexedSearch_->cancellation->store(true, std::memory_order_release);
+            pendingIndexedSearch_.reset();
+            cancelled = true;
+        }
+        if (activeIndexedSearchRequestId_ == requestId && activeIndexedSearchCancellation_ != nullptr) {
+            activeIndexedSearchCancellation_->store(true, std::memory_order_release);
+            cancelled = true;
+        }
+    }
+    indexedSearchCondition_.notify_one();
+    return cancelled;
+}
+
+void UiServer::ClientConnection::CancelIndexedSearches() {
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchMutex_);
+        if (activeIndexedSearchCancellation_ != nullptr) {
+            activeIndexedSearchCancellation_->store(true, std::memory_order_release);
+        }
+        if (pendingIndexedSearch_.has_value()) {
+            pendingIndexedSearch_->cancellation->store(true, std::memory_order_release);
+            pendingIndexedSearch_.reset();
+        }
+    }
+    indexedSearchCondition_.notify_one();
+}
+
+void UiServer::ClientConnection::IndexedSearchWorker() {
+    for (;;) {
+        IndexedSearchTask task;
+        {
+            std::unique_lock<std::mutex> lock(indexedSearchMutex_);
+            indexedSearchCondition_.wait(lock, [this] {
+                return indexedSearchStopping_ || pendingIndexedSearch_.has_value();
+            });
+            if (indexedSearchStopping_) return;
+            task = std::move(*pendingIndexedSearch_);
+            pendingIndexedSearch_.reset();
+            activeIndexedSearchCancellation_ = task.cancellation;
+            activeIndexedSearchRequestId_ = task.request.requestId;
+        }
+
+        ffprotocol::IndexedSearchResponse response;
+        response.requestId = task.request.requestId;
+        if (task.handler) {
+            const SearchCancellation cancellation = [token = task.cancellation] {
+                return token->load(std::memory_order_acquire);
+            };
+            response = task.handler(task.request, cancellation);
+            response.requestId = task.request.requestId;
+        } else {
+            response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+        }
+
+        bool stopping = false;
+        {
+            std::lock_guard<std::mutex> lock(indexedSearchMutex_);
+            if (activeIndexedSearchCancellation_ == task.cancellation) {
+                activeIndexedSearchCancellation_.reset();
+                activeIndexedSearchRequestId_ = 0;
+            }
+            stopping = indexedSearchStopping_;
+        }
+        if (!stopping && !task.cancellation->load(std::memory_order_acquire)
+            && response.status != ffprotocol::IndexedSearchStatus::Cancelled) {
+            const auto payload = ffprotocol::SerializeIndexedSearchResponse(response);
+            if (!payload.empty()) {
+                Write(static_cast<uint16_t>(UiMessageType::IndexedSearchResult),
+                      payload.data(), static_cast<uint32_t>(payload.size()));
+            }
+        }
+    }
+}
+
 void UiServer::ClientConnection::Close() {
+    {
+        std::lock_guard<std::mutex> lock(indexedSearchMutex_);
+        indexedSearchStopping_ = true;
+        if (activeIndexedSearchCancellation_ != nullptr) {
+            activeIndexedSearchCancellation_->store(true, std::memory_order_release);
+        }
+        if (pendingIndexedSearch_.has_value()) {
+            pendingIndexedSearch_->cancellation->store(true, std::memory_order_release);
+            pendingIndexedSearch_.reset();
+        }
+    }
+    indexedSearchCondition_.notify_one();
+
     HANDLE pipe = INVALID_HANDLE_VALUE;
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
@@ -142,6 +261,9 @@ void UiServer::ClientConnection::Close() {
     }
     if (pipe != INVALID_HANDLE_VALUE) {
         CloseHandle(pipe);
+    }
+    if (indexedSearchThread_.joinable()) {
+        indexedSearchThread_.join();
     }
 }
 
@@ -560,17 +682,8 @@ bool UiServer::HandleRequestIndexedSearch(const ClientConnectionPtr& client,
     if (!request) {
         return false;
     }
-    ffprotocol::IndexedSearchResponse response;
-    response.requestId = request->requestId;
-    if (onRequestIndexedSearch) {
-        response = onRequestIndexedSearch(*request);
-        // The request id is owned by the UI protocol even if an internal
-        // callback accidentally returned a default/foreign id.
-        response.requestId = request->requestId;
-    } else {
-        response.status = ffprotocol::IndexedSearchStatus::Unavailable;
-    }
-    return SendIndexedSearchResult(client, response);
+    client->StartIndexedSearch(*request, onRequestIndexedSearch);
+    return true;
 }
 
 void UiServer::HandleConnection(HANDLE pipe) {
@@ -659,6 +772,14 @@ void UiServer::HandleConnection(HANDLE pipe) {
     case UiMessageType::RequestIndexedSearch:
         if (!HandleRequestIndexedSearch(client, frame.payload)) goto disconnected;
         break;
+
+    case UiMessageType::CancelIndexedSearch: {
+        if (frame.payload.size() != sizeof(ffprotocol::CancelIndexedSearchPayload)) goto disconnected;
+        ffprotocol::CancelIndexedSearchPayload payload{};
+        std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+        client->CancelIndexedSearch(payload.requestId);
+        break;
+    }
 
     case UiMessageType::RequestVolumeStatus:
         if (!frame.payload.empty() || !SendVolumeStatus(client)) goto disconnected;

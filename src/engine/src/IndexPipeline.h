@@ -88,6 +88,7 @@ public:
         size_t filenameIndexCandidateCount = 0;
         bool filenameIndexUsed = false;
         bool truncated = false;
+        bool cancelled = false;
     };
 
     // outIntegrityFailed (optional, task 1.7): set to true when the open
@@ -193,8 +194,10 @@ public:
     // projection lock is held while copying lightweight candidate data;
     // matching and sorting happen after that copy, and lazy folder
     // reconstruction reacquires the lock only for path-dependent survivors.
+    using SearchCancellation = std::function<bool()>;
     ffprotocol::IndexedSearchResponse SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
-                                                    SearchTimings* timings = nullptr);
+                                                    SearchTimings* timings = nullptr,
+                                                    const SearchCancellation& cancelled = {});
 
 private:
     std::mutex mutex_;

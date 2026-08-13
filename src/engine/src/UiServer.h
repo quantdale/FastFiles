@@ -7,6 +7,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 #include <windows.h>
 
@@ -63,7 +64,9 @@ public:
     std::function<ffprotocol::ForgetUnavailableVolumeStatus(int64_t)> onForgetUnavailableVolume;
     using OnRequestFolderAggregate = std::function<std::optional<ffindexstore::Projection::FolderAggregate>(ffindexstore::VolumeRowId, ffindexstore::FileId)>;
     OnRequestFolderAggregate onRequestFolderAggregate;
-    using OnRequestIndexedSearch = std::function<ffprotocol::IndexedSearchResponse(const ffprotocol::IndexedSearchRequest&)>;
+    using SearchCancellation = std::function<bool()>;
+    using OnRequestIndexedSearch = std::function<ffprotocol::IndexedSearchResponse(
+        const ffprotocol::IndexedSearchRequest&, const SearchCancellation&)>;
     OnRequestIndexedSearch onRequestIndexedSearch;
     // settings-and-appearance §7.3: supplies the per-volume condition
     // report (VolumeStatusRecords) on demand; the engine derives it from
@@ -106,13 +109,25 @@ private:
 
     struct ClientConnection {
         ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller);
+        ~ClientConnection();
 
         bool Write(uint16_t messageType, const void* payload = nullptr, uint32_t payloadSize = 0);
         void Cancel();
+        void StartIndexedSearch(const ffprotocol::IndexedSearchRequest& request,
+                                const OnRequestIndexedSearch& handler);
+        bool CancelIndexedSearch(uint64_t requestId);
         void Close();
         HANDLE Pipe() const noexcept { return pipe_; }
 
         void CancelPendingWriteLocked();
+        void CancelIndexedSearches();
+        void IndexedSearchWorker();
+
+        struct IndexedSearchTask {
+            ffprotocol::IndexedSearchRequest request;
+            OnRequestIndexedSearch handler;
+            std::shared_ptr<std::atomic<bool>> cancellation;
+        };
 
         HANDLE pipe_ = INVALID_HANDLE_VALUE;
         HANDLE writerThread_ = nullptr;
@@ -121,6 +136,13 @@ private:
         std::mutex writeMutex_;
         std::mutex stateMutex_;
         bool closing_ = false;
+        std::mutex indexedSearchMutex_;
+        std::condition_variable indexedSearchCondition_;
+        std::optional<IndexedSearchTask> pendingIndexedSearch_;
+        std::shared_ptr<std::atomic<bool>> activeIndexedSearchCancellation_;
+        uint64_t activeIndexedSearchRequestId_ = 0;
+        bool indexedSearchStopping_ = false;
+        std::thread indexedSearchThread_;
     };
 
     using ClientConnectionPtr = std::shared_ptr<ClientConnection>;

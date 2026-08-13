@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -156,6 +157,78 @@ bool SendRequestDirectory(HANDLE pipe, const std::wstring& path) {
                              payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
+bool SendIndexedSearch(HANDLE pipe, uint64_t requestId) {
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = requestId;
+    request.scope = 3;
+    request.sortField = 0;
+    request.maxResults = 100;
+    request.query = L"entry";
+    const auto payload = ffprotocol::SerializeIndexedSearchRequest(request);
+    return !payload.empty()
+        && ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::RequestIndexedSearch),
+                              payload.data(), static_cast<uint32_t>(payload.size()));
+}
+
+bool SendCancelIndexedSearch(HANDLE pipe, uint64_t requestId) {
+    const ffprotocol::CancelIndexedSearchPayload payload{requestId};
+    return ffipc::WriteFrame(pipe, static_cast<uint16_t>(ffprotocol::UiMessageType::CancelIndexedSearch),
+                             &payload, sizeof(payload));
+}
+
+struct IndexedSearchCancellationState {
+    std::mutex mutex;
+    std::condition_variable condition;
+    std::set<uint64_t> started;
+    std::set<uint64_t> cancelled;
+    int resultWrites = 0;
+
+    bool Write(uint16_t messageType) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (messageType == static_cast<uint16_t>(ffprotocol::UiMessageType::IndexedSearchResult)) {
+            ++resultWrites;
+        }
+        return true;
+    }
+
+    ffprotocol::IndexedSearchResponse Handle(
+        const ffprotocol::IndexedSearchRequest& request,
+        const ffengine::UiServer::SearchCancellation& cancellation) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            started.insert(request.requestId);
+            condition.notify_all();
+        }
+        while (!cancellation()) {
+            Sleep(1);
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            cancelled.insert(request.requestId);
+            condition.notify_all();
+        }
+        ffprotocol::IndexedSearchResponse response;
+        response.requestId = request.requestId;
+        response.status = ffprotocol::IndexedSearchStatus::Cancelled;
+        return response;
+    }
+
+    bool WaitForStarted(uint64_t requestId, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [&] { return started.contains(requestId); });
+    }
+
+    bool WaitForCancelled(uint64_t requestId, std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [&] { return cancelled.contains(requestId); });
+    }
+
+    bool IsCancelled(uint64_t requestId) {
+        std::lock_guard<std::mutex> lock(mutex);
+        return cancelled.contains(requestId);
+    }
+};
+
 template <typename ConfigureSink, typename CheckResult>
 void RunServerScenario(const wchar_t* suffix, ConfigureSink configureSink, CheckResult checkResult) {
     const auto root = MakeFixtureRoot(suffix);
@@ -273,6 +346,56 @@ void TestIdleShutdown() {
     std::filesystem::remove_all(root, error);
 }
 
+void TestIndexedSearchCancellationIsConnectionScoped() {
+    IndexedSearchCancellationState state;
+    ffengine::UiServer server(
+        [&state](HANDLE, uint16_t messageType, const void*, uint32_t) {
+            return state.Write(messageType);
+        });
+    server.onRequestIndexedSearch = [&state](
+        const ffprotocol::IndexedSearchRequest& request,
+        const ffengine::UiServer::SearchCancellation& cancellation) {
+        return state.Handle(request, cancellation);
+    };
+
+    const DWORD sessionId = GetCurrentProcessId() + 5;
+    const bool started = server.Start(sessionId);
+    Check(started, "UI server starts for indexed-search cancellation");
+    if (!started) return;
+    const std::wstring pipeName = PipeName(sessionId);
+    HANDLE first = ConnectToServer(pipeName);
+    HANDLE second = ConnectToServer(pipeName);
+    Check(first != INVALID_HANDLE_VALUE && second != INVALID_HANDLE_VALUE,
+          "two UI clients connect for scoped indexed-search cancellation");
+    if (first == INVALID_HANDLE_VALUE || second == INVALID_HANDLE_VALUE) {
+        if (first != INVALID_HANDLE_VALUE) CloseHandle(first);
+        if (second != INVALID_HANDLE_VALUE) CloseHandle(second);
+        server.Stop();
+        return;
+    }
+    Check(SendSubscribe(first) && SendSubscribe(second),
+          "both UI clients subscribe before indexed searches");
+    Check(SendIndexedSearch(first, 101) && SendIndexedSearch(second, 202),
+          "both UI clients issue indexed searches");
+    Check(state.WaitForStarted(101, kWaitDeadline) && state.WaitForStarted(202, kWaitDeadline),
+          "both indexed searches start independently");
+    Check(SendIndexedSearch(first, 102), "first UI client supersedes its indexed search");
+    Check(state.WaitForCancelled(101, kWaitDeadline) && state.WaitForStarted(102, kWaitDeadline),
+          "a newer indexed search cancels the older request and starts promptly");
+    Check(!state.IsCancelled(202), "one UI client cannot cancel another client's search");
+    Check(SendCancelIndexedSearch(first, 102) && SendCancelIndexedSearch(second, 202),
+          "both UI clients send their explicit cancellations");
+    Check(state.WaitForCancelled(102, kWaitDeadline) && state.WaitForCancelled(202, kWaitDeadline),
+          "explicit cancellation stops both remaining indexed searches");
+    {
+        std::lock_guard<std::mutex> lock(state.mutex);
+        Check(state.resultWrites == 0, "cancelled indexed searches do not publish stale results");
+    }
+    CloseHandle(first);
+    CloseHandle(second);
+    server.Stop();
+}
+
 void TestFailedStartRollsBackSnapshot() {
     const DWORD sessionId = GetCurrentProcessId() + 4;
     const std::wstring pipeName = PipeName(sessionId);
@@ -300,6 +423,7 @@ int main() {
     TestBlockedPublicationShutdown();
     TestDisconnectDuringPublication();
     TestIdleShutdown();
+    TestIndexedSearchCancellationIsConnectionScoped();
     TestFailedStartRollsBackSnapshot();
     return FailureCount() == 0 ? 0 : 1;
 }

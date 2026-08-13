@@ -86,6 +86,7 @@ public:
                                   const std::wstring& scopePath, uint8_t sortField,
                                   bool descending, uint32_t maxResults,
                                   IndexedSearchCallback callback);
+    void CancelIndexedSearch(uint64_t requestId);
     uint64_t LastRequestId() const { return lastRequestId_.load(); }
 
     // Reads the most recently published snapshot directly out of the

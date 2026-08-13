@@ -603,9 +603,11 @@ std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolde
 }
 
 ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
-                                                               SearchTimings* timings) {
+                                                               SearchTimings* timings,
+                                                               const SearchCancellation& cancelled) {
     using Clock = std::chrono::steady_clock;
     const auto totalStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+    if (timings != nullptr) timings->cancelled = false;
     const bool detailedDiagnostics = timings != nullptr && timings->detailedDiagnostics;
     const bool projectionOnly = timings != nullptr && timings->projectionOnly;
     const auto setTotal = [&] {
@@ -615,12 +617,24 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
     };
     ffprotocol::IndexedSearchResponse result;
     result.requestId = request.requestId;
+    const auto isCancelled = [&cancelled] {
+        return cancelled && cancelled();
+    };
+    const auto finishCancelled = [&] {
+        result.status = ffprotocol::IndexedSearchStatus::Cancelled;
+        if (timings != nullptr) timings->cancelled = true;
+        setTotal();
+    };
     if (request.requestId == 0 || !ffprotocol::IsIndexedSearchScopeValid(request.scope) ||
         !ffprotocol::IsIndexedSearchSortValid(request.sortField) || request.query.empty() ||
         request.query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars ||
         request.scopePath.size() > ffprotocol::kMaxPathLengthChars || request.maxResults == 0) {
         result.status = ffprotocol::IndexedSearchStatus::InvalidRequest;
         setTotal();
+        return result;
+    }
+    if (isCancelled()) {
+        finishCancelled();
         return result;
     }
 
@@ -664,6 +678,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         // copy accepted rows into owning Candidates. This keeps non-matches
         // allocation-free and makes the view lifetime explicit.
         std::unique_lock<std::mutex> lock(mutex_);
+        if (isCancelled()) {
+            finishCancelled();
+            return result;
+        }
         if (!store_.IsOpen()) {
             result.status = ffprotocol::IndexedSearchStatus::Unavailable;
             setTotal();
@@ -715,6 +733,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         candidateStart = searchStart;
         bool continueEnumeration = true;
         const ffsearch::CandidateViewMaterializer materialize = [&](const ffsearch::CandidateView& view) {
+            if (isCancelled()) return std::optional<ffsearch::Candidate>{};
             const auto materializationStart = timings != nullptr ? Clock::now() : Clock::time_point{};
             ++candidateNameCopies;
             auto candidate = MakeOwnedCandidate(view);
@@ -744,7 +763,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         const ffsearch::CandidateViewEnumerator enumerate = [&](const ffsearch::CandidateViewVisitor& visit) {
             const auto enumerationStart = detailedDiagnostics ? Clock::now() : Clock::time_point{};
             const auto visitEntry = [&](const ffindexstore::ProjectionEntry& entry) {
-                if (!continueEnumeration) return;
+                if (!continueEnumeration || isCancelled()) {
+                    continueEnumeration = false;
+                    return;
+                }
                 if (detailedDiagnostics) ++projectionEntriesVisited;
                 const std::wstring* prefix = singlePrefix;
                 if (prefix == nullptr) {
@@ -799,18 +821,21 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             };
             if (filenameCandidates.has_value()) {
                 for (const uint32_t index : *filenameCandidates) {
-                    if (!continueEnumeration) break;
+                    if (!continueEnumeration || isCancelled()) {
+                        continueEnumeration = false;
+                        break;
+                    }
                     visitEntry(projection_.EntryAt(index));
                 }
             } else {
-                projection_.ForEachEntryValue(visitEntry);
+                projection_.ForEachEntryValueUntil(visitEntry, isCancelled);
             }
             if (detailedDiagnostics) {
                 timings->projectionEnumerationMs +=
                     std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();
             }
         };
-        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize, {},
+        search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize, isCancelled,
                                                collectSearchDiagnostics ? &searchDiagnostics : nullptr);
         lock.unlock();
     } else {
@@ -818,6 +843,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         // A future custom FilterRegistry entry without a view predicate uses
         // the established owning path as a correctness-preserving fallback.
         std::unique_lock<std::mutex> lock(mutex_);
+        if (isCancelled()) {
+            finishCancelled();
+            return result;
+        }
         if (!store_.IsOpen()) {
             result.status = ffprotocol::IndexedSearchStatus::Unavailable;
             setTotal();
@@ -863,8 +892,9 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
 
         candidateStart = timings != nullptr ? Clock::now() : Clock::time_point{};
         candidates.reserve(projection_.EntryCount());
-        projection_.ForEachEntry([&](const ffindexstore::EntryKey& key,
-                                      const ffindexstore::ProjectionEntry& entry) {
+        projection_.ForEachEntryUntil([&](const ffindexstore::EntryKey& key,
+                                           const ffindexstore::ProjectionEntry& entry) {
+            if (isCancelled()) return;
             const auto prefixIt = prefixes.find(key.volumeRowId);
             if (prefixIt == prefixes.end()) return;
             ++projectionRowsExamined;
@@ -884,7 +914,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                 if (candidate.name.empty()) return;
             }
             candidates.push_back(std::move(candidate));
-        });
+        }, isCancelled);
         lock.unlock();
         candidateObjectsMaterialized = candidates.size();
         candidateNameCopies = candidates.size();
@@ -897,6 +927,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         search = ffsearch::ExecuteSearchLazy(
             candidates, searchRequest,
             [&](ffsearch::Candidate& candidate) {
+                if (isCancelled()) return false;
                 if (!pathLock.has_value()) pathLock.emplace(mutex_);
                 const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
                 const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
@@ -906,8 +937,12 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                     if (materialized) ++timings->lazyPathMaterializationCount;
                 }
                 return materialized;
-            });
+            }, isCancelled);
         pathLock.reset();
+    }
+    if (isCancelled() || search.cancelled) {
+        finishCancelled();
+        return result;
     }
     if (timings != nullptr) {
         const double searchElapsed =

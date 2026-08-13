@@ -10,7 +10,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `a47b705` (release/CI plus USN data-correctness slices committed; snapshot redesign is the current uncommitted slice)
+- HEAD: `d69401f` (`perf: bound immutable snapshot publication memory`; snapshot redesign slice committed)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -26,9 +26,9 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-01 | CRITICAL | Elevated installer trusts mutable sibling executables | IMPLEMENTED | Shared `ffsetup` package-trust seam binds manifest hash, approved Authenticode signer, stable file identity, non-reparse handle, `CREATE_NEW` staging, and same-volume promotion | `ffsetup_package_trust_tests` PASS; `FastFilesSetup` Debug build PASS; clean/elevated live install remains external | — |
 | FF-AUDIT-02 | HIGH | Elevated uninstall executes a relay from user-writable `%TEMP%` | IMPLEMENTED | Removed temp relay and detached helper; installed image performs uninstall and schedules only its own deferred deletion | `ffsetup_installer_source_policy_tests` PASS; live in-use/elevated uninstall pending external host | — |
 | FF-AUDIT-03 | CRITICAL release blocker | Production privileged path lacks final signed clean-host proof | BLOCKED_EXTERNAL | Local release workflow is fail-closed and deterministic; external signing/clean-host evidence unavailable | `verify.ps1 release-readiness -Mode report`: artifact integrity PASS; signing/pins/privileged path/clean host BLOCKED_EXTERNAL, exit 2 | — |
-| FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IN_PROGRESS | Replacing the fixed 2×256 MiB mapping with immutable generation-sized mappings, explicit format v2, and bounded 256 MiB payload rejection | Existing benchmark history is inconclusive at 1M; new 10K/100K/500K/1M/2M diagnostics pending | — |
+| FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IMPLEMENTED | Immutable generation-sized mappings, explicit format v2, bounded 256 MiB payload rejection, checked two-pass direct serialization, and in-place UI parsing are committed | Focused tests 3/3; 100K/500K/1M full corpus runs PASS; 2M reached durable insert, rebuild, actual 230,709,659-byte snapshot publication, and retained last-stage diagnostics before the projection probe exceeded the 900 s benchmark bound | `d69401f` |
 | FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
-| FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | OPEN | Scoped cancellation pending | Supersession performance test pending | — |
+| FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a weak lifetime guard for UI callbacks | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | pending commit |
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | OPEN | Shared overlapped framing design pending | IPC baseline pending | — |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
@@ -36,7 +36,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
 | GAP-B | HIGH | Installer regression coverage | IMPLEMENTED | First-class setup package-trust and installer source-policy targets cover manifest, signer, hash, identity, reparse, staging, promotion, rollback candidates, and relay removal | Focused setup CTest PASS, 4/4 | — |
 | GAP-C | MEDIUM | ASAN not continuously gated | IMPLEMENTED | Added a CI ASAN protocol-fuzz job with VS developer-runtime activation; exclusions are limited to the applicable core target | Local ASAN fuzz pass; CI execution remains external | — |
-| GAP-D | MEDIUM | Large-index benchmark lacks actionable progress | IN_PROGRESS | Adding stage/progress output and 2M default tier to the benchmark | New benchmark run pending after snapshot implementation | — |
+| GAP-D | MEDIUM | Large-index benchmark lacks actionable progress | VALIDATED | Stage/progress output, 2M default tier, analytical capacity search, per-stage snapshot memory fields, and retained-log execution method are committed | 100K/500K/1M complete; 2M retained log identifies insert 192.94 s, rebuild 62.59 s, snapshot export 65.58 s, and projection probe 61.23 s before the 900 s bound | `d69401f` |
 | GAP-E | LOW | Direct rendered UI validation gap | BLOCKED_EXTERNAL | Preserve headless/CLI checks and document boundary | Actual rendered Windows validation requires available visual host/tool | — |
 
 ## Root-Cause Workstreams
@@ -196,6 +196,18 @@ UI external-validation notes.
     checked two-pass serializer that writes directly into the generation and
     parses that immutable payload in place in the UI. Benchmark diagnostics
     cover 10K/100K/500K/1M/2M tiers.
+14. Committed the snapshot architecture slice as `d69401f`: immutable
+    generation-named mappings, GUID restart epoch, version-2 header, direct
+    two-pass serialization, in-place UI parsing, safe last-good remap
+    behavior, and benchmark stage/memory diagnostics.
+15. FF-AUDIT-06 implementation: indexed search is now dispatched through one
+   worker per UI connection. A newer request or explicit cancel sets only that
+   connection's atomic token; `IndexPipeline` checks it during projection
+   enumeration, candidate materialization, and the existing search loops.
+   Cancelled work never serializes a result. UI callbacks use a weak lifetime
+   state whose mutex is held across owner access; destruction acquires the same
+   mutex before marking the state dead, so a late reader callback cannot race
+   into a destroyed `SearchPanel`.
 
 ## Validation Evidence
 
@@ -295,6 +307,50 @@ UI external-validation notes.
   1,093,849,088 working-set bytes, down from the prior approximately 1.02 GiB
   private / 1.27 GiB working-set peak. The remaining peak is dominated by the
   synthetic source model and parsed result, not a fixed snapshot reservation.
+- Corpus benchmark 100K (`--scales 100000 --diagnostics`) completed in 68.1 s
+  and wrote `%TEMP%\FastFiles-large-index-100k.json`. Durable insert was
+  3.92 s, projection rebuild 1.82 s, actual 100K snapshot export 206.89 ms,
+  direct serialization 21.67 ms, publication 0.14 ms, and UI map/parse
+  179.18 ms for 11,250,911 bytes. Search medians were 1.39–133.56 ms across
+  the recorded query classes. The benchmark then published the full 2,200,468
+  row / 268,435,424 byte probe and rejected 2,200,469 rows as expected.
+- Corpus benchmark 500K (`--scales 500000 --diagnostics`) completed in 102.1 s
+  and wrote `%TEMP%\FastFiles-large-index-500k.json`. Durable insert was
+  30.18 s with five progress checkpoints, projection rebuild 9.91 s, actual
+  500K snapshot export 1,137.64 ms, direct serialization 118.41 ms,
+  publication 0.15 ms, and UI map/parse 904.30 ms for 57,367,843 bytes.
+  Search medians were 5.75–168.00 ms across the recorded query classes. The
+  capacity probes again completed and rejected the first over-limit payload.
+- Corpus benchmark 1M (`--scales 1000000 --diagnostics`) completed in 300.0 s
+  and wrote `%TEMP%\FastFiles-large-index-1m.json`. Durable insert was
+  150.37 s with ten progress checkpoints, projection rebuild 46.41 s, actual
+  1M snapshot export 4,985.97 ms, direct serialization 382.17 ms,
+  publication 0.19 ms, and UI map/parse 4,011.08 ms for 115,160,389 bytes.
+  Search medians were 17.99–413.65 ms. The 2.2M capacity probe completed
+  within the same run and rejected the over-limit generation; the benchmark
+  now gives actionable evidence rather than a silent timeout.
+- Corpus benchmark 2M rerun with redirected log reached all durable fixture
+  checkpoints and completed durable insert in 192.94 s, projection rebuild in
+  62.59 s, and actual snapshot export/publication in 65,577.65 ms with direct
+  serialization 443.02 ms, publication 0.15 ms, and UI map/parse 3,818.79 ms
+  for 230,709,659 bytes. The projection probe then took 61,232.87 ms and the
+  900 s command bound expired before the query suite/cleanup; the retained log
+  identifies that exact stage. The two owned leftover benchmark PIDs (24420 and
+  25384) were verified by command line and terminated; no benchmark process
+  remains.
+- Snapshot slice commit: `d69401f17c59719072f812e6f9e35458297e2230`,
+  `perf: bound immutable snapshot publication memory`.
+- FF-AUDIT-06 focused Debug validation:
+  `cmake --build --preset debug --target ffprotocol_tests
+  ffengine_index_pipeline_tests ffengine_ui_server_lifecycle_tests FastFilesEngine FastFiles`
+  PASS; focused CTest PASS 3/3 in 2.00 s. Direct `ffengine_index_pipeline_tests.exe`
+  reports `superseded indexed search final latency: 2 ms` and all checks pass.
+  Direct `ffengine_ui_server_lifecycle_tests.exe` proves two independent UI
+  clients, newer-request supersession, connection-scoped cancellation, prompt
+  stop, and zero stale result writes. Analyze focused CTest PASS 3/3 in 3.84 s.
+- After replacing the callback's atomic-only lifetime check with a mutex-backed
+  lifetime state, the developer-environment Debug build and focused CTest pass
+  again: 3/3 in 1.82 s. `git diff --check` also passes.
 
 ## Known Failures
 
@@ -332,6 +388,24 @@ UI external-validation notes.
   progress because the old analytical size search constructed large maps;
   the size formula/progress boundaries were then fixed. The completed run
   above is evidence, not a failure of product behavior.
+- The committed snapshot work has not yet been run through the full default
+  10K/100K/500K/1M/2M corpus benchmark or the full post-commit Debug,
+  release-test, ASAN, and verifier gates; those are validation work, not an
+  implementation blocker.
+- First 2M corpus attempt (`--scales 2000000 --diagnostics`) hit the 900 s
+  command bound with exit 124 and no JSON output; the benchmark process was no
+  longer present afterward. Because the command wrapper buffered stdout, this
+  attempt did not retain the last stage in the tool result. This is a harness
+  evidence gap, not a product PASS or FAIL; the next attempt must redirect
+  stdout/stderr to an owned log file so progress survives a timeout.
+- The redirected 2M attempt also hit exit 124 at the benchmark wrapper bound,
+  but its log is actionable and the owned benchmark children were terminated
+  after verification. This is an expected scale-limit observation, not a
+  silent test result: 2M snapshot publication itself succeeded before the
+  projection-query bottleneck.
+- The cancellation slice is not yet through the full Debug/release-test/
+  verifier matrix; focused Debug/Analyze tests pass and the slice is ready for
+  its targeted commit.
 
 ## External Blockers
 
@@ -355,6 +429,9 @@ UI external-validation notes.
   production signed Release profile and validate package manifests end to end.
 - `a47b705` — preserve authoritative metadata across USN rename/write/attribute
   deltas using explicit field masks in SQLite and projection state.
+- `d69401f17c59719072f812e6f9e35458297e2230` — replace fixed double-slot
+  snapshot publication with immutable generation-sized mappings and remove
+  serialization/UI payload copies.
 
 ## Current Risks
 
@@ -367,7 +444,6 @@ UI external-validation notes.
 
 ## Next Exact Action
 
-Rerun the deterministic 10K/100K/500K snapshot benchmark with the direct
-two-pass writer and in-place UI parser, recording stage timings and memory;
-then commit the validated snapshot architecture slice before starting search
-cancellation.
+Commit the reviewed FF-AUDIT-06 cancellation slice, then begin FF-AUDIT-07/08
+shared overlapped IPC design from the existing `ffipc` framing/listener and
+the `EngineClient`/`UiServer` polling paths.

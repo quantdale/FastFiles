@@ -33,6 +33,7 @@ enum class UiMessageType : uint16_t {
     SetIndexingPaused = 16,      // UI -> Engine: pause/resume indexing, global (scope=0) or per-volume
     RequestIndexedSearch = 17,   // UI -> Engine: bounded query against the durable projection
     IndexedSearchResult = 18,    // Engine -> UI: bounded candidate page/result
+    CancelIndexedSearch = 19,    // audit-remediation FF-AUDIT-06: cancel one request on this UI connection
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -198,10 +199,15 @@ struct IndexedSearchRequestHeader {
     uint32_t maxResults;
 };
 
+struct CancelIndexedSearchPayload {
+    uint64_t requestId;
+};
+
 enum class IndexedSearchStatus : uint16_t {
     Completed = 1,
     Unavailable = 2,
     InvalidRequest = 3,
+    Cancelled = 4,
 };
 
 struct IndexedSearchResultHeader {

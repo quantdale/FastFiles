@@ -28,6 +28,7 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::SetIndexingPaused:
         case UiMessageType::RequestIndexedSearch:
         case UiMessageType::IndexedSearchResult:
+        case UiMessageType::CancelIndexedSearch:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;
@@ -66,6 +67,7 @@ bool IsIndexedSearchStatusValid(IndexedSearchStatus status) noexcept {
         case IndexedSearchStatus::Completed:
         case IndexedSearchStatus::Unavailable:
         case IndexedSearchStatus::InvalidRequest:
+        case IndexedSearchStatus::Cancelled:
             return true;
         default:
             return false;

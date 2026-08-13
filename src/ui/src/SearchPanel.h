@@ -82,6 +82,10 @@ private:
         uint64_t generation = 0;
         ffprotocol::IndexedSearchResponse response;
     };
+    struct IndexedCallbackState {
+        std::mutex mutex;
+        bool alive = true;
+    };
 
     void WorkerMain();
     void Dispatch(bool recordHistory = true, bool forceSnapshot = false);
@@ -125,6 +129,7 @@ private:
     bool descending_ = false;
     bool snapshotFallback_ = false;
     uint64_t generation_ = 0;
+    std::atomic<uint64_t> indexedRequestId_{0};
 
     std::thread worker_;
     std::mutex workMutex_;
@@ -132,6 +137,8 @@ private:
     std::optional<Work> pendingWork_;
     std::atomic<uint64_t> currentGeneration_{0};
     std::atomic<bool> stopping_{false};
+    std::shared_ptr<IndexedCallbackState> indexedCallbackState_ =
+        std::make_shared<IndexedCallbackState>();
 
     // Candidate construction is the expensive snapshot-to-search projection.
     // Keep one immutable worker-built copy per published snapshot generation

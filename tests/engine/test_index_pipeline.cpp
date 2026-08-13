@@ -1,7 +1,10 @@
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <thread>
 
 #include "IndexPipeline.h"
 #include "sqlite3.h"
@@ -487,6 +490,88 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
           "disabled volumes are not exposed through the indexed-search scope");
 }
 
+void TestIndexedSearchCancellationStopsProjectionWork() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_indexed_search_cancellation.db")),
+          "the pipeline opens for indexed-search cancellation");
+    VolumeKey key;
+    key.serialNumber = 19;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV1> records;
+    records.reserve(20'001);
+    records.push_back(MakeMftRecord(5, 5, u".", 0x10, 0));
+    for (uint64_t id = 1; id <= 20'000; ++id) {
+        std::u16string name = u"entry-";
+        for (const wchar_t digit : std::to_wstring(id)) {
+            name.push_back(static_cast<char16_t>(digit));
+        }
+        records.push_back(MakeMftRecord(10'000 + id, 5,
+                                        std::move(name), 0, id));
+    }
+    Check(pipeline.ApplyMftBatch(volume, records),
+          "the cancellation fixture applies a large projection batch");
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 91;
+    request.scope = 3;
+    request.sortField = 0;
+    request.maxResults = 4096;
+    request.query = L"entry";
+    std::atomic<size_t> cancellationChecks{0};
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings, [&cancellationChecks] {
+        return cancellationChecks.fetch_add(1, std::memory_order_relaxed) >= 8;
+    });
+    Check(response.status == ffprotocol::IndexedSearchStatus::Cancelled,
+          "an indexed search reports cooperative cancellation");
+    Check(response.candidates.empty() && timings.cancelled,
+          "a cancelled indexed search discards partial results");
+    Check(timings.projectionRowsExamined < records.size(),
+          "projection traversal stops before scanning the entire superseded request");
+
+    ffprotocol::IndexedSearchRequest obsoleteRequest = request;
+    obsoleteRequest.requestId = 92;
+    ffprotocol::IndexedSearchResponse obsoleteResponse;
+    std::atomic<bool> cancelObsolete{false};
+    std::atomic<size_t> obsoleteChecks{0};
+    std::thread obsoleteWorker([&] {
+        obsoleteResponse = pipeline.SearchIndexed(obsoleteRequest, nullptr, [&] {
+            obsoleteChecks.fetch_add(1, std::memory_order_relaxed);
+            return cancelObsolete.load(std::memory_order_acquire);
+        });
+    });
+    const auto waitStart = std::chrono::steady_clock::now();
+    while (obsoleteChecks.load(std::memory_order_acquire) == 0
+           && std::chrono::steady_clock::now() - waitStart < std::chrono::seconds(2)) {
+        Sleep(1);
+    }
+    Check(obsoleteChecks.load(std::memory_order_acquire) != 0,
+          "an obsolete large-index search reaches its cooperative cancellation checks");
+    cancelObsolete.store(true, std::memory_order_release);
+
+    ffprotocol::IndexedSearchRequest finalRequest = request;
+    finalRequest.requestId = 93;
+    finalRequest.query = L"entry-19999";
+    const auto finalStart = std::chrono::steady_clock::now();
+    const auto finalResponse = pipeline.SearchIndexed(finalRequest);
+    const auto finalElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - finalStart);
+    obsoleteWorker.join();
+    std::printf("superseded indexed search final latency: %lld ms\n",
+                static_cast<long long>(finalElapsed.count()));
+    Check(obsoleteResponse.status == ffprotocol::IndexedSearchStatus::Cancelled,
+          "the superseded indexed search exits as cancelled");
+    Check(finalResponse.status == ffprotocol::IndexedSearchStatus::Completed
+              && finalResponse.candidates.size() == 1,
+          "the final indexed search completes after supersession");
+    Check(finalElapsed < std::chrono::seconds(2),
+          "final indexed-search latency is not dominated by obsolete work");
+}
+
 } // namespace
 
 int main() {
@@ -500,6 +585,7 @@ int main() {
     TestVolumeAvailabilityAndForget();
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();
+    TestIndexedSearchCancellationStopsProjectionWork();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

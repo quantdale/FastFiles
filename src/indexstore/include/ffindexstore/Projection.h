@@ -167,6 +167,45 @@ public:
         }
     }
 
+    // audit-remediation FF-AUDIT-06: same live-entry traversal with a
+    // cooperative stop predicate. The
+    // predicate is evaluated before each callback so a superseded indexed
+    // search can stop projection enumeration rather than merely discarding
+    // its eventual result.
+    template <typename Fn, typename Cancel>
+    bool ForEachEntryValueUntil(Fn&& fn, Cancel&& cancelled) const {
+        if (denseIterationOrderValid_) {
+            for (const ProjectionEntry& entry : entries_) {
+                if (cancelled()) return false;
+                fn(entry);
+            }
+        } else {
+            bool keepGoing = true;
+            idToIndex_.ForEachValue([&](const uint32_t index) {
+                if (!keepGoing || cancelled()) {
+                    keepGoing = false;
+                    return;
+                }
+                fn(entries_[index]);
+            });
+            if (!keepGoing) return false;
+        }
+        return true;
+    }
+
+    template <typename Fn, typename Cancel>
+    bool ForEachEntryUntil(Fn&& fn, Cancel&& cancelled) const {
+        bool keepGoing = true;
+        idToIndex_.ForEach([&](const EntryKey& key, const uint32_t index) {
+            if (!keepGoing || cancelled()) {
+                keepGoing = false;
+                return;
+            }
+            fn(key, entries_[index]);
+        });
+        return keepGoing;
+    }
+
 private:
     void EnforceMemoryLimit();
     void EnforceMemoryLimitTo(size_t targetBytes);

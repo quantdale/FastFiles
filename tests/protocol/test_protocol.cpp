@@ -159,7 +159,9 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "RequestIndexedSearch is part of the closed UI command surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResult)).has_value(),
           "IndexedSearchResult is part of the closed UI response surface");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResult) + 1).has_value(),
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::CancelIndexedSearch)).has_value(),
+          "CancelIndexedSearch is part of the closed UI command surface");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::CancelIndexedSearch) + 1).has_value(),
           "the first unassigned UI message after indexed search is rejected");
     Check(sizeof(SetIndexingPausedPayload) == sizeof(uint8_t) + sizeof(uint8_t),
           "pause/resume request carries only a scope and a pause flag");

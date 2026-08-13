@@ -228,8 +228,9 @@ int wmain() {
     uiServer.onRequestFolderAggregate = [&indexPipeline](ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) -> std::optional<ffindexstore::Projection::FolderAggregate> {
         return indexPipeline.GetFolderAggregate(volumeId, parentFrn);
     };
-    uiServer.onRequestIndexedSearch = [&indexPipeline](const ffprotocol::IndexedSearchRequest& request) {
-        return indexPipeline.SearchIndexed(request);
+    uiServer.onRequestIndexedSearch = [&indexPipeline](const ffprotocol::IndexedSearchRequest& request,
+                                                       const ffengine::UiServer::SearchCancellation& cancelled) {
+        return indexPipeline.SearchIndexed(request, nullptr, cancelled);
     };
     uiServer.onRequestVolumeStatus = [&volumeSessions] {
         return volumeSessions.CollectVolumeStatus();

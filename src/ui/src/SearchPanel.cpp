@@ -155,7 +155,15 @@ std::wstring FormatFileTime(uint64_t ticks) {
 SearchPanel::~SearchPanel() {
     if (queryEdit_) RemoveWindowSubclass(queryEdit_, SearchEditProc, 1);
     if (status_) RemoveWindowSubclass(status_, StatusProc, 2);
-    stopping_ = true;
+    stopping_.store(true, std::memory_order_release);
+    {
+        std::lock_guard callbackLock(indexedCallbackState_->mutex);
+        indexedCallbackState_->alive = false;
+    }
+    const uint64_t indexedRequestId = indexedRequestId_.exchange(0);
+    if (engine_ != nullptr && indexedRequestId != 0) {
+        engine_->CancelIndexedSearch(indexedRequestId);
+    }
     currentGeneration_.fetch_add(1);
     workCv_.notify_all();
     if (worker_.joinable()) worker_.join();
@@ -370,18 +378,29 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
         indexedRequest.maxResults = static_cast<uint32_t>(work.request.maxResults);
         indexedRequest.query = queryText.data();
         indexedRequest.scopePath = currentPath_;
-        engine_->RequestIndexedSearch(
+        const uint64_t previousIndexedRequestId = indexedRequestId_.load();
+        if (previousIndexedRequestId != 0) {
+            engine_->CancelIndexedSearch(previousIndexedRequestId);
+        }
+        indexedRequestId_.store(engine_->RequestIndexedSearch(
             indexedRequest.query, indexedRequest.scope, indexedRequest.scopePath,
             indexedRequest.sortField, indexedRequest.descending, indexedRequest.maxResults,
-            [this, generation = work.generation](ffprotocol::IndexedSearchResponse response) {
-                if (stopping_) return;
+            [this, generation = work.generation,
+             alive = std::weak_ptr<IndexedCallbackState>(indexedCallbackState_)](
+                ffprotocol::IndexedSearchResponse response) {
+                const auto callbackState = alive.lock();
+                if (!callbackState) return;
+                std::lock_guard callbackLock(callbackState->mutex);
+                if (!callbackState->alive || stopping_.load(std::memory_order_acquire)) return;
+                uint64_t expected = response.requestId;
+                indexedRequestId_.compare_exchange_strong(expected, 0);
                 auto completion = std::make_unique<IndexedCompletion>(
                     IndexedCompletion{generation, std::move(response)});
                 if (PostMessageW(owner_, WM_APP_INDEXED_SEARCH_COMPLETE, 0,
                                  reinterpret_cast<LPARAM>(completion.get()))) {
                     completion.release();
                 }
-            });
+            }));
         return;
     }
 

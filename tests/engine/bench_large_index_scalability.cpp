@@ -1134,7 +1134,7 @@ int wmain(int argc, wchar_t** argv) {
         if (index != 0) output << ",\n";
         output << "    "; WriteSnapshot(output, snapshotRuns[index]);
     }
-    output << "\n  ],\n  \"supersession\":{\"engine_cancellation\":false,\"ui_generation_discards_stale_completion\":true,\"old_work_completes\":true}\n}\n";
+    output << "\n  ],\n  \"supersession\":{\"engine_cancellation\":true,\"ui_generation_discards_stale_completion\":true,\"old_work_completes\":false,\"regression_test\":\"ffengine_index_pipeline_tests\"}\n}\n";
     output.close();
 
     std::printf("Wrote %s\n", PathToUtf8(options.outputPath).c_str());
