@@ -10,7 +10,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `18a361e` (`feat: cancel superseded indexed searches`; cancellation slice committed)
+- HEAD: `1f578ef` (`docs: checkpoint indexed search cancellation`; IPC workstream checkpoint)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -29,8 +29,8 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IMPLEMENTED | Immutable generation-sized mappings, explicit format v2, bounded 256 MiB payload rejection, checked two-pass direct serialization, and in-place UI parsing are committed | Focused tests 3/3; 100K/500K/1M full corpus runs PASS; 2M reached durable insert, rebuild, actual 230,709,659-byte snapshot publication, and retained last-stage diagnostics before the projection probe exceeded the 900 s benchmark bound | `d69401f` |
 | FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
 | FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a lock-backed UI callback lifetime guard | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | `18a361e` |
-| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | OPEN | Shared overlapped framing design pending | IPC baseline pending | — |
-| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
+| FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IN_PROGRESS | Replacing UI listener/client reads and writes with the shared overlapped framing path; removing idle polling and joining listener-owned connection threads | Existing ffipc overlapped tests pass; UI/service migration and shutdown stress tests pending | — |
+| FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IN_PROGRESS | Removing the PrivilegedConnection helper-thread timeout and using handle-bound overlapped handshake/active reads with `CancelIoEx` | Existing 100 ms overlapped timeout test passes; handshake/partial-frame/shutdown deadline tests pending | — |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
 | FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | OPEN | Canonical VERSIONINFO source pending | Artifact inspection pending | — |
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
@@ -75,7 +75,10 @@ destroying owners; callbacks retain request ownership checks.
 
 Consolidate named-pipe framing around explicit overlapped read/write state,
 absolute deadlines, `CancelIoEx`, serialized writes, deterministic teardown,
-and no detached threads or polling.
+and no detached connection threads or polling. Both product seams will use
+handles opened with `FILE_FLAG_OVERLAPPED`; synchronous framing remains only as
+an explicitly bounded test/compatibility primitive where no live product path
+depends on it.
 
 ### G. Release Metadata / Migration Readiness
 
@@ -145,6 +148,23 @@ UI external-validation notes.
   reader and publication topology. The first implementation uses dynamic
   generations because it removes the dominant fixed commit envelope while
   preserving the existing zero-IPC reader model and atomic notification seam.
+- IPC modernization: use native overlapped named-pipe handles for both product
+  seams, with one frame reader/writer implementation in `ffipc`. Absolute
+  deadlines govern handshake/idle reads and bounded writes; `CancelIoEx` is the
+  teardown path, and each complete frame write remains serialized per
+  connection. This removes the synchronous helper-thread join hazard and the
+  UI `PeekNamedPipe` polling loop.
+- Listener ownership: `PipeListener` will retain accepted connection threads
+  and cancel their tracked pipe handles before joining them. This preserves the
+  existing security-descriptor injection while removing detached connection
+  teardown races. A listener-owned callback remains responsible for closing
+  the accepted handle after its work returns.
+- Alternatives considered for IPC: keep synchronous reads plus a polling
+  header probe; reject because it burns idle wakeups and cannot support a clean
+  overlapped cancellation model. Keep `CancelSynchronousIo` helper threads
+  for handshake; reject because the join is not a hard deadline. Duplicate UI
+  and service frame implementations; reject because framing, bounds, and
+  cancellation semantics would drift again.
 
 ## Changes Completed
 
@@ -445,9 +465,12 @@ UI external-validation notes.
   production claim is allowed until focused and full validation pass.
 - FF-AUDIT-06 has focused evidence but still needs the full post-remediation
   Debug/release-test/verifier matrix before it can be marked VALIDATED.
+- FF-AUDIT-07/08 are now the single active implementation frontier. Do not
+  start version-resource work until the UI and privileged pipe lifecycles have
+  one cancellation/teardown model and their focused stress tests pass.
 
 ## Next Exact Action
 
-Checkpoint the `18a361e` commit in workstate, then inspect the existing `ffipc`,
-`PrivilegedConnection`, `EngineClient`, and `UiServer` read/write lifecycles to
-design one bounded overlapped framing primitive for FF-AUDIT-07/08.
+Implement the shared bounded-overlapped read/write and listener ownership
+changes in `src/ipc`, then migrate `EngineClient`, `UiServer`, and
+`PrivilegedConnection` to it before adding the stall/shutdown regressions.
