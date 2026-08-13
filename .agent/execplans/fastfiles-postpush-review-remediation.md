@@ -6,8 +6,10 @@ Resolve FF-POST-01 through FF-POST-05 from the latest independent review,
 including the underlying installer trust, release identity, USN metadata, and
 named-pipe handle-lifetime defects; add adversarial regression coverage; make
 hosted CI portable; run the complete local and hosted validation matrix; and
-leave a durable handoff. Preserve fail-closed security, degraded-mode
-operation, the three-process boundary, and unrelated user work.
+leave a durable, non-self-referential handoff. The final handoff correction is
+FF-POST-12: tracked state must describe validated logical/history state while
+deriving live Git and CI state at resume time. Preserve fail-closed security,
+degraded-mode operation, the three-process boundary, and unrelated user work.
 
 The bounded adjacent audit also tracks FF-POST-06 through FF-POST-11. FF-POST-06
 is a semantic-version validation inconsistency found while reviewing the new
@@ -27,17 +29,30 @@ regression evidence are complete.
 - OpenSpec context: `openspec/changes/close-independent-validation-gaps/`
 - Architecture authority: `openspec/changes/establish-architecture-foundation/design.md`
 - The five findings in the user mission are the authoritative campaign matrix;
-  FF-POST-06 through FF-POST-11 are bounded adjacent regression findings.
+  FF-POST-06 through FF-POST-11 are bounded adjacent regression findings, and
+  FF-POST-12 covers the durable-state protocol and final handoff.
+
+Tracked state is not a live repository database. A workstate may record a
+validated implementation baseline and CI evidence bound to that SHA, but it
+must not embed the SHA of the commit that contains the workstate or claim that
+the containing commit has the latest green CI. Resume-time Git facts and the
+latest hosted run are derived by commands in the workstate and queried
+externally.
 
 ## Current frontier
 
-All five primary findings and bounded adjacent findings FF-POST-06 through
-FF-POST-11 are implemented and validated. The final source tree is pushed at
-`1f329bb3e195db1b003a99ab54ab5f5609314c0c`; hosted run `31718337068` is green
-for Debug, Analyze, Release-test, and ASAN protocol fuzz. The fresh audit found
-no new locally actionable defect. The remaining handoff is external:
-authorized production signing/pins, elevated clean-host install/service/
-MFT/USN/uninstall evidence, and rendered UI validation.
+The reviewed implementation baseline is
+`f9ea9948a65f06aa1366ce488ca38db1c76fdbf3`; the final hosted evidence bound
+to that implementation is run `31720435471`, green for Debug, Analyze,
+Release-test, and ASAN protocol fuzz. That SHA is a historical validation
+anchor, not the SHA of this ExecPlan or its companion workstate. The fresh
+audit found no new locally actionable production defect. This handoff slice
+addresses FF-POST-12 by repairing the workstate, stating the
+non-self-referential resume contract in the plan/guidance, validating the
+fresh-agent handoff, and completing the clean commit/push/hosted-CI boundary.
+The next major phase is external: authorized production signing/pins,
+elevated clean-host install/service/MFT/USN/uninstall evidence, and rendered
+UI validation.
 
 ## Guardrails
 
@@ -51,7 +66,17 @@ MFT/USN/uninstall evidence, and rendered UI validation.
   from implementation and local validation.
 - Preserve unrelated work and never force-push or rewrite existing history.
 - Update the campaign workstate before/after each meaningful frontier change,
-  before commits and pushes, after tests/builds/hosted runs, and before ending.
+  after local tests/builds, before long validation, and before ending. After a
+  final push, do not edit tracked state merely to record that push's hosted
+  run; report the live result in the session response and derive it again on
+  the next resume.
+- Live HEAD/origin/dirty state and latest CI are derived at resume time. Never
+  repair a handoff by adding the SHA of the commit that contains the repair;
+  never add a recursive “latest CI for this handoff file” claim.
+- Before ending, validate, commit all session-owned tracked state, fetch and
+  safely reconcile, push `main`, verify local/remote equality, inspect hosted
+  CI for the pushed SHA, and leave the tree clean. “Intentional workstate
+  dirty” is not an acceptable exit state.
 
 ## Execution slices
 
@@ -86,16 +111,24 @@ MFT/USN/uninstall evidence, and rendered UI validation.
 9. Freshly review the complete campaign diff for security/concurrency/CI
    regressions, commit coherent slices, safely push `main`, monitor GitHub
    Actions to green, and synchronize this handoff.
+10. FF-POST-12: rewrite the tracked state around logical/history evidence,
+    derive live repository/CI facts at resume time, reconcile this ExecPlan
+    with the state, and perform the final clean commit/push/CI handoff without
+    self-referential hashes.
 
 ## Validation commands
 
 Use the repository-supported commands discovered from `AGENTS.md`,
-`CMakePresets.json`, and the verification scripts. At minimum record exact
-results for focused setup/protocol/index/IPC tests; Debug and Release-test
-CTest; Analyze and production Release builds where pins permit; ASAN protocol
-fuzz; `verify/verify.ps1 build` and `doctor`; release tooling; strict OpenSpec;
-drift; `git diff --check`; and the actual GitHub Actions run with all required
-jobs green.
+`CMakePresets.json`, and the verification scripts. The implementation baseline
+already has exact evidence for focused setup/protocol/index/IPC tests; Debug
+and Release-test CTest; Analyze and production Release builds where pins
+permit; ASAN protocol fuzz; `verify/verify.ps1 build` and `doctor`; release
+tooling; strict OpenSpec; drift; `git diff --check`; and hosted run
+`31720435471` with all required jobs green. Because FF-POST-12 changes only
+tracked guidance/state, validate the new documents with diff/hygiene,
+documentation drift, source-policy, PowerShell/JSON/Markdown parsing as
+applicable, strict OpenSpec, and the actual post-push hosted run. Do not claim
+that the baseline executable matrix was rerun for a docs-only correction.
 
 ## Commit policy
 
@@ -111,12 +144,16 @@ Prefer focused imperative commits by coherent theme, for example:
 
 Do not create checkpoint-only commits; durable state records intermediate
 progress. Before every commit, confirm status, diff scope, and `git diff
---check`; immediately record the resulting hash.
+--check`. A state file may record prior baseline hashes and commit-bound
+historical CI, but must not record the hash of the commit that contains the
+state file. The session response records that final pushed hash instead.
 
 ## Exit criteria
 
-All five local findings are `VALIDATED` with adversarial tests and exact
-evidence, all local validation gates are green, the required hosted CI run is
-green, no unrelated changes are present, and the workstate states the exact
-external production-signing/clean-host/rendered-validation handoff if those
-remain unavailable.
+FF-POST-01 through FF-POST-11 are `VALIDATED` with adversarial tests and exact
+evidence; FF-POST-12 is `VALIDATED` when the state/plan/guidance model is
+non-self-referential, the fresh-agent acceptance passes, the docs-only gates
+are green, the correction is pushed, the remote is verified, and the hosted
+run for that pushed SHA is inspected. No unrelated changes may be present.
+The tracked handoff must state the exact external production-signing,
+clean-host, and rendered-validation phase without embedding its own final SHA.

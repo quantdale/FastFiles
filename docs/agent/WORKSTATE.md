@@ -1,11 +1,27 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-13T05:20:00+08:00
-Status: CLI RELEASE PREPARATION COMPLETE — EXTERNAL RELEASE GATES PRESERVED
+Status: HISTORICAL CAMPAIGN RECORD — DERIVE LIVE STATE BEFORE RESUMING
 
-## Release-readiness campaign reconciliation (2026-08-13)
+## Durable-state protocol
 
-- Fresh-session repository truth is `main` at `3ab36e7463b982a0f6f05318a5f370edf8d2c0a1`; the starting worktree was clean. The older `77d4dc2` checkpoint in this file is historical and is superseded by the current Git state.
+This file preserves dated engineering history and is not authoritative live
+Git/CI state. Every branch, HEAD, `origin/main`, dirty-status, ancestry, and
+latest-hosted-run value below is historical evidence from its dated checkpoint.
+At resume time, fetch `origin` and derive live state with `git status --short`,
+`git branch --show-current`, `git rev-parse HEAD`, `git rev-parse origin/main`,
+and `git log --oneline --decorate -10`; query GitHub Actions externally. A
+tracked workstate may record a validated baseline SHA and CI evidence bound to
+that SHA, but must never require the SHA of the commit that contains itself or
+embed a recursive latest-CI claim. Session-owned state must be committed and
+pushed with a clean worktree before handoff; an intentionally dirty workstate
+is not success.
+
+## Historical release-readiness campaign reconciliation (2026-08-13)
+
+- At this dated checkpoint, the observed repository was `main` at
+  `3ab36e7463b982a0f6f05318a5f370edf8d2c0a1`; that observation is historical
+  and is superseded by live Git state on resume.
 - Current Release candidate outputs are `build/release/src/ui/FastFiles.exe`, `build/release/src/engine/FastFilesEngine.exe`, `build/release/src/indexsvc/FastFilesIndexSvc.exe`, and `build/release/src/installer/FastFilesSetup.exe`; all inspected outputs are x64, unsigned, and have no embedded file/product version metadata. No production certificate, private key, PFX, password, or pin was supplied.
 - Release configuration already rejects missing/all-zero Release pins and generates `PinnedSignaturesConfig.h`; the source fallback remains placeholder/all-zero as required. Ignored CMake cache values are not production evidence and must not be treated as authorized pins.
 - The existing installer is a native directory package that installs the three product binaries and setup into `%ProgramFiles%\FastFiles`; the service is LocalSystem. Install validation now checks the constrained-broker account model.

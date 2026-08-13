@@ -5,15 +5,27 @@
 Remediate the ten supplied deep-audit findings and the associated CI/release
 validation gaps, including regression coverage, measured large-index behavior,
 and honest separation of locally validated work from production-signing and
-clean-host evidence that requires external capabilities. Do not push, rewrite
-history, or disturb unrelated work.
+clean-host evidence that requires external capabilities. This is a completed
+historical audit plan; its original no-push scope applied to that mission only.
+
+## Historical status
+
+This plan and its companion workstate preserve the earlier audit's execution
+record. They are not authoritative live Git or CI state. The later post-push
+remediation plan is the active handoff for the repository. If a future session
+edits either historical document, the current durable-state protocol still
+requires the session-owned change to be validated, committed, pushed to
+`origin/main`, and left clean; never infer current branch state from the dated
+values below.
 
 ## Durable state
 
 - Mission-specific workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`
 - Repository-wide historical workstate: `docs/agent/WORKSTATE.md`
 - This plan and the mission-specific workstate are the authoritative resume
-  pair for this remediation. `docs/agent/WORKSTATE.md` remains intact and is
+  pair for the completed historical remediation. They remain useful evidence,
+  but live branch/HEAD/`origin/main`/dirty state and latest hosted CI must be
+  derived at resume time. `docs/agent/WORKSTATE.md` remains intact and is
   reconciled on every resume.
 
 ## Guardrails
@@ -61,7 +73,9 @@ history, or disturb unrelated work.
 
 Prefer focused commits by coherent theme: installer tests/trust, uninstall,
 rollback, release tooling/CI, delta correctness, snapshot scale, search
-cancellation, IPC, version resources, and validation. Do not push.
+cancellation, IPC, version resources, and validation. The original audit
+mission deliberately did not push; that is historical policy, not a current
+instruction for the post-push handoff.
 
 ## Exit criteria
 

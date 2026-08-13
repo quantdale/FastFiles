@@ -143,6 +143,28 @@ if committed, set its status to COMPLETE, and identify exactly one next
 recommended slice. Do not automatically start that next slice unless the user
 instructs continuation.
 
+### Non-self-referential state and main handoff
+
+Tracked workstate is durable logical/history state, not a second Git or CI
+database. Live branch, HEAD, `origin/main`, dirty status, and the latest hosted
+Actions result MUST be derived at resume time after fetching; a previously
+recorded value is evidence from that checkpoint, never authoritative current
+state. A workstate may record an immutable validated implementation baseline
+and commit-bound historical CI evidence, but it MUST NOT require knowing the
+SHA of the commit that contains the workstate itself. Do not create a
+self-referential SHA or “latest CI for this file” loop.
+
+Before ending a session that changes tracked state, validate the change, check
+the scope and `git diff --check`, commit the session-owned files, fetch and
+reconcile with `origin/main`, push `main` without force, verify local HEAD and
+`origin/main`, and inspect the hosted run for the pushed SHA. Report the actual
+pushed SHA and live CI result in the session response; query them again on the
+next resume. A workstate described as “intentionally dirty” is never a
+successful FastFiles handoff: session-owned state must be committed and the
+working tree must be clean before the session ends. Do not edit tracked state
+after CI merely to embed that run; keep the rule and historical evidence in
+the documents and derive the latest run externally.
+
 ## Workflow: OpenSpec (spec-driven)
 
 Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **12 of 15 changes are fully closed**; the current open work is `openspec/changes/close-independent-validation-gaps/tasks.md` (all tasks open) — that is the current open-work source of truth — plus the recovery change `openspec/changes/recovery-degraded-browsing/tasks.md` (engine discovery/launch reliability, connection-state visibility, degraded-browsing hardening). Use the `openspec-*` skills for proposing/updating/applying/archiving changes.

@@ -1,7 +1,23 @@
 # FastFiles Audit Remediation Workstate
 
 Last updated: 2026-08-13T17:51:17+08:00
-Status: COMPLETE LOCALLY / READY WITH EXTERNAL BLOCKERS — all local code/build/test gates PASS; production signing and clean-host evidence remain external
+Status: HISTORICAL CAMPAIGN RECORD — READY WITH EXTERNAL BLOCKERS; all local code/build/test gates recorded here passed, while production signing and clean-host evidence remained external
+
+## Durable-state protocol
+
+This file is a historical record of the earlier audit campaign, not a live
+repository database. The repository-wide and post-push handoff protocols are
+the current authority for recovery.
+
+- The branch, `HEAD`, `origin/main`, dirty status, ancestry, and latest hosted
+  Actions run recorded below are dated observations. Fetch and derive live
+  values at resume time; never treat these values as current.
+- A tracked workstate may record a validated implementation baseline and
+  commit-bound historical CI evidence, but must not require the SHA of the
+  commit that contains the workstate or create a recursive latest-CI claim.
+- Any session-owned edit must be validated, committed, pushed to
+  `origin/main`, and followed by a clean worktree check. “Intentionally dirty”
+  is not a successful FastFiles handoff.
 
 ## Mission
 
@@ -10,11 +26,14 @@ through FF-AUDIT-10 plus validation gaps A–E, with secure architecture,
 regression coverage, measurable scale behavior, deterministic CI/release
 validation, and a durable handoff. Do not push or alter unrelated work.
 
-## Repository State
+## Historical Repository Checkpoint (2026-08-13)
 
-- Branch: `main`
-- HEAD: `190adf3` (`docs: synchronize historical benchmark notes`; latest remediation commit)
-- `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
+The values in this section were observed during the earlier audit mission.
+They are retained for provenance only and must not be used as live state.
+
+- Observed branch: `main`
+- Observed HEAD: `190adf3` (`docs: synchronize historical benchmark notes`; latest remediation commit at that checkpoint)
+- Observed `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
 - Remediation-owned modified files: this workstate and the historical benchmark-notes documentation; all application, test, build, release-tooling, and version-resource changes are committed.
