@@ -10,7 +10,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `d69401f` (`perf: bound immutable snapshot publication memory`; snapshot redesign slice committed)
+- HEAD: `18a361e` (`feat: cancel superseded indexed searches`; cancellation slice committed)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -28,7 +28,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-03 | CRITICAL release blocker | Production privileged path lacks final signed clean-host proof | BLOCKED_EXTERNAL | Local release workflow is fail-closed and deterministic; external signing/clean-host evidence unavailable | `verify.ps1 release-readiness -Mode report`: artifact integrity PASS; signing/pins/privileged path/clean host BLOCKED_EXTERNAL, exit 2 | — |
 | FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IMPLEMENTED | Immutable generation-sized mappings, explicit format v2, bounded 256 MiB payload rejection, checked two-pass direct serialization, and in-place UI parsing are committed | Focused tests 3/3; 100K/500K/1M full corpus runs PASS; 2M reached durable insert, rebuild, actual 230,709,659-byte snapshot publication, and retained last-stage diagnostics before the projection probe exceeded the 900 s benchmark bound | `d69401f` |
 | FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
-| FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a weak lifetime guard for UI callbacks | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | pending commit |
+| FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | IMPLEMENTED | Added closed `CancelIndexedSearch` UI command, per-connection worker/token supersession, projection/search-loop cancellation checks, teardown cancellation, and a lock-backed UI callback lifetime guard | Debug focused CTest 3/3; direct engine test reports final superseded-search latency 2 ms; UI server test proves two-client isolation, newer-request supersession, prompt cancellation, and no stale result write; Analyze focused CTest 3/3 | `18a361e` |
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | OPEN | Shared overlapped framing design pending | IPC baseline pending | — |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
@@ -432,6 +432,8 @@ UI external-validation notes.
 - `d69401f17c59719072f812e6f9e35458297e2230` — replace fixed double-slot
   snapshot publication with immutable generation-sized mappings and remove
   serialization/UI payload copies.
+- `18a361e` — cancel superseded indexed searches with per-connection worker
+  tokens, cooperative loop checks, and teardown-safe UI callback ownership.
 
 ## Current Risks
 
@@ -441,9 +443,11 @@ UI external-validation notes.
   Git/source remain authoritative if it conflicts with this file.
 - Installer and IPC changes can affect privileged security and teardown; no
   production claim is allowed until focused and full validation pass.
+- FF-AUDIT-06 has focused evidence but still needs the full post-remediation
+  Debug/release-test/verifier matrix before it can be marked VALIDATED.
 
 ## Next Exact Action
 
-Commit the reviewed FF-AUDIT-06 cancellation slice, then begin FF-AUDIT-07/08
-shared overlapped IPC design from the existing `ffipc` framing/listener and
-the `EngineClient`/`UiServer` polling paths.
+Checkpoint the `18a361e` commit in workstate, then inspect the existing `ffipc`,
+`PrivilegedConnection`, `EngineClient`, and `UiServer` read/write lifecycles to
+design one bounded overlapped framing primitive for FF-AUDIT-07/08.
