@@ -31,13 +31,13 @@ regression evidence are complete.
 
 ## Current frontier
 
-The first remediation push (`cb38468`) is locally green but its hosted run
-`31711000212` exposed one remaining repository-owned portability defect: the
-toolchain module still required CMake/Ninja to live beneath the selected Visual
-Studio installation. The active repair resolves CMake/Ninja/CTest from PATH
-first, with installation-local fallbacks, while retaining `vswhere`/`vcvarsall`
-for the compiler environment. The next gate is a new hosted run with all four
-required jobs green.
+All five primary findings and bounded adjacent findings FF-POST-06 through
+FF-POST-11 are implemented and validated. The final source tree is pushed at
+`1f329bb3e195db1b003a99ab54ab5f5609314c0c`; hosted run `31718337068` is green
+for Debug, Analyze, Release-test, and ASAN protocol fuzz. The fresh audit found
+no new locally actionable defect. The remaining handoff is external:
+authorized production signing/pins, elevated clean-host install/service/
+MFT/USN/uninstall evidence, and rendered UI validation.
 
 ## Guardrails
 
