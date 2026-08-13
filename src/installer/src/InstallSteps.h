@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 namespace ffinstaller {
 
 // Task 6.1 (fresh install) and 6.3 (upgrade -- re-registers/re-ACLs an
@@ -8,6 +10,6 @@ namespace ffinstaller {
 int RunInstall();
 
 // Task 6.4: reverses everything RunInstall does.
-int RunUninstall();
+int RunUninstall(const std::wstring& runningInstallerPath = {});
 
 } // namespace ffinstaller

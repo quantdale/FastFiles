@@ -11,6 +11,25 @@
 
 namespace ffinstaller {
 
+namespace {
+
+bool IsNonReparseDirectory(const std::wstring& path) noexcept {
+    HANDLE handle = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                OPEN_EXISTING,
+                                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                                nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    BY_HANDLE_FILE_INFORMATION information{};
+    const bool safe = GetFileInformationByHandle(handle, &information) != FALSE &&
+                      (information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0 &&
+                      (information.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+    CloseHandle(handle);
+    return safe;
+}
+
+} // namespace
+
 std::optional<std::wstring> CreateVerifiedScratchDirectory() {
     PWSTR programDataPath = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_ProgramData, 0, nullptr, &programDataPath))) {
@@ -18,9 +37,16 @@ std::optional<std::wstring> CreateVerifiedScratchDirectory() {
     }
     std::wstring baseDir(programDataPath);
     CoTaskMemFree(programDataPath);
-    baseDir += L"\\FastFiles\\InstallScratch";
-    CreateDirectoryW((baseDir.substr(0, baseDir.find_last_of(L'\\'))).c_str(), nullptr);
-    CreateDirectoryW(baseDir.c_str(), nullptr);
+    const std::wstring fastFilesDir = baseDir + L"\\FastFiles";
+    baseDir = fastFilesDir + L"\\InstallScratch";
+    if (!CreateDirectoryW(fastFilesDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        return std::nullopt;
+    }
+    if (!IsNonReparseDirectory(fastFilesDir)) return std::nullopt;
+    if (!CreateDirectoryW(baseDir.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) {
+        return std::nullopt;
+    }
+    if (!IsNonReparseDirectory(baseDir)) return std::nullopt;
 
     GUID guid{};
     if (FAILED(CoCreateGuid(&guid))) {
@@ -43,7 +69,8 @@ std::optional<std::wstring> CreateVerifiedScratchDirectory() {
     }
 
     const DWORD attributes = GetFileAttributesW(scratchPath.c_str());
-    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+    if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        !IsNonReparseDirectory(scratchPath)) {
         // Something else materialized a reparse point at this exact
         // random name between our CreateDirectory call and this check --
         // treat as compromised and refuse to use it (do not delete

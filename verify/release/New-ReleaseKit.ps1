@@ -17,7 +17,7 @@ try {
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     if ($output -eq [IO.Path]::GetPathRoot($output).TrimEnd('\')) { throw 'KIT_OUTPUT_INVALID: refusing to use a filesystem root as kit output.' }
     if ((Test-Path -LiteralPath $output) -and -not $Force) {
-        $foreign = @(Get-ChildItem -LiteralPath $output -Force -ErrorAction Stop | Where-Object { $_.Name -notin @('FastFiles.exe', 'FastFilesEngine.exe', 'FastFilesIndexSvc.exe', 'FastFilesSetup.exe', 'ReleaseCommon.psm1', 'derive-pin.ps1', 'sign-release.ps1', 'validate-clean-host.ps1', 'cleanup-clean-host.ps1', 'privileged-release.ps1', 'import-clean-host-result.ps1', 'artifact-manifest.json', 'kit-manifest.json', 'README.md', 'validation') })
+        $foreign = @(Get-ChildItem -LiteralPath $output -Force -ErrorAction Stop | Where-Object { $_.Name -notin @('FastFiles.exe', 'FastFilesEngine.exe', 'FastFilesIndexSvc.exe', 'FastFilesSetup.exe', 'FastFiles.package.manifest', 'ReleaseCommon.psm1', 'derive-pin.ps1', 'sign-release.ps1', 'validate-clean-host.ps1', 'cleanup-clean-host.ps1', 'privileged-release.ps1', 'import-clean-host-result.ps1', 'artifact-manifest.json', 'kit-manifest.json', 'README.md', 'validation') })
         if ($foreign.Count -gt 0) { throw "KIT_OUTPUT_NOT_EMPTY: refusing to overwrite unrelated files under '$output'. Use a new output directory or -Force after reviewing it." }
     }
     New-Item -ItemType Directory -Path $output -Force | Out-Null
@@ -42,6 +42,7 @@ try {
         Copy-Item -LiteralPath $fftestPath -Destination (Join-Path $validationDir 'fftest.exe') -Force
     }
     $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $output -RepoRoot $repoRoot
+    Write-PackageManifest -Manifest $manifest -Path (Join-Path $output 'FastFiles.package.manifest')
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $BuildRoot
     $engineArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesEngine.exe' | Select-Object -First 1
     $serviceArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesIndexSvc.exe' | Select-Object -First 1
@@ -55,7 +56,8 @@ try {
         kind = 'fastfiles-clean-host-kit'
         commit = $manifest.commit
         architecture = 'x64'
-        package = @($manifest.artifacts | ForEach-Object { $_.filename })
+        package = @($manifest.artifacts | ForEach-Object { $_.filename }) + @('FastFiles.package.manifest')
+        packageManifest = 'FastFiles.package.manifest'
         validationTool = [pscustomobject]@{ name = 'fftest.exe'; included = $fftestIncluded; path = if ($fftestIncluded) { 'validation/fftest.exe' } else { $null } }
         artifactManifest = 'artifact-manifest.json'
         pinProvisioning = [pscustomobject]@{

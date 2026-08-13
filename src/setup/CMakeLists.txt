@@ -6,6 +6,7 @@ add_library(ffsetup STATIC
   src/PeerImageMatch.cpp
   src/ScheduledTaskRegistration.cpp
   src/AuthenticodeVerification.cpp
+  src/PackageTrust.cpp
 )
 
 target_include_directories(ffsetup PUBLIC
@@ -21,6 +22,7 @@ target_link_libraries(ffsetup PUBLIC
   oleaut32
   wintrust
   crypt32
+  bcrypt
   taskschd
   comsuppw
 )

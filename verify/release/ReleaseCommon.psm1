@@ -226,6 +226,28 @@ function Get-ReleaseArtifactManifest {
     }
 }
 
+function Write-PackageManifest {
+    param([Parameter(Mandatory)] $Manifest, [Parameter(Mandatory)] [string] $Path)
+
+    $version = @($Manifest.artifacts | Where-Object { -not [string]::IsNullOrWhiteSpace($_.productVersion) } |
+        Select-Object -ExpandProperty productVersion -First 1)
+    if (-not $version) { $version = '0.0.0-unsigned-build' }
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add('FASTFILES_PACKAGE_MANIFEST_V1')
+    $lines.Add('version=1')
+    $lines.Add(('productVersion={0}' -f ([string]$version)))
+    foreach ($artifact in @($Manifest.artifacts | Sort-Object filename)) {
+        if ([string]::IsNullOrWhiteSpace($artifact.filename) -or [string]::IsNullOrWhiteSpace($artifact.sha256)) {
+            throw "PACKAGE_MANIFEST_ARTIFACT_INVALID: $($artifact.filename)"
+        }
+        $lines.Add(('file={0}|{1}|{2}' -f $artifact.filename, [uint64]$artifact.size, ([string]$artifact.sha256).ToUpperInvariant()))
+    }
+    $parent = Split-Path -Parent ([IO.Path]::GetFullPath($Path))
+    if ($parent) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+    $encoding = [Text.UTF8Encoding]::new($false)
+    [IO.File]::WriteAllText([IO.Path]::GetFullPath($Path), (($lines -join "`n") + "`n"), $encoding)
+}
+
 function Get-SafePinState {
     param([Parameter(Mandatory)] $PinState)
 
@@ -363,6 +385,7 @@ Export-ModuleMember -Function @(
     'Get-PeArchitecture',
     'Get-SignatureRecord',
     'Get-ReleaseArtifactManifest',
+    'Write-PackageManifest',
     'Get-SafePinState',
     'Get-ReleaseSignatureMatrix',
     'Get-CleanHostPreflight',
