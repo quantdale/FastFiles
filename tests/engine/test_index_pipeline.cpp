@@ -303,6 +303,126 @@ void TestUsnPartialUpdatesPreserveAuthoritativeMetadataAcrossRestart() {
           "delete semantics remove the entry instead of merging a zero-valued partial record");
 }
 
+void TestNewUsnOnlyEntryPersistsMftEnrichedMetadata() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_new_enriched.db");
+    VolumeKey key;
+    key.serialNumber = 77;
+    VolumeRowId volume = 0;
+    {
+        IndexPipeline pipeline;
+        Check(pipeline.Open(dbPath), "the new-USN enriched fixture opens");
+        volume = pipeline.ResolveVolume(key);
+        Check(pipeline.ApplyMftBatch(volume, {
+                                         MakeMftRecord(5, 5, u"", 0x10, 0),
+                                         MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                     }),
+              "the parent chain exists before the first USN observation");
+
+        ffprotocol::UsnDeltaV2 enriched{};
+        enriched.fixed.fileReferenceNumber = 201;
+        enriched.fixed.parentFileReferenceNumber = 100;
+        enriched.fixed.reason = 0x00000001;
+        enriched.fixed.timestamp = 900;
+        enriched.fixed.creationTime = 1111;
+        enriched.fixed.lastModifiedTime = 2222;
+        enriched.fixed.lastAccessTime = 3333;
+        enriched.fixed.sizeBytes = 4444;
+        enriched.fixed.fileAttributes = 0x20;
+        enriched.fixed.fieldMask = ffprotocol::kUsnFieldMaskAll;
+        enriched.fileName = u"created-after-scan.txt";
+        enriched.fixed.fileNameLengthChars = static_cast<uint16_t>(enriched.fileName.size());
+        Check(pipeline.ApplyUsnBatch(volume, {enriched}),
+              "a brand-new file first observed through an enriched USN event applies");
+
+        const auto snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+        const auto directory = snapshot.find(L"C:\\Users");
+        const ffprotocol::SnapshotDirectoryEntry* snapshotEntry = nullptr;
+        if (directory != snapshot.end()) {
+            const auto entry = std::find_if(directory->second.entries.begin(), directory->second.entries.end(),
+                                            [](const auto& candidate) {
+                                                return candidate.name == L"created-after-scan.txt";
+                                            });
+            if (entry != directory->second.entries.end()) snapshotEntry = &*entry;
+        }
+        Check(snapshotEntry != nullptr && snapshotEntry->sizeBytes == 4444 && snapshotEntry->attributes == 0x20 &&
+                  snapshotEntry->creationTime == 1111 && snapshotEntry->lastModifiedTime == 2222,
+              "the projection and published snapshot receive all enriched metadata for a new USN-only entry");
+    }
+
+    Store reopened;
+    Check(reopened.Open(dbPath), "the enriched new-USN database reopens");
+    EntryRecord persisted;
+    Check(reopened.ForEachEntry(volume, [&](const EntryRecord& candidate) {
+              if (candidate.id.low == 201) persisted = candidate;
+          }),
+          "the restarted store reads the enriched new-USN row");
+    Check(persisted.name == u"created-after-scan.txt" && persisted.parentId.low == 100 &&
+              persisted.sizeBytes == 4444 && persisted.creationTime == 1111 &&
+              persisted.lastModifiedTime == 2222 && persisted.lastAccessTime == 3333 &&
+              persisted.attributes == 0x20,
+          "SQLite preserves every authoritative field obtained during MFT re-enrichment");
+    reopened.Close();
+
+    IndexPipeline reconciled;
+    Check(reconciled.Open(dbPath), "the enriched new-USN database reopens for reconciliation");
+    const auto reconciledVolume = reconciled.ResolveVolume(key);
+    auto authoritative = MakeMftRecord(201, 100, u"reconciled-after-usn.txt", 0x40, 5555);
+    authoritative.fixed.creationTime = 6666;
+    authoritative.fixed.lastModifiedTime = 7777;
+    authoritative.fixed.lastAccessTime = 8888;
+    reconciled.BeginReconciliationPass(reconciledVolume);
+    Check(reconciled.ApplyMftBatch(reconciledVolume, {
+                                       MakeMftRecord(5, 5, u"", 0x10, 0),
+                                       MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                       authoritative,
+                                   }),
+          "a later full MFT reconciliation applies newer authoritative metadata");
+    reconciled.FinishReconciliationPass(reconciledVolume);
+    const auto afterReconcile = reconciled.ExportDirectorySnapshot(reconciledVolume, L"C:");
+    const auto reconciledDirectory = afterReconcile.find(L"C:\\Users");
+    Check(reconciledDirectory != afterReconcile.end() && reconciledDirectory->second.entries.size() == 1 &&
+              reconciledDirectory->second.entries[0].name == L"reconciled-after-usn.txt" &&
+              reconciledDirectory->second.entries[0].sizeBytes == 5555 &&
+              reconciledDirectory->second.entries[0].creationTime == 6666 &&
+              reconciledDirectory->second.entries[0].lastModifiedTime == 7777,
+          "later reconciliation can replace the enriched USN row with current MFT truth");
+
+    const std::string fallbackDb = FreshDbPath("engine_test_usn_new_fallback.db");
+    IndexPipeline fallback;
+    Check(fallback.Open(fallbackDb), "the fallback USN fixture opens");
+    VolumeKey fallbackKey;
+    fallbackKey.serialNumber = 88;
+    const auto fallbackVolume = fallback.ResolveVolume(fallbackKey);
+    Check(fallback.ApplyMftBatch(fallbackVolume, {
+                                     MakeMftRecord(5, 5, u"", 0x10, 0),
+                                     MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                 }),
+          "the fallback fixture parent chain exists");
+    ffprotocol::UsnDeltaV2 fallbackDelta{};
+    fallbackDelta.fixed.fileReferenceNumber = 202;
+    fallbackDelta.fixed.parentFileReferenceNumber = 100;
+    fallbackDelta.fixed.timestamp = 9999;
+    fallbackDelta.fixed.lastModifiedTime = 9999;
+    fallbackDelta.fixed.fileAttributes = 0x20;
+    fallbackDelta.fixed.fieldMask = ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName |
+                                    ffprotocol::kUsnFieldLastModifiedTime | ffprotocol::kUsnFieldAttributes;
+    fallbackDelta.fileName = u"mft-read-failed.txt";
+    fallbackDelta.fixed.fileNameLengthChars = static_cast<uint16_t>(fallbackDelta.fileName.size());
+    Check(fallback.ApplyUsnBatch(fallbackVolume, {fallbackDelta}),
+          "a fallback USN event stores only explicitly known fields");
+    Store fallbackStore;
+    Check(fallbackStore.Open(fallbackDb), "the fallback USN database reopens");
+    EntryRecord fallbackRecord;
+    Check(fallbackStore.ForEachEntry(fallbackVolume, [&](const EntryRecord& candidate) {
+              if (candidate.id.low == 202) fallbackRecord = candidate;
+          }),
+          "the fallback USN row can be read after opening the database");
+    Check(fallbackRecord.lastModifiedTime == 9999 && fallbackRecord.creationTime == 0 &&
+              fallbackRecord.lastAccessTime == 0 && fallbackRecord.sizeBytes == 0,
+          "an MFT re-read failure does not invent absent creation/access/size metadata");
+    fallbackStore.Close();
+}
+
 void TestVolumeAvailabilityAndForget() {
     IndexPipeline pipeline;
     pipeline.Open(FreshDbPath("engine_test_lifecycle.db"));
@@ -589,6 +709,7 @@ int main() {
     TestReconciliationRemovesEntryNotSeenInFullScan();
     TestUsnDeleteReasonRemovesEntry();
     TestUsnPartialUpdatesPreserveAuthoritativeMetadataAcrossRestart();
+    TestNewUsnOnlyEntryPersistsMftEnrichedMetadata();
     TestVolumeAvailabilityAndForget();
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();

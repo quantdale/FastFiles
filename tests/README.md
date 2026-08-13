@@ -41,7 +41,8 @@ This keeps engine/UI code testable without building the exe targets. `tests/engi
 
 ## Commands
 
-Set `$env:FASTFILES_NINJA_EXE` (the VS-bundled Ninja) **before** configuring, then:
+Run from a Visual Studio developer environment so CMake can discover Ninja on
+`PATH`, then:
 
 ```powershell
 cmake --preset debug            # configure

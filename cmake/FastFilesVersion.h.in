@@ -9,5 +9,7 @@ inline constexpr char kProductVersionAscii[] = "@FASTFILES_PRODUCT_VERSION@";
 inline constexpr wchar_t kProductName[] = L"@FASTFILES_PRODUCT_NAME@";
 inline constexpr wchar_t kCompanyName[] = L"@FASTFILES_COMPANY_NAME@";
 inline constexpr wchar_t kPublisherName[] = L"@FASTFILES_PUBLISHER_NAME@";
+inline constexpr wchar_t kBuildIdentity[] = L"@FASTFILES_BUILD_ID@";
+inline constexpr char kBuildIdentityAscii[] = "@FASTFILES_BUILD_ID@";
 
 } // namespace ffsetup

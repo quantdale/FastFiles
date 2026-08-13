@@ -41,11 +41,13 @@ These are enumerated in the foundation `design.md` (D4 + Risks); the code exists
 
 `kilo.json` already has `"permission": { "bash": "allow" }` — bash commands are enabled for this project. No additional setup is needed.
 
-Run from a Visual Studio developer PowerShell on Windows. Set `FASTFILES_NINJA_EXE` (the VS-bundled Ninja) **before configuring** — the presets read it for `CMAKE_MAKE_PROGRAM`.
+Run from a Visual Studio developer PowerShell on Windows. The presets use the
+active environment's normal CMake/Ninja discovery; `FASTFILES_NINJA_EXE` is an
+optional compatibility override for older local workflows, not a preset
+requirement. The verification harness discovers a VC-capable Visual Studio
+installation dynamically with `vswhere`.
 
 ```powershell
-$env:FASTFILES_NINJA_EXE = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
-
 cmake --preset debug            # configure Debug into build/debug
 cmake --build --preset debug    # build all app + test targets
 ctest --preset debug            # full test suite

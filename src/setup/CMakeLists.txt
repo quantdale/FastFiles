@@ -23,6 +23,7 @@ target_link_libraries(ffsetup PUBLIC
   wintrust
   crypt32
   bcrypt
+  version
   taskschd
   comsuppw
 )

@@ -244,6 +244,9 @@ bool SerializeSnapshotTo(const CaseInsensitiveSnapshotMap& directories,
 }
 
 std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uint8_t* data, size_t size) {
+    if (data == nullptr && size != 0) {
+        return std::nullopt;
+    }
     Reader reader(data, size);
 
     uint32_t directoryCount = 0;

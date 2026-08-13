@@ -27,7 +27,6 @@ if (-not (Test-Path "CMakeLists.txt")) {
 # Step 1: Configure
 if (-not $SkipBuild) {
     Write-Host "`n[1/4] Configuring with cmake --preset debug..." -ForegroundColor Yellow
-    $env:FASTFILES_NINJA_EXE = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
     cmake --preset debug
     if ($LASTEXITCODE -ne 0) {
         Write-Error "CMake configuration failed."

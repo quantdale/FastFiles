@@ -53,6 +53,12 @@ std::optional<std::vector<ffprotocol::VolumeInfo>> ParseVolumeList(const std::ve
 
 } // namespace
 
+PrivilegedConnection::OwnedPipe::~OwnedPipe() {
+    if (handle != INVALID_HANDLE_VALUE && handle != nullptr) {
+        CloseHandle(handle);
+    }
+}
+
 PrivilegedConnection::~PrivilegedConnection() {
     Stop();
 }
@@ -76,13 +82,18 @@ void PrivilegedConnection::Stop() {
         return;
     }
     running_ = false;
-    const HANDLE connecting = connectingPipe_.load(std::memory_order_acquire);
-    if (connecting != nullptr) {
-        CancelIoEx(connecting, nullptr);
+    PipePtr connecting;
+    PipePtr active;
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        connecting = connectingPipe_;
+        active = activePipe_;
     }
-    const HANDLE active = activePipe_.load(std::memory_order_acquire);
-    if (active != nullptr) {
-        CancelIoEx(active, nullptr);
+    if (connecting && connecting->handle != INVALID_HANDLE_VALUE) {
+        CancelIoEx(connecting->handle, nullptr);
+    }
+    if (active && active->handle != INVALID_HANDLE_VALUE) {
+        CancelIoEx(active->handle, nullptr);
     }
     RequestReconnect(); // wake the loop so it observes running_ == false promptly
     if (lifecycleThread_.joinable()) {
@@ -106,18 +117,17 @@ void PrivilegedConnection::RequestReconnect() {
 }
 
 bool PrivilegedConnection::SendRequest(uint16_t messageType, const void* payload, uint32_t payloadSize) {
-    HANDLE pipe = activePipe_.load();
-    if (pipe == nullptr) {
-        return false;
-    }
     std::lock_guard<std::mutex> lock(writeMutex_);
-    // Re-check under the lock: the pipe could have been torn down between
-    // the load above and acquiring the lock.
-    if (activePipe_.load() != pipe) {
+    PipePtr pipe;
+    {
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        pipe = activePipe_;
+    }
+    if (!pipe || pipe->handle == INVALID_HANDLE_VALUE) {
         return false;
     }
     return ffipc::WriteFrameOverlapped(
-        pipe, messageType, payload, payloadSize,
+        pipe->handle, messageType, payload, payloadSize,
         std::chrono::steady_clock::now() + std::chrono::seconds(5));
 }
 
@@ -154,15 +164,17 @@ bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
     return true;
 }
 
-HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
+PrivilegedConnection::PipePtr PrivilegedConnection::ConnectVerifyAndHandshake() {
     SetState(ConnectionState::Connecting, UnavailableReason::None);
 
-    HANDLE pipe = INVALID_HANDLE_VALUE;
+    PipePtr pipe;
     while (running_) {
-        pipe = CreateFileW(ffsetup::kCtrlPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                           FILE_FLAG_OVERLAPPED, nullptr);
-        if (pipe != INVALID_HANDLE_VALUE) {
-            connectingPipe_.store(pipe, std::memory_order_release);
+        const HANDLE rawPipe = CreateFileW(ffsetup::kCtrlPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                                           FILE_FLAG_OVERLAPPED, nullptr);
+        if (rawPipe != INVALID_HANDLE_VALUE) {
+            pipe = std::make_shared<OwnedPipe>(rawPipe);
+            std::lock_guard<std::mutex> lock(pipeStateMutex_);
+            connectingPipe_ = pipe;
             break;
         }
         if (GetLastError() != ERROR_PIPE_BUSY) {
@@ -178,23 +190,21 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
         }
     }
     if (!running_) {
-        connectingPipe_.store(nullptr, std::memory_order_release);
-        if (pipe != INVALID_HANDLE_VALUE) {
-            CloseHandle(pipe);
-        }
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return nullptr;
     }
 
     DWORD mode = PIPE_READMODE_BYTE;
-    SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr);
+    SetNamedPipeHandleState(pipe->handle, &mode, nullptr, nullptr);
 
     // Task 4.4: verify the connected peer really is the genuine,
     // ACL-installed, signed FastFilesIndexSvc.exe before trusting
     // anything it says -- symmetric to the service's own client
     // verification (design.md D4 "Symmetric Mutual Authentication").
-    if (!VerifyServiceIdentity(pipe)) {
-        connectingPipe_.store(nullptr, std::memory_order_release);
-        CloseHandle(pipe);
+    if (!VerifyServiceIdentity(pipe->handle)) {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         SetState(ConnectionState::Disconnected, UnavailableReason::UnverifiedServiceIdentity);
         return nullptr;
     }
@@ -203,18 +213,18 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
 
     ffprotocol::HandshakeRequest request{ffprotocol::kCurrentProtocolVersion};
     if (!ffipc::WriteFrameOverlapped(
-            pipe, static_cast<uint16_t>(MessageType::Handshake), &request, sizeof(request),
+            pipe->handle, static_cast<uint16_t>(MessageType::Handshake), &request, sizeof(request),
             std::chrono::steady_clock::now() + kHandshakeReplyTimeout)) {
-        connectingPipe_.store(nullptr, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);
         return nullptr;
     }
 
-    auto reply = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::now() + kHandshakeReplyTimeout);
+    auto reply = ffipc::ReadFrameOverlapped(pipe->handle, std::chrono::steady_clock::now() + kHandshakeReplyTimeout);
     if (!reply) {
-        connectingPipe_.store(nullptr, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);
         return nullptr;
     }
@@ -222,8 +232,8 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
     switch (static_cast<MessageType>(reply->header.messageType)) {
         case MessageType::HandshakeAck: {
             if (reply->payload.size() != sizeof(ffprotocol::HandshakeAckPayload)) {
-                connectingPipe_.store(nullptr, std::memory_order_release);
-                CloseHandle(pipe);
+                std::lock_guard<std::mutex> lock(pipeStateMutex_);
+                if (connectingPipe_ == pipe) connectingPipe_.reset();
                 SetState(ConnectionState::Disconnected, UnavailableReason::HandshakeRejected);
                 return nullptr;
             }
@@ -231,14 +241,17 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
             std::memcpy(&ack, reply->payload.data(), sizeof(ack));
             if (!ffprotocol::IsVersionCompatible(ffprotocol::kCurrentProtocolVersion, ack.negotiatedVersion)
                 || ack.negotiatedVersion.major > ffprotocol::kCurrentProtocolVersion.major) {
-                connectingPipe_.store(nullptr, std::memory_order_release);
-                CloseHandle(pipe);
+                std::lock_guard<std::mutex> lock(pipeStateMutex_);
+                if (connectingPipe_ == pipe) connectingPipe_.reset();
                 SetState(ConnectionState::Disconnected, UnavailableReason::IncompatibleProtocolVersion);
                 return nullptr;
             }
             negotiatedMajor_ = ack.negotiatedVersion.major;
             negotiatedMinor_ = ack.negotiatedVersion.minor;
-            connectingPipe_.store(nullptr, std::memory_order_release);
+            {
+                std::lock_guard<std::mutex> lock(pipeStateMutex_);
+                if (connectingPipe_ == pipe) connectingPipe_.reset();
+            }
             return pipe;
         }
 
@@ -247,15 +260,19 @@ HANDLE PrivilegedConnection::ConnectVerifyAndHandshake() {
             // transient error to keep retrying at the same cadence --
             // the service self-heals its own build staleness (task 3.9),
             // so this condition is expected to resolve on its own.
-            connectingPipe_.store(nullptr, std::memory_order_release);
-            CloseHandle(pipe);
+            {
+                std::lock_guard<std::mutex> lock(pipeStateMutex_);
+                if (connectingPipe_ == pipe) connectingPipe_.reset();
+            }
             SetState(ConnectionState::Disconnected, UnavailableReason::IncompatibleProtocolVersion);
             return nullptr;
 
         case MessageType::HandshakeReject:
         default:
-            connectingPipe_.store(nullptr, std::memory_order_release);
-            CloseHandle(pipe);
+            {
+                std::lock_guard<std::mutex> lock(pipeStateMutex_);
+                if (connectingPipe_ == pipe) connectingPipe_.reset();
+            }
             SetState(ConnectionState::Disconnected, UnavailableReason::HandshakeRejected);
             return nullptr;
     }
@@ -371,6 +388,35 @@ void PrivilegedConnection::DispatchReceivedFrame(
                 break;
             }
             if (journalBatchCallback_) {
+                std::vector<ffprotocol::UsnDeltaV2> upgraded;
+                upgraded.reserve(records->size());
+                for (const auto& record : *records) {
+                    upgraded.push_back(ffprotocol::UpgradeUsnDeltaV1(record));
+                }
+                journalBatchCallback_(header.volumeId, header.latestUsn, std::move(upgraded));
+            }
+            break;
+        }
+
+        case MessageType::JournalRecordBatchV2: {
+            if (frame.payload.size() < sizeof(ffprotocol::JournalRecordBatchV2Header)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::JournalRecordBatchV2Header header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            if (header.recordFormatVersion != 2) {
+                protocolViolation = true;
+                break;
+            }
+            const size_t recordsOffset = sizeof(header);
+            auto records = ffprotocol::ParseUsnDeltaV2Batch(
+                frame.payload.data() + recordsOffset, frame.payload.size() - recordsOffset, header.recordCount);
+            if (!records) {
+                protocolViolation = true;
+                break;
+            }
+            if (journalBatchCallback_) {
                 journalBatchCallback_(header.volumeId, header.latestUsn, std::move(*records));
             }
             break;
@@ -384,12 +430,15 @@ void PrivilegedConnection::DispatchReceivedFrame(
     }
 }
 
-void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
+void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
     // State observers synchronously send their initial EnumerateVolumes
     // request when they see Active, so publish the verified pipe first.
     // Reversing these two operations drops that first request because
     // SendRequest observes a null activePipe_.
-    activePipe_ = pipe;
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        activePipe_ = pipe;
+    }
     SetState(ConnectionState::Active, UnavailableReason::None);
 
     std::atomic<bool> heartbeatAckPending{false};
@@ -407,7 +456,7 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
     std::thread reader([&] {
         for (;;) {
             auto frame = ffipc::ReadFrameOverlapped(
-                pipe, std::chrono::steady_clock::time_point::max());
+                pipe->handle, std::chrono::steady_clock::time_point::max());
             if (!frame) {
                 protocolViolation = true; // read failure/disconnect -- reuse the same teardown path
                 ackCv.notify_all();
@@ -443,7 +492,7 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
         {
             std::lock_guard<std::mutex> lock(writeMutex_);
             sendOk = ffipc::WriteFrameOverlapped(
-                pipe, static_cast<uint16_t>(MessageType::Heartbeat), nullptr, 0,
+                pipe->handle, static_cast<uint16_t>(MessageType::Heartbeat), nullptr, 0,
                 std::chrono::steady_clock::now() + kHeartbeatAckTimeout);
         }
         if (!sendOk) {
@@ -467,18 +516,20 @@ void PrivilegedConnection::ActiveLoop(HANDLE pipe) {
         wakeRequested_ = false;
     }
 
-    activePipe_ = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (activePipe_ == pipe) activePipe_.reset();
+    }
     // Unblock the reader and any concurrent writer through the same
     // overlapped handle. The reader owns its event/operation state and will
     // return before the pipe handle is finally closed below.
-    CancelIoEx(pipe, nullptr);
+    CancelIoEx(pipe->handle, nullptr);
     reader.join();
 
     const bool wasIdleDropped = idleDropped_.load();
     {
         std::lock_guard<std::mutex> lock(writeMutex_);
-        CancelIoEx(pipe, nullptr);
-        CloseHandle(pipe);
+        CancelIoEx(pipe->handle, nullptr);
     }
     if (wasIdleDropped) {
         SetState(ConnectionState::Disconnected, UnavailableReason::IdleDropped);
@@ -498,8 +549,8 @@ void PrivilegedConnection::RunLoop() {
             continue;
         }
 
-        HANDLE pipe = ConnectVerifyAndHandshake();
-        if (pipe == nullptr) {
+        PipePtr pipe = ConnectVerifyAndHandshake();
+        if (!pipe) {
             if (!running_) {
                 break;
             }

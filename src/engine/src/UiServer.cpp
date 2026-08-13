@@ -55,8 +55,14 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
 } // namespace
 
 UiServer::ClientConnection::ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller)
-    : pipe_(pipe), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {
+    : pipe_(std::make_shared<OwnedPipe>(pipe)), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {
     indexedSearchThread_ = std::thread(&ClientConnection::IndexedSearchWorker, this);
+}
+
+UiServer::ClientConnection::OwnedPipe::~OwnedPipe() {
+    if (handle != INVALID_HANDLE_VALUE && handle != nullptr) {
+        CloseHandle(handle);
+    }
 }
 
 UiServer::ClientConnection::~ClientConnection() {
@@ -67,7 +73,7 @@ bool UiServer::ClientConnection::Write(uint16_t messageType, const void* payload
     // Serialize complete frames for this connection, but do not hold the
     // connection state lock while the external pipe write can block.
     std::lock_guard<std::mutex> writeLock(writeMutex_);
-    HANDLE pipe = INVALID_HANDLE_VALUE;
+    PipePtr pipe;
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         if (closing_) {
@@ -75,23 +81,23 @@ bool UiServer::ClientConnection::Write(uint16_t messageType, const void* payload
         }
         pipe = pipe_;
     }
-    return frameWriter_(pipe, messageType, payload, payloadSize);
+    return pipe != nullptr && frameWriter_(pipe->handle, messageType, payload, payloadSize);
 }
 
 void UiServer::ClientConnection::Cancel() {
     CancelIndexedSearches();
-    HANDLE pipe = INVALID_HANDLE_VALUE;
+    PipePtr pipe;
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         if (!closing_) {
             pipe = pipe_;
         }
     }
-    if (pipe != INVALID_HANDLE_VALUE) {
+    if (pipe != nullptr) {
         // CancelIoEx is safe to issue from the server's stop thread and
         // unwinds either an overlapped read owned by HandleConnection or an
         // overlapped write owned by a notification/callback thread.
-        pipeCanceller_(pipe);
+        pipeCanceller_(pipe->handle);
     }
 }
 
@@ -208,7 +214,7 @@ void UiServer::ClientConnection::Close() {
     }
     indexedSearchCondition_.notify_one();
 
-    HANDLE pipe = INVALID_HANDLE_VALUE;
+    PipePtr pipe;
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         if (closing_) {
@@ -221,19 +227,21 @@ void UiServer::ClientConnection::Close() {
     // Cancel before waiting for a concurrent writer. A writer that already
     // owns writeMutex_ is now guaranteed to unwind; a later writer observes
     // closing_ before it can issue I/O.
-    pipeCanceller_(pipe);
+    if (pipe != nullptr) pipeCanceller_(pipe->handle);
     std::lock_guard<std::mutex> writeLock(writeMutex_);
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         pipe = pipe_;
-        pipe_ = INVALID_HANDLE_VALUE;
-    }
-    if (pipe != INVALID_HANDLE_VALUE) {
-        CloseHandle(pipe);
+        pipe_.reset();
     }
     if (indexedSearchThread_.joinable()) {
         indexedSearchThread_.join();
     }
+}
+
+UiServer::ClientConnection::PipePtr UiServer::ClientConnection::Pipe() const {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    return pipe_;
 }
 
 UiServer::UiServer(FrameWriter frameWriter, PipeCanceller pipeCanceller)
@@ -660,8 +668,10 @@ void UiServer::HandleConnection(HANDLE pipe) {
     bool subscribed = false;
 
     for (;;) {
+        const auto readPipe = client->Pipe();
+        if (!readPipe) break;
         auto frame = ffipc::ReadFrameOverlapped(
-            client->Pipe(), std::chrono::steady_clock::time_point::max());
+            readPipe->handle, std::chrono::steady_clock::time_point::max());
         if (!frame) {
             break;
         }

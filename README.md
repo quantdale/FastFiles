@@ -71,16 +71,14 @@ Public headers live in each component's `include/ff*` directory; implementation 
 
 - Windows 10 1809+ or Windows 11, **x64** (the project is Windows-only by design; CMake `FATAL_ERROR`s on any other platform).
 - Visual Studio 2022 (or Build Tools) with the **MSVC** toolchain and CMake >= 3.24.
-- A Visual Studio-bundled **Ninja** executable, exposed as `FASTFILES_NINJA_EXE`.
+- A Visual Studio developer environment with CMake and Ninja available on
+  `PATH` (the repository verification harness discovers this dynamically).
 
 ## Building
 
 Run commands from a Visual Studio developer PowerShell on Windows:
 
 ```powershell
-# Set the Ninja path used by the CMake presets
-$env:FASTFILES_NINJA_EXE = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
-
 cmake --preset debug        # configure a Debug build in build/debug
 cmake --build --preset debug
 ```

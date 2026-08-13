@@ -310,14 +310,19 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const auto volumeId = request.volumeId;
                 const auto resumeUsn = request.resumeUsn;
                 const auto stopFlag = worker.stopFlag;
-                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn, stopFlag] {
+                const auto peerVersion = negotiatedVersion;
+                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn,
+                                              peerVersion, stopFlag] {
                     const JournalStreamOutcome outcome =
-                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
-                    if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
+                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn,
+                                            peerVersion, *stopFlag);
+                    if (outcome == JournalStreamOutcome::ResumePositionInvalid && peerVersion.major != 1) {
                         // D6/task 7.6: tell the engine its ResumeUsn aged
                         // out of the journal's retained range before this
                         // worker tears down, so it falls back to a
                         // reconciliation sweep instead of a blind resume.
+                        // Major-1 peers predate this additive message and
+                        // must not receive an unknown reply-only type.
                         ffprotocol::JournalResumeInvalidPayload payload{volumeId};
                         std::lock_guard<std::mutex> lock(writeMutex);
                         WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),

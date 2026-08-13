@@ -134,25 +134,31 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
     return entry;
 }
 
-ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV1& record) {
+ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV2& record) {
     ffindexstore::EntryRecord entry;
     entry.id = ffindexstore::FileId{record.fixed.fileReferenceNumber, 0};
     entry.parentId = ffindexstore::FileId{record.fixed.parentFileReferenceNumber, 0};
     entry.name = record.fileName;
     entry.sizeBytes = record.fixed.sizeBytes;
-    entry.creationTime = 0; // USN deltas don't carry creation time when the MFT re-read fallback failed
-    entry.lastModifiedTime = record.fixed.timestamp;
-    entry.lastAccessTime = 0;
+    entry.creationTime = record.fixed.creationTime;
+    entry.lastModifiedTime = record.fixed.lastModifiedTime;
+    entry.lastAccessTime = record.fixed.lastAccessTime;
     entry.attributes = record.fixed.fileAttributes;
     return entry;
 }
 
-constexpr ffindexstore::EntryFieldMask kUsnEntryFields =
-    ffindexstore::kEntryFieldParentId |
-    ffindexstore::kEntryFieldName |
-    ffindexstore::kEntryFieldSizeBytes |
-    ffindexstore::kEntryFieldLastModifiedTime |
-    ffindexstore::kEntryFieldAttributes;
+std::optional<ffindexstore::EntryFieldMask> ToEntryFieldMask(ffprotocol::UsnDeltaFieldMask fields) {
+    if ((fields & ~ffprotocol::kUsnFieldMaskAll) != 0) return std::nullopt;
+    ffindexstore::EntryFieldMask result = 0;
+    if ((fields & ffprotocol::kUsnFieldParentId) != 0) result |= ffindexstore::kEntryFieldParentId;
+    if ((fields & ffprotocol::kUsnFieldName) != 0) result |= ffindexstore::kEntryFieldName;
+    if ((fields & ffprotocol::kUsnFieldSizeBytes) != 0) result |= ffindexstore::kEntryFieldSizeBytes;
+    if ((fields & ffprotocol::kUsnFieldCreationTime) != 0) result |= ffindexstore::kEntryFieldCreationTime;
+    if ((fields & ffprotocol::kUsnFieldLastModifiedTime) != 0) result |= ffindexstore::kEntryFieldLastModifiedTime;
+    if ((fields & ffprotocol::kUsnFieldLastAccessTime) != 0) result |= ffindexstore::kEntryFieldLastAccessTime;
+    if ((fields & ffprotocol::kUsnFieldAttributes) != 0) result |= ffindexstore::kEntryFieldAttributes;
+    return result;
+}
 
 // task 1.6: the size-triggered forced-checkpoint threshold. ~4000 WAL
 // frames at the default 4 KiB page size (~16 MB) -- past that, a passive
@@ -389,6 +395,13 @@ bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std:
 }
 
 bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV1>& records) {
+    std::vector<ffprotocol::UsnDeltaV2> upgraded;
+    upgraded.reserve(records.size());
+    for (const auto& record : records) upgraded.push_back(ffprotocol::UpgradeUsnDeltaV1(record));
+    return ApplyUsnBatch(volumeId, upgraded);
+}
+
+bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV2>& records) {
     std::lock_guard<std::mutex> lock(mutex_);
     std::vector<ffindexstore::EntryChange> changes;
     changes.reserve(records.size());
@@ -397,12 +410,10 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
         change.kind = (record.fixed.reason & kUsnReasonFileDelete) != 0 ? ffindexstore::EntryChangeKind::Remove
                                                                          : ffindexstore::EntryChangeKind::Upsert;
         change.record = ToEntryRecord(record);
-        // USN_RECORD contains neither creation nor last-access time. The
-        // event timestamp is an explicit last-modified update, but the two
-        // absent $STANDARD_INFORMATION fields must never replace durable
-        // values with zero.
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
-            change.fields = kUsnEntryFields;
+            const auto fields = ToEntryFieldMask(record.fixed.fieldMask);
+            if (!fields) return false;
+            change.fields = *fields;
         }
         changes.push_back(std::move(change));
     }

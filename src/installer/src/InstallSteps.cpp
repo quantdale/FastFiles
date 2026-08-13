@@ -12,7 +12,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -102,7 +101,6 @@ std::wstring GetCurrentUserSamName() {
     return std::wstring(buffer, size);
 }
 
-constexpr wchar_t kPackageManifestFileName[] = L"FastFiles.package.manifest";
 constexpr wchar_t kInstallerExeName[] = L"FastFilesSetup.exe";
 constexpr wchar_t kUiExeName[] = L"FastFiles.exe";
 
@@ -123,57 +121,29 @@ std::vector<ffsetup::Thumbprint> ApprovedSignersForPayload(const wchar_t* exeNam
 }
 
 bool ManifestsEqual(const ffsetup::PackageManifest& left, const ffsetup::PackageManifest& right) {
-    if (left.schemaVersion != right.schemaVersion || left.productVersion != right.productVersion ||
+    if (left.schemaVersion != right.schemaVersion || left.release.productName != right.release.productName ||
+        left.release.productVersion != right.release.productVersion ||
+        left.release.buildIdentity != right.release.buildIdentity ||
+        left.release.architecture != right.release.architecture ||
         left.files.size() != right.files.size()) {
         return false;
     }
     for (const auto& expected : left.files) {
         const auto* actual = ffsetup::FindPackageManifestEntry(right, expected.fileName);
-        if (actual == nullptr || actual->sizeBytes != expected.sizeBytes || actual->sha256 != expected.sha256) {
+        if (actual == nullptr || actual->componentRole != expected.componentRole ||
+            actual->originalFileName != expected.originalFileName || actual->internalName != expected.internalName ||
+            actual->productName != expected.productName || actual->productVersion != expected.productVersion ||
+            actual->buildIdentity != expected.buildIdentity || actual->architecture != expected.architecture ||
+            actual->sizeBytes != expected.sizeBytes || actual->sha256 != expected.sha256) {
             return false;
         }
     }
     return true;
 }
 
-std::string DigestHex(const ffsetup::Sha256Digest& digest) {
-    constexpr char kHex[] = "0123456789ABCDEF";
-    std::string result;
-    result.reserve(digest.size() * 2);
-    for (const uint8_t byte : digest) {
-        result.push_back(kHex[(byte >> 4) & 0x0F]);
-        result.push_back(kHex[byte & 0x0F]);
-    }
-    return result;
-}
-
-std::string AsciiString(const std::wstring& value) {
-    std::string result;
-    result.reserve(value.size());
-    for (const wchar_t character : value) {
-        if (character > 0x7F) return {};
-        result.push_back(static_cast<char>(character));
-    }
-    return result;
-}
-
-bool WriteCanonicalManifest(const std::wstring& path, const ffsetup::PackageManifest& manifest) {
-    std::ostringstream content;
-    content << "FASTFILES_PACKAGE_MANIFEST_V1\n";
-    content << "version=" << manifest.schemaVersion << "\n";
-    const std::string productVersion = AsciiString(manifest.productVersion);
-    if (productVersion.empty()) return false;
-    content << "productVersion=" << productVersion << "\n";
-    for (const auto& entry : manifest.files) {
-        const std::string name = AsciiString(entry.fileName);
-        if (name.empty()) return false;
-        content << "file=" << name << "|" << entry.sizeBytes << "|" << DigestHex(entry.sha256) << "\n";
-    }
-    const std::string bytes = content.str();
-    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_DELETE,
-                              nullptr, CREATE_NEW,
-                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH,
-                              nullptr);
+bool WriteCreateNewBytes(const std::wstring& path, const std::vector<uint8_t>& bytes) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_NEW,
+                              FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_WRITE_THROUGH, nullptr);
     if (file == INVALID_HANDLE_VALUE) return false;
     bool written = true;
     size_t offset = 0;
@@ -192,23 +162,48 @@ bool WriteCanonicalManifest(const std::wstring& path, const ffsetup::PackageMani
     return written;
 }
 
+bool WriteCanonicalManifest(const std::wstring& path, const ffsetup::PackageManifest& manifest) {
+    const auto bytes = ffsetup::SerializePackageManifest(manifest);
+    return bytes.has_value() && WriteCreateNewBytes(path, *bytes);
+}
+
 bool StageAndInstallManifest(const std::wstring& scratchDir, const std::wstring& installDir,
                              const ffsetup::PackageManifest& manifest) {
-    const std::wstring stagedPath = scratchDir + L"\\" + kPackageManifestFileName;
-    const std::wstring installedPath = installDir + L"\\" + kPackageManifestFileName;
-    if (!WriteCanonicalManifest(stagedPath, manifest)) return false;
-    const DWORD attributes = GetFileAttributesW(installedPath.c_str());
-    if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+    if (!manifest.signatureVerified || manifest.detachedSignature.empty()) return false;
+    const std::wstring stagedPath = scratchDir + L"\\" + ffsetup::kPackageManifestFileName;
+    const std::wstring stagedSignaturePath = scratchDir + L"\\" + ffsetup::kPackageManifestSignatureFileName;
+    const std::wstring installedPath = installDir + L"\\" + ffsetup::kPackageManifestFileName;
+    const std::wstring installedSignaturePath = installDir + L"\\" + ffsetup::kPackageManifestSignatureFileName;
+    if (!WriteCanonicalManifest(stagedPath, manifest) ||
+        !WriteCreateNewBytes(stagedSignaturePath, manifest.detachedSignature)) {
         DeleteFileW(stagedPath.c_str());
+        DeleteFileW(stagedSignaturePath.c_str());
+        return false;
+    }
+    const DWORD attributes = GetFileAttributesW(installedPath.c_str());
+    const DWORD signatureAttributes = GetFileAttributesW(installedSignaturePath.c_str());
+    if ((attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) ||
+        (signatureAttributes != INVALID_FILE_ATTRIBUTES &&
+         (signatureAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)) {
+        DeleteFileW(stagedPath.c_str());
+        DeleteFileW(stagedSignaturePath.c_str());
         return false;
     }
     if (!MoveFileExW(stagedPath.c_str(), installedPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         DeleteFileW(stagedPath.c_str());
+        DeleteFileW(stagedSignaturePath.c_str());
         return false;
     }
-    const auto installedManifest = ffsetup::ReadPackageManifest(installedPath);
+    if (!MoveFileExW(stagedSignaturePath.c_str(), installedSignaturePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(installedPath.c_str());
+        DeleteFileW(stagedSignaturePath.c_str());
+        return false;
+    }
+    const auto installedManifest = ffsetup::ReadAuthenticatedPackageManifest(installDir,
+                                                                               ffsetup::ApprovedPackageSigners());
     if (!installedManifest || !ManifestsEqual(manifest, *installedManifest)) {
         DeleteFileW(installedPath.c_str());
+        DeleteFileW(installedSignaturePath.c_str());
         return false;
     }
     return true;
@@ -419,13 +414,15 @@ bool BackupServiceState(const std::wstring& installDir,
         return false;
     }
 
-    const std::wstring priorManifestPath = installDir + L"\\" + kPackageManifestFileName;
-    const std::wstring backupManifestPath = backupDir + L"\\" + kPackageManifestFileName;
-    if (!CopyFileW(priorManifestPath.c_str(), backupManifestPath.c_str(), TRUE)) {
+    const std::wstring backupManifestPath = backupDir + L"\\" + ffsetup::kPackageManifestFileName;
+    const std::wstring backupSignaturePath = backupDir + L"\\" + ffsetup::kPackageManifestSignatureFileName;
+    if (!WriteCanonicalManifest(backupManifestPath, priorManifest) ||
+        !WriteCreateNewBytes(backupSignaturePath, priorManifest.detachedSignature)) {
         DeleteKnownTree(backupDir);
         return false;
     }
-    const auto copiedManifest = ffsetup::ReadPackageManifest(backupManifestPath);
+    const auto copiedManifest = ffsetup::ReadAuthenticatedPackageManifest(
+        backupDir, ffsetup::ApprovedPackageSigners());
     if (!copiedManifest || !ManifestsEqual(priorManifest, *copiedManifest)) {
         DeleteKnownTree(backupDir);
         return false;
@@ -506,8 +503,8 @@ bool RestoreServiceState(const std::wstring& installDir, const std::wstring& scr
         return false;
     }
 
-    const auto priorManifest = ffsetup::ReadPackageManifest(
-        BackupDirectory(installDir) + L"\\" + kPackageManifestFileName);
+    const auto priorManifest = ffsetup::ReadAuthenticatedPackageManifest(
+        BackupDirectory(installDir), ffsetup::ApprovedPackageSigners());
     if (!priorManifest || !ValidatePayloadSet(BackupDirectory(installDir), *priorManifest)) {
         std::fwprintf(stderr, L"FastFilesSetup: rollback aborted -- prior payload is untrusted or incomplete\n");
         return false;
@@ -532,11 +529,7 @@ bool RestoreServiceState(const std::wstring& installDir, const std::wstring& scr
         }
     }
 
-    const std::wstring stagedManifest = scratchDir + L"\\rollback-" + kPackageManifestFileName;
-    if (!WriteCanonicalManifest(stagedManifest, *priorManifest) ||
-        !MoveFileExW(stagedManifest.c_str(), (installDir + L"\\" + kPackageManifestFileName).c_str(),
-                     MOVEFILE_REPLACE_EXISTING)) {
-        DeleteFileW(stagedManifest.c_str());
+    if (!StageAndInstallManifest(scratchDir, installDir, *priorManifest)) {
         return false;
     }
 
@@ -648,7 +641,8 @@ void DeleteInstalledBinaries(const std::wstring& installDir) {
     for (const wchar_t* exeName : binaries) {
         DeleteFileW((installDir + L"\\" + exeName).c_str());
     }
-    DeleteFileW((installDir + L"\\" + kPackageManifestFileName).c_str());
+    DeleteFileW((installDir + L"\\" + ffsetup::kPackageManifestFileName).c_str());
+    DeleteFileW((installDir + L"\\" + ffsetup::kPackageManifestSignatureFileName).c_str());
 }
 
 } // namespace
@@ -660,9 +654,12 @@ int RunInstall() {
         return 1;
     }
 
-    const auto sourceManifest = ffsetup::ReadPackageManifest(sourceDir + L"\\" + kPackageManifestFileName);
-    if (!sourceManifest || !ffsetup::HasExactPackageFileSet(*sourceManifest, PackageBinaryNames())) {
-        std::fwprintf(stderr, L"FastFilesSetup: package manifest is missing or incomplete -- aborting\n");
+    const auto sourceManifest = ffsetup::ReadAuthenticatedPackageManifest(
+        sourceDir, ffsetup::ApprovedPackageSigners());
+    if (!sourceManifest || !ffsetup::HasExactPackageFileSet(*sourceManifest, PackageBinaryNames()) ||
+        !ffsetup::HasExactPackageDirectoryInventory(sourceDir, PackageBinaryNames()) ||
+        !ValidatePayloadSet(sourceDir, *sourceManifest)) {
+        std::fwprintf(stderr, L"FastFilesSetup: authenticated package manifest or payload inventory is invalid -- aborting\n");
         return 1;
     }
 
@@ -697,9 +694,18 @@ int RunInstall() {
     std::optional<ffsetup::ServiceAccountOptions> priorAccount;
     std::optional<ffsetup::PackageManifest> priorManifest;
     if (isUpgrade) {
-        priorManifest = ffsetup::ReadPackageManifest(installDir + L"\\" + kPackageManifestFileName);
+        priorManifest = ffsetup::ReadAuthenticatedPackageManifest(
+            installDir, ffsetup::ApprovedPackageSigners());
         if (!priorManifest || !ValidatePayloadSet(installDir, *priorManifest)) {
             std::fwprintf(stderr, L"FastFilesSetup: prior installation is untrusted or incomplete; automatic rollback unavailable\n");
+            return 1;
+        }
+        const auto versionOrder = ffsetup::CompareProductVersions(
+            sourceManifest->release.productVersion, priorManifest->release.productVersion);
+        if (!versionOrder || *versionOrder < 0 ||
+            (*versionOrder == 0 && sourceManifest->release.buildIdentity != priorManifest->release.buildIdentity) ||
+            (*versionOrder == 0 && !ManifestsEqual(*sourceManifest, *priorManifest))) {
+            std::fwprintf(stderr, L"FastFilesSetup: unauthenticated downgrade or ambiguous same-version package -- aborting\n");
             return 1;
         }
         if (!StopIndexService()) {

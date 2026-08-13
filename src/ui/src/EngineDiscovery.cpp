@@ -164,7 +164,7 @@ EngineExecutableValidation ValidateEngineExecutable(const std::wstring& path) {
     }
     result.canonicalPath = *canonicalPath;
 
-    result.signerThumbprint = ffsetup::VerifyAuthenticodeAndGetThumbprint(path);
+    result.signerThumbprint = ffsetup::VerifyAuthenticodeAndGetThumbprintAtPath(path);
     if (ffsetup::VerifyPinnedSignature(path, ffsetup::kExpectedEngineSignatureThumbprint)) {
         result.status = EngineExecutableValidationStatus::Accepted;
     } else if (!result.signerThumbprint.has_value()) {

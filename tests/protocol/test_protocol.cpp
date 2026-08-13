@@ -12,6 +12,7 @@
 #include "ffprotocol/IndexHealth.h"
 #include "ffprotocol/Settings.h"
 #include "ffprotocol/Records.h"
+#include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "ffprotocol/Version.h"
 #include "../TestSupport.h"
@@ -42,12 +43,14 @@ void TestUnrecognizedMessageTypeRejected() {
           "a real MessageType value round-trips");
 
     // Bounds around the closed command surface's current end
-    // (index-storage-and-scanning's JournalResumeInvalid = 18): the last
+    // (index-storage-and-scanning's JournalRecordBatchV2 = 19): the last
     // assigned value must round-trip, the next unassigned one must not.
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid)).has_value(),
           "JournalResumeInvalid (the newest service->engine message) round-trips");
-    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid) + 1).has_value() == false,
-          "the first unassigned value past JournalResumeInvalid is rejected");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2)).has_value(),
+          "JournalRecordBatchV2 (the explicit USN presence-mask format) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2) + 1).has_value() == false,
+          "the first unassigned value past JournalRecordBatchV2 is rejected");
     Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
           "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
     Check(AreStartVolumeScanFlagsValid(0), "a normal-priority scan uses a valid zero flag set");
@@ -135,6 +138,71 @@ void TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord() {
 
     Check(!ParseMftBatch(payload.data(), payload.size(), 1).has_value(),
           "an out-of-range length-prefixed filename field rejects the whole record, not just that field");
+
+    Check(!ParseMftBatch(nullptr, sizeof(MftRecordFixedV1), 1).has_value(),
+          "a null MFT batch buffer with a nonzero size is rejected before dereference");
+    Check(!ParseUsnDeltaV2Batch(nullptr, sizeof(UsnDeltaFixedV2), 1).has_value(),
+          "a null USN V2 batch buffer with a nonzero size is rejected before dereference");
+    Check(!ParseSnapshot(nullptr, sizeof(uint32_t)).has_value(),
+          "a null snapshot buffer with a nonzero size is rejected before dereference");
+}
+
+void TestUsnV2PresenceMaskRoundTripAndMalformedMask() {
+    UsnDeltaV2 record{};
+    record.fixed.usn = 101;
+    record.fixed.fileReferenceNumber = 0x1234;
+    record.fixed.parentFileReferenceNumber = 0x5678;
+    record.fixed.reason = 0x00000001;
+    record.fixed.timestamp = 111;
+    record.fixed.creationTime = 222;
+    record.fixed.lastModifiedTime = 333;
+    record.fixed.lastAccessTime = 444;
+    record.fixed.sizeBytes = 555;
+    record.fixed.fileAttributes = 0x20;
+    record.fixed.fieldMask = kUsnFieldMaskAll;
+    record.fileName = u"new-file.txt";
+    record.fixed.fileNameLengthChars = static_cast<uint16_t>(record.fileName.size());
+    const auto payload = SerializeUsnDeltaV2Batch({record});
+    const auto parsed = ParseUsnDeltaV2Batch(payload.data(), payload.size(), 1);
+    Check(parsed.has_value() && parsed->size() == 1 && (*parsed)[0].fixed.creationTime == 222 &&
+              (*parsed)[0].fixed.lastAccessTime == 444 && (*parsed)[0].fixed.fieldMask == kUsnFieldMaskAll,
+          "USN V2 round-trips authoritative timestamps and explicit field presence");
+
+    auto malformed = payload;
+    UsnDeltaFixedV2 malformedFixed{};
+    std::memcpy(&malformedFixed, malformed.data(), sizeof(malformedFixed));
+    malformedFixed.fieldMask |= 0x80000000u;
+    std::memcpy(malformed.data(), &malformedFixed, sizeof(malformedFixed));
+    Check(!ParseUsnDeltaV2Batch(malformed.data(), malformed.size(), 1).has_value(),
+          "unknown USN V2 presence-mask bits reject the whole batch");
+
+    auto trailing = payload;
+    trailing.push_back(0xAA);
+    Check(!ParseUsnDeltaV2Batch(trailing.data(), trailing.size(), 1).has_value(),
+          "USN V2 trailing bytes reject the whole batch");
+
+    UsnDeltaV1 legacy{};
+    legacy.fixed.fileReferenceNumber = 9;
+    legacy.fixed.parentFileReferenceNumber = 10;
+    legacy.fixed.timestamp = 777;
+    legacy.fixed.sizeBytes = 888;
+    legacy.fixed.fileAttributes = 0x10;
+    legacy.fileName = u"legacy.txt";
+    legacy.fixed.fileNameLengthChars = static_cast<uint16_t>(legacy.fileName.size());
+    const auto upgraded = UpgradeUsnDeltaV1(legacy);
+    Check((upgraded.fixed.fieldMask & (kUsnFieldCreationTime | kUsnFieldLastAccessTime)) == 0 &&
+              (upgraded.fixed.fieldMask & kUsnFieldLastModifiedTime) != 0 &&
+              upgraded.fixed.lastModifiedTime == legacy.fixed.timestamp,
+          "legacy V1 USN compatibility explicitly marks creation/access absent");
+
+    const auto downgraded = DowngradeUsnDeltaV2(record);
+    const auto legacyPayload = SerializeUsnDeltaBatch({downgraded});
+    const auto legacyParsed = ParseUsnDeltaBatch(legacyPayload.data(), legacyPayload.size(), 1);
+    Check(legacyParsed.has_value() && legacyParsed->size() == 1 &&
+              (*legacyParsed)[0].fixed.sizeBytes == record.fixed.sizeBytes &&
+              (*legacyParsed)[0].fixed.timestamp == record.fixed.timestamp &&
+              (*legacyParsed)[0].fileName == record.fileName,
+          "a complete V2 USN record downgrades to the legacy V1 wire layout without message 19");
 }
 
 void TestVersionCompatibility() {
@@ -405,6 +473,7 @@ int main() {
     TestIndexedSearchWireBoundsAndRoundTrip();
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
+    TestUsnV2PresenceMaskRoundTripAndMalformedMask();
     TestVersionCompatibility();
     TestIndexHealthPrecedence();
     TestIndexConditionDetailView();

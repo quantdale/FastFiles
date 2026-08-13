@@ -108,6 +108,17 @@ private:
     };
 
     struct ClientConnection {
+        struct OwnedPipe {
+            explicit OwnedPipe(HANDLE value) noexcept : handle(value) {}
+            ~OwnedPipe();
+
+            OwnedPipe(const OwnedPipe&) = delete;
+            OwnedPipe& operator=(const OwnedPipe&) = delete;
+
+            HANDLE handle = INVALID_HANDLE_VALUE;
+        };
+        using PipePtr = std::shared_ptr<OwnedPipe>;
+
         ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller);
         ~ClientConnection();
 
@@ -117,7 +128,7 @@ private:
                                 const OnRequestIndexedSearch& handler);
         bool CancelIndexedSearch(uint64_t requestId);
         void Close();
-        HANDLE Pipe() const noexcept { return pipe_; }
+        PipePtr Pipe() const;
 
         void CancelIndexedSearches();
         void IndexedSearchWorker();
@@ -128,11 +139,11 @@ private:
             std::shared_ptr<std::atomic<bool>> cancellation;
         };
 
-        HANDLE pipe_ = INVALID_HANDLE_VALUE;
+        PipePtr pipe_;
         FrameWriter frameWriter_;
         PipeCanceller pipeCanceller_;
         std::mutex writeMutex_;
-        std::mutex stateMutex_;
+        mutable std::mutex stateMutex_;
         bool closing_ = false;
         std::mutex indexedSearchMutex_;
         std::condition_variable indexedSearchCondition_;

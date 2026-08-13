@@ -19,10 +19,11 @@ if ($Mode -eq 'privileged') {
     $buildRoot = if ($ArtifactRoot) { $ArtifactRoot } else { Join-Path $repoRoot 'build\release' }
     if ($PackageDirectory) {
         $package = $PackageDirectory
-    } elseif (Test-Path -LiteralPath (Join-Path $buildRoot 'artifact-manifest.json') -PathType Leaf) {
+    } elseif ((Test-Path -LiteralPath (Join-Path $buildRoot 'FastFiles.package.manifest') -PathType Leaf) -and
+              (Test-Path -LiteralPath (Join-Path $buildRoot 'FastFilesSetup.exe') -PathType Leaf)) {
         $package = $buildRoot
     } else {
-        $package = Join-Path $OutputDirectory 'package'
+        $package = Join-Path $OutputDirectory 'kit'
         $kitScript = Join-Path $PSScriptRoot 'New-ReleaseKit.ps1'
         & (Get-Command pwsh).Source -NoProfile -File $kitScript -BuildRoot $buildRoot -OutputDirectory $package -OutputFormat json | Out-Null
         if ($LASTEXITCODE -ne 0) { Write-Error "RELEASE_KIT_GENERATION_FAILED: New-ReleaseKit.ps1 exited with code $LASTEXITCODE."; exit 1 }

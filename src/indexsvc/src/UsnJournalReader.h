@@ -38,8 +38,11 @@ enum class JournalStreamOutcome {
 // records") rather than trusting USN_RECORD's own truncated fields
 // (which have only one timestamp and no size); a record that can no
 // longer be read this way (typically because it was deleted) falls back
-// to the raw USN_RECORD fields alone, with size 0 -- still enough for the
-// engine to recognize and apply a delete via the record's Reason flags.
+// to the raw USN_RECORD fields represented by an explicit presence mask.
+// A successful MFT re-read marks every allowlisted field it obtained as
+// present, while a fallback leaves creation/access/size absent rather than
+// using zero as an absence sentinel. The service emits V2 journal frames;
+// older V1 frames are adapted explicitly at the engine connection boundary.
 //
 // Returns only when `shouldStop` is observed, the pipe write fails, or
 // FSCTL_QUERY_USN_JOURNAL/FSCTL_READ_USN_JOURNAL itself fails (e.g. the
@@ -61,6 +64,7 @@ JournalStreamOutcome RunUsnJournalStream(
     ffprotocol::VolumeId volumeId,
     wchar_t driveLetter,
     uint64_t resumeUsn,
+    ffprotocol::ProtocolVersion negotiatedVersion,
     const std::atomic<bool>& shouldStop);
 
 } // namespace ffindexsvc

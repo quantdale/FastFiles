@@ -21,6 +21,9 @@ namespace {
 template <typename FixedT>
 std::optional<std::vector<std::pair<FixedT, std::u16string>>> ParseBatch(
     const uint8_t* payload, size_t payloadSize, uint32_t declaredCount) {
+    if (payload == nullptr && payloadSize != 0) {
+        return std::nullopt;
+    }
     if (!IsBatchCountPlausible(declaredCount, payloadSize, sizeof(FixedT))) {
         return std::nullopt;
     }
@@ -30,7 +33,7 @@ std::optional<std::vector<std::pair<FixedT, std::u16string>>> ParseBatch(
 
     size_t offset = 0;
     for (uint32_t i = 0; i < declaredCount; ++i) {
-        if (offset + sizeof(FixedT) > payloadSize) {
+        if (offset > payloadSize || sizeof(FixedT) > payloadSize - offset) {
             return std::nullopt;
         }
         FixedT fixed;
@@ -41,7 +44,7 @@ std::optional<std::vector<std::pair<FixedT, std::u16string>>> ParseBatch(
             return std::nullopt;
         }
         const size_t fileNameBytes = static_cast<size_t>(fixed.fileNameLengthChars) * sizeof(char16_t);
-        if (offset + fileNameBytes > payloadSize) {
+        if (fileNameBytes > payloadSize - offset) {
             return std::nullopt;
         }
         std::u16string fileName(fixed.fileNameLengthChars, u'\0');
@@ -90,6 +93,50 @@ std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     return result;
 }
 
+std::optional<std::vector<UsnDeltaV2>> ParseUsnDeltaV2Batch(
+    const uint8_t* payload, size_t payloadSize, uint32_t declaredCount) {
+    auto parsed = ParseBatch<UsnDeltaFixedV2>(payload, payloadSize, declaredCount);
+    if (!parsed) return std::nullopt;
+    std::vector<UsnDeltaV2> result;
+    result.reserve(parsed->size());
+    for (auto& [fixed, fileName] : *parsed) {
+        if ((fixed.fieldMask & ~kUsnFieldMaskAll) != 0) return std::nullopt;
+        result.push_back(UsnDeltaV2{fixed, std::move(fileName)});
+    }
+    return result;
+}
+
+UsnDeltaV2 UpgradeUsnDeltaV1(const UsnDeltaV1& record) {
+    UsnDeltaV2 result{};
+    result.fixed.usn = record.fixed.usn;
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.reason = record.fixed.reason;
+    result.fixed.timestamp = record.fixed.timestamp;
+    result.fixed.lastModifiedTime = record.fixed.timestamp;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fieldMask = kUsnFieldParentId | kUsnFieldName | kUsnFieldSizeBytes |
+                             kUsnFieldLastModifiedTime | kUsnFieldAttributes;
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
+UsnDeltaV1 DowngradeUsnDeltaV2(const UsnDeltaV2& record) {
+    UsnDeltaV1 result{};
+    result.fixed.usn = record.fixed.usn;
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.reason = record.fixed.reason;
+    result.fixed.timestamp = record.fixed.timestamp;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
 namespace {
 
 template <typename RecordT>
@@ -125,6 +172,10 @@ std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records) 
 }
 
 std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records) {
+    return SerializeBatch(records);
+}
+
+std::vector<uint8_t> SerializeUsnDeltaV2Batch(const std::vector<UsnDeltaV2>& records) {
     return SerializeBatch(records);
 }
 

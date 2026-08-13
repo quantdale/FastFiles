@@ -13,9 +13,10 @@ function Test-KitManifest {
     param([Parameter(Mandatory)] [string] $Root)
     $manifestPath = Join-Path $Root 'artifact-manifest.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "KIT_MANIFEST_REQUIRED: $manifestPath" }
+    $packageRoot = Resolve-ReleaseKitPackageRoot -Root $Root
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $rows = @($manifest.artifacts | ForEach-Object {
-        $path = Join-Path $Root $_.filename
+        $path = Join-Path $packageRoot $_.filename
         $present = Test-Path -LiteralPath $path -PathType Leaf
         $hash = if ($present) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToUpperInvariant() } else { $null }
         $version = if ($present) { Get-FileVersionRecord -Path $path } else { $null }
@@ -26,19 +27,21 @@ function Test-KitManifest {
             $version.companyName -ceq $_.companyName -and
             $version.fileDescription -ceq $_.fileDescription -and
             $version.internalName -ieq $_.internalName -and
-            $version.originalFilename -ieq $_.originalFilename
+            $version.originalFilename -ieq $_.originalFilename -and
+            $version.buildIdentity -ieq $_.buildIdentity
         [pscustomobject]@{ path = $_.path; present = $present; sha256Matches = $present -and $hash -eq $_.sha256; architecture = if ($present) { (Get-PeArchitecture -Path $path).architecture } else { $null }; versionMetadataMatches = $versionMatches; version = $version; signatureValid = if ($present) { (Get-SignatureRecord -Path $path).valid } else { $false } }
     })
-    [pscustomobject]@{ path = $manifestPath; valid = @($rows | Where-Object { -not $_.present -or -not $_.sha256Matches -or $_.architecture -ne 'x64' -or -not $_.versionMetadataMatches }).Count -eq 0; manifest = $manifest; artifacts = $rows }
+    [pscustomobject]@{ path = $manifestPath; packageRoot = $packageRoot; valid = @($rows | Where-Object { -not $_.present -or -not $_.sha256Matches -or $_.architecture -ne 'x64' -or -not $_.versionMetadataMatches }).Count -eq 0; manifest = $manifest; artifacts = $rows }
 }
 
 try {
     $root = [IO.Path]::GetFullPath($KitRoot)
     $preflight = Get-CleanHostPreflight
     $artifactCheck = Test-KitManifest -Root $root
+    $packageRoot = [string]$artifactCheck.packageRoot
     $signaturesReady = @($artifactCheck.artifacts | Where-Object { -not $_.signatureValid }).Count -eq 0
     $manifest = $artifactCheck.manifest
-    $packageCheck = Test-PackageManifest -Path (Join-Path $root 'FastFiles.package.manifest') -ArtifactManifest $manifest -PackageRoot $root
+    $packageCheck = Test-PackageManifest -Path (Join-Path $packageRoot 'FastFiles.package.manifest') -ArtifactManifest $manifest -PackageRoot $packageRoot
     $status = if ($preflight.clean -and $preflight.architectureCompatible -and $artifactCheck.valid -and $packageCheck.valid -and $signaturesReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
     $reason = if (-not $preflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $preflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $artifactCheck.valid) { 'KIT_ARTIFACT_INTEGRITY_OR_VERSION_METADATA_FAILED' } elseif (-not $packageCheck.valid) { 'KIT_PACKAGE_MANIFEST_INVALID' } elseif (-not $signaturesReady) { 'AUTHORIZED_SIGNING_REQUIRED' } else { $null }
     $artifactCheck | Add-Member -NotePropertyName packageManifest -NotePropertyValue $packageCheck
@@ -49,6 +52,7 @@ try {
         reason = $reason
         host = $preflight
         artifactCheck = $artifactCheck
+        packageRoot = $packageRoot
         installExecuted = $false
         cleanupExecuted = $false
         signatureReady = $signaturesReady
@@ -58,8 +62,11 @@ try {
     Write-ReleaseJson -Value $artifactCheck -Path (Join-Path $OutputDirectory 'artifact-validation.json')
     Write-ReleaseJson -Value $result -Path (Join-Path $OutputDirectory 'clean-host-result.json')
     Copy-Item -LiteralPath (Join-Path $root 'artifact-manifest.json') -Destination (Join-Path $OutputDirectory 'artifact-manifest.json') -Force
-    if (Test-Path -LiteralPath (Join-Path $root 'FastFiles.package.manifest') -PathType Leaf) {
-        Copy-Item -LiteralPath (Join-Path $root 'FastFiles.package.manifest') -Destination (Join-Path $OutputDirectory 'FastFiles.package.manifest') -Force
+    if (Test-Path -LiteralPath (Join-Path $packageRoot 'FastFiles.package.manifest') -PathType Leaf) {
+        Copy-Item -LiteralPath (Join-Path $packageRoot 'FastFiles.package.manifest') -Destination (Join-Path $OutputDirectory 'FastFiles.package.manifest') -Force
+    }
+    if (Test-Path -LiteralPath (Join-Path $packageRoot 'FastFiles.package.manifest.p7s') -PathType Leaf) {
+        Copy-Item -LiteralPath (Join-Path $packageRoot 'FastFiles.package.manifest.p7s') -Destination (Join-Path $OutputDirectory 'FastFiles.package.manifest.p7s') -Force
     }
     if (Test-Path -LiteralPath (Join-Path $root 'kit-manifest.json') -PathType Leaf) {
         Copy-Item -LiteralPath (Join-Path $root 'kit-manifest.json') -Destination (Join-Path $OutputDirectory 'kit-manifest.json') -Force

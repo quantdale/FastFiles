@@ -7,15 +7,13 @@
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_MAKE_PROGRAM": "$env{FASTFILES_NINJA_EXE}"
-      }
+      "cacheVariables": {}
     },
     {
       "name": "debug",
       "inherits": "base",
       "displayName": "Debug",
-      "description": "Debug build via VS-bundled CMake/Ninja, no global installs required.",
+      "description": "Debug build using CMake/Ninja discovered from the active developer environment.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug"
       }
@@ -24,7 +22,7 @@
       "name": "release",
       "inherits": "base",
       "displayName": "Release",
-      "description": "Release build via VS-bundled CMake/Ninja, no global installs required.",
+      "description": "Release build using CMake/Ninja discovered from the active developer environment.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
@@ -52,10 +50,10 @@
       "name": "asan",
       "inherits": "base",
       "displayName": "Debug + AddressSanitizer",
-      "description": "Debug build with MSVC AddressSanitizer for fuzz/test runs. CMAKE_CXX_FLAGS inlines the MSVC defaults (/DWIN32 /D_WINDOWS /W3 /GR /EHsc) because preset cache variables replace compiler-default flags rather than append; /RTC1 is dropped from CMAKE_CXX_FLAGS_DEBUG (incompatible with /fsanitize=address).",
+      "description": "Debug build with MSVC AddressSanitizer for fuzz/test runs. CMAKE_CXX_FLAGS inlines the MSVC defaults (/DWIN32 /D_WINDOWS /GR /EHsc) because preset cache variables replace compiler-default flags rather than append; the repository-wide /W4 policy supplies the warning level, and /RTC1 is dropped from CMAKE_CXX_FLAGS_DEBUG (incompatible with /fsanitize=address).",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_CXX_FLAGS": "/DWIN32 /D_WINDOWS /W3 /GR /EHsc /fsanitize=address",
+        "CMAKE_CXX_FLAGS": "/DWIN32 /D_WINDOWS /GR /EHsc /fsanitize=address",
         "CMAKE_CXX_FLAGS_DEBUG": "/MDd /Ob0 /Od",
         "CMAKE_EXE_LINKER_FLAGS": "/INCREMENTAL:NO"
       }

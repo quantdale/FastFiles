@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -47,7 +48,7 @@ public:
     using ScanCompleteCallback = std::function<void(ffprotocol::VolumeId)>;
     using JournalOpenedCallback = std::function<void(ffprotocol::VolumeId, uint64_t journalId, uint64_t currentUsn)>;
     using JournalBatchCallback =
-        std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV1> records)>;
+        std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records)>;
     // The service rejected the requested resume position as outside the
     // journal's retained range (MessageType::JournalResumeInvalid) -- the
     // payload carries no position, only the volume it concerns.
@@ -97,12 +98,23 @@ public:
     void RequestReconnect();
 
 private:
+    struct OwnedPipe {
+        explicit OwnedPipe(HANDLE value) noexcept : handle(value) {}
+        ~OwnedPipe();
+
+        OwnedPipe(const OwnedPipe&) = delete;
+        OwnedPipe& operator=(const OwnedPipe&) = delete;
+
+        HANDLE handle = INVALID_HANDLE_VALUE;
+    };
+    using PipePtr = std::shared_ptr<OwnedPipe>;
+
     void RunLoop();
     void SetState(ConnectionState state, UnavailableReason reason);
 
     // Returns a live, verified, handshaken pipe handle, or nullptr on any
     // failure (having already set state/reason appropriately).
-    HANDLE ConnectVerifyAndHandshake();
+    PipePtr ConnectVerifyAndHandshake();
     bool VerifyServiceIdentity(HANDLE pipe) const;
 
     // Runs the Active-state loop until failure or a stop/idle request;
@@ -110,7 +122,7 @@ private:
     // reader thread (dispatching HeartbeatAck plus every scan/journal
     // message type to the registered callbacks) running concurrently
     // with this thread's own Heartbeat-send/backoff cadence.
-    void ActiveLoop(HANDLE pipe);
+    void ActiveLoop(const PipePtr& pipe);
     void DispatchReceivedFrame(const ffipc::ReceivedFrame& frame, std::atomic<bool>& heartbeatAckPending,
                                 std::mutex& ackMutex, std::condition_variable& ackCv, std::atomic<bool>& protocolViolation);
 
@@ -133,8 +145,9 @@ private:
     // Heartbeat and any thread calling SendRequest (e.g. the volume
     // session orchestrator) both write to the same handle.
     std::mutex writeMutex_;
-    std::atomic<HANDLE> activePipe_{nullptr};
-    std::atomic<HANDLE> connectingPipe_{nullptr};
+    std::mutex pipeStateMutex_;
+    PipePtr activePipe_;
+    PipePtr connectingPipe_;
 
     std::thread lifecycleThread_;
     std::mutex wakeMutex_;

@@ -7,7 +7,8 @@ No formal latency target was found in the repository. The interpretation below u
 ## Reproduction
 
 ```powershell
-$env:FASTFILES_NINJA_EXE = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
+# Run from a Visual Studio developer environment. The verification harness
+# discovers the installed VC toolchain and exposes its bundled CMake/Ninja.
 cmake --preset release
 cmake --build --preset release --target ffengine_bench_large_index_scalability
 build\release\tests\engine\ffengine_bench_large_index_scalability.exe --output docs/benchmarks/large-index-scalability.json

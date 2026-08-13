@@ -4,6 +4,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -102,6 +103,17 @@ public:
     void RetryConnect();
 
 private:
+    struct OwnedPipe {
+        explicit OwnedPipe(HANDLE value) noexcept : handle(value) {}
+        ~OwnedPipe();
+
+        OwnedPipe(const OwnedPipe&) = delete;
+        OwnedPipe& operator=(const OwnedPipe&) = delete;
+
+        HANDLE handle = INVALID_HANDLE_VALUE;
+    };
+    using PipePtr = std::shared_ptr<OwnedPipe>;
+
     void ManagementLoop();
     bool ConnectAndSubscribe();
     void ReaderLoop();
@@ -123,12 +135,13 @@ private:
     bool WaitForRetryDelay();
 
     std::wstring enginePipeName_;
-    std::atomic<HANDLE> pipe_{INVALID_HANDLE_VALUE};
-    std::atomic<HANDLE> connectingPipe_{INVALID_HANDLE_VALUE};
+    std::mutex pipeStateMutex_;
+    PipePtr pipe_;
+    PipePtr connectingPipe_;
     // A failed writer cancels the reader before the management thread can
     // leave ReaderLoop. Retain that exact handle until ClosePipe() runs so a
     // failed write cannot leak the old connection.
-    std::vector<HANDLE> retiredPipes_;
+    std::vector<PipePtr> retiredPipes_;
 
     mutable HANDLE mappingHandle_ = nullptr;
     mutable const uint8_t* mappedView_ = nullptr;

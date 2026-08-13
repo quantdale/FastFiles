@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -16,8 +17,7 @@ namespace ffipc {
 // and invokes `onConnect` on a retained, joinable thread per accepted client.
 // Stop() cancels tracked overlapped handles and joins every callback before
 // returning, so an accepted connection cannot outlive the listener.
-//
-    // Reused by both FastFilesIndexSvc (Ctrl/Data pipes, ACL'd to the
+// Reused by both FastFilesIndexSvc (Ctrl/Data pipes, ACL'd to the
 // authorized client group) and FastFilesEngine (its own same-privilege
 // UI-facing pipe, ACL'd to the current user) -- each caller builds and
 // owns its own security descriptor rather than this class assuming one
@@ -39,6 +39,23 @@ public:
     void Stop();
 
 private:
+    class OwnedHandle {
+    public:
+        explicit OwnedHandle(HANDLE value) noexcept : value_(value) {}
+        ~OwnedHandle();
+
+        OwnedHandle(const OwnedHandle&) = delete;
+        OwnedHandle& operator=(const OwnedHandle&) = delete;
+
+        HANDLE Get() const noexcept { return value_; }
+        HANDLE Release() noexcept;
+
+    private:
+        HANDLE value_ = INVALID_HANDLE_VALUE;
+    };
+
+    using OwnedHandlePtr = std::shared_ptr<OwnedHandle>;
+
     HANDLE CreateInstance(bool isFirstInstance) noexcept;
     void JoinConnectionThreads();
 
@@ -47,9 +64,15 @@ private:
     std::function<void(HANDLE)> onConnect_;
     std::thread acceptThread_;
     std::atomic<bool> running_{false};
-    std::atomic<HANDLE> pendingInstance_{INVALID_HANDLE_VALUE};
+    std::mutex lifecycleMutex_;
+    std::mutex pendingMutex_;
+    OwnedHandlePtr pendingInstance_;
     std::mutex connectionMutex_;
-    std::vector<HANDLE> connectionHandles_;
+    // Every cancellation handle in this registry has exactly one RAII owner.
+    // Stop() copies the shared owners before calling CancelIoEx; the owner
+    // therefore cannot close/recycle the value until cancellation and the
+    // callback teardown have both completed.
+    std::vector<OwnedHandlePtr> connectionHandles_;
     std::vector<std::thread> connectionThreads_;
 };
 

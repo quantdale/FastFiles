@@ -161,6 +161,15 @@ void FuzzUsnDeltaBatchParsing(std::mt19937& rng) {
         if (parsed.has_value()) {
             Check(parsed->size() == declaredCount, "a successfully parsed USN delta batch has exactly the declared count");
         }
+        const auto parsedV2 = ffprotocol::ParseUsnDeltaV2Batch(payload.data(), payload.size(), declaredCount);
+        if (parsedV2.has_value()) {
+            Check(parsedV2->size() == declaredCount,
+                  "a successfully parsed USN V2 delta batch has exactly the declared count");
+            for (const auto& record : *parsedV2) {
+                Check((record.fixed.fieldMask & ~ffprotocol::kUsnFieldMaskAll) == 0,
+                      "a parsed USN V2 record contains only defined presence-mask bits");
+            }
+        }
     }
 }
 

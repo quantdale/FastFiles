@@ -3,3 +3,9 @@ target_link_libraries(ffipc_framing_tests PRIVATE ffipc)
 
 add_test(NAME ffipc_framing_tests COMMAND ffipc_framing_tests)
 set_tests_properties(ffipc_framing_tests PROPERTIES TIMEOUT 120)
+
+add_executable(ffipc_listener_lifecycle_tests test_pipe_listener_lifecycle.cpp)
+target_link_libraries(ffipc_listener_lifecycle_tests PRIVATE ffipc)
+
+add_test(NAME ffipc_listener_lifecycle_tests COMMAND ffipc_listener_lifecycle_tests)
+set_tests_properties(ffipc_listener_lifecycle_tests PROPERTIES TIMEOUT 120)

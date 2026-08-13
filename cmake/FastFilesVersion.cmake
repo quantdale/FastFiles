@@ -11,7 +11,7 @@ endif()
 
 file(STRINGS "${FASTFILES_VERSION_FILE}" FASTFILES_PRODUCT_VERSION LIMIT_COUNT 1)
 string(STRIP "${FASTFILES_PRODUCT_VERSION}" FASTFILES_PRODUCT_VERSION)
-if(NOT FASTFILES_PRODUCT_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+if(NOT FASTFILES_PRODUCT_VERSION MATCHES "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
   message(FATAL_ERROR
     "FastFiles VERSION must contain exactly MAJOR.MINOR.PATCH numeric components.")
 endif()
@@ -30,6 +30,31 @@ endforeach()
 set(FASTFILES_FILE_VERSION "${FASTFILES_PRODUCT_VERSION}.0")
 set(FASTFILES_VERSION_COMMA
   "${FASTFILES_VERSION_MAJOR},${FASTFILES_VERSION_MINOR},${FASTFILES_VERSION_PATCH},0")
+
+# Every executable in a package carries the exact source/build identity in
+# VERSIONINFO. Release tooling copies that value into the authenticated
+# package manifest, so a same-signer binary from another commit cannot be
+# mixed into the package. A caller may provide a CI identity explicitly; a
+# normal checkout derives it from Git and fails closed when neither is usable.
+set(FASTFILES_BUILD_ID "$ENV{FASTFILES_BUILD_ID}")
+string(STRIP "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID)
+if(FASTFILES_BUILD_ID STREQUAL "")
+  execute_process(
+    COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
+    RESULT_VARIABLE FASTFILES_GIT_RESULT
+    OUTPUT_VARIABLE FASTFILES_BUILD_ID
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(NOT FASTFILES_GIT_RESULT EQUAL 0)
+    set(FASTFILES_BUILD_ID "")
+  endif()
+endif()
+string(LENGTH "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID_LENGTH)
+if(NOT FASTFILES_BUILD_ID_LENGTH EQUAL 40 OR NOT FASTFILES_BUILD_ID MATCHES "^[0-9a-fA-F]+$")
+  message(FATAL_ERROR
+    "FASTFILES_BUILD_ID must be a 40-character Git identity (or FASTFILES_BUILD_ID must be set).")
+endif()
+string(TOLOWER "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID)
 
 if(NOT DEFINED FASTFILES_GENERATED_INCLUDE_DIR)
   message(FATAL_ERROR "FASTFILES_GENERATED_INCLUDE_DIR must be set before FastFilesVersion.cmake")

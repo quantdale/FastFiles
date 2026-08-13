@@ -2,6 +2,7 @@
 param(
     [string] $BuildRoot,
     [string] $OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) 'FastFiles-release-kit'),
+    [string] $ManifestSignaturePath,
     [switch] $Force,
     [ValidateSet('human', 'json')]
     [string] $OutputFormat = 'human'
@@ -17,12 +18,14 @@ try {
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     if ($output -eq [IO.Path]::GetPathRoot($output).TrimEnd('\')) { throw 'KIT_OUTPUT_INVALID: refusing to use a filesystem root as kit output.' }
     if ((Test-Path -LiteralPath $output) -and -not $Force) {
-        $foreign = @(Get-ChildItem -LiteralPath $output -Force -ErrorAction Stop | Where-Object { $_.Name -notin @('FastFiles.exe', 'FastFilesEngine.exe', 'FastFilesIndexSvc.exe', 'FastFilesSetup.exe', 'FastFiles.package.manifest', 'ReleaseCommon.psm1', 'derive-pin.ps1', 'sign-release.ps1', 'validate-clean-host.ps1', 'cleanup-clean-host.ps1', 'privileged-release.ps1', 'import-clean-host-result.ps1', 'artifact-manifest.json', 'kit-manifest.json', 'README.md', 'validation') })
+        $foreign = @(Get-ChildItem -LiteralPath $output -Force -ErrorAction Stop | Where-Object { $_.Name -notin @('ReleaseCommon.psm1', 'derive-pin.ps1', 'sign-release.ps1', 'validate-clean-host.ps1', 'cleanup-clean-host.ps1', 'privileged-release.ps1', 'import-clean-host-result.ps1', 'artifact-manifest.json', 'kit-manifest.json', 'README.md', 'validation', 'package') })
         if ($foreign.Count -gt 0) { throw "KIT_OUTPUT_NOT_EMPTY: refusing to overwrite unrelated files under '$output'. Use a new output directory or -Force after reviewing it." }
     }
     New-Item -ItemType Directory -Path $output -Force | Out-Null
+    $packageRoot = Join-Path $output 'package'
+    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
     $paths = Get-ReleaseArtifactPaths -ArtifactRoot $BuildRoot
-    foreach ($entry in $paths) { Copy-Item -LiteralPath $entry.sourcePath -Destination (Join-Path $output $entry.name) -Force }
+    foreach ($entry in $paths) { Copy-Item -LiteralPath $entry.sourcePath -Destination (Join-Path $packageRoot $entry.name) -Force }
 
     $sourceFiles = @('ReleaseCommon.psm1', 'derive-pin.ps1', 'sign-release.ps1', 'validate-clean-host.ps1', 'cleanup-clean-host.ps1', 'privileged-release.ps1', 'import-clean-host-result.ps1', 'CleanHostKit.README.md')
     foreach ($sourceFile in $sourceFiles) {
@@ -41,16 +44,26 @@ try {
         if ($fftestArchitecture.architecture -ne 'x64') { throw "WRONG_ARCHITECTURE: validation probe is $($fftestArchitecture.architecture), expected x64." }
         Copy-Item -LiteralPath $fftestPath -Destination (Join-Path $validationDir 'fftest.exe') -Force
     }
-    $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $output -RepoRoot $repoRoot
+    $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $BuildRoot -RepoRoot $repoRoot
     $versionPaths = if ($fftestIncluded) { @((Join-Path $validationDir 'fftest.exe')) } else { @() }
-    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $output -RepoRoot $repoRoot -AdditionalPaths $versionPaths
+    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $BuildRoot -RepoRoot $repoRoot -AdditionalPaths $versionPaths
     if (-not $versionCheck.valid) {
         $details = @($versionCheck.artifacts | Where-Object { -not $_.valid } | ForEach-Object { "$($_.filename):$($_.issues -join ',')" }) -join '; '
         throw "VERSION_METADATA_INVALID: $details"
     }
-    $packageManifestPath = Join-Path $output 'FastFiles.package.manifest'
+    $packageManifestPath = Join-Path $packageRoot 'FastFiles.package.manifest'
     Write-PackageManifest -Manifest $manifest -Path $packageManifestPath
-    $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $output
+    $signatureProvided = -not [string]::IsNullOrWhiteSpace($ManifestSignaturePath)
+    if ($signatureProvided) {
+        $resolvedSignature = [IO.Path]::GetFullPath($ManifestSignaturePath)
+        if (-not (Test-Path -LiteralPath $resolvedSignature -PathType Leaf)) { throw "PACKAGE_MANIFEST_SIGNATURE_MISSING: $resolvedSignature" }
+        Copy-Item -LiteralPath $resolvedSignature -Destination (Join-Path $packageRoot 'FastFiles.package.manifest.p7s') -Force
+    }
+    $packageCheck = if ($signatureProvided) {
+        Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageRoot
+    } else {
+        Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageRoot -AllowUnsignedPreparation
+    }
     if (-not $packageCheck.valid) { throw "PACKAGE_MANIFEST_INVALID_AFTER_WRITE: $($packageCheck.reason)" }
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $BuildRoot
     $engineArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesEngine.exe' | Select-Object -First 1
@@ -65,8 +78,15 @@ try {
         kind = 'fastfiles-clean-host-kit'
         commit = $manifest.commit
         architecture = 'x64'
-        package = @($manifest.artifacts | ForEach-Object { $_.filename }) + @('FastFiles.package.manifest')
-        packageManifest = 'FastFiles.package.manifest'
+        packageRoot = 'package'
+        package = @($manifest.artifacts | ForEach-Object { "package/$($_.filename)" }) + @('package/FastFiles.package.manifest') + $(if ($signatureProvided) { @('package/FastFiles.package.manifest.p7s') } else { @() })
+        packageManifest = 'package/FastFiles.package.manifest'
+        packageManifestSignature = [pscustomobject]@{
+            path = if ($signatureProvided) { 'package/FastFiles.package.manifest.p7s' } else { $null }
+            required = $true
+            present = $signatureProvided
+            sha256 = if ($signatureProvided) { (Get-FileHash -LiteralPath (Join-Path $packageRoot 'FastFiles.package.manifest.p7s') -Algorithm SHA256).Hash.ToUpperInvariant() } else { $null }
+        }
         packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
         versionMetadata = $versionCheck
         validationTool = [pscustomobject]@{ name = 'fftest.exe'; included = $fftestIncluded; path = if ($fftestIncluded) { 'validation/fftest.exe' } else { $null } }
@@ -76,7 +96,7 @@ try {
             service = $serviceKitPin
             provenanceRequired = $true
         }
-        productionSigning = [pscustomobject]@{ required = $true; currentState = if (@($manifest.artifacts | Where-Object { -not $_.signature.valid }).Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'REQUIRES_PIN_PROVENANCE' } }
+        productionSigning = [pscustomobject]@{ required = $true; currentState = if (-not $signatureProvided -or -not $packageCheck.productionReady -or @($manifest.artifacts | Where-Object { -not $_.signature.valid }).Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'REQUIRES_PIN_PROVENANCE' } }
         sourceCloneRequired = $false
         buildToolsRequired = $false
     }

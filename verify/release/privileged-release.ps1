@@ -119,8 +119,8 @@ function Stop-ExactEngineProcess {
 }
 
 function Get-KitPinStates {
-    param([Parameter(Mandatory)] [string] $Package)
-    $kitManifestPath = Join-Path $Package 'kit-manifest.json'
+    param([Parameter(Mandatory)] [string] $KitRoot)
+    $kitManifestPath = Join-Path $KitRoot 'kit-manifest.json'
     if (-not (Test-Path -LiteralPath $kitManifestPath -PathType Leaf)) { return $null }
     $kitManifest = Get-Content -LiteralPath $kitManifestPath -Raw | ConvertFrom-Json
     if (-not $kitManifest.pinProvisioning) { return $null }
@@ -136,10 +136,14 @@ $result = $null
 $exitCode = 1
 $errorMessage = $null
 try {
-    $package = [IO.Path]::GetFullPath($PackageDirectory)
+    $kitRoot = [IO.Path]::GetFullPath($PackageDirectory)
+    $package = Resolve-ReleaseKitPackageRoot -Root $kitRoot
     $output = [IO.Path]::GetFullPath($OutputDirectory)
     New-Item -ItemType Directory -Path $output -Force | Out-Null
-    $manifestPath = Join-Path $package 'artifact-manifest.json'
+    $manifestPath = Join-Path $kitRoot 'artifact-manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf) -and $kitRoot -eq $package) {
+        $manifestPath = Join-Path $package 'artifact-manifest.json'
+    }
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "ARTIFACT_MANIFEST_REQUIRED: $manifestPath" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
     $packageManifestPath = Join-Path $package 'FastFiles.package.manifest'
@@ -147,7 +151,7 @@ try {
     $packageReady = $packageCheck.valid
     $resolvedRepoRoot = if ($RepoRoot) { [IO.Path]::GetFullPath($RepoRoot) } else { $null }
     $resolvedBuildRoot = if ($BuildRoot) { [IO.Path]::GetFullPath($BuildRoot) } else { $null }
-    $pinStates = if ($resolvedRepoRoot -and $resolvedBuildRoot) { Get-ConfiguredPinStates -RepoRoot $resolvedRepoRoot -BuildRoot $resolvedBuildRoot } else { Get-KitPinStates -Package $package }
+    $pinStates = if ($resolvedRepoRoot -and $resolvedBuildRoot) { Get-ConfiguredPinStates -RepoRoot $resolvedRepoRoot -BuildRoot $resolvedBuildRoot } else { Get-KitPinStates -KitRoot $kitRoot }
     if (-not $pinStates) {
         $pinStates = [pscustomobject]@{
             engine = [pscustomobject]@{ name = 'engine'; state = 'MISSING'; source = 'no-kit-pin-provenance'; length = 0; normalized = $null }
@@ -208,7 +212,7 @@ try {
         $raw = Wait-ForRawVolumeEvidence -Timeout $TimeoutSeconds
         $journal = Wait-ForJournalEvidence -Timeout $TimeoutSeconds
         $dbPath = Join-Path $env:LOCALAPPDATA 'FastFiles\index.db'
-        $aggregateProbe = Join-Path $package 'validation\fftest.exe'
+        $aggregateProbe = Join-Path $kitRoot 'validation\fftest.exe'
         $initialAggregate = Wait-ForIndexAggregate -ProbePath $aggregateProbe -DatabasePath $dbPath -FolderName $fixtureName -ExpectedItems 2 -ExpectedBytes 3072 -Timeout $TimeoutSeconds
         [IO.File]::WriteAllBytes((Join-Path $fixture 'C.bin'), [byte[]]::new(3072))
         $mutationAggregate = Wait-ForIndexAggregate -ProbePath $aggregateProbe -DatabasePath $dbPath -FolderName $fixtureName -ExpectedItems 3 -ExpectedBytes 6144 -Timeout $TimeoutSeconds
@@ -220,9 +224,9 @@ try {
         $checks.Add([pscustomobject]@{ id = 'privileged-path'; status = if ($mftPassed -and $usnPassed) { 'PASS' } else { 'REQUIRED-BUT-UNAVAILABLE' }; reason = if ($mftPassed -and $usnPassed) { $null } else { 'END_TO_END_RUNTIME_NOT_CONFIRMED' }; detail = 'Real installed service, engine, diagnostics, controlled fixture mutation, and aggregate probe evidence are required.' })
     }
 
-    $result = [pscustomobject]@{ status = if (@($checks | Where-Object status -eq 'FAIL').Count -gt 0) { 'FAIL' } elseif (@($checks | Where-Object status -eq 'BLOCKED_EXTERNAL').Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'PASS' }; output = $output; checks = @($checks); transaction = $transaction }
+    $result = [pscustomobject]@{ status = if (@($checks | Where-Object status -eq 'FAIL').Count -gt 0) { 'FAIL' } elseif (@($checks | Where-Object status -eq 'BLOCKED_EXTERNAL').Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'PASS' }; output = $output; kitRoot = $kitRoot; packageRoot = $package; checks = @($checks); transaction = $transaction }
     Write-ReleaseJson -Value $manifest -Path (Join-Path $output 'artifact-manifest.json')
-    Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; package = $package }) -Path (Join-Path $output 'privileged-release-result.json')
+    Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; kitRoot = $kitRoot; packageRoot = $package }) -Path (Join-Path $output 'privileged-release-result.json')
     $exitCode = if ($result.status -eq 'PASS') { 0 } elseif ($result.status -eq 'BLOCKED_EXTERNAL') { 2 } else { 1 }
 } catch {
     $checks.Add([pscustomobject]@{ id = 'driver'; status = 'FAIL'; reason = 'DRIVER_EXCEPTION'; detail = $_.Exception.Message })
@@ -259,7 +263,7 @@ try {
         try {
             Write-ReleaseJson -Value $transaction -Path (Join-Path $OutputDirectory 'transaction.json')
             if ($result) {
-                Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; package = $package }) -Path (Join-Path $OutputDirectory 'privileged-release-result.json')
+                Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; kitRoot = $kitRoot; packageRoot = $package }) -Path (Join-Path $OutputDirectory 'privileged-release-result.json')
             }
         } catch { }
     }
@@ -267,7 +271,7 @@ try {
 
 if ($result) {
     try {
-        Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; package = $package }) -Path (Join-Path $OutputDirectory 'privileged-release-result.json')
+        Write-ReleaseJson -Value ([pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-privileged-release-result'; status = $result.status; checks = @($checks); transaction = $transaction; kitRoot = $kitRoot; packageRoot = $package }) -Path (Join-Path $OutputDirectory 'privileged-release-result.json')
     } catch { $exitCode = 1 }
 }
 if ($errorMessage) {

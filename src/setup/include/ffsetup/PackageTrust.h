@@ -15,28 +15,86 @@ namespace ffsetup {
 
 using Sha256Digest = std::array<uint8_t, 32>;
 
-// The release kit carries this small, strict manifest beside the four
-// executable payloads. It is deliberately not treated as an authentication
-// boundary by itself: each payload is also Authenticode-checked against the
-// approved release pins. The manifest binds the package members to one
-// coherent build and prevents package mixing.
+inline constexpr wchar_t kPackageManifestFileName[] = L"FastFiles.package.manifest";
+inline constexpr wchar_t kPackageManifestSignatureFileName[] = L"FastFiles.package.manifest.p7s";
+inline constexpr uint32_t kPackageManifestSchemaV2 = 2;
+
+struct PackageReleaseIdentity {
+    std::wstring productName;
+    std::wstring productVersion;
+    std::wstring buildIdentity;
+    std::wstring architecture;
+};
+
+// V2 is canonical UTF-8 text only as a serialization format. It is not an
+// authentication boundary by itself: production callers must obtain it from
+// ReadAuthenticatedPackageManifest, whose detached CMS signature is pinned
+// to an approved production signer before any payload is trusted.
 struct PackageManifestEntry {
     std::wstring fileName;
+    std::wstring componentRole;
+    std::wstring originalFileName;
+    std::wstring internalName;
+    std::wstring productName;
+    std::wstring productVersion;
+    std::wstring buildIdentity;
+    std::wstring architecture;
     uint64_t sizeBytes = 0;
     Sha256Digest sha256{};
 };
 
 struct PackageManifest {
     uint32_t schemaVersion = 0;
-    std::wstring productVersion;
+    PackageReleaseIdentity release;
     std::vector<PackageManifestEntry> files;
+    // Set only by ReadAuthenticatedPackageManifest after the signature has
+    // verified over the exact canonical bytes. It is intentionally separate
+    // from the parse result so a plain metadata parse cannot enter the
+    // production installer path.
+    bool signatureVerified = false;
+    std::vector<uint8_t> detachedSignature;
 };
 
 std::optional<PackageManifest> ReadPackageManifest(const std::wstring& path) noexcept;
+using PackageManifestSignatureVerifier = std::function<bool(
+    const std::vector<uint8_t>& manifestBytes, const std::vector<uint8_t>& signatureBytes,
+    const std::vector<Thumbprint>& approvedSigners)>;
+
+// Opens the manifest and detached signature with delete/write sharing
+// disabled, verifies the exact manifest bytes, and only then parses V2. A
+// missing, unsigned, malformed, wrong-signer, or substituted signature fails
+// closed. The returned signature bytes are retained so installation and
+// rollback can copy the authenticated trust object without regenerating it.
+std::optional<PackageManifest> ReadAuthenticatedPackageManifest(
+    const std::wstring& packageRoot, const std::vector<Thumbprint>& approvedSigners,
+    const PackageManifestSignatureVerifier& verifier = {}) noexcept;
+
+// Canonical V2 serialization used by release tooling, installer staging, and
+// the detached signature input. The result is never emitted for schema V1.
+std::optional<std::vector<uint8_t>> SerializePackageManifest(
+    const PackageManifest& manifest) noexcept;
+
 const PackageManifestEntry* FindPackageManifestEntry(const PackageManifest& manifest,
                                                      const std::wstring& fileName) noexcept;
 bool HasExactPackageFileSet(const PackageManifest& manifest,
                             const std::vector<std::wstring>& expectedNames) noexcept;
+bool HasExactPackageDirectoryInventory(const std::wstring& packageRoot,
+                                       const std::vector<std::wstring>& expectedNames) noexcept;
+
+// The role is derived from the required package filename, not from attacker
+// supplied manifest text. Unknown names are rejected.
+std::optional<std::wstring> PackageComponentRoleForFileName(
+    const std::wstring& fileName) noexcept;
+
+// Strict MAJOR.MINOR.PATCH parsing/comparison used by the upgrade policy.
+std::optional<int> CompareProductVersions(const std::wstring& left,
+                                          const std::wstring& right) noexcept;
+
+// Pure metadata comparison seam used by adversarial anti-mix tests and by
+// InspectPath after reading the signed executable's VERSIONINFO/PE metadata.
+bool PackageFileMetadataMatches(const PackageManifest& manifest,
+                                const PackageManifestEntry& expected,
+                                const PackageManifestEntry& actual) noexcept;
 
 std::optional<Sha256Digest> ComputeSha256FileAtPath(const std::wstring& path) noexcept;
 
@@ -65,7 +123,7 @@ public:
 private:
     friend std::optional<TrustedPackageFile> OpenTrustedPackageFile(
         const std::wstring&, const std::wstring&, const PackageManifestEntry&,
-        const std::vector<Thumbprint>&, const std::function<bool(const std::wstring&, const std::vector<Thumbprint>&)>&) noexcept;
+        const std::vector<Thumbprint>&, const std::function<bool(HANDLE, const std::wstring&, const std::vector<Thumbprint>&)>&) noexcept;
 
     HANDLE handle_ = INVALID_HANDLE_VALUE;
     PackageFileIdentity identity_{};
@@ -75,7 +133,7 @@ private:
 };
 
 using PackageSignatureVerifier =
-    std::function<bool(const std::wstring&, const std::vector<Thumbprint>&)>;
+    std::function<bool(HANDLE, const std::wstring&, const std::vector<Thumbprint>&)>;
 using PackageSignerSelector = std::function<std::vector<Thumbprint>(const std::wstring&)>;
 
 bool ValidateTrustedPackageSet(const std::wstring& packageRoot, const PackageManifest& manifest,
@@ -83,7 +141,7 @@ bool ValidateTrustedPackageSet(const std::wstring& packageRoot, const PackageMan
                               const PackageSignerSelector& signerSelector,
                               const PackageSignatureVerifier& verifier = {}) noexcept;
 
-// Opens the named payload with write sharing disabled, rejects reparse points,
+// Opens the named payload with delete/write sharing disabled, rejects reparse points,
 // resolves and confines the handle's final path to packageRoot, validates the
 // manifest size/hash and verifies the signer. The returned handle is the same
 // underlying file object that later copy operations consume.

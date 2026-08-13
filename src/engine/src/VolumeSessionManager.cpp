@@ -191,7 +191,7 @@ void VolumeSessionManager::Start() {
     connection_.SetJournalOpenedCallback(
         [this](ffprotocol::VolumeId id, uint64_t journalId, uint64_t currentUsn) { OnJournalOpened(id, journalId, currentUsn); });
     connection_.SetJournalBatchCallback([this](ffprotocol::VolumeId id, uint64_t latestUsn,
-                                                std::vector<ffprotocol::UsnDeltaV1> records) {
+                                                std::vector<ffprotocol::UsnDeltaV2> records) {
         OnJournalBatch(id, latestUsn, std::move(records));
     });
     connection_.SetJournalResumeInvalidCallback([this](ffprotocol::VolumeId id) { OnJournalResumeInvalid(id); });
@@ -500,7 +500,7 @@ void VolumeSessionManager::OnJournalOpened(ffprotocol::VolumeId volumeId, uint64
 }
 
 void VolumeSessionManager::OnJournalBatch(
-    ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV1> records) {
+    ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records) {
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
     uint64_t journalId = 0;

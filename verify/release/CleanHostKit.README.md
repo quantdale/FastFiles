@@ -14,7 +14,10 @@ not modify the trust store.
 The kit is generated only after the four product executables (and the included
 `validation/fftest.exe` probe) pass the repository `VERSION`/VERSIONINFO
 metadata check. The kit does not infer a version from a filename or package
-manifest alone.
+manifest alone. The installable payload is under `package/`; that directory
+contains only the four product executables and the authenticated package
+manifest/signature. The scripts and `validation/` probe remain outside that
+exact package root, and the drivers resolve `package/` from `kit-manifest.json`.
 
 Run these commands from an Administrator PowerShell when the signed release is
 available. The preflight also rejects unsigned artifacts, even on an otherwise

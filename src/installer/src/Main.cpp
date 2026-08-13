@@ -101,17 +101,19 @@ std::wstring DirectoryOf(const std::wstring& path) {
 }
 
 bool VerifyApprovedSignatureOnly(const std::wstring& path) {
-    const auto actual = ffsetup::VerifyAuthenticodeAndGetThumbprint(path);
+    const auto actual = ffsetup::VerifyAuthenticodeAndGetThumbprintAtPath(path);
     if (!actual) return false;
     const auto approved = ffsetup::ApprovedPackageSigners();
     return std::any_of(approved.begin(), approved.end(), [&](const ffsetup::Thumbprint& expected) {
-        return ffsetup::ConstantTimeThumbprintEqual(*actual, expected);
+        return !ffsetup::IsPlaceholderThumbprint(expected) &&
+               ffsetup::ConstantTimeThumbprintEqual(*actual, expected);
     });
 }
 
 bool VerifyInstallerBeforeElevation(const std::wstring& ownPath, bool requirePackageManifest) {
     const std::wstring packageRoot = DirectoryOf(ownPath);
-    const auto manifest = ffsetup::ReadPackageManifest(packageRoot + L"\\FastFiles.package.manifest");
+    const auto manifest = ffsetup::ReadAuthenticatedPackageManifest(
+        packageRoot, ffsetup::ApprovedPackageSigners());
     if (manifest) {
         const auto* expected = ffsetup::FindPackageManifestEntry(*manifest, L"FastFilesSetup.exe");
         if (expected != nullptr &&

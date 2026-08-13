@@ -20,6 +20,7 @@ BEGIN
             VALUE "OriginalFilename", "@FASTFILES_VERSION_ORIGINAL_FILENAME@\0"
             VALUE "ProductName", "@FASTFILES_PRODUCT_NAME@\0"
             VALUE "ProductVersion", "@FASTFILES_PRODUCT_VERSION@\0"
+            VALUE "PrivateBuild", "@FASTFILES_BUILD_ID@\0"
         END
     END
     BLOCK "VarFileInfo"

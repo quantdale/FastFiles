@@ -64,7 +64,9 @@ int main() {
           "allowlist: zero (invalid) message type is rejected");
     Check(!IsAllowedClientRequest(0xFFFF),
           "allowlist: out-of-range message type is rejected");
-    Check(!IsAllowedClientRequest(19),
+    Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::JournalRecordBatchV2)),
+          "allowlist: reply-only JournalRecordBatchV2 is rejected");
+    Check(!IsAllowedClientRequest(20),
           "allowlist: value above the largest known type is rejected");
 
     // Exhaustive sweep over the entire representable range: the allowlist

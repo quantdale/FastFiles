@@ -50,6 +50,11 @@ std::optional<uint16_t> ReadCapturedMessage(HANDLE client) {
     return frame->header.messageType;
 }
 
+void AttachCaptureServer(ffengine::PrivilegedConnection& connection, PipeCapture& capture) {
+    connection.activePipe_ = std::make_shared<ffengine::PrivilegedConnection::OwnedPipe>(capture.server);
+    capture.server = INVALID_HANDLE_VALUE;
+}
+
 bool HasCapturedBytes(HANDLE client) {
     DWORD available = 0;
     const bool peeked = PeekNamedPipe(client, nullptr, 0, nullptr, &available, nullptr) != FALSE;
@@ -124,7 +129,7 @@ void TestDisappearanceMarksUnavailableAndWithdrawsPublishedVolume() {
     auto capture = CreatePipeCapture();
     Check(capture != nullptr, "volume disappearance creates a capture pipe");
     if (!capture) return;
-    connection.activePipe_ = capture->server;
+    AttachCaptureServer(connection, *capture);
     AddSession(manager, volumeId);
     manager.active_ = true;
     manager.sessionsByEphemeralId_.at(7).journalOpenRequested = true;
@@ -255,7 +260,7 @@ void TestDisableTearsDownSessionLive() {
     auto capture = CreatePipeCapture();
     Check(capture != nullptr, "disable teardown creates a capture pipe");
     if (!capture) return;
-    connection.activePipe_ = capture->server;
+    AttachCaptureServer(connection, *capture);
     AddSession(manager, volumeId);
     manager.active_ = true;
     ffindexstore::VolumeRowId callbackVolume = 0;
@@ -305,7 +310,7 @@ void TestStopClosesOwnedJournalBeforeConnectionShutdown() {
     auto capture = CreatePipeCapture();
     Check(capture != nullptr, "journal shutdown creates a capture pipe");
     if (!capture) return;
-    connection.activePipe_ = capture->server;
+    AttachCaptureServer(connection, *capture);
     {
         ffengine::VolumeSessionManager manager(pipeline, connection);
         AddSession(manager, volumeId);

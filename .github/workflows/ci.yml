@@ -17,9 +17,6 @@ jobs:
         # pins from an authorized release environment. CI uses the explicitly
         # labeled optimized unsigned test-release profile instead.
         preset: [debug, release-test, analyze]
-    env:
-      # VS2022 Enterprise (windows-latest image) bundled Ninja.
-      FASTFILES_NINJA_EXE: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,26 +25,27 @@ jobs:
         shell: pwsh
         run: ./verify/check_source_markers.ps1
 
-      - name: Configure
+      - name: Configure, build, and test in discovered VS environment
         shell: pwsh
-        run: cmake --preset ${{ matrix.preset }}
-
-      - name: Build
-        shell: pwsh
-        run: cmake --build --preset ${{ matrix.preset }}
-
-      # No analyze test preset exists, so only debug/release-test run the suite.
-      - name: Test
-        if: matrix.preset != 'analyze'
-        shell: pwsh
-        run: ctest --preset ${{ matrix.preset }} --output-on-failure
+        run: |
+          Import-Module ./verify/core/Toolchain.psm1 -Force
+          $toolchain = Find-VSToolchain
+          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation with bundled CMake/Ninja was not found.' }
+          Enter-DevEnvironment -Toolchain $toolchain -Arch x64
+          cmake --preset ${{ matrix.preset }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset ${{ matrix.preset }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # No analyze test preset exists, so only debug/release-test run the suite.
+          if ('${{ matrix.preset }}' -ne 'analyze') {
+            ctest --preset ${{ matrix.preset }} --output-on-failure
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
   asan:
     name: asan-protocol-fuzz
     runs-on: windows-latest
     timeout-minutes: 30
-    env:
-      FASTFILES_NINJA_EXE: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,18 +54,16 @@ jobs:
         shell: pwsh
         run: ./verify/check_source_markers.ps1
 
-      - name: Configure ASAN core-test profile
-        shell: pwsh
-        run: cmake --preset asan
-
-      - name: Build ASAN protocol fuzz target
-        shell: pwsh
-        run: cmake --build --preset asan --target ffprotocol_fuzz_tests
-
-      - name: Run ASAN protocol fuzz target
+      - name: Configure, build, and run ASAN protocol fuzz in discovered VS environment
         shell: pwsh
         run: |
-          $vsDevCmd = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat'
-          if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) { throw "VS developer environment not found: $vsDevCmd" }
-          cmd.exe /d /s /c ('call "{0}" -arch=x64 && ctest --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure' -f $vsDevCmd)
+          Import-Module ./verify/core/Toolchain.psm1 -Force
+          $toolchain = Find-VSToolchain
+          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation with bundled CMake/Ninja was not found.' }
+          Enter-DevEnvironment -Toolchain $toolchain -Arch x64
+          cmake --preset asan
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset asan --target ffprotocol_fuzz_tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

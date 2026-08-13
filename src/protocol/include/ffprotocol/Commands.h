@@ -34,6 +34,7 @@ enum class MessageType : uint16_t {
     UsnJournalOpened = 16, // service -> client, once, acks OpenUsnJournal with the current JournalId
     JournalRecordBatch = 17, // service -> client, zero or more per open journal
     JournalResumeInvalid = 18, // service -> engine: the supplied ResumeUsn is no longer valid (D6/task 7.6)
+    JournalRecordBatchV2 = 19, // service -> engine, explicit USN field-presence format
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -168,6 +169,15 @@ struct JournalRecordBatchHeader {
     VolumeId volumeId;
     uint32_t recordCount;
     uint64_t latestUsn;
+};
+
+// V2 has a distinct message type and an explicit format version so a parser
+// cannot accidentally interpret a V1 payload as a complete metadata record.
+struct JournalRecordBatchV2Header {
+    VolumeId volumeId;
+    uint32_t recordCount;
+    uint64_t latestUsn;
+    uint16_t recordFormatVersion;
 };
 
 // service -> engine: sent instead of further JournalRecordBatch frames

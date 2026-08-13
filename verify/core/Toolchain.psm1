@@ -112,8 +112,9 @@ function Enter-DevEnvironment {
         }
     }
 
-    # CMakePresets.json resolves CMAKE_MAKE_PROGRAM via this env var so the preset
-    # file itself never hard-codes a host-specific path.
+    # Preserve the optional compatibility variable for older local scripts.
+    # Current CMakePresets.json deliberately uses normal CMake/Ninja discovery;
+    # the base preset does not require or consume this variable.
     $env:FASTFILES_NINJA_EXE = $Toolchain.NinjaExe
 }
 

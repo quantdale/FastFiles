@@ -83,6 +83,12 @@ bool WaitForNamedPipe(const std::wstring& pipeName, const std::atomic<bool>& run
 }
 }
 
+EngineClient::OwnedPipe::~OwnedPipe() {
+    if (handle != INVALID_HANDLE_VALUE && handle != nullptr) {
+        CloseHandle(handle);
+    }
+}
+
 EngineClient::~EngineClient() {
     Stop();
 }
@@ -270,42 +276,46 @@ bool EngineClient::ConnectAndSubscribe() {
         return false;
     };
 
-    HANDLE pipe = CreateFileW(enginePipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
-                              FILE_FLAG_OVERLAPPED, nullptr);
-    if (pipe == INVALID_HANDLE_VALUE) {
+    const HANDLE rawPipe = CreateFileW(enginePipeName_.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+                                       FILE_FLAG_OVERLAPPED, nullptr);
+    if (rawPipe == INVALID_HANDLE_VALUE) {
         return fail(L"engine-connect-open-failed", GetLastError());
     }
-    connectingPipe_.store(pipe, std::memory_order_release);
+    const PipePtr pipe = std::make_shared<OwnedPipe>(rawPipe);
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        connectingPipe_ = pipe;
+    }
     DWORD mode = PIPE_READMODE_BYTE;
-    if (!SetNamedPipeHandleState(pipe, &mode, nullptr, nullptr)) {
+    if (!SetNamedPipeHandleState(pipe->handle, &mode, nullptr, nullptr)) {
         const DWORD error = GetLastError();
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-mode-failed", error);
     }
 
-    if (!ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(UiMessageType::Subscribe), nullptr, 0,
+    if (!ffipc::WriteFrameOverlapped(pipe->handle, static_cast<uint16_t>(UiMessageType::Subscribe), nullptr, 0,
                                      std::chrono::steady_clock::now() + kHandshakeTimeout)) {
         const DWORD error = GetLastError();
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-subscribe-write-failed", error);
     }
-    auto reply = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::now() + kHandshakeTimeout);
+    auto reply = ffipc::ReadFrameOverlapped(pipe->handle, std::chrono::steady_clock::now() + kHandshakeTimeout);
     if (!reply) {
         const DWORD error = GetLastError();
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-subscribe-read-failed", error);
     }
     if (ffprotocol::ToUiMessageType(reply->header.messageType) != UiMessageType::SubscribeAck) {
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-unexpected-reply", ERROR_INVALID_DATA);
     }
     if (reply->payload.size() < sizeof(ffprotocol::SubscribeAckPayload)) {
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-short-ack", ERROR_INVALID_DATA);
     }
 
@@ -313,8 +323,8 @@ bool EngineClient::ConnectAndSubscribe() {
     std::memcpy(&header, reply->payload.data(), sizeof(header));
     const size_t expectedSize = sizeof(header) + static_cast<size_t>(header.sectionNameLengthChars) * sizeof(wchar_t);
     if (reply->payload.size() != expectedSize) {
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-malformed-ack", ERROR_INVALID_DATA);
     }
     std::wstring sectionName(
@@ -322,8 +332,8 @@ bool EngineClient::ConnectAndSubscribe() {
 
     if (!MapSnapshotGeneration(sectionName, header.generationId)) {
         const DWORD error = GetLastError();
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-        CloseHandle(pipe);
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
         return fail(L"engine-connect-snapshot-map-failed", error);
     }
 
@@ -332,13 +342,13 @@ bool EngineClient::ConnectAndSubscribe() {
         // Stop() may race a slow handshake. Do not publish a newly-connected
         // handle after shutdown has begun, and never replace a live handle
         // behind the writer's back.
-        if (!running_.load() || pipe_.load() != INVALID_HANDLE_VALUE) {
-            connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
-            CloseHandle(pipe);
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        if (!running_.load() || pipe_ != nullptr) {
+            if (connectingPipe_ == pipe) connectingPipe_.reset();
             return false;
         }
         pipe_ = pipe;
-        connectingPipe_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
+        if (connectingPipe_ == pipe) connectingPipe_.reset();
     }
     announcedGeneration_ = header.generationId;
     // Wake the invalidation worker after the control pipe becomes usable. Any
@@ -353,9 +363,14 @@ bool EngineClient::ConnectAndSubscribe() {
 }
 
 void EngineClient::ReaderLoop() {
+    PipePtr pipe;
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        pipe = pipe_;
+    }
+    if (!pipe) return;
     for (;;) {
-        HANDLE pipe = pipe_.load();
-        auto parsed = ffipc::ReadFrameOverlapped(pipe, std::chrono::steady_clock::time_point::max());
+        auto parsed = ffipc::ReadFrameOverlapped(pipe->handle, std::chrono::steady_clock::time_point::max());
         if (!parsed) break;
         ffipc::ReceivedFrame frame = std::move(*parsed);
         auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
@@ -656,13 +671,18 @@ void EngineClient::Stop() {
     // Both the reader and writer paths use overlapped operations. Cancel the
     // exact handles before joining their owners; no helper-thread join is
     // allowed to define the shutdown deadline.
-    const HANDLE connecting = connectingPipe_.load(std::memory_order_acquire);
-    if (connecting != INVALID_HANDLE_VALUE) {
-        CancelIoEx(connecting, nullptr);
+    PipePtr connecting;
+    PipePtr current;
+    {
+        std::lock_guard<std::mutex> lock(pipeStateMutex_);
+        connecting = connectingPipe_;
+        current = pipe_;
     }
-    const HANDLE current = pipe_.load(std::memory_order_acquire);
-    if (current != INVALID_HANDLE_VALUE) {
-        CancelIoEx(current, nullptr);
+    if (connecting) {
+        CancelIoEx(connecting->handle, nullptr);
+    }
+    if (current) {
+        CancelIoEx(current->handle, nullptr);
     }
 
     ClosePipe();
@@ -697,7 +717,9 @@ void EngineClient::InvalidationLoop() {
         {
             std::unique_lock<std::mutex> lock(invalidationMutex_);
             invalidationCv_.wait(lock, [this] {
-                return !running_ || (!invalidationQueue_.empty() && pipe_.load() != INVALID_HANDLE_VALUE);
+                if (!running_ || invalidationQueue_.empty()) return !running_;
+                std::lock_guard<std::mutex> pipeLock(pipeStateMutex_);
+                return pipe_ != nullptr;
             });
             if (!running_) break;
             // Do not remove the request until the frame has been accepted by
@@ -734,36 +756,49 @@ bool EngineClient::SendDirectoryRequest(const std::wstring& path) {
 }
 
 void EngineClient::ClosePipe() {
-    const HANDLE current = pipe_.load(std::memory_order_acquire);
-    if (current != INVALID_HANDLE_VALUE) {
-        CancelIoEx(current, nullptr);
+    PipePtr current;
+    {
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        current = pipe_;
+    }
+    if (current) {
+        CancelIoEx(current->handle, nullptr);
     }
     std::lock_guard<std::mutex> lock(writeMutex_);
-    HANDLE pipe = pipe_.exchange(INVALID_HANDLE_VALUE);
-    if (pipe != INVALID_HANDLE_VALUE) {
+    PipePtr pipe;
+    std::vector<PipePtr> retired;
+    {
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        pipe = std::move(pipe_);
+        retired = std::move(retiredPipes_);
+        retiredPipes_.clear();
+    }
+    if (pipe) {
         // Cancel any overlapped read/write still associated with this
         // connection before closing the handle. The pre-lock cancellation
         // above is what prevents a blocked writer from holding writeMutex_
         // forever while shutdown waits to acquire it.
-        CancelIoEx(pipe, nullptr);
-        CloseHandle(pipe);
+        CancelIoEx(pipe->handle, nullptr);
     }
-    for (HANDLE retired : retiredPipes_) {
-        if (retired != INVALID_HANDLE_VALUE) {
-            CloseHandle(retired);
+    for (const auto& retiredPipe : retired) {
+        if (retiredPipe) {
+            CancelIoEx(retiredPipe->handle, nullptr);
         }
     }
-    retiredPipes_.clear();
 }
 
 bool EngineClient::WriteCurrentFrame(uint16_t messageType, const void* payload, uint32_t payloadSize) {
     std::lock_guard<std::mutex> lock(writeMutex_);
-    const HANDLE pipe = pipe_.load();
-    if (pipe == INVALID_HANDLE_VALUE) {
+    PipePtr pipe;
+    {
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        pipe = pipe_;
+    }
+    if (!pipe) {
         return false;
     }
     if (ffipc::WriteFrameOverlapped(
-            pipe, messageType, payload, payloadSize,
+            pipe->handle, messageType, payload, payloadSize,
             std::chrono::steady_clock::now() + kPipeWriteTimeout)) {
         return true;
     }
@@ -772,11 +807,13 @@ bool EngineClient::WriteCurrentFrame(uint16_t messageType, const void* payload, 
     // connection. Mark the exact handle stale while holding the writer lock;
     // ClosePipe() will then serialize the eventual close/reconnect and close
     // the retired handle, avoiding both a use-after-close and a handle leak.
-    HANDLE expected = pipe;
-    if (pipe_.compare_exchange_strong(expected, INVALID_HANDLE_VALUE)) {
-        retiredPipes_.push_back(pipe);
-        CancelIoEx(pipe, nullptr);
+    {
+        std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
+        if (pipe_ == pipe) {
+            retiredPipes_.push_back(std::move(pipe_));
+        }
     }
+    CancelIoEx(pipe->handle, nullptr);
     return false;
 }
 

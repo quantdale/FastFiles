@@ -1,12 +1,24 @@
 #include "ffipc/PipeListener.h"
 
-#include <algorithm>
 #include <cstdio>
+#include <memory>
 
 namespace ffipc {
 
 namespace {
 constexpr DWORD kPipeBufferSize = 64 * 1024;
+}
+
+PipeListener::OwnedHandle::~OwnedHandle() {
+    if (value_ != INVALID_HANDLE_VALUE && value_ != nullptr) {
+        CloseHandle(value_);
+    }
+}
+
+HANDLE PipeListener::OwnedHandle::Release() noexcept {
+    const HANDLE value = value_;
+    value_ = INVALID_HANDLE_VALUE;
+    return value;
 }
 
 PipeListener::~PipeListener() {
@@ -26,6 +38,10 @@ HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
 
 bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES* securityAttributes,
                          std::function<void(HANDLE)> onConnect) {
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
+    if (running_.load(std::memory_order_acquire) || acceptThread_.joinable()) {
+        return false;
+    }
     pipeName_ = pipeName;
     securityAttributes_ = securityAttributes;
     onConnect_ = std::move(onConnect);
@@ -43,34 +59,35 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
     running_ = true;
 
     acceptThread_ = std::thread([this, firstInstance] {
-        HANDLE currentInstance = firstInstance;
+        OwnedHandlePtr currentInstance = std::make_shared<OwnedHandle>(firstInstance);
 
         // Every path through this loop either transfers currentInstance's
         // ownership to onConnect_'s thread, or closes it before the loop is
         // left. Overlapped ConnectNamedPipe is event-driven and is cancelled
-        // directly by Stop() through pendingInstance_.
+        // directly by Stop() through the shared pending control object.
         for (;;) {
             if (!running_) {
-                CloseHandle(currentInstance);
                 break;
             }
 
             OVERLAPPED connectOverlapped{};
             HANDLE connectEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
             if (connectEvent == nullptr) {
-                CloseHandle(currentInstance);
                 break;
             }
             connectOverlapped.hEvent = connectEvent;
 
-            pendingInstance_.store(currentInstance, std::memory_order_release);
-            BOOL connected = ConnectNamedPipe(currentInstance, &connectOverlapped);
+            {
+                std::lock_guard<std::mutex> lock(pendingMutex_);
+                pendingInstance_ = currentInstance;
+            }
+            BOOL connected = ConnectNamedPipe(currentInstance->Get(), &connectOverlapped);
             DWORD error = connected ? ERROR_SUCCESS : GetLastError();
             if (!connected && error == ERROR_IO_PENDING) {
                 const DWORD waitResult = WaitForSingleObject(connectEvent, INFINITE);
                 if (waitResult == WAIT_OBJECT_0) {
                     DWORD ignored = 0;
-                    if (GetOverlappedResult(currentInstance, &connectOverlapped, &ignored, FALSE)) {
+                    if (GetOverlappedResult(currentInstance->Get(), &connectOverlapped, &ignored, FALSE)) {
                         connected = TRUE;
                         error = ERROR_SUCCESS;
                     } else {
@@ -80,28 +97,32 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
                     error = ERROR_OPERATION_ABORTED;
                 }
             }
-            pendingInstance_.store(INVALID_HANDLE_VALUE, std::memory_order_release);
+            {
+                std::lock_guard<std::mutex> lock(pendingMutex_);
+                if (pendingInstance_ == currentInstance) {
+                    pendingInstance_.reset();
+                }
+            }
             if (connectEvent != nullptr) {
                 CloseHandle(connectEvent);
             }
 
             if (!running_) {
-                CloseHandle(currentInstance);
                 break;
             }
 
             if (!connected && error != ERROR_PIPE_CONNECTED) {
                 // Unexpected failure on this instance; drop it and try a
                 // fresh one rather than tearing down the whole listener.
-                CloseHandle(currentInstance);
-                currentInstance = CreateInstance(/*isFirstInstance=*/false);
-                if (currentInstance == INVALID_HANDLE_VALUE) {
+                const HANDLE replacement = CreateInstance(/*isFirstInstance=*/false);
+                if (replacement == INVALID_HANDLE_VALUE) {
                     break;
                 }
+                currentInstance = std::make_shared<OwnedHandle>(replacement);
                 continue;
             }
 
-            HANDLE acceptedConnection = currentInstance;
+            const HANDLE acceptedConnection = currentInstance->Release();
             HANDLE cancellationHandle = INVALID_HANDLE_VALUE;
             if (!DuplicateHandle(GetCurrentProcess(), acceptedConnection, GetCurrentProcess(),
                                  &cancellationHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
@@ -109,29 +130,34 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
                 // the listener cannot retain an independent cancellation
                 // handle for its shutdown barrier.
                 CloseHandle(acceptedConnection);
-                currentInstance = CreateInstance(/*isFirstInstance=*/false);
-                if (currentInstance == INVALID_HANDLE_VALUE) {
+                const HANDLE replacement = CreateInstance(/*isFirstInstance=*/false);
+                if (replacement == INVALID_HANDLE_VALUE) {
                     break;
                 }
+                currentInstance = std::make_shared<OwnedHandle>(replacement);
                 continue;
             }
+            const OwnedHandlePtr cancellation = std::make_shared<OwnedHandle>(cancellationHandle);
             {
                 std::lock_guard<std::mutex> lock(connectionMutex_);
-                connectionHandles_.push_back(cancellationHandle);
-                connectionThreads_.emplace_back([this, acceptedConnection, cancellationHandle] {
+                connectionHandles_.push_back(cancellation);
+                connectionThreads_.emplace_back([this, acceptedConnection, cancellation] {
                     onConnect_(acceptedConnection);
-                    CloseHandle(cancellationHandle);
                     std::lock_guard<std::mutex> lock(connectionMutex_);
-                    connectionHandles_.erase(
-                        std::remove(connectionHandles_.begin(), connectionHandles_.end(), cancellationHandle),
-                        connectionHandles_.end());
+                    for (auto it = connectionHandles_.begin(); it != connectionHandles_.end(); ++it) {
+                        if (*it == cancellation) {
+                            connectionHandles_.erase(it);
+                            break;
+                        }
+                    }
                 });
             }
 
-            currentInstance = CreateInstance(/*isFirstInstance=*/false);
-            if (currentInstance == INVALID_HANDLE_VALUE) {
+            const HANDLE replacement = CreateInstance(/*isFirstInstance=*/false);
+            if (replacement == INVALID_HANDLE_VALUE) {
                 break;
             }
+            currentInstance = std::make_shared<OwnedHandle>(replacement);
         }
     });
 
@@ -153,33 +179,37 @@ void PipeListener::JoinConnectionThreads() {
 }
 
 void PipeListener::Stop() {
+    std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     const bool wasRunning = running_.exchange(false);
-    if (!wasRunning) {
-        JoinConnectionThreads();
-        return;
+    OwnedHandlePtr pending;
+    {
+        std::lock_guard<std::mutex> lock(pendingMutex_);
+        pending = pendingInstance_;
     }
-
-    const HANDLE pending = pendingInstance_.load(std::memory_order_acquire);
-    if (pending != INVALID_HANDLE_VALUE) {
-        CancelIoEx(pending, nullptr);
+    if (pending && pending->Get() != INVALID_HANDLE_VALUE) {
+        CancelIoEx(pending->Get(), nullptr);
     }
 
     if (acceptThread_.joinable()) {
         acceptThread_.join();
     }
 
-    // Accepted product connections are all overlapped. Cancel each tracked
-    // handle before joining its callback; this makes listener Stop a real
-    // teardown barrier with no detached connection threads.
+    // Accepted product connections are all overlapped. Copy the shared
+    // cancellation owners before cancelling and joining callbacks. The
+    // registry contains owners, never borrow-only numeric HANDLE values, so
+    // a callback cannot close a value while Stop() can still legally cancel it.
+    std::vector<OwnedHandlePtr> connections;
     {
         std::lock_guard<std::mutex> lock(connectionMutex_);
-        for (const HANDLE pipe : connectionHandles_) {
-            if (pipe != INVALID_HANDLE_VALUE) {
-                CancelIoEx(pipe, nullptr);
-            }
+        connections = connectionHandles_;
+    }
+    for (const auto& connection : connections) {
+        if (connection && connection->Get() != INVALID_HANDLE_VALUE) {
+            CancelIoEx(connection->Get(), nullptr);
         }
     }
     JoinConnectionThreads();
+    (void)wasRunning;
 }
 
 } // namespace ffipc

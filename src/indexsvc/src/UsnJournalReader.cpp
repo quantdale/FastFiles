@@ -24,6 +24,17 @@ constexpr size_t kReadBufferSize = 64 * 1024;
 constexpr std::chrono::milliseconds kIdlePollInterval{1000};
 constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
 constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
+constexpr uint32_t kUsnReasonFileDelete = 0x00000200;
+
+bool IsRepresentableInLegacyV1(const ffprotocol::UsnDeltaV2& record) noexcept {
+    if ((record.fixed.fieldMask & ~ffprotocol::kUsnFieldMaskAll) != 0) {
+        return false;
+    }
+    const auto required = (record.fixed.reason & kUsnReasonFileDelete) != 0
+        ? ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName
+        : ffprotocol::kUsnFieldMaskRequiredForV1;
+    return (record.fixed.fieldMask & required) == required;
+}
 
 bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
                         uint64_t currentUsn) {
@@ -34,13 +45,44 @@ bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                       const std::vector<ffprotocol::UsnDeltaV1>& records, uint64_t latestUsn) {
-    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaBatch(records);
+                       const std::vector<ffprotocol::UsnDeltaV2>& records, uint64_t latestUsn,
+                       ffprotocol::ProtocolVersion negotiatedVersion) {
+    if (negotiatedVersion.major == 1) {
+        // A major-1 peer does not know message 19 or the V2 presence mask.
+        // Never encode an absent V2 field as a legacy zero: omit a partial
+        // non-delete update (the full reconciliation path will recover it)
+        // while still advancing the journal position with an empty V1 batch.
+        std::vector<ffprotocol::UsnDeltaV1> legacyRecords;
+        legacyRecords.reserve(records.size());
+        for (const auto& record : records) {
+            if (IsRepresentableInLegacyV1(record)) {
+                legacyRecords.push_back(ffprotocol::DowngradeUsnDeltaV2(record));
+            }
+        }
+        const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaBatch(legacyRecords);
+        ffprotocol::JournalRecordBatchHeader header{};
+        header.volumeId = volumeId;
+        header.recordCount = static_cast<uint32_t>(legacyRecords.size());
+        header.latestUsn = latestUsn;
 
-    ffprotocol::JournalRecordBatchHeader header{};
+        std::vector<uint8_t> payload;
+        payload.reserve(sizeof(header) + serializedRecords.size());
+        const auto* headerBytes = reinterpret_cast<const uint8_t*>(&header);
+        payload.insert(payload.end(), headerBytes, headerBytes + sizeof(header));
+        payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
+
+        std::lock_guard<std::mutex> lock(writeMutex);
+        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
+                                      payload.data(), static_cast<uint32_t>(payload.size()));
+    }
+
+    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaV2Batch(records);
+
+    ffprotocol::JournalRecordBatchV2Header header{};
     header.volumeId = volumeId;
     header.recordCount = static_cast<uint32_t>(records.size());
     header.latestUsn = latestUsn;
+    header.recordFormatVersion = 2;
 
     std::vector<uint8_t> payload;
     payload.reserve(sizeof(header) + serializedRecords.size());
@@ -49,7 +91,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV2),
                                   payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
@@ -116,7 +158,7 @@ bool QueryOrCreateUsnJournal(HANDLE volumeHandle, USN_JOURNAL_DATA_V0& journalDa
 
 JournalStreamOutcome RunUsnJournalStream(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter, uint64_t resumeUsn,
-    const std::atomic<bool>& shouldStop) {
+    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop) {
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
 
     // SeBackupPrivilege must be explicitly enabled (not just held) for
@@ -164,7 +206,7 @@ JournalStreamOutcome RunUsnJournalStream(
 
     USN startUsn = static_cast<USN>(resumeUsn);
     std::vector<uint8_t> readBuffer(kReadBufferSize);
-    std::vector<ffprotocol::UsnDeltaV1> batch;
+    std::vector<ffprotocol::UsnDeltaV2> batch;
     batch.reserve(kBatchSize);
     uint64_t latestUsnInBatch = resumeUsn;
     JournalStreamOutcome outcome = JournalStreamOutcome::Ended;
@@ -218,7 +260,7 @@ JournalStreamOutcome RunUsnJournalStream(
                 continue;
             }
 
-            ffprotocol::UsnDeltaV1 delta{};
+            ffprotocol::UsnDeltaV2 delta{};
             delta.fixed.usn = decoded->usn;
             delta.fixed.fileReferenceNumber = decoded->fileReferenceNumber;
             delta.fixed.parentFileReferenceNumber = decoded->parentFileReferenceNumber;
@@ -229,9 +271,16 @@ JournalStreamOutcome RunUsnJournalStream(
                                                 mftOutputBuffer, mftScratch);
             if (enriched) {
                 delta.fixed.parentFileReferenceNumber = enriched->parentFileReferenceNumber;
+                delta.fixed.creationTime = enriched->creationTime;
+                delta.fixed.lastModifiedTime = enriched->lastModifiedTime;
+                delta.fixed.lastAccessTime = enriched->lastAccessTime;
                 delta.fixed.sizeBytes = enriched->sizeBytes;
                 delta.fixed.fileAttributes = enriched->fileAttributes;
                 delta.fileName = enriched->fileName;
+                delta.fixed.fieldMask = ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName |
+                                        ffprotocol::kUsnFieldSizeBytes | ffprotocol::kUsnFieldCreationTime |
+                                        ffprotocol::kUsnFieldLastModifiedTime | ffprotocol::kUsnFieldLastAccessTime |
+                                        ffprotocol::kUsnFieldAttributes;
             } else {
                 // Most commonly a delete: fall back to the raw
                 // USN_RECORD's own (shorter, but still allowlisted) name
@@ -239,6 +288,9 @@ JournalStreamOutcome RunUsnJournalStream(
                 // tasks.md 5.3/5.4 still require forwarding the change.
                 delta.fixed.sizeBytes = 0;
                 delta.fixed.fileAttributes = decoded->fileAttributes;
+                delta.fixed.lastModifiedTime = decoded->timestamp;
+                delta.fixed.fieldMask = ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName |
+                                        ffprotocol::kUsnFieldLastModifiedTime | ffprotocol::kUsnFieldAttributes;
                 // FileNameOffset/FileNameLength are untrusted on-disk bytes.
                 // The outer loop only bounds RecordLength against the read
                 // buffer; the name range must also be verified to lie within
@@ -264,7 +316,7 @@ JournalStreamOutcome RunUsnJournalStream(
         startUsn = nextUsn;
 
         if (!batch.empty()) {
-            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch)) {
+            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch, negotiatedVersion)) {
                 break;
             }
             batch.clear();

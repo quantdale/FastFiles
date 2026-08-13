@@ -149,6 +149,7 @@ public:
     // USN_REASON_FILE_DELETE-flagged records are applied as removals;
     // everything else is an upsert (tasks.md 6.1's engine-side consumer).
     bool ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV1>& records);
+    bool ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV2>& records);
 
     bool SetVolumeAvailable(ffindexstore::VolumeRowId id, bool available, uint64_t nowTimestamp);
     bool SetScanCursor(ffindexstore::VolumeRowId id, const std::vector<uint8_t>& cursor);

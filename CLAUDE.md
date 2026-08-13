@@ -4,10 +4,9 @@ This file is a short stub. The authoritative repository guide is **AGENTS.md** â
 
 ## Critical quick facts
 
-- **Build/test** (run from a Visual Studio developer PowerShell; `FASTFILES_NINJA_EXE` must be set **before** `cmake --preset debug`):
+- **Build/test** (run from a Visual Studio developer PowerShell; CMake/Ninja are discovered from the active environment):
 
   ```powershell
-  $env:FASTFILES_NINJA_EXE = "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe"
   cmake --preset debug
   cmake --build --preset debug
   ctest --preset debug
