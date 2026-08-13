@@ -10,11 +10,11 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `403f8490aab019e02b5d82cef734ea76223d3396`
+- HEAD: `a3680bf3858b063087eeddfbca0cd58a388afc3a`
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
-- Remediation-owned modified files: `.agent/execplans/fastfiles-audit-remediation.md`, `.agent/workstate/fastfiles-audit-remediation-state.md`, `src/engine/src/IndexPipeline.cpp`, `src/indexstore/include/ffindexstore/EntryRecord.h`, `src/indexstore/include/ffindexstore/Projection.h`, `src/indexstore/src/Projection.cpp`, `src/indexstore/src/Store.cpp`, `tests/engine/test_index_pipeline.cpp`, `tests/indexstore/test_projection.cpp`, `tests/indexstore/test_store.cpp`.
+- Remediation-owned modified files: `.agent/workstate/fastfiles-audit-remediation-state.md`, `src/engine/src/IndexPipeline.cpp`, `src/indexstore/include/ffindexstore/EntryRecord.h`, `src/indexstore/include/ffindexstore/Projection.h`, `src/indexstore/src/Projection.cpp`, `src/indexstore/src/Store.cpp`, `tests/engine/test_index_pipeline.cpp`, `tests/indexstore/test_projection.cpp`, `tests/indexstore/test_store.cpp`.
 - Unrelated dirty files to preserve: none observed at start; re-check before every commit.
 - Historical repository workstate: `docs/agent/WORKSTATE.md` (contains older release/UI checkpoints and was stale relative to the starting HEAD). Mission plan: `.agent/execplans/fastfiles-audit-remediation.md`.
 - Mission workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`.
@@ -142,6 +142,8 @@ UI external-validation notes.
 5. Added `ffsetup::PackageTrust`, a release-kit manifest writer, installer
    payload/rollback integration, reparse-safe scratch roots, no-relay
    uninstall behavior, and focused adversarial setup tests.
+6. Committed the installer/package-trust/uninstall/rollback slice as
+   `a3680bf` without staging the in-progress USN data-correctness files.
 
 ## Validation Evidence
 
@@ -203,8 +205,8 @@ UI external-validation notes.
   errors (UTF-16 literal vs. Windows wide string and const-map indexing). The
   test was corrected; the developer-environment rebuild and test pass above
   are the authoritative result.
-- The installer currently has no package-trust library or dedicated
-  adversarial test target; this was resolved in the current slice. Live
+- The installer package-trust library and dedicated adversarial test target
+  are now present. Live
   install/uninstall/upgrade execution still requires a clean elevated host
   and production-signed artifacts.
 - One plain-PowerShell CTest invocation failed because `ctest` is not on the
@@ -222,7 +224,10 @@ UI external-validation notes.
 
 ## Commits
 
-- None yet.
+- `a3680bf3858b063087eeddfbca0cd58a388afc3a` — bind installer payloads to
+  trusted package identity, remove the elevated temp uninstall relay, and
+  authenticate rollback candidates; add durable plan/workstate and setup
+  security tests.
 
 ## Current Risks
 
