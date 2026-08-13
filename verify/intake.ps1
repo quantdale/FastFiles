@@ -437,7 +437,7 @@ function Invoke-PhaseBuild {
     $cmake = $toolchain.CMakeExe
     $ninja = $toolchain.NinjaExe
     if (-not $cmake -or -not $ninja) {
-        return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = 'bundled CMake/Ninja not found in toolchain' }
+        return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = 'CMake/Ninja/CTest not found on PATH or in the discovered toolchain' }
     }
     $env:FASTFILES_NINJA_EXE = $ninja
 
@@ -475,7 +475,7 @@ function Invoke-PhaseTest {
     $fingerprint = Get-EnvironmentFingerprint -Change $State.provider -ProviderId $State.provider
     $toolchain = $fingerprint.Toolchain
     $cmakeBin = Split-Path $toolchain.CMakeExe -Parent
-    $ctest = Join-Path $cmakeBin 'ctest.exe'
+    $ctest = if ($toolchain.CTestExe) { $toolchain.CTestExe } else { Join-Path $cmakeBin 'ctest.exe' }
 
     try { Enter-DevEnvironment -Toolchain $toolchain } catch {
         return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "developer-environment activation failed: $($_.Exception.Message)" }

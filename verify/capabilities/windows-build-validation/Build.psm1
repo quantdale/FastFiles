@@ -17,7 +17,7 @@ function Test-BuildCapabilityAvailability {
         return [pscustomobject]@{
             Available       = $false
             Reason          = 'vs-toolchain-not-found'
-            RequiredContext = [pscustomobject]@{ needs = 'VS install with VC.Tools.x86.x64 + bundled CMake/Ninja (discoverable via vswhere)' }
+            RequiredContext = [pscustomobject]@{ needs = 'VS install with VC.Tools.x86.x64 plus CMake/Ninja/CTest from PATH or a discovered installation (vswhere)' }
         }
     }
     return [pscustomobject]@{ Available = $true; Reason = $null; RequiredContext = $null }
@@ -143,7 +143,11 @@ function Invoke-ConfigurationPipeline {
         if (-not $buildOk) {
             $subResults += New-SubResult -Id "ctest-$Config" -Tier 0 -Status 'SKIPPED' -Reason 'build-failed' -DurationMs 0 -Detail $null
         } else {
-            $ctestExe = Join-Path (Split-Path $Toolchain.CMakeExe -Parent) 'ctest.exe'
+            $ctestExe = if ($Toolchain.CTestExe) {
+                $Toolchain.CTestExe
+            } else {
+                Join-Path (Split-Path $Toolchain.CMakeExe -Parent) 'ctest.exe'
+            }
             $junitName = "$Config-junit.xml"
             $junitPath = Join-Path $ArtifactsDir $junitName
             $t0 = Get-Date
@@ -224,6 +228,7 @@ function Invoke-BuildCapability {
             [pscustomobject]@{ id = 'windows-sdk'; version = $toolchain.WindowsSdkVersion; path = $null }
             [pscustomobject]@{ id = 'cmake'; version = $null; path = $toolchain.CMakeExe }
             [pscustomobject]@{ id = 'ninja'; version = $null; path = $toolchain.NinjaExe }
+            [pscustomobject]@{ id = 'ctest'; version = $null; path = $toolchain.CTestExe }
         )
     } | ConvertTo-Json -Depth 6 | Set-Content -Path $toolVersionsPath -Encoding utf8
     $artifacts += @{ path = 'artifacts/windows-build-validation/tool-version-metadata.json'; type = 'tool-version-metadata' }

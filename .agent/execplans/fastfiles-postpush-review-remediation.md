@@ -27,7 +27,17 @@ regression evidence are complete.
 - OpenSpec context: `openspec/changes/close-independent-validation-gaps/`
 - Architecture authority: `openspec/changes/establish-architecture-foundation/design.md`
 - The five findings in the user mission are the authoritative campaign matrix;
-  FF-POST-06 through FF-POST-10 are bounded adjacent regression findings.
+  FF-POST-06 through FF-POST-11 are bounded adjacent regression findings.
+
+## Current frontier
+
+The first remediation push (`cb38468`) is locally green but its hosted run
+`31711000212` exposed one remaining repository-owned portability defect: the
+toolchain module still required CMake/Ninja to live beneath the selected Visual
+Studio installation. The active repair resolves CMake/Ninja/CTest from PATH
+first, with installation-local fallbacks, while retaining `vswhere`/`vcvarsall`
+for the compiler environment. The next gate is a new hosted run with all four
+required jobs green.
 
 ## Guardrails
 

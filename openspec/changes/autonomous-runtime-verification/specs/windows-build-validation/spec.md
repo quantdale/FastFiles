@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Autonomous Toolchain Discovery And Activation
-The harness SHALL locate an installed Visual Studio toolset via `vswhere` (requiring the VC x64 tools component), activate its Developer environment (`VsDevCmd`/`vcvarsall`) into the build process, and use the CMake and Ninja bundled with that toolset — without requiring any globally installed compiler or CMake on `PATH`.
+The harness SHALL locate an installed Visual Studio toolset via `vswhere` (requiring the VC x64 tools component), activate its Developer environment (`vcvarsall`) into the build process, and resolve CMake, Ninja, and CTest from the active `PATH` or from paths discovered relative to the selected installation. It SHALL not require a compiler on the ambient `PATH` or a hardcoded Visual Studio product/version path.
 
-#### Scenario: Build works with nothing on PATH
-- **WHEN** the harness is invoked to build and no compiler or CMake is present on the ambient `PATH`
-- **THEN** it SHALL discover a VC toolset via `vswhere`, activate its Developer environment, and drive the build using the toolset-bundled CMake and Ninja
+#### Scenario: Build works with front ends on PATH
+- **WHEN** the harness is invoked to build and CMake, Ninja, and CTest are available on the ambient `PATH` but no compiler is present there
+- **THEN** it SHALL discover a VC toolset via `vswhere`, activate its Developer environment, and drive the build using the resolved front ends
+
+#### Scenario: Build falls back to installation-local front ends
+- **WHEN** the selected VC installation contains CMake, Ninja, and CTest but those executables are not on the ambient `PATH`
+- **THEN** it SHALL resolve the installation-local front ends and drive the build without requiring a global installation
 
 #### Scenario: Selected toolset is recorded
 - **WHEN** multiple toolsets are installed and one is selected for the build

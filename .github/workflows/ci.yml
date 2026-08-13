@@ -19,7 +19,7 @@ jobs:
         preset: [debug, release-test, analyze]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Reject production debug markers
         shell: pwsh
@@ -30,15 +30,20 @@ jobs:
         run: |
           Import-Module ./verify/core/Toolchain.psm1 -Force
           $toolchain = Find-VSToolchain
-          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation with bundled CMake/Ninja was not found.' }
+          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation plus CMake/Ninja/CTest from PATH or a discovered installation was not found.' }
           Enter-DevEnvironment -Toolchain $toolchain -Arch x64
-          cmake --preset ${{ matrix.preset }}
+          Write-Host "Using VS $($toolchain.InstallationVersion); cmake=$($toolchain.CMakeExe); ninja=$($toolchain.NinjaExe); ctest=$($toolchain.CTestExe)"
+          & $toolchain.CMakeExe --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build --preset ${{ matrix.preset }}
+          & $toolchain.NinjaExe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $toolchain.CMakeExe --preset ${{ matrix.preset }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $toolchain.CMakeExe --build --preset ${{ matrix.preset }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # No analyze test preset exists, so only debug/release-test run the suite.
           if ('${{ matrix.preset }}' -ne 'analyze') {
-            ctest --preset ${{ matrix.preset }} --output-on-failure
+            & $toolchain.CTestExe --preset ${{ matrix.preset }} --output-on-failure
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -48,7 +53,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Reject production debug markers
         shell: pwsh
@@ -59,11 +64,16 @@ jobs:
         run: |
           Import-Module ./verify/core/Toolchain.psm1 -Force
           $toolchain = Find-VSToolchain
-          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation with bundled CMake/Ninja was not found.' }
+          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation plus CMake/Ninja/CTest from PATH or a discovered installation was not found.' }
           Enter-DevEnvironment -Toolchain $toolchain -Arch x64
-          cmake --preset asan
+          Write-Host "Using VS $($toolchain.InstallationVersion); cmake=$($toolchain.CMakeExe); ninja=$($toolchain.NinjaExe); ctest=$($toolchain.CTestExe)"
+          & $toolchain.CMakeExe --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build --preset asan --target ffprotocol_fuzz_tests
+          & $toolchain.NinjaExe --version
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          ctest --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure
+          & $toolchain.CMakeExe --preset asan
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $toolchain.CTestExe --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

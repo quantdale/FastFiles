@@ -33,7 +33,7 @@
 ## 4. Windows Build Automation (Tier 0)
 
 - [x] 4.1 Implement toolchain discovery via `vswhere` (require `Microsoft.VisualStudio.Component.VC.Tools.x86.x64`) and Developer-environment activation (`VsDevCmd`/`vcvarsall`) into the build process; record the selected toolset/SDK in the fingerprint
-- [x] 4.2 Add CMake presets for Debug, Release, and a `/analyze` static-analysis variant; drive configure/build with the toolset-bundled CMake + Ninja (no global PATH dependency)
+- [x] 4.2 Add CMake presets for Debug, Release, and a `/analyze` static-analysis variant; drive configure/build with CMake/Ninja/CTest resolved from PATH or a discovered installation-local fallback, while keeping compiler selection tied to the VC toolset
 - [x] 4.3 Implement clean and incremental build modes and report which was used
 - [x] 4.4 Implement compiler/linker diagnostics parsing (severity/file/line/code/message), build-failure classification, and first-failing-target/diagnostic identification (incl. `/WX` breaks)
 - [x] 4.5 Implement the build summary (configuration, toolset, per-target result, warning/error counts, duration)

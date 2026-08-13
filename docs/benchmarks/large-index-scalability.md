@@ -8,7 +8,8 @@ No formal latency target was found in the repository. The interpretation below u
 
 ```powershell
 # Run from a Visual Studio developer environment. The verification harness
-# discovers the installed VC toolchain and exposes its bundled CMake/Ninja.
+# discovers the installed VC toolchain and exposes resolved CMake/Ninja/CTest
+# front ends from PATH or the selected installation.
 cmake --preset release
 cmake --build --preset release --target ffengine_bench_large_index_scalability
 build\release\tests\engine\ffengine_bench_large_index_scalability.exe --output docs/benchmarks/large-index-scalability.json

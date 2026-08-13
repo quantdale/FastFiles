@@ -5,8 +5,11 @@ non-interactive verbs that discover capabilities, run them against a selectable
 **Environment Provider**, capture evidence into per-run artifact trees, repair what it
 can, and gate OpenSpec archival on the result.
 
-Entry point: `verify/verify.ps1` (PowerShell 7+). No global PATH dependency: the harness
-locates the VS toolset via `vswhere` and drives CMake/Ninja from the toolset.
+Entry point: `verify/verify.ps1` (PowerShell 7+). The harness locates the VC toolset
+via `vswhere`; CMake/Ninja/CTest are resolved from the active PATH first and from
+discovered installation-local fallbacks when available. This accommodates both
+hosted runner images and normal local developer environments without a pinned VS
+product path.
 
 ## Verbs and exit codes
 

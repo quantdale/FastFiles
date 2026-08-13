@@ -1,8 +1,41 @@
 <#
     Toolchain discovery (task 4.1 / D3): locate a VC-capable VS install via vswhere,
-    resolve its bundled CMake/Ninja, and activate its Developer environment into the
-    current process — with zero dependency on anything already being on PATH.
+    resolve CMake/Ninja/CTest from PATH or a discovered installation-local fallback,
+    and activate the Developer environment into the current process. The compiler
+    toolset is tied to Visual Studio; the build front ends are intentionally not tied
+    to one VS product layout because hosted runner images and local installations may
+    provide them independently.
 #>
+
+function Resolve-ToolExecutable {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string[]] $Names,
+        [string[]] $Candidates = @()
+    )
+
+    foreach ($name in $Names) {
+        $command = Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($command) {
+            $commandPath = if ($command.Path) { $command.Path } else { $command.Source }
+            if ($commandPath -and (Test-Path -LiteralPath $commandPath -PathType Leaf)) {
+                return [IO.Path]::GetFullPath($commandPath)
+            }
+        }
+    }
+
+    foreach ($candidate in $Candidates) {
+        if ([string]::IsNullOrWhiteSpace($candidate)) {
+            continue
+        }
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [IO.Path]::GetFullPath($candidate)
+        }
+    }
+
+    return $null
+}
 
 function Find-VSToolchain {
     [CmdletBinding()]
@@ -17,28 +50,68 @@ function Find-VSToolchain {
         return $null
     }
 
-    $json = & $vswhere -latest -products * `
+    $json = & $vswhere -all -products * `
         -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
         -format json 2>$null
     if (-not $json) {
         return $null
     }
 
-    $installs = $json | ConvertFrom-Json
-    if (-not $installs -or $installs.Count -eq 0) {
+    try {
+        $installs = @($json | ConvertFrom-Json)
+    } catch {
         return $null
     }
-    $install = $installs[0]
+    if ($installs.Count -eq 0) {
+        return $null
+    }
+
+    # Prefer the newest complete VC installation, but do not assume that the
+    # newest instance is the only usable one (preview/partial installs are
+    # common on developer machines and hosted images).
+    $install = $installs |
+        Sort-Object -Property installationVersion -Descending |
+        Where-Object {
+            $_.installationPath -and
+            (Test-Path -LiteralPath (Join-Path $_.installationPath 'VC\Auxiliary\Build\vcvarsall.bat') -PathType Leaf)
+        } |
+        Select-Object -First 1
+    if (-not $install) {
+        return $null
+    }
     $installPath = $install.installationPath
 
     $vcvarsall = Join-Path $installPath 'VC\Auxiliary\Build\vcvarsall.bat'
     $vsDevCmd   = Join-Path $installPath 'Common7\Tools\VsDevCmd.bat'
-    $cmakeExe   = Join-Path $installPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-    $ninjaExe   = Join-Path $installPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
 
-    if (-not (Test-Path $vcvarsall)) { return $null }
-    if (-not (Test-Path $cmakeExe))  { return $null }
-    if (-not (Test-Path $ninjaExe))  { return $null }
+    # Hosted images have moved CMake/Ninja between VS versions and also ship
+    # them as independent PATH tools. Prefer the active PATH because that is
+    # the supported public contract of CMake presets; retain the historical
+    # VS-local paths only as a discovered fallback for older local installs.
+    $cmakeLocal = Join-Path $installPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+    $ninjaLocal = Join-Path $installPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
+    $cmakeExe = Resolve-ToolExecutable -Names @('cmake.exe', 'cmake') -Candidates @(
+        $cmakeLocal,
+        (Join-Path $env:ProgramFiles 'CMake\bin\cmake.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'CMake\bin\cmake.exe')
+    )
+    $ninjaExe = Resolve-ToolExecutable -Names @('ninja.exe', 'ninja') -Candidates @(
+        $ninjaLocal,
+        (Join-Path $env:ProgramFiles 'Ninja\ninja.exe'),
+        (Join-Path ${env:ProgramFiles(x86)} 'Ninja\ninja.exe')
+    )
+    if (-not $cmakeExe -or -not $ninjaExe) {
+        return $null
+    }
+
+    $ctestCandidates = @()
+    if ($cmakeExe) {
+        $ctestCandidates += Join-Path (Split-Path $cmakeExe -Parent) 'ctest.exe'
+    }
+    $ctestExe = Resolve-ToolExecutable -Names @('ctest.exe', 'ctest') -Candidates $ctestCandidates
+    if (-not $ctestExe) {
+        return $null
+    }
 
     $sdkVersion = $null
     $sdkRegRoot = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Microsoft SDKs\Windows\v10.0'
@@ -54,6 +127,7 @@ function Find-VSToolchain {
         VsDevCmdPath       = $vsDevCmd
         CMakeExe           = $cmakeExe
         NinjaExe           = $ninjaExe
+        CTestExe           = $ctestExe
         WindowsSdkVersion  = $sdkVersion
     }
 }
@@ -86,11 +160,29 @@ function Enter-DevEnvironment {
         }
     }
 
-    # Prepend the VS-bundled CMake/Ninja dirs so a bare `cmake`/`ninja` also resolves
-    # to the toolset-matched binaries, without relying on any global install.
-    $cmakeDir = Split-Path $Toolchain.CMakeExe -Parent
-    $ninjaDir = Split-Path $Toolchain.NinjaExe -Parent
-    $env:PATH = "$cmakeDir;$ninjaDir;$env:PATH"
+    # Re-resolve after vcvarsall in case the tools are supplied by a developer
+    # environment path rather than the pre-activation process. This keeps the
+    # returned object useful to the verification harness as well as to CI.
+    $cmakeExe = Resolve-ToolExecutable -Names @('cmake.exe', 'cmake') -Candidates @($Toolchain.CMakeExe)
+    $ninjaExe = Resolve-ToolExecutable -Names @('ninja.exe', 'ninja') -Candidates @($Toolchain.NinjaExe)
+    $ctestCandidates = @($Toolchain.CTestExe)
+    if ($cmakeExe) {
+        $ctestCandidates += Join-Path (Split-Path $cmakeExe -Parent) 'ctest.exe'
+    }
+    $ctestExe = Resolve-ToolExecutable -Names @('ctest.exe', 'ctest') -Candidates $ctestCandidates
+    if (-not $cmakeExe -or -not $ninjaExe -or -not $ctestExe) {
+        throw 'CMake, Ninja, and CTest were not resolvable from PATH or the discovered toolchain.'
+    }
+    $Toolchain.CMakeExe = $cmakeExe
+    $Toolchain.NinjaExe = $ninjaExe
+    $Toolchain.CTestExe = $ctestExe
+
+    $toolDirectories = @(
+        (Split-Path $cmakeExe -Parent),
+        (Split-Path $ninjaExe -Parent),
+        (Split-Path $ctestExe -Parent)
+    ) | Select-Object -Unique
+    $env:PATH = (($toolDirectories -join ';') + ";$env:PATH")
 
     # GetTempPathW can reject an 8.3-form TEMP/TMP value on this host even when
     # the corresponding long directory exists. Canonicalize only existing
