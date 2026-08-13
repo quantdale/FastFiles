@@ -170,7 +170,7 @@ Full query-class medians are ordered `selective / moderate / broad / no-match / 
 | Broad peak | 647.1 MB | 537.0 MB |
 | Post-query retained | 689.1 MB | 530.5 MB |
 
-The optimized run preserved the snapshot capacity boundary and supersession behavior; snapshot serialization/publication and cancellation remain out of scope.
+The optimized run preserved the snapshot capacity boundary and supersession behavior; snapshot serialization/publication and cancellation were out of scope for this historical slice. The later audit-remediation work measures and implements both concerns separately.
 
 ## Assessment and decision
 
@@ -182,7 +182,7 @@ The first clear unacceptable boundary is between 100K and 500K: 100K is noticeab
 
 `OPTIMIZATION REQUIRED: COMPLETED FOR THIS SLICE`
 
-`NEXT SINGLE OPTIMIZATION SLICE: reduce per-entry name conversion/copying with a projection-backed candidate view or exact filename prefilter, guided by the same benchmark; cancellation remains deferred.`
+`NEXT SINGLE OPTIMIZATION SLICE: reduce per-entry name conversion/copying with a projection-backed candidate view or exact filename prefilter, guided by the same benchmark; cancellation was deferred at the time of this historical slice and is now covered by the audit-remediation cancellation work.`
 
 This historical path-materialization slice intentionally did not implement the next candidate/name optimization.
 
@@ -384,7 +384,7 @@ Focused deterministic search tests pass, including new uppercase-ASCII fast-path
 
 `NEXT SINGLE OPTIMIZATION SLICE: evaluate an evidence-backed secondary filename-search index/FTS design or a narrowly targeted failed-literal matcher improvement; do not implement it in this slice.`
 
-Cancellation, snapshot changes, SQL schema redesign, MFT/USN activation, and security/signing work remain deferred.
+At the time of this historical artifact, cancellation, snapshot changes, SQL schema redesign, MFT/USN activation, and security/signing work remained deferred. The current repository contains subsequent audit-remediation work for cancellation and snapshot publication; the historical measurements below are retained for attribution.
 
 ## Failed literal filename matcher optimization
 
@@ -412,7 +412,7 @@ The selected implementation stores a 128-entry BMH shift table in the prepared `
 | 1M | Worst substring | 50.92 ms | 49.95 ms | 1.02x |
 | 1M | Extension | 50.27 ms | 49.30 ms | 1.02x |
 
-Final 1M p90/max were selective `129.34/130.71 ms`, no-match `149.38/152.35 ms`, broad `49.99/50.73 ms`, and worst-substring `50.13/51.20 ms`. Incremental `p/ph/pho/phot/photo` was `46.97/56.26/56.38/55.62/55.70 ms` median, so cancellation remains a separate future concern rather than part of this slice.
+Final 1M p90/max were selective `129.34/130.71 ms`, no-match `149.38/152.35 ms`, broad `49.99/50.73 ms`, and worst-substring `50.13/51.20 ms`. Incremental `p/ph/pho/phot/photo` was `46.97/56.26/56.38/55.62/55.70 ms` median; cancellation was intentionally a separate future concern for this historical slice and is now addressed by the audit-remediation work.
 
 ### Attribution and decision
 
@@ -458,7 +458,7 @@ The integrated result improves the prior same-harness 1M medians of approximatel
 
 The final artifact reports private bytes after rebuild of approximately `59.3/280.7/551.9/1120.6 MiB` at `100K/500K/1M/2M`, with post-query values of `61.3/292.7/565.4/1294.2 MiB`. The isolated architecture benchmark estimated 168.6 MiB of trigram postings at 2M; the integrated process also retains the existing SQLite/projection/snapshot working set. The 2M rebuild took approximately 5.0 seconds and the temporary database occupied 150,564,864 bytes. No schema migration or persistent secondary-index file was introduced.
 
-This slice does not optimize SQLite or add search cancellation. Those are separate decisions and require fresh measurements rather than attribution from the pre-index path.
+This historical slice did not optimize SQLite or add search cancellation. Those were separate decisions requiring fresh measurements rather than attribution from the pre-index path; the current audit-remediation work adds cancellation with dedicated regression and latency coverage.
 
 No 2M run was performed because the 1M selective result remained above the optional scale-up gate. An isolated 1M memory check measured approximately `4.9 / 453.8 / 468.8 / 470.1 MiB` for open / rebuild / after broad / post-query, with no material regression against the prior isolated `4.4 / 454.0 / 470.4 / 471.2 MiB` check. Focused and full semantic tests passed for selective/no-match, early/late matching, short and overlong needles, ASCII case-insensitivity, uppercase fallback, Unicode/mixed Unicode, prefix, glob, extension, parent path, multi-term, duplicate names, capped 4,096 results, and ordering.
 
