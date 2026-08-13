@@ -22,6 +22,27 @@ struct EntryRecord {
     uint32_t attributes = 0;
 };
 
+// A delta is not necessarily a complete EntryRecord. In particular, the USN
+// journal carries an event timestamp but does not carry the authoritative
+// creation/access timestamps from $STANDARD_INFORMATION. Keep absence
+// explicit instead of overloading zero, which is a valid on-disk value.
+using EntryFieldMask = uint32_t;
+constexpr EntryFieldMask kEntryFieldParentId = 1u << 0;
+constexpr EntryFieldMask kEntryFieldName = 1u << 1;
+constexpr EntryFieldMask kEntryFieldSizeBytes = 1u << 2;
+constexpr EntryFieldMask kEntryFieldCreationTime = 1u << 3;
+constexpr EntryFieldMask kEntryFieldLastModifiedTime = 1u << 4;
+constexpr EntryFieldMask kEntryFieldLastAccessTime = 1u << 5;
+constexpr EntryFieldMask kEntryFieldAttributes = 1u << 6;
+constexpr EntryFieldMask kEntryFieldMaskAll =
+    kEntryFieldParentId | kEntryFieldName | kEntryFieldSizeBytes |
+    kEntryFieldCreationTime | kEntryFieldLastModifiedTime |
+    kEntryFieldLastAccessTime | kEntryFieldAttributes;
+
+constexpr bool HasEntryField(EntryFieldMask fields, EntryFieldMask field) noexcept {
+    return (fields & field) != 0;
+}
+
 enum class EntryChangeKind : uint8_t {
     Upsert,
     Remove,
@@ -30,6 +51,7 @@ enum class EntryChangeKind : uint8_t {
 struct EntryChange {
     EntryChangeKind kind = EntryChangeKind::Upsert;
     EntryRecord record; // for Remove, only `record.id` is required
+    EntryFieldMask fields = kEntryFieldMaskAll;
 };
 
 } // namespace ffindexstore

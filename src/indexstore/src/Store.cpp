@@ -577,10 +577,14 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
         "INSERT INTO entries(volume_id, frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, "
         "creation_time, last_modified_time, last_access_time, attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(volume_id, frn_low, frn_high) DO UPDATE SET "
-        "parent_frn_low=excluded.parent_frn_low, parent_frn_high=excluded.parent_frn_high, "
-        "name=excluded.name, size_bytes=excluded.size_bytes, creation_time=excluded.creation_time, "
-        "last_modified_time=excluded.last_modified_time, last_access_time=excluded.last_access_time, "
-        "attributes=excluded.attributes;");
+        "parent_frn_low=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_low ELSE entries.parent_frn_low END, "
+        "parent_frn_high=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_high ELSE entries.parent_frn_high END, "
+        "name=CASE WHEN (? & 2) != 0 THEN excluded.name ELSE entries.name END, "
+        "size_bytes=CASE WHEN (? & 4) != 0 THEN excluded.size_bytes ELSE entries.size_bytes END, "
+        "creation_time=CASE WHEN (? & 8) != 0 THEN excluded.creation_time ELSE entries.creation_time END, "
+        "last_modified_time=CASE WHEN (? & 16) != 0 THEN excluded.last_modified_time ELSE entries.last_modified_time END, "
+        "last_access_time=CASE WHEN (? & 32) != 0 THEN excluded.last_access_time ELSE entries.last_access_time END, "
+        "attributes=CASE WHEN (? & 64) != 0 THEN excluded.attributes ELSE entries.attributes END;");
     Statement remove(db_, "DELETE FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;");
     if (!upsert.Valid() || !remove.Valid()) {
         ExecSql(db_, "ROLLBACK;");
@@ -604,6 +608,10 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
             sqlite3_bind_int64(upsert, 9, static_cast<sqlite3_int64>(record.lastModifiedTime));
             sqlite3_bind_int64(upsert, 10, static_cast<sqlite3_int64>(record.lastAccessTime));
             sqlite3_bind_int64(upsert, 11, static_cast<sqlite3_int64>(record.attributes));
+            const sqlite3_int64 fields = static_cast<sqlite3_int64>(change.fields);
+            for (int parameter = 12; parameter <= 19; ++parameter) {
+                sqlite3_bind_int64(upsert, parameter, fields);
+            }
             ok = sqlite3_step(upsert) == SQLITE_DONE;
         } else {
             sqlite3_reset(remove);

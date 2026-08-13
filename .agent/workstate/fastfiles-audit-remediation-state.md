@@ -10,7 +10,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `32938ca` (analysis-clean installer trust-helper correction; worktree has pending release/USN changes)
+- HEAD: `a414cab` (release/CI reproducibility slice; worktree has pending USN changes)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
@@ -27,7 +27,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-02 | HIGH | Elevated uninstall executes a relay from user-writable `%TEMP%` | IMPLEMENTED | Removed temp relay and detached helper; installed image performs uninstall and schedules only its own deferred deletion | `ffsetup_installer_source_policy_tests` PASS; live in-use/elevated uninstall pending external host | — |
 | FF-AUDIT-03 | CRITICAL release blocker | Production privileged path lacks final signed clean-host proof | BLOCKED_EXTERNAL | Local release workflow is fail-closed and deterministic; external signing/clean-host evidence unavailable | `verify.ps1 release-readiness -Mode report`: artifact integrity PASS; signing/pins/privileged path/clean host BLOCKED_EXTERNAL, exit 2 | — |
 | FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | OPEN | Measure first; bounded publication redesign pending | Existing benchmark history is inconclusive at 1M | — |
-| FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | IMPLEMENTED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Store, projection, and end-to-end engine tests pass, including restart, reconciliation, and delete sequence | — |
+| FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | IMPLEMENTED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Store, projection, and end-to-end engine tests pass, including restart, reconciliation, and delete sequence | pending next commit |
 | FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | OPEN | Scoped cancellation pending | Supersession performance test pending | — |
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | OPEN | Shared overlapped framing design pending | IPC baseline pending | — |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
@@ -170,6 +170,9 @@ UI external-validation notes.
 10. Fixed installer trust-helper `/analyze` findings by moving 64 KiB hash/copy
     buffers to heap storage and making invalid-handle cleanup explicit; committed
     as `32938ca`.
+11. Committed the release/CI reproducibility slice as `a414cab`: explicit
+    optimized unsigned `release-test`, production pin enforcement, package
+    manifest actual-file validation, ASAN CI coverage, and synchronized docs.
 
 ## Validation Evidence
 
@@ -295,6 +298,8 @@ UI external-validation notes.
   state and exact validation evidence.
 - `32938ca` — keep installer trust hash/copy helpers `/analyze` clean and
   fail closed on invalid handles.
+- `a414cab` — separate optimized test-release CI/verifier coverage from the
+  production signed Release profile and validate package manifests end to end.
 
 ## Current Risks
 
@@ -307,6 +312,5 @@ UI external-validation notes.
 
 ## Next Exact Action
 
-Review and commit the release/CI slice separately from the pending USN
-data-correctness slice; record both commit hashes before switching to snapshot
-measurement.
+Commit the pending USN partial-update data-correctness slice after its focused
+and full-suite evidence is rechecked; then start snapshot measurement.

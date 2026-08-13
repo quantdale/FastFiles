@@ -94,6 +94,31 @@ void TestReparentingUpdatesParentChildIndex() {
     Check(!bChildren.empty() && bChildren.size() == 1, "new parent lists the moved entry as a child");
 }
 
+void TestPartialUpsertPreservesAbsentMetadata() {
+    Projection projection;
+    EntryRecord full = MakeEntry(101, 100, u"original.txt");
+    full.sizeBytes = 1234;
+    full.creationTime = 111;
+    full.lastModifiedTime = 222;
+    full.lastAccessTime = 333;
+    projection.Upsert(1, full);
+
+    EntryRecord rename = MakeEntry(101, 100, u"renamed.txt");
+    rename.lastModifiedTime = 444;
+    projection.UpsertPartial(1, rename,
+        kEntryFieldParentId | kEntryFieldName | kEntryFieldLastModifiedTime);
+
+    const ProjectionEntry* observed = projection.Find(1, FileId{101, 0});
+    Check(observed != nullptr, "partial projection update keeps the entry addressable");
+    if (observed == nullptr) return;
+    Check(projection.Names().Get(observed->nameId) == u"renamed.txt" &&
+              observed->lastModifiedTime == 444,
+          "present rename fields update the projection");
+    Check(observed->creationTime == 111 && observed->lastAccessTime == 333 &&
+              observed->sizeBytes == 1234,
+          "absent authoritative projection metadata is retained");
+}
+
 void TestRemoveDropsEntryButLeavesSiblingsIntact() {
     Projection proj;
     proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
@@ -321,6 +346,7 @@ int main() {
     TestPathIsReconstructedOnDemand();
     TestChildrenLookupSupportsDirectoryListing();
     TestReparentingUpdatesParentChildIndex();
+    TestPartialUpsertPreservesAbsentMetadata();
     TestRemoveDropsEntryButLeavesSiblingsIntact();
     TestCycleDoesNotCauseInfiniteWalk();
     TestVolumesAreIsolatedFromEachOther();

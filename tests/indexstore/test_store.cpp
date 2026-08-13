@@ -108,6 +108,51 @@ void TestBatchUpsertAndRemove() {
     Check(store.CountEntries(vol) == 1, "row count reflects the removal");
 }
 
+void TestPartialUpsertPreservesAbsentAuthoritativeFields() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_partial_upsert.db");
+    VolumeKey key;
+    key.serialNumber = 9;
+    const FileId id{101, 0};
+    VolumeRowId volume = 0;
+    {
+        Store store;
+        Check(store.Open(dbPath), "partial-update fixture opens");
+        volume = *store.GetOrCreateVolume(key);
+
+        EntryRecord full = MakeEntry(id.low, 100, u"original.txt");
+        full.sizeBytes = 1234;
+        full.creationTime = 111;
+        full.lastModifiedTime = 222;
+        full.lastAccessTime = 333;
+        Check(store.ApplyBatch(volume, {{EntryChangeKind::Upsert, full}}),
+              "a complete MFT-style record is stored before a delta");
+
+        EntryRecord rename = MakeEntry(id.low, 100, u"renamed.txt");
+        rename.lastModifiedTime = 444;
+        const EntryFieldMask renameFields = kEntryFieldParentId | kEntryFieldName |
+            kEntryFieldLastModifiedTime;
+        Check(store.ApplyBatch(volume, {{EntryChangeKind::Upsert, rename, renameFields}}),
+              "a rename delta applies with an explicit partial field mask");
+
+        EntryRecord observed;
+        Check(store.ForEachEntry(volume, [&](const EntryRecord& entry) { observed = entry; }),
+              "the partial-update row can be read back");
+        Check(observed.name == u"renamed.txt" && observed.lastModifiedTime == 444,
+              "present rename fields replace their prior values");
+        Check(observed.creationTime == 111 && observed.lastAccessTime == 333 && observed.sizeBytes == 1234,
+              "absent creation/access/size fields retain authoritative values");
+    }
+
+    Store reopened;
+    Check(reopened.Open(dbPath), "partial-update fixture reopens after restart");
+    EntryRecord afterRestart;
+    Check(reopened.ForEachEntry(volume, [&](const EntryRecord& entry) { afterRestart = entry; }),
+          "the restarted store reads the merged row");
+    Check(afterRestart.creationTime == 111 && afterRestart.lastAccessTime == 333 &&
+              afterRestart.lastModifiedTime == 444,
+          "merged timestamps survive SQLite close and reopen");
+}
+
 void TestVolumeMetadataRoundTrips() {
     Store store;
     store.Open(FreshDbPath("ffindexstore_test_metadata.db"));
@@ -317,6 +362,7 @@ int main() {
     TestVolumeIdentityIsStableAndDeduplicated();
     TestEntryIdentityIsKeyedByVolumeAndFrnNotPath();
     TestBatchUpsertAndRemove();
+    TestPartialUpsertPreservesAbsentAuthoritativeFields();
     TestVolumeMetadataRoundTrips();
     TestAllVolumeMetadataCanSkipEntryCounts();
     TestDisconnectDoesNotDeleteEntriesOrAffectOtherVolumes();

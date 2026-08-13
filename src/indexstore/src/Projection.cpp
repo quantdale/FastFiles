@@ -443,6 +443,58 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     AddFilenameIndexEntry(index);
 }
 
+void Projection::UpsertPartial(VolumeRowId volumeRowId, const EntryRecord& record,
+                               const EntryFieldMask fields) {
+    if (fields == kEntryFieldMaskAll) {
+        Upsert(volumeRowId, record);
+        return;
+    }
+
+    EntryRecord merged = record;
+    const ProjectionEntry* existing = Find(volumeRowId, record.id);
+    if (existing != nullptr) {
+        merged.parentId = existing->parentFrn;
+        merged.name = std::u16string(namePool_.Get(existing->nameId));
+        merged.sizeBytes = existing->sizeBytes;
+        merged.creationTime = existing->creationTime;
+        merged.lastModifiedTime = existing->lastModifiedTime;
+        merged.lastAccessTime = existing->lastAccessTime;
+        merged.attributes = existing->attributes;
+    }
+
+    if (HasEntryField(fields, kEntryFieldParentId)) merged.parentId = record.parentId;
+    if (HasEntryField(fields, kEntryFieldName)) merged.name = record.name;
+    if (HasEntryField(fields, kEntryFieldSizeBytes)) merged.sizeBytes = record.sizeBytes;
+    if (HasEntryField(fields, kEntryFieldCreationTime)) merged.creationTime = record.creationTime;
+    if (HasEntryField(fields, kEntryFieldLastModifiedTime)) merged.lastModifiedTime = record.lastModifiedTime;
+    if (HasEntryField(fields, kEntryFieldLastAccessTime)) merged.lastAccessTime = record.lastAccessTime;
+    if (HasEntryField(fields, kEntryFieldAttributes)) merged.attributes = record.attributes;
+
+    if (!HasEntryField(fields, kEntryFieldParentId) && existing == nullptr) {
+        merged.parentId = FileId{};
+    }
+    if (!HasEntryField(fields, kEntryFieldName) && existing == nullptr) {
+        merged.name.clear();
+    }
+    if (!HasEntryField(fields, kEntryFieldSizeBytes) && existing == nullptr) {
+        merged.sizeBytes = 0;
+    }
+    if (!HasEntryField(fields, kEntryFieldCreationTime) && existing == nullptr) {
+        merged.creationTime = 0;
+    }
+    if (!HasEntryField(fields, kEntryFieldLastModifiedTime) && existing == nullptr) {
+        merged.lastModifiedTime = 0;
+    }
+    if (!HasEntryField(fields, kEntryFieldLastAccessTime) && existing == nullptr) {
+        merged.lastAccessTime = 0;
+    }
+    if (!HasEntryField(fields, kEntryFieldAttributes) && existing == nullptr) {
+        merged.attributes = 0;
+    }
+
+    Upsert(volumeRowId, merged);
+}
+
 void Projection::Remove(VolumeRowId volumeRowId, FileId frn) {
     const EntryKey key{volumeRowId, frn};
     const uint32_t* pIndex = idToIndex_.find(key);

@@ -147,6 +147,13 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV1& record) {
     return entry;
 }
 
+constexpr ffindexstore::EntryFieldMask kUsnEntryFields =
+    ffindexstore::kEntryFieldParentId |
+    ffindexstore::kEntryFieldName |
+    ffindexstore::kEntryFieldSizeBytes |
+    ffindexstore::kEntryFieldLastModifiedTime |
+    ffindexstore::kEntryFieldAttributes;
+
 // task 1.6: the size-triggered forced-checkpoint threshold. ~4000 WAL
 // frames at the default 4 KiB page size (~16 MB) -- past that, a passive
 // checkpoint is escalated to a full RESTART checkpoint.
@@ -390,6 +397,13 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
         change.kind = (record.fixed.reason & kUsnReasonFileDelete) != 0 ? ffindexstore::EntryChangeKind::Remove
                                                                          : ffindexstore::EntryChangeKind::Upsert;
         change.record = ToEntryRecord(record);
+        // USN_RECORD contains neither creation nor last-access time. The
+        // event timestamp is an explicit last-modified update, but the two
+        // absent $STANDARD_INFORMATION fields must never replace durable
+        // values with zero.
+        if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+            change.fields = kUsnEntryFields;
+        }
         changes.push_back(std::move(change));
     }
     if (!store_.ApplyBatch(volumeId, changes)) {
@@ -404,7 +418,7 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
     MaybeAnalyzeAfterBulkInsertLocked(upsertCount);
     for (const auto& change : changes) {
         if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
-            projection_.Upsert(volumeId, change.record);
+            projection_.UpsertPartial(volumeId, change.record, change.fields);
         } else {
             projection_.Remove(volumeId, change.record.id);
         }

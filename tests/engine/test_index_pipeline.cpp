@@ -193,6 +193,113 @@ void TestUsnDeleteReasonRemovesEntry() {
     Check(snapshot[L"C:\\Users"].entries.empty(), "a USN_REASON_FILE_DELETE record removes the entry, not upserts it");
 }
 
+void TestUsnPartialUpdatesPreserveAuthoritativeMetadataAcrossRestart() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_partial_metadata.db");
+    VolumeKey key;
+    key.serialNumber = 12;
+    const FileId fileId{101, 0};
+    VolumeRowId volume = 0;
+    {
+        IndexPipeline pipeline;
+        Check(pipeline.Open(dbPath), "the USN partial-update fixture opens");
+        volume = pipeline.ResolveVolume(key);
+
+        auto file = MakeMftRecord(101, 100, u"original.txt", 0, 1234);
+        file.fixed.creationTime = 111;
+        file.fixed.lastModifiedTime = 222;
+        file.fixed.lastAccessTime = 333;
+        Check(pipeline.ApplyMftBatch(volume, {
+                                         MakeMftRecord(5, 5, u"", 0x10, 0),
+                                         MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                         file,
+                                     }),
+              "the authoritative MFT metadata is stored before incremental updates");
+
+        const auto checkSnapshot = [&](const std::wstring& expectedName, uint64_t expectedModified,
+                                       const char* description) {
+            const auto snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+            const auto directory = snapshot.find(L"C:\\Users");
+            if (directory == snapshot.end()) {
+                Check(false, description);
+                return;
+            }
+            const auto entry = std::find_if(directory->second.entries.begin(), directory->second.entries.end(),
+                                            [&](const auto& candidate) {
+                                                return candidate.name == expectedName;
+                                            });
+            Check(entry != directory->second.entries.end() && entry->creationTime == 111 &&
+                      entry->lastModifiedTime == expectedModified,
+                  description);
+        };
+
+        ffprotocol::UsnDeltaV1 delta{};
+        delta.fixed.fileReferenceNumber = fileId.low;
+        delta.fixed.parentFileReferenceNumber = 100;
+        delta.fixed.sizeBytes = 1234;
+        delta.fixed.fileNameLengthChars = 11;
+        delta.fileName = u"renamed.txt";
+        delta.fixed.reason = 0x00002000; // USN_REASON_RENAME_NEW_NAME
+        delta.fixed.timestamp = 444;
+        Check(pipeline.ApplyUsnBatch(volume, {delta}), "a rename USN delta applies successfully");
+        checkSnapshot(L"renamed.txt", 444, "a rename preserves creation time and updates last-modified time");
+
+        delta.fixed.reason = 0x00000001; // USN_REASON_DATA_OVERWRITE
+        delta.fixed.timestamp = 555;
+        Check(pipeline.ApplyUsnBatch(volume, {delta}), "a write USN delta applies successfully");
+        checkSnapshot(L"renamed.txt", 555, "a write preserves creation time and updates last-modified time");
+
+        delta.fixed.reason = 0x00000800; // USN_REASON_BASIC_INFO_CHANGE
+        delta.fixed.timestamp = 666;
+        delta.fixed.fileAttributes = 0x20;
+        Check(pipeline.ApplyUsnBatch(volume, {delta}), "an attribute USN delta applies successfully");
+        checkSnapshot(L"renamed.txt", 666, "an attribute change preserves creation time and updates last-modified time");
+    }
+
+    Store reopened;
+    Check(reopened.Open(dbPath), "the USN partial-update fixture reopens after restart");
+    EntryRecord persisted;
+    Check(reopened.ForEachEntry(volume, [&](const EntryRecord& entry) { persisted = entry; }),
+          "the restarted store reads the USN-merged entry");
+    Check(persisted.name == u"renamed.txt" && persisted.creationTime == 111 && persisted.lastModifiedTime == 666 &&
+              persisted.lastAccessTime == 333 && persisted.sizeBytes == 1234,
+          "creation/access/size metadata survives USN deltas and SQLite restart");
+    reopened.Close();
+
+    IndexPipeline reconciled;
+    Check(reconciled.Open(dbPath), "the pipeline reopens for full-reconciliation compatibility");
+    const auto reconciledVolume = reconciled.ResolveVolume(key);
+    auto authoritative = MakeMftRecord(101, 100, u"reconciled.txt", 0, 1234);
+    authoritative.fixed.creationTime = 777;
+    authoritative.fixed.lastModifiedTime = 888;
+    authoritative.fixed.lastAccessTime = 999;
+    reconciled.BeginReconciliationPass(reconciledVolume);
+    Check(reconciled.ApplyMftBatch(reconciledVolume, {
+                                       MakeMftRecord(5, 5, u"", 0x10, 0),
+                                       MakeMftRecord(100, 5, u"Users", 0x10, 0),
+                                       authoritative,
+                                   }),
+          "a full reconciliation can replace the partial USN record with authoritative metadata");
+    reconciled.FinishReconciliationPass(reconciledVolume);
+    const auto fullSnapshot = reconciled.ExportDirectorySnapshot(reconciledVolume, L"C:");
+    const auto fullDirectory = fullSnapshot.find(L"C:\\Users");
+    Check(fullDirectory != fullSnapshot.end() && fullDirectory->second.entries.size() == 1 &&
+              fullDirectory->second.entries[0].name == L"reconciled.txt" &&
+              fullDirectory->second.entries[0].creationTime == 777 &&
+              fullDirectory->second.entries[0].lastModifiedTime == 888,
+          "full reconciliation remains compatible with the partial-update representation");
+
+    ffprotocol::UsnDeltaV1 deleteDelta{};
+    deleteDelta.fixed.fileReferenceNumber = fileId.low;
+    deleteDelta.fixed.parentFileReferenceNumber = 100;
+    deleteDelta.fixed.reason = 0x00000200; // USN_REASON_FILE_DELETE
+    deleteDelta.fixed.fileNameLengthChars = 14;
+    deleteDelta.fileName = u"reconciled.txt";
+    Check(reconciled.ApplyUsnBatch(reconciledVolume, {deleteDelta}),
+          "a delete USN delta applies after a full reconciliation");
+    Check(reconciled.ExportDirectorySnapshot(reconciledVolume, L"C:")[L"C:\\Users"].entries.empty(),
+          "delete semantics remove the entry instead of merging a zero-valued partial record");
+}
+
 void TestVolumeAvailabilityAndForget() {
     IndexPipeline pipeline;
     pipeline.Open(FreshDbPath("engine_test_lifecycle.db"));
@@ -389,6 +496,7 @@ int main() {
     TestRebuildAfterRestartMatchesPriorState();
     TestReconciliationRemovesEntryNotSeenInFullScan();
     TestUsnDeleteReasonRemovesEntry();
+    TestUsnPartialUpdatesPreserveAuthoritativeMetadataAcrossRestart();
     TestVolumeAvailabilityAndForget();
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();

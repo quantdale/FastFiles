@@ -83,6 +83,11 @@ public:
     // (including re-parenting, which updates the parent->children index --
     // task 2.3).
     void Upsert(VolumeRowId volumeRowId, const EntryRecord& record);
+    // Applies only the fields present in `fields`, retaining previous
+    // authoritative values for absent fields. A missing entry is created with
+    // zero/default values only for fields that were not present.
+    void UpsertPartial(VolumeRowId volumeRowId, const EntryRecord& record,
+                       EntryFieldMask fields);
     // No-op if the entry is not present.
     void Remove(VolumeRowId volumeRowId, FileId frn);
     // tasks.md 7.4's projection half: drops every entry belonging to a
