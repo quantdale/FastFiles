@@ -26,16 +26,15 @@ constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
 constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
 
 bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
-                        uint64_t currentUsn, WriteDeadlineState* deadline) {
+                        uint64_t currentUsn) {
     ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline, pipe);
-    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened), &payload, sizeof(payload));
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened),
+                                  &payload, sizeof(payload));
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                       const std::vector<ffprotocol::UsnDeltaV1>& records, uint64_t latestUsn,
-                       WriteDeadlineState* deadline) {
+                       const std::vector<ffprotocol::UsnDeltaV1>& records, uint64_t latestUsn) {
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaBatch(records);
 
     ffprotocol::JournalRecordBatchHeader header{};
@@ -50,9 +49,8 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline, pipe);
-    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
-                              payload.data(), static_cast<uint32_t>(payload.size()));
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
+                                  payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
 // Re-reads a changed file's current allowlisted fields via the same
@@ -118,8 +116,7 @@ bool QueryOrCreateUsnJournal(HANDLE volumeHandle, USN_JOURNAL_DATA_V0& journalDa
 
 JournalStreamOutcome RunUsnJournalStream(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter, uint64_t resumeUsn,
-    const std::atomic<bool>& shouldStop,
-    WriteDeadlineState* deadline) {
+    const std::atomic<bool>& shouldStop) {
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
 
     // SeBackupPrivilege must be explicitly enabled (not just held) for
@@ -144,7 +141,7 @@ JournalStreamOutcome RunUsnJournalStream(
     }
 
     if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID),
-                            static_cast<uint64_t>(journalData.NextUsn), deadline)) {
+                            static_cast<uint64_t>(journalData.NextUsn))) {
         CloseHandle(volumeHandle);
         return JournalStreamOutcome::Ended;
     }
@@ -267,7 +264,7 @@ JournalStreamOutcome RunUsnJournalStream(
         startUsn = nextUsn;
 
         if (!batch.empty()) {
-            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch, deadline)) {
+            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch)) {
                 break;
             }
             batch.clear();

@@ -20,4 +20,12 @@ add_executable(ffconnection_registry_tests test_connection_registry.cpp
 target_link_libraries(ffconnection_registry_tests PRIVATE ffprotocol)
 target_include_directories(ffconnection_registry_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
 add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
-set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests ffconnection_registry_tests PROPERTIES TIMEOUT 120)
+
+# fastfiles-audit-remediation FF-AUDIT-08: keep the service's live write path
+# on the shared absolute-deadline framing primitive; source-policy assertions
+# prevent a helper-thread timeout fallback from returning.
+add_executable(ffindexsvc_write_deadline_policy_tests test_write_deadline_policy.cpp)
+add_test(NAME ffindexsvc_write_deadline_policy_tests COMMAND ffindexsvc_write_deadline_policy_tests)
+
+set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests
+    ffconnection_registry_tests ffindexsvc_write_deadline_policy_tests PROPERTIES TIMEOUT 120)

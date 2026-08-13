@@ -83,12 +83,12 @@ void StopAndJoinAll(std::vector<ActiveWorker>& workers) {
 
 bool SendIncompatibleVersion(HANDLE pipeHandle) {
     ffprotocol::IncompatibleVersionPayload payload{ffprotocol::kCurrentProtocolVersion};
-    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::IncompatibleVersion), &payload, sizeof(payload));
+    return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::IncompatibleVersion), &payload, sizeof(payload));
 }
 
 bool SendHandshakeReject(HANDLE pipeHandle, ffprotocol::HandshakeRejectReason reason) {
     ffprotocol::HandshakeRejectPayload payload{reason};
-    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
+    return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
 }
 
 bool SendVolumeList(HANDLE pipeHandle) {
@@ -101,7 +101,7 @@ bool SendVolumeList(HANDLE pipeHandle) {
         std::memcpy(payload.data() + sizeof(header), volumes.data(), volumes.size() * sizeof(ffprotocol::VolumeInfo));
     }
 
-    return ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::VolumeList), payload.data(), static_cast<uint32_t>(payload.size()));
+    return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::VolumeList), payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
 // Returns std::nullopt (and does not reply -- the connection is closed by
@@ -143,7 +143,7 @@ std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wst
                                       (std::min)(request.clientVersion.minor, ffprotocol::kCurrentProtocolVersion.minor)}
         : request.clientVersion;
     ffprotocol::HandshakeAckPayload ack{outVersion};
-    if (!ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeAck), &ack, sizeof(ack))) {
+    if (!WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeAck), &ack, sizeof(ack))) {
         CloseClientIdentity(*identity);
         return std::nullopt;
     }
@@ -253,9 +253,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const bool lowPriority = (request.flags & ffprotocol::kStartVolumeScanLowPriority) != 0;
                 const auto stopFlag = worker.stopFlag;
                 worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, stopFlag] {
-                    RunWithWriteDeadline([&](WriteDeadlineState* deadline) {
-                        RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag, deadline);
-                    });
+                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag);
                 });
                 activeScans.push_back(std::move(worker));
                 break;
@@ -313,21 +311,18 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const auto resumeUsn = request.resumeUsn;
                 const auto stopFlag = worker.stopFlag;
                 worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn, stopFlag] {
-                    RunWithWriteDeadline([&](WriteDeadlineState* deadline) {
-                        const JournalStreamOutcome outcome =
-                            RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag, deadline);
-                        if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
-                            // D6/task 7.6: tell the engine its ResumeUsn aged
-                            // out of the journal's retained range before this
-                            // worker tears down, so it falls back to a
-                            // reconciliation sweep instead of a blind resume.
-                            ffprotocol::JournalResumeInvalidPayload payload{volumeId};
-                            std::lock_guard<std::mutex> lock(writeMutex);
-                            WriteDeadlineGuard deadlineGuard(deadline, pipeHandle);
-                            ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
+                    const JournalStreamOutcome outcome =
+                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn, *stopFlag);
+                    if (outcome == JournalStreamOutcome::ResumePositionInvalid) {
+                        // D6/task 7.6: tell the engine its ResumeUsn aged
+                        // out of the journal's retained range before this
+                        // worker tears down, so it falls back to a
+                        // reconciliation sweep instead of a blind resume.
+                        ffprotocol::JournalResumeInvalidPayload payload{volumeId};
+                        std::lock_guard<std::mutex> lock(writeMutex);
+                        WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
                                                &payload, sizeof(payload));
-                        }
-                    });
+                    }
                 });
                 activeJournals.push_back(std::move(worker));
                 break;
@@ -358,7 +353,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                     break;
                 }
                 std::lock_guard<std::mutex> lock(writeMutex);
-                disconnect = !ffipc::WriteFrameOverlapped(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
+                disconnect = !WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
                 break;
             }
 

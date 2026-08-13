@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "ffprotocol/Commands.h"
-#include "WriteDeadline.h"
 
 namespace ffindexsvc {
 
@@ -45,7 +44,6 @@ void RunVolumeScan(
     wchar_t driveLetter,
     const std::vector<uint8_t>& resumeCursor,
     bool lowPriority,
-    const std::atomic<bool>& shouldStop,
-    WriteDeadlineState* deadline);
+    const std::atomic<bool>& shouldStop);
 
 } // namespace ffindexsvc

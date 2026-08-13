@@ -6,8 +6,6 @@
 
 #include "ffprotocol/Commands.h"
 
-#include "WriteDeadline.h"
-
 namespace ffindexsvc {
 
 // Why a journal stream ended -- lets the caller (ServiceConnection)
@@ -63,7 +61,6 @@ JournalStreamOutcome RunUsnJournalStream(
     ffprotocol::VolumeId volumeId,
     wchar_t driveLetter,
     uint64_t resumeUsn,
-    const std::atomic<bool>& shouldStop,
-    WriteDeadlineState* deadline);
+    const std::atomic<bool>& shouldStop);
 
 } // namespace ffindexsvc

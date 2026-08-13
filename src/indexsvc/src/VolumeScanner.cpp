@@ -37,8 +37,7 @@ std::vector<uint8_t> EncodeCursor(uint64_t nextFileReference) {
 }
 
 bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextFileReference,
-                    WriteDeadlineState* deadline) {
+                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextFileReference) {
     const std::vector<uint8_t> cursor = EncodeCursor(nextFileReference);
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatch(records);
 
@@ -55,17 +54,15 @@ bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId vol
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline, pipe);
-    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
-                              payload.data(), static_cast<uint32_t>(payload.size()));
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
+                                  payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
-bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                           WriteDeadlineState* deadline) {
+bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId) {
     ffprotocol::ScanCompletePayload payload{volumeId};
     std::lock_guard<std::mutex> lock(writeMutex);
-    WriteDeadlineGuard deadlineGuard(deadline, pipe);
-    return ffipc::WriteFrameOverlapped(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete), &payload, sizeof(payload));
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete),
+                                  &payload, sizeof(payload));
 }
 
 class BackgroundMode {
@@ -85,8 +82,7 @@ private:
 
 void RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
-    const std::vector<uint8_t>& resumeCursor, bool lowPriority, const std::atomic<bool>& shouldStop,
-    WriteDeadlineState* deadline) {
+    const std::vector<uint8_t>& resumeCursor, bool lowPriority, const std::atomic<bool>& shouldStop) {
     // THREAD_MODE_BACKGROUND lowers both CPU and I/O scheduling priority
     // for the lifetime of a reconciliation worker. It is thread-local, so
     // normal scans and journal readers remain responsive.
@@ -107,7 +103,7 @@ void RunVolumeScan(
         LogRawVolumeOpenDiagnostic(
             volumePath, tokenState,
             ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
-        SendScanComplete(pipe, writeMutex, volumeId, deadline);
+        SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }
     // Capture the actual service token immediately before the raw-volume
@@ -121,7 +117,7 @@ void RunVolumeScan(
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
     if (!volumeOpened) {
-        SendScanComplete(pipe, writeMutex, volumeId, deadline);
+        SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }
 
@@ -132,7 +128,7 @@ void RunVolumeScan(
     if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                           &bytesReturned, nullptr)) {
         CloseHandle(volumeHandle);
-        SendScanComplete(pipe, writeMutex, volumeId, deadline);
+        SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }
 
@@ -140,7 +136,7 @@ void RunVolumeScan(
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         CloseHandle(volumeHandle);
-        SendScanComplete(pipe, writeMutex, volumeId, deadline);
+        SendScanComplete(pipe, writeMutex, volumeId);
         return;
     }
 
@@ -260,7 +256,7 @@ void RunVolumeScan(
                 // can replay a bounded prefix, which ingestion safely
                 // upserts; advancing to the buffer's next cursor here
                 // could skip records not processed yet.
-                writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, bufferStartFileReference, deadline);
+                writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, bufferStartFileReference);
                 batch.clear();
             }
         }
@@ -283,19 +279,19 @@ void RunVolumeScan(
         }
 
         if (!writeFailed && bufferHadRecords) {
-            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference, deadline);
+            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
             batch.clear();
         }
     }
 
     if (!batch.empty() && !writeFailed) {
-        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference, deadline);
+        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
     }
 
     CloseHandle(volumeHandle);
 
     if (!writeFailed && !shouldStop.load()) {
-        SendScanComplete(pipe, writeMutex, volumeId, deadline);
+        SendScanComplete(pipe, writeMutex, volumeId);
     }
 }
 

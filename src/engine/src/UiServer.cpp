@@ -316,10 +316,10 @@ void UiServer::Stop() {
 
     listener_.Stop();
 
-    // PipeListener invokes connections on detached threads. Do not tear down
-    // snapshot/client state until every callback that passed the gate has
-    // returned; callbacks arriving after the stop mark close their pipe
-    // without dereferencing this server.
+    // PipeListener invokes connections on retained joinable threads. Do not
+    // tear down snapshot/client state until every callback that passed the
+    // gate has returned; callbacks arriving after the stop mark close their
+    // pipe without dereferencing this server.
     if (connectionGate != nullptr) {
         std::unique_lock<std::mutex> lock(connectionGate->mutex);
         connectionGate->condition.wait(lock, [&connectionGate] {
