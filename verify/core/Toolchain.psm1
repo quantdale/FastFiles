@@ -50,12 +50,16 @@ function Find-VSToolchain {
         return $null
     }
 
-    $json = & $vswhere -all -products * `
+    $jsonLines = @(& $vswhere -all -products * `
         -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-        -format json 2>$null
-    if (-not $json) {
+        -format json 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $jsonLines.Count -eq 0) {
         return $null
     }
+    # ConvertFrom-Json must receive the complete document. Piping the raw
+    # line array works accidentally for a single installation but can parse
+    # each line independently when the runner exposes multiple instances.
+    $json = $jsonLines -join [Environment]::NewLine
 
     try {
         $installs = @($json | ConvertFrom-Json)

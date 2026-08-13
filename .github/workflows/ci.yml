@@ -43,8 +43,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # No analyze test preset exists, so only debug/release-test run the suite.
           if ('${{ matrix.preset }}' -ne 'analyze') {
-            & $toolchain.CTestExe --preset ${{ matrix.preset }} --output-on-failure
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $ctestOutput = @(& $toolchain.CTestExe --preset ${{ matrix.preset }} --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
+            $ctestExit = $LASTEXITCODE
+            $ctestOutput | ForEach-Object { Write-Host $_ }
+            if ($ctestExit -ne 0) {
+              $failedTests = @($ctestOutput | Where-Object { $_ -match '^\s*\d+/\d+\s+Test #\d+:.*Failed|The following tests FAILED' } | ForEach-Object { $_.Trim() })
+              $detail = ($failedTests -join ' ')
+              if ([string]::IsNullOrWhiteSpace($detail)) { $detail = (($ctestOutput | Select-Object -Last 12) -join ' ') }
+              $detail = $detail.Substring(0, [Math]::Min(1200, $detail.Length)).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Output "::error title=CTest failure::$detail"
+              exit $ctestExit
+            }
           }
 
   asan:
@@ -75,5 +84,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $toolchain.CTestExe --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $ctestOutput = @(& $toolchain.CTestExe --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
+          $ctestExit = $LASTEXITCODE
+          $ctestOutput | ForEach-Object { Write-Host $_ }
+          if ($ctestExit -ne 0) {
+            $detail = (($ctestOutput | Select-Object -Last 12) -join ' ')
+            $detail = $detail.Substring(0, [Math]::Min(1200, $detail.Length)).Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Output "::error title=CTest failure::$detail"
+            exit $ctestExit
+          }
