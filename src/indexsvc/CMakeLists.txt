@@ -34,4 +34,6 @@ add_executable(FastFilesIndexSvc
   src/UsnJournalReader.cpp
 )
 
+fastfiles_add_version_resource(FastFilesIndexSvc "FastFilesIndexSvc.exe" "FastFiles privileged index service")
+
 target_link_libraries(FastFilesIndexSvc PRIVATE ffprotocol ffipc ffsetup ffmftparser ffusnparser ffindexsvcprobes)

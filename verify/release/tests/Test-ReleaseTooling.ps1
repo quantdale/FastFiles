@@ -21,6 +21,11 @@ Check (@($manifest.artifacts | Where-Object architecture -ne 'x64').Count -eq 0)
 Check ((@($manifest.artifacts | ForEach-Object sha256 | Where-Object { $_ -notmatch '^[0-9A-F]{64}$' }).Count) -eq 0) 'all artifact hashes are uppercase SHA-256'
 Check (($manifest.commit -match '^[0-9a-f]{40}$')) 'manifest records the current Git commit'
 Check ((@($manifest.artifacts | ForEach-Object { $_ | ConvertTo-Json -Depth 8 }) -join '|') -eq (@($manifestAgain.artifacts | ForEach-Object { $_ | ConvertTo-Json -Depth 8 }) -join '|')) 'manifest artifact records are deterministic'
+$expectedProductVersion = Get-RepositoryProductVersion -RepoRoot $RepoRoot
+$expectedFileVersion = "$expectedProductVersion.0"
+$versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $BuildRoot -RepoRoot $RepoRoot
+Check ($versionCheck.valid) 'all release executables contain canonical VERSIONINFO metadata'
+Check (@($manifest.artifacts | Where-Object { $_.productVersion -cne $expectedProductVersion -or $_.fileVersion -cne $expectedFileVersion -or $_.productName -cne 'FastFiles' -or $_.companyName -cne 'FastFiles' -or $_.originalFilename -ine $_.filename }).Count -eq 0) 'artifact manifest records canonical version and identity fields'
 
 Check ((Get-PinState -Name 'zero' -Value ('0' * 40)).state -eq 'PLACEHOLDER') 'all-zero pin is classified as PLACEHOLDER'
 Check ((Get-PinState -Name 'bad' -Value '1234').state -eq 'MALFORMED') 'short pin is classified as MALFORMED'
@@ -53,6 +58,8 @@ try {
     $malformedRejected = $false
     try { Get-PeArchitecture -Path $malformedPath | Out-Null } catch { $malformedRejected = $true }
     Check $malformedRejected 'malformed PE input is rejected before signing or hashing'
+    $metadataCheck = Test-ExecutableVersionMetadata -Path $malformedPath -ExpectedProductVersion $expectedProductVersion -ExpectedFileVersion $expectedFileVersion -ExpectedOriginalFilename 'malformed.exe'
+    Check (-not $metadataCheck.valid -and @($metadataCheck.issues).Count -gt 0) 'missing VERSIONINFO metadata is rejected by final-artifact validation'
 } finally {
     $tempFull = [IO.Path]::GetFullPath($temp).TrimEnd('\')
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
@@ -76,6 +83,12 @@ try {
     $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageTemp
     Check ($packageCheck.valid -and @($packageCheck.entries).Count -eq 4) 'package manifest round-trips the complete artifact inventory'
     Check ((Get-Content -LiteralPath $packageManifestPath -Raw) -match 'FASTFILES_PACKAGE_MANIFEST_V1') 'package manifest has an explicit versioned header'
+    Check ($packageCheck.productVersion -ceq $expectedProductVersion) 'package manifest carries the canonical product version'
+    $tamperedVersionManifest = Join-Path $packageTemp 'tampered-version.package.manifest'
+    $tamperedVersionText = (Get-Content -LiteralPath $packageManifestPath -Raw) -replace "productVersion=$([regex]::Escape($expectedProductVersion))", 'productVersion=9.9.9'
+    [IO.File]::WriteAllText($tamperedVersionManifest, $tamperedVersionText, [Text.UTF8Encoding]::new($false))
+    $tamperedVersionCheck = Test-PackageManifest -Path $tamperedVersionManifest -ArtifactManifest $manifest
+    Check (-not $tamperedVersionCheck.valid -and $tamperedVersionCheck.reason -eq 'PACKAGE_MANIFEST_VERSION_MISMATCH') 'package manifest version substitution is rejected'
     $tamperedPackageManifest = Join-Path $packageTemp 'tampered.package.manifest'
     $tamperedText = Get-Content -LiteralPath $packageManifestPath -Raw
     $tamperedText = $tamperedText -replace 'file=FastFiles\.exe\|[0-9]+\|[0-9A-F]{64}', 'file=FastFiles.exe|1|0000000000000000000000000000000000000000000000000000000000000000'

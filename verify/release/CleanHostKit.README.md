@@ -11,6 +11,11 @@ registry entry. A VM is valid when it satisfies those conditions. A source clone
 Visual Studio, CMake, and build tools are not required by this kit. The kit does
 not modify the trust store.
 
+The kit is generated only after the four product executables (and the included
+`validation/fftest.exe` probe) pass the repository `VERSION`/VERSIONINFO
+metadata check. The kit does not infer a version from a filename or package
+manifest alone.
+
 Run these commands from an Administrator PowerShell when the signed release is
 available. The preflight also rejects unsigned artifacts, even on an otherwise
 clean host:

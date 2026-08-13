@@ -179,6 +179,89 @@ function Get-FileVersionRecord {
     [pscustomobject]@{
         productVersion = if ([string]::IsNullOrWhiteSpace($info.ProductVersion)) { $null } else { $info.ProductVersion }
         fileVersion = if ([string]::IsNullOrWhiteSpace($info.FileVersion)) { $null } else { $info.FileVersion }
+        productName = if ([string]::IsNullOrWhiteSpace($info.ProductName)) { $null } else { $info.ProductName }
+        companyName = if ([string]::IsNullOrWhiteSpace($info.CompanyName)) { $null } else { $info.CompanyName }
+        fileDescription = if ([string]::IsNullOrWhiteSpace($info.FileDescription)) { $null } else { $info.FileDescription }
+        internalName = if ([string]::IsNullOrWhiteSpace($info.InternalName)) { $null } else { $info.InternalName }
+        originalFilename = if ([string]::IsNullOrWhiteSpace($info.OriginalFilename)) { $null } else { $info.OriginalFilename }
+    }
+}
+
+function Get-RepositoryProductVersion {
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $path = Join-Path ([IO.Path]::GetFullPath($RepoRoot)) 'VERSION'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "PRODUCT_VERSION_SOURCE_MISSING: $path"
+    }
+    $version = ([IO.File]::ReadAllText($path)).Trim()
+    if ($version -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+        throw "PRODUCT_VERSION_SOURCE_INVALID: $path"
+    }
+    return $version
+}
+
+function Test-ExecutableVersionMetadata {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] [string] $ExpectedProductVersion,
+        [Parameter(Mandatory)] [string] $ExpectedFileVersion,
+        [Parameter(Mandatory)] [string] $ExpectedOriginalFilename
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $metadata = $null
+    try {
+        $fullPath = [IO.Path]::GetFullPath($Path)
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+            $issues.Add('MISSING')
+        } else {
+            $metadata = Get-FileVersionRecord -Path $fullPath
+            if ($metadata.productVersion -cne $ExpectedProductVersion) { $issues.Add('PRODUCT_VERSION_MISMATCH') }
+            if ($metadata.fileVersion -cne $ExpectedFileVersion) { $issues.Add('FILE_VERSION_MISMATCH') }
+            if ($metadata.productName -cne 'FastFiles') { $issues.Add('PRODUCT_NAME_MISMATCH') }
+            if ($metadata.companyName -cne 'FastFiles') { $issues.Add('COMPANY_NAME_MISMATCH') }
+            if ([string]::IsNullOrWhiteSpace($metadata.fileDescription)) { $issues.Add('FILE_DESCRIPTION_MISSING') }
+            if ($metadata.internalName -ine $ExpectedOriginalFilename) { $issues.Add('INTERNAL_NAME_MISMATCH') }
+            if ($metadata.originalFilename -ine $ExpectedOriginalFilename) { $issues.Add('ORIGINAL_FILENAME_MISMATCH') }
+        }
+    } catch {
+        $issues.Add('VERSION_RESOURCE_READ_ERROR')
+    }
+    [pscustomobject]@{
+        path = [IO.Path]::GetFullPath($Path)
+        filename = $ExpectedOriginalFilename
+        valid = $issues.Count -eq 0
+        issues = @($issues)
+        metadata = $metadata
+    }
+}
+
+function Test-ReleaseVersionMetadata {
+    param(
+        [Parameter(Mandatory)] [string] $ArtifactRoot,
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [string[]] $AdditionalPaths = @()
+    )
+
+    $expectedProductVersion = Get-RepositoryProductVersion -RepoRoot $RepoRoot
+    $expectedFileVersion = "$expectedProductVersion.0"
+    $checks = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in @(Get-ReleaseArtifactPaths -ArtifactRoot $ArtifactRoot)) {
+        $checks.Add((Test-ExecutableVersionMetadata -Path $entry.sourcePath -ExpectedProductVersion $expectedProductVersion `
+                -ExpectedFileVersion $expectedFileVersion -ExpectedOriginalFilename $entry.name))
+    }
+    foreach ($path in @($AdditionalPaths)) {
+        if ([string]::IsNullOrWhiteSpace($path)) { continue }
+        $fullPath = [IO.Path]::GetFullPath($path)
+        $checks.Add((Test-ExecutableVersionMetadata -Path $fullPath -ExpectedProductVersion $expectedProductVersion `
+                -ExpectedFileVersion $expectedFileVersion -ExpectedOriginalFilename ([IO.Path]::GetFileName($fullPath))))
+    }
+    [pscustomobject]@{
+        valid = @($checks | Where-Object { -not $_.valid }).Count -eq 0
+        expectedProductVersion = $expectedProductVersion
+        expectedFileVersion = $expectedFileVersion
+        artifacts = @($checks)
     }
 }
 
@@ -213,6 +296,11 @@ function Get-ReleaseArtifactManifest {
             peMachine = $architecture.machine
             productVersion = $version.productVersion
             fileVersion = $version.fileVersion
+            productName = $version.productName
+            companyName = $version.companyName
+            fileDescription = $version.fileDescription
+            internalName = $version.internalName
+            originalFilename = $version.originalFilename
             signature = $signature
         }
     })
@@ -229,9 +317,10 @@ function Get-ReleaseArtifactManifest {
 function Write-PackageManifest {
     param([Parameter(Mandatory)] $Manifest, [Parameter(Mandatory)] [string] $Path)
 
-    $version = @($Manifest.artifacts | Where-Object { -not [string]::IsNullOrWhiteSpace($_.productVersion) } |
-        Select-Object -ExpandProperty productVersion -First 1)
-    if (-not $version) { $version = '0.0.0-unsigned-build' }
+    $versions = @($Manifest.artifacts | Where-Object { -not [string]::IsNullOrWhiteSpace($_.productVersion) } |
+        Select-Object -ExpandProperty productVersion -Unique)
+    if ($versions.Count -ne 1) { throw 'PACKAGE_MANIFEST_VERSION_MISSING_OR_INCONSISTENT' }
+    $version = [string]$versions[0]
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add('FASTFILES_PACKAGE_MANIFEST_V1')
     $lines.Add('version=1')
@@ -268,6 +357,11 @@ function Test-PackageManifest {
             return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_VERSION_INVALID'; entries = @() }
         }
         $productVersion = $Matches[1]
+        $expectedVersions = @($ArtifactManifest.artifacts | Where-Object { -not [string]::IsNullOrWhiteSpace($_.productVersion) } |
+            Select-Object -ExpandProperty productVersion -Unique)
+        if ($expectedVersions.Count -ne 1 -or $productVersion -cne [string]$expectedVersions[0]) {
+            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_VERSION_MISMATCH'; entries = @() }
+        }
 
         $entries = [System.Collections.Generic.List[object]]::new()
         $seen = @{}
@@ -451,6 +545,10 @@ Export-ModuleMember -Function @(
     'Get-ReleaseArtifactPaths',
     'Get-PeArchitecture',
     'Get-SignatureRecord',
+    'Get-FileVersionRecord',
+    'Get-RepositoryProductVersion',
+    'Test-ExecutableVersionMetadata',
+    'Test-ReleaseVersionMetadata',
     'Get-ReleaseArtifactManifest',
     'Write-PackageManifest',
     'Test-PackageManifest',

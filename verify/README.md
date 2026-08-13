@@ -145,6 +145,11 @@ pins or private material into the repository. Every release kit must also contai
 `FastFiles.package.manifest`, whose exact inventory, sizes, and SHA-256 hashes are
 checked before clean-host or privileged execution.
 
+The repository `VERSION` file is the single product-version source. CMake
+embeds it in VERSIONINFO resources and the generated installer header; release
+tooling validates product/file versions, product/company names, descriptions,
+and original filenames on the final executables before a kit can be used.
+
 The CMake `release` preset is the production-signed configuration and fails closed
 without authorized pins. CI and the default `verify.ps1 build` use the explicitly
 named `release-test` preset (`RelWithDebInfo` plus `FASTFILES_RELEASE_TEST_BUILD=ON`)

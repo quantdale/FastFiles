@@ -1,0 +1,13 @@
+#pragma once
+
+// Generated from the repository VERSION file. Do not duplicate the product
+// version in installer, package, or release-tooling source.
+namespace ffsetup {
+
+inline constexpr wchar_t kProductVersion[] = L"@FASTFILES_PRODUCT_VERSION@";
+inline constexpr char kProductVersionAscii[] = "@FASTFILES_PRODUCT_VERSION@";
+inline constexpr wchar_t kProductName[] = L"@FASTFILES_PRODUCT_NAME@";
+inline constexpr wchar_t kCompanyName[] = L"@FASTFILES_COMPANY_NAME@";
+inline constexpr wchar_t kPublisherName[] = L"@FASTFILES_PUBLISHER_NAME@";
+
+} // namespace ffsetup

@@ -18,9 +18,18 @@ function Test-KitManifest {
         $path = Join-Path $Root $_.filename
         $present = Test-Path -LiteralPath $path -PathType Leaf
         $hash = if ($present) { (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToUpperInvariant() } else { $null }
-        [pscustomobject]@{ path = $_.path; present = $present; sha256Matches = $present -and $hash -eq $_.sha256; architecture = if ($present) { (Get-PeArchitecture -Path $path).architecture } else { $null }; signatureValid = if ($present) { (Get-SignatureRecord -Path $path).valid } else { $false } }
+        $version = if ($present) { Get-FileVersionRecord -Path $path } else { $null }
+        $versionMatches = $present -and
+            $version.productVersion -ceq $_.productVersion -and
+            $version.fileVersion -ceq $_.fileVersion -and
+            $version.productName -ceq $_.productName -and
+            $version.companyName -ceq $_.companyName -and
+            $version.fileDescription -ceq $_.fileDescription -and
+            $version.internalName -ieq $_.internalName -and
+            $version.originalFilename -ieq $_.originalFilename
+        [pscustomobject]@{ path = $_.path; present = $present; sha256Matches = $present -and $hash -eq $_.sha256; architecture = if ($present) { (Get-PeArchitecture -Path $path).architecture } else { $null }; versionMetadataMatches = $versionMatches; version = $version; signatureValid = if ($present) { (Get-SignatureRecord -Path $path).valid } else { $false } }
     })
-    [pscustomobject]@{ path = $manifestPath; valid = @($rows | Where-Object { -not $_.present -or -not $_.sha256Matches -or $_.architecture -ne 'x64' }).Count -eq 0; manifest = $manifest; artifacts = $rows }
+    [pscustomobject]@{ path = $manifestPath; valid = @($rows | Where-Object { -not $_.present -or -not $_.sha256Matches -or $_.architecture -ne 'x64' -or -not $_.versionMetadataMatches }).Count -eq 0; manifest = $manifest; artifacts = $rows }
 }
 
 try {
@@ -31,7 +40,7 @@ try {
     $manifest = $artifactCheck.manifest
     $packageCheck = Test-PackageManifest -Path (Join-Path $root 'FastFiles.package.manifest') -ArtifactManifest $manifest -PackageRoot $root
     $status = if ($preflight.clean -and $preflight.architectureCompatible -and $artifactCheck.valid -and $packageCheck.valid -and $signaturesReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
-    $reason = if (-not $preflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $preflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $artifactCheck.valid) { 'KIT_ARTIFACT_INTEGRITY_FAILED' } elseif (-not $packageCheck.valid) { 'KIT_PACKAGE_MANIFEST_INVALID' } elseif (-not $signaturesReady) { 'AUTHORIZED_SIGNING_REQUIRED' } else { $null }
+    $reason = if (-not $preflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $preflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $artifactCheck.valid) { 'KIT_ARTIFACT_INTEGRITY_OR_VERSION_METADATA_FAILED' } elseif (-not $packageCheck.valid) { 'KIT_PACKAGE_MANIFEST_INVALID' } elseif (-not $signaturesReady) { 'AUTHORIZED_SIGNING_REQUIRED' } else { $null }
     $artifactCheck | Add-Member -NotePropertyName packageManifest -NotePropertyValue $packageCheck
     $result = [pscustomobject]@{
         schemaVersion = 1

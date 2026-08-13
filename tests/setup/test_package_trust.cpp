@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ffsetup/PackageTrust.h"
+#include "ffsetup/FastFilesVersion.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -60,7 +61,7 @@ ffsetup::PackageManifest MakeManifest(const std::wstring& root,
                                       const std::vector<std::wstring>& names) {
     ffsetup::PackageManifest manifest;
     manifest.schemaVersion = 1;
-    manifest.productVersion = L"0.1.0";
+    manifest.productVersion = ffsetup::kProductVersion;
     for (const auto& name : names) manifest.files.push_back(ManifestEntry(root, name));
     return manifest;
 }
@@ -69,7 +70,7 @@ void WriteManifest(const std::wstring& path, const ffsetup::PackageManifest& man
     std::ofstream file(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
     file << "FASTFILES_PACKAGE_MANIFEST_V1\n";
     file << "version=" << manifest.schemaVersion << "\n";
-    file << "productVersion=0.1.0\n";
+    file << "productVersion=" << ffsetup::kProductVersionAscii << "\n";
     for (const auto& entry : manifest.files) {
         std::string name;
         name.reserve(entry.fileName.size());

@@ -1,5 +1,8 @@
 # FastFiles Audit Remediation Workstate
 
+Last updated: 2026-08-13T06:45:00+08:00
+Status: IMPLEMENTED — FF-AUDIT-10 release metadata slice; commit pending
+
 ## Mission
 
 Comprehensively remediate the supplied latest deep-audit findings FF-AUDIT-01
@@ -10,11 +13,11 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `f262219` (`refactor: use bounded overlapped pipe I/O`; IPC slice committed)
+- HEAD: `802d7e2` (`docs: checkpoint overlapped IPC remediation`; latest committed checkpoint)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
-- Remediation-owned modified files: `src/engine/src/PrivilegedConnection.cpp`, `src/engine/src/PrivilegedConnection.h`, `src/engine/src/UiServer.cpp`, `src/engine/src/UiServer.h`, `src/ipc/include/ffipc/PipeFraming.h`, `src/ipc/include/ffipc/PipeListener.h`, `src/ipc/src/PipeFraming.cpp`, `src/ipc/src/PipeListener.cpp`, `src/ui/src/EngineClient.cpp`, `src/ui/src/EngineClient.h`, and `tests/ipc/test_pipe_framing.cpp`, plus this workstate. The earlier snapshot/cancellation files are committed.
+- Remediation-owned modified files: version-resource/CMake files, installer version source, release tooling, release-tooling tests, and this workstate. The earlier installer, snapshot, cancellation, and IPC files are committed.
 - Unrelated dirty files to preserve: none observed at start; re-check before every commit.
 - Historical repository workstate: `docs/agent/WORKSTATE.md` (contains older release/UI checkpoints and was stale relative to the starting HEAD). Mission plan: `.agent/execplans/fastfiles-audit-remediation.md`.
 - Mission workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`.
@@ -32,7 +35,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | IMPLEMENTED | UI client/server now use overlapped reads/writes; UI listener retains accepted threads and cancellation duplicates; product polling path removed | Debug framing/UI lifecycle PASS 2/2; Analyze focused CTest PASS 3/3; `ffdoc_drift_tests` PASS 1/1; Service/Engine/UI targets build | `f262219` |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | IMPLEMENTED | Removed the `PrivilegedConnection` handshake helper thread and `CancelSynchronousIo` join; shared framing uses event-backed overlapped operations, absolute deadlines, bounded cancellation collection, and bounded quarantine | Framing tests cover no peer, partial-frame, peer-death, and stalled-write cases; `ffengine_volume_session_manager_tests` PASS; Analyze focused CTest PASS 3/3 | `f262219` |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
-| FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | OPEN | Canonical VERSIONINFO source pending | Artifact inspection pending | — |
+| FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | IMPLEMENTED | Single repository `VERSION` source feeds generated C++ metadata and VERSIONINFO resources for all four product executables plus `fftest`; release-kit/readiness paths validate final metadata | Debug resource build PASS; direct `FileVersionInfo` 5/5; release-tooling 31/31; setup/drift 3/3 | pending commit |
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
 | GAP-B | HIGH | Installer regression coverage | IMPLEMENTED | First-class setup package-trust and installer source-policy targets cover manifest, signer, hash, identity, reparse, staging, promotion, rollback candidates, and relay removal | Focused setup CTest PASS, 4/4 | — |
 | GAP-C | MEDIUM | ASAN not continuously gated | IMPLEMENTED | Added a CI ASAN protocol-fuzz job with VS developer-runtime activation; exclusions are limited to the applicable core target | Local ASAN fuzz pass; CI execution remains external | — |
@@ -82,9 +85,10 @@ depends on it.
 
 ### G. Release Metadata / Migration Readiness
 
-One version source must feed all executable resources. Any snapshot/protocol or
-SQLite change must explicitly define versioning, compatibility, migration, and
-fail-closed recovery.
+One repository `VERSION` source feeds CMake-generated headers, all shipped
+VERSIONINFO resources, installer display metadata, and release package
+validation. Any snapshot/protocol or SQLite change must explicitly define
+versioning, compatibility, migration, and fail-closed recovery.
 
 ### H. CI / Validation Coverage
 
@@ -236,8 +240,25 @@ UI external-validation notes.
    so returning from a deadline cannot free state still referenced by Windows.
    `PipeListener` now retains accepted threads and duplicate cancellation
    handles and joins them during Stop.
+17. FF-AUDIT-10 implementation: added the canonical repository
+    `VERSION` file, generated installer version header, generated Windows
+    VERSIONINFO resources for FastFiles/FastFilesEngine/FastFilesIndexSvc/
+    FastFilesSetup/fftest, and release-tooling checks for product/file,
+    identity, and descriptive metadata. Debug/release-tooling validation now
+    passes; the focused commit and optimized/final matrix remain.
 
 ## Validation Evidence
+
+- FF-AUDIT-10 configure checkpoint: `cmake --preset debug` PASS; generated
+  `FastFilesVersion.h` contains `0.1.0`, and five generated RC files contain
+  `FILEVERSION 0,1,0,0` / canonical identity fields. The target build and
+  `FileVersionInfo` inspection are now running.
+- FF-AUDIT-10 validation: Debug target build PASS after CMake regeneration;
+  direct `System.Diagnostics.FileVersionInfo` validation PASS 5/5 for
+  FastFiles/FastFilesEngine/FastFilesIndexSvc/FastFilesSetup/fftest;
+  `Test-ReleaseTooling.ps1` PASS 31/31; focused setup plus drift CTest PASS
+  3/3. `New-ReleaseKit.ps1` generated a kit with version metadata PASS and
+  remains `productionReady=false` because signing is still external.
 
 - Initial `git status --short`: PASS (clean).
 - Initial branch/HEAD/origin checks: PASS; all point to `main`/`403f849`.
@@ -445,6 +466,8 @@ UI external-validation notes.
   The slice is ready for its targeted commit; full Debug/release-test/
   verifier validation remains later.
 - IPC slice commit: `f262219`, `refactor: use bounded overlapped pipe I/O`.
+- Version-resource slice is implemented and focused-validated; its commit SHA
+  must be recorded immediately after the targeted commit.
 
 ## External Blockers
 
@@ -485,16 +508,12 @@ UI external-validation notes.
   Git/source remain authoritative if it conflicts with this file.
 - Installer and IPC changes can affect privileged security and teardown; no
   production claim is allowed until focused and full validation pass.
-- FF-AUDIT-06 has focused evidence but still needs the full post-remediation
-  Debug/release-test/verifier matrix before it can be marked VALIDATED.
-- FF-AUDIT-07/08 focused validation is complete, but full post-remediation
-  Debug/release-test/verifier validation remains outstanding.
-- The implementation frontier for FF-AUDIT-07/08 is complete and ready for a
-  focused commit. Remaining work is validation, then the release-resource
-  slice.
+- FF-AUDIT-06/07/08 focused validation is complete, but the full
+  post-remediation Debug/release-test/verifier matrix remains outstanding.
+- Current active frontier is the targeted FF-AUDIT-10 commit, followed by the
+  full post-remediation validation matrix.
 
 ## Next Exact Action
 
-Begin FF-AUDIT-10: inspect every shipped executable target and existing `.rc`
-files, establish one canonical CMake version source, add VERSIONINFO resources,
-and add final-artifact metadata validation.
+Commit the focused FF-AUDIT-10 version-resource/release-tooling slice after
+rechecking that only remediation-owned files are staged.

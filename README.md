@@ -97,6 +97,12 @@ coverage. The production `release` profile is reserved for the authorized
 signing/release-readiness workflow; an unsigned optimized artifact must never
 be presented as a production build.
 
+`VERSION` is the single product-version source. CMake embeds canonical
+Windows VERSIONINFO metadata in every shipped executable and the `fftest`
+validation probe; release-kit generation and release-readiness fail closed if
+the final artifact metadata is missing, inconsistent, or identifies the wrong
+file.
+
 Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl /guard:cf` and `/DYNAMICBASE /NXCOMPAT /guard:cf`); **warnings are errors**.
 
 ## Testing

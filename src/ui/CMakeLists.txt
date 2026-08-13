@@ -35,6 +35,8 @@ target_include_directories(FastFiles PRIVATE include)
 # second manifest resource so the linker does not emit a duplicate RT_MANIFEST.
 target_link_options(FastFiles PRIVATE "/MANIFEST:NO")
 
+fastfiles_add_version_resource(FastFiles "FastFiles.exe" "FastFiles desktop shell")
+
 target_link_libraries(FastFiles PRIVATE
   ffprotocol
   ffipc

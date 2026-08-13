@@ -11,4 +11,6 @@ add_executable(FastFilesEngine
   src/VolumeSessionManager.cpp
 )
 
+fastfiles_add_version_resource(FastFilesEngine "FastFilesEngine.exe" "FastFiles index engine")
+
 target_link_libraries(FastFilesEngine PRIVATE ffprotocol ffipc ffsetup ffindexstore ffsearch Rpcrt4 Shell32 Ole32)

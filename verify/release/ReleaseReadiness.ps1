@@ -36,10 +36,12 @@ if ($Mode -eq 'privileged') {
 try {
     if (-not $ArtifactRoot) { $ArtifactRoot = Join-Path $repoRoot 'build\release' }
     $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $ArtifactRoot -RepoRoot $repoRoot
+    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $ArtifactRoot -RepoRoot $repoRoot
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot (Join-Path $repoRoot 'build\release')
     $matrix = @(Get-ReleaseSignatureMatrix -Manifest $manifest -PinStates $pinStates -ExpectedSignerThumbprint $ExpectedSignerThumbprint)
     $hostPreflight = Get-CleanHostPreflight
-    $artifactIssues = @($manifest.artifacts | Where-Object { $_.architecture -ne 'x64' -or $_.sha256.Length -ne 64 })
+    $artifactIssues = @($manifest.artifacts | Where-Object { $_.architecture -ne 'x64' -or $_.sha256.Length -ne 64 }) +
+        @($versionCheck.artifacts | Where-Object { -not $_.valid })
     $artifactStatus = if ($artifactIssues.Count -eq 0) { 'PASS' } else { 'FAIL' }
     $signingStatus = if (@($matrix | Where-Object { $_.result -eq 'PASS' }).Count -eq @($matrix).Count) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
     $pinsStatus = if ($pinStates.engine.state -eq 'POPULATED' -and $pinStates.service.state -eq 'POPULATED' -and $signingStatus -eq 'PASS') { 'PASS' } else { 'BLOCKED_EXTERNAL' }
@@ -52,7 +54,7 @@ try {
         commit = $manifest.commit
         build = [pscustomobject]@{ status = if ($artifactStatus -eq 'PASS') { 'ARTIFACTS_PRESENT' } else { 'FAIL' }; configuration = $manifest.configuration; expectedArchitecture = 'x64'; evidence = 'This command validates the existing Release artifact set; it does not rebuild.' }
         tests = [pscustomobject]@{ status = 'NOT_RUN'; command = 'ctest --preset debug; ctest --preset release'; evidence = 'Run repository test gates separately; this report never infers tests from artifact presence.' }
-        artifactIntegrity = [pscustomobject]@{ status = $artifactStatus; manifest = $manifest }
+        artifactIntegrity = [pscustomobject]@{ status = $artifactStatus; manifest = $manifest; versionMetadata = $versionCheck }
         signatures = [pscustomobject]@{ status = $signingStatus; matrix = $matrix }
         pins = [pscustomobject]@{ status = $pinsStatus; engine = Get-SafePinState -PinState $pinStates.engine; service = Get-SafePinState -PinState $pinStates.service; productionValuesChanged = $false }
         privilegedPath = [pscustomobject]@{ status = if ($privilegedReason -eq 'READY_FOR_PRIVILEGED_DRIVER') { 'READY' } else { 'BLOCKED_EXTERNAL' }; reason = $privilegedReason; driver = 'verify/release/privileged-release.ps1' }

@@ -101,6 +101,7 @@ endif()
 
 set(FASTFILES_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FastFilesVersion.cmake")
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/src/setup/PinnedSignaturesConfig.h.in"
   "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup/PinnedSignaturesConfig.h"

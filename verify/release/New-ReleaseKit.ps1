@@ -42,6 +42,12 @@ try {
         Copy-Item -LiteralPath $fftestPath -Destination (Join-Path $validationDir 'fftest.exe') -Force
     }
     $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $output -RepoRoot $repoRoot
+    $versionPaths = if ($fftestIncluded) { @((Join-Path $validationDir 'fftest.exe')) } else { @() }
+    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $output -RepoRoot $repoRoot -AdditionalPaths $versionPaths
+    if (-not $versionCheck.valid) {
+        $details = @($versionCheck.artifacts | Where-Object { -not $_.valid } | ForEach-Object { "$($_.filename):$($_.issues -join ',')" }) -join '; '
+        throw "VERSION_METADATA_INVALID: $details"
+    }
     $packageManifestPath = Join-Path $output 'FastFiles.package.manifest'
     Write-PackageManifest -Manifest $manifest -Path $packageManifestPath
     $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $output
@@ -62,6 +68,7 @@ try {
         package = @($manifest.artifacts | ForEach-Object { $_.filename }) + @('FastFiles.package.manifest')
         packageManifest = 'FastFiles.package.manifest'
         packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
+        versionMetadata = $versionCheck
         validationTool = [pscustomobject]@{ name = 'fftest.exe'; included = $fftestIncluded; path = if ($fftestIncluded) { 'validation/fftest.exe' } else { $null } }
         artifactManifest = 'artifact-manifest.json'
         pinProvisioning = [pscustomobject]@{
@@ -74,7 +81,7 @@ try {
         buildToolsRequired = $false
     }
     Write-ReleaseJson -Value $kit -Path (Join-Path $output 'kit-manifest.json')
-    $result = [pscustomobject]@{ status = 'PASS'; kit = $output; artifactManifest = (Join-Path $output 'artifact-manifest.json'); validationProbeIncluded = $fftestIncluded; productionReady = $false; note = 'The kit is portable preparation only; unsigned artifacts remain blocked for production.' }
+    $result = [pscustomobject]@{ status = 'PASS'; kit = $output; artifactManifest = (Join-Path $output 'artifact-manifest.json'); validationProbeIncluded = $fftestIncluded; versionMetadata = $versionCheck; productionReady = $false; note = 'The kit is portable preparation only; unsigned artifacts remain blocked for production.' }
     if ($OutputFormat -eq 'json') { $result | ConvertTo-Json -Depth 10 } else { Write-Host "Release kit ready: $output"; Write-Host "Validation probe included: $fftestIncluded"; Write-Host 'Production-ready: NO (authorized signing and pins remain required).' }
     exit 0
 } catch {

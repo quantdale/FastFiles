@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "ffprotocol/Diagnostics.h"
+#include "ffsetup/FastFilesVersion.h"
 #include "ffsetup/GroupSetup.h"
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/InstallDirAcl.h"
@@ -327,9 +328,9 @@ bool RegisterUninstallMetadata(const std::wstring& installerPath, const std::wst
         return false;
     }
     const std::wstring uninstallCommand = L"\"" + installerPath + L"\" /uninstall";
-    const bool ok = SetRegistryString(key, L"DisplayName", L"FastFiles")
-        && SetRegistryString(key, L"DisplayVersion", L"0.1.0")
-        && SetRegistryString(key, L"Publisher", L"FastFiles")
+    const bool ok = SetRegistryString(key, L"DisplayName", ffsetup::kProductName)
+        && SetRegistryString(key, L"DisplayVersion", ffsetup::kProductVersion)
+        && SetRegistryString(key, L"Publisher", ffsetup::kPublisherName)
         && SetRegistryString(key, L"InstallLocation", installDir)
         && SetRegistryString(key, L"UninstallString", uninstallCommand)
         && SetRegistryString(key, L"QuietUninstallString", uninstallCommand);
