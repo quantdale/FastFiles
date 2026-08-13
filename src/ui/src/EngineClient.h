@@ -113,7 +113,7 @@ private:
     // HANDLE that the invalidation worker is using.
     void ClosePipe();
     void FailIndexedSearchCallbacks();
-    bool MapSnapshotSection(const std::wstring& sectionName);
+    bool MapSnapshotGeneration(const std::wstring& sectionPrefix, uint64_t generation);
     void UnmapSnapshotSection();
     void LaunchEngineIfNotRunning(const std::wstring& pipeName);
     void SetConnectionState(EngineConnectionState state, bool privilegedPathActive);
@@ -130,7 +130,8 @@ private:
 
     mutable HANDLE mappingHandle_ = nullptr;
     mutable const uint8_t* mappedView_ = nullptr;
-    mutable std::wstring snapshotSectionName_;
+    mutable std::wstring snapshotSectionPrefix_;
+    mutable uint64_t mappedGeneration_ = 0;
     mutable std::mutex mappingMutex_;
 
     std::thread managementThread_;
@@ -147,10 +148,6 @@ private:
     std::deque<std::wstring> invalidationQueue_;
     std::atomic<uint64_t> lastRequestId_{0};
     std::atomic<uint64_t> announcedGeneration_{0};
-    // address-engineering-audit-findings 4.3: an incompatible mapping is
-    // discarded and re-opened when the engine announces its next generation.
-    mutable std::atomic<bool> snapshotRemapRequested_{false};
-
     GenerationCallback onNewGeneration_;
     StatusCallback onStatus_;
     DirectoryErrorCallback onDirectoryError_;

@@ -41,12 +41,17 @@ ffprotocol::SnapshotDirectory MakeLargeDirectory() {
     return directory;
 }
 
-void TestPublisherUsesPerSlotDescriptors() {
+void TestPublisherUsesImmutableGenerations() {
     ffengine::SnapshotPublisher publisher;
     Check(publisher.Start(GetCurrentProcessId()), "snapshot publisher starts");
     if (publisher.SectionName().empty()) return;
 
-    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.SectionName().c_str());
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> first{
+        {L"C:\\", MakeDirectory(L"first.txt", 11)}};
+    const uint64_t firstGeneration = publisher.Publish(first);
+    Check(firstGeneration == 1, "first publication receives generation one");
+
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
     Check(mapping != nullptr, "snapshot mapping opens read-only");
     if (mapping == nullptr) {
         publisher.Stop();
@@ -60,11 +65,6 @@ void TestPublisherUsesPerSlotDescriptors() {
         return;
     }
 
-    const std::map<std::wstring, ffprotocol::SnapshotDirectory> first{
-        {L"C:\\", MakeDirectory(L"first.txt", 11)}};
-    const uint64_t firstGeneration = publisher.Publish(first);
-    Check(firstGeneration == 1, "first publication receives generation one");
-
     const auto* firstHeader = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
     Check(firstHeader->formatVersion == ffprotocol::kSnapshotFormatVersion,
           "the mapping header publishes the supported snapshot format version");
@@ -72,55 +72,66 @@ void TestPublisherUsesPerSlotDescriptors() {
           "the current snapshot format is accepted");
     Check(!ffprotocol::IsSnapshotFormatCompatible(ffprotocol::kSnapshotFormatVersion + 1),
           "a future snapshot format is rejected");
-    const uint32_t firstSlot = firstHeader->activeSlot;
-    Check(firstSlot <= 1, "active slot is in range");
-    const uint32_t safeFirstSlot = firstSlot <= 1 ? firstSlot : 0;
-    const uint32_t firstSize = firstHeader->slotDataSize[safeFirstSlot];
+    Check(firstHeader->generation == firstGeneration, "immutable mapping commits its generation");
+    const uint64_t firstSize = firstHeader->payloadSizeBytes;
     Check(firstSize == ffprotocol::SerializeSnapshot(first).size(),
-          "active slot size matches serialized snapshot");
+          "immutable mapping size matches serialized snapshot");
+    Check(ffprotocol::ParseSnapshot(view + sizeof(*firstHeader), static_cast<size_t>(firstSize)).has_value(),
+          "first immutable mapping parses successfully");
 
     const std::map<std::wstring, ffprotocol::SnapshotDirectory> second{
         {L"C:\\", MakeDirectory(L"second.txt", 22)}};
+    const std::wstring firstSectionName = publisher.CurrentSectionName();
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
     const uint64_t secondGeneration = publisher.Publish(second);
     Check(secondGeneration == 2, "second publication increments generation");
 
-    const uint32_t secondSlot = firstHeader->activeSlot;
-    const uint32_t safeSecondSlot = secondSlot <= 1 ? secondSlot : 0;
-    Check(secondSlot != firstSlot, "publication flips to the inactive slot");
-    Check(firstHeader->slotDataSize[safeSecondSlot] == ffprotocol::SerializeSnapshot(second).size(),
-          "second slot has its own descriptor");
-    Check(firstHeader->slotDataSize[safeFirstSlot] == firstSize,
-          "previous slot descriptor remains stable");
-
-    const uint8_t* slotBase = view + sizeof(ffprotocol::SnapshotSharedHeader) +
-        static_cast<size_t>(safeSecondSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-    const auto parsed = ffprotocol::ParseSnapshot(slotBase, firstHeader->slotDataSize[safeSecondSlot]);
+    Check(firstSectionName != publisher.CurrentSectionName(),
+          "each publication receives a distinct immutable mapping name");
+    mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
+    Check(mapping != nullptr, "second immutable mapping opens read-only");
+    if (mapping == nullptr) {
+        publisher.Stop();
+        return;
+    }
+    view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
+    Check(view != nullptr, "second immutable mapping maps read-only");
+    if (view == nullptr) {
+        CloseHandle(mapping);
+        publisher.Stop();
+        return;
+    }
+    const auto* secondHeader = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
+    Check(secondHeader->generation == secondGeneration &&
+              secondHeader->payloadSizeBytes == ffprotocol::SerializeSnapshot(second).size(),
+          "second immutable mapping has its own committed descriptor");
+    const auto parsed = ffprotocol::ParseSnapshot(view + sizeof(*secondHeader),
+                                                  static_cast<size_t>(secondHeader->payloadSizeBytes));
     Check(parsed.has_value() && parsed->contains(L"C:\\") &&
               parsed->at(L"C:\\").entries.front().name == L"second.txt",
-          "active slot parses to the latest snapshot");
+          "latest immutable mapping parses to the newest snapshot");
 
     const std::map<std::wstring, ffprotocol::SnapshotDirectory> large{
         {L"C:\\", MakeLargeDirectory()}};
     const size_t largeSize = ffprotocol::SerializeSnapshot(large).size();
     Check(largeSize > 8ULL * 1024ULL * 1024ULL &&
-              largeSize < ffprotocol::kSnapshotSlotCapacityBytes,
-          "large-directory fixture is above the old 8 MiB cliff but below the bounded slot");
+              largeSize < ffprotocol::kSnapshotMaximumPayloadBytes,
+          "large-directory fixture is above the old 8 MiB cliff but below the bounded payload");
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
     Check(publisher.Publish(large) == 3,
-          "large directory publishes without falling into the old 8 MiB capacity cliff");
+          "large directory publishes without falling into the old fixed-slot capacity cliff");
 
     std::map<std::wstring, ffprotocol::SnapshotDirectory> oversized;
     ffprotocol::SnapshotDirectory oversizedDirectory;
     oversizedDirectory.status = ffprotocol::DirectoryEnumerationStatus::Success;
-    const size_t oversizedPathLength = ffprotocol::kSnapshotSlotCapacityBytes / sizeof(wchar_t) + 1;
+    const size_t oversizedPathLength = ffprotocol::kSnapshotMaximumPayloadBytes / sizeof(wchar_t) + 1;
     oversized.emplace(std::wstring(oversizedPathLength, L'x'), std::move(oversizedDirectory));
     const uint64_t generationBeforeFailure = publisher.CurrentGeneration();
     Check(publisher.Publish(oversized) == 0, "oversized publication fails closed");
-    Check(publisher.CurrentGeneration() == generationBeforeFailure &&
-              firstHeader->generation == generationBeforeFailure,
+    Check(publisher.CurrentGeneration() == generationBeforeFailure,
           "failed publication does not advance or announce a generation");
-
-    UnmapViewOfFile(view);
-    CloseHandle(mapping);
     publisher.Stop();
 
     Check(publisher.Start(GetCurrentProcessId() + 1), "snapshot publisher restarts");
@@ -183,7 +194,7 @@ void TestPublisherUnderThreadContention() {
     Check(publisher.CurrentGeneration() == kPublicationCount,
           "contended publications advance the publisher to the final generation");
 
-    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.SectionName().c_str());
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
     Check(mapping != nullptr, "contention test opens the published mapping read-only");
     if (mapping != nullptr) {
         const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
@@ -192,15 +203,14 @@ void TestPublisherUnderThreadContention() {
             const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
             Check(header->formatVersion == ffprotocol::kSnapshotFormatVersion,
                   "contended publication keeps the supported snapshot format version");
-            Check(header->activeSlot <= 1, "contended publication keeps the active slot in range");
-            if (header->activeSlot <= 1) {
-                const uint32_t dataSize = header->slotDataSize[header->activeSlot];
-                const uint8_t* slotBase = view + sizeof(ffprotocol::SnapshotSharedHeader) +
-                    static_cast<size_t>(header->activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-                const auto parsed = ffprotocol::ParseSnapshot(slotBase, dataSize);
-                Check(parsed.has_value() && parsed->size() == 1,
-                      "contended publication leaves a parseable final snapshot");
-            }
+            Check(header->generation == kPublicationCount,
+                  "contended publication keeps the final immutable generation");
+            Check(header->payloadSizeBytes <= ffprotocol::kSnapshotMaximumPayloadBytes,
+                  "contended publication keeps the payload within the explicit bound");
+            const auto parsed = ffprotocol::ParseSnapshot(view + sizeof(*header),
+                                                          static_cast<size_t>(header->payloadSizeBytes));
+            Check(parsed.has_value() && parsed->size() == 1,
+                  "contended publication leaves a parseable final snapshot");
             UnmapViewOfFile(view);
         }
         CloseHandle(mapping);
@@ -225,11 +235,32 @@ void TestCaseVariantSnapshotKeysCoalesce() {
     publisher.Stop();
 }
 
+void TestTwoPassSerializerBounds() {
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> directories{
+        {L"C:\\two-pass", MakeDirectory(L"payload.txt", 42)}};
+    const size_t expectedSize = ffprotocol::SerializedSnapshotSize(directories);
+    const std::vector<uint8_t> serialized = ffprotocol::SerializeSnapshot(directories);
+    Check(expectedSize == serialized.size(),
+          "two-pass size calculation matches the compatibility serializer");
+
+    std::vector<uint8_t> direct(expectedSize);
+    Check(ffprotocol::SerializeSnapshotTo(directories, direct.data(), direct.size()),
+          "two-pass serializer writes into caller-owned storage");
+    Check(direct == serialized, "two-pass serializer preserves the snapshot byte format");
+    Check(expectedSize == 0 || !ffprotocol::SerializeSnapshotTo(
+              directories, direct.data(), expectedSize - 1),
+          "two-pass serializer rejects a truncated destination");
+    Check(ffprotocol::SerializedSnapshotSize(
+              std::map<std::wstring, ffprotocol::SnapshotDirectory>{}) == sizeof(uint32_t),
+          "an empty snapshot still has its directory-count payload");
+}
+
 } // namespace
 
 int main() {
-    TestPublisherUsesPerSlotDescriptors();
+    TestPublisherUsesImmutableGenerations();
     TestPublisherUnderThreadContention();
     TestCaseVariantSnapshotKeysCoalesce();
+    TestTwoPassSerializerBounds();
     return FailureCount() == 0 ? 0 : 1;
 }

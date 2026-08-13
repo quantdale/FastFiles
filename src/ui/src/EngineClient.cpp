@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <thread>
 
 #include "EngineDiscovery.h"
@@ -36,6 +37,10 @@ bool ReadUiFrame(HANDLE pipe, std::atomic<bool>& running, ffipc::ReceivedFrame& 
     }
 }
 
+std::wstring GenerationSectionName(const std::wstring& prefix, uint64_t generation) {
+    return prefix + L"." + std::to_wstring(generation);
+}
+
 uint32_t LoadSharedU32(const uint32_t* value) {
     // The UI deliberately maps the section with FILE_MAP_READ.  An
     // InterlockedCompareExchange-based load is not read-only: when the
@@ -50,6 +55,29 @@ uint32_t LoadSharedU32(const uint32_t* value) {
 uint64_t LoadSharedU64(const uint64_t* value) {
     MemoryBarrier();
     return *reinterpret_cast<const volatile uint64_t*>(value);
+}
+
+bool IsSnapshotGenerationUsable(const uint8_t* view, uint64_t expectedGeneration) {
+    if (view == nullptr) return false;
+    const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
+    if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
+        return false;
+    }
+    if (LoadSharedU64(&header->generation) != expectedGeneration || expectedGeneration == 0) {
+        return false;
+    }
+    const uint64_t payloadSize = LoadSharedU64(&header->payloadSizeBytes);
+    if (payloadSize > ffprotocol::kSnapshotMaximumPayloadBytes
+        || payloadSize > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - sizeof(*header))) {
+        return false;
+    }
+
+    MEMORY_BASIC_INFORMATION memoryInfo{};
+    if (VirtualQuery(view, &memoryInfo, sizeof(memoryInfo)) != sizeof(memoryInfo)) {
+        return false;
+    }
+    const uint64_t requiredBytes = sizeof(*header) + payloadSize;
+    return requiredBytes <= static_cast<uint64_t>(memoryInfo.RegionSize);
 }
 
 bool WaitForNamedPipe(const std::wstring& pipeName, const std::atomic<bool>& running,
@@ -161,8 +189,9 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
     }
 }
 
-bool EngineClient::MapSnapshotSection(const std::wstring& sectionName) {
-    UnmapSnapshotSection();
+bool EngineClient::MapSnapshotGeneration(const std::wstring& sectionPrefix, uint64_t generation) {
+    if (sectionPrefix.empty()) return false;
+    const std::wstring sectionName = GenerationSectionName(sectionPrefix, generation);
     HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sectionName.c_str());
     if (mapping == nullptr) {
         return false;
@@ -172,11 +201,25 @@ bool EngineClient::MapSnapshotSection(const std::wstring& sectionName) {
         CloseHandle(mapping);
         return false;
     }
-    std::lock_guard<std::mutex> lock(mappingMutex_);
-    mappingHandle_ = mapping;
-    mappedView_ = view;
-    snapshotSectionName_ = sectionName;
-    snapshotRemapRequested_.store(false);
+    if (!IsSnapshotGenerationUsable(view, generation)) {
+        UnmapViewOfFile(view);
+        CloseHandle(mapping);
+        SetLastError(ERROR_INVALID_DATA);
+        return false;
+    }
+    HANDLE previousMapping = nullptr;
+    const uint8_t* previousView = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(mappingMutex_);
+        previousMapping = mappingHandle_;
+        previousView = mappedView_;
+        mappingHandle_ = mapping;
+        mappedView_ = view;
+        snapshotSectionPrefix_ = sectionPrefix;
+        mappedGeneration_ = generation;
+    }
+    if (previousView != nullptr) UnmapViewOfFile(previousView);
+    if (previousMapping != nullptr) CloseHandle(previousMapping);
     return true;
 }
 
@@ -190,7 +233,8 @@ void EngineClient::UnmapSnapshotSection() {
         CloseHandle(mappingHandle_);
         mappingHandle_ = nullptr;
     }
-    snapshotSectionName_.clear();
+    snapshotSectionPrefix_.clear();
+    mappedGeneration_ = 0;
 }
 
 std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> EngineClient::ReadSnapshot() const {
@@ -205,58 +249,27 @@ std::optional<SnapshotReadResult> EngineClient::ReadSnapshotWithGeneration() con
         return std::nullopt;
     }
     const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(mappedView_);
-    for (int attempt = 0; attempt != 8; ++attempt) {
-        if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
-            // address-engineering-audit-findings 4.3: do not parse an
-            // incompatible shared-memory layout; the reader loop remaps on
-            // the next NewGeneration notification.
-            snapshotRemapRequested_.store(true);
-            UnmapViewOfFile(mappedView_);
-            mappedView_ = nullptr;
-            CloseHandle(mappingHandle_);
-            mappingHandle_ = nullptr;
-            return std::nullopt;
-        }
-        const uint64_t generationBefore = LoadSharedU64(&header->generation);
-        if (generationBefore == 0) {
-            std::this_thread::yield();
-            continue;
-        }
-        const uint32_t activeSlot = LoadSharedU32(&header->activeSlot);
-        if (activeSlot > 1) {
-            std::this_thread::yield();
-            continue;
-        }
-        const uint32_t dataSize = LoadSharedU32(&header->slotDataSize[activeSlot]);
-        if (dataSize > ffprotocol::kSnapshotSlotCapacityBytes) {
-            std::this_thread::yield();
-            continue;
-        }
-
-        const uint8_t* slotBase = mappedView_ + sizeof(ffprotocol::SnapshotSharedHeader) +
-            static_cast<size_t>(activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-        // Copy the selected slot before parsing. Parsing directly from the
-        // shared mapping leaves a second-publish window in which the writer
-        // can reuse that slot while the UI is still walking a large scan
-        // snapshot, producing a false malformed/read-failed result.
-        std::vector<uint8_t> serialized(dataSize);
-        if (dataSize != 0) {
-            std::memcpy(serialized.data(), slotBase, dataSize);
-        }
-
-        // A concurrent publish may have flipped slots while copying. Retry a
-        // bounded number of times rather than exposing a torn generation.
-        if (LoadSharedU64(&header->generation) == generationBefore &&
-            LoadSharedU32(&header->activeSlot) == activeSlot &&
-            LoadSharedU32(&header->slotDataSize[activeSlot]) == dataSize) {
-            auto parsed = ffprotocol::ParseSnapshot(serialized.data(), serialized.size());
-            if (parsed) {
-                return SnapshotReadResult{generationBefore, std::move(*parsed)};
-            }
-        }
-        std::this_thread::yield();
+    if (!ffprotocol::IsSnapshotFormatCompatible(LoadSharedU32(&header->formatVersion))) {
+        return std::nullopt;
     }
-    return std::nullopt;
+    const uint64_t generation = LoadSharedU64(&header->generation);
+    if (generation == 0 || generation != mappedGeneration_) {
+        return std::nullopt;
+    }
+    const uint64_t payloadSize = LoadSharedU64(&header->payloadSizeBytes);
+    if (payloadSize > ffprotocol::kSnapshotMaximumPayloadBytes ||
+        payloadSize > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - sizeof(*header))) {
+        return std::nullopt;
+    }
+
+    // The generation mapping is immutable after the final commit marker is
+    // published. Parse the actual payload in place instead of copying it into
+    // a second UI-owned buffer; the mapping remains held by mappingMutex_
+    // until parsing has completed.
+    const size_t dataSize = static_cast<size_t>(payloadSize);
+    auto parsed = ffprotocol::ParseSnapshot(mappedView_ + sizeof(*header), dataSize);
+    if (!parsed) return std::nullopt;
+    return SnapshotReadResult{generation, std::move(*parsed)};
 }
 
 bool EngineClient::ConnectAndSubscribe() {
@@ -311,7 +324,7 @@ bool EngineClient::ConnectAndSubscribe() {
     std::wstring sectionName(
         reinterpret_cast<const wchar_t*>(reply->payload.data() + sizeof(header)), header.sectionNameLengthChars);
 
-    if (!MapSnapshotSection(sectionName)) {
+    if (!MapSnapshotGeneration(sectionName, header.generationId)) {
         const DWORD error = GetLastError();
         CloseHandle(pipe);
         return fail(L"engine-connect-snapshot-map-failed", error);
@@ -359,23 +372,18 @@ void EngineClient::ReaderLoop() {
                     ffprotocol::NewGenerationPayload payload{};
                     std::memcpy(&payload, frame.payload.data(), sizeof(payload));
                     if (payload.generationId == 0) break;
-                    uint64_t announced = announcedGeneration_.load();
-                    while (payload.generationId > announced &&
-                           !announcedGeneration_.compare_exchange_weak(announced, payload.generationId)) {
-                    }
+                    const uint64_t announced = announcedGeneration_.load();
                     if (payload.generationId <= announced) break;
-                    if (snapshotRemapRequested_.exchange(false)) {
-                        std::wstring sectionName;
-                        {
-                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
-                            sectionName = snapshotSectionName_;
-                        }
-                        if (!sectionName.empty() && !MapSnapshotSection(sectionName)) {
-                            std::lock_guard<std::mutex> mappingLock(mappingMutex_);
-                            snapshotSectionName_ = sectionName;
-                            snapshotRemapRequested_.store(true);
-                        }
+                    std::wstring sectionPrefix;
+                    {
+                        std::lock_guard<std::mutex> mappingLock(mappingMutex_);
+                        sectionPrefix = snapshotSectionPrefix_;
                     }
+                    // Remap before announcing the generation to the UI. If a
+                    // new mapping is unavailable, the last good mapping stays
+                    // usable and the UI does not discard it as stale.
+                    if (!MapSnapshotGeneration(sectionPrefix, payload.generationId)) break;
+                    announcedGeneration_.store(payload.generationId);
                     if (onNewGeneration_) onNewGeneration_(payload.generationId);
                 }
                 break;

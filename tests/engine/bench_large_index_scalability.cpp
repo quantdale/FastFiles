@@ -35,7 +35,7 @@ constexpr size_t kBatchSize = 8192;
 constexpr size_t kWarmRunsNormal = 10;
 constexpr size_t kWarmRunsLarge = 5;
 constexpr size_t kLargeSearchThreshold = 500'000;
-constexpr size_t kCapacitySearchUpperBound = 1'000'000;
+constexpr size_t kCapacitySearchUpperBound = 3'000'000;
 
 struct MemorySample {
     uint64_t workingSetBytes = 0;
@@ -105,7 +105,7 @@ void WriteJsonDouble(std::ostream& output, double value) {
 }
 
 struct Options {
-    std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000};
+    std::vector<size_t> scales{10'000, 100'000, 500'000, 1'000'000, 2'000'000};
     std::filesystem::path outputPath = std::filesystem::path(L"docs/benchmarks/large-index-scalability.json");
     bool detailedDiagnostics = false;
 };
@@ -323,6 +323,10 @@ struct SnapshotRun {
     double totalMs = 0.0;
     double uiMappingAndParsingMs = 0.0;
     size_t uiParsedRows = 0;
+    MemorySample memoryBefore = {};
+    MemorySample memoryAfterModel = {};
+    MemorySample memoryAfterPublish = {};
+    MemorySample memoryAfterUi = {};
     MemorySample memoryAfter = {};
 };
 
@@ -400,10 +404,16 @@ uint64_t DatabaseBytes(const std::filesystem::path& database) {
 
 bool BuildSyntheticDatabase(const std::filesystem::path& database, size_t scale, double& generationMs,
                             ffindexstore::VolumeRowId& volumeId, MemorySample& before,
-                            MemorySample& after) {
+                            MemorySample& after, bool detailedDiagnostics) {
     before = ReadMemory();
+    const auto openStart = Clock::now();
     ffengine::IndexPipeline pipeline;
     if (!pipeline.Open(PathToUtf8(database))) return false;
+    if (detailedDiagnostics) {
+        std::printf("  [%zu] fixture open %.2f ms\n", scale, ElapsedMs(openStart));
+        std::printf("  [%zu] durable insert start (target %zu records)\n", scale, scale);
+        std::fflush(stdout);
+    }
 
     ffindexstore::VolumeKey key;
     key.serialNumber = static_cast<uint32_t>(scale ^ 0xF457F17u);
@@ -418,10 +428,22 @@ bool BuildSyntheticDatabase(const std::filesystem::path& database, size_t scale,
     const auto generationStart = Clock::now();
     std::vector<ffprotocol::MftRecordV1> batch;
     batch.reserve(kBatchSize);
+    size_t insertedRecords = 0;
+    size_t nextProgress = 100'000;
     auto flush = [&] {
         if (batch.empty()) return true;
+        const size_t batchRecords = batch.size();
         const bool applied = pipeline.ApplyMftBatch(volumeId, batch);
         batch.clear();
+        if (applied) {
+            insertedRecords += batchRecords;
+            if (detailedDiagnostics && (insertedRecords >= nextProgress || insertedRecords == scale)) {
+                std::printf("  [%zu] durable insert progress %zu/%zu (%.2f s)\n", scale,
+                            insertedRecords, scale, ElapsedMs(generationStart) / 1000.0);
+                std::fflush(stdout);
+                while (nextProgress <= insertedRecords) nextProgress += 100'000;
+            }
+        }
         return applied;
     };
 
@@ -445,23 +467,36 @@ bool BuildSyntheticDatabase(const std::filesystem::path& database, size_t scale,
     if (!flush()) return false;
     generationMs = ElapsedMs(generationStart);
     after = ReadMemory();
+    if (detailedDiagnostics) {
+        std::printf("  [%zu] durable insert complete %.2f s (%zu records)\n", scale,
+                    generationMs / 1000.0, insertedRecords);
+        std::fflush(stdout);
+    }
     pipeline.Close();
     return true;
 }
 
 bool LoadPipeline(const std::filesystem::path& database, ffengine::IndexPipeline& pipeline,
                   ffindexstore::VolumeRowId volumeId, double& rebuildMs, MemorySample& afterOpen,
-                  MemorySample& afterRebuild) {
+                  MemorySample& afterRebuild, bool detailedDiagnostics, size_t scale) {
     if (!pipeline.Open(PathToUtf8(database))) return false;
     afterOpen = ReadMemory();
     ffprotocol::VolumeSetting setting;
     setting.key = L"C:";
     setting.enabled = true;
     pipeline.SetVolumeRules(volumeId, setting);
+    if (detailedDiagnostics) {
+        std::printf("  [%zu] projection rebuild start\n", scale);
+        std::fflush(stdout);
+    }
     const auto rebuildStart = Clock::now();
     pipeline.RebuildAll({});
     rebuildMs = ElapsedMs(rebuildStart);
     afterRebuild = ReadMemory();
+    if (detailedDiagnostics) {
+        std::printf("  [%zu] projection rebuild complete %.2f s\n", scale, rebuildMs / 1000.0);
+        std::fflush(stdout);
+    }
     return true;
 }
 
@@ -623,8 +658,20 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> MakeSnapshot(size_t rows) 
 }
 
 size_t SerializedSizeForRows(size_t rows) {
-    const auto snapshot = MakeSnapshot(rows);
-    return ffprotocol::SerializeSnapshot(snapshot).size();
+    constexpr size_t kDirectoryCountBytes = sizeof(uint32_t);
+    constexpr size_t kStatusBytes = sizeof(uint32_t);
+    constexpr size_t kDirectoryIdentifierBytes = 5 * sizeof(uint64_t);
+    constexpr size_t kEntryFixedBytes = sizeof(uint8_t) + 8 * sizeof(uint64_t) + sizeof(uint32_t);
+    const std::wstring path = L"C:\\Benchmark";
+    size_t total = kDirectoryCountBytes + sizeof(uint32_t) + path.size() * sizeof(wchar_t) +
+        kStatusBytes + kDirectoryIdentifierBytes + sizeof(uint32_t);
+    for (size_t index = 0; index < rows; ++index) {
+        size_t digits = 1;
+        for (size_t value = index; value >= 10; value /= 10) ++digits;
+        const size_t nameChars = 18 + digits; // snapshot_item_ + decimal index + .txt/.bin
+        total += kEntryFixedBytes + sizeof(uint32_t) + nameChars * sizeof(wchar_t);
+    }
+    return total;
 }
 
 size_t FindLargestSnapshotRows() {
@@ -632,13 +679,13 @@ size_t FindLargestSnapshotRows() {
     size_t high = kCapacitySearchUpperBound;
     while (high - low > 512) {
         const size_t middle = low + (high - low) / 2;
-        if (SerializedSizeForRows(middle) <= ffprotocol::kSnapshotSlotCapacityBytes) {
+        if (SerializedSizeForRows(middle) <= ffprotocol::kSnapshotMaximumPayloadBytes) {
             low = middle;
         } else {
             high = middle;
         }
     }
-    while (SerializedSizeForRows(low + 1) <= ffprotocol::kSnapshotSlotCapacityBytes) ++low;
+    while (SerializedSizeForRows(low + 1) <= ffprotocol::kSnapshotMaximumPayloadBytes) ++low;
     return low;
 }
 
@@ -656,16 +703,14 @@ PublishedRead ReadPublishedSnapshot(const std::wstring& sectionName) {
         result.elapsedMs = ElapsedMs(start);
         return result;
     }
-    const size_t totalSize = sizeof(ffprotocol::SnapshotSharedHeader) +
-                             2 * ffprotocol::kSnapshotSlotCapacityBytes;
-    const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, totalSize));
+    const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
     if (view != nullptr) {
         ffprotocol::SnapshotSharedHeader header{};
         std::memcpy(&header, view, sizeof(header));
-        if (header.activeSlot <= 1 && header.slotDataSize[header.activeSlot] <= ffprotocol::kSnapshotSlotCapacityBytes) {
-            const uint8_t* data = view + sizeof(header) +
-                                  static_cast<size_t>(header.activeSlot) * ffprotocol::kSnapshotSlotCapacityBytes;
-            const auto parsed = ffprotocol::ParseSnapshot(data, header.slotDataSize[header.activeSlot]);
+        if (ffprotocol::IsSnapshotFormatCompatible(header.formatVersion) && header.generation != 0 &&
+            header.payloadSizeBytes <= ffprotocol::kSnapshotMaximumPayloadBytes) {
+            const uint8_t* data = view + sizeof(header);
+            const auto parsed = ffprotocol::ParseSnapshot(data, static_cast<size_t>(header.payloadSizeBytes));
             if (parsed) {
                 result.parsed = true;
                 for (const auto& [path, directory] : *parsed) {
@@ -681,13 +726,15 @@ PublishedRead ReadPublishedSnapshot(const std::wstring& sectionName) {
     return result;
 }
 
-SnapshotRun RunSnapshot(size_t rows, ffengine::SnapshotPublisher& publisher) {
+SnapshotRun RunSnapshot(size_t rows, ffengine::SnapshotPublisher& publisher, bool detailedDiagnostics) {
     SnapshotRun result;
     result.rows = rows;
     result.generationBefore = publisher.CurrentGeneration();
+    result.memoryBefore = ReadMemory();
     const auto modelStart = Clock::now();
     const auto snapshot = MakeSnapshot(rows);
     result.modelBuildMs = ElapsedMs(modelStart);
+    result.memoryAfterModel = ReadMemory();
     ffengine::SnapshotPublisher::PublishTimings timings;
     const auto totalStart = Clock::now();
     const uint64_t generation = publisher.Publish(snapshot, &timings);
@@ -696,17 +743,27 @@ SnapshotRun RunSnapshot(size_t rows, ffengine::SnapshotPublisher& publisher) {
     result.serializationMs = timings.serializationMs;
     result.publishCopyAndCommitMs = timings.copyAndCommitMs;
     result.publishSucceeded = generation != 0;
-    result.oversize = !result.publishSucceeded && timings.serializedBytes > ffprotocol::kSnapshotSlotCapacityBytes;
+    result.oversize = !result.publishSucceeded && timings.serializedBytes > ffprotocol::kSnapshotMaximumPayloadBytes;
     result.generationAfter = publisher.CurrentGeneration();
+    result.memoryAfterPublish = ReadMemory();
     if (result.publishSucceeded) {
-        const PublishedRead read = ReadPublishedSnapshot(publisher.SectionName());
+        const PublishedRead read = ReadPublishedSnapshot(publisher.CurrentSectionName());
         result.uiMappingAndParsingMs = read.elapsedMs;
         result.uiParsedRows = read.rows;
         if (!read.parsed || read.rows != rows) {
             std::fprintf(stderr, "warning: published snapshot did not round-trip all rows\n");
         }
     }
-    result.memoryAfter = ReadMemory();
+    result.memoryAfterUi = ReadMemory();
+    result.memoryAfter = result.memoryAfterUi;
+    if (detailedDiagnostics) {
+        std::printf("  snapshot rows %zu: model %.2f ms, serialize %.2f ms, publish %.2f ms, "
+                    "UI map/parse %.2f ms, bytes %zu, %s\n",
+                    rows, result.modelBuildMs, result.serializationMs, result.publishCopyAndCommitMs,
+                    result.uiMappingAndParsingMs, result.serializedBytes,
+                    result.publishSucceeded ? "published" : (result.oversize ? "rejected-oversize" : "failed"));
+        std::fflush(stdout);
+    }
     return result;
 }
 
@@ -847,7 +904,12 @@ void WriteSnapshot(std::ostream& output, const SnapshotRun& run) {
     output << ",\"publish_copy_and_commit_ms\":"; WriteJsonDouble(output, run.publishCopyAndCommitMs);
     output << ",\"total_ms\":"; WriteJsonDouble(output, run.totalMs);
     output << ",\"ui_mapping_and_parsing_ms\":"; WriteJsonDouble(output, run.uiMappingAndParsingMs);
-    output << ",\"ui_parsed_rows\":" << run.uiParsedRows << ",\"memory_after\":";
+    output << ",\"ui_parsed_rows\":" << run.uiParsedRows;
+    output << ",\"memory_before\":"; WriteMemory(output, run.memoryBefore);
+    output << ",\"memory_after_model\":"; WriteMemory(output, run.memoryAfterModel);
+    output << ",\"memory_after_publish\":"; WriteMemory(output, run.memoryAfterPublish);
+    output << ",\"memory_after_ui\":"; WriteMemory(output, run.memoryAfterUi);
+    output << ",\"memory_after\":";
     WriteMemory(output, run.memoryAfter);
     output << '}';
 }
@@ -879,8 +941,10 @@ int wmain(int argc, wchar_t** argv) {
         return 1;
     }
     std::printf("FastFiles large-index scalability benchmark (%zu dataset scales)\n", options.scales.size());
+    std::fflush(stdout);
     for (const size_t scale : options.scales) {
         std::printf("Building %zu synthetic entries...\n", scale);
+        std::fflush(stdout);
         const std::filesystem::path temporaryDirectory = MakeTemporaryDirectory(scale);
         if (temporaryDirectory.empty()) {
             std::fprintf(stderr, "unable to create temporary directory for %zu\n", scale);
@@ -892,7 +956,8 @@ int wmain(int argc, wchar_t** argv) {
         dataset.databaseLocation = database.wstring();
         ffindexstore::VolumeRowId volumeId = 0;
         if (!BuildSyntheticDatabase(database, scale, dataset.generationMs, volumeId,
-                                     dataset.beforeFixture, dataset.afterFixture)) {
+                                     dataset.beforeFixture, dataset.afterFixture,
+                                     options.detailedDiagnostics)) {
             std::fprintf(stderr, "synthetic database generation failed at %zu\n", scale);
             std::error_code ignored;
             std::filesystem::remove_all(temporaryDirectory, ignored);
@@ -902,7 +967,8 @@ int wmain(int argc, wchar_t** argv) {
 
         ffengine::IndexPipeline pipeline;
         if (!LoadPipeline(database, pipeline, volumeId, dataset.rebuildMs,
-                           dataset.afterDatabaseOpen, dataset.afterRebuild)) {
+                           dataset.afterDatabaseOpen, dataset.afterRebuild,
+                           options.detailedDiagnostics, scale)) {
             std::fprintf(stderr, "synthetic database reload failed at %zu\n", scale);
             std::error_code ignored;
             std::filesystem::remove_all(temporaryDirectory, ignored);
@@ -910,6 +976,10 @@ int wmain(int argc, wchar_t** argv) {
         }
 
         {
+            if (options.detailedDiagnostics) {
+                std::printf("  [%zu] snapshot export/publication start\n", scale);
+                std::fflush(stdout);
+            }
             const auto exportStart = Clock::now();
             const auto actualSnapshot = pipeline.ExportDirectorySnapshot(volumeId, L"C:");
             dataset.snapshotExportMs = ElapsedMs(exportStart);
@@ -926,7 +996,16 @@ int wmain(int argc, wchar_t** argv) {
             dataset.actualSnapshotPublishCopyAndCommitMs = publishTimings.copyAndCommitMs;
             if (dataset.actualSnapshotPublishSucceeded) {
                 dataset.actualSnapshotUiMappingAndParsingMs =
-                    ReadPublishedSnapshot(publisher.SectionName()).elapsedMs;
+                    ReadPublishedSnapshot(publisher.CurrentSectionName()).elapsedMs;
+            }
+            if (options.detailedDiagnostics) {
+                std::printf("  [%zu] snapshot export/publication complete: export %.2f ms, "
+                            "serialize %.2f ms, publish %.2f ms, UI map/parse %.2f ms, bytes %zu, %s\n",
+                            scale, dataset.snapshotExportMs, dataset.actualSnapshotSerializationMs,
+                            dataset.actualSnapshotPublishCopyAndCommitMs,
+                            dataset.actualSnapshotUiMappingAndParsingMs, dataset.actualSnapshotBytes,
+                            dataset.actualSnapshotPublishSucceeded ? "published" : "rejected/failed");
+                std::fflush(stdout);
             }
         }
 
@@ -937,6 +1016,7 @@ int wmain(int argc, wchar_t** argv) {
             searchRuns.push_back(probe.run);
             std::printf("  projection probe   %.2f ms, rows %zu\n", probe.run.totalMs,
                         probe.run.projectionRowsExamined);
+            std::fflush(stdout);
         }
 
         for (size_t caseIndex = 0; caseIndex < queryCases.size(); ++caseIndex) {
@@ -958,6 +1038,7 @@ int wmain(int argc, wchar_t** argv) {
             AddSearchSummary(searchSummaries, scale, queryCase, searchRuns);
             std::printf("  %-18s median %.2f ms, results %zu\n", queryCase.name,
                         searchSummaries.back().medianMs, searchSummaries.back().resultCount);
+            std::fflush(stdout);
             if (std::string_view(queryCase.name) == "broad") dataset.afterBroadQuery = ReadMemory();
         }
 
@@ -980,24 +1061,33 @@ int wmain(int argc, wchar_t** argv) {
         dataset.postQuery = ReadMemory();
         datasets.push_back(dataset);
         pipeline.Close();
+        if (options.detailedDiagnostics) {
+            std::printf("  [%zu] cleanup start\n", scale);
+            std::fflush(stdout);
+        }
         std::error_code ignored;
         std::filesystem::remove_all(temporaryDirectory, ignored);
+        if (options.detailedDiagnostics) {
+            std::printf("  [%zu] cleanup complete\n", scale);
+            std::fflush(stdout);
+        }
         std::printf("Completed %zu; database %.1f MB, generation %.1f s, rebuild %.1f s\n",
                     scale, static_cast<double>(dataset.databaseBytes) / (1024.0 * 1024.0),
                     dataset.generationMs / 1000.0, dataset.rebuildMs / 1000.0);
+        std::fflush(stdout);
     }
 
     std::vector<SnapshotRun> snapshotRuns;
     for (const size_t rows : {size_t{100}, size_t{1'000}, size_t{10'000}, size_t{50'000},
                               size_t{100'000}, size_t{250'000}, size_t{500'000}}) {
-        snapshotRuns.push_back(RunSnapshot(rows, publisher));
+        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
     }
     const size_t largestRows = FindLargestSnapshotRows();
     for (const double fraction : {0.50, 0.75, 0.90, 1.00}) {
         const size_t rows = static_cast<size_t>(static_cast<double>(largestRows) * fraction);
-        snapshotRuns.push_back(RunSnapshot(rows, publisher));
+        snapshotRuns.push_back(RunSnapshot(rows, publisher, options.detailedDiagnostics));
     }
-    snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher));
+    snapshotRuns.push_back(RunSnapshot(largestRows + 1, publisher, options.detailedDiagnostics));
     publisher.Stop();
 
     std::filesystem::path parent = options.outputPath.parent_path();
@@ -1015,9 +1105,9 @@ int wmain(int argc, wchar_t** argv) {
         return 1;
     }
     const MachineInfo machine = ReadMachineInfo();
-    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v1\",\n  \"machine\":";
+    output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n  \"machine\":";
     WriteMachine(output, machine);
-    output << ",\n  \"snapshot_capacity_bytes\":" << ffprotocol::kSnapshotSlotCapacityBytes
+    output << ",\n  \"snapshot_maximum_payload_bytes\":" << ffprotocol::kSnapshotMaximumPayloadBytes
            << ",\n  \"indexed_search_result_cap\":" << ffprotocol::kMaxIndexedSearchResultCount
            << ",\n  \"database_cleanup\":true,\n  \"datasets\":[\n";
     for (size_t index = 0; index < datasets.size(); ++index) {
@@ -1048,7 +1138,7 @@ int wmain(int argc, wchar_t** argv) {
     output.close();
 
     std::printf("Wrote %s\n", PathToUtf8(options.outputPath).c_str());
-    std::printf("Largest successful snapshot probe: %zu rows (configured slot %zu bytes)\n",
-                largestRows, ffprotocol::kSnapshotSlotCapacityBytes);
+    std::printf("Largest successful snapshot probe: %zu rows (maximum payload %zu bytes)\n",
+                largestRows, ffprotocol::kSnapshotMaximumPayloadBytes);
     return 0;
 }

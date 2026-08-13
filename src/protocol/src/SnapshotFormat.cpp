@@ -1,25 +1,147 @@
 #include "ffprotocol/SnapshotFormat.h"
 
 #include <cstring>
+#include <limits>
+#include <utility>
 
 namespace ffprotocol {
 
 namespace {
 
-void AppendU32(std::vector<uint8_t>& buffer, uint32_t value) {
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
-    buffer.insert(buffer.end(), bytes, bytes + sizeof(value));
+bool AddBytes(size_t current, size_t additional, size_t& result) noexcept {
+    if (additional > std::numeric_limits<size_t>::max() - current) {
+        return false;
+    }
+    result = current + additional;
+    return true;
 }
 
-void AppendU64(std::vector<uint8_t>& buffer, uint64_t value) {
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(&value);
-    buffer.insert(buffer.end(), bytes, bytes + sizeof(value));
+bool AddWideStringBytes(size_t current, const std::wstring& text, size_t& result) noexcept {
+    if (text.size() > std::numeric_limits<uint32_t>::max()) {
+        return false;
+    }
+    size_t byteCount = 0;
+    if (text.size() > std::numeric_limits<size_t>::max() / sizeof(wchar_t)) {
+        return false;
+    }
+    byteCount = text.size() * sizeof(wchar_t);
+    if (!AddBytes(current, sizeof(uint32_t), result)) {
+        return false;
+    }
+    return AddBytes(result, byteCount, result);
 }
 
-void AppendWString(std::vector<uint8_t>& buffer, const std::wstring& text) {
-    AppendU32(buffer, static_cast<uint32_t>(text.size()));
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text.data());
-    buffer.insert(buffer.end(), bytes, bytes + text.size() * sizeof(wchar_t));
+template <typename DirectoryMap>
+size_t SerializedSnapshotSizeImpl(const DirectoryMap& directories) noexcept {
+    if (directories.size() > std::numeric_limits<uint32_t>::max()) {
+        return 0;
+    }
+
+    size_t total = sizeof(uint32_t);
+    for (const auto& [path, directory] : directories) {
+        if (!AddWideStringBytes(total, path, total)
+            || !AddBytes(total, sizeof(uint32_t), total)
+            || !AddBytes(total, 5 * sizeof(uint64_t), total)) {
+            return 0;
+        }
+        if (directory.entries.size() > std::numeric_limits<uint32_t>::max()
+            || !AddBytes(total, sizeof(uint32_t), total)) {
+            return 0;
+        }
+        for (const auto& entry : directory.entries) {
+            if (!AddBytes(total, 1 + sizeof(uint32_t) + 8 * sizeof(uint64_t), total)
+                || !AddWideStringBytes(total, entry.name, total)) {
+                return 0;
+            }
+        }
+    }
+    return total;
+}
+
+class Writer {
+public:
+    Writer(uint8_t* destination, size_t capacity) : destination_(destination), capacity_(capacity) {}
+
+    bool WriteRaw(const void* source, size_t size) noexcept {
+        if (!valid_ || size > capacity_ - offset_) {
+            valid_ = false;
+            return false;
+        }
+        if (size != 0) {
+            if (destination_ == nullptr || source == nullptr) {
+                valid_ = false;
+                return false;
+            }
+            std::memcpy(destination_ + offset_, source, size);
+        }
+        offset_ += size;
+        return true;
+    }
+
+    bool WriteU32(uint32_t value) noexcept { return WriteRaw(&value, sizeof(value)); }
+    bool WriteU64(uint64_t value) noexcept { return WriteRaw(&value, sizeof(value)); }
+    bool WriteByte(uint8_t value) noexcept { return WriteRaw(&value, sizeof(value)); }
+
+    bool WriteWideString(const std::wstring& text) noexcept {
+        if (text.size() > std::numeric_limits<uint32_t>::max()
+            || text.size() > std::numeric_limits<size_t>::max() / sizeof(wchar_t)) {
+            valid_ = false;
+            return false;
+        }
+        const uint32_t length = static_cast<uint32_t>(text.size());
+        return WriteU32(length) && WriteRaw(text.data(), text.size() * sizeof(wchar_t));
+    }
+
+    bool Valid() const noexcept { return valid_; }
+    size_t Offset() const noexcept { return offset_; }
+
+private:
+    uint8_t* destination_ = nullptr;
+    size_t capacity_ = 0;
+    size_t offset_ = 0;
+    bool valid_ = true;
+};
+
+template <typename DirectoryMap>
+bool SerializeSnapshotToImpl(const DirectoryMap& directories, uint8_t* destination,
+                             size_t capacity) noexcept {
+    const size_t expectedSize = SerializedSnapshotSizeImpl(directories);
+    if (expectedSize == 0 || destination == nullptr || capacity < expectedSize) {
+        return false;
+    }
+
+    Writer writer(destination, capacity);
+    if (!writer.WriteU32(static_cast<uint32_t>(directories.size()))) {
+        return false;
+    }
+    for (const auto& [path, directory] : directories) {
+        if (!writer.WriteWideString(path)
+            || !writer.WriteU32(static_cast<uint32_t>(directory.status))
+            || !writer.WriteU64(static_cast<uint64_t>(directory.volumeRowId))
+            || !writer.WriteU64(directory.directoryIdLow)
+            || !writer.WriteU64(directory.directoryIdHigh)
+            || !writer.WriteU64(directory.parentIdLow)
+            || !writer.WriteU64(directory.parentIdHigh)
+            || !writer.WriteU32(static_cast<uint32_t>(directory.entries.size()))) {
+            return false;
+        }
+        for (const auto& entry : directory.entries) {
+            if (!writer.WriteByte(entry.isDirectory ? 1 : 0)
+                || !writer.WriteU64(entry.sizeBytes)
+                || !writer.WriteU32(entry.attributes)
+                || !writer.WriteU64(entry.creationTime)
+                || !writer.WriteU64(entry.lastModifiedTime)
+                || !writer.WriteU64(static_cast<uint64_t>(entry.volumeRowId))
+                || !writer.WriteU64(entry.fileIdLow)
+                || !writer.WriteU64(entry.fileIdHigh)
+                || !writer.WriteU64(entry.parentIdLow)
+                || !writer.WriteU64(entry.parentIdHigh)
+                || !writer.WriteWideString(entry.name)) {
+                return false;
+            }
+        }
+    }
+    return writer.Valid() && writer.Offset() == expectedSize;
 }
 
 // A tiny cursor-based reader: every read validates there's enough of the
@@ -84,31 +206,13 @@ private:
 
 template <typename DirectoryMap>
 std::vector<uint8_t> SerializeSnapshotImpl(const DirectoryMap& directories) {
-    std::vector<uint8_t> buffer;
-    AppendU32(buffer, static_cast<uint32_t>(directories.size()));
-
-    for (const auto& [path, directory] : directories) {
-        AppendWString(buffer, path);
-        AppendU32(buffer, static_cast<uint32_t>(directory.status));
-        AppendU64(buffer, static_cast<uint64_t>(directory.volumeRowId));
-        AppendU64(buffer, directory.directoryIdLow);
-        AppendU64(buffer, directory.directoryIdHigh);
-        AppendU64(buffer, directory.parentIdLow);
-        AppendU64(buffer, directory.parentIdHigh);
-        AppendU32(buffer, static_cast<uint32_t>(directory.entries.size()));
-        for (const auto& entry : directory.entries) {
-            buffer.push_back(entry.isDirectory ? 1 : 0);
-            AppendU64(buffer, entry.sizeBytes);
-            AppendU32(buffer, entry.attributes);
-            AppendU64(buffer, entry.creationTime);
-            AppendU64(buffer, entry.lastModifiedTime);
-            AppendU64(buffer, static_cast<uint64_t>(entry.volumeRowId));
-            AppendU64(buffer, entry.fileIdLow);
-            AppendU64(buffer, entry.fileIdHigh);
-            AppendU64(buffer, entry.parentIdLow);
-            AppendU64(buffer, entry.parentIdHigh);
-            AppendWString(buffer, entry.name);
-        }
+    const size_t size = SerializedSnapshotSizeImpl(directories);
+    if (size == 0) {
+        return {};
+    }
+    std::vector<uint8_t> buffer(size);
+    if (!SerializeSnapshotToImpl(directories, buffer.data(), buffer.size())) {
+        return {};
     }
     return buffer;
 }
@@ -119,6 +223,24 @@ std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDire
 
 std::vector<uint8_t> SerializeSnapshot(const CaseInsensitiveSnapshotMap& directories) {
     return SerializeSnapshotImpl(directories);
+}
+
+size_t SerializedSnapshotSize(const std::map<std::wstring, SnapshotDirectory>& directories) noexcept {
+    return SerializedSnapshotSizeImpl(directories);
+}
+
+size_t SerializedSnapshotSize(const CaseInsensitiveSnapshotMap& directories) noexcept {
+    return SerializedSnapshotSizeImpl(directories);
+}
+
+bool SerializeSnapshotTo(const std::map<std::wstring, SnapshotDirectory>& directories,
+                         uint8_t* destination, size_t capacity) noexcept {
+    return SerializeSnapshotToImpl(directories, destination, capacity);
+}
+
+bool SerializeSnapshotTo(const CaseInsensitiveSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept {
+    return SerializeSnapshotToImpl(directories, destination, capacity);
 }
 
 std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uint8_t* data, size_t size) {

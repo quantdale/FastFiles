@@ -10,24 +10,25 @@
 
 namespace ffprotocol {
 
-// Layout of the shared memory-mapped snapshot section FastFilesEngine
-// publishes and FastFiles (UI) reads directly, with zero IPC round trip
-// (design.md D3; spec "Filesystem Snapshot Publication"). The mapping is
-// sizeof(SnapshotSharedHeader) followed by two equally sized slots of
-// kSnapshotSlotCapacityBytes each; the header says which slot is current.
+// Layout of an immutable, generation-named snapshot mapping that
+// FastFilesEngine publishes and FastFiles (UI) reads directly, with zero IPC
+// round trip (design.md D3; spec "Filesystem Snapshot Publication"). Each
+// mapping is exactly sizeof(SnapshotSharedHeader) plus the serialized payload;
+// a new mapping name is published only after the engine has fully written it.
 //
 // This is a private in-process-family format (engine writer, UI reader)
 // rather than a wire protocol with external versioning guarantees -- both
 // sides are built from the same source tree, so there is no
 // cross-version compatibility concern the way there is for the named-pipe
 // protocols in Commands.h/UiProtocol.h.
-// A 256 MiB slot keeps a complete large-volume projection usable without
-// changing the zero-IPC format. Publication still fails closed above this
-// explicit bound and the UI surfaces that failure.
-constexpr size_t kSnapshotSlotCapacityBytes = 256 * 1024 * 1024;
-// address-engineering-audit-findings 4.1: the mapping header is versioned so
-// a UI never interprets a section written by an incompatible engine layout.
-constexpr uint32_t kSnapshotFormatVersion = 1;
+// A 256 MiB maximum payload keeps a complete large-volume projection usable
+// without allowing an unbounded publish allocation. Publication fails closed
+// above this explicit bound and the UI surfaces that failure. Unlike the old
+// two-slot layout, this is a limit rather than a mapping reservation.
+constexpr size_t kSnapshotMaximumPayloadBytes = 256 * 1024 * 1024;
+// audit-remediation FF-AUDIT-04: the header is versioned so a UI never
+// interprets a section written by an incompatible engine layout.
+constexpr uint32_t kSnapshotFormatVersion = 2;
 
 constexpr bool IsSnapshotFormatCompatible(uint32_t formatVersion) noexcept {
     return formatVersion == kSnapshotFormatVersion;
@@ -38,11 +39,7 @@ struct SnapshotSharedHeader {
     uint32_t formatVersion;
     uint32_t reserved;
     uint64_t generation;
-    uint32_t activeSlot; // 0 or 1
-    // Each slot owns its descriptor. The writer fills the inactive slot and
-    // publishes its size before flipping activeSlot, so a reader never pairs
-    // an old slot with the new slot's length.
-    uint32_t slotDataSize[2];
+    uint64_t payloadSizeBytes;
 };
 #pragma pack(pop)
 
@@ -93,6 +90,19 @@ using CaseInsensitiveSnapshotMap =
 // [len-prefixed name] } }.
 std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories);
 std::vector<uint8_t> SerializeSnapshot(const CaseInsensitiveSnapshotMap& directories);
+
+// Two-pass publication support. The first pass computes the exact payload
+// size without allocating a second copy of the snapshot. The second pass
+// writes directly into caller-owned storage and fails if the storage is too
+// small or the trusted model cannot be represented by the length-prefixed
+// format. A zero size indicates overflow/invalid input; a valid empty snapshot
+// is four bytes (the directory count).
+size_t SerializedSnapshotSize(const std::map<std::wstring, SnapshotDirectory>& directories) noexcept;
+size_t SerializedSnapshotSize(const CaseInsensitiveSnapshotMap& directories) noexcept;
+bool SerializeSnapshotTo(const std::map<std::wstring, SnapshotDirectory>& directories,
+                         uint8_t* destination, size_t capacity) noexcept;
+bool SerializeSnapshotTo(const CaseInsensitiveSnapshotMap& directories,
+                         uint8_t* destination, size_t capacity) noexcept;
 
 // Parses a buffer produced by SerializeSnapshot. Returns std::nullopt on
 // any malformed input (truncated buffer, declared length exceeding what

@@ -267,7 +267,7 @@ bool UiServer::RepublishAndBroadcastGeneration() {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
                                       ffprotocol::DiagnosticCode::FFDIAG_SNAPSHOT_PUBLISH_FAILED,
                                       {}, {}, L"snapshot-publish-failed", ERROR_WRITE_FAULT, 0});
-        return false; // publish failed (e.g. exceeded slot capacity); nothing to announce
+        return false; // publish failed; nothing to announce
     }
 
     ffprotocol::NewGenerationPayload payload{generation};

@@ -1,6 +1,7 @@
 #pragma once
 #include <atomic>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -11,17 +12,16 @@
 namespace ffengine {
 
 // Task 4.7/4.8: publishes the engine's current view of enumerated
-// directories into a read-only, double-buffered memory-mapped section
-// (design.md D3) so a UI client can read already-published directory
-// contents with zero IPC round trip. The section name is suffixed by the
-// Terminal Services session ID (task 4.8) so multiple concurrently
-// logged-on sessions -- each running their own FastFilesEngine -- don't
-// collide.
+// directories into immutable, generation-sized memory-mapped sections
+// (design.md D3) so a UI client can read already-published directory contents
+// with zero IPC round trip. The stable prefix is suffixed by the Terminal
+// Services session ID and a per-engine GUID epoch so concurrently logged-on
+// sessions and restarts cannot collide.
 //
-// Double-buffering: Publish() writes a full new serialization into the
-// currently-INACTIVE slot, then publishes the slot descriptor and selection
-// with Windows interlocked stores. The interlocked operations provide the
-// required cross-process ordering; a reader never observes a torn descriptor.
+// Immutable generations: Publish() creates and completely initializes a new
+// mapping named <prefix>.<generation>, then the UI is notified of that name's
+// generation. The engine keeps only the current mapping; a UI that still holds
+// the previous mapping can finish reading it safely.
 class SnapshotPublisher {
 public:
     // Optional attribution seam for the explicit scalability benchmark. The
@@ -37,24 +37,32 @@ public:
     bool Start(DWORD sessionId);
     void Stop();
 
-    // Replaces the full published view and flips to a new generation.
+    // Replaces the full published view with a new immutable generation.
     // Returns the new generation ID, or 0 on failure (e.g. serialized size
-    // exceeds the bounded 256 MiB slot capacity).
+    // exceeds the bounded 256 MiB payload capacity).
     uint64_t Publish(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& directories,
                      PublishTimings* timings = nullptr);
     uint64_t Publish(const ffprotocol::CaseInsensitiveSnapshotMap& directories,
                      PublishTimings* timings = nullptr);
 
-    const std::wstring& SectionName() const noexcept { return sectionName_; }
+    // Stable prefix sent in SubscribeAck. The generation suffix is appended
+    // by CurrentSectionName() and is intentionally not part of this value.
+    const std::wstring& SectionName() const noexcept { return sectionPrefix_; }
+    std::wstring CurrentSectionName() const;
     uint64_t CurrentGeneration() const noexcept { return generation_.load(); }
 
 private:
-    uint64_t PublishSerialized(std::vector<uint8_t> serialized, PublishTimings* timings,
-                               double serializationMs);
+    using SnapshotWriter = std::function<bool(uint8_t* destination, size_t capacity)>;
+
+    bool CreateGenerationMapping(uint64_t generation, size_t payloadSize,
+                                 const SnapshotWriter& writer, HANDLE& mapping,
+                                 uint8_t*& view, double* serializationMs) noexcept;
+    uint64_t PublishPayload(size_t payloadSize, const SnapshotWriter& writer,
+                            PublishTimings* timings);
 
     HANDLE mapping_ = nullptr;
     uint8_t* view_ = nullptr;
-    std::wstring sectionName_;
+    std::wstring sectionPrefix_;
     std::atomic<uint64_t> generation_{0};
     std::mutex publishMutex_;
 };

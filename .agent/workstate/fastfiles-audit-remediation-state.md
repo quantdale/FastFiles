@@ -10,11 +10,11 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `a414cab` (release/CI reproducibility slice; worktree has pending USN changes)
+- HEAD: `a47b705` (release/CI plus USN data-correctness slices committed; snapshot redesign is the current uncommitted slice)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
-- Remediation-owned modified files: `.agent/workstate/fastfiles-audit-remediation-state.md`, `.github/workflows/ci.yml`, `CMakeLists.txt`, `CMakePresets.json`, `README.md`, `src/engine/src/IndexPipeline.cpp`, `src/indexstore/include/ffindexstore/EntryRecord.h`, `src/indexstore/include/ffindexstore/Projection.h`, `src/indexstore/src/Projection.cpp`, `src/indexstore/src/Store.cpp`, `tests/engine/test_index_pipeline.cpp`, `tests/indexstore/test_projection.cpp`, `tests/indexstore/test_store.cpp`, `tests/README.md`, `verify/README.md`, `verify/capabilities/windows-build-validation/Build.psm1`, `verify/release/New-ReleaseKit.ps1`, `verify/release/ReleaseCommon.psm1`, `verify/release/privileged-release.ps1`, `verify/release/tests/Test-ReleaseTooling.ps1`, `verify/release/validate-clean-host.ps1`, `verify/verify.ps1`, `.github/copilot-instructions.md`.
+- Remediation-owned modified files: the committed files above plus the current snapshot slice: `.agent/workstate/fastfiles-audit-remediation-state.md`, `src/protocol/include/ffprotocol/SnapshotFormat.h`, `src/protocol/src/SnapshotFormat.cpp`, `src/engine/src/SnapshotPublisher.h`, `src/engine/src/SnapshotPublisher.cpp`, `src/engine/src/UiServer.h`, `src/engine/src/UiServer.cpp`, `src/ui/src/EngineClient.h`, `src/ui/src/EngineClient.cpp`, `tests/engine/test_snapshot_publisher.cpp`, and `tests/engine/bench_large_index_scalability.cpp`.
 - Unrelated dirty files to preserve: none observed at start; re-check before every commit.
 - Historical repository workstate: `docs/agent/WORKSTATE.md` (contains older release/UI checkpoints and was stale relative to the starting HEAD). Mission plan: `.agent/execplans/fastfiles-audit-remediation.md`.
 - Mission workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`.
@@ -26,8 +26,8 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-01 | CRITICAL | Elevated installer trusts mutable sibling executables | IMPLEMENTED | Shared `ffsetup` package-trust seam binds manifest hash, approved Authenticode signer, stable file identity, non-reparse handle, `CREATE_NEW` staging, and same-volume promotion | `ffsetup_package_trust_tests` PASS; `FastFilesSetup` Debug build PASS; clean/elevated live install remains external | — |
 | FF-AUDIT-02 | HIGH | Elevated uninstall executes a relay from user-writable `%TEMP%` | IMPLEMENTED | Removed temp relay and detached helper; installed image performs uninstall and schedules only its own deferred deletion | `ffsetup_installer_source_policy_tests` PASS; live in-use/elevated uninstall pending external host | — |
 | FF-AUDIT-03 | CRITICAL release blocker | Production privileged path lacks final signed clean-host proof | BLOCKED_EXTERNAL | Local release workflow is fail-closed and deterministic; external signing/clean-host evidence unavailable | `verify.ps1 release-readiness -Mode report`: artifact integrity PASS; signing/pins/privileged path/clean host BLOCKED_EXTERNAL, exit 2 | — |
-| FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | OPEN | Measure first; bounded publication redesign pending | Existing benchmark history is inconclusive at 1M | — |
-| FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | IMPLEMENTED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Store, projection, and end-to-end engine tests pass, including restart, reconciliation, and delete sequence | pending next commit |
+| FF-AUDIT-04 | HIGH | Fixed two-slot snapshot creates excessive memory/commit pressure | IN_PROGRESS | Replacing the fixed 2×256 MiB mapping with immutable generation-sized mappings, explicit format v2, and bounded 256 MiB payload rejection | Existing benchmark history is inconclusive at 1M; new 10K/100K/500K/1M/2M diagnostics pending | — |
+| FF-AUDIT-05 | MEDIUM | USN incremental updates erase valid creation/access timestamps | VALIDATED | Explicit `EntryFieldMask` partial-update semantics now merge SQLite and projection state; USN marks creation/access absent | Focused 3/3 tests, full Debug/release-test suites 51/51, full verifier PASS; commit `a47b705` | `a47b705` |
 | FF-AUDIT-06 | MEDIUM | Indexed searches are stale-result-safe but not cancellable | OPEN | Scoped cancellation pending | Supersession performance test pending | — |
 | FF-AUDIT-07 | MEDIUM | UI↔Engine IPC uses `PeekNamedPipe` polling | OPEN | Shared overlapped framing design pending | IPC baseline pending | — |
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
@@ -36,7 +36,7 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
 | GAP-B | HIGH | Installer regression coverage | IMPLEMENTED | First-class setup package-trust and installer source-policy targets cover manifest, signer, hash, identity, reparse, staging, promotion, rollback candidates, and relay removal | Focused setup CTest PASS, 4/4 | — |
 | GAP-C | MEDIUM | ASAN not continuously gated | IMPLEMENTED | Added a CI ASAN protocol-fuzz job with VS developer-runtime activation; exclusions are limited to the applicable core target | Local ASAN fuzz pass; CI execution remains external | — |
-| GAP-D | MEDIUM | Large-index benchmark lacks actionable progress | OPEN | Incremental stage diagnostics pending | Prior bounded run inconclusive | — |
+| GAP-D | MEDIUM | Large-index benchmark lacks actionable progress | IN_PROGRESS | Adding stage/progress output and 2M default tier to the benchmark | New benchmark run pending after snapshot implementation | — |
 | GAP-E | LOW | Direct rendered UI validation gap | BLOCKED_EXTERNAL | Preserve headless/CLI checks and document boundary | Actual rendered Windows validation requires available visual host/tool | — |
 
 ## Root-Cause Workstreams
@@ -130,7 +130,21 @@ UI external-validation notes.
   integration tests remain outside the sanitizer job until compatibility is
   demonstrated.
 - Snapshot design remains deliberately undecided; measure and inspect current
-  abstractions before selecting complexity.
+- Snapshot redesign decision: use immutable, generation-named mappings sized to
+  `sizeof(header) + actual serialized payload`, with one current mapping held by
+  the engine and old mappings released by the engine after handoff. A GUID epoch
+  is included in the prefix so a restarted engine cannot reuse a still-open
+  generation name. The UI opens a generation only after the engine has fully
+  written and committed its header, and keeps its last good mapping if a newer
+  mapping cannot be opened. Keep a 256 MiB maximum payload as an explicit
+  fail-closed bound, but remove the fixed 512 MiB reservation. Format version
+  changes from 1 to 2; incompatible mappings are rejected.
+- Alternatives considered: file-backed generation files could reduce pagefile
+  commit further but add crash cleanup, ACL, and file-lifecycle complexity; a
+  segmented/chunked format would reduce peak serialization but requires a new
+  reader and publication topology. The first implementation uses dynamic
+  generations because it removes the dominant fixed commit envelope while
+  preserving the existing zero-IPC reader model and atomic notification seam.
 
 ## Changes Completed
 
@@ -173,6 +187,15 @@ UI external-validation notes.
 11. Committed the release/CI reproducibility slice as `a414cab`: explicit
     optimized unsigned `release-test`, production pin enforcement, package
     manifest actual-file validation, ASAN CI coverage, and synchronized docs.
+12. Committed the USN partial-update data-correctness slice as `a47b705`.
+13. Snapshot measurement/design frontier: the old `SnapshotPublisher` created
+    one 512 MiB pagefile-backed mapping per engine (two 256 MiB slots), the UI
+    copied the selected slot into a vector, and serialization created another
+    full buffer. The selected redesign is immutable generation-sized mappings
+    with a GUID epoch and version 2 header. The current implementation adds a
+    checked two-pass serializer that writes directly into the generation and
+    parses that immutable payload in place in the UI. Benchmark diagnostics
+    cover 10K/100K/500K/1M/2M tiers.
 
 ## Validation Evidence
 
@@ -246,6 +269,32 @@ UI external-validation notes.
 - Full default verifier after the correction:
   `pwsh -NoProfile -File .\verify\verify.ps1 build`: PASS
   (`windows-build-validation`), covering Debug + `release-test` + Analyze.
+- Snapshot two-pass/in-place slice:
+  `cmake --build --preset debug --target ffprotocol_tests FastFilesEngine
+  FastFiles ffengine_snapshot_publisher_tests ffengine_ui_server_lifecycle_tests
+  ffengine_bench_large_index_scalability`: PASS under `VsDevCmd.bat -arch=x64`.
+  Focused CTest for `ffprotocol_tests`, `ffengine_snapshot_publisher_tests`,
+  and `ffengine_ui_server_lifecycle_tests`: PASS, 3/3, 1.56 seconds.
+- Snapshot benchmark before the direct-writer change completed the 10K tier and
+  probed the payload bound: 10K actual publish serialization 43.99 ms,
+  publish 0.50 ms, UI map/parse 18.51 ms, 1,098,609 bytes; exact largest
+  successful analytical capacity was 2,200,468 rows at 268,435,456 payload
+  bytes, with 2,200,469 rejected. The run reached approximately 1.02 GiB
+  private bytes / 1.27 GiB working set while retaining source, serialized,
+  mapping, and parsed copies. That peak is the reason the direct two-pass and
+  in-place reader change is required; the benchmark must be rerun after it.
+- Post-direct-writer benchmark (`ffengine_bench_large_index_scalability.exe
+  --scales 10000 --diagnostics`) completed with incremental output and wrote
+  `%TEMP%\FastFiles-snapshot-direct-10k.json`. The 10K actual snapshot was
+  1,098,609 bytes: model/export 20.44 ms, direct serialization 1.81 ms,
+  publication 0.09 ms, and UI map/parse 17.00 ms. The analytical capacity
+  probes reached 2,200,468 rows / 268,435,424 bytes in 5.78 seconds total
+  (model 5.31 s, direct serialize 405.55 ms, publish 23.92 ms, UI parse
+  3.64 s); 2,200,469 rows / 268,435,547 bytes rejected without advancing the
+  generation. The largest probe ended at 832,028,672 private bytes and
+  1,093,849,088 working-set bytes, down from the prior approximately 1.02 GiB
+  private / 1.27 GiB working-set peak. The remaining peak is dominated by the
+  synthetic source model and parsed result, not a fixed snapshot reservation.
 
 ## Known Failures
 
@@ -279,6 +328,10 @@ UI external-validation notes.
   C6262/C6387 diagnostics; those were product-code issues, not harness noise,
   and are fixed in committed `32938ca`. Subsequent Analyze and full verifier
   runs pass.
+- The first 3M-capacity benchmark attempt was stopped after it produced no
+  progress because the old analytical size search constructed large maps;
+  the size formula/progress boundaries were then fixed. The completed run
+  above is evidence, not a failure of product behavior.
 
 ## External Blockers
 
@@ -300,6 +353,8 @@ UI external-validation notes.
   fail closed on invalid handles.
 - `a414cab` — separate optimized test-release CI/verifier coverage from the
   production signed Release profile and validate package manifests end to end.
+- `a47b705` — preserve authoritative metadata across USN rename/write/attribute
+  deltas using explicit field masks in SQLite and projection state.
 
 ## Current Risks
 
@@ -312,5 +367,7 @@ UI external-validation notes.
 
 ## Next Exact Action
 
-Commit the pending USN partial-update data-correctness slice after its focused
-and full-suite evidence is rechecked; then start snapshot measurement.
+Rerun the deterministic 10K/100K/500K snapshot benchmark with the direct
+two-pass writer and in-place UI parser, recording stage timings and memory;
+then commit the validated snapshot architecture slice before starting search
+cancellation.

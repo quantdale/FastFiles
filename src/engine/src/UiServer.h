@@ -131,7 +131,7 @@ private:
     bool HandleRequestIndexedSearch(const ClientConnectionPtr& client, const std::vector<uint8_t>& framePayload);
     void OnDirectoryChanged(const std::wstring& path);
     // recovery-degraded-browsing 4.2: returns false when the publish failed
-    // (e.g. slot capacity exceeded) so the requesting client can be told
+    // (e.g. maximum snapshot payload exceeded) so the requesting client can be told
     // instead of silently keeping stale data.
     bool RepublishAndBroadcastGeneration();
     void BroadcastEngineStatus(const ClientConnectionPtr& toSingleClient = nullptr);
