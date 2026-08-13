@@ -538,9 +538,15 @@ void TestIndexedSearchCancellationStopsProjectionWork() {
     ffprotocol::IndexedSearchResponse obsoleteResponse;
     std::atomic<bool> cancelObsolete{false};
     std::atomic<size_t> obsoleteChecks{0};
+    // fastfiles-audit-remediation FF-AUDIT-06: make the test's supersession
+    // assertion independent of optimization speed. The callback must remain
+    // in-flight until the caller has published cancellation; otherwise a
+    // fast optimized search can finish before the cancellation store.
+    std::atomic<bool> releaseObsoleteCallback{false};
     std::thread obsoleteWorker([&] {
         obsoleteResponse = pipeline.SearchIndexed(obsoleteRequest, nullptr, [&] {
             obsoleteChecks.fetch_add(1, std::memory_order_relaxed);
+            while (!releaseObsoleteCallback.load(std::memory_order_acquire)) Sleep(1);
             return cancelObsolete.load(std::memory_order_acquire);
         });
     });
@@ -552,6 +558,7 @@ void TestIndexedSearchCancellationStopsProjectionWork() {
     Check(obsoleteChecks.load(std::memory_order_acquire) != 0,
           "an obsolete large-index search reaches its cooperative cancellation checks");
     cancelObsolete.store(true, std::memory_order_release);
+    releaseObsoleteCallback.store(true, std::memory_order_release);
 
     ffprotocol::IndexedSearchRequest finalRequest = request;
     finalRequest.requestId = 93;
