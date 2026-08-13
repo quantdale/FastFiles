@@ -65,5 +65,48 @@ $hostPreflight = Get-CleanHostPreflight
 Check ($null -ne $hostPreflight.resources.service -and $null -ne $hostPreflight.resources.installDirectory) 'clean-host preflight reports exact FastFiles resources'
 Check ($null -ne $hostPreflight.trustStore -and -not $hostPreflight.trustStore.checked) 'clean-host preflight does not mutate or claim trust-store provenance'
 
+$packageTemp = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-package-manifest-test-' + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Path $packageTemp -Force | Out-Null
+    foreach ($artifactPath in @(Get-ReleaseArtifactPaths -ArtifactRoot $BuildRoot)) {
+        Copy-Item -LiteralPath $artifactPath.sourcePath -Destination (Join-Path $packageTemp $artifactPath.name) -Force
+    }
+    $packageManifestPath = Join-Path $packageTemp 'FastFiles.package.manifest'
+    Write-PackageManifest -Manifest $manifest -Path $packageManifestPath
+    $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageTemp
+    Check ($packageCheck.valid -and @($packageCheck.entries).Count -eq 4) 'package manifest round-trips the complete artifact inventory'
+    Check ((Get-Content -LiteralPath $packageManifestPath -Raw) -match 'FASTFILES_PACKAGE_MANIFEST_V1') 'package manifest has an explicit versioned header'
+    $tamperedPackageManifest = Join-Path $packageTemp 'tampered.package.manifest'
+    $tamperedText = Get-Content -LiteralPath $packageManifestPath -Raw
+    $tamperedText = $tamperedText -replace 'file=FastFiles\.exe\|[0-9]+\|[0-9A-F]{64}', 'file=FastFiles.exe|1|0000000000000000000000000000000000000000000000000000000000000000'
+    [IO.File]::WriteAllText($tamperedPackageManifest, $tamperedText, [Text.UTF8Encoding]::new($false))
+    $tamperedCheck = Test-PackageManifest -Path $tamperedPackageManifest -ArtifactManifest $manifest
+    Check (-not $tamperedCheck.valid -and $tamperedCheck.reason -eq 'PACKAGE_MANIFEST_HASH_MISMATCH') 'package manifest hash substitution is rejected'
+    $tamperedArtifactPath = Join-Path $packageTemp 'FastFiles.exe'
+    $originalBytes = [IO.File]::ReadAllBytes($tamperedArtifactPath)
+    try {
+        [IO.File]::WriteAllBytes($tamperedArtifactPath, [byte[]]::new(1))
+        $tamperedArtifactCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageTemp
+        Check (-not $tamperedArtifactCheck.valid -and $tamperedArtifactCheck.reason -eq 'PACKAGE_ARTIFACT_HASH_MISMATCH') 'package artifact substitution is rejected even when the manifest is unchanged'
+    } finally {
+        [IO.File]::WriteAllBytes($tamperedArtifactPath, $originalBytes)
+    }
+    $missingPackageManifest = Join-Path $packageTemp 'missing.package.manifest'
+    $missingCheck = Test-PackageManifest -Path $missingPackageManifest -ArtifactManifest $manifest
+    Check (-not $missingCheck.valid -and $missingCheck.reason -eq 'PACKAGE_MANIFEST_MISSING') 'missing package manifest is rejected'
+} finally {
+    $packageTempFull = [IO.Path]::GetFullPath($packageTemp).TrimEnd('\')
+    $packageTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ($packageTempFull.StartsWith($packageTempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $packageTempFull)) {
+        Remove-Item -LiteralPath $packageTempFull -Recurse -Force
+    }
+}
+
+$presets = Get-Content -LiteralPath (Join-Path $RepoRoot 'CMakePresets.json') -Raw | ConvertFrom-Json
+$releaseTestPreset = @($presets.configurePresets | Where-Object name -eq 'release-test') | Select-Object -First 1
+$releasePreset = @($presets.configurePresets | Where-Object name -eq 'release') | Select-Object -First 1
+Check ($releaseTestPreset -and $releaseTestPreset.cacheVariables.FASTFILES_RELEASE_TEST_BUILD -eq 'ON' -and $releaseTestPreset.cacheVariables.CMAKE_BUILD_TYPE -eq 'RelWithDebInfo') 'optimized test-release preset is explicit and non-production labeled'
+Check ($releasePreset -and $null -eq $releasePreset.cacheVariables.FASTFILES_RELEASE_TEST_BUILD) 'production release preset does not opt out of pin enforcement'
+
 Write-Host "Failures: $failures"
 exit $(if ($failures -eq 0) { 0 } else { 1 })

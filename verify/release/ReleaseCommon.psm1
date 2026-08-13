@@ -248,6 +248,73 @@ function Write-PackageManifest {
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($Path), (($lines -join "`n") + "`n"), $encoding)
 }
 
+function Test-PackageManifest {
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] $ArtifactManifest,
+        [string] $PackageRoot
+    )
+
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    try {
+        if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_MISSING'; entries = @() }
+        }
+        $lines = [IO.File]::ReadAllLines($fullPath, [Text.UTF8Encoding]::new($false))
+        if ($lines.Count -lt 4 -or $lines[0] -cne 'FASTFILES_PACKAGE_MANIFEST_V1' -or $lines[1] -cne 'version=1') {
+            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_HEADER_INVALID'; entries = @() }
+        }
+        if ($lines[2] -notmatch '^productVersion=(.+)$' -or [string]::IsNullOrWhiteSpace($Matches[1]) -or $Matches[1].Contains('|')) {
+            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_VERSION_INVALID'; entries = @() }
+        }
+        $productVersion = $Matches[1]
+
+        $entries = [System.Collections.Generic.List[object]]::new()
+        $seen = @{}
+        for ($index = 3; $index -lt $lines.Count; $index++) {
+            if ($lines[$index] -notmatch '^file=([^|]+)\|([0-9]+)\|([0-9A-Fa-f]{64})$') {
+                return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_FILE_ROW_INVALID'; entries = @($entries) }
+            }
+            $name = $Matches[1]
+            if ($seen.ContainsKey($name)) {
+                return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_DUPLICATE_FILE'; entries = @($entries) }
+            }
+            $seen[$name] = $true
+            $entries.Add([pscustomobject]@{
+                    filename = $name
+                    size = [uint64]$Matches[2]
+                    sha256 = $Matches[3].ToUpperInvariant()
+                })
+        }
+
+        $expected = @($ArtifactManifest.artifacts | Sort-Object filename)
+        if ($entries.Count -ne $expected.Count -or $entries.Count -eq 0) {
+            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_INVENTORY_MISMATCH'; entries = @($entries) }
+        }
+        for ($index = 0; $index -lt $expected.Count; $index++) {
+            if ($entries[$index].filename -cne [string]$expected[$index].filename -or
+                $entries[$index].size -ne [uint64]$expected[$index].size -or
+                $entries[$index].sha256 -cne ([string]$expected[$index].sha256).ToUpperInvariant()) {
+                return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_HASH_MISMATCH'; entries = @($entries) }
+            }
+            if ($PackageRoot) {
+                $artifactPath = Join-Path ([IO.Path]::GetFullPath($PackageRoot)) $entries[$index].filename
+                if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+                    return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_ARTIFACT_MISSING'; entries = @($entries) }
+                }
+                $artifact = Get-Item -LiteralPath $artifactPath
+                $actualHash = (Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256).Hash.ToUpperInvariant()
+                if ([uint64]$artifact.Length -ne $entries[$index].size -or $actualHash -cne $entries[$index].sha256) {
+                    return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_ARTIFACT_HASH_MISMATCH'; entries = @($entries) }
+                }
+            }
+        }
+        [pscustomobject]@{ valid = $true; reason = $null; productVersion = $productVersion; entries = @($entries) }
+    } catch {
+        [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_PARSE_ERROR'; entries = @(); error = $_.Exception.Message }
+    }
+}
+
 function Get-SafePinState {
     param([Parameter(Mandatory)] $PinState)
 
@@ -386,6 +453,7 @@ Export-ModuleMember -Function @(
     'Get-SignatureRecord',
     'Get-ReleaseArtifactManifest',
     'Write-PackageManifest',
+    'Test-PackageManifest',
     'Get-SafePinState',
     'Get-ReleaseSignatureMatrix',
     'Get-CleanHostPreflight',

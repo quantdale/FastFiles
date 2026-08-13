@@ -10,11 +10,11 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 ## Repository State
 
 - Branch: `main`
-- HEAD: `a3680bf3858b063087eeddfbca0cd58a388afc3a`
+- HEAD: `32938ca` (analysis-clean installer trust-helper correction; worktree has pending release/USN changes)
 - `origin/main`: `403f8490aab019e02b5d82cef734ea76223d3396`
 - Starting worktree: clean (`git status --short` produced no entries).
 - Dirty files present before task: none.
-- Remediation-owned modified files: `.agent/workstate/fastfiles-audit-remediation-state.md`, `src/engine/src/IndexPipeline.cpp`, `src/indexstore/include/ffindexstore/EntryRecord.h`, `src/indexstore/include/ffindexstore/Projection.h`, `src/indexstore/src/Projection.cpp`, `src/indexstore/src/Store.cpp`, `tests/engine/test_index_pipeline.cpp`, `tests/indexstore/test_projection.cpp`, `tests/indexstore/test_store.cpp`.
+- Remediation-owned modified files: `.agent/workstate/fastfiles-audit-remediation-state.md`, `.github/workflows/ci.yml`, `CMakeLists.txt`, `CMakePresets.json`, `README.md`, `src/engine/src/IndexPipeline.cpp`, `src/indexstore/include/ffindexstore/EntryRecord.h`, `src/indexstore/include/ffindexstore/Projection.h`, `src/indexstore/src/Projection.cpp`, `src/indexstore/src/Store.cpp`, `tests/engine/test_index_pipeline.cpp`, `tests/indexstore/test_projection.cpp`, `tests/indexstore/test_store.cpp`, `tests/README.md`, `verify/README.md`, `verify/capabilities/windows-build-validation/Build.psm1`, `verify/release/New-ReleaseKit.ps1`, `verify/release/ReleaseCommon.psm1`, `verify/release/privileged-release.ps1`, `verify/release/tests/Test-ReleaseTooling.ps1`, `verify/release/validate-clean-host.ps1`, `verify/verify.ps1`, `.github/copilot-instructions.md`.
 - Unrelated dirty files to preserve: none observed at start; re-check before every commit.
 - Historical repository workstate: `docs/agent/WORKSTATE.md` (contains older release/UI checkpoints and was stale relative to the starting HEAD). Mission plan: `.agent/execplans/fastfiles-audit-remediation.md`.
 - Mission workstate: `.agent/workstate/fastfiles-audit-remediation-state.md`.
@@ -33,9 +33,9 @@ validation, and a durable handoff. Do not push or alter unrelated work.
 | FF-AUDIT-08 | MEDIUM | Synchronous timeout can exceed deadline after helper join | OPEN | Bounded overlapped I/O redesign pending | Deadline/stall tests pending | — |
 | FF-AUDIT-09 | MEDIUM | Upgrade rollback may reactivate unauthenticated prior binaries | IMPLEMENTED | Backup/restore requires schema-2 manifest, exact inventory, approved signatures, identity/hash validation, and handle-bound staged promotion | Rollback candidate matrix in `ffsetup_package_trust_tests` PASS; injected live upgrade failure pending external host | — |
 | FF-AUDIT-10 | LOW | Release binaries lack embedded version-resource metadata | OPEN | Canonical VERSIONINFO source pending | Artifact inspection pending | — |
-| GAP-A | HIGH | Release CI reproducibility/signing pins | INVESTIGATING | Inspect current release workflows and fail-closed policy | Release readiness baseline is fail-closed; CI inspection pending | — |
+| GAP-A | HIGH | Release CI reproducibility/signing pins | IMPLEMENTED | Added explicit optimized unsigned `release-test` profile; production `release` remains pin-enforced; package manifest validation is required by kit/clean-host/privileged paths | Release-test 51/51, release-tooling 27/27; CI execution remains external | — |
 | GAP-B | HIGH | Installer regression coverage | IMPLEMENTED | First-class setup package-trust and installer source-policy targets cover manifest, signer, hash, identity, reparse, staging, promotion, rollback candidates, and relay removal | Focused setup CTest PASS, 4/4 | — |
-| GAP-C | MEDIUM | ASAN not continuously gated | INVESTIGATING | Inspect presets/CI and wire applicable coverage | ASAN fuzz target built and passed under VS developer environment; CI inspection pending | — |
+| GAP-C | MEDIUM | ASAN not continuously gated | IMPLEMENTED | Added a CI ASAN protocol-fuzz job with VS developer-runtime activation; exclusions are limited to the applicable core target | Local ASAN fuzz pass; CI execution remains external | — |
 | GAP-D | MEDIUM | Large-index benchmark lacks actionable progress | OPEN | Incremental stage diagnostics pending | Prior bounded run inconclusive | — |
 | GAP-E | LOW | Direct rendered UI validation gap | BLOCKED_EXTERNAL | Preserve headless/CLI checks and document boundary | Actual rendered Windows validation requires available visual host/tool | — |
 
@@ -119,8 +119,18 @@ UI external-validation notes.
   enough to schedule its own deletion via `SetFileInformationByHandle` or
   `MoveFileEx(..., MOVEFILE_DELAY_UNTIL_REBOOT)`; no user-writable helper
   process or `%TEMP%` path participates.
-- No code/design decision has yet been made for installer or snapshot changes;
-  measure and inspect current abstractions before selecting complexity.
+- Production `release` remains pin-enforced. A separate `release-test`
+  `RelWithDebInfo` profile is explicitly unsigned/test-only for CI and local
+  optimized regression coverage; it does not change runtime authentication or
+  production release assertions. Release kits now require a deterministic
+  package manifest and every release/clean-host/privileged entry point checks it
+  against the artifact manifest before execution.
+- CI gates the applicable ASAN protocol fuzz target under a Visual Studio
+  developer environment so the sanitizer runtime is available; broader Windows
+  integration tests remain outside the sanitizer job until compatibility is
+  demonstrated.
+- Snapshot design remains deliberately undecided; measure and inspect current
+  abstractions before selecting complexity.
 
 ## Changes Completed
 
@@ -144,6 +154,22 @@ UI external-validation notes.
    uninstall behavior, and focused adversarial setup tests.
 6. Committed the installer/package-trust/uninstall/rollback slice as
    `a3680bf` without staging the in-progress USN data-correctness files.
+7. Checkpointed the installer slice and updated this workstate at
+   `9e51d07`.
+8. Started release reproducibility remediation: added the explicit optimized
+   unsigned `release-test` preset, changed ordinary CI/verifier defaults to use
+   it, retained production Release pin enforcement, added package-manifest
+   validation to release kit/clean-host/privileged workflows, and added the
+   applicable ASAN CI job. Documentation and focused release-tooling tests are
+   in progress.
+9. Completed the release/CI slice: package-manifest validation now checks both
+   the manifest inventory and actual kit files; the optimized `release-test`
+   profile is used by ordinary CI/verifier builds; production `release` still
+   fails closed without authorized pins; and CI runs the applicable ASAN fuzz
+   target under the VS runtime environment.
+10. Fixed installer trust-helper `/analyze` findings by moving 64 KiB hash/copy
+    buffers to heap storage and making invalid-handle cleanup explicit; committed
+    as `32938ca`.
 
 ## Validation Evidence
 
@@ -190,6 +216,33 @@ UI external-validation notes.
   mismatched hashes, source substitution, preplanted staging/destination,
   staged mutation cleanup, optional reparse fixtures, and rollback candidate
   inventory/signature/hash cases.
+- Release tooling regression:
+  `pwsh -NoProfile -File .\verify\release\tests\Test-ReleaseTooling.ps1`: PASS,
+  26/26, including package-manifest round trip/tampering/missing-file checks
+  and explicit `release-test` versus production `release` preset policy.
+- Optimized test-release configure/build:
+  `cmake --preset release-test && cmake --build --preset release-test`: PASS
+  under `VsDevCmd.bat -arch=x64`; all 234 build steps completed.
+- Optimized test-release CTest: 50/51 passed. The only failure was
+  `ffdoc_drift_tests`, which correctly found mixed CRLF/LF in remediation-touched
+  C++/headers; no functional test failed.
+- After CRLF normalization of the remediation-owned C++/headers,
+  `ctest --preset release-test --output-on-failure`: PASS, 51/51, 19.16
+  seconds.
+- Release tooling regression after actual-file package validation:
+  `pwsh -NoProfile -File .\verify\release\tests\Test-ReleaseTooling.ps1`:
+  PASS, 27/27. This includes package artifact substitution detection.
+- Static-analysis correction: the first post-remediation Analyze build exposed
+  three installer trust-helper diagnostics (two C6262 stack-buffer warnings and
+  one C6387 invalid-handle close warning). The hash/copy buffers now use heap
+  storage and invalid handles are returned before `CloseHandle`; direct
+  `cmake --preset analyze && cmake --build --preset analyze` now passes.
+- Verifier isolation after that correction:
+  `pwsh .\verify\verify.ps1 build -Configuration analyze -SkipTests`: PASS;
+  `pwsh .\verify\verify.ps1 build -Configuration debug -SkipAnalyze`: PASS.
+- Full default verifier after the correction:
+  `pwsh -NoProfile -File .\verify\verify.ps1 build`: PASS
+  (`windows-build-validation`), covering Debug + `release-test` + Analyze.
 
 ## Known Failures
 
@@ -213,6 +266,16 @@ UI external-validation notes.
   shell PATH; the developer-command-prompt invocation above is authoritative.
 - One build attempt used an incorrect `FASTFILES_NINJA_EXE` path and failed at
   CMake generator startup; no product compilation occurred.
+- The first optimized-profile launch used invalid PowerShell quoting around the
+  `Program Files (x86)` path and failed before CMake. The corrected developer
+  command is authoritative.
+- `ctest --preset release-test --output-on-failure` initially failed only at
+  `ffdoc_drift_tests` (50/51); normalize the remediation-owned C++/header line
+  endings and rerun the full release-test suite.
+- The first post-remediation Analyze build failed on installer trust-helper
+  C6262/C6387 diagnostics; those were product-code issues, not harness noise,
+  and are fixed in committed `32938ca`. Subsequent Analyze and full verifier
+  runs pass.
 
 ## External Blockers
 
@@ -228,6 +291,10 @@ UI external-validation notes.
   trusted package identity, remove the elevated temp uninstall relay, and
   authenticate rollback candidates; add durable plan/workstate and setup
   security tests.
+- `9e51d07d7ec9794e5bcb3ac9c3bf220cd52d49cd` — checkpoint installer-slice
+  state and exact validation evidence.
+- `32938ca` — keep installer trust hash/copy helpers `/analyze` clean and
+  fail closed on invalid handles.
 
 ## Current Risks
 
@@ -240,7 +307,6 @@ UI external-validation notes.
 
 ## Next Exact Action
 
-Audit and patch release/CI reproducibility: add an explicit optimized
-unsigned-test-release policy separate from production signed Release, wire
-package-manifest generation/validation into the release kit, and add the
-applicable ASAN job without weakening production pin enforcement.
+Review and commit the release/CI slice separately from the pending USN
+data-correctness slice; record both commit hashes before switching to snapshot
+measurement.

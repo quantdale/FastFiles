@@ -141,7 +141,16 @@ validation defect. `-Mode report` is read-only; `-Mode privileged` delegates to
 `verify/release/privileged-release.ps1` and refuses to install over a contaminated
 host. The signing wrapper accepts only explicitly supplied external certificate-store
 or PFX configuration, rejects self-signed development certificates, and never writes
-pins or private material into the repository.
+pins or private material into the repository. Every release kit must also contain
+`FastFiles.package.manifest`, whose exact inventory, sizes, and SHA-256 hashes are
+checked before clean-host or privileged execution.
+
+The CMake `release` preset is the production-signed configuration and fails closed
+without authorized pins. CI and the default `verify.ps1 build` use the explicitly
+named `release-test` preset (`RelWithDebInfo` plus `FASTFILES_RELEASE_TEST_BUILD=ON`)
+for optimized tests only; it does not bypass runtime authentication or represent
+production signing evidence. Run `cmake --preset release` only inside the authorized
+release workflow.
 
 The portable clean-host kit is generated outside Git with:
 
@@ -161,7 +170,8 @@ task state.
 
 - `ctest --test-dir build/debug -R <name> --output-on-failure` — fast iteration on a
   single test/target.
-- `pwsh ./verify/verify.ps1 build` — the full multi-config gate; long-running.
+- `pwsh ./verify/verify.ps1 build` — the Debug + optimized test-release + Analyze gate; long-running.
+- `cmake --preset release && cmake --build --preset release` — production Release, requiring external signing pins.
 - `-SkipAnalyze` / `-SkipTests` / `-Configuration <cfg>` — quick-path levers for
   `build` (and `repair`).
 - `pwsh ./verify/verify.ps1 gate` verdicts are time-dependent: unrepresented-edit

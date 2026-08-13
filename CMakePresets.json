@@ -30,6 +30,16 @@
       }
     },
     {
+      "name": "release-test",
+      "inherits": "base",
+      "displayName": "Optimized unsigned test-release",
+      "description": "RelWithDebInfo artifact for CI performance/regression testing only; it is explicitly not a production signed release.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "FASTFILES_RELEASE_TEST_BUILD": "ON"
+      }
+    },
+    {
       "name": "analyze",
       "inherits": "debug",
       "displayName": "Debug + /analyze",
@@ -54,6 +64,7 @@
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
     { "name": "release", "configurePreset": "release" },
+    { "name": "release-test", "configurePreset": "release-test" },
     { "name": "analyze", "configurePreset": "analyze" },
     { "name": "asan", "configurePreset": "asan" }
   ],
@@ -67,6 +78,12 @@
     {
       "name": "release",
       "configurePreset": "release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "release-test",
+      "configurePreset": "release-test",
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error", "stopOnFailure": false }
     }

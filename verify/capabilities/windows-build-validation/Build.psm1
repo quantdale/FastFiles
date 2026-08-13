@@ -174,7 +174,7 @@ function Invoke-BuildCapability {
     )
 
     $repoRoot = $Options.RepoRoot
-    $configurations = if ($Options.Configurations) { @($Options.Configurations) } else { @('debug', 'release') }
+    $configurations = if ($Options.Configurations) { @($Options.Configurations) } else { @('debug', 'release-test') }
     $clean = [bool]$Options.Clean
     $runAnalyze = -not [bool]$Options.SkipAnalyze
     $runTests = -not [bool]$Options.SkipTests
@@ -258,7 +258,7 @@ function Invoke-BuildCapabilityRepair {
     )
 
     $repoRoot = $Options.RepoRoot
-    $configurations = if ($Options.Configurations) { @($Options.Configurations) } else { @('debug', 'release') }
+    $configurations = if ($Options.Configurations) { @($Options.Configurations) } else { @('debug', 'release-test') }
     $runAnalyze = -not [bool]$Options.SkipAnalyze
     $toolchain = $Fingerprint.Toolchain
     if (-not $toolchain) {

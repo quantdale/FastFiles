@@ -1,6 +1,9 @@
 name: CI
 
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,7 +13,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        preset: [debug, release, analyze]
+        # `release` is the production-signed configuration and must receive
+        # pins from an authorized release environment. CI uses the explicitly
+        # labeled optimized unsigned test-release profile instead.
+        preset: [debug, release-test, analyze]
     env:
       # VS2022 Enterprise (windows-latest image) bundled Ninja.
       FASTFILES_NINJA_EXE: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
@@ -30,8 +36,38 @@ jobs:
         shell: pwsh
         run: cmake --build --preset ${{ matrix.preset }}
 
-      # No analyze test preset exists, so only debug/release run the suite.
+      # No analyze test preset exists, so only debug/release-test run the suite.
       - name: Test
         if: matrix.preset != 'analyze'
         shell: pwsh
         run: ctest --preset ${{ matrix.preset }} --output-on-failure
+
+  asan:
+    name: asan-protocol-fuzz
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      FASTFILES_NINJA_EXE: 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject production debug markers
+        shell: pwsh
+        run: ./verify/check_source_markers.ps1
+
+      - name: Configure ASAN core-test profile
+        shell: pwsh
+        run: cmake --preset asan
+
+      - name: Build ASAN protocol fuzz target
+        shell: pwsh
+        run: cmake --build --preset asan --target ffprotocol_fuzz_tests
+
+      - name: Run ASAN protocol fuzz target
+        shell: pwsh
+        run: |
+          $vsDevCmd = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat'
+          if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) { throw "VS developer environment not found: $vsDevCmd" }
+          cmd.exe /d /s /c ('call "{0}" -arch=x64 && ctest --test-dir build/asan -R ffprotocol_fuzz_tests --output-on-failure' -f $vsDevCmd)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

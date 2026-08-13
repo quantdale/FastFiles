@@ -26,7 +26,10 @@ param(
 
     [string] $Change = 'ad-hoc',
     [string[]] $Capability,
-    [string[]] $Configuration = @('debug', 'release'),
+    # The ordinary verifier uses the explicitly non-production optimized
+    # profile. Production `release` requires externally provisioned pins and
+    # is exercised by release-readiness in its authorized environment.
+    [string[]] $Configuration = @('debug', 'release-test'),
     [switch] $Clean,
     [switch] $SkipAnalyze,
     [switch] $SkipTests,

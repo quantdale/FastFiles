@@ -42,7 +42,10 @@ try {
         Copy-Item -LiteralPath $fftestPath -Destination (Join-Path $validationDir 'fftest.exe') -Force
     }
     $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $output -RepoRoot $repoRoot
-    Write-PackageManifest -Manifest $manifest -Path (Join-Path $output 'FastFiles.package.manifest')
+    $packageManifestPath = Join-Path $output 'FastFiles.package.manifest'
+    Write-PackageManifest -Manifest $manifest -Path $packageManifestPath
+    $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $output
+    if (-not $packageCheck.valid) { throw "PACKAGE_MANIFEST_INVALID_AFTER_WRITE: $($packageCheck.reason)" }
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $BuildRoot
     $engineArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesEngine.exe' | Select-Object -First 1
     $serviceArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesIndexSvc.exe' | Select-Object -First 1
@@ -58,6 +61,7 @@ try {
         architecture = 'x64'
         package = @($manifest.artifacts | ForEach-Object { $_.filename }) + @('FastFiles.package.manifest')
         packageManifest = 'FastFiles.package.manifest'
+        packageManifestSha256 = (Get-FileHash -LiteralPath $packageManifestPath -Algorithm SHA256).Hash.ToUpperInvariant()
         validationTool = [pscustomobject]@{ name = 'fftest.exe'; included = $fftestIncluded; path = if ($fftestIncluded) { 'validation/fftest.exe' } else { $null } }
         artifactManifest = 'artifact-manifest.json'
         pinProvisioning = [pscustomobject]@{

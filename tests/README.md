@@ -49,6 +49,11 @@ cmake --build --preset debug    # build all app + test targets
 ctest --preset debug            # full suite
 ```
 
+The optimized `release-test` preset is the unsigned CI/performance profile and
+can be tested with `ctest --preset release-test`. The `release` preset remains
+the production-signed configuration and requires authorized signing pins before
+it can configure.
+
 Fast single-test loop:
 
 ```powershell

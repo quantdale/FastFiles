@@ -88,8 +88,14 @@ cmake --build --preset debug
 Presets:
 
 - `debug` — Debug build (`build/debug`)
-- `release` — Release build (`build/release`)
+- `release-test` — optimized `RelWithDebInfo` test artifact (`build/release-test`); unsigned and never a production release
+- `release` — production Release build (`build/release`); fails closed unless authorized Engine/IndexSvc signing pins are supplied
 - `analyze` — Debug build with MSVC static analysis (`/analyze`)
+
+CI and ordinary local verification use `release-test` for optimized regression
+coverage. The production `release` profile is reserved for the authorized
+signing/release-readiness workflow; an unsigned optimized artifact must never
+be presented as a production build.
 
 Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl /guard:cf` and `/DYNAMICBASE /NXCOMPAT /guard:cf`); **warnings are errors**.
 

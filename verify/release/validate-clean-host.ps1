@@ -28,8 +28,11 @@ try {
     $preflight = Get-CleanHostPreflight
     $artifactCheck = Test-KitManifest -Root $root
     $signaturesReady = @($artifactCheck.artifacts | Where-Object { -not $_.signatureValid }).Count -eq 0
-    $status = if ($preflight.clean -and $preflight.architectureCompatible -and $artifactCheck.valid -and $signaturesReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
-    $reason = if (-not $preflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $preflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $artifactCheck.valid) { 'KIT_ARTIFACT_INTEGRITY_FAILED' } elseif (-not $signaturesReady) { 'AUTHORIZED_SIGNING_REQUIRED' } else { $null }
+    $manifest = $artifactCheck.manifest
+    $packageCheck = Test-PackageManifest -Path (Join-Path $root 'FastFiles.package.manifest') -ArtifactManifest $manifest -PackageRoot $root
+    $status = if ($preflight.clean -and $preflight.architectureCompatible -and $artifactCheck.valid -and $packageCheck.valid -and $signaturesReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
+    $reason = if (-not $preflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $preflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $artifactCheck.valid) { 'KIT_ARTIFACT_INTEGRITY_FAILED' } elseif (-not $packageCheck.valid) { 'KIT_PACKAGE_MANIFEST_INVALID' } elseif (-not $signaturesReady) { 'AUTHORIZED_SIGNING_REQUIRED' } else { $null }
+    $artifactCheck | Add-Member -NotePropertyName packageManifest -NotePropertyValue $packageCheck
     $result = [pscustomobject]@{
         schemaVersion = 1
         kind = 'fastfiles-clean-host-preflight'
@@ -46,6 +49,9 @@ try {
     Write-ReleaseJson -Value $artifactCheck -Path (Join-Path $OutputDirectory 'artifact-validation.json')
     Write-ReleaseJson -Value $result -Path (Join-Path $OutputDirectory 'clean-host-result.json')
     Copy-Item -LiteralPath (Join-Path $root 'artifact-manifest.json') -Destination (Join-Path $OutputDirectory 'artifact-manifest.json') -Force
+    if (Test-Path -LiteralPath (Join-Path $root 'FastFiles.package.manifest') -PathType Leaf) {
+        Copy-Item -LiteralPath (Join-Path $root 'FastFiles.package.manifest') -Destination (Join-Path $OutputDirectory 'FastFiles.package.manifest') -Force
+    }
     if (Test-Path -LiteralPath (Join-Path $root 'kit-manifest.json') -PathType Leaf) {
         Copy-Item -LiteralPath (Join-Path $root 'kit-manifest.json') -Destination (Join-Path $OutputDirectory 'kit-manifest.json') -Force
     }

@@ -142,6 +142,9 @@ try {
     $manifestPath = Join-Path $package 'artifact-manifest.json'
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "ARTIFACT_MANIFEST_REQUIRED: $manifestPath" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $packageManifestPath = Join-Path $package 'FastFiles.package.manifest'
+    $packageCheck = Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $package
+    $packageReady = $packageCheck.valid
     $resolvedRepoRoot = if ($RepoRoot) { [IO.Path]::GetFullPath($RepoRoot) } else { $null }
     $resolvedBuildRoot = if ($BuildRoot) { [IO.Path]::GetFullPath($BuildRoot) } else { $null }
     $pinStates = if ($resolvedRepoRoot -and $resolvedBuildRoot) { Get-ConfiguredPinStates -RepoRoot $resolvedRepoRoot -BuildRoot $resolvedBuildRoot } else { Get-KitPinStates -Package $package }
@@ -155,14 +158,18 @@ try {
     $hostPreflight = Get-CleanHostPreflight
     $signatureReady = @($matrix | Where-Object { $_.result -notin @('PASS') }).Count -eq 0
     $pinReady = $pinStates.engine.state -eq 'POPULATED' -and $pinStates.service.state -eq 'POPULATED' -and $signatureReady
-    $checks.Add([pscustomobject]@{ id = 'artifact-integrity'; status = if (@($manifest.artifacts | Where-Object { $_.architecture -ne 'x64' }).Count -eq 0) { 'PASS' } else { 'FAIL' }; reason = $null; detail = 'Manifest contains four x64 release artifacts.' })
+    $artifactIntegrity = @($manifest.artifacts | Where-Object { $_.architecture -ne 'x64' }).Count -eq 0
+    $checks.Add([pscustomobject]@{ id = 'artifact-integrity'; status = if ($artifactIntegrity) { 'PASS' } else { 'FAIL' }; reason = if ($artifactIntegrity) { $null } else { 'ARTIFACT_ARCHITECTURE_INVALID' }; detail = 'Manifest contains four x64 release artifacts.' })
+    $checks.Add([pscustomobject]@{ id = 'package-manifest'; status = if ($packageReady) { 'PASS' } else { 'FAIL' }; reason = if ($packageReady) { $null } else { $packageCheck.reason }; detail = [pscustomobject]@{ path = $packageManifestPath; validation = $packageCheck } })
     $checks.Add([pscustomobject]@{ id = 'signature-and-signer'; status = if ($signatureReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; reason = if ($signatureReady) { $null } else { 'AUTHORIZED_SIGNING_REQUIRED' }; detail = $matrix })
     $checks.Add([pscustomobject]@{ id = 'production-pins'; status = if ($pinReady) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; reason = if ($pinReady) { $null } else { 'PRODUCTION_PINS_REQUIRED' }; detail = [pscustomobject]@{ engine = Get-SafePinState -PinState $pinStates.engine; service = Get-SafePinState -PinState $pinStates.service } })
     $checks.Add([pscustomobject]@{ id = 'clean-host-preflight'; status = if ($hostPreflight.clean) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; reason = if ($hostPreflight.clean) { $null } else { 'CLEAN_HOST_PRECONDITION_FAILED' }; detail = $hostPreflight })
     $checks.Add([pscustomobject]@{ id = 'elevation'; status = if ($hostPreflight.elevated) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; reason = if ($hostPreflight.elevated) { $null } else { 'ELEVATED_EXECUTION_REQUIRED' }; detail = 'Run this command from an Administrator PowerShell on the clean validation host.' })
 
     $transaction = [ordered]@{ schemaVersion = 1; startedAtUtc = [DateTime]::UtcNow.ToString('o'); createdService = $false; createdTask = $false; createdClientGroup = $false; createdInstallDirectory = $false; createdFixture = $false; fixturePath = $null; startedEngineProcessId = $null; startedEnginePath = $null; cleanup = 'not-run' }
-    if (-not $signatureReady) {
+    if (-not $packageReady -or -not $artifactIntegrity) {
+        $checks.Add([pscustomobject]@{ id = 'privileged-path'; status = 'FAIL'; reason = 'LOCAL_PACKAGE_VALIDATION_FAILED'; detail = 'The driver stopped before installation or machine mutation.' })
+    } elseif (-not $signatureReady) {
         $checks.Add([pscustomobject]@{ id = 'privileged-path'; status = 'BLOCKED_EXTERNAL'; reason = 'AUTHORIZED_SIGNING_REQUIRED'; detail = 'The driver stopped before installation or machine mutation.' })
         $checks.Add([pscustomobject]@{ id = 'mft'; status = 'BLOCKED_EXTERNAL'; reason = 'SIGNED_AUTHENTICATED_PATH_REQUIRED'; detail = 'MFT PASS requires the real signed Engine → authenticated Service → raw-volume → index path.' })
         $checks.Add([pscustomobject]@{ id = 'usn'; status = 'BLOCKED_EXTERNAL'; reason = 'SIGNED_AUTHENTICATED_PATH_REQUIRED'; detail = 'USN PASS requires a signed authenticated runtime and controlled filesystem mutation.' })

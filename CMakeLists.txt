@@ -23,6 +23,8 @@ add_compile_definitions(
 
 option(FASTFILES_BUILD_TESTS "Build FastFiles unit tests" ON)
 option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
+option(FASTFILES_RELEASE_TEST_BUILD
+  "Build an optimized unsigned test-release artifact; never represents a production release" OFF)
 
 # Authenticode pins are release inputs, not source-controlled product data.
 # CI supplies the two certificate thumbprints through environment variables or
@@ -74,7 +76,12 @@ fastfiles_normalize_thumbprint(
   FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT
   FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT_BYTES)
 
-if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+if(FASTFILES_RELEASE_TEST_BUILD AND NOT CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
+  message(FATAL_ERROR
+    "FASTFILES_RELEASE_TEST_BUILD requires an optimized CMake build type (Release, RelWithDebInfo, or MinSizeRel).")
+endif()
+
+if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$" AND NOT FASTFILES_RELEASE_TEST_BUILD)
   if(FASTFILES_ENGINE_SIGNATURE_THUMBPRINT STREQUAL "" OR
      FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT STREQUAL "" OR
      FASTFILES_ENGINE_SIGNATURE_THUMBPRINT MATCHES "^0+$" OR
@@ -84,6 +91,12 @@ if(CMAKE_BUILD_TYPE MATCHES "^(Release|RelWithDebInfo|MinSizeRel)$")
       "FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT from the signing pipeline; "
       "refusing to configure with placeholder Authenticode pins.")
   endif()
+endif()
+
+if(FASTFILES_RELEASE_TEST_BUILD)
+  add_compile_definitions(FASTFILES_RELEASE_TEST_BUILD=1)
+  message(STATUS
+    "Configuring an optimized unsigned test-release artifact; production signing and pin enforcement remain external.")
 endif()
 
 set(FASTFILES_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
