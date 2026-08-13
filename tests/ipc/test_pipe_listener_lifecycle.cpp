@@ -18,6 +18,11 @@ std::wstring TestPipeName(uint32_t iteration) {
            std::to_wstring(iteration);
 }
 
+std::wstring PendingStopPipeName(uint32_t iteration) {
+    return L"\\\\.\\pipe\\FastFiles.ListenerPendingStop." + std::to_wstring(GetCurrentProcessId()) + L"." +
+           std::to_wstring(iteration);
+}
+
 void ConnectAndDisconnect(const std::wstring& pipeName, uint32_t delayMilliseconds) {
     // Several clients race the listener's accept instance. A failed open is
     // expected when Stop wins the race; the test is checking that the
@@ -77,9 +82,28 @@ void TestConcurrentListenerLifecycle() {
           "lifecycle stress accepted at least one connection callback");
 }
 
+void TestImmediateStopDuringPendingAccept() {
+    constexpr uint32_t kIterations = 128;
+    for (uint32_t iteration = 0; iteration < kIterations; ++iteration) {
+        ffipc::PipeListener listener;
+        const bool started = listener.Start(PendingStopPipeName(iteration), nullptr, [](HANDLE pipe) {
+            if (pipe != INVALID_HANDLE_VALUE && pipe != nullptr) CloseHandle(pipe);
+        });
+        Check(started, "listener starts before immediate pending-accept stop");
+        if (started) {
+            // There is intentionally no client. Stop races the accept thread's
+            // pending registration and ConnectNamedPipe initiation. The
+            // listener's handshake must make this joinable without an
+            // uncancelled overlapped wait (FF-POST-11).
+            listener.Stop();
+        }
+    }
+}
+
 } // namespace
 
 int main() {
+    TestImmediateStopDuringPendingAccept();
     TestConcurrentListenerLifecycle();
     return FailureCount() == 0 ? 0 : 1;
 }

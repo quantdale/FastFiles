@@ -9,13 +9,14 @@ hosted CI portable; run the complete local and hosted validation matrix; and
 leave a durable handoff. Preserve fail-closed security, degraded-mode
 operation, the three-process boundary, and unrelated user work.
 
-The bounded adjacent audit also tracks FF-POST-06 through FF-POST-10. FF-POST-06
+The bounded adjacent audit also tracks FF-POST-06 through FF-POST-11. FF-POST-06
 is a semantic-version validation inconsistency found while reviewing the new
 release-identity boundary; FF-POST-07 is an explicit null-buffer parser gap;
 FF-POST-08 is an ASAN warning-level configuration conflict; FF-POST-09 is an
 old-protocol compatibility gap exposed by the new V2 USN message; and
 FF-POST-10 is a release-kit/package-root boundary gap exposed by the exact
-installer inventory. Each is resolved only when its implementation and
+installer inventory; FF-POST-11 is the pending-accept cancellation race found
+during the fresh final audit. Each is resolved only when its implementation and
 regression evidence are complete.
 
 ## Scope and source of truth
@@ -67,8 +68,9 @@ regression evidence are complete.
   The current adjacent defects are FF-POST-06 (strict-version alignment),
   FF-POST-07 (explicit null-buffer parser rejection), FF-POST-08 (ASAN
   preset warning-level conflict), FF-POST-09 (legacy USN wire-format
-  negotiation), and FF-POST-10 (release-kit package-root separation); do not
-  close them until the regression tests and final build matrix are green.
+  negotiation), FF-POST-10 (release-kit package-root separation), and FF-POST-11
+  (pending accept cancellation initiation); do not close them until the
+  regression tests and final build matrix are green.
 8. Run focused tests, all supported Debug/Release-test/Analyze/Release/ASAN,
    verifier/doctor, release tooling, OpenSpec, drift, and hygiene gates.
 9. Freshly review the complete campaign diff for security/concurrency/CI

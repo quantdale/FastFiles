@@ -77,12 +77,30 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
             }
             connectOverlapped.hEvent = connectEvent;
 
+            BOOL connected = FALSE;
+            DWORD error = ERROR_OPERATION_ABORTED;
+            bool initiated = false;
             {
+                // Stop() sets running_ before it takes pendingMutex_. Keep
+                // this short critical section through operation initiation:
+                // if Stop() wins first, no overlapped operation is started;
+                // if the accept thread wins the lock, Stop() waits until
+                // ConnectNamedPipe has published the pending operation and
+                // can then cancel it. Publishing the handle before the
+                // initiation without this handshake leaves a cancellation
+                // window in which Stop() can join an uncancellable wait.
                 std::lock_guard<std::mutex> lock(pendingMutex_);
-                pendingInstance_ = currentInstance;
+                if (running_) {
+                    pendingInstance_ = currentInstance;
+                    connected = ConnectNamedPipe(currentInstance->Get(), &connectOverlapped);
+                    error = connected ? ERROR_SUCCESS : GetLastError();
+                    initiated = true;
+                }
             }
-            BOOL connected = ConnectNamedPipe(currentInstance->Get(), &connectOverlapped);
-            DWORD error = connected ? ERROR_SUCCESS : GetLastError();
+            if (!initiated) {
+                CloseHandle(connectEvent);
+                break;
+            }
             if (!connected && error == ERROR_IO_PENDING) {
                 const DWORD waitResult = WaitForSingleObject(connectEvent, INFINITE);
                 if (waitResult == WAIT_OBJECT_0) {
