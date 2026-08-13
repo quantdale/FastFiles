@@ -180,11 +180,18 @@ void FuzzSnapshotParsing(std::mt19937& rng) {
     std::uniform_int_distribution<size_t> sizeDist(0, 2048);
     for (int i = 0; i < kIterationsPerFuzzer; ++i) {
         const std::vector<uint8_t> data = RandomBytes(rng, sizeDist(rng));
-        // The only property under fuzzing is "never crashes, whatever it
-        // returns is internally consistent" -- ParseSnapshot's own
-        // exactly-consumed check is exercised implicitly.
-        volatile auto result = ffprotocol::ParseSnapshot(data.data(), data.size());
-        (void)result;
+        // The property under fuzzing is "never crashes, and any accepted
+        // result is internally consistent" -- ParseSnapshot's own
+        // exactly-consumed check is exercised implicitly. Consume the
+        // optional through its public value rather than assigning the whole
+        // object to volatile and reading implementation padding; newer MSVC
+        // ASAN correctly diagnoses that representation-level discard as a
+        // use-after-poison.
+        const auto result = ffprotocol::ParseSnapshot(data.data(), data.size());
+        if (result.has_value()) {
+            Check(result->size() <= data.size(),
+                  "an accepted snapshot cannot contain more directories than input bytes");
+        }
     }
 }
 
