@@ -160,8 +160,11 @@ is fully checked.
   WinTrust at `CERT_E_UNTRUSTEDROOT` before expiry on this host, so the expected
   positive runtime assertions fail. The custom-root chain validity and
   unchanged-byte expiry-transition checks do not substitute for production
-  WinTrust acceptance. Exact cleanup was performed after the failed run; a
-  final residue audit is required before handoff.
+  WinTrust acceptance. Final residue audit (2026-08-15) found zero matching
+  non-production certificates in CurrentUser My/CA or the CurrentUser Root
+  registry, zero thumbprint-derived DER files, and zero temporary PFX, kit,
+  release, or fixture directories; private-key cleanup was verified by the
+  fixture and release-tooling tests.
 - Documentation drift, source-marker policy, PowerShell parsing, strict
   OpenSpec validation (45/45), and diagnostic policy all passed on the current
   tree. The focused release-tooling suite passed with zero failures.
@@ -260,8 +263,11 @@ is fully checked.
 
 ## Next exact action
 
-Commit and push the validated changes, then inspect hosted CI by the final head
-SHA. If the hosted environment reproduces the same protected-root condition,
-keep PV-BUG-11 as `BLOCKED_ENVIRONMENT / NOT VERIFIED` and the
-signer-provisioning gate closed; otherwise reconcile the hosted real-WinTrust
-evidence before changing this state.
+The local signer/timestamp slice is committed and pushed cleanly. Keep
+PV-BUG-11 as `BLOCKED_ENVIRONMENT / NOT VERIFIED` and the signer-provisioning
+gate closed until the committed runtime fixture runs on a Windows environment
+where the supported isolated CurrentUser Root mutation is usable by default
+WinTrust. The next exact action is to obtain that supported test environment or
+an approved test-host trust configuration, rerun the runtime matrix, and only
+then reconsider the OpenSpec 4.2 clause; production signer provisioning remains
+separate and must not start from this blocked evidence.
