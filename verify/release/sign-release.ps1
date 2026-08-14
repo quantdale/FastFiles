@@ -51,9 +51,26 @@ function Resolve-Signtool {
 function Assert-AuthorizedCertificate {
     param([Parameter(Mandatory)] $Certificate, [Parameter(Mandatory)] [string] $Source)
     if (-not $Certificate) { throw "AUTHORIZED_SIGNER_REQUIRED: certificate could not be loaded from $Source." }
-    if (-not (Test-ProductionCertificate -Certificate $Certificate)) {
-        throw "DEVELOPMENT_CERTIFICATE_NOT_ALLOWED: self-signed certificate supplied from $Source; an authorized production code-signing chain is required."
+    $policy = Get-ProductionCertificatePolicy -Certificate $Certificate -RequirePrivateKey
+    if (-not $policy.valid) {
+        $reasons = @($policy.reasons) -join ', '
+        throw "DEVELOPMENT_CERTIFICATE_NOT_ALLOWED: certificate from $Source failed technical production code-signing policy ($reasons). Operator authorization/provenance remains a separate release input."
     }
+}
+
+function Assert-ExpectedSignerThumbprint {
+    param([Parameter(Mandatory)] [string] $ProviderThumbprint)
+
+    $expected = if ($ExpectedSignerThumbprint) { Normalize-Thumbprint -Value $ExpectedSignerThumbprint } else {
+        $ProviderThumbprint
+    }
+    if (-not (Test-UsableThumbprint -Value $expected)) {
+        throw 'MALFORMED_EXPECTED_SIGNER: expected signer thumbprint must be a non-placeholder 40-hex value.'
+    }
+    if ($ExpectedSignerThumbprint -and $expected -cne $ProviderThumbprint) {
+        throw "EXPECTED_SIGNER_MISMATCH: selected certificate thumbprint $ProviderThumbprint does not match the expected signer $expected."
+    }
+    return $expected
 }
 
 function Invoke-SigntoolSign {
@@ -132,6 +149,7 @@ try {
     if ($Provider -eq 'CertificateStore') {
         $providerThumbprint = Normalize-Thumbprint -Value $CertificateThumbprint
         if (-not (Test-ThumbprintFormat -Value $providerThumbprint)) { throw 'AUTHORIZED_SIGNER_REQUIRED: CertificateStore requires a valid 40-hex -CertificateThumbprint.' }
+        $expected = Assert-ExpectedSignerThumbprint -ProviderThumbprint $providerThumbprint
         $certificatePath = "Cert:\$StoreLocation\My\$providerThumbprint"
         $certificate = Get-Item -LiteralPath $certificatePath -ErrorAction SilentlyContinue
         if (-not $certificate -or -not $certificate.HasPrivateKey) { throw "AUTHORIZED_SIGNER_REQUIRED: certificate with private key was not found at $certificatePath." }
@@ -148,14 +166,13 @@ try {
         $pfxCertificate = Get-PfxCertificate -LiteralPath ([IO.Path]::GetFullPath($PfxPath)) -Password $PfxPassword -NoPromptForPassword -ErrorAction Stop
         $providerThumbprint = Normalize-Thumbprint -Value $pfxCertificate.Thumbprint
         if (-not (Test-ThumbprintFormat -Value $providerThumbprint)) { throw 'AUTHORIZED_SIGNER_REQUIRED: supplied PFX leaf thumbprint is malformed.' }
+        $expected = Assert-ExpectedSignerThumbprint -ProviderThumbprint $providerThumbprint
         Assert-AuthorizedCertificate -Certificate $pfxCertificate -Source ([IO.Path]::GetFullPath($PfxPath))
         $pfxSecret = ConvertTo-PlainSecret -SecureValue $PfxPassword
         $certificateForManifest = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
             [IO.Path]::GetFullPath($PfxPath), $pfxSecret,
             [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
     }
-    $expected = if ($ExpectedSignerThumbprint) { Normalize-Thumbprint -Value $ExpectedSignerThumbprint } else { $providerThumbprint }
-    if (-not (Test-UsableThumbprint -Value $expected)) { throw 'MALFORMED_EXPECTED_SIGNER: expected signer thumbprint must be a non-placeholder 40-hex value.' }
     $tool = if ($isManifestOnly) { $null } else { Resolve-Signtool -RequestedPath $SigntoolPath }
     $preflight = @($paths | ForEach-Object { [pscustomobject]@{ artifact = $_; architecture = (Get-PeArchitecture -Path $_).architecture; present = $true } })
     if ($DryRun) {

@@ -26,6 +26,17 @@ option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
 option(FASTFILES_RELEASE_TEST_BUILD
   "Build an optimized unsigned test-release artifact; never represents a production release" OFF)
 
+# Keep the unsigned-authentication escape hatch visibly outside every shipped
+# or optimized test-release configuration before any release-pin validation is
+# evaluated. The implementation target repeats this guard for local clarity.
+if(FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED AND
+   (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR FASTFILES_RELEASE_TEST_BUILD))
+  message(FATAL_ERROR
+    "FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED may only be enabled in an explicitly "
+    "Debug diagnostic build; shipped and optimized release-test builds must "
+    "compile the fail-closed Authenticode path.")
+endif()
+
 # Authenticode pins are release inputs, not source-controlled product data.
 # CI supplies the two certificate thumbprints through environment variables or
 # explicit cache entries; development configurations intentionally retain the

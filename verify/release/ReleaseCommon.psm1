@@ -7,6 +7,8 @@ $script:ReleaseArtifactDefinitions = @(
     [pscustomobject]@{ Name = 'FastFilesSetup.exe'; PackagePath = 'FastFilesSetup.exe'; BuildPath = 'src\installer\FastFilesSetup.exe'; Role = 'installer'; Pin = $null }
 )
 
+$script:CodeSigningApplicationPolicyOid = '1.3.6.1.5.5.7.3.3'
+
 function Normalize-Thumbprint {
     param([AllowNull()] [string] $Value)
 
@@ -27,14 +29,177 @@ function Test-UsableThumbprint {
     param([AllowNull()] [string] $Value)
 
     $normalized = Normalize-Thumbprint -Value $Value
-    return Test-ThumbprintFormat -Value $normalized -and $normalized -notmatch '^0+$'
+    $formatValid = [bool](Test-ThumbprintFormat -Value $normalized)
+    return [bool]($formatValid -and ($normalized -notmatch '^0+$'))
+}
+
+function Get-CertificatePolicyCore {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Certificate,
+        [switch] $RequirePrivateKey,
+        [AllowNull()] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $chainStatus = [System.Collections.Generic.List[string]]::new()
+    $chainBuilt = $false
+    $chainElementCount = 0
+    $hasPrivateKey = $false
+    $isSelfSigned = $false
+    $isCurrentlyValid = $false
+    $hasCodeSigningEku = $false
+    $notBefore = $null
+    $notAfter = $null
+
+    if ($null -eq $Certificate) {
+        [void]$issues.Add('CERTIFICATE_MISSING')
+    } else {
+        $certificate2 = $null
+        try {
+            if (-not ($Certificate -is [Security.Cryptography.X509Certificates.X509Certificate2])) {
+                throw 'CERTIFICATE_TYPE_INVALID'
+            }
+            $certificate2 = $Certificate
+            $hasPrivateKey = [bool]$certificate2.HasPrivateKey
+        } catch {
+            [void]$issues.Add('CERTIFICATE_TYPE_INVALID')
+        }
+
+        $subject = $null
+        $issuer = $null
+        try {
+            $subject = [string]$Certificate.Subject
+            $issuer = [string]$Certificate.Issuer
+        } catch {
+            [void]$issues.Add('CERTIFICATE_IDENTITY_UNREADABLE')
+        }
+        if ([string]::IsNullOrWhiteSpace($subject) -or [string]::IsNullOrWhiteSpace($issuer)) {
+            [void]$issues.Add('CERTIFICATE_IDENTITY_MISSING')
+        } elseif ($subject -ceq $issuer) {
+            $isSelfSigned = $true
+            [void]$issues.Add('CERTIFICATE_SELF_SIGNED')
+        }
+
+        try {
+            $notBefore = ([DateTime]$Certificate.NotBefore).ToUniversalTime()
+            $notAfter = ([DateTime]$Certificate.NotAfter).ToUniversalTime()
+            $now = [DateTime]::UtcNow
+            $isCurrentlyValid = $notBefore -le $now -and $now -le $notAfter
+            if (-not $isCurrentlyValid) { [void]$issues.Add('CERTIFICATE_OUTSIDE_CURRENT_VALIDITY') }
+        } catch {
+            [void]$issues.Add('CERTIFICATE_VALIDITY_UNREADABLE')
+        }
+
+        if ($RequirePrivateKey -and -not $hasPrivateKey) {
+            [void]$issues.Add('CERTIFICATE_PRIVATE_KEY_REQUIRED')
+        }
+
+        try {
+            $ekuExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+            if ($ekuExtensions.Count -eq 0) {
+                [void]$issues.Add('CERTIFICATE_CODE_SIGNING_EKU_MISSING')
+            } else {
+                $eku = [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$ekuExtensions[0]
+                $ekuOids = @($eku.EnhancedKeyUsages | ForEach-Object { $_.Value })
+                $hasCodeSigningEku = $ekuOids -contains $script:CodeSigningApplicationPolicyOid
+                if (-not $hasCodeSigningEku) { [void]$issues.Add('CERTIFICATE_CODE_SIGNING_EKU_MISSING') }
+            }
+        } catch {
+            [void]$issues.Add('CERTIFICATE_CODE_SIGNING_EKU_INVALID')
+        }
+
+        if ($null -ne $certificate2) {
+            $chain = $null
+            try {
+                $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+                $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+                $chain.ChainPolicy.RevocationFlag = [Security.Cryptography.X509Certificates.X509RevocationFlag]::EntireChain
+                $chain.ChainPolicy.VerificationFlags = [Security.Cryptography.X509Certificates.X509VerificationFlags]::NoFlag
+                [void]$chain.ChainPolicy.ApplicationPolicy.Add(
+                    [Security.Cryptography.Oid]::new($script:CodeSigningApplicationPolicyOid))
+                if ($null -ne $CustomTrustRoot) {
+                    $chain.ChainPolicy.TrustMode =
+                        [Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+                    [void]$chain.ChainPolicy.CustomTrustStore.Add($CustomTrustRoot)
+                }
+                $chainBuilt = [bool]$chain.Build($certificate2)
+                $chainElementCount = $chain.ChainElements.Count
+                if ($chainBuilt -and $chainElementCount -lt 2) {
+                    # A production leaf must have an issuer/root above it;
+                    # accepting a one-element successful chain would permit a
+                    # self-signed or root certificate to act as the signer.
+                    $isSelfSigned = $true
+                    [void]$issues.Add('CERTIFICATE_SELF_SIGNED_OR_ROOT_LEAF')
+                }
+                foreach ($status in @($chain.ChainStatus | Where-Object { $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError })) {
+                    [void]$chainStatus.Add($status.Status.ToString())
+                }
+                if (-not $chainBuilt -or $chainElementCount -lt 2 -or $chainStatus.Count -gt 0) {
+                    [void]$issues.Add('CERTIFICATE_CHAIN_UNTRUSTED_OR_INVALID')
+                }
+            } catch {
+                [void]$issues.Add('CERTIFICATE_CHAIN_BUILD_FAILED')
+            } finally {
+                if ($chain) { $chain.Dispose() }
+            }
+        } else {
+            [void]$issues.Add('CERTIFICATE_CHAIN_BUILD_FAILED')
+        }
+    }
+
+    [pscustomobject]@{
+        valid = $issues.Count -eq 0
+        reasons = @($issues.ToArray())
+        hasPrivateKey = $hasPrivateKey
+        selfSigned = $isSelfSigned
+        currentlyValid = $isCurrentlyValid
+        notBefore = $notBefore
+        notAfter = $notAfter
+        codeSigningEku = $hasCodeSigningEku
+        chainValid = $chainBuilt -and $chainStatus.Count -eq 0 -and $chainElementCount -ge 2
+        chainStatus = @($chainStatus.ToArray())
+        chainElementCount = $chainElementCount
+        chainTrustMode = if ($null -ne $CustomTrustRoot) { 'CUSTOM_ROOT_TEST_ONLY' } else { 'WINDOWS_DEFAULT_TRUST_POLICY' }
+        revocationPolicy = 'NOT_CHECKED_OFFLINE'
+        revocationChecked = $false
+        applicationPolicy = $script:CodeSigningApplicationPolicyOid
+    }
+}
+
+function Get-ProductionCertificatePolicy {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Certificate,
+        [switch] $RequirePrivateKey
+    )
+
+    return Get-CertificatePolicyCore -Certificate $Certificate -RequirePrivateKey:$RequirePrivateKey
+}
+
+# Test-only technical seam. Production release paths intentionally call
+# Get-ProductionCertificatePolicy without a custom root so Windows trust policy
+# remains authoritative for real signer selection and artifact validation.
+function Get-ProductionCertificatePolicyForTest {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate,
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot,
+        [switch] $RequirePrivateKey
+    )
+
+    return Get-CertificatePolicyCore -Certificate $Certificate -CustomTrustRoot $CustomTrustRoot `
+        -RequirePrivateKey:$RequirePrivateKey
 }
 
 function Test-ProductionCertificate {
-    param([AllowNull()] $Certificate)
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Certificate,
+        [switch] $RequirePrivateKey
+    )
 
-    return $null -ne $Certificate -and -not [string]::IsNullOrWhiteSpace($Certificate.Subject) -and
-        -not [string]::IsNullOrWhiteSpace($Certificate.Issuer) -and $Certificate.Subject -ne $Certificate.Issuer
+    return [bool](Get-ProductionCertificatePolicy -Certificate $Certificate -RequirePrivateKey:$RequirePrivateKey).valid
 }
 
 function Get-PinState {
@@ -198,12 +363,18 @@ function Get-SignatureRecord {
     $signer = $signature.SignerCertificate
     $timestamp = $signature.TimeStamperCertificate
     $isSigned = $signature.Status -ne 'NotSigned' -and $null -ne $signer
+    $certificatePolicy = if ($signer) {
+        Get-ProductionCertificatePolicy -Certificate $signer
+    } else {
+        $null
+    }
     [pscustomobject]@{
         signed = [bool]$isSigned
-        valid = [bool]($signature.Status -eq 'Valid')
+        valid = [bool]($signature.Status -eq 'Valid' -and $certificatePolicy -and $certificatePolicy.valid)
         status = [string]$signature.Status
         signerSubject = if ($signer) { [string]$signer.Subject } else { $null }
         leafThumbprint = if ($signer) { Normalize-Thumbprint -Value $signer.Thumbprint } else { $null }
+        certificatePolicy = if ($certificatePolicy) { $certificatePolicy } else { $null }
         timestampSigned = $null -ne $timestamp
         timestampValid = if ($timestamp) { [bool]($signature.Status -eq 'Valid') } else { $null }
         timestampSubject = if ($timestamp) { [string]$timestamp.Subject } else { $null }
@@ -443,11 +614,12 @@ function Write-PackageManifest {
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($Path), (($lines -join "`n") + "`n"), $encoding)
 }
 
-function Test-PackageManifestSignature {
+function Test-PackageManifestSignatureCore {
     param(
         [Parameter(Mandatory)] [string] $ManifestPath,
         [Parameter(Mandatory)] [string] $SignaturePath,
-        [string[]] $AllowedSignerThumbprints = @()
+        [string[]] $AllowedSignerThumbprints = @(),
+        [AllowNull()] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot
     )
 
     try {
@@ -476,9 +648,19 @@ function Test-PackageManifestSignature {
             return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_CERTIFICATE_MISSING'; signerThumbprint = $null }
         }
         $cms.CheckSignature($true)
-        $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
-        if (-not $chain.Build($certificate)) {
-            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_CHAIN_INVALID'; signerThumbprint = $certificate.Thumbprint }
+        $certificatePolicy = if ($null -ne $CustomTrustRoot) {
+            Get-CertificatePolicyCore -Certificate $certificate -CustomTrustRoot $CustomTrustRoot
+        } else {
+            Get-ProductionCertificatePolicy -Certificate $certificate
+        }
+        if (-not $certificatePolicy.valid) {
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_SIGNATURE_CERTIFICATE_POLICY_INVALID'
+                signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
+                policyReasons = @($certificatePolicy.reasons)
+                revocationPolicy = $certificatePolicy.revocationPolicy
+            }
         }
         $thumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
         $allowed = @($AllowedSignerThumbprints | ForEach-Object { Normalize-Thumbprint -Value $_ } |
@@ -486,10 +668,41 @@ function Test-PackageManifestSignature {
         if ($allowed.Count -eq 0 -or $thumbprint -notin $allowed) {
             return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_WRONG_SIGNER'; signerThumbprint = $thumbprint }
         }
-        [pscustomobject]@{ valid = $true; reason = $null; signerThumbprint = $thumbprint }
+        [pscustomobject]@{
+            valid = $true
+            reason = $null
+            signerThumbprint = $thumbprint
+            revocationPolicy = $certificatePolicy.revocationPolicy
+        }
     } catch {
         [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_INVALID'; signerThumbprint = $null; error = $_.Exception.Message }
     }
+}
+
+function Test-PackageManifestSignature {
+    param(
+        [Parameter(Mandatory)] [string] $ManifestPath,
+        [Parameter(Mandatory)] [string] $SignaturePath,
+        [string[]] $AllowedSignerThumbprints = @()
+    )
+
+    return Test-PackageManifestSignatureCore -ManifestPath $ManifestPath -SignaturePath $SignaturePath `
+        -AllowedSignerThumbprints $AllowedSignerThumbprints
+}
+
+# Test-only technical seam. Production package validation intentionally calls
+# Test-PackageManifestSignature without a custom root, preserving Windows trust
+# policy for signed release packages.
+function Test-PackageManifestSignatureForTest {
+    param(
+        [Parameter(Mandatory)] [string] $ManifestPath,
+        [Parameter(Mandatory)] [string] $SignaturePath,
+        [string[]] $AllowedSignerThumbprints = @(),
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot
+    )
+
+    return Test-PackageManifestSignatureCore -ManifestPath $ManifestPath -SignaturePath $SignaturePath `
+        -AllowedSignerThumbprints $AllowedSignerThumbprints -CustomTrustRoot $CustomTrustRoot
 }
 
 function Test-PackageManifest {
@@ -786,6 +999,7 @@ Export-ModuleMember -Function @(
     'Normalize-Thumbprint',
     'Test-ThumbprintFormat',
     'Test-UsableThumbprint',
+    'Get-ProductionCertificatePolicy',
     'Test-ProductionCertificate',
     'Get-PinState',
     'Get-ConfiguredPinStates',

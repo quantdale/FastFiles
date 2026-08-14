@@ -55,7 +55,11 @@ std::optional<Thumbprint> VerifyAuthenticodeAndGetThumbprint(
     WINTRUST_DATA trustData{};
     trustData.cbStruct = sizeof(trustData);
     trustData.dwUIChoice = WTD_UI_NONE;
-    trustData.fdwRevocationChecks = WTD_REVOKE_NONE; // no network dependency for a local security decision
+    // Runtime peer authentication deliberately has no network dependency. The
+    // release signer preflight separately validates the Windows trust chain,
+    // current validity, and Code Signing EKU, while reporting revocation as
+    // NOT_CHECKED_OFFLINE; it must not be confused with this runtime policy.
+    trustData.fdwRevocationChecks = WTD_REVOKE_NONE;
     trustData.dwUnionChoice = WTD_CHOICE_FILE;
     trustData.pFile = &fileInfo;
     trustData.dwStateAction = WTD_STATEACTION_VERIFY;

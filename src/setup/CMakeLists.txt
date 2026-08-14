@@ -36,10 +36,11 @@ option(FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED
   "Allow unsigned binaries in diagnostic-only builds (mutual authentication checks pass unconditionally)" OFF)
 
 if(FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
-  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR FASTFILES_RELEASE_TEST_BUILD)
     message(FATAL_ERROR
-      "FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED may only be enabled in Debug builds; "
-      "a ${CMAKE_BUILD_TYPE} build cannot be a diagnostic build.")
+      "FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED may only be enabled in an explicitly "
+      "Debug diagnostic build; shipped and optimized release-test builds must "
+      "compile the fail-closed Authenticode path.")
   endif()
   target_compile_definitions(ffsetup PRIVATE FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED)
 endif()
