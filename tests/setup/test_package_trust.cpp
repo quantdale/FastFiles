@@ -100,12 +100,13 @@ std::vector<uint8_t> ReadBytes(const std::wstring& path) {
     return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
 }
 
-std::optional<ffsetup::Thumbprint> ReadSignerThumbprint(const std::wstring& statePath) {
+std::optional<ffsetup::Thumbprint> ReadStateThumbprint(
+    const std::wstring& statePath, const char* fieldName) {
     const std::string state = [&] {
         std::ifstream file(std::filesystem::path(statePath), std::ios::binary);
         return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     }();
-    const std::string marker = "\"leafThumbprint\":\"";
+    const std::string marker = std::string("\"") + fieldName + "\":\"";
     const size_t start = state.find(marker);
     if (start == std::string::npos || start + marker.size() + 40 > state.size()) return std::nullopt;
     const std::string hex = state.substr(start + marker.size(), 40);
@@ -125,6 +126,10 @@ std::optional<ffsetup::Thumbprint> ReadSignerThumbprint(const std::wstring& stat
         thumbprint[index] = static_cast<uint8_t>((nibble(high) << 4) | nibble(low));
     }
     return thumbprint;
+}
+
+std::optional<ffsetup::Thumbprint> ReadSignerThumbprint(const std::wstring& statePath) {
+    return ReadStateThumbprint(statePath, "leafThumbprint");
 }
 
 void WritePayload(const std::wstring& path, const std::string& content) {

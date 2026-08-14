@@ -43,9 +43,54 @@ function Add-TestCertificateToMyStore {
     }
 }
 
+function Remove-TestPrivateKeyForCertificate {
+    param([Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
+
+    if (-not $Certificate.HasPrivateKey) { return }
+    $keyName = $null
+    $privateKey = $null
+    try {
+        $privateKey = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
+        if ($privateKey -is [Security.Cryptography.RSACng]) {
+            $keyName = $privateKey.Key.KeyName
+        }
+    } finally {
+        if ($privateKey) { $privateKey.Dispose() }
+    }
+    if (-not $keyName) {
+        throw 'RELEASE_TOOLING_PRIVATE_KEY_PROVIDER_UNSUPPORTED'
+    }
+    $certutil = Join-Path $env:SystemRoot 'System32\certutil.exe'
+    if (-not (Test-Path -LiteralPath $certutil -PathType Leaf)) { throw 'RELEASE_TOOLING_CERTUTIL_MISSING' }
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $certutil
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in @('-user', '-csp', 'KSP', '-delkey', $keyName)) {
+        [void]$startInfo.ArgumentList.Add($argument)
+    }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw 'RELEASE_TOOLING_CERTUTIL_START_FAILED' }
+        if (-not $process.WaitForExit(30000)) {
+            if (-not $process.HasExited) {
+                try { $process.Kill($true) } catch { if (-not $process.HasExited) { $process.Kill() } }
+            }
+            $process.WaitForExit()
+            throw 'RELEASE_TOOLING_CERTUTIL_TIMEOUT'
+        }
+        if ($process.ExitCode -ne 0) { throw 'RELEASE_TOOLING_CERTUTIL_FAILED' }
+    } catch {
+        throw 'RELEASE_TOOLING_PRIVATE_KEY_DELETE_FAILED'
+    } finally {
+        $process.Dispose()
+    }
+}
+
 function Remove-TestCertificateThumbprint {
     param(
-        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root', 'CA')] [string] $StoreName,
         [AllowNull()] [string] $Thumbprint
     )
 
@@ -56,6 +101,7 @@ function Remove-TestCertificateThumbprint {
         $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         foreach ($certificate in @($store.Certificates)) {
             if ((Normalize-Thumbprint -Value $certificate.Thumbprint) -ceq $normalized) {
+                if ($StoreName -eq 'My') { Remove-TestPrivateKeyForCertificate -Certificate $certificate }
                 $store.Remove($certificate)
             }
         }
@@ -67,7 +113,7 @@ function Remove-TestCertificateThumbprint {
 
 function Test-TestCertificateAbsent {
     param(
-        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root', 'CA')] [string] $StoreName,
         [AllowNull()] [string] $Thumbprint
     )
 
@@ -137,8 +183,12 @@ function New-TestCertificateFixture {
             rootTrusted = $trusted
         }
     } catch {
-        if ($leaf) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $leaf.Thumbprint }
+        if ($leaf) {
+            Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $leaf.Thumbprint
+            Remove-TestCertificateThumbprint -StoreName My -Thumbprint $leaf.Thumbprint
+        }
         if ($root) {
+            Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $root.Thumbprint
             Remove-TestCertificateThumbprint -StoreName My -Thumbprint $root.Thumbprint
         }
         throw
@@ -152,11 +202,15 @@ function Remove-TestCertificateFixture {
     $rootThumbprint = if ($Fixture.root) { $Fixture.root.Thumbprint } else { $null }
     $leafThumbprint = if ($Fixture.leaf) { $Fixture.leaf.Thumbprint } else { $null }
     if ($Fixture.rootTrusted) { Remove-TestCertificateThumbprint -StoreName Root -Thumbprint $rootThumbprint }
+    Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $rootThumbprint
+    Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $leafThumbprint
     Remove-TestCertificateThumbprint -StoreName My -Thumbprint $leafThumbprint
     Remove-TestCertificateThumbprint -StoreName My -Thumbprint $rootThumbprint
     return (Test-TestCertificateAbsent -StoreName My -Thumbprint $leafThumbprint) -and
         (Test-TestCertificateAbsent -StoreName My -Thumbprint $rootThumbprint) -and
-        (Test-TestCertificateAbsent -StoreName Root -Thumbprint $rootThumbprint)
+        (Test-TestCertificateAbsent -StoreName Root -Thumbprint $rootThumbprint) -and
+        (Test-TestCertificateAbsent -StoreName CA -Thumbprint $leafThumbprint) -and
+        (Test-TestCertificateAbsent -StoreName CA -Thumbprint $rootThumbprint)
 }
 
 function Invoke-SignReleaseDryRun {
@@ -578,7 +632,10 @@ try {
             Check ($expiredNow -and $expiredResult.valid -and $expiredResult.timestampValid) `
                 'a manifest signer that is expired now remains valid when its trusted timestamp predates expiry'
         } finally {
-            if ($expiredTimestampCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $expiredTimestampCertificate.Thumbprint }
+            if ($expiredTimestampCertificate) {
+                Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $expiredTimestampCertificate.Thumbprint
+                Remove-TestCertificateThumbprint -StoreName My -Thumbprint $expiredTimestampCertificate.Thumbprint
+            }
             if ($expiredManifestFixture) { Check (Remove-TestCertificateFixture -Fixture $expiredManifestFixture) 'expired manifest timestamp fixture certificates are cleaned' }
         }
 
@@ -607,7 +664,10 @@ try {
         }
 
     } finally {
-        if ($manifestTimestampCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $manifestTimestampCertificate.Thumbprint }
+        if ($manifestTimestampCertificate) {
+            Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $manifestTimestampCertificate.Thumbprint
+            Remove-TestCertificateThumbprint -StoreName My -Thumbprint $manifestTimestampCertificate.Thumbprint
+        }
         if (Test-Path -LiteralPath $manifestPolicyRoot -PathType Container) {
             Remove-Item -LiteralPath $manifestPolicyRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -690,12 +750,13 @@ try {
     Check $false "encrypted external PFX provider dry-run completed without exception ($($_.Exception.Message))"
 } finally {
     [Environment]::SetEnvironmentVariable($pfxProbeEnvironmentName, $null, 'Process')
-    if ($pfxProbeLeafCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeLeafCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
-    if ($pfxProbeRootCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeRootCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
+    if ($pfxProbeRootCertificate) { Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $pfxProbeRootCertificate.Thumbprint }
+    if ($pfxProbeLeafCertificate) { Remove-TestCertificateThumbprint -StoreName CA -Thumbprint $pfxProbeLeafCertificate.Thumbprint }
     if ($pfxProbeLeafCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $pfxProbeLeafCertificate.Thumbprint }
     if ($pfxProbeRootCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $pfxProbeRootCertificate.Thumbprint }
     if ($pfxProbeLeafCertificate) { Check (Test-TestCertificateAbsent -StoreName My -Thumbprint $pfxProbeLeafCertificate.Thumbprint) 'encrypted PFX temporary leaf is absent from CurrentUser personal store after cleanup' }
     if ($pfxProbeRootCertificate) { Check (Test-TestCertificateAbsent -StoreName My -Thumbprint $pfxProbeRootCertificate.Thumbprint) 'encrypted PFX temporary root is absent from CurrentUser personal store after cleanup' }
+    if ($pfxProbeRootCertificate) { Check (Test-TestCertificateAbsent -StoreName CA -Thumbprint $pfxProbeRootCertificate.Thumbprint) 'encrypted PFX temporary root is absent from CurrentUser CA store after cleanup' }
     if (Test-Path -LiteralPath $pfxProbePath -PathType Leaf) { Remove-Item -LiteralPath $pfxProbePath -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $pfxProbeRoot -PathType Container) { Remove-Item -LiteralPath $pfxProbeRoot -Recurse -Force -ErrorAction SilentlyContinue }
 }

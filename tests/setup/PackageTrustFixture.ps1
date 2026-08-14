@@ -18,16 +18,21 @@ function Normalize-Thumbprint {
 
 function Remove-CertificateThumbprint {
     param(
-        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root', 'CA')] [string] $StoreName,
         [Parameter(Mandatory)] [string] $Thumbprint
     )
 
     $normalized = Normalize-Thumbprint -Value $Thumbprint
+    if ($StoreName -eq 'Root') {
+        Remove-CurrentUserRootCertificate -Thumbprint $normalized
+        return
+    }
     $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, 'CurrentUser')
     try {
         $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
         foreach ($certificate in @($store.Certificates)) {
             if ((Normalize-Thumbprint -Value $certificate.Thumbprint) -ceq $normalized) {
+                if ($StoreName -eq 'My') { Remove-PrivateKeyForCertificate -Certificate $certificate }
                 $store.Remove($certificate)
             }
         }
@@ -37,13 +42,105 @@ function Remove-CertificateThumbprint {
     }
 }
 
+function Get-CertUtilPath {
+    $path = Join-Path $env:SystemRoot 'System32\certutil.exe'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw 'PACKAGE_TRUST_FIXTURE_CERTUTIL_MISSING'
+    }
+    return $path
+}
+
+function Invoke-CertUtil {
+    param([Parameter(Mandatory)] [string[]] $Arguments)
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = Get-CertUtilPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    foreach ($argument in $Arguments) { [void]$startInfo.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw 'PACKAGE_TRUST_FIXTURE_CERTUTIL_START_FAILED' }
+        if (-not $process.WaitForExit(30000)) {
+            if (-not $process.HasExited) {
+                try { $process.Kill($true) } catch { if (-not $process.HasExited) { $process.Kill() } }
+            }
+            $process.WaitForExit()
+            throw 'PACKAGE_TRUST_FIXTURE_CERTUTIL_TIMEOUT'
+        }
+        if ($process.ExitCode -ne 0) { throw 'PACKAGE_TRUST_FIXTURE_CERTUTIL_FAILED' }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+function Test-CurrentUserRootCertificate {
+    param([Parameter(Mandatory)] [string] $Thumbprint)
+
+    $normalized = Normalize-Thumbprint -Value $Thumbprint
+    if ($normalized -notmatch '^[0-9A-F]{40}$') { throw 'PACKAGE_TRUST_FIXTURE_THUMBPRINT_INVALID' }
+    $registryPath = 'Software\Microsoft\SystemCertificates\Root\Certificates\' + $normalized
+    $key = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($registryPath)
+    try { return $null -ne $key } finally { if ($key) { $key.Dispose() } }
+}
+
+function Remove-CurrentUserRootCertificate {
+    param([Parameter(Mandatory)] [string] $Thumbprint)
+
+    $normalized = Normalize-Thumbprint -Value $Thumbprint
+    if ($normalized -notmatch '^[0-9A-F]{40}$') { throw 'PACKAGE_TRUST_FIXTURE_THUMBPRINT_INVALID' }
+    if (-not (Test-CurrentUserRootCertificate -Thumbprint $normalized)) { return }
+    try { Invoke-CertUtil -Arguments @('-user', '-delstore', 'Root', $normalized) } catch { }
+    if (-not (Test-CurrentUserRootCertificate -Thumbprint $normalized)) { return }
+    $parentPath = 'Software\Microsoft\SystemCertificates\Root\Certificates'
+    $parent = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey($parentPath, $true)
+    if (-not $parent) { throw 'PACKAGE_TRUST_FIXTURE_ROOT_STORE_MISSING' }
+    try { $parent.DeleteSubKey($normalized, $false) } finally { $parent.Dispose() }
+    if (Test-CurrentUserRootCertificate -Thumbprint $normalized) {
+        throw 'PACKAGE_TRUST_FIXTURE_ROOT_REMOVE_FAILED'
+    }
+}
+
+function Get-RootCertificateTempPath {
+    param([Parameter(Mandatory)] [string] $Thumbprint)
+
+    $normalized = Normalize-Thumbprint -Value $Thumbprint
+    if ($normalized -notmatch '^[0-9A-F]{40}$') { throw 'PACKAGE_TRUST_FIXTURE_THUMBPRINT_INVALID' }
+    return Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-test-root-' + $normalized + '.cer')
+}
+
+function Remove-PrivateKeyForCertificate {
+    param([Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
+
+    if (-not $Certificate.HasPrivateKey) { return }
+    $keyName = $null
+    $privateKey = $null
+    try {
+        $privateKey = [Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($Certificate)
+        if ($privateKey -is [Security.Cryptography.RSACng]) {
+            $keyName = $privateKey.Key.KeyName
+        }
+    } finally {
+        if ($privateKey) { $privateKey.Dispose() }
+    }
+    if (-not $keyName) {
+        throw 'PACKAGE_TRUST_FIXTURE_PRIVATE_KEY_PROVIDER_UNSUPPORTED'
+    }
+    try { Invoke-CertUtil -Arguments @('-user', '-csp', 'KSP', '-delkey', $keyName) }
+    catch { throw 'PACKAGE_TRUST_FIXTURE_PRIVATE_KEY_DELETE_FAILED' }
+}
+
 function Test-CertificateAbsent {
     param(
-        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root', 'CA')] [string] $StoreName,
         [Parameter(Mandatory)] [string] $Thumbprint
     )
 
     $normalized = Normalize-Thumbprint -Value $Thumbprint
+    if ($StoreName -eq 'Root') {
+        return -not (Test-CurrentUserRootCertificate -Thumbprint $normalized)
+    }
     $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, 'CurrentUser')
     try {
         $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
@@ -60,26 +157,21 @@ function Add-CertificateToCurrentUserRoot {
     param([Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
 
     $normalized = Normalize-Thumbprint -Value $Certificate.Thumbprint
-    $publicCertificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($Certificate.RawData)
-    $store = [Security.Cryptography.X509Certificates.X509Store]::new('Root', 'CurrentUser')
-    $installed = $false
-    try {
-        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        if (@($store.Certificates | Where-Object {
-                (Normalize-Thumbprint -Value $_.Thumbprint) -ceq $normalized
-            }).Count -ne 0) {
-            throw 'PACKAGE_TRUST_FIXTURE_ROOT_ALREADY_PRESENT'
-        }
-        [void]$store.Add($publicCertificate)
-        $installed = @($store.Certificates | Where-Object {
-                (Normalize-Thumbprint -Value $_.Thumbprint) -ceq $normalized
-            }).Count -eq 1
-    } finally {
-        $store.Close()
-        $store.Dispose()
-        $publicCertificate.Dispose()
+    if (Test-CurrentUserRootCertificate -Thumbprint $normalized) {
+        throw 'PACKAGE_TRUST_FIXTURE_ROOT_ALREADY_PRESENT'
     }
-    if (-not $installed) { throw 'PACKAGE_TRUST_FIXTURE_ROOT_INSTALL_FAILED' }
+    $certificatePath = Get-RootCertificateTempPath -Thumbprint $normalized
+    try {
+        [IO.File]::WriteAllBytes($certificatePath, $Certificate.RawData)
+        Invoke-CertUtil -Arguments @('-user', '-f', '-addstore', 'Root', $certificatePath)
+    } catch {
+        throw ('PACKAGE_TRUST_FIXTURE_ROOT_INSTALL_FAILED: ' + $_.Exception.Message)
+    } finally {
+        if ([IO.File]::Exists($certificatePath)) { [IO.File]::Delete($certificatePath) }
+    }
+    if (-not (Test-CurrentUserRootCertificate -Thumbprint $normalized)) {
+        throw 'PACKAGE_TRUST_FIXTURE_ROOT_INSTALL_FAILED'
+    }
 }
 
 function Find-TestSignTool {
@@ -294,24 +386,31 @@ function New-LocalRfc3161DetachedSignature {
 function Remove-FixtureCertificates {
     param([Parameter(Mandatory)] $State)
 
-    if (-not (Test-CertificateAbsent -StoreName Root -Thumbprint $State.rootThumbprint)) {
-        Remove-CertificateThumbprint -StoreName Root -Thumbprint $State.rootThumbprint
+    if (-not [string]::IsNullOrWhiteSpace($State.rootThumbprint)) {
+        $rootCertificatePath = Get-RootCertificateTempPath -Thumbprint $State.rootThumbprint
+        if (Test-Path -LiteralPath $rootCertificatePath -PathType Leaf) {
+            Remove-Item -LiteralPath $rootCertificatePath -Force
+        }
     }
+    Remove-CertificateThumbprint -StoreName Root -Thumbprint $State.rootThumbprint
+    Remove-CertificateThumbprint -StoreName CA -Thumbprint $State.rootThumbprint
     Remove-CertificateThumbprint -StoreName My -Thumbprint $State.timestampThumbprint
     Remove-CertificateThumbprint -StoreName My -Thumbprint $State.leafThumbprint
     Remove-CertificateThumbprint -StoreName My -Thumbprint $State.rootThumbprint
-    foreach ($storeName in @('Root', 'My')) {
+    Remove-CertificateThumbprint -StoreName CA -Thumbprint $State.timestampThumbprint
+    Remove-CertificateThumbprint -StoreName CA -Thumbprint $State.leafThumbprint
+    Remove-CertificateThumbprint -StoreName CA -Thumbprint $State.rootThumbprint
+    foreach ($storeName in @('Root', 'CA', 'My')) {
         if (-not (Test-CertificateAbsent -StoreName $storeName -Thumbprint $State.rootThumbprint)) {
             throw "PACKAGE_TRUST_FIXTURE_CERTIFICATE_REMAINS: $storeName root"
         }
     }
     foreach ($thumbprint in @($State.leafThumbprint, $State.timestampThumbprint)) {
-        if (-not (Test-CertificateAbsent -StoreName My -Thumbprint $thumbprint)) {
-            throw "PACKAGE_TRUST_FIXTURE_CERTIFICATE_REMAINS: $thumbprint"
+        foreach ($storeName in @('My', 'CA')) {
+            if (-not (Test-CertificateAbsent -StoreName $storeName -Thumbprint $thumbprint)) {
+                throw "PACKAGE_TRUST_FIXTURE_CERTIFICATE_REMAINS: $storeName $thumbprint"
+            }
         }
-    }
-    if (-not (Test-CertificateAbsent -StoreName Root -Thumbprint $State.rootThumbprint)) {
-        throw 'PACKAGE_TRUST_FIXTURE_CERTIFICATE_REMAINS: CurrentUser root'
     }
 }
 
@@ -367,12 +466,22 @@ function Prepare-Fixture {
         [IO.File]::Delete($unsignedPath)
         $state | ConvertTo-Json -Compress | Set-Content -LiteralPath $StatePath -Encoding UTF8
     } catch {
-        if ($root -and -not (Test-CertificateAbsent -StoreName Root -Thumbprint $root.Thumbprint)) {
+        if ($root) {
             Remove-CertificateThumbprint -StoreName Root -Thumbprint $root.Thumbprint
+            Remove-CertificateThumbprint -StoreName CA -Thumbprint $root.Thumbprint
         }
-        if ($timestamp) { Remove-CertificateThumbprint -StoreName My -Thumbprint $timestamp.Thumbprint }
-        if ($leaf) { Remove-CertificateThumbprint -StoreName My -Thumbprint $leaf.Thumbprint }
-        if ($root) { Remove-CertificateThumbprint -StoreName My -Thumbprint $root.Thumbprint }
+        if ($timestamp) {
+            Remove-CertificateThumbprint -StoreName CA -Thumbprint $timestamp.Thumbprint
+            Remove-CertificateThumbprint -StoreName My -Thumbprint $timestamp.Thumbprint
+        }
+        if ($leaf) {
+            Remove-CertificateThumbprint -StoreName CA -Thumbprint $leaf.Thumbprint
+            Remove-CertificateThumbprint -StoreName My -Thumbprint $leaf.Thumbprint
+        }
+        if ($root) {
+            Remove-CertificateThumbprint -StoreName CA -Thumbprint $root.Thumbprint
+            Remove-CertificateThumbprint -StoreName My -Thumbprint $root.Thumbprint
+        }
         throw
     }
 }

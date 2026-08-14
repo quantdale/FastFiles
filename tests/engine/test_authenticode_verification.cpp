@@ -324,7 +324,7 @@ void TestRealWinTrustFixture(
         Check(customChainExit == 0,
               transitionToExpired
                   ? "real WinTrust fixture: custom-root chain is valid before the deliberate expiry transition"
-                  : "real WinTrust fixture: custom-root chain is valid while the default WinTrust root remains untrusted");
+                  : "real WinTrust fixture: custom-root chain is valid for the intentionally untrusted negative signer");
 
         const auto hashBeforeTransition = ffsetup::ComputeSha256FileAtPath(outputPath.wstring());
         const auto verifyCurrentState = [&](bool shouldAccept, bool checkPinVariants) {
@@ -353,11 +353,12 @@ void TestRealWinTrustFixture(
         };
 
         // SignTool cannot create a new signature with an already-expired
-        // certificate. For that fixture, the helper trusts the unique root in
-        // CurrentUser\Root, proves the production WinTrust path accepts the
-        // leaf while it is usable, then waits past its embedded NotAfter and
-        // runs the same path again without changing the signed PE. Expiration
-        // is therefore the changed variable, not an untrusted root.
+        // certificate. The fixture installs its unique public root in
+        // CurrentUser\Root through certutil, proves the production WinTrust
+        // path accepts the leaf while it is usable, then waits past its
+        // embedded NotAfter and runs the same path again without changing the
+        // signed PE. Expiration is therefore the changed variable, not an
+        // untrusted root.
         verifyCurrentState(expectedAcceptance, true);
         if (transitionToExpired) {
             const int expireExit = RunFixtureScript(scriptPath, {
@@ -584,12 +585,17 @@ int wmain(int argc, wchar_t* argv[]) {
         return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
     }
     // resolve-raw-volume-privilege-insufficiency task 3.1: pin enforcement.
+    // close-independent-validation-gaps 4.2: run the CurrentUser trust-store
+    // transition before the general system-signer probes. WinTrust may retain
+    // provider/store state for the life of this process; establishing the
+    // isolated test root first keeps that cache state from delaying the
+    // supported CurrentUser Root-store mutation.
+    TestExpiredAndUntrustedWinTrustFixtures();
     TestUnconfiguredPinsFailClosed();
     TestUnsignedBinaryRejectedWithConfiguredPin();
     TestMismatchedPinRejectsSignedBinary();
     TestMatchingPinAcceptsSignedBinary();
     TestThumbprintComparison();
     TestPartiallyPopulatedPinsRejectUnpinnedPeer();
-    TestExpiredAndUntrustedWinTrustFixtures();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

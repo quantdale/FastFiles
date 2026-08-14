@@ -179,15 +179,20 @@ try {
             if ([string]::IsNullOrEmpty($environmentSecret)) { throw "AUTHORIZED_SIGNER_REQUIRED: supply -PfxPassword or the '$PfxPasswordEnvironmentVariable' environment variable." }
             $PfxPassword = ConvertTo-SecureString -String $environmentSecret -AsPlainText -Force
         }
-        $pfxCertificate = Get-PfxCertificate -LiteralPath ([IO.Path]::GetFullPath($PfxPath)) -Password $PfxPassword -NoPromptForPassword -ErrorAction Stop
+        $pfxSecret = ConvertTo-PlainSecret -SecureValue $PfxPassword
+        $pfxCollection = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        $pfxCollection.Import(
+            [IO.Path]::GetFullPath($PfxPath),
+            $pfxSecret,
+            [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        $pfxCertificate = @($pfxCollection | Where-Object HasPrivateKey | Select-Object -First 1)
+        if ($pfxCertificate.Count -ne 1) { throw 'AUTHORIZED_SIGNER_REQUIRED: supplied PFX did not contain exactly one usable private-key certificate.' }
+        $pfxCertificate = $pfxCertificate[0]
         $providerThumbprint = Normalize-Thumbprint -Value $pfxCertificate.Thumbprint
         if (-not (Test-ThumbprintFormat -Value $providerThumbprint)) { throw 'AUTHORIZED_SIGNER_REQUIRED: supplied PFX leaf thumbprint is malformed.' }
         $expected = Assert-ExpectedSignerThumbprint -ProviderThumbprint $providerThumbprint
         Assert-AuthorizedCertificate -Certificate $pfxCertificate -Source ([IO.Path]::GetFullPath($PfxPath))
-        $pfxSecret = ConvertTo-PlainSecret -SecureValue $PfxPassword
-        $certificateForManifest = [Security.Cryptography.X509Certificates.X509Certificate2]::new(
-            [IO.Path]::GetFullPath($PfxPath), $pfxSecret,
-            [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+        $certificateForManifest = $pfxCertificate
     }
     $tool = if ($DryRun -and $isManifestOnly) { $null } else { Resolve-Signtool -RequestedPath $SigntoolPath }
     $preflight = @($paths | ForEach-Object { [pscustomobject]@{ artifact = $_; architecture = (Get-PeArchitecture -Path $_).architecture; present = $true } })
