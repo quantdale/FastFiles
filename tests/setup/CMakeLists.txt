@@ -19,8 +19,15 @@ set_tests_properties(ffsetup_peer_image_match_tests PROPERTIES TIMEOUT 120)
 # are deterministic without manufacturing a production certificate.
 add_executable(ffsetup_package_trust_tests test_package_trust.cpp)
 target_link_libraries(ffsetup_package_trust_tests PRIVATE ffsetup)
+add_custom_target(ffsetup_package_trust_fixture ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
+    "$<TARGET_FILE_DIR:ffsetup_package_trust_tests>/PackageTrustFixture.ps1"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
+)
+add_dependencies(ffsetup_package_trust_tests ffsetup_package_trust_fixture)
 add_test(NAME ffsetup_package_trust_tests COMMAND ffsetup_package_trust_tests)
-set_tests_properties(ffsetup_package_trust_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffsetup_package_trust_tests PROPERTIES TIMEOUT 300)
 
 # fastfiles-audit-remediation FF-AUDIT-02: source-level guard that prevents
 # reintroducing an elevated %TEMP% relay or detached copied-helper teardown.

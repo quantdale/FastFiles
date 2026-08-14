@@ -35,6 +35,7 @@
 #include <vector>
 
 #include "ffsetup/AuthenticodeVerification.h"
+#include "ffsetup/PackageTrust.h"
 #include "ffsetup/PinnedSignatures.h"
 #include "../TestSupport.h"
 
@@ -224,6 +225,37 @@ int RunFixtureScript(
     return static_cast<int>(exitCode);
 }
 
+int RunTimestampedWorkerProcess(const std::filesystem::path& modulePath,
+                                const std::filesystem::path& fixtureRoot) {
+    constexpr DWORD kWorkerProcessTimeoutMs = 360000;
+    const std::wstring commandLine = QuoteCommandLineArgument(modulePath.wstring()) +
+        L" --timestamped-worker " + QuoteCommandLineArgument(fixtureRoot.wstring());
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = static_cast<DWORD>(sizeof(startupInfo));
+    startupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    startupInfo.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION processInfo{};
+    if (!CreateProcessW(nullptr, mutableCommandLine.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo)) {
+        return -1;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, kWorkerProcessTimeoutMs);
+    DWORD exitCode = 1;
+    if (waitResult == WAIT_TIMEOUT) {
+        TerminateProcess(processInfo.hProcess, ERROR_TIMEOUT);
+        WaitForSingleObject(processInfo.hProcess, 5000);
+        exitCode = ERROR_TIMEOUT;
+    } else if (waitResult != WAIT_OBJECT_0 || !GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
+        exitCode = ERROR_PROCESS_ABORTED;
+    }
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    return static_cast<int>(exitCode);
+}
+
 int HexValue(char character) {
     if (character >= '0' && character <= '9') { return character - '0'; }
     if (character >= 'A' && character <= 'F') { return character - 'A' + 10; }
@@ -260,7 +292,9 @@ void TestRealWinTrustFixture(
     const wchar_t* caseName,
     const char* description,
     bool expectedAcceptance,
-    bool transitionToExpired = false) {
+    bool transitionToExpired = false,
+    bool expectedAcceptanceAfterTransition = false,
+    bool cleanup = true) {
     const std::filesystem::path outputPath = fixtureRoot / (std::wstring(caseName) + L".exe");
     const std::filesystem::path statePath = fixtureRoot / (std::wstring(caseName) + L".state.json");
     const auto modulePath = CurrentModulePath();
@@ -292,6 +326,7 @@ void TestRealWinTrustFixture(
                   ? "real WinTrust fixture: custom-root chain is valid before the deliberate expiry transition"
                   : "real WinTrust fixture: custom-root chain is valid while the default WinTrust root remains untrusted");
 
+        const auto hashBeforeTransition = ffsetup::ComputeSha256FileAtPath(outputPath.wstring());
         const auto verifyCurrentState = [&](bool shouldAccept, bool checkPinVariants) {
             const auto actual = ffsetup::VerifyAuthenticodeAndGetThumbprintAtPath(outputPath.wstring());
             Check(actual.has_value() == shouldAccept,
@@ -318,11 +353,11 @@ void TestRealWinTrustFixture(
         };
 
         // SignTool cannot create a new signature with an already-expired
-        // certificate. For that fixture, prove the custom-root chain is valid
-        // while the leaf is usable, then wait past its embedded NotAfter and
-        // run the production WinTrust path again. The temporary root is never
-        // installed into the machine trust store, so default WinTrust is
-        // expected to reject the fixture both before and after expiry.
+        // certificate. For that fixture, the helper trusts the unique root in
+        // CurrentUser\Root, proves the production WinTrust path accepts the
+        // leaf while it is usable, then waits past its embedded NotAfter and
+        // runs the same path again without changing the signed PE. Expiration
+        // is therefore the changed variable, not an untrusted root.
         verifyCurrentState(expectedAcceptance, true);
         if (transitionToExpired) {
             const int expireExit = RunFixtureScript(scriptPath, {
@@ -336,28 +371,34 @@ void TestRealWinTrustFixture(
             });
             Check(expiredChainExit == 0,
                   "real WinTrust fixture: custom-root chain reports the leaf's expired validity status");
-            verifyCurrentState(false, false);
+            const auto hashAfterTransition = ffsetup::ComputeSha256FileAtPath(outputPath.wstring());
+            Check(hashBeforeTransition.has_value() && hashAfterTransition.has_value() &&
+                      *hashBeforeTransition == *hashAfterTransition,
+                  "real WinTrust fixture: the signed PE bytes are unchanged across the expiry transition");
+            verifyCurrentState(expectedAcceptanceAfterTransition, false);
         }
     }
 
-    int cleanupExit = RunFixtureScript(scriptPath, {
-        {L"-Action", L"Cleanup"},
-        {L"-StatePath", statePath.wstring()}
-    });
-    if (cleanupExit != 0) {
-        // WinTrust can release a certificate context shortly after its close
-        // action returns. Retry the isolated cleanup script once across that
-        // process boundary so a transient store race cannot strand fixtures.
-        Sleep(1000);
-        cleanupExit = RunFixtureScript(scriptPath, {
+    if (cleanup) {
+        int cleanupExit = RunFixtureScript(scriptPath, {
             {L"-Action", L"Cleanup"},
             {L"-StatePath", statePath.wstring()}
         });
+        if (cleanupExit != 0) {
+            // WinTrust can release a certificate context shortly after its close
+            // action returns. Retry the isolated cleanup script once across that
+            // process boundary so a transient store race cannot strand fixtures.
+            Sleep(1000);
+            cleanupExit = RunFixtureScript(scriptPath, {
+                {L"-Action", L"Cleanup"},
+                {L"-StatePath", statePath.wstring()}
+            });
+        }
+        Check(cleanupExit == 0, "real WinTrust fixture: certificate stores and temporary files are cleaned");
+        Check(!std::filesystem::exists(outputPath) && !std::filesystem::exists(statePath) &&
+                  !std::filesystem::exists(thumbprintPath),
+              "real WinTrust fixture: cleanup leaves no generated PE, state, or thumbprint file");
     }
-    Check(cleanupExit == 0, "real WinTrust fixture: certificate stores and temporary files are cleaned");
-    Check(!std::filesystem::exists(outputPath) && !std::filesystem::exists(statePath) &&
-              !std::filesystem::exists(thumbprintPath),
-          "real WinTrust fixture: cleanup leaves no generated PE, state, or thumbprint file");
 }
 
 void TestExpiredAndUntrustedWinTrustFixtures() {
@@ -382,13 +423,79 @@ void TestExpiredAndUntrustedWinTrustFixtures() {
     }
 
     TestRealWinTrustFixture(scriptPath, *fixtureRoot, L"Expired",
-                            "real WinTrust fixture: short-lived test certificate is generated and signed", false, true);
+                            "real WinTrust fixture: short-lived test certificate is generated and signed", true, true);
     TestRealWinTrustFixture(scriptPath, *fixtureRoot, L"Untrusted",
                             "real WinTrust fixture: untrusted development root certificate is generated and signed", false);
 
     std::error_code error;
     const bool removed = std::filesystem::remove(*fixtureRoot, error) && !error;
     Check(removed, "real WinTrust fixtures: isolated temporary directory is empty after cleanup");
+}
+
+void TestTimestampedWinTrustFixture() {
+    // Keep the CurrentUser\Root trust-store mutation in its own process-level
+    // CTest case. Windows can retain a provider/store handle briefly after a
+    // WinTrust close; isolating the timestamped case prevents that unrelated
+    // cache lifetime from changing the expiry evidence.
+    const auto modulePath = CurrentModulePath();
+    if (!modulePath.has_value()) {
+        Check(false, "timestamped WinTrust fixture requires the current test executable path");
+        return;
+    }
+    const std::filesystem::path scriptPath = modulePath->parent_path() / L"AuthenticodeFixture.ps1";
+    Check(std::filesystem::exists(scriptPath), "timestamped WinTrust fixture helper is deployed beside the test");
+    if (!std::filesystem::exists(scriptPath)) {
+        return;
+    }
+
+    const auto fixtureRoot = CreateFixtureRoot();
+    Check(fixtureRoot.has_value(), "timestamped WinTrust fixture creates an isolated temporary directory");
+    if (!fixtureRoot.has_value()) {
+        return;
+    }
+
+    const int workerExit = RunTimestampedWorkerProcess(*modulePath, *fixtureRoot);
+    Check(workerExit == 0,
+          "timestamped WinTrust fixture: worker proves timestamp longevity before parent cleanup");
+
+    const std::filesystem::path statePath = *fixtureRoot / L"TimestampedExpired.state.json";
+    const std::filesystem::path outputPath = *fixtureRoot / L"TimestampedExpired.exe";
+    const std::filesystem::path thumbprintPath = outputPath.wstring() + L".thumbprint";
+    int cleanupExit = RunFixtureScript(scriptPath, {
+        {L"-Action", L"Cleanup"},
+        {L"-StatePath", statePath.wstring()}
+    });
+    if (cleanupExit != 0) {
+        Sleep(1000);
+        cleanupExit = RunFixtureScript(scriptPath, {
+            {L"-Action", L"Cleanup"},
+            {L"-StatePath", statePath.wstring()}
+        });
+    }
+    Check(cleanupExit == 0,
+          "timestamped WinTrust fixture: parent removes the trusted root after the worker exits");
+    Check(!std::filesystem::exists(outputPath) && !std::filesystem::exists(statePath) &&
+              !std::filesystem::exists(thumbprintPath),
+          "timestamped WinTrust fixture: cleanup leaves no PE, state, or thumbprint file");
+    std::error_code error;
+    const bool removed = std::filesystem::remove(*fixtureRoot, error) && !error;
+    Check(removed, "timestamped WinTrust fixture leaves no temporary directory after cleanup");
+}
+
+void TestTimestampedWinTrustWorker(const std::filesystem::path& fixtureRoot) {
+    const auto modulePath = CurrentModulePath();
+    if (!modulePath.has_value()) {
+        Check(false, "timestamped WinTrust worker requires the current test executable path");
+        return;
+    }
+    const std::filesystem::path scriptPath = modulePath->parent_path() / L"AuthenticodeFixture.ps1";
+    Check(std::filesystem::exists(scriptPath), "timestamped WinTrust worker helper is deployed beside the test");
+    if (!std::filesystem::exists(scriptPath)) {
+        return;
+    }
+    TestRealWinTrustFixture(scriptPath, fixtureRoot, L"TimestampedExpired",
+                            "real WinTrust fixture: SignTool creates an RFC3161-timestamped PE", true, true, true,
+                            false);
 }
 
 void TestUnconfiguredPinsFailClosed() {
@@ -467,7 +574,15 @@ void TestPartiallyPopulatedPinsRejectUnpinnedPeer() {
 
 } // namespace
 
-int main() {
+int wmain(int argc, wchar_t* argv[]) {
+    if (argc > 2 && std::wstring(argv[1]) == L"--timestamped-worker") {
+        TestTimestampedWinTrustWorker(std::filesystem::path(argv[2]));
+        return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+    if (argc > 1 && std::wstring(argv[1]) == L"--timestamped") {
+        TestTimestampedWinTrustFixture();
+        return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
     // resolve-raw-volume-privilege-insufficiency task 3.1: pin enforcement.
     TestUnconfiguredPinsFailClosed();
     TestUnsignedBinaryRejectedWithConfiguredPin();
