@@ -39,6 +39,15 @@ machine logs belong in the repository.
   expected-thumbprint match. Revocation is reported separately as
   `NOT_CHECKED_OFFLINE` because this architecture does not introduce a hidden
   network dependency.
+- Signing-credential eligibility is separate from signed-artifact verification.
+  A new signer must satisfy current validity, trust, EKU, private-key, and
+  exact-pin rules. An already-signed Authenticode artifact is judged by
+  Windows' timestamp-aware WinTrust result; a valid RFC3161 timestamp must not
+  be invalidated merely because its leaf is expired now.
+- Real non-DryRun PE and detached-CMS signing requires an operator-supplied
+  RFC3161 timestamp URL. Each final PE and the final manifest signature must be
+  re-verified for signer identity, Authenticode/CMS validity, and timestamp
+  presence/authenticity; a SignTool exit code alone is insufficient.
 - A development host with prior FastFiles state is `ELEVATED_DEV_HOST`, never
   `CLEAN_HOST`, even after resources are removed.
 - MFT, USN, authentication, uninstall, and rendered-UI evidence are separate
@@ -67,7 +76,11 @@ machine logs belong in the repository.
    slice adds Windows chain/current-validity/Code Signing EKU/private-key
    preflight, exact expected-thumbprint matching, detached-CMS policy reuse,
    and deterministic non-production certificate fixtures in
-   `Test-ReleaseTooling.ps1`.
+   `Test-ReleaseTooling.ps1`. PV-BUG-10 adds a timestamp-aware
+   signed-artifact policy, a production timestamp gate, and detached CMS
+   RFC3161 verification. PV-BUG-11 repairs the runtime fixture so its trusted
+   pre-expiry/expired transition is a real WinTrust experiment rather than an
+   untrusted-root negative test.
 5. Use only an explicitly authorized CertificateStore thumbprint or external
    PFX configuration. Dry-run first; execute real signing only after the DAG
    and policy checks pass. Derive engine/service pins from the exact signed
@@ -108,8 +121,8 @@ machine logs belong in the repository.
 | PV-15 | Uninstall/cleanup | Canonical uninstall, exact FastFiles-resource cleanup, no unrelated deletion | BLOCKED_EXTERNAL |
 | PV-16 | Evidence import/validation | Canonical importer accepts a structurally valid PASS bundle | BLOCKED_EXTERNAL |
 | PV-17 | Direct rendered UI | Interactive screenshot matrix and real aggregate-backed percentage assertion | BLOCKED_ENVIRONMENT |
-| PV-18 | Final source/CI/handoff review for prior repair slice | Tests/hygiene/OpenSpec and hosted jobs for the already-pushed `0a411a1` slice | PASS (historical; derive live on resume) |
-| PV-19 | Local signer-hardening handoff | Certificate policy, real WinTrust expired/untrusted fixtures, diagnostic-bypass gate, focused tests, final clean push and hosted jobs by final SHA | PASS locally; final hosted CI is derived at handoff |
+| PV-18 | Final source/CI/handoff review for prior repair slice | Tests/hygiene/OpenSpec and hosted jobs for the independently reviewed `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` slice | PASS (historical; derive live on resume) |
+| PV-19 | Local signer-hardening handoff | Certificate policy, timestamp policy, real WinTrust expiry fixtures, diagnostic-bypass gate, focused tests, final clean push and hosted jobs by final SHA | PASS locally; final hosted CI is derived at handoff |
 
 | PV-BUG-01 | Encrypted external PFX loading | Secure password is consumed without prompting or secret output | PASS |
 | PV-BUG-02 | PE/manifest signing sequencing | Final manifest is signed separately from final PE bytes; unsafe combined mode rejected | PASS |
@@ -120,6 +133,8 @@ machine logs belong in the repository.
 | PV-BUG-07 | Placeholder expected-thumbprint parsing | All-zero expected signer values fail closed through explicit boolean thumbprint validation | PASS |
 | PV-BUG-08 | PowerShell policy-object pipeline contamination | Certificate-policy collection mutations cannot replace the policy object in detached CMS validation; exact-signer CMS regression uses the private non-production custom-root seam | PASS |
 | PV-BUG-09 | Expired WinTrust fixture timing | Disposable expired-signer fixture leaves enough time for signing before the deliberate expiry transition | PASS |
+| PV-BUG-10 | Signing/timestamp longevity policy conflation | Signing preflight remains current-valid/trusted/private-key strict; signed PE verification respects a valid WinTrust RFC3161 timestamp; production PE and detached CMS signing require an explicit timestamp URL; final PE/CMS verification checks timestamp state and exact signer provenance | PASS |
+| PV-BUG-11 | Confounded runtime expiry negative test | The real fixture trusts only its unique public root in `CurrentUser\Root`, proves exact-pin acceptance before expiry, then rejects the unchanged no-timestamp PE after expiry through production WinTrust; a separate timestamped PE case proves the expected longevity exception and parent-process cleanup | PASS (technical local evidence; current host Root insertion is environmentally blocked on repeat) |
 
 Additional `PV-BUG-*` rows are never relabeled as external merely because they
 require an elevated or signed path to reproduce.
@@ -148,11 +163,12 @@ directories named by `AGENTS.md`.
 The remaining tasks in `close-independent-validation-gaps` are 4.2, 4.5, 4.6,
 4.7, 4.8, and 5.1. The local clauses of 4.2 are now evidenced by
 `evidence/authentication-negative-tests.md`: unsigned, mismatched,
-placeholder, partially populated, expired, untrusted, and diagnostic-bypass
-coverage pass. Task 4.2 remains open only for the external release-pipeline
-provisioning clause; 4.5–4.8 require signed/elevated/clean-host evidence and
-5.1 requires direct rendered interaction plus a real aggregate-backed
-drill-down. The recovery change has no remaining open tasks.
+placeholder, partially populated, trusted pre-expiry/expired, timestamped
+longevity, untrusted, and diagnostic-bypass coverage pass. Task 4.2 remains
+open only for the external release-pipeline signer/pin provisioning clause;
+4.5–4.8 require signed/elevated/clean-host evidence and 5.1 requires direct
+rendered interaction plus a real aggregate-backed drill-down. The recovery
+change has no remaining open tasks.
 
 ## Handoff rule
 
@@ -162,3 +178,6 @@ run `git diff --check`, commit all session-owned tracked changes, fetch and
 reconcile, push `main` without force, verify local/remote equality, and inspect
 the hosted run matching the final pushed SHA. Report live final SHA and CI in
 the response rather than writing a self-referential current-HEAD claim here.
+The next authorized action after this local slice is to obtain the approved
+production signer/pin and timestamp-service configuration and run the release
+DryRun; no production certificate is selected by this campaign.
