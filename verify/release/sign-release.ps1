@@ -4,6 +4,8 @@ param(
     [ValidateNotNullOrEmpty()] [string[]] $Artifacts,
     [Parameter(Mandatory, ParameterSetName = 'Root')]
     [string] $ArtifactRoot,
+    [Parameter(Mandatory, ParameterSetName = 'ManifestOnly')]
+    [switch] $ManifestOnly,
     [ValidateSet('CertificateStore', 'Pfx')]
     [string] $Provider,
     [string] $CertificateThumbprint,
@@ -102,14 +104,28 @@ function Write-DetachedPackageManifestSignature {
 
 try {
     if ([string]::IsNullOrWhiteSpace($Provider)) { throw 'AUTHORIZED_SIGNER_REQUIRED: select CertificateStore or Pfx and supply its external signer configuration.' }
-    $paths = if ($PSCmdlet.ParameterSetName -eq 'Root') {
+    $isManifestOnly = $PSCmdlet.ParameterSetName -eq 'ManifestOnly'
+    if (($PackageManifestPath -or $ManifestSignatureOutputPath) -and -not $isManifestOnly) {
+        throw 'PACKAGE_MANIFEST_SIGNATURE_REQUIRES_MANIFEST_ONLY: sign final PE artifacts first, generate the final manifest, then use -ManifestOnly so manifest bytes cannot become stale.'
+    }
+    if ($isManifestOnly -and (-not $PackageManifestPath -or -not $ManifestSignatureOutputPath)) {
+        throw 'PACKAGE_MANIFEST_SIGNATURE_PATHS_REQUIRED: -ManifestOnly requires both -PackageManifestPath and -ManifestSignatureOutputPath.'
+    }
+    if ($isManifestOnly -and -not (Test-Path -LiteralPath $PackageManifestPath -PathType Leaf)) {
+        throw "PACKAGE_MANIFEST_REQUIRED: $PackageManifestPath"
+    }
+    $paths = if ($isManifestOnly) {
+        @()
+    } elseif ($PSCmdlet.ParameterSetName -eq 'Root') {
         Get-ReleaseArtifactPaths -ArtifactRoot $ArtifactRoot | ForEach-Object { $_.sourcePath }
     } else { @($Artifacts | ForEach-Object { [IO.Path]::GetFullPath($_) }) }
-    if (@($paths).Count -eq 0) { throw 'RELEASE_ARTIFACTS_REQUIRED: no artifacts were supplied.' }
-    foreach ($path in $paths) {
-        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "RELEASE_ARTIFACT_REQUIRED: missing artifact '$path'." }
-        $architecture = Get-PeArchitecture -Path $path
-        if ($architecture.architecture -ne 'x64') { throw "WRONG_ARCHITECTURE: '$path' is $($architecture.architecture), expected x64." }
+    if (-not $isManifestOnly) {
+        if (@($paths).Count -eq 0) { throw 'RELEASE_ARTIFACTS_REQUIRED: no artifacts were supplied.' }
+        foreach ($path in $paths) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "RELEASE_ARTIFACT_REQUIRED: missing artifact '$path'." }
+            $architecture = Get-PeArchitecture -Path $path
+            if ($architecture.architecture -ne 'x64') { throw "WRONG_ARCHITECTURE: '$path' is $($architecture.architecture), expected x64." }
+        }
     }
 
     $storeSwitch = @()
@@ -129,7 +145,7 @@ try {
             if ([string]::IsNullOrEmpty($environmentSecret)) { throw "AUTHORIZED_SIGNER_REQUIRED: supply -PfxPassword or the '$PfxPasswordEnvironmentVariable' environment variable." }
             $PfxPassword = ConvertTo-SecureString -String $environmentSecret -AsPlainText -Force
         }
-        $pfxCertificate = Get-PfxCertificate -FilePath $PfxPath -ErrorAction Stop
+        $pfxCertificate = Get-PfxCertificate -LiteralPath ([IO.Path]::GetFullPath($PfxPath)) -Password $PfxPassword -NoPromptForPassword -ErrorAction Stop
         $providerThumbprint = Normalize-Thumbprint -Value $pfxCertificate.Thumbprint
         if (-not (Test-ThumbprintFormat -Value $providerThumbprint)) { throw 'AUTHORIZED_SIGNER_REQUIRED: supplied PFX leaf thumbprint is malformed.' }
         Assert-AuthorizedCertificate -Certificate $pfxCertificate -Source ([IO.Path]::GetFullPath($PfxPath))
@@ -140,11 +156,21 @@ try {
     }
     $expected = if ($ExpectedSignerThumbprint) { Normalize-Thumbprint -Value $ExpectedSignerThumbprint } else { $providerThumbprint }
     if (-not (Test-UsableThumbprint -Value $expected)) { throw 'MALFORMED_EXPECTED_SIGNER: expected signer thumbprint must be a non-placeholder 40-hex value.' }
-    $tool = Resolve-Signtool -RequestedPath $SigntoolPath
+    $tool = if ($isManifestOnly) { $null } else { Resolve-Signtool -RequestedPath $SigntoolPath }
     $preflight = @($paths | ForEach-Object { [pscustomobject]@{ artifact = $_; architecture = (Get-PeArchitecture -Path $_).architecture; present = $true } })
     if ($DryRun) {
-        $dry = [pscustomobject]@{ status = 'DRY_RUN'; provider = $Provider; artifacts = $preflight; expectedSignerThumbprint = $expected; signtool = $tool; packageManifest = $PackageManifestPath; signingPerformed = $false }
-        if ($OutputFormat -eq 'json') { $dry | ConvertTo-Json -Depth 8 } else { Write-Host "DRY RUN: $(@($paths).Count) x64 artifact(s) ready for external signer '$Provider'; no files changed." }
+        $dry = [pscustomobject]@{ status = 'DRY_RUN'; provider = $Provider; manifestOnly = $isManifestOnly; artifacts = $preflight; expectedSignerThumbprint = $expected; signtool = $tool; packageManifest = $PackageManifestPath; signingPerformed = $false }
+        if ($OutputFormat -eq 'json') { $dry | ConvertTo-Json -Depth 8 } else { Write-Host "DRY RUN: $(@($paths).Count) x64 artifact(s) ready for external signer '$Provider'; manifestOnly=$isManifestOnly; no files changed." }
+        exit 0
+    }
+
+    if ($isManifestOnly) {
+        Write-DetachedPackageManifestSignature -ManifestPath $PackageManifestPath -OutputPath $ManifestSignatureOutputPath -Certificate $certificateForManifest
+        $manifestSignatureCheck = Test-PackageManifestSignature -ManifestPath $PackageManifestPath -SignaturePath $ManifestSignatureOutputPath -AllowedSignerThumbprints @($expected)
+        if (-not $manifestSignatureCheck.valid) { throw "PACKAGE_MANIFEST_SIGNATURE_VERIFICATION_FAILED: $($manifestSignatureCheck.reason)" }
+        $manifestRecord = [pscustomobject]@{ manifest = [IO.Path]::GetFullPath($PackageManifestPath); signature = [IO.Path]::GetFullPath($ManifestSignatureOutputPath); verification = $manifestSignatureCheck }
+        $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; artifacts = @(); packageManifestSignature = $manifestRecord; signingPerformed = $false; manifestSigningPerformed = $true }
+        if ($OutputFormat -eq 'json') { $result | ConvertTo-Json -Depth 10 } else { Write-Host "PASS: signed and verified package manifest with signer $expected." }
         exit 0
     }
 
@@ -164,16 +190,7 @@ try {
         $records += [pscustomobject]@{ artifact = $path; signed = $verified.signed; signatureValid = $verified.valid; leafThumbprint = $verified.leafThumbprint; signerMatchesExpected = $match; timestampSigned = $verified.timestampSigned; status = if ($match) { 'PASS' } else { 'FAIL' } }
         if (-not $match) { throw "POST_SIGN_VERIFICATION_FAILED: signer verification failed for '$path'." }
     }
-    $manifestRecord = $null
-    if ($PackageManifestPath -or $ManifestSignatureOutputPath) {
-        if (-not $PackageManifestPath -or -not $ManifestSignatureOutputPath) { throw 'PACKAGE_MANIFEST_SIGNATURE_PATHS_REQUIRED' }
-        if (-not (Test-Path -LiteralPath $PackageManifestPath -PathType Leaf)) { throw "PACKAGE_MANIFEST_REQUIRED: $PackageManifestPath" }
-        Write-DetachedPackageManifestSignature -ManifestPath $PackageManifestPath -OutputPath $ManifestSignatureOutputPath -Certificate $certificateForManifest
-        $manifestSignatureCheck = Test-PackageManifestSignature -ManifestPath $PackageManifestPath -SignaturePath $ManifestSignatureOutputPath -AllowedSignerThumbprints @($expected)
-        if (-not $manifestSignatureCheck.valid) { throw "PACKAGE_MANIFEST_SIGNATURE_VERIFICATION_FAILED: $($manifestSignatureCheck.reason)" }
-        $manifestRecord = [pscustomobject]@{ manifest = [IO.Path]::GetFullPath($PackageManifestPath); signature = [IO.Path]::GetFullPath($ManifestSignatureOutputPath); verification = $manifestSignatureCheck }
-    }
-    $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; artifacts = $records; packageManifestSignature = $manifestRecord; signingPerformed = $true }
+    $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; artifacts = $records; packageManifestSignature = $null; signingPerformed = $true; manifestSigningPerformed = $false }
     if ($OutputFormat -eq 'json') { $result | ConvertTo-Json -Depth 10 } else { Write-Host "PASS: signed and verified $(@($records).Count) artifact(s) with signer $expected." }
     exit 0
 } catch {

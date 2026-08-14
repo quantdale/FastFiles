@@ -648,6 +648,25 @@ function Get-SafePinState {
     }
 }
 
+function Get-ReleaseReadinessStatus {
+    param(
+        [Parameter(Mandatory)] [string] $ArtifactStatus,
+        [Parameter(Mandatory)] [string] $SigningStatus,
+        [Parameter(Mandatory)] [string] $PinsStatus,
+        [Parameter(Mandatory)] [bool] $CleanHost,
+        [Parameter(Mandatory)] [bool] $ArchitectureCompatible,
+        [Parameter(Mandatory)] [bool] $Elevated
+    )
+
+    if ($ArtifactStatus -eq 'FAIL') { return 'FAIL' }
+    if ($ArtifactStatus -eq 'PASS' -and $SigningStatus -eq 'PASS' -and
+        $PinsStatus -eq 'PASS' -and $CleanHost -and
+        $ArchitectureCompatible -and $Elevated) {
+        return 'PASS'
+    }
+    return 'BLOCKED_EXTERNAL'
+}
+
 function Get-ReleaseSignatureMatrix {
     param(
         [Parameter(Mandatory)] $Manifest,
@@ -785,6 +804,7 @@ Export-ModuleMember -Function @(
     'Test-PackageManifestSignature',
     'Test-PackageManifest',
     'Get-SafePinState',
+    'Get-ReleaseReadinessStatus',
     'Get-ReleaseSignatureMatrix',
     'Get-CleanHostPreflight',
     'Write-ReleaseJson'

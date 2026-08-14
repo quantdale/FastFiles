@@ -38,7 +38,7 @@ try {
     if (-not $ArtifactRoot) { $ArtifactRoot = Join-Path $repoRoot 'build\release' }
     $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $ArtifactRoot -RepoRoot $repoRoot
     $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $ArtifactRoot -RepoRoot $repoRoot
-    $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot (Join-Path $repoRoot 'build\release')
+    $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $ArtifactRoot
     $matrix = @(Get-ReleaseSignatureMatrix -Manifest $manifest -PinStates $pinStates -ExpectedSignerThumbprint $ExpectedSignerThumbprint)
     $hostPreflight = Get-CleanHostPreflight
     $artifactIssues = @($manifest.artifacts | Where-Object { $_.architecture -ne 'x64' -or $_.sha256.Length -ne 64 }) +
@@ -46,7 +46,9 @@ try {
     $artifactStatus = if ($artifactIssues.Count -eq 0) { 'PASS' } else { 'FAIL' }
     $signingStatus = if (@($matrix | Where-Object { $_.result -eq 'PASS' }).Count -eq @($matrix).Count) { 'PASS' } else { 'BLOCKED_EXTERNAL' }
     $pinsStatus = if ($pinStates.engine.state -eq 'POPULATED' -and $pinStates.service.state -eq 'POPULATED' -and $signingStatus -eq 'PASS') { 'PASS' } else { 'BLOCKED_EXTERNAL' }
-    $privilegedReason = if ($signingStatus -ne 'PASS') { 'AUTHORIZED_SIGNING_REQUIRED' } elseif ($pinsStatus -ne 'PASS') { 'PRODUCTION_PINS_REQUIRED' } elseif (-not $hostPreflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $hostPreflight.elevated) { 'ELEVATED_EXECUTION_REQUIRED' } else { 'READY_FOR_PRIVILEGED_DRIVER' }
+    $privilegedReason = if ($signingStatus -ne 'PASS') { 'AUTHORIZED_SIGNING_REQUIRED' } elseif ($pinsStatus -ne 'PASS') { 'PRODUCTION_PINS_REQUIRED' } elseif (-not $hostPreflight.clean) { 'CLEAN_HOST_PRECONDITION_FAILED' } elseif (-not $hostPreflight.architectureCompatible) { 'WRONG_HOST_ARCHITECTURE' } elseif (-not $hostPreflight.elevated) { 'ELEVATED_EXECUTION_REQUIRED' } else { 'READY_FOR_PRIVILEGED_DRIVER' }
+    $overall = Get-ReleaseReadinessStatus -ArtifactStatus $artifactStatus -SigningStatus $signingStatus -PinsStatus $pinsStatus `
+        -CleanHost $hostPreflight.clean -ArchitectureCompatible $hostPreflight.architectureCompatible -Elevated $hostPreflight.elevated
     $result = [pscustomobject]@{
         schemaVersion = 1
         kind = 'fastfiles-release-readiness'
@@ -59,10 +61,10 @@ try {
         signatures = [pscustomobject]@{ status = $signingStatus; matrix = $matrix }
         pins = [pscustomobject]@{ status = $pinsStatus; engine = Get-SafePinState -PinState $pinStates.engine; service = Get-SafePinState -PinState $pinStates.service; productionValuesChanged = $false }
         privilegedPath = [pscustomobject]@{ status = if ($privilegedReason -eq 'READY_FOR_PRIVILEGED_DRIVER') { 'READY' } else { 'BLOCKED_EXTERNAL' }; reason = $privilegedReason; driver = 'verify/release/privileged-release.ps1' }
-        cleanHost = [pscustomobject]@{ status = if ($hostPreflight.clean) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; preflight = $hostPreflight; kit = 'verify/release/New-ReleaseKit.ps1' }
+        cleanHost = [pscustomobject]@{ status = if ($hostPreflight.clean -and $hostPreflight.architectureCompatible) { 'PASS' } else { 'BLOCKED_EXTERNAL' }; preflight = $hostPreflight; kit = 'verify/release/New-ReleaseKit.ps1' }
         visual = [pscustomobject]@{ status = 'VISUAL_ONLY_OUT_OF_SCOPE'; percentOfParentSemantics = 'COMPLETE'; directRenderedAssertion = 'EXTERNAL' }
         openspec = [pscustomobject]@{ status = 'NOT_RUN'; command = 'npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive' }
-        overall = if ($artifactStatus -eq 'FAIL') { 'FAIL' } else { 'BLOCKED_EXTERNAL' }
+        overall = $overall
         externalPrerequisites = @('authorized production signing material/provider', 'approved production leaf thumbprints', 'elevated signed MFT/USN runtime on a clean Windows host', 'direct rendered visual evidence for OpenSpec task 5.1')
     }
     Write-ReleaseJson -Value $result -Path (Join-Path $OutputDirectory 'release-readiness.json')

@@ -39,11 +39,101 @@ Check (-not (Test-ThumbprintFormat -Value 'not-a-thumbprint')) 'invalid thumbpri
 Check (-not (Test-ProductionCertificate -Certificate ([pscustomobject]@{ Subject = 'CN=FastFiles Dev'; Issuer = 'CN=FastFiles Dev' }))) 'self-signed development certificate is rejected for Release signing'
 Check (Test-ProductionCertificate -Certificate ([pscustomobject]@{ Subject = 'CN=FastFiles Production'; Issuer = 'CN=Approved Code Signing CA' })) 'chained production certificate shape is accepted for provider validation'
 
+$pfxProbeRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-pfx-provider-test-' + [guid]::NewGuid().ToString('N'))
+$pfxProbePath = Join-Path $pfxProbeRoot 'provider-test.pfx'
+$pfxProbeRootCertificate = $null
+$pfxProbeLeafCertificate = $null
+$pfxProbeEnvironmentName = 'FASTFILES_TEST_PFX_PASSWORD_' + [guid]::NewGuid().ToString('N').ToUpperInvariant()
+try {
+    New-Item -ItemType Directory -Path $pfxProbeRoot -Force | Out-Null
+    $pfxProbePasswordText = [guid]::NewGuid().ToString('N') + '!Pv'
+    $pfxProbePassword = ConvertTo-SecureString -String $pfxProbePasswordText -AsPlainText -Force
+    $pfxProbeRootCertificate = New-SelfSignedCertificate -Subject 'CN=FastFiles release-tooling test root' -Type Custom `
+        -KeyUsage CertSign, CRLSign, DigitalSignature -CertStoreLocation 'Cert:\CurrentUser\My' `
+        -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+    $pfxProbeLeafCertificate = New-SelfSignedCertificate -Subject 'CN=FastFiles release-tooling test leaf' -Type CodeSigningCert `
+        -Signer $pfxProbeRootCertificate -CertStoreLocation 'Cert:\CurrentUser\My' `
+        -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
+    Export-PfxCertificate -Cert $pfxProbeLeafCertificate -FilePath $pfxProbePath -Password $pfxProbePassword -ChainOption BuildChain | Out-Null
+    [Environment]::SetEnvironmentVariable($pfxProbeEnvironmentName, $pfxProbePasswordText, 'Process')
+    $signScript = Join-Path $RepoRoot 'verify\release\sign-release.ps1'
+    $pfxProbeOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $signScript `
+        -ArtifactRoot $BuildRoot -Provider Pfx -PfxPath $pfxProbePath `
+        -PfxPasswordEnvironmentVariable $pfxProbeEnvironmentName -SigntoolPath $env:ComSpec `
+        -DryRun -OutputFormat json 2>&1
+    $pfxProbeExit = $LASTEXITCODE
+    $pfxProbeResult = $null
+    try { $pfxProbeResult = ($pfxProbeOutput -join "`n") | ConvertFrom-Json } catch { }
+    Check ($pfxProbeExit -eq 0 -and $pfxProbeResult -and $pfxProbeResult.status -eq 'DRY_RUN' -and -not $pfxProbeResult.signingPerformed) `
+        'encrypted external PFX password is consumed by the signing dry-run without mutating artifacts'
+
+    $manifestProbePath = Join-Path $pfxProbeRoot 'FastFiles.package.manifest'
+    $manifestProbeSignaturePath = Join-Path $pfxProbeRoot 'FastFiles.package.manifest.p7s'
+    [IO.File]::WriteAllText($manifestProbePath, 'manifest-probe', [Text.UTF8Encoding]::new($false))
+    $manifestProbeOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $signScript `
+        -ManifestOnly -Provider Pfx -PfxPath $pfxProbePath `
+        -PfxPasswordEnvironmentVariable $pfxProbeEnvironmentName `
+        -PackageManifestPath $manifestProbePath -ManifestSignatureOutputPath $manifestProbeSignaturePath `
+        -DryRun -OutputFormat json 2>&1
+    $manifestProbeExit = $LASTEXITCODE
+    $manifestProbeResult = $null
+    try { $manifestProbeResult = ($manifestProbeOutput -join "`n") | ConvertFrom-Json } catch { }
+    Check ($manifestProbeExit -eq 0 -and $manifestProbeResult -and $manifestProbeResult.status -eq 'DRY_RUN' -and
+        $manifestProbeResult.manifestOnly -and $null -eq $manifestProbeResult.signtool -and
+        -not (Test-Path -LiteralPath $manifestProbeSignaturePath -PathType Leaf)) `
+        'manifest-only signing dry-run leaves final manifest bytes and PE artifacts untouched'
+
+    $unsafeManifestOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $signScript `
+        -ArtifactRoot $BuildRoot -Provider Pfx -PfxPath $pfxProbePath `
+        -PfxPasswordEnvironmentVariable $pfxProbeEnvironmentName -SigntoolPath $env:ComSpec `
+        -PackageManifestPath $manifestProbePath -ManifestSignatureOutputPath $manifestProbeSignaturePath `
+        -DryRun -OutputFormat json 2>&1
+    $unsafeManifestExit = $LASTEXITCODE
+    $unsafeManifestResult = $null
+    try { $unsafeManifestResult = ($unsafeManifestOutput -join "`n") | ConvertFrom-Json } catch { }
+    Check ($unsafeManifestExit -eq 1 -and $unsafeManifestResult -and
+        $unsafeManifestResult.error -like 'PACKAGE_MANIFEST_SIGNATURE_REQUIRES_MANIFEST_ONLY*') `
+        'combined PE and manifest signing is rejected to prevent stale manifest hashes'
+} catch {
+    Check $false "encrypted external PFX provider dry-run completed without exception ($($_.Exception.Message))"
+} finally {
+    [Environment]::SetEnvironmentVariable($pfxProbeEnvironmentName, $null, 'Process')
+    if ($pfxProbeLeafCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeLeafCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
+    if ($pfxProbeRootCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeRootCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $pfxProbePath -PathType Leaf) { Remove-Item -LiteralPath $pfxProbePath -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath $pfxProbeRoot -PathType Container) { Remove-Item -LiteralPath $pfxProbeRoot -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 $pins = Get-ConfiguredPinStates -RepoRoot $RepoRoot -BuildRoot $BuildRoot
 $matrix = @(Get-ReleaseSignatureMatrix -Manifest $manifest -PinStates $pins)
 Check (@($matrix | Where-Object result -eq 'UNSIGNED — PRODUCTION SIGNING REQUIRED').Count -eq 4) 'unsigned Release binaries produce explicit production-signing blockers'
 Check ($pins.engine.state -in @('PLACEHOLDER', 'POPULATED', 'MALFORMED', 'MISSING')) 'engine pin validator emits a known state'
 Check ($pins.service.state -in @('PLACEHOLDER', 'POPULATED', 'MALFORMED', 'MISSING')) 'service pin validator emits a known state'
+Check ((Get-ReleaseReadinessStatus -ArtifactStatus 'FAIL' -SigningStatus 'PASS' -PinsStatus 'PASS' -CleanHost $true -ArchitectureCompatible $true -Elevated $true) -eq 'FAIL') 'readiness status preserves local artifact failures'
+Check ((Get-ReleaseReadinessStatus -ArtifactStatus 'PASS' -SigningStatus 'PASS' -PinsStatus 'PASS' -CleanHost $true -ArchitectureCompatible $true -Elevated $true) -eq 'PASS') 'readiness status can reach PASS when every production prerequisite passes'
+Check ((Get-ReleaseReadinessStatus -ArtifactStatus 'PASS' -SigningStatus 'BLOCKED_EXTERNAL' -PinsStatus 'PASS' -CleanHost $true -ArchitectureCompatible $true -Elevated $true) -eq 'BLOCKED_EXTERNAL') 'readiness status preserves external signing blockers'
+
+$readinessProbeRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-readiness-root-test-' + [guid]::NewGuid().ToString('N'))
+try {
+    $readinessProbeOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File (Join-Path $RepoRoot 'verify\release\ReleaseReadiness.ps1') `
+        -Mode report -ArtifactRoot $BuildRoot -OutputDirectory $readinessProbeRoot -OutputFormat json 2>&1
+    $readinessProbeExit = $LASTEXITCODE
+    $readinessProbeResult = $null
+    try { $readinessProbeResult = ($readinessProbeOutput -join "`n") | ConvertFrom-Json } catch { }
+    Check ($readinessProbeExit -eq 2 -and $readinessProbeResult -and
+        $readinessProbeResult.artifactIntegrity.status -eq 'PASS' -and
+        $readinessProbeResult.pins.engine.state -eq 'MISSING' -and
+        $readinessProbeResult.pins.service.state -eq 'MISSING') `
+        'readiness report derives pin provenance from the inspected artifact root'
+} catch {
+    Check $false "readiness artifact-root pin provenance validation completed without exception ($($_.Exception.Message))"
+} finally {
+    $readinessProbeFull = [IO.Path]::GetFullPath($readinessProbeRoot).TrimEnd('\')
+    $readinessProbeTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ($readinessProbeFull.StartsWith($readinessProbeTempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $readinessProbeFull)) {
+        Remove-Item -LiteralPath $readinessProbeFull -Recurse -Force
+    }
+}
 
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-release-tooling-test-' + [guid]::NewGuid().ToString('N'))
 try {

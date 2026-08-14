@@ -1,6 +1,6 @@
 # Release-readiness tooling checkpoint
 
-Date: 2026-08-13
+Date: 2026-08-14
 
 This evidence records preparation tooling only. It does not close tasks 4.2,
 4.5–4.8, or 5.1 and does not claim production signing, authenticated elevated
@@ -51,6 +51,37 @@ The repository-specific sequence is:
    a final manifest and require the signature matrix to show the expected signer
    and the Engine/Service leaf-to-pin matches. There is no dual-pin acceptance
    window.
+
+The production-validation audit found and repaired four release-tooling defects
+before any production key was considered:
+
+- `PV-BUG-01`: encrypted external PFX input was discovered without consuming the
+  supplied password, so protected PFX files could not be used non-interactively.
+  `sign-release.ps1` now passes the secure password to `Get-PfxCertificate` with
+  prompting disabled; the release-tooling test exercises this with a temporary
+  non-production certificate and removes it after the test.
+- `PV-BUG-02`: the old combined PE-plus-manifest mode could sign PE files after
+  their hashes had been embedded in the manifest. Normal PE signing now rejects
+  manifest-signature arguments. The manifest is signed in a separate
+  `-ManifestOnly` invocation after final PE bytes exist, with CMS verification
+  before the signature is handed to kit generation.
+- `PV-BUG-03`: `ReleaseReadiness.ps1 -ArtifactRoot` inspected one artifact root
+  while reading pin state from the default `build/release` cache. Pin state now
+  comes from the same artifact root, with a regression assertion for this case.
+- `PV-BUG-04`: the readiness report previously hardcoded `BLOCKED_EXTERNAL` for
+  every non-artifact-failure report. Its status calculation is now explicit and
+  reaches `PASS` only when artifact integrity, signatures, pins, clean-host,
+  architecture, and elevation all pass.
+
+The final signed-package sequence is therefore: sign the final four PE files;
+derive and provision the Engine/Service pins; rebuild and re-sign if pin
+embedding changed bytes; generate the V2 manifest from those final bytes; call
+`sign-release.ps1 -ManifestOnly` over that exact manifest; then run
+`New-ReleaseKit.ps1 -ManifestSignaturePath` against the unchanged final artifact
+root and validate the resulting package. The release-tooling regression suite
+passes with zero failures, including encrypted-PFX loading, manifest-only
+dry-run/no-mutation, unsafe combined-mode rejection, and artifact-root pin
+provenance.
 
 The current checkout has no authorized signer and the inspected Release outputs
 are unsigned. Ignored CMake-cache values are classified as structural inventory,
