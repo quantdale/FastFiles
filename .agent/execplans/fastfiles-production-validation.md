@@ -33,6 +33,12 @@ machine logs belong in the repository.
 - Never call a development/self-signed certificate a production signer.
 - Never weaken placeholder-pin, Authenticode, CMS, package-root, reparse,
   service-ACL, closed-protocol, or degraded-mode fail-closed behavior.
+- Release signer preflight must independently establish current certificate
+  validity, non-self-signed leaf identity, trusted Windows chain, and Code
+  Signing EKU; signing providers must also prove the private key and exact
+  expected-thumbprint match. Revocation is reported separately as
+  `NOT_CHECKED_OFFLINE` because this architecture does not introduce a hidden
+  network dependency.
 - A development host with prior FastFiles state is `ELEVATED_DEV_HOST`, never
   `CLEAN_HOST`, even after resources are removed.
 - MFT, USN, authentication, uninstall, and rendered-UI evidence are separate
@@ -55,10 +61,13 @@ machine logs belong in the repository.
    stale or mismatched.
 4. Audit the signing DAG from final PE bytes through Authenticode signatures,
    leaf-pin provisioning, V2 manifest generation, detached CMS signature, kit
-   generation, and final package validation. This audit repaired encrypted-PFX
-   loading, stale manifest sequencing, wrong-root pin provenance, and a
-   permanently blocked readiness status; deterministic regression coverage is
-   in `Test-ReleaseTooling.ps1`.
+   generation, and final package validation. The prior audit repaired
+   encrypted-PFX loading, stale manifest sequencing, wrong-root pin provenance,
+   and a permanently blocked readiness status. The current signer-hardening
+   slice adds Windows chain/current-validity/Code Signing EKU/private-key
+   preflight, exact expected-thumbprint matching, detached-CMS policy reuse,
+   and deterministic non-production certificate fixtures in
+   `Test-ReleaseTooling.ps1`.
 5. Use only an explicitly authorized CertificateStore thumbprint or external
    PFX configuration. Dry-run first; execute real signing only after the DAG
    and policy checks pass. Derive engine/service pins from the exact signed
@@ -99,12 +108,18 @@ machine logs belong in the repository.
 | PV-15 | Uninstall/cleanup | Canonical uninstall, exact FastFiles-resource cleanup, no unrelated deletion | BLOCKED_EXTERNAL |
 | PV-16 | Evidence import/validation | Canonical importer accepts a structurally valid PASS bundle | BLOCKED_EXTERNAL |
 | PV-17 | Direct rendered UI | Interactive screenshot matrix and real aggregate-backed percentage assertion | BLOCKED_ENVIRONMENT |
-| PV-18 | Final source/CI/handoff review | Tests/hygiene/OpenSpec, clean push, hosted jobs by pushed SHA | VALIDATING |
+| PV-18 | Final source/CI/handoff review for prior repair slice | Tests/hygiene/OpenSpec and hosted jobs for the already-pushed `0a411a1` slice | PASS (historical; derive live on resume) |
+| PV-19 | Local signer-hardening handoff | Certificate policy, real WinTrust expired/untrusted fixtures, diagnostic-bypass gate, focused tests, final clean push and hosted jobs by final SHA | PASS locally; final hosted CI is derived at handoff |
 
 | PV-BUG-01 | Encrypted external PFX loading | Secure password is consumed without prompting or secret output | PASS |
 | PV-BUG-02 | PE/manifest signing sequencing | Final manifest is signed separately from final PE bytes; unsafe combined mode rejected | PASS |
 | PV-BUG-03 | Artifact-root pin provenance | Readiness report reads pins from the artifact root under inspection | PASS |
 | PV-BUG-04 | Readiness overall status | Report can reach PASS only when all release prerequisites pass | PASS |
+| PV-BUG-05 | Production certificate policy | Trusted, currently valid Code Signing leaf with private key for signing; detached CMS uses the same default technical policy; tests isolate technical validity only through a private custom-root seam; revocation status is explicit | PASS |
+| PV-BUG-06 | Stale production-validation frontier | Prior pushed/green slice and current signer-hardening slice are separated in durable state without self-referential current SHA | PASS |
+| PV-BUG-07 | Placeholder expected-thumbprint parsing | All-zero expected signer values fail closed through explicit boolean thumbprint validation | PASS |
+| PV-BUG-08 | PowerShell policy-object pipeline contamination | Certificate-policy collection mutations cannot replace the policy object in detached CMS validation; exact-signer CMS regression uses the private non-production custom-root seam | PASS |
+| PV-BUG-09 | Expired WinTrust fixture timing | Disposable expired-signer fixture leaves enough time for signing before the deliberate expiry transition | PASS |
 
 Additional `PV-BUG-*` rows are never relabeled as external merely because they
 require an elevated or signed path to reproduce.
@@ -130,12 +145,14 @@ directories named by `AGENTS.md`.
 
 ## OpenSpec task boundary
 
-At campaign start, the remaining tasks in
-`close-independent-validation-gaps` are 4.2, 4.5, 4.6, 4.7, 4.8, and 5.1.
-Tasks 4.5–4.8 require signed/elevated/clean-host evidence; task 5.1 requires
-direct rendered interaction and a real aggregate-backed drill-down. Task 4.2
-also remains open while expired/untrusted signer fixtures and release-pipeline
-evidence are absent. The recovery change has no remaining open tasks.
+The remaining tasks in `close-independent-validation-gaps` are 4.2, 4.5, 4.6,
+4.7, 4.8, and 5.1. The local clauses of 4.2 are now evidenced by
+`evidence/authentication-negative-tests.md`: unsigned, mismatched,
+placeholder, partially populated, expired, untrusted, and diagnostic-bypass
+coverage pass. Task 4.2 remains open only for the external release-pipeline
+provisioning clause; 4.5–4.8 require signed/elevated/clean-host evidence and
+5.1 requires direct rendered interaction plus a real aggregate-backed
+drill-down. The recovery change has no remaining open tasks.
 
 ## Handoff rule
 

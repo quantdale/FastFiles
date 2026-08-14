@@ -1,0 +1,26 @@
+# Production-validation finding matrix
+
+Recorded 2026-08-14. This matrix records repository-owned findings and keeps
+external production evidence separate from local technical regression proof.
+Live branch, commit, and hosted CI state are derived at handoff; this file is
+not a Git/CI database.
+
+| Finding | Severity | Status | Root cause / resolution | Evidence |
+|---|---:|---|---|---|
+| PV-BUG-01 | High | PASS | Encrypted PFX password was not supplied to `Get-PfxCertificate`; the password is now consumed with prompting disabled. | `Test-ReleaseTooling.ps1` reaches the technical signer-policy rejection with the correct temporary PFX password and cleans the PFX/certificates. |
+| PV-BUG-02 | High | PASS | PE signing and detached CMS manifest signing could be combined across stale manifest bytes; `-ManifestOnly` owns CMS signing and combined mode rejects. | Release-tooling manifest-only/no-mutation and combined-mode rejection checks. |
+| PV-BUG-03 | High | PASS | Readiness pin provenance used the default build root instead of the inspected artifact root. | Release-tooling readiness report probe uses the requested release-test artifact root. |
+| PV-BUG-04 | High | PASS | Readiness status did not explicitly distinguish local failure, full pass, and external blockage. | `Get-ReleaseReadinessStatus` outcome checks and release-tooling suite. |
+| PV-BUG-05 | High | PASS | `Test-ProductionCertificate` previously accepted only non-empty, non-self-equal Subject/Issuer values. | Technical preflight now requires a non-self-signed currently valid leaf, Code Signing EKU `1.3.6.1.5.5.7.3.3`, a fully successful trusted Windows chain, and (for signing) a private key. Temporary self-signed/untrusted cases exercise default Windows trust; trusted-root no-EKU/expired/not-yet-valid/valid cases use only the private custom-root seam, and the public-only case proves the signing-provider private-key gate. |
+| PV-BUG-06 | Medium | PASS | Production-validation workstate and ExecPlan retained `VALIDATING`/`PV-18` and a commit/push action after the prior repair push and green CI. | Durable state now records the prior slice as complete, the new signer-hardening slice separately, external gates explicitly, and one current next action without self-referential SHA state. |
+| PV-BUG-07 | Low | PASS | `Test-UsableThumbprint` relied on an ambiguous PowerShell command-expression return and accepted an all-zero expected thumbprint in the new signer mismatch seam. | Explicit boolean evaluation now rejects placeholders; release-tooling tests cover placeholder, malformed, and wrong expected thumbprints before signing. |
+| PV-BUG-08 | Medium | PASS | The first production certificate-policy implementation leaked collection/OID `.Add()` return values into the PowerShell pipeline, so detached CMS verification received an array instead of the policy object and failed closed for the wrong reason. | All policy-helper collection mutations now suppress pipeline output; the release-tooling detached-CMS test verifies the exact non-production leaf through the private custom-root technical seam. |
+| PV-BUG-09 | Low | PASS | The first real expired-signer fixture signed the full Authenticode test executable; on the optimized release-test path, certificate/signing setup could consume the short validity window before `signtool` completed. | The isolated fixture signs the compact `ffprotocol_tests.exe` PE, retains a 120-second currently-valid window, waits for exact `NotAfter`, and the Debug/release-test runtime seam passes with cleanup. |
+
+## External boundary retained
+
+No finding entry authorizes a production signer. Authorized production
+certificate provenance, real pins, signed package/CMS evidence, clean-host
+validation, elevated authenticated MFT/USN execution, and direct rendered UI
+remain external/environment gates. The valid certificate fixtures are clearly
+labelled `TEST CERTIFICATE / NON-PRODUCTION` and are not release evidence.

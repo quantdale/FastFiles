@@ -1,6 +1,6 @@
 # Pinned-signature provisioning and rotation procedure
 
-Recorded 2026-08-11 on `recovery/fast-files-20260809`.
+Recorded 2026-08-14 on `main`.
 
 This evidence note retains the D5 procedure without storing a certificate,
 private key, trusted thumbprint, signing artifact, or secret:
@@ -27,6 +27,33 @@ private key, trusted thumbprint, signing artifact, or secret:
    remain the local regression gate; elevated signed-service, real MFT/USN,
    privilege-diagnostics, and clean-host matrix validation remain separate
    external tasks.
+
+## Signer certificate policy
+
+`Test-ProductionCertificate` now treats technical signer policy as distinct
+from operator authorization. The selected leaf must be present, non-self-
+signed, currently valid for a new release, carry the Code Signing EKU
+`1.3.6.1.5.5.7.3.3`, and build a fully successful trusted Windows X509 chain
+under the release operator's CurrentUser/LocalMachine trust policy. The
+signing-provider path additionally requires the private key and rejects a
+selected certificate whose thumbprint differs from the expected signer.
+
+Release preflight deliberately uses `X509RevocationMode.NoCheck` and reports
+`NOT_CHECKED_OFFLINE`. Online revocation is not made a hidden network
+dependency of release tooling or product runtime: offline build hosts cannot
+deterministically establish an online OCSP/CRL result. Chain trust, validity,
+Code Signing EKU, and revocation status are therefore separate facts. Runtime
+peer WinTrust likewise retains `WTD_REVOKE_NONE` for the offline architecture;
+it independently establishes Authenticode trust and the pinned leaf identity.
+
+The local certificate-policy regression uses uniquely named temporary
+`TEST CERTIFICATE / NON-PRODUCTION` roots and leaves for self-signed,
+untrusted, missing-EKU, expired, not-yet-valid, and valid cases. Self-signed
+and untrusted cases exercise the default Windows policy; trusted-root EKU and
+validity cases use a private in-memory `CustomRootTrust` policy seam. No
+system or CurrentUser Root store entry is added. CurrentUser personal-store
+fixtures are removed in `finally` paths and verified absent. No fixture result
+is production signer authorization.
 
 Current repository state is intentionally fail-closed: both configured pins
 remain placeholders in `src/setup/include/ffsetup/PinnedSignatures.h`, and no

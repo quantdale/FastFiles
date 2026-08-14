@@ -73,6 +73,34 @@ before any production key was considered:
   reaches `PASS` only when artifact integrity, signatures, pins, clean-host,
   architecture, and elevation all pass.
 
+The final local signer-policy slice added and regression-tested:
+
+- `PV-BUG-05`: `Test-ProductionCertificate` now requires a non-self-signed,
+  currently valid leaf with the Code Signing EKU and a fully successful trusted
+  Windows chain; signing providers additionally require the private key and an
+  exact expected-thumbprint match. `Test-PackageManifestSignature` applies the
+  same technical policy to the detached CMS signer. Release preflight reports
+  revocation as `NOT_CHECKED_OFFLINE` rather than claiming an online result.
+- `PV-BUG-06`: the production-validation workstate and ExecPlan now separate
+  the completed prior push/CI slice from this signer-hardening slice and no
+  longer point at an already-completed commit/push action.
+- `PV-BUG-07`: all-zero expected thumbprints now fail closed through explicit
+  boolean evaluation in `Test-UsableThumbprint`.
+- `PV-BUG-08`: the certificate-policy helper initially leaked collection/OID
+  mutation return values into the PowerShell pipeline, which made detached CMS
+  verification receive an array instead of its policy object. All such outputs
+  are now suppressed, with an exact-signer detached-CMS regression through the
+  private non-production custom-root technical seam.
+- `PV-BUG-09`: the first real expired-signer fixture signed the full
+  Authenticode test executable, and the optimized release-test path could
+  consume the short window before `signtool` completed. The fixture now signs
+  the compact `ffprotocol_tests.exe` PE with a 120-second currently-valid
+  window before the deliberate expiry wait.
+
+The detailed finding matrix is in
+`evidence/production-validation-finding-matrix.md`, and the exact local versus
+external task-4.2 boundary is in `evidence/authentication-negative-tests.md`.
+
 The final signed-package sequence is therefore: sign the final four PE files;
 derive and provision the Engine/Service pins; rebuild and re-sign if pin
 embedding changed bytes; generate the V2 manifest from those final bytes; call

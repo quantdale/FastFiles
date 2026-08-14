@@ -17,17 +17,20 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 ## Campaign identity
 
 - Campaign: FastFiles production validation.
-- Logical status: `VALIDATING`.
+- Logical status: `READY_FOR_AUTHORIZED_SIGNER_PROVISIONING` (local signer-policy
+  hardening complete; external production gates remain).
 - Started: 2026-08-14.
 - Intended branch: `main`.
-- Starting observed source/remote state: `fb26f34` on `main`, clean and equal
-  after fetch. Re-derive this live on resume; it is historical evidence only.
+- Starting observed source/remote state for this session: `0a411a1` on `main`,
+  clean and equal after fetch. Re-derive this live on resume; it is historical
+  evidence only.
 - Validated implementation anchor: `f9ea9948a65f06aa1366ce488ca38db1c76fdbf3`.
 - Validated release-tooling repair baseline: `b692f5f0bf2ac2fc97857c1d92918e573eca1501`.
   This is a historical code-bearing commit, not a current-HEAD claim for this
   state file.
-- Historical hosted implementation evidence: run `31724666654` was green for
-  its referenced SHA; the current branch run must be queried again.
+- Historical hosted implementation evidence: run `31759135935` was green for
+  `0a411a1`; the final signer-hardening run must be queried by its live
+  `head_sha` at handoff.
 - Prior handoff: FF-POST-01 through FF-POST-12 were validated; production gates
   were not claimed.
 
@@ -62,21 +65,29 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 | PV-15 | BLOCKED_EXTERNAL | Canonical uninstall was not run against this contaminated development host. |
 | PV-16 | BLOCKED_EXTERNAL | No importer-accepted PASS bundle exists. |
 | PV-17 | BLOCKED_ENVIRONMENT | Direct rendered validation was attempted through Computer Use; its native pipe was unavailable twice, so no screenshots were captured. |
-| PV-18 | VALIDATING | Repository tests, OpenSpec, doctor, release-tooling, candidate provenance, and hygiene are passing; commit/push and hosted-run review remain. |
+| PV-18 | PASS (prior slice) | The prior production-validation repair slice was pushed through `0a411a1` and its hosted CI was green; its live SHA/CI remain derived at resume. |
+| PV-19 | PASS (local slice; hosted CI derived at handoff) | Production certificate policy, real default WinTrust expired/untrusted fixtures, private custom-root validity isolation, diagnostic-bypass source/configuration gate, full validation, and fixture cleanup pass; final Git/CI state remains derived externally. |
 | PV-BUG-01 | PASS | Encrypted PFX loading fixed and covered by a temporary non-production encrypted-PFX dry-run. |
 | PV-BUG-02 | PASS | Manifest-only detached CMS mode added; combined PE/manifest mode now fails closed. |
 | PV-BUG-03 | PASS | Readiness pin provenance now uses its inspected artifact root. |
 | PV-BUG-04 | PASS | Readiness overall status now has explicit FAIL/PASS/BLOCKED_EXTERNAL decisions. |
+| PV-BUG-05 | PASS | Release signer preflight now requires a non-self-signed currently valid leaf, trusted Windows chain, Code Signing EKU, and private key for signing; detached CMS uses the same default policy, while tests use only a private custom-root seam. |
+| PV-BUG-06 | PASS | Logical state and ExecPlan no longer retain the prior `PV-18=VALIDATING`/already-completed push frontier; prior and current slices are separated without self-referential SHA state. |
+| PV-BUG-07 | PASS | `Test-UsableThumbprint` now explicitly rejects all-zero expected thumbprints; release-tooling coverage proves placeholder, malformed, and mismatched values fail before signing. |
+| PV-BUG-08 | PASS | PowerShell collection/OID mutation return values were leaking into the production certificate-policy helper pipeline; all are now suppressed and detached CMS exact-signer validation passes through the private non-production custom-root seam. |
+| PV-BUG-09 | PASS | The disposable expired-signer fixture's full test-PE signing could consume its short validity window on release-test; it now signs compact `ffprotocol_tests.exe`, retains 120 seconds, and cleans both Debug/release-test fixtures. |
 
 ## Known OpenSpec boundary
 
 `openspec/changes/close-independent-validation-gaps/tasks.md` still leaves 6
-tasks open: 4.2 (expired/untrusted signer fixtures and release-pipeline
-evidence), 4.5 (signed/elevated authenticated install/runtime), 4.6 (real
-MFT/USN), 4.7 (`fftest` against the running service), 4.8 (clean-host matrix),
-and 5.1 (direct rendered matrix plus real aggregate-backed percentage sum).
-`recovery-degraded-browsing/tasks.md` is fully checked. No checkbox changed in
-this campaign because none of the remaining acceptance evidence exists.
+tasks open: 4.2 remains open only for its external release-pipeline signer/pin
+provisioning clause; 4.5 (signed/elevated authenticated install/runtime), 4.6
+(real MFT/USN), 4.7 (`fftest` against the running service), 4.8 (clean-host
+matrix), and 5.1 (direct rendered matrix plus real aggregate-backed percentage
+sum). The local 4.2 clauses are evidenced in
+`evidence/authentication-negative-tests.md`; no checkbox is marked complete
+without the remaining external acceptance evidence. `recovery-degraded-browsing/tasks.md`
+is fully checked.
 
 ## Evidence ledger
 
@@ -95,10 +106,32 @@ this campaign because none of the remaining acceptance evidence exists.
   version metadata, and four-file inventory were inspected separately.
 - `pwsh ./verify/release/tests/Test-ReleaseTooling.ps1 -BuildRoot
   ./build/release-test` (2026-08-14): PASS with zero failures after the four
-  repairs.
-- The repair baseline was pushed to `origin/main`; its hosted CI run was
-  observed as run `31758898989` for the exact repair SHA while the first
-  inspection was still in progress. Query the live run again at handoff.
+  repairs and the certificate-policy/expected-thumbprint regression matrix;
+  default Windows trust covers self-signed/untrusted cases, the trusted-root
+  EKU/validity cases use only an in-memory custom root, and no Root trust-store
+  mutation remains.
+- `pwsh ./verify/check_diagnostic_policy.ps1` (2026-08-14): PASS; Debug-only
+  diagnostic scope, release/release-test preset state, hosted-CI invocation,
+  and existing Release caches are all fail-closed.
+- `pwsh ./verify/verify.ps1 build` (2026-08-14): PASS; the exact default
+  debug/release-test/analyze harness path completed with zero capability or
+  CTest failures after the disposable expired-fixture timing correction.
+- `pwsh ./verify/verify.ps1 doctor` (2026-08-14): PASS for the discovered
+  Visual Studio VC toolset, Windows SDK, CMake, Ninja, and CTest; optional
+  diagnostic tools were reported as skipped when absent.
+- `ctest --test-dir build/debug -R ffengine_authenticode_verification_tests
+  --output-on-failure` in the discovered VS environment (2026-08-14): PASS
+  1/1; real WinTrust fixtures covered valid technical trust, mismatched and
+  placeholder pins, expired signer, and untrusted signer. The validity
+  transition used a private custom-root chain while default WinTrust remained
+  untrusted. Every fixture certificate and temporary file cleanup check passed.
+- `ctest --preset debug` (2026-08-14): PASS 53/53, including documentation
+  drift/line-ending checks after normalizing the Authenticode test source.
+- `ctest --preset release-test` (2026-08-14): PASS 53/53, including the
+  optimized real WinTrust fixture and documentation drift checks.
+- The prior repair baseline was pushed to `origin/main`; historical hosted
+  evidence is run `31759135935` for the exact `0a411a1` SHA. Query the final
+  signer-hardening run by its live `head_sha` at handoff.
 - Canonical privileged driver (2026-08-14): elevation PASS, but package
   signature missing, authorized signing missing, pins missing, and clean-host
   preflight failed; it stopped before installation. The read-only validator
@@ -129,11 +162,29 @@ this campaign because none of the remaining acceptance evidence exists.
 - `PV-BUG-04`: readiness overall status was hardcoded to `BLOCKED_EXTERNAL`
   whenever artifacts were present. Fixed with exported
   `Get-ReleaseReadinessStatus` and pure outcome tests.
+- `PV-BUG-05`: production certificate preflight previously treated
+  Subject/Issuer shape as sufficient. Fixed with explicit current-validity,
+  non-self-signed, Code Signing EKU, trusted-chain, and signing-private-key
+  checks; detached CMS validation reuses the policy.
+- `PV-BUG-06`: stale workstate/ExecPlan frontier retained an already-completed
+  push action. Fixed by separating the prior PASS slice from this local
+  signer-hardening slice and deriving live Git/CI externally.
+- `PV-BUG-07`: the all-zero expected-thumbprint path was not unambiguously
+  rejected by `Test-UsableThumbprint`. Fixed with explicit boolean evaluation.
+- `PV-BUG-08`: the certificate-policy helper initially emitted collection/OID
+  mutation results into the PowerShell pipeline, corrupting the detached CMS
+  policy object. Fixed by suppressing those outputs and adding a CMS regression.
+- `PV-BUG-09`: the first short-lived expired-signer fixture could expire before
+  `signtool` completed when signing the optimized full test PE. Fixed by using
+  the compact protocol test PE plus a 120-second currently-valid window before
+  the deliberate expiry transition; no production certificate policy was
+  weakened.
 
 ## Blockers
 
-- No explicitly authorized production signer configuration is available. No
-  certificate store was searched and no PFX was selected.
+- No explicitly authorized production signer configuration is available. Only
+  uniquely named temporary non-production test certificates were created and
+  all were removed; no production certificate or PFX was selected.
 - The machine is an `ELEVATED_DEV_HOST`, not a clean host, because pre-existing
   FastFiles resources are present. They were not removed for this campaign.
 - The Computer Use native pipe is unavailable, preventing direct screenshots.
@@ -141,6 +192,7 @@ this campaign because none of the remaining acceptance evidence exists.
 
 ## Next exact action
 
-Run final tracked-file diff/hygiene checks, create the focused commit for the
-validated release-tooling repairs, and push it to `origin/main`; then checkpoint
-the campaign docs in a later non-self-referential commit.
+Obtain/provide the explicitly authorized production signer configuration and
+execute `verify/release/sign-release.ps1 -DryRun` against the exact final
+candidate; keep real pins, production signing, and signed runtime evidence
+behind that external authorization boundary.
