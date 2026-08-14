@@ -24,6 +24,13 @@ add_executable(ffengine_authenticode_verification_tests
 )
 target_include_directories(ffengine_authenticode_verification_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_authenticode_verification_tests PRIVATE ffsetup)
+add_custom_target(ffengine_authenticode_fixture_script ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/AuthenticodeFixture.ps1"
+    "$<TARGET_FILE_DIR:ffengine_authenticode_verification_tests>/AuthenticodeFixture.ps1"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/AuthenticodeFixture.ps1"
+)
+add_dependencies(ffengine_authenticode_verification_tests ffengine_authenticode_fixture_script)
 add_test(NAME ffengine_authenticode_verification_tests COMMAND ffengine_authenticode_verification_tests)
 
 add_executable(ffengine_degraded_special_files_tests
@@ -95,3 +102,4 @@ add_executable(ffengine_bench_secondary_filename_index
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

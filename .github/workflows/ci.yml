@@ -25,6 +25,10 @@ jobs:
         shell: pwsh
         run: ./verify/check_source_markers.ps1
 
+      - name: Reject shipped unsigned-authentication bypass
+        shell: pwsh
+        run: ./verify/check_diagnostic_policy.ps1
+
       - name: Configure, build, and test in discovered VS environment
         shell: pwsh
         run: |
@@ -67,6 +71,10 @@ jobs:
       - name: Reject production debug markers
         shell: pwsh
         run: ./verify/check_source_markers.ps1
+
+      - name: Reject shipped unsigned-authentication bypass
+        shell: pwsh
+        run: ./verify/check_diagnostic_policy.ps1
 
       - name: Configure, build, and run ASAN protocol fuzz in discovered VS environment
         shell: pwsh

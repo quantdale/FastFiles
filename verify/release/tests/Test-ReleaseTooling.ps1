@@ -7,11 +7,173 @@ param(
 $ErrorActionPreference = 'Stop'
 if (-not $BuildRoot) { $BuildRoot = Join-Path $RepoRoot 'build\release' }
 Import-Module (Join-Path (Split-Path $PSScriptRoot -Parent) 'ReleaseCommon.psm1') -Force -DisableNameChecking
+$releaseCommonModule = Get-Module | Where-Object {
+    $_.Path -eq (Resolve-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'ReleaseCommon.psm1')).Path
+} | Select-Object -First 1
 
 $failures = 0
 function Check {
     param([bool] $Condition, [string] $Description)
     if ($Condition) { Write-Host "PASS: $Description" } else { Write-Host "FAIL: $Description"; $script:failures++ }
+}
+
+function Get-TestTechnicalCertificatePolicy {
+    param(
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate,
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot
+    )
+
+    if ($null -eq $script:releaseCommonModule) { throw 'RELEASE_COMMON_MODULE_NOT_FOUND_FOR_TEST_SEAM' }
+    return & $script:releaseCommonModule {
+        param($TestCertificate, $TestRoot)
+        Get-ProductionCertificatePolicyForTest -Certificate $TestCertificate -CustomTrustRoot $TestRoot
+    } $Certificate $CustomTrustRoot
+}
+
+function Add-TestCertificateToMyStore {
+    param([Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
+
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new('My', 'CurrentUser')
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        $store.Add($Certificate)
+    } finally {
+        $store.Close()
+        $store.Dispose()
+    }
+}
+
+function Remove-TestCertificateThumbprint {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [AllowNull()] [string] $Thumbprint
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Thumbprint)) { return }
+    $normalized = Normalize-Thumbprint -Value $Thumbprint
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, 'CurrentUser')
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+        foreach ($certificate in @($store.Certificates)) {
+            if ((Normalize-Thumbprint -Value $certificate.Thumbprint) -ceq $normalized) {
+                $store.Remove($certificate)
+            }
+        }
+    } finally {
+        $store.Close()
+        $store.Dispose()
+    }
+}
+
+function Test-TestCertificateAbsent {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('My', 'Root')] [string] $StoreName,
+        [AllowNull()] [string] $Thumbprint
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Thumbprint)) { return $true }
+    $normalized = Normalize-Thumbprint -Value $Thumbprint
+    $store = [Security.Cryptography.X509Certificates.X509Store]::new($StoreName, 'CurrentUser')
+    try {
+        $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+        return @($store.Certificates | Where-Object {
+            (Normalize-Thumbprint -Value $_.Thumbprint) -ceq $normalized
+        }).Count -eq 0
+    } finally {
+        $store.Close()
+        $store.Dispose()
+    }
+}
+
+function New-TestCertificateFixture {
+    param(
+        [Parameter(Mandatory)] [ValidateSet('SelfSigned', 'UntrustedCodeSigning', 'TrustedNoEku', 'TrustedExpired', 'TrustedNotYetValid', 'TrustedValid')] [string] $Case
+    )
+
+    $tag = [guid]::NewGuid().ToString('N')
+    $now = Get-Date
+    $root = $null
+    $leaf = $null
+    # The test root stays only in CurrentUser\My. The valid technical case
+    # uses the private custom-root chain seam; no host trust store is changed.
+    $trusted = $false
+    try {
+        if ($Case -ne 'SelfSigned') {
+            $root = New-SelfSignedCertificate -Subject "CN=FastFiles TEST CERTIFICATE NON-PRODUCTION root $tag" -Type Custom `
+                -TextExtension '2.5.29.19={text}CA=TRUE&pathlength=1' `
+                -KeyUsage CertSign, CRLSign, DigitalSignature -CertStoreLocation 'Cert:\CurrentUser\My' `
+                -KeyExportPolicy Exportable -NotBefore $now.AddDays(-2) -NotAfter $now.AddDays(30)
+        }
+
+        $leafNotBefore = $now.AddDays(-1)
+        $leafNotAfter = $now.AddDays(7)
+        if ($Case -eq 'TrustedExpired') {
+            $leafNotBefore = $now.AddDays(-3)
+            $leafNotAfter = $now.AddDays(-1)
+        } elseif ($Case -eq 'TrustedNotYetValid') {
+            $leafNotBefore = $now.AddDays(1)
+            $leafNotAfter = $now.AddDays(2)
+        }
+
+        if ($Case -eq 'TrustedNoEku') {
+            $leaf = New-SelfSignedCertificate -Subject "CN=FastFiles TEST CERTIFICATE NON-PRODUCTION no-eku $tag" `
+                -Type Custom -Signer $root -KeyUsage DigitalSignature -CertStoreLocation 'Cert:\CurrentUser\My' `
+                -KeyExportPolicy Exportable -NotBefore $leafNotBefore -NotAfter $leafNotAfter
+        } elseif ($Case -eq 'SelfSigned') {
+            $leaf = New-SelfSignedCertificate -Subject "CN=FastFiles TEST CERTIFICATE NON-PRODUCTION self-signed $tag" `
+                -Type CodeSigningCert -CertStoreLocation 'Cert:\CurrentUser\My' -KeyExportPolicy Exportable `
+                -NotBefore $leafNotBefore -NotAfter $leafNotAfter
+        } else {
+            $leaf = New-SelfSignedCertificate -Subject "CN=FastFiles TEST CERTIFICATE NON-PRODUCTION code-signing $tag" `
+                -Type CodeSigningCert -Signer $root -CertStoreLocation 'Cert:\CurrentUser\My' `
+                -KeyExportPolicy Exportable -NotBefore $leafNotBefore -NotAfter $leafNotAfter
+        }
+
+        [pscustomobject]@{
+            case = $Case
+            label = 'TEST CERTIFICATE / NON-PRODUCTION'
+            root = $root
+            leaf = $leaf
+            rootTrusted = $trusted
+        }
+    } catch {
+        if ($leaf) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $leaf.Thumbprint }
+        if ($root) {
+            Remove-TestCertificateThumbprint -StoreName My -Thumbprint $root.Thumbprint
+        }
+        throw
+    }
+}
+
+function Remove-TestCertificateFixture {
+    param([AllowNull()] $Fixture)
+
+    if ($null -eq $Fixture) { return $true }
+    $rootThumbprint = if ($Fixture.root) { $Fixture.root.Thumbprint } else { $null }
+    $leafThumbprint = if ($Fixture.leaf) { $Fixture.leaf.Thumbprint } else { $null }
+    if ($Fixture.rootTrusted) { Remove-TestCertificateThumbprint -StoreName Root -Thumbprint $rootThumbprint }
+    Remove-TestCertificateThumbprint -StoreName My -Thumbprint $leafThumbprint
+    Remove-TestCertificateThumbprint -StoreName My -Thumbprint $rootThumbprint
+    return (Test-TestCertificateAbsent -StoreName My -Thumbprint $leafThumbprint) -and
+        (Test-TestCertificateAbsent -StoreName My -Thumbprint $rootThumbprint) -and
+        (Test-TestCertificateAbsent -StoreName Root -Thumbprint $rootThumbprint)
+}
+
+function Invoke-SignReleaseDryRun {
+    param(
+        [Parameter(Mandatory)] $Fixture,
+        [Parameter(Mandatory)] [string] $ExpectedSignerThumbprint
+    )
+
+    $signScript = Join-Path $RepoRoot 'verify\release\sign-release.ps1'
+    $output = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $signScript `
+        -ArtifactRoot $BuildRoot -Provider CertificateStore -CertificateThumbprint $Fixture.leaf.Thumbprint `
+        -ExpectedSignerThumbprint $ExpectedSignerThumbprint -SigntoolPath $env:ComSpec `
+        -DryRun -OutputFormat json 2>&1
+    $exitCode = $LASTEXITCODE
+    $result = $null
+    try { $result = ($output -join "`n") | ConvertFrom-Json } catch { }
+    [pscustomobject]@{ exitCode = $exitCode; result = $result; output = ($output -join "`n") }
 }
 
 $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $BuildRoot -RepoRoot $RepoRoot
@@ -36,8 +198,110 @@ Check ((Get-PinState -Name 'bad' -Value '1234').state -eq 'MALFORMED') 'short pi
 Check ((Get-PinState -Name 'good' -Value ('A' * 40)).state -eq 'POPULATED') '40-hex pin is classified as POPULATED'
 Check ((Test-ThumbprintFormat -Value 'aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa-aa')) 'separator normalization accepts a 20-byte thumbprint'
 Check (-not (Test-ThumbprintFormat -Value 'not-a-thumbprint')) 'invalid thumbprint is rejected'
-Check (-not (Test-ProductionCertificate -Certificate ([pscustomobject]@{ Subject = 'CN=FastFiles Dev'; Issuer = 'CN=FastFiles Dev' }))) 'self-signed development certificate is rejected for Release signing'
-Check (Test-ProductionCertificate -Certificate ([pscustomobject]@{ Subject = 'CN=FastFiles Production'; Issuer = 'CN=Approved Code Signing CA' })) 'chained production certificate shape is accepted for provider validation'
+Check (-not (Test-ProductionCertificate -Certificate $null)) 'missing production certificate is rejected'
+
+$certificatePolicyFixtures = @(
+    [pscustomobject]@{ case = 'SelfSigned'; expectedReason = 'CERTIFICATE_SELF_SIGNED'; expectedValid = $false; customRoot = $false },
+    [pscustomobject]@{ case = 'UntrustedCodeSigning'; expectedReason = 'CERTIFICATE_CHAIN_UNTRUSTED_OR_INVALID'; expectedValid = $false; customRoot = $false },
+    [pscustomobject]@{ case = 'TrustedNoEku'; expectedReason = 'CERTIFICATE_CODE_SIGNING_EKU_MISSING'; expectedValid = $false; customRoot = $true },
+    [pscustomobject]@{ case = 'TrustedExpired'; expectedReason = 'CERTIFICATE_OUTSIDE_CURRENT_VALIDITY'; expectedValid = $false; customRoot = $true },
+    [pscustomobject]@{ case = 'TrustedNotYetValid'; expectedReason = 'CERTIFICATE_OUTSIDE_CURRENT_VALIDITY'; expectedValid = $false; customRoot = $true },
+    [pscustomobject]@{ case = 'TrustedValid'; expectedReason = $null; expectedValid = $true; customRoot = $true }
+)
+foreach ($fixtureDefinition in $certificatePolicyFixtures) {
+    $fixture = $null
+    try {
+        $fixture = New-TestCertificateFixture -Case $fixtureDefinition.case
+        $policy = if ($fixtureDefinition.customRoot) {
+            Get-TestTechnicalCertificatePolicy -Certificate $fixture.leaf -CustomTrustRoot $fixture.root
+        } else {
+            Get-ProductionCertificatePolicy -Certificate $fixture.leaf
+        }
+        $reasonPresent = $fixtureDefinition.expectedReason -and $policy.reasons -contains $fixtureDefinition.expectedReason
+        $technicalResult = $policy.valid -eq $fixtureDefinition.expectedValid
+        if ($fixtureDefinition.case -eq 'TrustedValid') {
+            Check ($technicalResult -and $policy.chainValid -and $policy.codeSigningEku -and
+                $policy.currentlyValid -and $policy.chainTrustMode -eq 'CUSTOM_ROOT_TEST_ONLY' -and
+                $policy.revocationPolicy -eq 'NOT_CHECKED_OFFLINE' -and
+                $fixture.label -eq 'TEST CERTIFICATE / NON-PRODUCTION') `
+                'trusted test root with a currently valid Code Signing leaf passes only the technical TEST CERTIFICATE / NON-PRODUCTION policy seam'
+        } else {
+            Check ($technicalResult -and $reasonPresent) `
+                "production certificate policy rejects $($fixtureDefinition.case)"
+        }
+    } catch {
+        Check $false "production certificate policy fixture $($fixtureDefinition.case) completed without exception ($($_.Exception.Message))"
+    } finally {
+        if ($fixture) {
+            $cleaned = Remove-TestCertificateFixture -Fixture $fixture
+            Check $cleaned "temporary $($fixtureDefinition.case) certificate fixture and CurrentUser trust entry are cleaned"
+        }
+    }
+}
+
+$signerPolicyFixture = $null
+try {
+    $signerPolicyFixture = New-TestCertificateFixture -Case TrustedValid
+    $wrongExpected = if ($signerPolicyFixture.leaf.Thumbprint[0] -ceq 'A') {
+        'B' + $signerPolicyFixture.leaf.Thumbprint.Substring(1)
+    } else {
+        'A' + $signerPolicyFixture.leaf.Thumbprint.Substring(1)
+    }
+    $wrongExpectedResult = Invoke-SignReleaseDryRun -Fixture $signerPolicyFixture -ExpectedSignerThumbprint $wrongExpected
+    Check ($wrongExpectedResult.exitCode -eq 1 -and $wrongExpectedResult.result -and
+        $wrongExpectedResult.result.error -like 'EXPECTED_SIGNER_MISMATCH*') `
+        'wrong expected signer thumbprint fails before any signing operation'
+    $placeholderExpectedResult = Invoke-SignReleaseDryRun -Fixture $signerPolicyFixture -ExpectedSignerThumbprint ('0' * 40)
+    Check ($placeholderExpectedResult.exitCode -eq 1 -and $placeholderExpectedResult.result -and
+        $placeholderExpectedResult.result.error -like 'MALFORMED_EXPECTED_SIGNER*') `
+        'placeholder expected signer thumbprint fails closed'
+    $malformedExpectedResult = Invoke-SignReleaseDryRun -Fixture $signerPolicyFixture -ExpectedSignerThumbprint 'not-a-thumbprint'
+    Check ($malformedExpectedResult.exitCode -eq 1 -and $malformedExpectedResult.result -and
+        $malformedExpectedResult.result.error -like 'MALFORMED_EXPECTED_SIGNER*') `
+        'malformed expected signer thumbprint fails closed'
+
+    $manifestPolicyRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-manifest-policy-test-' + [guid]::NewGuid().ToString('N'))
+    $manifestPolicyPath = Join-Path $manifestPolicyRoot 'FastFiles.package.manifest'
+    $manifestPolicySignaturePath = Join-Path $manifestPolicyRoot 'FastFiles.package.manifest.p7s'
+    try {
+        New-Item -ItemType Directory -Path $manifestPolicyRoot -Force | Out-Null
+        [IO.File]::WriteAllText($manifestPolicyPath, 'manifest-policy-probe', [Text.UTF8Encoding]::new($false))
+        Add-Type -AssemblyName System.Security.Cryptography.Pkcs -ErrorAction Stop
+        $contentInfo = [Security.Cryptography.Pkcs.ContentInfo]::new(
+            [IO.File]::ReadAllBytes($manifestPolicyPath))
+        $cms = [Security.Cryptography.Pkcs.SignedCms]::new($contentInfo, $true)
+        $cmsSigner = [Security.Cryptography.Pkcs.CmsSigner]::new($signerPolicyFixture.leaf)
+        $cms.ComputeSignature($cmsSigner)
+        [IO.File]::WriteAllBytes($manifestPolicySignaturePath, $cms.Encode())
+        $manifestPolicyResult = & $script:releaseCommonModule {
+            param($manifest, $signature, $thumbprint, $root)
+            Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
+                -AllowedSignerThumbprints @($thumbprint) -CustomTrustRoot $root
+        } $manifestPolicyPath $manifestPolicySignaturePath $signerPolicyFixture.leaf.Thumbprint $signerPolicyFixture.root
+        Check ($manifestPolicyResult.valid -and
+            $manifestPolicyResult.signerThumbprint -ceq $signerPolicyFixture.leaf.Thumbprint) `
+            'detached CMS and the custom-root technical verifier require the exact Code Signing leaf'
+    } finally {
+        if (Test-Path -LiteralPath $manifestPolicyRoot -PathType Container) {
+            Remove-Item -LiteralPath $manifestPolicyRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $publicOnly = [Security.Cryptography.X509Certificates.X509Certificate2]::new($signerPolicyFixture.leaf.RawData)
+    Remove-TestCertificateThumbprint -StoreName My -Thumbprint $signerPolicyFixture.leaf.Thumbprint
+    Add-TestCertificateToMyStore -Certificate $publicOnly
+    $noPrivateKeyResult = Invoke-SignReleaseDryRun -Fixture $signerPolicyFixture -ExpectedSignerThumbprint $signerPolicyFixture.leaf.Thumbprint
+    Check (-not $publicOnly.HasPrivateKey -and $noPrivateKeyResult.exitCode -eq 1 -and $noPrivateKeyResult.result -and
+        $noPrivateKeyResult.result.error -like '*private key*') `
+        'certificate without a private key fails the actual signing-provider preflight'
+} catch {
+    Check $false "signer thumbprint/private-key policy probes completed without exception ($($_.Exception.Message))"
+} finally {
+    if ($signerPolicyFixture) {
+        $cleaned = Remove-TestCertificateFixture -Fixture $signerPolicyFixture
+        Check $cleaned 'signer policy certificate fixture and trust entry are cleaned'
+    }
+}
 
 $pfxProbeRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-pfx-provider-test-' + [guid]::NewGuid().ToString('N'))
 $pfxProbePath = Join-Path $pfxProbeRoot 'provider-test.pfx'
@@ -49,6 +313,7 @@ try {
     $pfxProbePasswordText = [guid]::NewGuid().ToString('N') + '!Pv'
     $pfxProbePassword = ConvertTo-SecureString -String $pfxProbePasswordText -AsPlainText -Force
     $pfxProbeRootCertificate = New-SelfSignedCertificate -Subject 'CN=FastFiles release-tooling test root' -Type Custom `
+        -TextExtension '2.5.29.19={text}CA=TRUE&pathlength=1' `
         -KeyUsage CertSign, CRLSign, DigitalSignature -CertStoreLocation 'Cert:\CurrentUser\My' `
         -KeyExportPolicy Exportable -NotAfter (Get-Date).AddDays(1)
     $pfxProbeLeafCertificate = New-SelfSignedCertificate -Subject 'CN=FastFiles release-tooling test leaf' -Type CodeSigningCert `
@@ -64,8 +329,9 @@ try {
     $pfxProbeExit = $LASTEXITCODE
     $pfxProbeResult = $null
     try { $pfxProbeResult = ($pfxProbeOutput -join "`n") | ConvertFrom-Json } catch { }
-    Check ($pfxProbeExit -eq 0 -and $pfxProbeResult -and $pfxProbeResult.status -eq 'DRY_RUN' -and -not $pfxProbeResult.signingPerformed) `
-        'encrypted external PFX password is consumed by the signing dry-run without mutating artifacts'
+    Check ($pfxProbeExit -eq 1 -and $pfxProbeResult -and $pfxProbeResult.status -eq 'FAIL' -and
+        $pfxProbeResult.error -like 'DEVELOPMENT_CERTIFICATE_NOT_ALLOWED*CERTIFICATE_CHAIN_UNTRUSTED_OR_INVALID*') `
+        'encrypted external PFX password is consumed before the non-production development chain is rejected by signer policy'
 
     $manifestProbePath = Join-Path $pfxProbeRoot 'FastFiles.package.manifest'
     $manifestProbeSignaturePath = Join-Path $pfxProbeRoot 'FastFiles.package.manifest.p7s'
@@ -78,10 +344,10 @@ try {
     $manifestProbeExit = $LASTEXITCODE
     $manifestProbeResult = $null
     try { $manifestProbeResult = ($manifestProbeOutput -join "`n") | ConvertFrom-Json } catch { }
-    Check ($manifestProbeExit -eq 0 -and $manifestProbeResult -and $manifestProbeResult.status -eq 'DRY_RUN' -and
-        $manifestProbeResult.manifestOnly -and $null -eq $manifestProbeResult.signtool -and
+    Check ($manifestProbeExit -eq 1 -and $manifestProbeResult -and
+        $manifestProbeResult.error -like 'DEVELOPMENT_CERTIFICATE_NOT_ALLOWED*CERTIFICATE_CHAIN_UNTRUSTED_OR_INVALID*' -and
         -not (Test-Path -LiteralPath $manifestProbeSignaturePath -PathType Leaf)) `
-        'manifest-only signing dry-run leaves final manifest bytes and PE artifacts untouched'
+        'manifest-only signing preflight rejects the untrusted non-production leaf before any manifest bytes change'
 
     $unsafeManifestOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $signScript `
         -ArtifactRoot $BuildRoot -Provider Pfx -PfxPath $pfxProbePath `
@@ -100,6 +366,10 @@ try {
     [Environment]::SetEnvironmentVariable($pfxProbeEnvironmentName, $null, 'Process')
     if ($pfxProbeLeafCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeLeafCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
     if ($pfxProbeRootCertificate) { Remove-Item -LiteralPath ('Cert:\CurrentUser\My\' + $pfxProbeRootCertificate.Thumbprint) -Force -ErrorAction SilentlyContinue }
+    if ($pfxProbeLeafCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $pfxProbeLeafCertificate.Thumbprint }
+    if ($pfxProbeRootCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $pfxProbeRootCertificate.Thumbprint }
+    if ($pfxProbeLeafCertificate) { Check (Test-TestCertificateAbsent -StoreName My -Thumbprint $pfxProbeLeafCertificate.Thumbprint) 'encrypted PFX temporary leaf is absent from CurrentUser personal store after cleanup' }
+    if ($pfxProbeRootCertificate) { Check (Test-TestCertificateAbsent -StoreName My -Thumbprint $pfxProbeRootCertificate.Thumbprint) 'encrypted PFX temporary root is absent from CurrentUser personal store after cleanup' }
     if (Test-Path -LiteralPath $pfxProbePath -PathType Leaf) { Remove-Item -LiteralPath $pfxProbePath -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath $pfxProbeRoot -PathType Container) { Remove-Item -LiteralPath $pfxProbeRoot -Recurse -Force -ErrorAction SilentlyContinue }
 }
@@ -290,6 +560,10 @@ $releaseTestPreset = @($presets.configurePresets | Where-Object name -eq 'releas
 $releasePreset = @($presets.configurePresets | Where-Object name -eq 'release') | Select-Object -First 1
 Check ($releaseTestPreset -and $releaseTestPreset.cacheVariables.FASTFILES_RELEASE_TEST_BUILD -eq 'ON' -and $releaseTestPreset.cacheVariables.CMAKE_BUILD_TYPE -eq 'RelWithDebInfo') 'optimized test-release preset is explicit and non-production labeled'
 Check ($releasePreset -and $null -eq $releasePreset.cacheVariables.FASTFILES_RELEASE_TEST_BUILD) 'production release preset does not opt out of pin enforcement'
+$diagnosticPolicyScript = Join-Path $RepoRoot 'verify\check_diagnostic_policy.ps1'
+$diagnosticPolicyOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $diagnosticPolicyScript -RepoRoot $RepoRoot 2>&1
+$diagnosticPolicyExit = $LASTEXITCODE
+Check ($diagnosticPolicyExit -eq 0) 'source/configuration policy rejects the unsigned-authentication bypass in shipped configurations'
 
 Write-Host "Failures: $failures"
 exit $(if ($failures -eq 0) { 0 } else { 1 })

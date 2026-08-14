@@ -25,10 +25,13 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "ffsetup/AuthenticodeVerification.h"
@@ -120,6 +123,274 @@ std::optional<std::wstring> FirstSignedSystemBinary() {
     return std::nullopt;
 }
 
+std::optional<std::filesystem::path> CurrentModulePath() {
+    std::vector<wchar_t> buffer(32768);
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length == 0 || length >= static_cast<DWORD>(buffer.size())) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(std::wstring(buffer.data(), length));
+}
+
+std::filesystem::path FixtureSourceBinary(const std::filesystem::path& modulePath) {
+    const std::filesystem::path compactTestBinary =
+        modulePath.parent_path().parent_path() / L"protocol" / L"ffprotocol_tests.exe";
+    std::error_code error;
+    if (std::filesystem::is_regular_file(compactTestBinary, error) && !error) {
+        return compactTestBinary;
+    }
+    return modulePath;
+}
+
+std::optional<std::filesystem::path> CreateFixtureRoot() {
+    std::array<wchar_t, MAX_PATH> tempDirectory{};
+    const DWORD directoryLength = GetTempPathW(static_cast<DWORD>(tempDirectory.size()), tempDirectory.data());
+    if (directoryLength == 0 || directoryLength >= static_cast<DWORD>(tempDirectory.size())) {
+        return std::nullopt;
+    }
+
+    std::array<wchar_t, MAX_PATH> temporaryFile{};
+    if (GetTempFileNameW(tempDirectory.data(), L"ffi", 0, temporaryFile.data()) == 0) {
+        return std::nullopt;
+    }
+    if (!DeleteFileW(temporaryFile.data())) {
+        return std::nullopt;
+    }
+
+    const std::filesystem::path root(temporaryFile.data());
+    std::error_code error;
+    if (!std::filesystem::create_directory(root, error) || error) {
+        return std::nullopt;
+    }
+    return root;
+}
+
+std::wstring QuoteCommandLineArgument(const std::wstring& argument) {
+    std::wstring quoted = L"\"";
+    size_t backslashes = 0;
+    for (const wchar_t character : argument) {
+        if (character == L'\\') {
+            ++backslashes;
+            continue;
+        }
+        if (character == L'\"') {
+            quoted.append(backslashes * 2 + 1, L'\\');
+            quoted += L'\"';
+            backslashes = 0;
+            continue;
+        }
+        quoted.append(backslashes, L'\\');
+        backslashes = 0;
+        quoted += character;
+    }
+    quoted.append(backslashes * 2, L'\\');
+    quoted += L'\"';
+    return quoted;
+}
+
+int RunFixtureScript(
+    const std::filesystem::path& scriptPath,
+    const std::vector<std::pair<std::wstring, std::wstring>>& parameters) {
+    constexpr DWORD kFixtureProcessTimeoutMs = 240000;
+    std::wstring commandLine = QuoteCommandLineArgument(L"pwsh.exe") +
+        L" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File " + QuoteCommandLineArgument(scriptPath.wstring());
+    for (const auto& [name, value] : parameters) {
+        commandLine += L" " + QuoteCommandLineArgument(name) + L" " + QuoteCommandLineArgument(value);
+    }
+
+    std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
+    mutableCommandLine.push_back(L'\0');
+    STARTUPINFOW startupInfo{};
+    startupInfo.cb = static_cast<DWORD>(sizeof(startupInfo));
+    startupInfo.dwFlags = STARTF_USESHOWWINDOW;
+    startupInfo.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION processInfo{};
+    if (!CreateProcessW(nullptr, mutableCommandLine.data(), nullptr, nullptr, FALSE,
+                        CREATE_NO_WINDOW, nullptr, nullptr, &startupInfo, &processInfo)) {
+        return -1;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, kFixtureProcessTimeoutMs);
+    DWORD exitCode = 1;
+    if (waitResult == WAIT_TIMEOUT) {
+        TerminateProcess(processInfo.hProcess, ERROR_TIMEOUT);
+        WaitForSingleObject(processInfo.hProcess, 5000);
+        exitCode = ERROR_TIMEOUT;
+    } else if (waitResult != WAIT_OBJECT_0 || !GetExitCodeProcess(processInfo.hProcess, &exitCode)) {
+        exitCode = ERROR_PROCESS_ABORTED;
+    }
+    CloseHandle(processInfo.hThread);
+    CloseHandle(processInfo.hProcess);
+    return static_cast<int>(exitCode);
+}
+
+int HexValue(char character) {
+    if (character >= '0' && character <= '9') { return character - '0'; }
+    if (character >= 'A' && character <= 'F') { return character - 'A' + 10; }
+    if (character >= 'a' && character <= 'f') { return character - 'a' + 10; }
+    return -1;
+}
+
+std::optional<ffsetup::Thumbprint> ReadFixtureThumbprint(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        return std::nullopt;
+    }
+    std::string value;
+    std::getline(file, value);
+    if (value.size() != 40) {
+        return std::nullopt;
+    }
+
+    ffsetup::Thumbprint thumbprint{};
+    for (size_t index = 0; index < thumbprint.size(); ++index) {
+        const int high = HexValue(value[index * 2]);
+        const int low = HexValue(value[index * 2 + 1]);
+        if (high < 0 || low < 0) {
+            return std::nullopt;
+        }
+        thumbprint[index] = static_cast<uint8_t>((high << 4) | low);
+    }
+    return thumbprint;
+}
+
+void TestRealWinTrustFixture(
+    const std::filesystem::path& scriptPath,
+    const std::filesystem::path& fixtureRoot,
+    const wchar_t* caseName,
+    const char* description,
+    bool expectedAcceptance,
+    bool transitionToExpired = false) {
+    const std::filesystem::path outputPath = fixtureRoot / (std::wstring(caseName) + L".exe");
+    const std::filesystem::path statePath = fixtureRoot / (std::wstring(caseName) + L".state.json");
+    const auto modulePath = CurrentModulePath();
+    Check(modulePath.has_value(), "real WinTrust fixture: current test executable path is available");
+    if (!modulePath.has_value()) {
+        return;
+    }
+    const std::filesystem::path sourceBinary = FixtureSourceBinary(*modulePath);
+
+    const int prepareExit = RunFixtureScript(scriptPath, {
+        {L"-Action", L"Prepare"},
+        {L"-StatePath", statePath.wstring()},
+        {L"-SourceBinary", sourceBinary.wstring()},
+        {L"-OutputPath", outputPath.wstring()},
+        {L"-Case", caseName}
+    });
+    Check(prepareExit == 0, description);
+
+    const std::filesystem::path thumbprintPath = outputPath.wstring() + L".thumbprint";
+    const auto expected = ReadFixtureThumbprint(thumbprintPath);
+    Check(expected.has_value(), "real WinTrust fixture: signer thumbprint is recorded as a public test fact");
+    if (prepareExit == 0 && expected.has_value()) {
+        const int customChainExit = RunFixtureScript(scriptPath, {
+            {L"-Action", L"Validate"},
+            {L"-StatePath", statePath.wstring()}
+        });
+        Check(customChainExit == 0,
+              transitionToExpired
+                  ? "real WinTrust fixture: custom-root chain is valid before the deliberate expiry transition"
+                  : "real WinTrust fixture: custom-root chain is valid while the default WinTrust root remains untrusted");
+
+        const auto verifyCurrentState = [&](bool shouldAccept, bool checkPinVariants) {
+            const auto actual = ffsetup::VerifyAuthenticodeAndGetThumbprintAtPath(outputPath.wstring());
+            Check(actual.has_value() == shouldAccept,
+                  shouldAccept
+                      ? "real WinTrust fixture: trusted test signer establishes a valid chain"
+                      : "real WinTrust fixture: WinTrust does not establish trust for the invalid signer");
+            if (shouldAccept && actual.has_value()) {
+                Check(ffsetup::ConstantTimeThumbprintEqual(*actual, *expected),
+                      "real WinTrust fixture: accepted signer thumbprint matches the generated leaf");
+            }
+            Check(ffsetup::VerifyPinnedSignature(outputPath.wstring(), *expected) == shouldAccept,
+                  shouldAccept
+                      ? "real WinTrust fixture: VerifyPinnedSignature accepts only the trusted test signer"
+                      : "real WinTrust fixture: VerifyPinnedSignature rejects the invalid test signer");
+            if (checkPinVariants) {
+                ffsetup::Thumbprint wrongPin = *expected;
+                wrongPin[0] ^= 0xFF;
+                Check(!ffsetup::VerifyPinnedSignature(outputPath.wstring(), wrongPin),
+                      "real WinTrust fixture: a mismatched pin rejects the otherwise valid signer");
+                const ffsetup::Thumbprint placeholder{};
+                Check(!ffsetup::VerifyPinnedSignature(outputPath.wstring(), placeholder),
+                      "real WinTrust fixture: a placeholder pin rejects the otherwise valid signer");
+            }
+        };
+
+        // SignTool cannot create a new signature with an already-expired
+        // certificate. For that fixture, prove the custom-root chain is valid
+        // while the leaf is usable, then wait past its embedded NotAfter and
+        // run the production WinTrust path again. The temporary root is never
+        // installed into the machine trust store, so default WinTrust is
+        // expected to reject the fixture both before and after expiry.
+        verifyCurrentState(expectedAcceptance, true);
+        if (transitionToExpired) {
+            const int expireExit = RunFixtureScript(scriptPath, {
+                {L"-Action", L"Expire"},
+                {L"-StatePath", statePath.wstring()}
+            });
+            Check(expireExit == 0, "real WinTrust fixture: short-lived signer reaches its expired validity interval");
+            const int expiredChainExit = RunFixtureScript(scriptPath, {
+                {L"-Action", L"Validate"},
+                {L"-StatePath", statePath.wstring()}
+            });
+            Check(expiredChainExit == 0,
+                  "real WinTrust fixture: custom-root chain reports the leaf's expired validity status");
+            verifyCurrentState(false, false);
+        }
+    }
+
+    int cleanupExit = RunFixtureScript(scriptPath, {
+        {L"-Action", L"Cleanup"},
+        {L"-StatePath", statePath.wstring()}
+    });
+    if (cleanupExit != 0) {
+        // WinTrust can release a certificate context shortly after its close
+        // action returns. Retry the isolated cleanup script once across that
+        // process boundary so a transient store race cannot strand fixtures.
+        Sleep(1000);
+        cleanupExit = RunFixtureScript(scriptPath, {
+            {L"-Action", L"Cleanup"},
+            {L"-StatePath", statePath.wstring()}
+        });
+    }
+    Check(cleanupExit == 0, "real WinTrust fixture: certificate stores and temporary files are cleaned");
+    Check(!std::filesystem::exists(outputPath) && !std::filesystem::exists(statePath) &&
+              !std::filesystem::exists(thumbprintPath),
+          "real WinTrust fixture: cleanup leaves no generated PE, state, or thumbprint file");
+}
+
+void TestExpiredAndUntrustedWinTrustFixtures() {
+    // close-independent-validation-gaps 4.2: exercise the real WinTrust
+    // decision with ephemeral, non-production signed PE fixtures. The valid
+    // fixture is a technical seam only and never represents release evidence.
+    const auto modulePath = CurrentModulePath();
+    if (!modulePath.has_value()) {
+        Check(false, "real WinTrust fixtures require the current test executable path");
+        return;
+    }
+    const std::filesystem::path scriptPath = modulePath->parent_path() / L"AuthenticodeFixture.ps1";
+    Check(std::filesystem::exists(scriptPath), "real WinTrust fixtures: fixture helper is deployed beside the test");
+    if (!std::filesystem::exists(scriptPath)) {
+        return;
+    }
+
+    const auto fixtureRoot = CreateFixtureRoot();
+    Check(fixtureRoot.has_value(), "real WinTrust fixtures: isolated temporary directory is created");
+    if (!fixtureRoot.has_value()) {
+        return;
+    }
+
+    TestRealWinTrustFixture(scriptPath, *fixtureRoot, L"Expired",
+                            "real WinTrust fixture: short-lived test certificate is generated and signed", false, true);
+    TestRealWinTrustFixture(scriptPath, *fixtureRoot, L"Untrusted",
+                            "real WinTrust fixture: untrusted development root certificate is generated and signed", false);
+
+    std::error_code error;
+    const bool removed = std::filesystem::remove(*fixtureRoot, error) && !error;
+    Check(removed, "real WinTrust fixtures: isolated temporary directory is empty after cleanup");
+}
+
 void TestUnconfiguredPinsFailClosed() {
     const std::wstring unsignedFile = TempUnsignedFile();
     const ffsetup::Thumbprint placeholder{};
@@ -204,5 +475,6 @@ int main() {
     TestMatchingPinAcceptsSignedBinary();
     TestThumbprintComparison();
     TestPartiallyPopulatedPinsRejectUnpinnedPeer();
+    TestExpiredAndUntrustedWinTrustFixtures();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
