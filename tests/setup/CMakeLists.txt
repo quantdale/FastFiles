@@ -17,17 +17,33 @@ set_tests_properties(ffsetup_peer_image_match_tests PROPERTIES TIMEOUT 120)
 # verification and staging regression coverage. Signature verification is
 # injected in the test so unsigned/wrong/unapproved/approved signer outcomes
 # are deterministic without manufacturing a production certificate.
+#
+# Portable suite: no elevation, no production signer/pins, no trust-store
+# mutation. This is the mandatory default; it must keep passing on an
+# ordinary non-admin Windows host and in hosted CI.
 add_executable(ffsetup_package_trust_tests test_package_trust.cpp)
 target_link_libraries(ffsetup_package_trust_tests PRIVATE ffsetup)
-add_custom_target(ffsetup_package_trust_fixture ALL
-  COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
-    "$<TARGET_FILE_DIR:ffsetup_package_trust_tests>/PackageTrustFixture.ps1"
-  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
-)
-add_dependencies(ffsetup_package_trust_tests ffsetup_package_trust_fixture)
 add_test(NAME ffsetup_package_trust_tests COMMAND ffsetup_package_trust_tests)
 set_tests_properties(ffsetup_package_trust_tests PROPERTIES TIMEOUT 300)
+
+# Privileged CurrentUser\Root RFC3161 detached-CMS integration suite: opt-in
+# only, not part of the default CTest run. See AGENTS.md "Normal FastFiles
+# development" and verify/run_privileged_trust_tests.ps1.
+if(FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS)
+  add_executable(ffsetup_package_trust_wintrust_integration_tests test_package_trust_wintrust_integration.cpp)
+  target_link_libraries(ffsetup_package_trust_wintrust_integration_tests PRIVATE ffsetup)
+  add_custom_target(ffsetup_package_trust_wintrust_fixture ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
+      "$<TARGET_FILE_DIR:ffsetup_package_trust_wintrust_integration_tests>/PackageTrustFixture.ps1"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"
+  )
+  add_dependencies(ffsetup_package_trust_wintrust_integration_tests ffsetup_package_trust_wintrust_fixture)
+  add_test(NAME ffsetup_package_trust_wintrust_integration_tests
+    COMMAND ffsetup_package_trust_wintrust_integration_tests)
+  set_tests_properties(ffsetup_package_trust_wintrust_integration_tests
+    PROPERTIES TIMEOUT 300 LABELS privileged-trust)
+endif()
 
 # fastfiles-audit-remediation FF-AUDIT-02: source-level guard that prevents
 # reintroducing an elevated %TEMP% relay or detached copied-helper teardown.

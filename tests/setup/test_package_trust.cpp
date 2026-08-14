@@ -1,6 +1,5 @@
 #include <windows.h>
 
-#include <array>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -12,6 +11,7 @@
 
 #include "ffsetup/PackageTrust.h"
 #include "ffsetup/FastFilesVersion.h"
+#include "PackageTrustFixtureSupport.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -24,235 +24,11 @@ std::wstring FixtureRoot() {
         .wstring();
 }
 
-std::wstring Join(const std::wstring& root, const std::wstring& name) {
-    return root + L"\\" + name;
-}
-
-std::wstring ExecutableDirectory() {
-    std::vector<wchar_t> buffer(32768);
-    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
-    if (length == 0 || length >= buffer.size()) return L"";
-    return std::filesystem::path(std::wstring(buffer.data(), length)).parent_path().wstring();
-}
-
-std::wstring QuoteCommandLineArgument(const std::wstring& value) {
-    std::wstring quoted = L"\"";
-    size_t backslashes = 0;
-    for (const wchar_t character : value) {
-        if (character == L'\\') {
-            ++backslashes;
-        } else if (character == L'\"') {
-            quoted.append(backslashes * 2 + 1, L'\\');
-            quoted.push_back(L'\"');
-            backslashes = 0;
-        } else {
-            quoted.append(backslashes, L'\\');
-            quoted.push_back(character);
-            backslashes = 0;
-        }
-    }
-    quoted.append(backslashes * 2, L'\\');
-    quoted.push_back(L'\"');
-    return quoted;
-}
-
-bool RunPackageTrustFixture(const std::wstring& mode, const std::wstring& packageRoot,
-                            const std::wstring& statePath) {
-    std::vector<wchar_t> pwshPath(32768);
-    const DWORD pwshLength = SearchPathW(nullptr, L"pwsh.exe", nullptr,
-                                         static_cast<DWORD>(pwshPath.size()), pwshPath.data(), nullptr);
-    const std::wstring fixturePath = Join(ExecutableDirectory(), L"PackageTrustFixture.ps1");
-    if (pwshLength == 0 || pwshLength >= pwshPath.size() || fixturePath.empty() ||
-        !std::filesystem::is_regular_file(std::filesystem::path(fixturePath))) {
-        return false;
-    }
-
-    std::wstring command = QuoteCommandLineArgument(std::wstring(pwshPath.data(), pwshLength)) +
-                           L" -NoProfile -NonInteractive -File " + QuoteCommandLineArgument(fixturePath) +
-                           L" -Mode " + QuoteCommandLineArgument(mode) +
-                           L" -PackageRoot " + QuoteCommandLineArgument(packageRoot) +
-                           L" -StatePath " + QuoteCommandLineArgument(statePath);
-    std::vector<wchar_t> mutableCommand(command.begin(), command.end());
-    mutableCommand.push_back(L'\0');
-    STARTUPINFOW startupInfo{};
-    startupInfo.cb = sizeof(startupInfo);
-    PROCESS_INFORMATION processInfo{};
-    if (!CreateProcessW(nullptr, mutableCommand.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW, nullptr, nullptr,
-                        &startupInfo, &processInfo)) {
-        return false;
-    }
-    const DWORD waitResult = WaitForSingleObject(processInfo.hProcess, 120000);
-    if (waitResult != WAIT_OBJECT_0) {
-        TerminateProcess(processInfo.hProcess, 1);
-        CloseHandle(processInfo.hThread);
-        CloseHandle(processInfo.hProcess);
-        return false;
-    }
-    DWORD exitCode = 1;
-    const bool exitCodeRead = GetExitCodeProcess(processInfo.hProcess, &exitCode) != FALSE;
-    CloseHandle(processInfo.hThread);
-    CloseHandle(processInfo.hProcess);
-    return exitCodeRead && exitCode == 0;
-}
-
-std::vector<uint8_t> ReadBytes(const std::wstring& path) {
-    std::ifstream file(std::filesystem::path(path), std::ios::binary);
-    return std::vector<uint8_t>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-}
-
-std::optional<ffsetup::Thumbprint> ReadStateThumbprint(
-    const std::wstring& statePath, const char* fieldName) {
-    const std::string state = [&] {
-        std::ifstream file(std::filesystem::path(statePath), std::ios::binary);
-        return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-    }();
-    const std::string marker = std::string("\"") + fieldName + "\":\"";
-    const size_t start = state.find(marker);
-    if (start == std::string::npos || start + marker.size() + 40 > state.size()) return std::nullopt;
-    const std::string hex = state.substr(start + marker.size(), 40);
-    ffsetup::Thumbprint thumbprint{};
-    for (size_t index = 0; index < thumbprint.size(); ++index) {
-        const char high = hex[index * 2];
-        const char low = hex[index * 2 + 1];
-        if (!std::isxdigit(static_cast<unsigned char>(high)) ||
-            !std::isxdigit(static_cast<unsigned char>(low))) {
-            return std::nullopt;
-        }
-        const auto nibble = [](char value) -> uint8_t {
-            if (value >= '0' && value <= '9') return static_cast<uint8_t>(value - '0');
-            if (value >= 'A' && value <= 'F') return static_cast<uint8_t>(value - 'A' + 10);
-            return static_cast<uint8_t>(value - 'a' + 10);
-        };
-        thumbprint[index] = static_cast<uint8_t>((nibble(high) << 4) | nibble(low));
-    }
-    return thumbprint;
-}
-
-std::optional<ffsetup::Thumbprint> ReadSignerThumbprint(const std::wstring& statePath) {
-    return ReadStateThumbprint(statePath, "leafThumbprint");
-}
-
-void WritePayload(const std::wstring& path, const std::string& content) {
-    std::ofstream file(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
-    file.write(content.data(), static_cast<std::streamsize>(content.size()));
-}
-
-std::string AsciiName(const std::wstring& value) {
-    std::string result;
-    result.reserve(value.size());
-    for (const wchar_t character : value) result.push_back(static_cast<char>(character));
-    return result;
-}
-
-ffsetup::PackageManifestEntry ManifestEntry(const std::wstring& root, const std::wstring& name) {
-    const std::wstring path = Join(root, name);
-    const auto digest = ffsetup::ComputeSha256FileAtPath(path);
-    ffsetup::PackageManifestEntry entry;
-    entry.fileName = name;
-    entry.sizeBytes = std::filesystem::file_size(std::filesystem::path(path));
-    if (digest) entry.sha256 = *digest;
-    return entry;
-}
-
-ffsetup::PackageManifest MakeManifest(const std::wstring& root,
-                                      const std::vector<std::wstring>& names) {
-    ffsetup::PackageManifest manifest;
-    manifest.schemaVersion = ffsetup::kPackageManifestSchemaV2;
-    for (const auto& name : names) {
-        auto entry = ManifestEntry(root, name);
-        entry.componentRole = ffsetup::PackageComponentRoleForFileName(name).value_or(L"");
-        manifest.files.push_back(std::move(entry));
-    }
-    return manifest;
-}
-
 void WriteManifest(const std::wstring& path, const ffsetup::PackageManifest& manifest) {
     const auto bytes = ffsetup::SerializePackageManifest(manifest);
     if (!bytes) return;
     std::ofstream file(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
     file.write(reinterpret_cast<const char*>(bytes->data()), static_cast<std::streamsize>(bytes->size()));
-}
-
-ffsetup::PackageManifest MakeCanonicalManifest(const std::wstring& root,
-                                               const std::vector<std::wstring>& names) {
-    auto manifest = MakeManifest(root, names);
-    manifest.release.productName = ffsetup::kProductName;
-    manifest.release.productVersion = ffsetup::kProductVersion;
-    manifest.release.buildIdentity = ffsetup::kBuildIdentity;
-    manifest.release.architecture = L"x64";
-    for (auto& entry : manifest.files) {
-        entry.componentRole = ffsetup::PackageComponentRoleForFileName(entry.fileName).value_or(L"");
-        entry.originalFileName = entry.fileName;
-        entry.internalName = entry.fileName;
-        entry.productName = manifest.release.productName;
-        entry.productVersion = manifest.release.productVersion;
-        entry.buildIdentity = manifest.release.buildIdentity;
-        entry.architecture = manifest.release.architecture;
-    }
-    return manifest;
-}
-
-void WriteBytes(const std::wstring& path, const std::vector<uint8_t>& bytes) {
-    std::ofstream file(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
-    file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-}
-
-void TestTimestampedDefaultManifestVerifier(const std::wstring& root) {
-    // close-independent-validation-gaps 4.2: prove the final RFC3161 detached
-    // CMS format through the native installer verifier and its real trust path.
-    const std::wstring timestampRoot = Join(root, L"default-timestamped-manifest");
-    const std::wstring statePath = Join(root, L"default-timestamped-manifest.state.json");
-    std::filesystem::create_directories(std::filesystem::path(timestampRoot));
-    const std::vector<std::wstring> names{L"FastFiles.exe", L"FastFilesEngine.exe",
-                                          L"FastFilesIndexSvc.exe", L"FastFilesSetup.exe"};
-    for (const auto& name : names) WritePayload(Join(timestampRoot, name), "native-" + AsciiName(name));
-    const auto manifest = MakeCanonicalManifest(timestampRoot, names);
-    const auto serialized = ffsetup::SerializePackageManifest(manifest);
-    Check(serialized.has_value(), "native timestamp fixture has a canonical manifest");
-    const std::wstring manifestPath = Join(timestampRoot, ffsetup::kPackageManifestFileName);
-    WriteBytes(manifestPath, serialized.value_or(std::vector<uint8_t>{}));
-    const auto originalManifest = ReadBytes(manifestPath);
-
-    const bool prepared = RunPackageTrustFixture(L"Prepare", timestampRoot, statePath);
-    Check(prepared, "native timestamp fixture prepares a trusted CurrentUser root and detached CMS");
-    if (prepared && serialized) {
-        Check(ReadBytes(manifestPath) == originalManifest,
-              "SignTool timestamping leaves the detached manifest bytes unchanged");
-        const auto signer = ReadSignerThumbprint(statePath);
-        const std::wstring signaturePath = Join(timestampRoot, ffsetup::kPackageManifestSignatureFileName);
-        const auto originalSignature = ReadBytes(signaturePath);
-        Check(signer.has_value() && !originalSignature.empty(),
-              "native timestamp fixture publishes an exact signer pin and signature bytes");
-        if (signer && !originalSignature.empty()) {
-            const auto accepted = ffsetup::ReadAuthenticatedPackageManifest(timestampRoot, {*signer});
-            Check(accepted.has_value() && accepted->signatureVerified,
-                  "DefaultManifestSignatureVerifier accepts the timestamped detached CMS");
-
-            auto wrongSigner = *signer;
-            wrongSigner[0] ^= 0xFF;
-            Check(!ffsetup::ReadAuthenticatedPackageManifest(timestampRoot, {wrongSigner}).has_value(),
-                  "DefaultManifestSignatureVerifier rejects the wrong manifest signer pin");
-
-            WritePayload(manifestPath, "mutated-after-signing");
-            Check(!ffsetup::ReadAuthenticatedPackageManifest(timestampRoot, {*signer}).has_value(),
-                  "DefaultManifestSignatureVerifier rejects changed detached manifest bytes");
-            WriteBytes(manifestPath, *serialized);
-
-            auto changedSignature = originalSignature;
-            changedSignature.back() ^= 0x01;
-            WriteBytes(signaturePath, changedSignature);
-            Check(!ffsetup::ReadAuthenticatedPackageManifest(timestampRoot, {*signer}).has_value(),
-                  "DefaultManifestSignatureVerifier rejects changed timestamp/signature bytes");
-            WriteBytes(signaturePath, originalSignature);
-            Check(ffsetup::ReadAuthenticatedPackageManifest(timestampRoot, {*signer}).has_value(),
-                  "the original timestamped CMS remains valid after negative probes");
-        }
-    }
-
-    const bool cleaned = RunPackageTrustFixture(L"Cleanup", timestampRoot, statePath);
-    Check(cleaned && !std::filesystem::exists(std::filesystem::path(timestampRoot)) &&
-              !std::filesystem::exists(std::filesystem::path(statePath)),
-          "native timestamp fixture removes CurrentUser trust and every temporary file");
 }
 
 bool CanCreateFileSymlink(const std::wstring& linkPath, const std::wstring& targetPath) {
@@ -566,7 +342,6 @@ int wmain() {
 
     TestManifestParsingAndSetValidation(root);
     TestAuthenticatedManifestAndAntiMix(root);
-    TestTimestampedDefaultManifestVerifier(root);
     TestSignerAndHandleBoundCopy(root);
     TestReparseProtection(root);
     TestRollbackCandidateTrustMatrix(root);

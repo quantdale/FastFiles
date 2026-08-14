@@ -19,6 +19,9 @@ target_include_directories(ffengine_volume_session_manager_tests PRIVATE ${CMAKE
 target_link_libraries(ffengine_volume_session_manager_tests PRIVATE ffindexstore ffprotocol ffsearch ffipc ffsetup Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_volume_session_manager_tests COMMAND ffengine_volume_session_manager_tests)
 
+# Portable pin-enforcement suite: no elevation, no production signer/pins, no
+# trust-store mutation. This is the mandatory default; it must keep passing on
+# an ordinary non-admin Windows host and in hosted CI.
 add_executable(ffengine_authenticode_verification_tests
   test_authenticode_verification.cpp
 )
@@ -32,8 +35,32 @@ add_custom_target(ffengine_authenticode_fixture_script ALL
 )
 add_dependencies(ffengine_authenticode_verification_tests ffengine_authenticode_fixture_script)
 add_test(NAME ffengine_authenticode_verification_tests COMMAND ffengine_authenticode_verification_tests)
-add_test(NAME ffengine_authenticode_verification_timestamp_tests
-  COMMAND ffengine_authenticode_verification_tests --timestamped)
+
+# Privileged CurrentUser\Root trust-store integration suite: opt-in only, not
+# part of the default CTest run. See AGENTS.md "Normal FastFiles development"
+# and verify/run_privileged_trust_tests.ps1. The option is declared once in
+# the top-level CMakeLists.txt.
+if(FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS)
+  add_executable(ffengine_authenticode_wintrust_integration_tests
+    test_authenticode_wintrust_integration.cpp
+  )
+  target_include_directories(ffengine_authenticode_wintrust_integration_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+  target_link_libraries(ffengine_authenticode_wintrust_integration_tests PRIVATE ffsetup)
+  add_custom_target(ffengine_authenticode_wintrust_fixture_script ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/AuthenticodeFixture.ps1"
+      "$<TARGET_FILE_DIR:ffengine_authenticode_wintrust_integration_tests>/AuthenticodeFixture.ps1"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/AuthenticodeFixture.ps1"
+  )
+  add_dependencies(ffengine_authenticode_wintrust_integration_tests ffengine_authenticode_wintrust_fixture_script)
+  add_test(NAME ffengine_authenticode_wintrust_integration_tests
+    COMMAND ffengine_authenticode_wintrust_integration_tests)
+  add_test(NAME ffengine_authenticode_wintrust_integration_timestamp_tests
+    COMMAND ffengine_authenticode_wintrust_integration_tests --timestamped)
+  set_tests_properties(ffengine_authenticode_wintrust_integration_tests
+    ffengine_authenticode_wintrust_integration_timestamp_tests
+    PROPERTIES TIMEOUT 600 LABELS privileged-trust)
+endif()
 
 add_executable(ffengine_degraded_special_files_tests
   test_degraded_special_files.cpp
@@ -103,6 +130,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_authenticode_verification_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
-set_tests_properties(ffengine_authenticode_verification_tests ffengine_authenticode_verification_timestamp_tests
-  PROPERTIES TIMEOUT 600)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

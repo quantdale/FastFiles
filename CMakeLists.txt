@@ -26,6 +26,14 @@ option(FASTFILES_STATIC_ANALYSIS "Enable MSVC /analyze static analysis" OFF)
 option(FASTFILES_RELEASE_TEST_BUILD
   "Build an optimized unsigned test-release artifact; never represents a production release" OFF)
 
+# Opt-in only. Registers the CurrentUser\Root WinTrust trust-store
+# integration tests (tests/engine, tests/setup) with CTest under the
+# "privileged-trust" label. Ordinary Debug/release-test/analyze development
+# and hosted CI never need this ON -- see AGENTS.md "Normal FastFiles
+# development" and verify/run_privileged_trust_tests.ps1.
+option(FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS
+  "Register the privileged CurrentUser\\Root WinTrust integration tests with CTest (opt-in; never required for ordinary development)" OFF)
+
 # Keep the unsigned-authentication escape hatch visibly outside every shipped
 # or optimized test-release configuration before any release-pin validation is
 # evaluated. The implementation target repeats this guard for local clarity.
