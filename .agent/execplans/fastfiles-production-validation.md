@@ -83,7 +83,7 @@ machine logs belong in the repository.
 | ID | Gate | Required evidence | Current status |
 |---|---|---|---|
 | PV-01 | Administrator capability | Explicit Windows token role/integrity result | PASS |
-| PV-02 | Release artifact integrity | Current unsigned release-test candidate is current x64/version/build identity and exact four-file inventory; production Release remains pin-blocked | PASS (candidate only) |
+| PV-02 | Release artifact integrity | Pre-handoff unsigned release-test candidate was x64/version/build-identity correct; final live candidate provenance is derived after the last pushed SHA; production Release remains pin-blocked | PASS (historical candidate checkpoint) |
 | PV-03 | Authorized production signer availability | Explicit approved store thumbprint or external PFX provider; policy-valid chain/private key | BLOCKED_EXTERNAL |
 | PV-04 | Production signing | Dry-run plus real signed/verified artifacts and timestamp status | BLOCKED_EXTERNAL |
 | PV-05 | Production leaf-pin provenance | Pins derived from exact final Engine/Service signer leaves | BLOCKED_EXTERNAL |

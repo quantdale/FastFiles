@@ -46,7 +46,7 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 | ID | Status | Sanitized evidence / blocker |
 |---|---|---|
 | PV-01 | PASS | Administrator role, Administrators group, High Mandatory Level, and AMD64 were explicitly observed. |
-| PV-02 | PASS (unsigned candidate only) | Current release-test candidate has four x64 executables, product `0.1.0`, file `0.1.0.0`, and current source identity `fb26f34`; all are explicitly unsigned. Production Release configure remains fail-closed without pins. |
+| PV-02 | PASS (historical unsigned candidate) | The pre-handoff release-test candidate had four x64 executables, product `0.1.0`, file `0.1.0.0`, and source identity `fb26f34`; all were explicitly unsigned. Final live candidate provenance is derived after the last pushed SHA. Production Release configure remains fail-closed without pins. |
 | PV-03 | BLOCKED_EXTERNAL | No explicit authorized CertificateStore thumbprint or external PFX configuration. |
 | PV-04 | BLOCKED_EXTERNAL | No real production signing was attempted; the dry-run correctly stopped with `AUTHORIZED_SIGNER_REQUIRED`. |
 | PV-05 | BLOCKED_EXTERNAL | Exact final signed Engine/Service artifacts and approved leaf provenance are unavailable. |
@@ -83,10 +83,10 @@ this campaign because none of the remaining acceptance evidence exists.
 - Token probe (2026-08-14): PASS. Identity and group names were sanitized; no
   credentials or tokens were recorded.
 - `ReleaseReadiness.ps1 -Mode report -ArtifactRoot ./build/release-test
-  -OutputFormat json` (2026-08-14): artifact integrity PASS for the current
-  candidate, four unsigned signature rows, pin state MISSING from that same
-  root, clean-host/signing BLOCKED_EXTERNAL, exit 2. The older `build/release`
-  output was stale and was not used as a production candidate.
+  -OutputFormat json` (2026-08-14): artifact integrity PASS for the
+  pre-handoff candidate, four unsigned signature rows, pin state MISSING from
+  that same root, clean-host/signing BLOCKED_EXTERNAL, exit 2. The older
+  `build/release` output was stale and was not used as a production candidate.
 - Isolated current-source production Release configure (2026-08-14): failed
   closed with the documented missing/all-zero pin error. No placeholder values
   were supplied and no production Release build was claimed.
