@@ -1,13 +1,19 @@
 #include "ffsetup/PackageTrust.h"
 
+#pragma warning(push)
+// The Windows 10 SDK annotates scalar HCRYPTPROV_LEGACY as a pointer in
+// CryptMsgOpenToDecode; keep that SDK-only diagnostic out of /analyze.
+#pragma warning(disable : 6553)
 #include <bcrypt.h>
 #include <wincrypt.h>
 #include <winver.h>
+#pragma warning(pop)
 
 #include <algorithm>
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <sstream>
 #include <string_view>
@@ -381,6 +387,149 @@ bool DefaultSignatureVerifier(HANDLE handle, const std::wstring& canonicalPath,
     });
 }
 
+bool VerifyManifestCertificateChain(PCCERT_CONTEXT certificate, HCERTSTORE additionalStore,
+                                    const FILETIME* verificationTime, LPCSTR usageOid,
+                                    LPCSTR policyOid, void* extraPolicyParameter) noexcept {
+    if (certificate == nullptr || usageOid == nullptr || policyOid == nullptr) return false;
+
+    CERT_CHAIN_PARA chainParameters{};
+    chainParameters.cbSize = sizeof(chainParameters);
+    chainParameters.RequestedUsage.dwType = USAGE_MATCH_TYPE_AND;
+    chainParameters.RequestedUsage.Usage.cUsageIdentifier = 1;
+    LPSTR requestedUsage = const_cast<LPSTR>(usageOid);
+    chainParameters.RequestedUsage.Usage.rgpszUsageIdentifier = &requestedUsage;
+
+    FILETIME verificationTimeCopy{};
+    LPFILETIME mutableVerificationTime = nullptr;
+    if (verificationTime != nullptr) {
+        verificationTimeCopy = *verificationTime;
+        mutableVerificationTime = &verificationTimeCopy;
+    }
+    PCCERT_CHAIN_CONTEXT chain = nullptr;
+    const bool chainBuilt = CertGetCertificateChain(nullptr, certificate, mutableVerificationTime, additionalStore,
+                                                    &chainParameters, CERT_CHAIN_REVOCATION_CHECK_CACHE_ONLY,
+                                                    nullptr, &chain) != FALSE;
+    if (!chainBuilt || chain == nullptr || chain->cChain == 0 || chain->rgpChain[0] == nullptr ||
+        chain->rgpChain[0]->cElement < 2 ||
+        chain->TrustStatus.dwErrorStatus != CERT_TRUST_NO_ERROR) {
+        if (chain != nullptr) CertFreeCertificateChain(chain);
+        return false;
+    }
+
+    CERT_CHAIN_POLICY_PARA policyParameters{};
+    policyParameters.cbSize = sizeof(policyParameters);
+    policyParameters.pvExtraPolicyPara = extraPolicyParameter;
+    CERT_CHAIN_POLICY_STATUS policyStatus{};
+    policyStatus.cbSize = sizeof(policyStatus);
+    const bool policyValid = CertVerifyCertificateChainPolicy(policyOid, chain, &policyParameters,
+                                                               &policyStatus) != FALSE &&
+                             policyStatus.dwError == ERROR_SUCCESS;
+    CertFreeCertificateChain(chain);
+    return policyValid;
+}
+
+bool VerifyManifestTimestamp(const std::vector<uint8_t>& signatureBytes,
+                             const std::vector<uint8_t>& manifestBytes,
+                             PCCERT_CONTEXT signer) noexcept {
+    if (signatureBytes.empty() || manifestBytes.empty() || signer == nullptr ||
+        signatureBytes.size() > static_cast<size_t>((std::numeric_limits<DWORD>::max)())) {
+        return false;
+    }
+
+    HCRYPTMSG message = CryptMsgOpenToDecode(X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                                             CMSG_DETACHED_FLAG, 0,
+                                             static_cast<HCRYPTPROV_LEGACY>(0), nullptr, nullptr);
+    if (message == nullptr) return false;
+
+    bool valid = false;
+    std::vector<uint8_t> signerInfoBytes;
+    do {
+        if (!CryptMsgUpdate(message, signatureBytes.data(), static_cast<DWORD>(signatureBytes.size()), TRUE)) {
+            break;
+        }
+
+        DWORD signerCount = 0;
+        DWORD signerCountSize = sizeof(signerCount);
+        if (!CryptMsgGetParam(message, CMSG_SIGNER_COUNT_PARAM, 0, &signerCount, &signerCountSize) ||
+            signerCount != 1) {
+            break;
+        }
+
+        DWORD signerInfoSize = 0;
+        const BOOL signerInfoSizeQuery =
+            CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, nullptr, &signerInfoSize);
+        if ((!signerInfoSizeQuery && GetLastError() != ERROR_MORE_DATA) ||
+            signerInfoSize < sizeof(CMSG_SIGNER_INFO)) {
+            break;
+        }
+        signerInfoBytes.resize(signerInfoSize);
+        if (!CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, signerInfoBytes.data(), &signerInfoSize)) {
+            break;
+        }
+        const auto* signerInfo = reinterpret_cast<const CMSG_SIGNER_INFO*>(signerInfoBytes.data());
+        if (signerInfo->EncryptedHash.pbData == nullptr || signerInfo->EncryptedHash.cbData == 0 ||
+            signerInfo->UnauthAttrs.cAttr == 0 || signerInfo->UnauthAttrs.rgAttr == nullptr) {
+            break;
+        }
+
+        const CRYPT_ATTRIBUTE* timestampAttribute = nullptr;
+        for (DWORD index = 0; index < signerInfo->UnauthAttrs.cAttr; ++index) {
+            const CRYPT_ATTRIBUTE& attribute = signerInfo->UnauthAttrs.rgAttr[index];
+            if (attribute.pszObjId != nullptr &&
+                std::strcmp(attribute.pszObjId, szOID_RFC3161_counterSign) == 0) {
+                if (timestampAttribute != nullptr || attribute.cValue != 1 || attribute.rgValue == nullptr ||
+                    attribute.rgValue[0].pbData == nullptr || attribute.rgValue[0].cbData == 0) {
+                    timestampAttribute = nullptr;
+                    break;
+                }
+                timestampAttribute = &attribute;
+            }
+        }
+        if (timestampAttribute == nullptr) break;
+
+        PCRYPT_TIMESTAMP_CONTEXT timestampContext = nullptr;
+        PCCERT_CONTEXT timestampSigner = nullptr;
+        HCERTSTORE timestampStore = nullptr;
+        const CRYPT_ATTR_BLOB& timestampBlob = timestampAttribute->rgValue[0];
+        const bool timestampVerified = CryptVerifyTimeStampSignature(
+                                           timestampBlob.pbData, timestampBlob.cbData,
+                                           signerInfo->EncryptedHash.pbData, signerInfo->EncryptedHash.cbData,
+                                           signer->hCertStore, &timestampContext, &timestampSigner,
+                                            &timestampStore) != FALSE;
+        if (!timestampVerified || timestampContext == nullptr || timestampContext->pTimeStamp == nullptr ||
+            timestampSigner == nullptr) {
+            if (timestampContext != nullptr) CryptMemFree(timestampContext);
+            if (timestampSigner != nullptr) CertFreeCertificateContext(timestampSigner);
+            if (timestampStore != nullptr) CertCloseStore(timestampStore, 0);
+            break;
+        }
+
+        AUTHENTICODE_TS_EXTRA_CERT_CHAIN_POLICY_PARA timestampPolicy{};
+        timestampPolicy.cbSize = sizeof(timestampPolicy);
+        timestampPolicy.dwRegPolicySettings = 0;
+        timestampPolicy.fCommercial = FALSE;
+        valid = VerifyManifestCertificateChain(
+            timestampSigner, timestampStore, &timestampContext->pTimeStamp->ftTime,
+             szOID_PKIX_KP_TIMESTAMP_SIGNING, CERT_CHAIN_POLICY_AUTHENTICODE_TS, &timestampPolicy);
+        if (valid) {
+            AUTHENTICODE_EXTRA_CERT_CHAIN_POLICY_PARA signerPolicy{};
+            signerPolicy.cbSize = sizeof(signerPolicy);
+            signerPolicy.dwRegPolicySettings = 0;
+            signerPolicy.pSignerInfo = const_cast<PCMSG_SIGNER_INFO>(signerInfo);
+            valid = VerifyManifestCertificateChain(
+                signer, signer->hCertStore, &timestampContext->pTimeStamp->ftTime,
+                 szOID_PKIX_KP_CODE_SIGNING, CERT_CHAIN_POLICY_AUTHENTICODE, &signerPolicy);
+        }
+
+        if (timestampStore != nullptr) CertCloseStore(timestampStore, 0);
+        CertFreeCertificateContext(timestampSigner);
+        CryptMemFree(timestampContext);
+    } while (false);
+
+    CryptMsgClose(message);
+    return valid;
+}
+
 bool RunSignatureVerifier(HANDLE handle, const std::wstring& canonicalPath,
                           const std::vector<Thumbprint>& approvedSigners,
                           const PackageSignatureVerifier& verifier) noexcept {
@@ -521,18 +670,7 @@ bool DefaultManifestSignatureVerifier(const std::vector<uint8_t>& manifestBytes,
     }
 
     bool valid = false;
-    PCCERT_CHAIN_CONTEXT chain = nullptr;
-    CERT_CHAIN_PARA chainParameters{};
-    chainParameters.cbSize = sizeof(chainParameters);
-    if (CertGetCertificateChain(nullptr, signer, nullptr, signer->hCertStore, &chainParameters, 0, nullptr, &chain)) {
-        CERT_CHAIN_POLICY_PARA policyParameters{};
-        policyParameters.cbSize = sizeof(policyParameters);
-        CERT_CHAIN_POLICY_STATUS policyStatus{};
-        policyStatus.cbSize = sizeof(policyStatus);
-        valid = CertVerifyCertificateChainPolicy(CERT_CHAIN_POLICY_BASE, chain, &policyParameters, &policyStatus) != FALSE &&
-                policyStatus.dwError == ERROR_SUCCESS;
-        CertFreeCertificateChain(chain);
-    }
+    valid = VerifyManifestTimestamp(signatureBytes, manifestBytes, signer);
     Thumbprint thumbprint{};
     DWORD thumbprintSize = static_cast<DWORD>(thumbprint.size());
     if (!valid || !CertGetCertificateContextProperty(signer, CERT_SHA1_HASH_PROP_ID, thumbprint.data(), &thumbprintSize) ||

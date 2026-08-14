@@ -176,6 +176,215 @@ function Invoke-SignReleaseDryRun {
     [pscustomobject]@{ exitCode = $exitCode; result = $result; output = ($output -join "`n") }
 }
 
+function Find-TestSignTool {
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($command) { return [IO.Path]::GetFullPath($command.Source) }
+    $programFilesX86 = [Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ($programFilesX86) {
+        $kitRoot = Join-Path $programFilesX86 'Windows Kits\10\bin'
+        if (Test-Path -LiteralPath $kitRoot -PathType Container) {
+            foreach ($versionDirectory in @(Get-ChildItem -LiteralPath $kitRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending)) {
+                $candidate = Join-Path $versionDirectory.FullName 'x64\signtool.exe'
+                if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+            }
+        }
+    }
+    throw 'TEST_SIGNTOOL_MISSING'
+}
+
+function Read-Rfc3161Request {
+    param([Parameter(Mandatory)] [byte[]] $RequestBytes)
+
+    Add-Type -AssemblyName System.Formats.Asn1 -ErrorAction Stop
+    $reader = [System.Formats.Asn1.AsnReader]::new(
+        $RequestBytes, [System.Formats.Asn1.AsnEncodingRules]::DER)
+    $request = $reader.ReadSequence()
+    [void]$request.ReadInteger()
+    $messageImprint = $request.ReadSequence()
+    $algorithm = $messageImprint.ReadSequence()
+    $algorithmOid = $algorithm.ReadObjectIdentifier()
+    while ($algorithm.HasData) { [void]$algorithm.ReadEncodedValue() }
+    $hashedMessage = [byte[]]$messageImprint.ReadOctetString()
+    $nonce = $null
+    if ($request.HasData) {
+        $tag = $request.PeekTag()
+        if ([int]$tag.TagClass -eq 0 -and $tag.TagValue -eq 6) {
+            [void]$request.ReadObjectIdentifier()
+            $tag = if ($request.HasData) { $request.PeekTag() } else { $null }
+        }
+        if ($null -ne $tag -and [int]$tag.TagClass -eq 0 -and $tag.TagValue -eq 2) {
+            $nonce = [long]$request.ReadInteger()
+        }
+    }
+    while ($request.HasData) { [void]$request.ReadEncodedValue() }
+    if ($reader.HasData) { throw 'TEST_TIMESTAMP_REQUEST_INVALID' }
+    if ($algorithmOid -ne '2.16.840.1.101.3.4.2.1' -or $hashedMessage.Length -ne 32) {
+        throw 'TEST_TIMESTAMP_REQUEST_NOT_SHA256'
+    }
+    [pscustomobject]@{ hashedMessage = $hashedMessage; nonce = $nonce }
+}
+
+function New-Rfc3161TimestampResponse {
+    param(
+        [Parameter(Mandatory)] [byte[]] $RequestBytes,
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $TimestampCertificate,
+        [Parameter(Mandatory)] [DateTimeOffset] $TimestampTime
+    )
+
+    $request = Read-Rfc3161Request -RequestBytes $RequestBytes
+    Add-Type -AssemblyName System.Security.Cryptography.Pkcs -ErrorAction Stop
+    Add-Type -AssemblyName System.Formats.Asn1 -ErrorAction Stop
+    $tstWriter = [System.Formats.Asn1.AsnWriter]::new([System.Formats.Asn1.AsnEncodingRules]::DER)
+    $tstWriter.PushSequence() | Out-Null
+    $tstWriter.WriteInteger([long]1)
+    $tstWriter.WriteObjectIdentifier('1.3.6.1.4.1.311.10.3.12')
+    $tstWriter.PushSequence() | Out-Null
+    $tstWriter.PushSequence() | Out-Null
+    $tstWriter.WriteObjectIdentifier('2.16.840.1.101.3.4.2.1')
+    $tstWriter.WriteEncodedValue([byte[]](0x05, 0x00))
+    $tstWriter.PopSequence() | Out-Null
+    $tstWriter.WriteOctetString($request.hashedMessage)
+    $tstWriter.PopSequence() | Out-Null
+    $tstWriter.WriteInteger([long]([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()))
+    $tstWriter.WriteGeneralizedTime($TimestampTime.ToUniversalTime(), $true)
+    if ($null -ne $request.nonce) { $tstWriter.WriteInteger([long]$request.nonce) }
+    $tstWriter.PopSequence() | Out-Null
+    $tstInfo = $tstWriter.Encode()
+
+    $tokenContentInfo = [Security.Cryptography.Pkcs.ContentInfo]::new(
+        [Security.Cryptography.Oid]::new('1.2.840.113549.1.9.16.1.4'), $tstInfo)
+    $tokenCms = [Security.Cryptography.Pkcs.SignedCms]::new($tokenContentInfo, $false)
+    $tokenSigner = [Security.Cryptography.Pkcs.CmsSigner]::new(
+        [Security.Cryptography.Pkcs.SubjectIdentifierType]::IssuerAndSerialNumber, $TimestampCertificate)
+    $tokenSigner.IncludeOption = [Security.Cryptography.X509Certificates.X509IncludeOption]::EndCertOnly
+    $essWriter = [System.Formats.Asn1.AsnWriter]::new([System.Formats.Asn1.AsnEncodingRules]::DER)
+    $essWriter.PushSequence() | Out-Null
+    $essWriter.PushSequence() | Out-Null
+    $essWriter.PushSequence() | Out-Null
+    $essWriter.WriteOctetString([Security.Cryptography.SHA256]::Create().ComputeHash($TimestampCertificate.RawData))
+    $essWriter.PopSequence() | Out-Null
+    $essWriter.PopSequence() | Out-Null
+    $essWriter.PopSequence() | Out-Null
+    $essValues = [Security.Cryptography.AsnEncodedDataCollection]::new()
+    [void]$essValues.Add([Security.Cryptography.AsnEncodedData]::new(
+            '1.2.840.113549.1.9.16.2.47', $essWriter.Encode()))
+    [void]$tokenSigner.SignedAttributes.Add([Security.Cryptography.CryptographicAttributeObject]::new(
+            [Security.Cryptography.Oid]::new('1.2.840.113549.1.9.16.2.47'), $essValues))
+    $signingTimeBytes = [Text.Encoding]::ASCII.GetBytes(
+        $TimestampTime.ToUniversalTime().ToString("yyMMddHHmmss'Z'", [Globalization.CultureInfo]::InvariantCulture))
+    $signingTimeEncoded = [byte[]](@(0x17, [byte]$signingTimeBytes.Length) + $signingTimeBytes)
+    $signingTimeValues = [Security.Cryptography.AsnEncodedDataCollection]::new()
+    [void]$signingTimeValues.Add([Security.Cryptography.AsnEncodedData]::new(
+            '1.2.840.113549.1.9.5', $signingTimeEncoded))
+    [void]$tokenSigner.SignedAttributes.Add([Security.Cryptography.CryptographicAttributeObject]::new(
+            [Security.Cryptography.Oid]::new('1.2.840.113549.1.9.5'), $signingTimeValues))
+    $tokenCms.ComputeSignature($tokenSigner)
+    $timestampToken = $tokenCms.Encode()
+
+    $responseWriter = [System.Formats.Asn1.AsnWriter]::new([System.Formats.Asn1.AsnEncodingRules]::DER)
+    $responseWriter.PushSequence() | Out-Null
+    $responseWriter.PushSequence() | Out-Null
+    $responseWriter.WriteInteger([long]0)
+    $responseWriter.PopSequence() | Out-Null
+    $responseWriter.WriteEncodedValue($timestampToken)
+    $responseWriter.PopSequence() | Out-Null
+    return $responseWriter.Encode()
+}
+
+function Read-TimestampHttpBody {
+    param([Parameter(Mandatory)] [Net.Sockets.NetworkStream] $Stream)
+
+    $headerBytes = [Collections.Generic.List[byte]]::new()
+    while ($true) {
+        $value = $Stream.ReadByte()
+        if ($value -lt 0) { throw 'TEST_TIMESTAMP_HTTP_EOF' }
+        [void]$headerBytes.Add([byte]$value)
+        $count = $headerBytes.Count
+        if ($count -ge 4 -and $headerBytes[$count - 4] -eq 13 -and
+            $headerBytes[$count - 3] -eq 10 -and $headerBytes[$count - 2] -eq 13 -and
+            $headerBytes[$count - 1] -eq 10) { break }
+    }
+    $headers = [Text.Encoding]::ASCII.GetString($headerBytes.ToArray())
+    $match = [Text.RegularExpressions.Regex]::Match($headers, '(?im)^Content-Length:\s*(\d+)\s*$')
+    if (-not $match.Success) { throw 'TEST_TIMESTAMP_CONTENT_LENGTH_MISSING' }
+    $length = [int]$match.Groups[1].Value
+    $body = [byte[]]::new($length)
+    $read = 0
+    while ($read -lt $length) {
+        $received = $Stream.Read($body, $read, $length - $read)
+        if ($received -le 0) { throw 'TEST_TIMESTAMP_HTTP_BODY_TRUNCATED' }
+        $read += $received
+    }
+    return $body
+}
+
+function Invoke-LocalRfc3161P7Timestamp {
+    param(
+        [Parameter(Mandatory)] [string] $OutputSignaturePath,
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $TimestampCertificate,
+        [Parameter(Mandatory)] [DateTimeOffset] $TimestampTime
+    )
+
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    $client = $null
+    $process = $null
+    try {
+        $port = ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+        $acceptTask = $listener.AcceptTcpClientAsync()
+        $startInfo = [Diagnostics.ProcessStartInfo]::new()
+        $startInfo.FileName = Find-TestSignTool
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        foreach ($argument in @('timestamp', '/p7', '/tr', "http://127.0.0.1:$port/", '/td', 'SHA256',
+                                [IO.Path]::GetFullPath($OutputSignaturePath))) {
+            [void]$startInfo.ArgumentList.Add($argument)
+        }
+        $process = [Diagnostics.Process]::new()
+        $process.StartInfo = $startInfo
+        if (-not $process.Start()) { throw 'TEST_TIMESTAMP_SIGNTOOL_START_FAILED' }
+        if (-not $acceptTask.Wait(30000)) { throw 'TEST_TIMESTAMP_REQUEST_TIMEOUT' }
+        $client = $acceptTask.GetAwaiter().GetResult()
+        $stream = $client.GetStream()
+        $requestBytes = Read-TimestampHttpBody -Stream $stream
+        $responseBytes = New-Rfc3161TimestampResponse -RequestBytes $requestBytes `
+            -TimestampCertificate $TimestampCertificate -TimestampTime $TimestampTime
+        $header = [Text.Encoding]::ASCII.GetBytes(
+            "HTTP/1.1 200 OK`r`nContent-Type: application/timestamp-reply`r`nContent-Length: $($responseBytes.Length)`r`nConnection: close`r`n`r`n")
+        $stream.Write($header, 0, $header.Length)
+        $stream.Write($responseBytes, 0, $responseBytes.Length)
+        $stream.Flush()
+        $client.Close()
+        $client = $null
+        if (-not $process.WaitForExit(30000)) { throw 'TEST_TIMESTAMP_SIGNTOOL_TIMEOUT' }
+        if ($process.ExitCode -ne 0) { throw 'TEST_TIMESTAMP_SIGNTOOL_FAILED' }
+    } finally {
+        if ($client) { $client.Close() }
+        if ($process) {
+            if (-not $process.HasExited) { $process.Kill() }
+            $process.Dispose()
+        }
+        $listener.Stop()
+    }
+}
+
+function New-LocalRfc3161DetachedSignature {
+    param(
+        [Parameter(Mandatory)] [string] $InputSignaturePath,
+        [Parameter(Mandatory)] [string] $OutputSignaturePath,
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $TimestampCertificate,
+        [DateTimeOffset] $TimestampTime = [DateTimeOffset]::UtcNow
+    )
+
+    Add-Type -AssemblyName System.Security.Cryptography.Pkcs -ErrorAction Stop
+    $cms = [Security.Cryptography.Pkcs.SignedCms]::new()
+    $cms.Decode([IO.File]::ReadAllBytes([IO.Path]::GetFullPath($InputSignaturePath)))
+    if ($cms.SignerInfos.Count -ne 1) { throw 'TEST_CMS_SIGNER_COUNT_INVALID' }
+    Copy-Item -LiteralPath $InputSignaturePath -Destination $OutputSignaturePath -Force
+    Invoke-LocalRfc3161P7Timestamp -OutputSignaturePath $OutputSignaturePath `
+        -TimestampCertificate $TimestampCertificate -TimestampTime $TimestampTime
+}
+
 $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $BuildRoot -RepoRoot $RepoRoot
 $manifestAgain = Get-ReleaseArtifactManifest -ArtifactRoot $BuildRoot -RepoRoot $RepoRoot
 Check (@($manifest.artifacts).Count -eq 4) 'manifest enumerates exactly four release artifacts'
@@ -260,9 +469,31 @@ try {
         $malformedExpectedResult.result.error -like 'MALFORMED_EXPECTED_SIGNER*') `
         'malformed expected signer thumbprint fails closed'
 
+    $artifactLongevityFixture = $null
+    try {
+        $artifactLongevityFixture = New-TestCertificateFixture -Case TrustedExpired
+        $artifactPolicy = & $script:releaseCommonModule {
+            param($certificate, $timestampCertificate)
+            Get-SignedArtifactVerificationPolicy -Certificate $certificate -AuthenticodeStatus 'Valid' `
+                -TimestampCertificate $timestampCertificate
+        } $artifactLongevityFixture.leaf $signerPolicyFixture.leaf
+        $artifactExpiredNow = [DateTime]::UtcNow -gt ([DateTime]$artifactLongevityFixture.leaf.NotAfter).ToUniversalTime()
+        Check ($artifactExpiredNow -and $artifactPolicy.valid -and -not $artifactPolicy.currentlyValid -and
+            -not $artifactPolicy.currentValidityEnforced -and $artifactPolicy.timestampSigned -and
+            $artifactPolicy.timestampValid -and
+            $artifactPolicy.timestampPolicy -eq 'RFC3161_AUTHENTICATED_BY_WINTRUST') `
+            'timestamp-aware signed-artifact policy preserves a WinTrust-valid artifact after leaf expiry'
+    } finally {
+        if ($artifactLongevityFixture) {
+            Check (Remove-TestCertificateFixture -Fixture $artifactLongevityFixture) `
+                'signed-artifact longevity policy fixture certificates are cleaned'
+        }
+    }
+
     $manifestPolicyRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-manifest-policy-test-' + [guid]::NewGuid().ToString('N'))
     $manifestPolicyPath = Join-Path $manifestPolicyRoot 'FastFiles.package.manifest'
     $manifestPolicySignaturePath = Join-Path $manifestPolicyRoot 'FastFiles.package.manifest.p7s'
+    $manifestTimestampCertificate = $null
     try {
         New-Item -ItemType Directory -Path $manifestPolicyRoot -Force | Out-Null
         [IO.File]::WriteAllText($manifestPolicyPath, 'manifest-policy-probe', [Text.UTF8Encoding]::new($false))
@@ -272,16 +503,111 @@ try {
         $cms = [Security.Cryptography.Pkcs.SignedCms]::new($contentInfo, $true)
         $cmsSigner = [Security.Cryptography.Pkcs.CmsSigner]::new($signerPolicyFixture.leaf)
         $cms.ComputeSignature($cmsSigner)
-        [IO.File]::WriteAllBytes($manifestPolicySignaturePath, $cms.Encode())
+        $unsignedManifestSignaturePath = Join-Path $manifestPolicyRoot 'unsigned.manifest.p7s'
+        [IO.File]::WriteAllBytes($unsignedManifestSignaturePath, $cms.Encode())
+        $manifestTimestampCertificate = New-SelfSignedCertificate `
+            -Subject ('CN=FastFiles TEST CERTIFICATE NON-PRODUCTION timestamp ' + [guid]::NewGuid().ToString('N')) `
+            -Type Custom -Signer $signerPolicyFixture.root -KeyUsage DigitalSignature `
+            -TextExtension '2.5.29.37={critical}{text}1.3.6.1.5.5.7.3.8' -CertStoreLocation 'Cert:\CurrentUser\My' `
+            -KeyExportPolicy Exportable -NotBefore (Get-Date).AddDays(-2) -NotAfter (Get-Date).AddDays(7)
+        New-LocalRfc3161DetachedSignature -InputSignaturePath $unsignedManifestSignaturePath `
+            -OutputSignaturePath $manifestPolicySignaturePath -TimestampCertificate $manifestTimestampCertificate
         $manifestPolicyResult = & $script:releaseCommonModule {
             param($manifest, $signature, $thumbprint, $root)
             Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
                 -AllowedSignerThumbprints @($thumbprint) -CustomTrustRoot $root
         } $manifestPolicyPath $manifestPolicySignaturePath $signerPolicyFixture.leaf.Thumbprint $signerPolicyFixture.root
         Check ($manifestPolicyResult.valid -and
-            $manifestPolicyResult.signerThumbprint -ceq $signerPolicyFixture.leaf.Thumbprint) `
-            'detached CMS and the custom-root technical verifier require the exact Code Signing leaf'
+            $manifestPolicyResult.signerThumbprint -ceq $signerPolicyFixture.leaf.Thumbprint -and
+            $manifestPolicyResult.timestampValid -and $manifestPolicyResult.timestampAuthentic) `
+            'timestamped detached CMS and the custom-root technical verifier require the exact Code Signing leaf'
+
+        $manifestChangedPath = Join-Path $manifestPolicyRoot 'changed.manifest'
+        [IO.File]::WriteAllText($manifestChangedPath, 'manifest-policy-probe-mutated', [Text.UTF8Encoding]::new($false))
+        $manifestChangedResult = & $script:releaseCommonModule {
+            param($manifest, $signature, $thumbprint, $root)
+            Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
+                -AllowedSignerThumbprints @($thumbprint) -CustomTrustRoot $root
+        } $manifestChangedPath $manifestPolicySignaturePath $signerPolicyFixture.leaf.Thumbprint $signerPolicyFixture.root
+        Check (-not $manifestChangedResult.valid) 'changing detached manifest bytes invalidates the timestamped CMS binding'
+
+        $badTimestampPath = Join-Path $manifestPolicyRoot 'bad-timestamp.manifest.p7s'
+        $badTimestampBytes = [IO.File]::ReadAllBytes($manifestPolicySignaturePath)
+        $badTimestampBytes[$badTimestampBytes.Length - 1] = $badTimestampBytes[$badTimestampBytes.Length - 1] -bxor 0x01
+        [IO.File]::WriteAllBytes($badTimestampPath, $badTimestampBytes)
+        $badTimestampResult = & $script:releaseCommonModule {
+            param($manifest, $signature, $thumbprint, $root)
+            Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
+                -AllowedSignerThumbprints @($thumbprint) -CustomTrustRoot $root
+        } $manifestPolicyPath $badTimestampPath $signerPolicyFixture.leaf.Thumbprint $signerPolicyFixture.root
+        Check (-not $badTimestampResult.valid) 'changing the detached CMS timestamp/signature invalidates manifest authentication'
+
+        $wrongSignerResult = & $script:releaseCommonModule {
+            param($manifest, $signature, $root)
+            Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
+                -AllowedSignerThumbprints @('B' * 40) -CustomTrustRoot $root
+        } $manifestPolicyPath $manifestPolicySignaturePath $signerPolicyFixture.root
+        Check (-not $wrongSignerResult.valid -and $wrongSignerResult.reason -eq 'PACKAGE_MANIFEST_SIGNATURE_WRONG_SIGNER') `
+            'a timestamped manifest signed by the wrong leaf is rejected'
+
+        $expiredManifestFixture = New-TestCertificateFixture -Case TrustedExpired
+        $expiredTimestampCertificate = $null
+        try {
+            $expiredTimestampCertificate = New-SelfSignedCertificate `
+                -Subject ('CN=FastFiles TEST CERTIFICATE NON-PRODUCTION expired-test timestamp ' + [guid]::NewGuid().ToString('N')) `
+                -Type Custom -Signer $expiredManifestFixture.root -KeyUsage DigitalSignature `
+                -TextExtension '2.5.29.37={critical}{text}1.3.6.1.5.5.7.3.8' -CertStoreLocation 'Cert:\CurrentUser\My' `
+                -KeyExportPolicy Exportable -NotBefore (Get-Date).AddDays(-3) -NotAfter (Get-Date).AddDays(3)
+            $expiredUnsignedPath = Join-Path $manifestPolicyRoot 'expired-unsigned.manifest.p7s'
+            $expiredSignaturePath = Join-Path $manifestPolicyRoot 'expired.manifest.p7s'
+            $expiredCms = [Security.Cryptography.Pkcs.SignedCms]::new(
+                [Security.Cryptography.Pkcs.ContentInfo]::new([IO.File]::ReadAllBytes($manifestPolicyPath)), $true)
+            $expiredCmsSigner = [Security.Cryptography.Pkcs.CmsSigner]::new($expiredManifestFixture.leaf)
+            $expiredCms.ComputeSignature($expiredCmsSigner)
+            [IO.File]::WriteAllBytes($expiredUnsignedPath, $expiredCms.Encode())
+            $timestampBeforeExpiry = ([DateTime]$expiredManifestFixture.leaf.NotAfter).ToUniversalTime().AddHours(-1)
+            New-LocalRfc3161DetachedSignature -InputSignaturePath $expiredUnsignedPath `
+                -OutputSignaturePath $expiredSignaturePath -TimestampCertificate $expiredTimestampCertificate `
+                -TimestampTime ([DateTimeOffset]$timestampBeforeExpiry)
+            $expiredResult = & $script:releaseCommonModule {
+                param($manifest, $signature, $thumbprint, $root)
+                Test-PackageManifestSignatureForTest -ManifestPath $manifest -SignaturePath $signature `
+                    -AllowedSignerThumbprints @($thumbprint) -CustomTrustRoot $root
+            } $manifestPolicyPath $expiredSignaturePath $expiredManifestFixture.leaf.Thumbprint $expiredManifestFixture.root
+            $expiredNow = [DateTime]::UtcNow -gt ([DateTime]$expiredManifestFixture.leaf.NotAfter).ToUniversalTime()
+            Check ($expiredNow -and $expiredResult.valid -and $expiredResult.timestampValid) `
+                'a manifest signer that is expired now remains valid when its trusted timestamp predates expiry'
+        } finally {
+            if ($expiredTimestampCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $expiredTimestampCertificate.Thumbprint }
+            if ($expiredManifestFixture) { Check (Remove-TestCertificateFixture -Fixture $expiredManifestFixture) 'expired manifest timestamp fixture certificates are cleaned' }
+        }
+
+        $noTimestampRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-no-timestamp-test-' + [guid]::NewGuid().ToString('N'))
+        $noTimestampArtifact = Join-Path $noTimestampRoot 'probe.exe'
+        try {
+            New-Item -ItemType Directory -Path $noTimestampRoot -Force | Out-Null
+            Copy-Item -LiteralPath (Join-Path $BuildRoot 'src\engine\FastFilesEngine.exe') -Destination $noTimestampArtifact -Force
+            $beforeNoTimestampHash = (Get-FileHash -LiteralPath $noTimestampArtifact -Algorithm SHA256).Hash
+            $noTimestampOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File (Join-Path $RepoRoot 'verify\release\sign-release.ps1') `
+                -Artifacts $noTimestampArtifact -Provider CertificateStore -CertificateThumbprint $signerPolicyFixture.leaf.Thumbprint `
+                -ExpectedSignerThumbprint $signerPolicyFixture.leaf.Thumbprint -SigntoolPath $env:ComSpec `
+                -OutputFormat json 2>&1
+            $noTimestampExit = $LASTEXITCODE
+            $noTimestampResult = $null
+            try { $noTimestampResult = ($noTimestampOutput -join "`n") | ConvertFrom-Json } catch { }
+            $afterNoTimestampHash = (Get-FileHash -LiteralPath $noTimestampArtifact -Algorithm SHA256).Hash
+            Check ($noTimestampExit -eq 1 -and $noTimestampResult -and
+                $noTimestampResult.error -like 'PRODUCTION_TIMESTAMP_REQUIRED*' -and
+                -not $noTimestampResult.signingPerformed -and $beforeNoTimestampHash -ceq $afterNoTimestampHash) `
+                'a real PE signing operation fails closed before mutation when no production RFC3161 timestamp is configured'
+        } finally {
+            if (Test-Path -LiteralPath $noTimestampRoot -PathType Container) {
+                Remove-Item -LiteralPath $noTimestampRoot -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
     } finally {
+        if ($manifestTimestampCertificate) { Remove-TestCertificateThumbprint -StoreName My -Thumbprint $manifestTimestampCertificate.Thumbprint }
         if (Test-Path -LiteralPath $manifestPolicyRoot -PathType Container) {
             Remove-Item -LiteralPath $manifestPolicyRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -377,6 +703,36 @@ try {
 $pins = Get-ConfiguredPinStates -RepoRoot $RepoRoot -BuildRoot $BuildRoot
 $matrix = @(Get-ReleaseSignatureMatrix -Manifest $manifest -PinStates $pins)
 Check (@($matrix | Where-Object result -eq 'UNSIGNED — PRODUCTION SIGNING REQUIRED').Count -eq 4) 'unsigned Release binaries produce explicit production-signing blockers'
+
+$matrixThumbprint = 'A' * 40
+$matrixPins = [pscustomobject]@{
+    engine = Get-PinState -Name 'engine' -Value $matrixThumbprint
+    service = Get-PinState -Name 'service' -Value ('B' * 40)
+}
+$matrixArtifact = [pscustomobject]@{
+    filename = 'FastFilesEngine.exe'
+    signature = [pscustomobject]@{
+        signed = $true
+        valid = $true
+        signerSubject = 'TEST CERTIFICATE / NON-PRODUCTION'
+        leafThumbprint = $matrixThumbprint
+        timestampSigned = $false
+        timestampValid = $null
+    }
+}
+$matrixManifest = [pscustomobject]@{ artifacts = @($matrixArtifact) }
+$missingTimestampMatrix = @(Get-ReleaseSignatureMatrix -Manifest $matrixManifest -PinStates $matrixPins -ExpectedSignerThumbprint $matrixThumbprint)
+Check ($missingTimestampMatrix[0].result -eq 'MISSING_TIMESTAMP') 'release readiness rejects a currently valid PE artifact without a timestamp'
+$matrixArtifact.signature.timestampSigned = $true
+$matrixArtifact.signature.timestampValid = $true
+$validTimestampMatrix = @(Get-ReleaseSignatureMatrix -Manifest $matrixManifest -PinStates $matrixPins -ExpectedSignerThumbprint $matrixThumbprint)
+Check ($validTimestampMatrix[0].result -eq 'PASS') 'release readiness accepts a valid timestamp and exact signer pin'
+$matrixArtifact.signature.timestampValid = $false
+$invalidTimestampMatrix = @(Get-ReleaseSignatureMatrix -Manifest $matrixManifest -PinStates $matrixPins -ExpectedSignerThumbprint $matrixThumbprint)
+Check ($invalidTimestampMatrix[0].result -eq 'TIMESTAMP_INVALID') 'release readiness rejects an invalid timestamp'
+$matrixArtifact.signature.timestampValid = $true
+$wrongSignerMatrix = @(Get-ReleaseSignatureMatrix -Manifest $matrixManifest -PinStates $matrixPins -ExpectedSignerThumbprint ('C' * 40))
+Check ($wrongSignerMatrix[0].result -eq 'WRONG_SIGNER') 'release readiness rejects a timestamped artifact from the wrong signer'
 Check ($pins.engine.state -in @('PLACEHOLDER', 'POPULATED', 'MALFORMED', 'MISSING')) 'engine pin validator emits a known state'
 Check ($pins.service.state -in @('PLACEHOLDER', 'POPULATED', 'MALFORMED', 'MISSING')) 'service pin validator emits a known state'
 Check ((Get-ReleaseReadinessStatus -ArtifactStatus 'FAIL' -SigningStatus 'PASS' -PinsStatus 'PASS' -CleanHost $true -ArchitectureCompatible $true -Elevated $true) -eq 'FAIL') 'readiness status preserves local artifact failures'

@@ -177,6 +177,92 @@ function Get-ProductionCertificatePolicy {
     return Get-CertificatePolicyCore -Certificate $Certificate -RequirePrivateKey:$RequirePrivateKey
 }
 
+# Signed-artifact verification is deliberately not a signing-credential
+# preflight. WinTrust owns Authenticode validity, including the signing time
+# carried by a valid RFC3161 timestamp. In particular, an expired leaf is not
+# independently rejected here when WinTrust reports the timestamped artifact
+# as valid. Get-CertificatePolicyCore remains the stricter policy for choosing
+# a certificate that will sign a new release.
+function Get-SignedArtifactVerificationPolicy {
+    [CmdletBinding()]
+    param(
+        [AllowNull()] $Certificate,
+        [Parameter(Mandatory)] [string] $AuthenticodeStatus,
+        [AllowNull()] $TimestampCertificate
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $hasCodeSigningEku = $false
+    $isSelfSigned = $false
+    $currentlyValid = $false
+    $notBefore = $null
+    $notAfter = $null
+    $thumbprint = $null
+
+    if ($null -eq $Certificate) {
+        [void]$issues.Add('SIGNER_CERTIFICATE_MISSING')
+    } else {
+        try {
+            $thumbprint = Normalize-Thumbprint -Value ([string]$Certificate.Thumbprint)
+            $notBefore = ([DateTime]$Certificate.NotBefore).ToUniversalTime()
+            $notAfter = ([DateTime]$Certificate.NotAfter).ToUniversalTime()
+            $now = [DateTime]::UtcNow
+            $currentlyValid = $notBefore -le $now -and $now -le $notAfter
+        } catch {
+            [void]$issues.Add('SIGNER_CERTIFICATE_IDENTITY_UNREADABLE')
+        }
+        try {
+            if ([string]::IsNullOrWhiteSpace([string]$Certificate.Subject) -or
+                [string]::IsNullOrWhiteSpace([string]$Certificate.Issuer)) {
+                [void]$issues.Add('SIGNER_CERTIFICATE_IDENTITY_MISSING')
+            } elseif ([string]$Certificate.Subject -ceq [string]$Certificate.Issuer) {
+                $isSelfSigned = $true
+                [void]$issues.Add('SIGNER_CERTIFICATE_SELF_SIGNED')
+            }
+        } catch {
+            [void]$issues.Add('SIGNER_CERTIFICATE_IDENTITY_UNREADABLE')
+        }
+        try {
+            $ekuExtensions = @($Certificate.Extensions | Where-Object { $_.Oid.Value -eq '2.5.29.37' })
+            if ($ekuExtensions.Count -gt 0) {
+                $eku = [Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension]$ekuExtensions[0]
+                $hasCodeSigningEku = @($eku.EnhancedKeyUsages | ForEach-Object { $_.Value }) -contains $script:CodeSigningApplicationPolicyOid
+            }
+            if (-not $hasCodeSigningEku) { [void]$issues.Add('SIGNER_CODE_SIGNING_EKU_MISSING') }
+        } catch {
+            [void]$issues.Add('SIGNER_CODE_SIGNING_EKU_INVALID')
+        }
+        if (-not (Test-ThumbprintFormat -Value $thumbprint)) {
+            [void]$issues.Add('SIGNER_THUMBPRINT_INVALID')
+        }
+    }
+
+    $authenticodeValid = $AuthenticodeStatus -ceq 'Valid'
+    if (-not $authenticodeValid) { [void]$issues.Add('AUTHENTICODE_STATUS_NOT_VALID') }
+    $timestampSigned = $null -ne $TimestampCertificate
+    $timestampValid = $timestampSigned -and $authenticodeValid
+    [pscustomobject]@{
+        valid = $authenticodeValid -and $issues.Count -eq 0
+        reasons = @($issues.ToArray())
+        authenticodeStatus = $AuthenticodeStatus
+        authenticodeValid = $authenticodeValid
+        signerKnown = $null -ne $Certificate
+        signerThumbprint = $thumbprint
+        selfSigned = $isSelfSigned
+        currentlyValid = $currentlyValid
+        currentValidityEnforced = $false
+        notBefore = $notBefore
+        notAfter = $notAfter
+        codeSigningEku = $hasCodeSigningEku
+        chainValiditySource = 'WINDOWS_WINTRUST_AUTHENTICODE'
+        timestampSigned = $timestampSigned
+        timestampValid = $timestampValid
+        timestampPolicy = if ($timestampValid) { 'RFC3161_AUTHENTICATED_BY_WINTRUST' } elseif ($timestampSigned) { 'WINTRUST_REJECTED' } else { 'NO_TIMESTAMP' }
+        revocationPolicy = 'WINDOWS_WINTRUST_DEFAULT'
+        revocationChecked = $null
+    }
+}
+
 # Test-only technical seam. Production release paths intentionally call
 # Get-ProductionCertificatePolicy without a custom root so Windows trust policy
 # remains authoritative for real signer selection and artifact validation.
@@ -363,20 +449,23 @@ function Get-SignatureRecord {
     $signer = $signature.SignerCertificate
     $timestamp = $signature.TimeStamperCertificate
     $isSigned = $signature.Status -ne 'NotSigned' -and $null -ne $signer
-    $certificatePolicy = if ($signer) {
-        Get-ProductionCertificatePolicy -Certificate $signer
+    $artifactPolicy = if ($signer) {
+        Get-SignedArtifactVerificationPolicy -Certificate $signer -AuthenticodeStatus ([string]$signature.Status) `
+            -TimestampCertificate $timestamp
     } else {
         $null
     }
     [pscustomobject]@{
         signed = [bool]$isSigned
-        valid = [bool]($signature.Status -eq 'Valid' -and $certificatePolicy -and $certificatePolicy.valid)
+        valid = [bool]($artifactPolicy -and $artifactPolicy.valid)
         status = [string]$signature.Status
         signerSubject = if ($signer) { [string]$signer.Subject } else { $null }
         leafThumbprint = if ($signer) { Normalize-Thumbprint -Value $signer.Thumbprint } else { $null }
-        certificatePolicy = if ($certificatePolicy) { $certificatePolicy } else { $null }
+        certificatePolicy = if ($artifactPolicy) { $artifactPolicy } else { $null }
+        verificationPolicy = 'AUTHENTICODE_WINTRUST_TIMESTAMP_AWARE'
         timestampSigned = $null -ne $timestamp
         timestampValid = if ($timestamp) { [bool]($signature.Status -eq 'Valid') } else { $null }
+        timestampStatus = if ($null -eq $timestamp) { 'MISSING' } elseif ($signature.Status -eq 'Valid') { 'VALID' } else { 'INVALID' }
         timestampSubject = if ($timestamp) { [string]$timestamp.Subject } else { $null }
         timestampThumbprint = if ($timestamp) { Normalize-Thumbprint -Value $timestamp.Thumbprint } else { $null }
     }
@@ -614,6 +703,63 @@ function Write-PackageManifest {
     [IO.File]::WriteAllText([IO.Path]::GetFullPath($Path), (($lines -join "`n") + "`n"), $encoding)
 }
 
+function Test-CertificateChainAtTime {
+    param(
+        [Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate,
+        [Parameter(Mandatory)] [DateTime] $VerificationTime,
+        [Parameter(Mandatory)] [string] $ApplicationPolicyOid,
+        [AllowNull()] [Security.Cryptography.X509Certificates.X509Certificate2] $CustomTrustRoot,
+        [Security.Cryptography.X509Certificates.X509Certificate2Collection] $ExtraStore
+    )
+
+    $chain = $null
+    try {
+        $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+        $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        $chain.ChainPolicy.RevocationFlag = [Security.Cryptography.X509Certificates.X509RevocationFlag]::EntireChain
+        $chain.ChainPolicy.VerificationFlags = [Security.Cryptography.X509Certificates.X509VerificationFlags]::NoFlag
+        $chain.ChainPolicy.VerificationTimeIgnored = $false
+        $chain.ChainPolicy.VerificationTime = $VerificationTime.ToUniversalTime()
+        $chain.ChainPolicy.DisableCertificateDownloads = $true
+        [void]$chain.ChainPolicy.ApplicationPolicy.Add([Security.Cryptography.Oid]::new($ApplicationPolicyOid))
+        foreach ($extra in @($ExtraStore)) {
+            if ($null -ne $extra) { [void]$chain.ChainPolicy.ExtraStore.Add($extra) }
+        }
+        if ($null -ne $CustomTrustRoot) {
+            $chain.ChainPolicy.TrustMode = [Security.Cryptography.X509Certificates.X509ChainTrustMode]::CustomRootTrust
+            [void]$chain.ChainPolicy.CustomTrustStore.Add($CustomTrustRoot)
+        }
+        $built = [bool]$chain.Build($Certificate)
+        $statuses = @($chain.ChainStatus | Where-Object {
+                $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::NoError
+            } | ForEach-Object { $_.Status.ToString() })
+        [pscustomobject]@{
+            valid = $built -and $chain.ChainElements.Count -ge 2 -and $statuses.Count -eq 0
+            built = $built
+            elementCount = $chain.ChainElements.Count
+            statuses = $statuses
+            verificationTime = $VerificationTime.ToUniversalTime()
+            applicationPolicy = $ApplicationPolicyOid
+            trustMode = if ($null -ne $CustomTrustRoot) { 'CUSTOM_ROOT_TEST_ONLY' } else { 'WINDOWS_DEFAULT_TRUST_POLICY' }
+            revocationPolicy = 'NOT_CHECKED_OFFLINE'
+        }
+    } catch {
+        [pscustomobject]@{
+            valid = $false
+            built = $false
+            elementCount = 0
+            statuses = @('CHAIN_BUILD_FAILED')
+            verificationTime = $VerificationTime.ToUniversalTime()
+            applicationPolicy = $ApplicationPolicyOid
+            trustMode = if ($null -ne $CustomTrustRoot) { 'CUSTOM_ROOT_TEST_ONLY' } else { 'WINDOWS_DEFAULT_TRUST_POLICY' }
+            revocationPolicy = 'NOT_CHECKED_OFFLINE'
+            error = $_.Exception.Message
+        }
+    } finally {
+        if ($chain) { $chain.Dispose() }
+    }
+}
+
 function Test-PackageManifestSignatureCore {
     param(
         [Parameter(Mandatory)] [string] $ManifestPath,
@@ -643,36 +789,125 @@ function Test-PackageManifestSignatureCore {
         if ($cms.SignerInfos.Count -ne 1) {
             return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_SIGNER_COUNT_INVALID'; signerThumbprint = $null }
         }
-        $certificate = $cms.SignerInfos[0].Certificate
+        $signerInfo = $cms.SignerInfos[0]
+        $certificate = $signerInfo.Certificate
         if (-not $certificate) {
             return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_CERTIFICATE_MISSING'; signerThumbprint = $null }
         }
         $cms.CheckSignature($true)
-        $certificatePolicy = if ($null -ne $CustomTrustRoot) {
-            Get-CertificatePolicyCore -Certificate $certificate -CustomTrustRoot $CustomTrustRoot
-        } else {
-            Get-ProductionCertificatePolicy -Certificate $certificate
-        }
-        if (-not $certificatePolicy.valid) {
+
+        $timestampAttributes = @($signerInfo.UnsignedAttributes | Where-Object {
+                $_.Oid.Value -eq '1.3.6.1.4.1.311.3.3.1'
+            })
+        if ($timestampAttributes.Count -ne 1 -or $timestampAttributes[0].Values.Count -ne 1) {
             return [pscustomobject]@{
                 valid = $false
-                reason = 'PACKAGE_MANIFEST_SIGNATURE_CERTIFICATE_POLICY_INVALID'
+                reason = 'PACKAGE_MANIFEST_TIMESTAMP_REQUIRED'
                 signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
-                policyReasons = @($certificatePolicy.reasons)
-                revocationPolicy = $certificatePolicy.revocationPolicy
+                timestampSigned = $false
+                timestampValid = $false
             }
         }
+
+        $timestampBytes = [byte[]]$timestampAttributes[0].Values[0].RawData
+        $timestampToken = $null
+        $timestampConsumed = 0
+        $timestampDecoded = [Security.Cryptography.Pkcs.Rfc3161TimestampToken]::TryDecode(
+            [ReadOnlyMemory[byte]]::new($timestampBytes), [ref]$timestampToken, [ref]$timestampConsumed)
+        [Security.Cryptography.X509Certificates.X509Certificate2]$timestampSigner = $null
+        $timestampAuthentic = $false
+        if ($timestampDecoded -and $timestampConsumed -eq $timestampBytes.Length -and $null -ne $timestampToken) {
+            $timestampAuthentic = [bool]$timestampToken.VerifySignatureForSignerInfo(
+                $signerInfo, [ref]$timestampSigner, $cms.Certificates)
+        }
+        if (-not $timestampAuthentic -or $null -eq $timestampSigner) {
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_TIMESTAMP_INVALID'
+                signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
+                timestampSigned = $true
+                timestampValid = $false
+            }
+        }
+
+        $timestampUtc = $timestampToken.TokenInfo.Timestamp.UtcDateTime
+        $chainExtraStore = [Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+        foreach ($embedded in @($cms.Certificates)) { [void]$chainExtraStore.Add($embedded) }
+        try {
+            $timestampCms = [Security.Cryptography.Pkcs.SignedCms]::new()
+            $timestampCms.Decode($timestampBytes)
+            foreach ($embedded in @($timestampCms.Certificates)) { [void]$chainExtraStore.Add($embedded) }
+        } catch {
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_TIMESTAMP_INVALID'
+                signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
+                timestampSigned = $true
+                timestampValid = $false
+                timestampAuthentic = $false
+            }
+        }
+        [void]$chainExtraStore.Add($timestampSigner)
+        $signerChain = Test-CertificateChainAtTime -Certificate $certificate -VerificationTime $timestampUtc `
+            -ApplicationPolicyOid $script:CodeSigningApplicationPolicyOid -CustomTrustRoot $CustomTrustRoot `
+            -ExtraStore $chainExtraStore
+        if (-not $signerChain.valid) {
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_SIGNATURE_CERTIFICATE_CHAIN_INVALID'
+                signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
+                timestampSigned = $true
+                timestampValid = $true
+                timestampAuthentic = $true
+                timestampUtc = $timestampUtc
+                signerChain = $signerChain
+            }
+        }
+        $timestampChain = Test-CertificateChainAtTime -Certificate $timestampSigner -VerificationTime $timestampUtc `
+            -ApplicationPolicyOid '1.3.6.1.5.5.7.3.8' -CustomTrustRoot $CustomTrustRoot `
+            -ExtraStore $chainExtraStore
+        if (-not $timestampChain.valid) {
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_TIMESTAMP_CHAIN_INVALID'
+                signerThumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
+                timestampSigned = $true
+                timestampValid = $false
+                timestampAuthentic = $true
+                timestampUtc = $timestampUtc
+                timestampSignerThumbprint = Normalize-Thumbprint -Value $timestampSigner.Thumbprint
+                timestampChain = $timestampChain
+            }
+        }
+
         $thumbprint = Normalize-Thumbprint -Value $certificate.Thumbprint
         $allowed = @($AllowedSignerThumbprints | ForEach-Object { Normalize-Thumbprint -Value $_ } |
             Where-Object { Test-UsableThumbprint $_ })
         if ($allowed.Count -eq 0 -or $thumbprint -notin $allowed) {
-            return [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_WRONG_SIGNER'; signerThumbprint = $thumbprint }
+            return [pscustomobject]@{
+                valid = $false
+                reason = 'PACKAGE_MANIFEST_SIGNATURE_WRONG_SIGNER'
+                signerThumbprint = $thumbprint
+                timestampSigned = $true
+                timestampValid = $true
+                timestampAuthentic = $true
+                timestampUtc = $timestampUtc
+                timestampSignerThumbprint = Normalize-Thumbprint -Value $timestampSigner.Thumbprint
+            }
         }
         [pscustomobject]@{
             valid = $true
             reason = $null
             signerThumbprint = $thumbprint
-            revocationPolicy = $certificatePolicy.revocationPolicy
+            timestampSigned = $true
+            timestampValid = $true
+            timestampAuthentic = $true
+            timestampUtc = $timestampUtc
+            timestampSignerThumbprint = Normalize-Thumbprint -Value $timestampSigner.Thumbprint
+            signerChain = $signerChain
+            timestampChain = $timestampChain
+            revocationPolicy = 'NOT_CHECKED_OFFLINE'
+            verificationPolicy = 'DETACHED_CMS_RFC3161_TIMESTAMP_AWARE'
         }
     } catch {
         [pscustomobject]@{ valid = $false; reason = 'PACKAGE_MANIFEST_SIGNATURE_INVALID'; signerThumbprint = $null; error = $_.Exception.Message }
@@ -898,6 +1133,10 @@ function Get-ReleaseSignatureMatrix {
             $result = 'UNSIGNED — PRODUCTION SIGNING REQUIRED'
         } elseif (-not $_.signature.valid) {
             $result = 'SIGNATURE_INVALID'
+        } elseif (-not $_.signature.timestampSigned) {
+            $result = 'MISSING_TIMESTAMP'
+        } elseif (-not $_.signature.timestampValid) {
+            $result = 'TIMESTAMP_INVALID'
         } elseif ($ExpectedSignerThumbprint -and -not $expectedUsable) {
             $result = 'MALFORMED_EXPECTED_SIGNER'
         } elseif (-not $expected) {
@@ -922,6 +1161,7 @@ function Get-ReleaseSignatureMatrix {
             expectedPinned = $expectedPinned
             timestampSigned = $_.signature.timestampSigned
             timestampValid = $_.signature.timestampValid
+            timestampStatus = if ($_.signature.timestampSigned -and $_.signature.timestampValid) { 'VALID' } elseif ($_.signature.timestampSigned) { 'INVALID' } else { 'MISSING' }
             result = $result
             pinState = if ($pinState) { Get-SafePinState -PinState $pinState } else { $null }
         }
@@ -1000,6 +1240,7 @@ Export-ModuleMember -Function @(
     'Test-ThumbprintFormat',
     'Test-UsableThumbprint',
     'Get-ProductionCertificatePolicy',
+    'Get-SignedArtifactVerificationPolicy',
     'Test-ProductionCertificate',
     'Get-PinState',
     'Get-ConfiguredPinStates',

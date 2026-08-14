@@ -73,6 +73,20 @@ function Assert-ExpectedSignerThumbprint {
     return $expected
 }
 
+function Assert-ProductionTimestampConfiguration {
+    if ([string]::IsNullOrWhiteSpace($TimestampUrl)) {
+        throw 'PRODUCTION_TIMESTAMP_REQUIRED: real release signing requires an explicitly configured RFC3161 timestamp service (-TimestampUrl).'
+    }
+    try {
+        $uri = [Uri]::new($TimestampUrl)
+        if (-not $uri.IsAbsoluteUri -or $uri.Scheme -notin @('http', 'https')) {
+            throw 'invalid scheme'
+        }
+    } catch {
+        throw 'PRODUCTION_TIMESTAMP_REQUIRED: -TimestampUrl must be an absolute http or https RFC3161 service URL.'
+    }
+}
+
 function Invoke-SigntoolSign {
     param([Parameter(Mandatory)] [string] $ToolPath, [Parameter(Mandatory)] [string[]] $Arguments)
     $info = [Diagnostics.ProcessStartInfo]::new()
@@ -145,6 +159,8 @@ try {
         }
     }
 
+    if (-not $DryRun) { Assert-ProductionTimestampConfiguration }
+
     $storeSwitch = @()
     if ($Provider -eq 'CertificateStore') {
         $providerThumbprint = Normalize-Thumbprint -Value $CertificateThumbprint
@@ -173,20 +189,27 @@ try {
             [IO.Path]::GetFullPath($PfxPath), $pfxSecret,
             [Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
     }
-    $tool = if ($isManifestOnly) { $null } else { Resolve-Signtool -RequestedPath $SigntoolPath }
+    $tool = if ($DryRun -and $isManifestOnly) { $null } else { Resolve-Signtool -RequestedPath $SigntoolPath }
     $preflight = @($paths | ForEach-Object { [pscustomobject]@{ artifact = $_; architecture = (Get-PeArchitecture -Path $_).architecture; present = $true } })
     if ($DryRun) {
-        $dry = [pscustomobject]@{ status = 'DRY_RUN'; provider = $Provider; manifestOnly = $isManifestOnly; artifacts = $preflight; expectedSignerThumbprint = $expected; signtool = $tool; packageManifest = $PackageManifestPath; signingPerformed = $false }
+        $dry = [pscustomobject]@{ status = 'DRY_RUN'; provider = $Provider; manifestOnly = $isManifestOnly; artifacts = $preflight; expectedSignerThumbprint = $expected; signtool = $tool; timestampUrlConfigured = -not [string]::IsNullOrWhiteSpace($TimestampUrl); packageManifest = $PackageManifestPath; signingPerformed = $false }
         if ($OutputFormat -eq 'json') { $dry | ConvertTo-Json -Depth 8 } else { Write-Host "DRY RUN: $(@($paths).Count) x64 artifact(s) ready for external signer '$Provider'; manifestOnly=$isManifestOnly; no files changed." }
         exit 0
     }
 
     if ($isManifestOnly) {
+        $signingStarted = $true
         Write-DetachedPackageManifestSignature -ManifestPath $PackageManifestPath -OutputPath $ManifestSignatureOutputPath -Certificate $certificateForManifest
+        $manifestHashBeforeTimestamp = (Get-FileHash -LiteralPath $PackageManifestPath -Algorithm SHA256).Hash
+        Invoke-SigntoolSign -ToolPath $tool -Arguments @('timestamp', '/p7', '/tr', $TimestampUrl, '/td', 'SHA256', [IO.Path]::GetFullPath($ManifestSignatureOutputPath))
+        $manifestHashAfterTimestamp = (Get-FileHash -LiteralPath $PackageManifestPath -Algorithm SHA256).Hash
+        if ($manifestHashBeforeTimestamp -cne $manifestHashAfterTimestamp) {
+            throw 'PACKAGE_MANIFEST_MUTATED_DURING_TIMESTAMP: timestamping changed the detached manifest content.'
+        }
         $manifestSignatureCheck = Test-PackageManifestSignature -ManifestPath $PackageManifestPath -SignaturePath $ManifestSignatureOutputPath -AllowedSignerThumbprints @($expected)
         if (-not $manifestSignatureCheck.valid) { throw "PACKAGE_MANIFEST_SIGNATURE_VERIFICATION_FAILED: $($manifestSignatureCheck.reason)" }
-        $manifestRecord = [pscustomobject]@{ manifest = [IO.Path]::GetFullPath($PackageManifestPath); signature = [IO.Path]::GetFullPath($ManifestSignatureOutputPath); verification = $manifestSignatureCheck }
-        $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; artifacts = @(); packageManifestSignature = $manifestRecord; signingPerformed = $false; manifestSigningPerformed = $true }
+        $manifestRecord = [pscustomobject]@{ manifest = [IO.Path]::GetFullPath($PackageManifestPath); signature = [IO.Path]::GetFullPath($ManifestSignatureOutputPath); timestampUrlConfigured = $true; verification = $manifestSignatureCheck }
+        $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; timestampUrlConfigured = $true; artifacts = @(); packageManifestSignature = $manifestRecord; signingPerformed = $false; manifestSigningPerformed = $true }
         if ($OutputFormat -eq 'json') { $result | ConvertTo-Json -Depth 10 } else { Write-Host "PASS: signed and verified package manifest with signer $expected." }
         exit 0
     }
@@ -203,11 +226,14 @@ try {
         $signingStarted = $true
         Invoke-SigntoolSign -ToolPath $tool -Arguments $arguments
         $verified = Get-SignatureRecord -Path $path
-        $match = $verified.valid -and $verified.leafThumbprint -eq $expected
-        $records += [pscustomobject]@{ artifact = $path; signed = $verified.signed; signatureValid = $verified.valid; leafThumbprint = $verified.leafThumbprint; signerMatchesExpected = $match; timestampSigned = $verified.timestampSigned; status = if ($match) { 'PASS' } else { 'FAIL' } }
+        $match = $verified.signed -and $verified.valid -and $verified.leafThumbprint -eq $expected -and
+            $verified.timestampSigned -and $verified.timestampValid
+        $records += [pscustomobject]@{ artifact = $path; signed = $verified.signed; signatureValid = $verified.valid; leafThumbprint = $verified.leafThumbprint; signerMatchesExpected = ($verified.leafThumbprint -eq $expected); timestampSigned = $verified.timestampSigned; timestampValid = $verified.timestampValid; status = if ($match) { 'PASS' } else { 'FAIL' } }
+        if (-not $verified.timestampSigned) { throw "POST_SIGN_TIMESTAMP_MISSING: production artifact '$path' has no RFC3161 timestamp." }
+        if (-not $verified.timestampValid) { throw "POST_SIGN_TIMESTAMP_INVALID: production artifact '$path' does not have a valid RFC3161 timestamp." }
         if (-not $match) { throw "POST_SIGN_VERIFICATION_FAILED: signer verification failed for '$path'." }
     }
-    $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; artifacts = $records; packageManifestSignature = $null; signingPerformed = $true; manifestSigningPerformed = $false }
+    $result = [pscustomobject]@{ status = 'PASS'; provider = $Provider; expectedSignerThumbprint = $expected; timestampUrlConfigured = $true; artifacts = $records; packageManifestSignature = $null; signingPerformed = $true; manifestSigningPerformed = $false }
     if ($OutputFormat -eq 'json') { $result | ConvertTo-Json -Depth 10 } else { Write-Host "PASS: signed and verified $(@($records).Count) artifact(s) with signer $expected." }
     exit 0
 } catch {

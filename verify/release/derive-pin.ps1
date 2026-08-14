@@ -19,7 +19,8 @@ try {
         throw "WRONG_ARCHITECTURE: expected x64, found $($architecture.architecture) ($($architecture.machine))"
     }
     $signature = Get-SignatureRecord -Path $BinaryPath
-    if (-not $signature.signed -or -not $signature.valid -or -not $signature.leafThumbprint) {
+    if (-not $signature.signed -or -not $signature.valid -or -not $signature.leafThumbprint -or
+        -not $signature.timestampSigned -or -not $signature.timestampValid) {
         throw "SIGNED_BINARY_REQUIRED: Authenticode status is '$($signature.status)'"
     }
     if (-not (Test-ThumbprintFormat -Value $signature.leafThumbprint)) {

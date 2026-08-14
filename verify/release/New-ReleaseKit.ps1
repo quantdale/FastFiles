@@ -68,8 +68,12 @@ try {
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $BuildRoot
     $engineArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesEngine.exe' | Select-Object -First 1
     $serviceArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesIndexSvc.exe' | Select-Object -First 1
-    $enginePinTrusted = $pinStates.engine.state -eq 'POPULATED' -and $engineArtifact.signature.valid -and $engineArtifact.signature.leafThumbprint -eq $pinStates.engine.normalized
-    $servicePinTrusted = $pinStates.service.state -eq 'POPULATED' -and $serviceArtifact.signature.valid -and $serviceArtifact.signature.leafThumbprint -eq $pinStates.service.normalized
+    $enginePinTrusted = $pinStates.engine.state -eq 'POPULATED' -and $engineArtifact.signature.valid -and
+        $engineArtifact.signature.timestampSigned -and $engineArtifact.signature.timestampValid -and
+        $engineArtifact.signature.leafThumbprint -eq $pinStates.engine.normalized
+    $servicePinTrusted = $pinStates.service.state -eq 'POPULATED' -and $serviceArtifact.signature.valid -and
+        $serviceArtifact.signature.timestampSigned -and $serviceArtifact.signature.timestampValid -and
+        $serviceArtifact.signature.leafThumbprint -eq $pinStates.service.normalized
     $engineKitPin = [pscustomobject]@{ name = 'engine'; state = if ($enginePinTrusted) { 'POPULATED' } elseif ($pinStates.engine.state -in @('PLACEHOLDER', 'MALFORMED', 'MISSING')) { $pinStates.engine.state } else { 'UNVERIFIED' }; length = if ($enginePinTrusted) { 40 } else { 0 }; thumbprint = if ($enginePinTrusted) { $pinStates.engine.normalized } else { $null }; source = if ($enginePinTrusted) { 'matched-to-signed-FastFilesEngine.exe' } else { 'not-exported-until-matched-to-signed-artifact' } }
     $serviceKitPin = [pscustomobject]@{ name = 'service'; state = if ($servicePinTrusted) { 'POPULATED' } elseif ($pinStates.service.state -in @('PLACEHOLDER', 'MALFORMED', 'MISSING')) { $pinStates.service.state } else { 'UNVERIFIED' }; length = if ($servicePinTrusted) { 40 } else { 0 }; thumbprint = if ($servicePinTrusted) { $pinStates.service.normalized } else { $null }; source = if ($servicePinTrusted) { 'matched-to-signed-FastFilesIndexSvc.exe' } else { 'not-exported-until-matched-to-signed-artifact' } }
     Write-ReleaseJson -Value $manifest -Path (Join-Path $output 'artifact-manifest.json')
@@ -96,7 +100,7 @@ try {
             service = $serviceKitPin
             provenanceRequired = $true
         }
-        productionSigning = [pscustomobject]@{ required = $true; currentState = if (-not $signatureProvided -or -not $packageCheck.productionReady -or @($manifest.artifacts | Where-Object { -not $_.signature.valid }).Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'REQUIRES_PIN_PROVENANCE' } }
+        productionSigning = [pscustomobject]@{ required = $true; currentState = if (-not $signatureProvided -or -not $packageCheck.productionReady -or @($manifest.artifacts | Where-Object { -not $_.signature.valid -or -not $_.signature.timestampSigned -or -not $_.signature.timestampValid }).Count -gt 0) { 'BLOCKED_EXTERNAL' } else { 'REQUIRES_PIN_PROVENANCE' } }
         sourceCloneRequired = $false
         buildToolsRequired = $false
     }
