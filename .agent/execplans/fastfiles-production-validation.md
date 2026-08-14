@@ -1,5 +1,39 @@
 # FastFiles Production-Validation Campaign ExecPlan
 
+## Status: DEFERRED_PRIVILEGED_PRODUCTION_VALIDATION (parked 2026-08-15)
+
+This campaign is intentionally parked, not failed and not the active next
+task. Production signer/pin provisioning, signed privileged install/runtime
+validation, real MFT/USN evidence, clean-host matrix validation, and the
+direct rendered UI matrix remain deferred external/interactive gates — see
+the validation matrix below for the per-gate status. None of them block
+ordinary FastFiles feature development:
+
+- Certificate/pin work is not required for normal feature development.
+- Privileged `FastFilesIndexSvc` service validation is intentionally
+  deferred.
+- Degraded/unprivileged operation remains the supported, permanent path.
+- Production Release configuration remains fail-closed without authorized
+  pins; that must never be weakened for convenience.
+- No existing security/fail-closed code (Authenticode pins, CMS validation,
+  closed protocol, service ACLs, degraded-mode fallback) was weakened to
+  reach this status.
+- This campaign resumes only when a user explicitly asks to prepare a
+  production signed release or validate the privileged MFT/USN runtime path.
+
+A 2026-08-15 session root-caused and fixed the hosted CI failures this
+campaign's trust-store fixture work had introduced (`debug`/`release-test`
+FAILURE on hosted run `31837503960`) by splitting the trust-store-mutating
+WinTrust fixture cases out of the mandatory default CTest suite into a
+separate, opt-in-only suite (CMake option
+`FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS`, CTest label `privileged-trust`,
+runner `verify/run_privileged_trust_tests.ps1`). See
+`.agent/workstate/fastfiles-production-validation-state.md` ("Test-architecture
+restructuring") for the full detail and AGENTS.md ("Normal development vs.
+privileged trust-store validation") for the durable guidance this added.
+This did not change any PV-BUG-11 substantive finding; it only removed that
+finding's ability to block ordinary development and CI.
+
 ## Objective
 
 Execute the production-validation campaign against the exact `main` source

@@ -17,23 +17,90 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 ## Campaign identity
 
 - Campaign: FastFiles production validation.
-- Logical status: `LOCAL_SIGNER_VALIDATION_BLOCKED` (PV-BUG-10 is locally
-  validated; PV-BUG-11 remains blocked on a real trusted WinTrust fixture on
-  this host).
-- Started: 2026-08-14.
+- Logical status: **`DEFERRED_PRIVILEGED_PRODUCTION_VALIDATION`**. The
+  privileged campaign (production signer/pins, signed install/runtime, real
+  MFT/USN, clean-host matrix, direct rendered UI matrix) is intentionally
+  parked, not failed and not the active next task. It resumes only when a
+  user explicitly asks to prepare a production signed release or validate the
+  privileged runtime path. See AGENTS.md "Normal development vs. privileged
+  trust-store validation" for the durable guidance this session added so
+  ordinary feature-development sessions do not reopen it automatically.
+- Started: 2026-08-14. Parked: 2026-08-15 (this session), which restructured
+  the test architecture so ordinary development no longer depends on this
+  campaign's outcome (see "Test-architecture restructuring" below).
 - Intended branch: `main`.
-- Starting observed source/remote state for this session: `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` on
-  `main`, clean and equal after fetch. Re-derive this live on resume; it is
-  historical evidence only.
-- The signer-hardening implementation and the follow-up CurrentUser trust-store
-  fixture repair remain uncommitted; the trust-store repair is not yet
-  validated. The final pushed SHA must be derived after commit and push rather
-  than embedded in the state file.
-- Historical hosted baseline supplied at session start: run `31776442664` for
-  the independently reviewed baseline; the final signer-hardening run must be
-  queried by its live `head_sha` at handoff.
+- Historical starting point for the 2026-08-14/15 signer-hardening slice:
+  `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` on `main`, clean and equal after
+  fetch at that time. That slice was subsequently committed and pushed (see
+  git history: `08c9fff`, `61438d0`, `57c6a07`, `0cb2d01`, `22a4293`); nothing
+  from it remains uncommitted. Always re-derive live branch/HEAD/`origin/main`
+  state on resume rather than trusting this or any historical SHA.
+- Historical hosted baseline supplied at the start of the 2026-08-14 session:
+  run `31776442664`. A later baseline supplied at the start of this
+  (2026-08-15) session: hosted run `31837503960` for pushed `22a4293`, with
+  `analyze` and `asan-protocol-fuzz` SUCCESS but `debug`/`release-test`
+  FAILURE — root-caused below under "Test-architecture restructuring" and
+  fixed in this session. Always query the live run for the current pushed SHA
+  at handoff rather than trusting either historical run id.
 - Prior handoff: FF-POST-01 through FF-POST-12 were validated; production gates
   were not claimed.
+
+## Test-architecture restructuring (this session, 2026-08-15)
+
+Root cause of the hosted `debug`/`release-test` failures on run `31837503960`:
+`ffengine_authenticode_verification_tests`,
+`ffengine_authenticode_verification_timestamp_tests`, and
+`ffsetup_package_trust_tests` were registered as ordinary mandatory CTest
+tests, but their "Expired"/"TimestampedExpired" fixture cases (and the whole
+of the former package-trust timestamp test) mutate `CurrentUser\Root` via
+`certutil -user -f -addstore Root`. That write is blocked on some hosted/
+hardened Windows images (observed here as `CERT_E_UNTRUSTEDROOT` persisting
+after the install attempt), so the mandatory default suite failed on an
+environment property, not a product defect.
+
+Fix: the trust-store-mutating fixture cases were split out of the default
+suite into new, separate, **opt-in-only** CTest targets, gated by the new
+CMake option `FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS` (default `OFF`) and
+registered under the CTest label `privileged-trust`:
+
+- `ffengine_authenticode_verification_tests` (default, portable) keeps every
+  pin-enforcement case plus the untrusted-signer real-WinTrust case (which
+  never writes to `CurrentUser\Root`).
+- `ffengine_authenticode_wintrust_integration_tests` /
+  `..._timestamp_tests` (opt-in) hold the CurrentUser\Root-mutating expiry and
+  RFC3161-timestamp-longevity cases, in
+  `tests/engine/test_authenticode_wintrust_integration.cpp`, sharing helpers
+  with the portable file via `tests/engine/AuthenticodeFixtureSupport.h`.
+- `ffsetup_package_trust_tests` (default, portable) drops the one test
+  function that mutated `CurrentUser\Root`; everything else in that file used
+  only injected/in-memory verifier seams and is untouched.
+- `ffsetup_package_trust_wintrust_integration_tests` (opt-in) holds that one
+  function, in `tests/setup/test_package_trust_wintrust_integration.cpp`,
+  sharing helpers via `tests/setup/PackageTrustFixtureSupport.h`.
+
+`verify/run_privileged_trust_tests.ps1` is the opt-in runner (configures with
+the option ON, builds only the two privileged targets, runs the
+`privileged-trust` label, and checks for certificate/temp-file residue
+afterward). No CI workflow, preset, or default build path sets this option.
+
+Local validation on this (non-admin) host after the split: `ctest --preset
+debug` 53/53 pass, `ctest --preset release-test` 53/53 pass, `analyze`
+configure+build pass, ASAN `ffprotocol_fuzz_tests` 1/1 pass,
+`check_diagnostic_policy.ps1` and `check_source_markers.ps1` pass. The two
+portable trust-test targets were rebuilt and rerun individually and pass; the
+two privileged targets were configured+built (compile-only, in a scratch
+`build/tmp-privileged-check` directory, deleted afterward) to prove the split
+compiles under `/W4 /WX`, without executing them or touching any trust store
+in this non-admin session.
+
+This closes **PV-BUG-12** (trust-store-mutating tests registered as
+mandatory default CTest) as resolved by architecture, and **PV-BUG-13**
+(stale/contradictory durable campaign state) as resolved by this rewrite.
+PV-BUG-11 (the real trusted pre-expiry/expired WinTrust transition) is
+unchanged in substance — it still requires a host whose
+`CurrentUser\Root`/`ProtectedRoots` policy permits the write — but is now
+explicitly a **deferred, opt-in privileged-suite concern**, not a blocker on
+ordinary development, CI, or this campaign's local-evidence gates.
 
 ## Environment classification
 
@@ -263,11 +330,20 @@ is fully checked.
 
 ## Next exact action
 
-The local signer/timestamp slice is committed and pushed cleanly. Keep
-PV-BUG-11 as `BLOCKED_ENVIRONMENT / NOT VERIFIED` and the signer-provisioning
-gate closed until the committed runtime fixture runs on a Windows environment
-where the supported isolated CurrentUser Root mutation is usable by default
-WinTrust. The next exact action is to obtain that supported test environment or
-an approved test-host trust configuration, rerun the runtime matrix, and only
-then reconsider the OpenSpec 4.2 clause; production signer provisioning remains
-separate and must not start from this blocked evidence.
+This campaign is **parked** (`DEFERRED_PRIVILEGED_PRODUCTION_VALIDATION`), not
+actively in progress. There is no next action for an ordinary
+feature-development session to take here; ordinary sessions should build/test
+via the default portable suite and the degraded/unprivileged application path
+per AGENTS.md, and must not attempt certificate provisioning or trust-store
+mutation on their own initiative.
+
+If a future session is explicitly asked to resume this campaign: PV-BUG-11
+remains `BLOCKED_ENVIRONMENT / NOT VERIFIED`, and the signer-provisioning gate
+remains closed, until the privileged-suite runtime fixture (now
+`verify/run_privileged_trust_tests.ps1` /
+`ffengine_authenticode_wintrust_integration_tests` /
+`ffsetup_package_trust_wintrust_integration_tests`) runs on a Windows
+environment where the supported isolated `CurrentUser\Root` mutation is usable
+by default WinTrust. Only after that evidence exists should OpenSpec task 4.2's
+external clause be reconsidered; production signer provisioning is a separate
+concern and must not start from this blocked evidence.

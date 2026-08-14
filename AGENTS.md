@@ -70,6 +70,55 @@ Tests are **plain C++ executables registered with CTest — no gtest/catch**. Th
 - `ffdoc_drift_tests` (pwsh-gated) checks the guidance docs for superseded claims and `src/`/`tests/` for mixed line endings — run it after editing root docs. The `asan` preset (configure/build only, no test preset) builds ASan-instrumented binaries for the fuzz/parser tests: `cmake --preset asan && cmake --build --preset asan --target ffprotocol_fuzz_tests`.
 - Cover success, malformed-input, recovery, and boundary cases where relevant. Run the focused test first, then `ctest --preset debug` before submitting.
 
+## Normal development vs. privileged trust-store validation
+
+Unless the user's task explicitly concerns production signing, privileged
+`FastFilesIndexSvc` release validation, clean-host testing, certificate
+provisioning, or production MFT/USN validation, agents must **not**: attempt
+certificate provisioning, mutate trusted-root stores (CurrentUser or
+LocalMachine), require Administrator execution, block ordinary feature work
+on external signing gates, or repeatedly reopen the deferred
+production-validation campaign (`.agent/execplans/fastfiles-production-validation.md`,
+`.agent/workstate/fastfiles-production-validation-state.md`). Ordinary
+development uses the default portable CTest suite and the degraded/
+unprivileged application path, and works from a normal non-admin Windows
+terminal with no certificate and no signing configuration.
+
+The trust-store/Authenticode test suites are split into two layers precisely
+so ordinary development never needs elevation or a certificate:
+
+- **Portable suite** (default, mandatory): `ffengine_authenticode_verification_tests`
+  and `ffsetup_package_trust_tests`. These cover unsigned/mismatched/
+  placeholder/partial-pin rejection, untrusted-signer rejection, constant-time
+  pin comparison, manifest/CMS parsing, handle-bound package verification,
+  double-swap and reparse protections, and rollback-candidate trust — all
+  through in-memory or injected verifier seams, or (for the untrusted-signer
+  case) a real WinTrust decision that never installs anything into
+  `CurrentUser\Root`. They run in `ctest --preset debug` / `--preset
+  release-test` and in hosted CI with no elevation, signer, or pins.
+- **Privileged trust-store integration suite** (opt-in only): registered with
+  CTest under the `privileged-trust` label, and only when
+  `-DFASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS=ON` is explicitly set —
+  `ffengine_authenticode_wintrust_integration_tests` (+ its `--timestamped`
+  variant) and `ffsetup_package_trust_wintrust_integration_tests`. These
+  install disposable, uniquely-named non-production certificates into
+  `CurrentUser\Root` to prove the real production WinTrust decision across an
+  Authenticode expiry transition and an RFC3161 timestamp. Run them only via
+  `pwsh ./verify/run_privileged_trust_tests.ps1`, and only when the task is
+  actually about privileged trust-store validation — some hardened/hosted
+  Windows images block even a per-user `CurrentUser\Root` write, in which case
+  the runner fails clearly rather than fabricating a pass. This option is
+  never set by default CI or by the default CMake presets.
+
+Production Release configuration remains fail-closed without authorized
+signing pins (`FASTFILES_ENGINE_SIGNATURE_THUMBPRINT` /
+`FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT`) — that boundary must never be
+weakened to make development or CI convenient. Resume the privileged
+production-validation campaign (production signer/pins, signed
+install/runtime, real MFT/USN, clean-host matrix) only when the user
+explicitly asks to prepare a production signed release or validate the
+privileged path.
+
 ## Runtime verification
 
 `verify/verify.ps1` is the autonomous verification harness entry point. Fixed non-interactive verbs: `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`. Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED. Tier-1 (install/service) verbs need `-Elevate` (opt-in UAC, one-time authorization). Generated `verify/runs/` and `verify/baselines/` are untracked (execution evidence, not source).

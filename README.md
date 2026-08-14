@@ -113,6 +113,14 @@ ctest --test-dir build/debug -R indexstore  # focused subset
 ctest --test-dir build/debug -R ffprotocol_fuzz_tests --output-on-failure
 ```
 
+The default suite is fully portable: no Administrator, no certificate, and no
+trust-store mutation are ever required to build or test FastFiles normally. A
+separate, opt-in-only suite exercises real Windows trust-store (WinTrust)
+integration against disposable non-production certificates; it is never part
+of the default `ctest` run or CI, and it is only run explicitly via
+`pwsh ./verify/run_privileged_trust_tests.ps1` — see AGENTS.md "Normal
+development vs. privileged trust-store validation".
+
 Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
 ## Runtime verification
