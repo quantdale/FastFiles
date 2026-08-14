@@ -17,16 +17,17 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 ## Campaign identity
 
 - Campaign: FastFiles production validation.
-- Logical status: `READY_FOR_AUTHORIZED_SIGNER_PROVISIONING` (PV-BUG-10 and
-  PV-BUG-11 are locally resolved; production signer, pins, and timestamp URL
-  remain external and unused).
+- Logical status: `LOCAL_SIGNER_VALIDATION_BLOCKED` (PV-BUG-10 is locally
+  validated; PV-BUG-11 remains blocked on a real trusted WinTrust fixture on
+  this host).
 - Started: 2026-08-14.
 - Intended branch: `main`.
 - Starting observed source/remote state for this session: `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` on
   `main`, clean and equal after fetch. Re-derive this live on resume; it is
   historical evidence only.
-- This session's implementation is intentionally uncommitted in this
-  checkpoint; the final pushed SHA must be derived after commit and push rather
+- The signer-hardening implementation and the follow-up CurrentUser trust-store
+  fixture repair remain uncommitted; the trust-store repair is not yet
+  validated. The final pushed SHA must be derived after commit and push rather
   than embedded in the state file.
 - Historical hosted baseline supplied at session start: run `31776442664` for
   the independently reviewed baseline; the final signer-hardening run must be
@@ -66,7 +67,7 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 | PV-16 | BLOCKED_EXTERNAL | No importer-accepted PASS bundle exists. |
 | PV-17 | BLOCKED_ENVIRONMENT | Direct rendered validation was attempted through Computer Use; its native pipe was unavailable twice, so no screenshots were captured. |
 | PV-18 | PASS (prior slice) | The independently reviewed/pushed baseline was `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1`; its live SHA/CI remain derived at resume. |
-| PV-19 | PASS (local; final hosted run pending) | Production certificate policy, diagnostic-bypass source/configuration gate, timestamp policy, and expiry evidence passed; CurrentUser-root fixture reruns are blocked only by this host's stale CryptSvc/ProtectedRoots state. |
+| PV-19 | NOT VERIFIED | Production certificate policy, diagnostic-bypass source/configuration gate, and timestamp policy have implementation/evidence from the prior slice, but the current trust-store fixture does not yet produce a trusted pre-expiry real-WinTrust acceptance on this host; final focused and hosted validation is pending. |
 | PV-BUG-01 | PASS | Encrypted PFX loading fixed and covered by a temporary non-production encrypted-PFX dry-run. |
 | PV-BUG-02 | PASS | Manifest-only detached CMS mode added; combined PE/manifest mode now fails closed. |
 | PV-BUG-03 | PASS | Readiness pin provenance now uses its inspected artifact root. |
@@ -75,9 +76,9 @@ Use `git fetch --prune origin`, `git status --short`, `git branch --show-current
 | PV-BUG-06 | PASS | Logical state and ExecPlan no longer retain the prior `PV-18=VALIDATING`/already-completed push frontier; prior and current slices are separated without self-referential SHA state. |
 | PV-BUG-07 | PASS | `Test-UsableThumbprint` now explicitly rejects all-zero expected thumbprints; release-tooling coverage proves placeholder, malformed, and mismatched values fail before signing. |
 | PV-BUG-08 | PASS | PowerShell collection/OID mutation return values were leaking into the production certificate-policy helper pipeline; all are now suppressed and detached CMS exact-signer validation passes through the private non-production custom-root seam. |
-| PV-BUG-09 | PASS | The disposable expired-signer fixture's full test-PE signing could consume the short validity window on release-test; it now signs compact `ffprotocol_tests.exe`, retains 120 seconds, and cleans both Debug/release-test fixtures. |
-| PV-BUG-10 | PASS | Signing-credential preflight remains current-valid/trusted/Code-Signing-EKU/private-key/exact-pin strict, while signed PE verification trusts Windows' timestamp-aware Authenticode result and does not reapply current-validity to an expired timestamped leaf. Real PE and detached CMS signing now fail closed without an explicit RFC3161 URL, and every final artifact is rechecked for exact signer and timestamp validity. |
-| PV-BUG-11 | PASS | The runtime fixture trusts only its unique public root in `CurrentUser\Root`, proves exact-pin acceptance before `NotAfter`, rejects the unchanged no-timestamp PE after expiry through production WinTrust, and separately proves a SignTool RFC3161-timestamped PE remains accepted after leaf expiry. The timestamped case uses a worker/parent cleanup boundary; repeat execution on this already-used host is environmentally blocked at root insertion by stale CryptSvc/ProtectedRoots state. |
+| PV-BUG-09 | PASS | The disposable expired-signer fixture's full test-PE signing could consume the short validity window on release-test; it now signs compact `ffprotocol_tests.exe`, retains 120 seconds, and performs exact cleanup. The subsequent runtime transition remains separately blocked by the host's protected-root policy. |
+| PV-BUG-10 | PASS | Signing-credential preflight remains current-valid/trusted/Code-Signing-EKU/private-key/exact-pin strict, while signed PE verification trusts Windows' timestamp-aware Authenticode result and does not reapply current-validity to an expired timestamped leaf. Real PE and detached CMS signing require an explicit RFC3161 URL and post-sign verification; the current release-tooling regression passed with zero failures. |
+| PV-BUG-11 | BLOCKED_ENVIRONMENT / NOT VERIFIED | The fixture currently cannot establish a trusted pre-expiry real-WinTrust acceptance on this host: production WinTrust returns `0x800B0109` (`CERT_E_UNTRUSTEDROOT`) even after the exact generated root is written through the attempted CurrentUser path. The host's `CurrentUser\\Root\\ProtectedRoots` registry state is user-read-only; no ACL, policy, or system trust store was changed. The unchanged-byte expiry transition and exact cleanup checks are useful fixture evidence but do not prove the required production-path transition until an isolated supported trust location is found. |
 
 ## Known OpenSpec boundary
 
@@ -103,10 +104,10 @@ is fully checked.
 - Isolated current-source production Release configure (2026-08-14): failed
   closed with the documented missing/all-zero pin error. No placeholder values
   were supplied and no production Release build was claimed.
-- `pwsh ./verify/verify.ps1 build -SkipAnalyze` (historical checkpoint): PASS.
-  The current source was separately rebuilt through the Debug, release-test,
-  and analyze presets; the current full harness reaches the known
-  CurrentUser-root fixture limitation before completion.
+- Current-source configure/build gates (2026-08-15): Debug, release-test, and
+  analyze configure/build completed successfully. The ASAN protocol-fuzz target
+  built and its CTest run passed 1/1 inside the discovered Visual Studio
+  developer environment.
 - `pwsh ./verify/release/tests/Test-ReleaseTooling.ps1 -BuildRoot
   ./build/release-test` (2026-08-14): PASS with zero failures after the four
   repairs and the certificate-policy/expected-thumbprint regression matrix;
@@ -122,37 +123,48 @@ is fully checked.
 - `pwsh ./verify/check_diagnostic_policy.ps1` (2026-08-14): PASS; Debug-only
   diagnostic scope, release/release-test preset state, hosted-CI invocation,
   and existing Release caches are all fail-closed.
-- `pwsh ./verify/verify.ps1 build` (2026-08-14): environment-blocked on the
-  current host after reaching the trust-store-mutating Authenticode fixture;
-  the exact spawned processes were stopped and their state paths cleaned. This
-  is the same stale CryptSvc/ProtectedRoots condition recorded in Blockers,
-  not a product assertion failure.
+- `pwsh ./verify/release/tests/Test-ReleaseTooling.ps1 -BuildRoot
+  ./build/release-test` (2026-08-15): PASS with zero failures on the current
+  tree. This validates the separate signing-credential and signed-artifact
+  policies, required production timestamp gate, real SignTool `/p7` detached
+  CMS timestamp format, exact signer/timestamp postchecks, and the timestamp
+  longevity matrix.
+- `pwsh ./verify/check_diagnostic_policy.ps1 -RepoRoot .` (2026-08-15): PASS
+  with zero failures.
+- Focused Debug build of `ffengine_authenticode_verification_tests` and
+  `ffsetup_package_trust_tests` (2026-08-15): PASS. The repaired fixture
+  scripts deploy and the C++ targets compile/link cleanly.
+- `ctest --test-dir build/debug -R
+  "ffengine_authenticode_verification_tests|ffengine_authenticode_verification_timestamp_tests|ffsetup_package_trust_tests"
+  --output-on-failure` (2026-08-15): FAIL, 0/3. The engine prepare,
+  timestamp-worker, and native package-CMS prepare steps fail at the bounded
+  CurrentUser trust setup before positive acceptance; the engine's untrusted
+  signer/pin negatives and all exact cleanup checks pass.
+- `ctest --preset debug --output-on-failure` (2026-08-15): 51/54 passed. The
+  only failures were `ffengine_authenticode_verification_tests`,
+  `ffengine_authenticode_verification_timestamp_tests`, and
+  `ffsetup_package_trust_tests`; each failed before trusted acceptance because
+  the CurrentUser Root setup was blocked. All other Debug tests passed.
+- `ctest --test-dir build/release-test --output-on-failure` (2026-08-15):
+  51/54 passed with the same three protected-root fixture failures; all other
+  release-test tests passed.
+- `pwsh ./verify/verify.ps1 build` (2026-08-15): FAIL because its aggregate
+  build capability includes those same three repository test failures. This is
+  not recorded as a product build failure; the direct configure/build gates
+  passed above.
 - `pwsh ./verify/verify.ps1 doctor` (2026-08-14): PASS for the discovered
   Visual Studio VC toolset, Windows SDK, CMake, Ninja, and CTest; optional
   diagnostic tools were reported as skipped when absent.
-- `ctest --test-dir build/debug -R ffengine_authenticode_verification_tests
-  --output-on-failure` in the discovered VS environment (2026-08-14): PASS
-  1/1 on the clean-enough pre-worker run; the real WinTrust fixture covered
-  trusted pre-expiry acceptance, mismatched/placeholder pins, unchanged-byte
-  no-timestamp expiry rejection, and an untrusted signer. All fixture cleanup
-  checks passed.
-- Timestamped WinTrust worker observation (2026-08-14): a real SignTool
-  RFC3161-timestamped PE was accepted by
-  `ffsetup::VerifyAuthenticodeAndGetThumbprintAtPath` and
-  `ffsetup::VerifyPinnedSignature` before and after the leaf expired without
-  changing the PE bytes. The final C++ expectation and parent-process cleanup
-  boundary are implemented. Repeating the test on this host is blocked before
-  the assertion at `CurrentUser\Root` insertion by stale CryptSvc/ProtectedRoots
-  state; no fixture material remains.
-- Package-trust fixture focused run (2026-08-14): the native C++ verifier and
-  PowerShell verifier passed the timestamped detached CMS before the host's
-  CurrentUser root insertion became blocked; the final fixture now exercises
-  the actual SignTool `/p7` path and parent cleanup state protocol.
-- Current Debug and release-test CTest safe subsets (2026-08-14): PASS 51/51
-  each after excluding the three trust-store-mutating fixture tests; both
-  documentation-drift tests pass after normalizing the edited C++ files.
-  The full fixture tests remain blocked at CurrentUser\Root insertion by the
-  host condition recorded above.
+- Previous trust-store focused runs were exploratory and must not be treated as
+  final evidence. The current native CurrentUser helper still leaves real
+  WinTrust at `CERT_E_UNTRUSTEDROOT` before expiry on this host, so the expected
+  positive runtime assertions fail. The custom-root chain validity and
+  unchanged-byte expiry-transition checks do not substitute for production
+  WinTrust acceptance. Exact cleanup was performed after the failed run; a
+  final residue audit is required before handoff.
+- Documentation drift, source-marker policy, PowerShell parsing, strict
+  OpenSpec validation (45/45), and diagnostic policy all passed on the current
+  tree. The focused release-tooling suite passed with zero failures.
 - The prior repair baseline and hosted run supplied at session start were
   `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` and `31776442664`; query the
   final signer-hardening run by its live `head_sha` at handoff.
@@ -171,6 +183,20 @@ is fully checked.
 - Direct rendered UI attempt (2026-08-14): Computer Use native pipe was
   unavailable on the initial call and one retry; no screenshot or interactive
   evidence was produced.
+
+- Current trust-fixture blocker (2026-08-15): a bounded focused engine run
+  reported production WinTrust status `0x800B0109` (`CERT_E_UNTRUSTEDROOT`)
+  for the generated root before the deliberate leaf-expiry transition. Direct
+  registry/provider experiments, default .NET CurrentUser Root, certutil
+  addstore, and a registered temporary physical store did not yet yield a
+  supported real-WinTrust trust result. The host's ProtectedRoots ACL denies
+  the interactive user write access. No protected-root blob, ACL, LocalMachine
+  store, or policy store was modified.
+- A follow-up Crypt32 probe used `CERT_SYSTEM_STORE_UNPROTECTED_FLAG` while
+  opening the isolated CurrentUser Root provider; that provider also hung on
+  this host. The probe was terminated, and its two generated personal-store
+  certificates/private keys were removed and verified absent. This does not
+  substitute for the required production WinTrust transition.
 
 ## Repository-owned failures
 
@@ -208,10 +234,13 @@ is fully checked.
   timestamp. Fixed with separate policy functions, a required operator-supplied
   RFC3161 URL for real PE/CMS signing, actual SignTool `/p7` manifest
   timestamping, and post-sign exact-signer/timestamp verification.
-- `PV-BUG-11`: expired-signer runtime evidence was confounded by an untrusted
-  root. Fixed with a unique public root in `CurrentUser\Root`, a real trusted
-  pre-expiry WinTrust acceptance followed by unchanged no-timestamp rejection,
-  a separate timestamp-longevity worker, and state-driven cleanup.
+- `PV-BUG-11`: expired-signer runtime evidence remains open locally. The
+  fixture has a unique public root, unchanged-byte expiry transition, separate
+  timestamp-longevity worker, and state-driven cleanup, but real WinTrust still
+  reports `CERT_E_UNTRUSTEDROOT` before expiry on this protected-root host. Do
+  not close this finding until a supported isolated trust location proves the
+  valid-trusted acceptance followed by same-PE expiry rejection and exact
+  root/leaf/private-key/file cleanup.
 
 ## Blockers
 
@@ -222,15 +251,17 @@ is fully checked.
   FastFiles resources are present. They were not removed for this campaign.
 - The Computer Use native pipe is unavailable, preventing direct screenshots.
 - No second genuinely signed release exists for upgrade/rollback validation.
-- The already-used development host's `CurrentUser\Root` provider path is
-  blocked by stale CryptSvc/ProtectedRoots state during repeat fixture root
-  insertion. This prevents a final local rerun of the trust-store-mutating
-  CTest cases; it is not a repository or production-signer blocker, and exact
-  temporary certificates/files were removed.
+- The current host's protected-root policy prevents the generated CurrentUser
+  root from becoming trusted by production WinTrust. The bounded certutil
+  operation and the documented Crypt32 unprotected-store probe both block;
+  no ProtectedRoots ACL/blob, LocalMachine store, or policy store was modified.
+  The focused/full tests fail closed before positive acceptance and pass their
+  exact cleanup checks.
 
 ## Next exact action
 
-Obtain/provide the explicitly authorized production signer configuration and
-execute `verify/release/sign-release.ps1 -DryRun` against the exact final
-candidate; keep real pins, production signing, and signed runtime evidence
-behind that external authorization boundary.
+Commit and push the validated changes, then inspect hosted CI by the final head
+SHA. If the hosted environment reproduces the same protected-root condition,
+keep PV-BUG-11 as `BLOCKED_ENVIRONMENT / NOT VERIFIED` and the
+signer-provisioning gate closed; otherwise reconcile the hosted real-WinTrust
+evidence before changing this state.

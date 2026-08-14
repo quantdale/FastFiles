@@ -73,14 +73,20 @@ machine logs belong in the repository.
    generation, and final package validation. The prior audit repaired
    encrypted-PFX loading, stale manifest sequencing, wrong-root pin provenance,
    and a permanently blocked readiness status. The current signer-hardening
-   slice adds Windows chain/current-validity/Code Signing EKU/private-key
-   preflight, exact expected-thumbprint matching, detached-CMS policy reuse,
-   and deterministic non-production certificate fixtures in
-   `Test-ReleaseTooling.ps1`. PV-BUG-10 adds a timestamp-aware
-   signed-artifact policy, a production timestamp gate, and detached CMS
-   RFC3161 verification. PV-BUG-11 repairs the runtime fixture so its trusted
-   pre-expiry/expired transition is a real WinTrust experiment rather than an
-   untrusted-root negative test.
+  slice adds Windows chain/current-validity/Code Signing EKU/private-key
+  preflight, exact expected-thumbprint matching, detached-CMS policy reuse,
+  and deterministic non-production certificate fixtures in
+  `Test-ReleaseTooling.ps1`. PV-BUG-10 adds a timestamp-aware
+  signed-artifact policy, a production timestamp gate, and detached CMS
+  RFC3161 verification. PV-BUG-11 repairs the runtime fixture design so that,
+  where the host permits it, its trusted pre-expiry/expired transition is a
+  real WinTrust experiment rather than an untrusted-root negative test. The
+  fixture installs only the exact generated public root into CurrentUser Root
+  through the supported `certutil -user -f -addstore Root` path, checks/removes
+  the exact thumbprint-derived registry key and temporary DER path, and keeps
+  the real WinTrust trust result and exact cleanup checks separate. The current
+  host still blocks the supported trust-store operation before that acceptance
+  can be established.
 5. Use only an explicitly authorized CertificateStore thumbprint or external
    PFX configuration. Dry-run first; execute real signing only after the DAG
    and policy checks pass. Derive engine/service pins from the exact signed
@@ -122,7 +128,7 @@ machine logs belong in the repository.
 | PV-16 | Evidence import/validation | Canonical importer accepts a structurally valid PASS bundle | BLOCKED_EXTERNAL |
 | PV-17 | Direct rendered UI | Interactive screenshot matrix and real aggregate-backed percentage assertion | BLOCKED_ENVIRONMENT |
 | PV-18 | Final source/CI/handoff review for prior repair slice | Tests/hygiene/OpenSpec and hosted jobs for the independently reviewed `8c369dcd13693c2cc1c85d86c7ae23054a3ae3e1` slice | PASS (historical; derive live on resume) |
-| PV-19 | Local signer-hardening handoff | Certificate policy, timestamp policy, real WinTrust expiry fixtures, diagnostic-bypass gate, focused tests, final clean push and hosted jobs by final SHA | PASS locally; final hosted CI is derived at handoff |
+| PV-19 | Local signer-hardening handoff | Certificate policy, timestamp policy, real WinTrust expiry fixtures, diagnostic-bypass gate, focused tests, final clean push and hosted jobs by final SHA | NOT VERIFIED; real WinTrust fixture is blocked before trusted acceptance |
 
 | PV-BUG-01 | Encrypted external PFX loading | Secure password is consumed without prompting or secret output | PASS |
 | PV-BUG-02 | PE/manifest signing sequencing | Final manifest is signed separately from final PE bytes; unsafe combined mode rejected | PASS |
@@ -134,7 +140,7 @@ machine logs belong in the repository.
 | PV-BUG-08 | PowerShell policy-object pipeline contamination | Certificate-policy collection mutations cannot replace the policy object in detached CMS validation; exact-signer CMS regression uses the private non-production custom-root seam | PASS |
 | PV-BUG-09 | Expired WinTrust fixture timing | Disposable expired-signer fixture leaves enough time for signing before the deliberate expiry transition | PASS |
 | PV-BUG-10 | Signing/timestamp longevity policy conflation | Signing preflight remains current-valid/trusted/private-key strict; signed PE verification respects a valid WinTrust RFC3161 timestamp; production PE and detached CMS signing require an explicit timestamp URL; final PE/CMS verification checks timestamp state and exact signer provenance | PASS |
-| PV-BUG-11 | Confounded runtime expiry negative test | The real fixture trusts only its unique public root in `CurrentUser\Root`, proves exact-pin acceptance before expiry, then rejects the unchanged no-timestamp PE after expiry through production WinTrust; a separate timestamped PE case proves the expected longevity exception and parent-process cleanup | PASS (technical local evidence; current host Root insertion is environmentally blocked on repeat) |
+| PV-BUG-11 | Confounded runtime expiry negative test | The real fixture attempts to trust only its unique public root in `CurrentUser\Root` through the supported `certutil -user -f -addstore Root` path, then requires exact-pin acceptance before checking the unchanged no-timestamp PE after expiry through production WinTrust; a separate timestamped PE case covers longevity and parent-process cleanup. The current host blocks the trust-store operation before the required acceptance. | BLOCKED_ENVIRONMENT / NOT VERIFIED |
 
 Additional `PV-BUG-*` rows are never relabeled as external merely because they
 require an elevated or signed path to reproduce.
@@ -158,14 +164,26 @@ candidate builds/tests. Use the release-tooling test suite after any
 release-script change. Never read or glob the prohibited execution/signing
 directories named by `AGENTS.md`.
 
+The hosted run for the first signer-hardening push exposed a fixture-only
+failure: opening the default .NET CurrentUser Root view stalled on the runner's
+protected-root state. Both trust-store-mutating fixture scripts now use
+`certutil -user -f -addstore Root` for the exact generated public root, check
+the thumbprint-derived CurrentUser registry key without enumerating the
+protected-root view, and remove only that key. On the current development host,
+certutil still times out and the focused engine/timestamp/package tests fail
+before their required trusted-acceptance assertions; exact cleanup checks pass.
+The final full suites and hosted run remain required before handoff.
+
 ## OpenSpec task boundary
 
 The remaining tasks in `close-independent-validation-gaps` are 4.2, 4.5, 4.6,
-4.7, 4.8, and 5.1. The local clauses of 4.2 are now evidenced by
+4.7, 4.8, and 5.1. The local clauses of 4.2 are evidenced by
 `evidence/authentication-negative-tests.md`: unsigned, mismatched,
-placeholder, partially populated, trusted pre-expiry/expired, timestamped
-longevity, untrusted, and diagnostic-bypass coverage pass. Task 4.2 remains
-open only for the external release-pipeline signer/pin provisioning clause;
+placeholder, partially populated, untrusted, and diagnostic-bypass coverage
+pass; timestamp-longevity coverage passes in the release-tooling/custom-root
+matrix. The real trusted pre-expiry/expired transition remains
+`BLOCKED_ENVIRONMENT / NOT VERIFIED`. Task 4.2 remains open for that runtime
+evidence and the external release-pipeline signer/pin provisioning clause;
 4.5–4.8 require signed/elevated/clean-host evidence and 5.1 requires direct
 rendered interaction plus a real aggregate-backed drill-down. The recovery
 change has no remaining open tasks.
