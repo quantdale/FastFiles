@@ -21,14 +21,21 @@ Status: ACTIVE SESSION — allocated-size-storage-accuracy implementation; deriv
   treemap hover details + degraded honest-unknown.
 - **Key sizes:** `ProjectionEntry` 96→104 bytes (+8); wire fixed records +8;
   snapshot wire +9/entry (256 MiB bound capacity 3.89M→3.44M entries).
-- **Validated so far (debug preset):** full build green; `ctest --preset debug`
-  passes except `ffuia_driver_ps_tests`/`ffintake_gate_ps_tests`/`ffdoc_drift_tests`
-  reported Not Run — a pre-existing host quirk (CTest records the WindowsApps
-  pwsh alias path that cmd cannot spawn); all three pass when invoked with the
-  working `pwsh` directly.
-- **Remaining:** release-test preset + CTest, analyze preset, asan fuzz,
-  `verify.ps1 build`/`doctor`, `git diff --check`, then commit + push + clean
-  worktree handoff per the durable-state protocol.
+- **Validated (all PASS):** debug + release-test builds and CTest;
+  `analyze` preset (warnings-as-errors clean); asan `ffprotocol_fuzz_tests`;
+  `verify.ps1 build` (all three configs build with 0 warnings/errors; the
+  capability's ctest step reports FAIL solely from the three pwsh-gated
+  tests being Not Run — a pre-existing host quirk where CTest records the
+  WindowsApps pwsh alias path it cannot spawn; all three pass when invoked
+  with the working `pwsh` directly); `verify.ps1 doctor` PASS;
+  `git diff --check` clean; source-marker/diagnostic-policy/doc-drift
+  guards PASS.
+- **Handoff:** committed as `57c487b846f0cdb9177635f7b83680e5c4e78649`
+  ("feat: carry allocated (on-disk) size through the index and storage
+  analysis"), pushed to `origin/main` (HEAD == origin/main), working tree
+  clean apart from pre-existing untracked `jobs.json`/`run.json` harness
+  artifacts left untouched. Hosted CI run `31875254630` for the pushed SHA
+  was in_progress at handoff — query it on the next resume.
 
 ## Durable-state protocol
 
