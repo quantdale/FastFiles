@@ -40,4 +40,18 @@ struct HomeActivation {
     bool openInNewTab = false;             // Folder + Search only
 };
 
+// quick-access-home hardening (HOME-POST-03): keyboard focus model for the
+// Home surface. Focus is a typed target: either an item (a global layout
+// index) or one of the two section-header Clear affordances. The deterministic
+// traversal order is the focus list built from the layout + data
+// (`BuildHomeFocusList` in ColumnView.h); `HomeMoveFocusEntry` moves within it
+// while preserving grid semantics among items.
+enum class HomeFocusTarget { None, Item, ClearRecentFolders, ClearRecentSearches };
+
+struct HomeFocusEntry {
+    HomeFocusTarget target = HomeFocusTarget::None;
+    int itemIndex = -1;                    // valid when target == Item
+    bool operator==(const HomeFocusEntry&) const = default;
+};
+
 } // namespace ffui

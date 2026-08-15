@@ -375,15 +375,16 @@ private:
     float verticalScrollOffset2_ = 0.0f;
 
     // quick-access-home 4.2: Home surface state. `homePane_` marks which panes
-    // are showing the Home surface instead of columns; `homeFocusedIndex_(2)`
-    // is the keyboard/hover focus in the active pane's Home item list; the
-    // viewport size is remembered from Render so input handlers (which receive
-    // no geometry) can rebuild the layout for hit-testing / focus movement.
+    // are showing the Home surface instead of columns; `homeFocus_` is the
+    // keyboard/hover focus (a typed target: an item or a section-header Clear
+    // affordance -- quick-access-home hardening HOME-POST-03) in each pane's
+    // Home item list; the viewport size is remembered from Render so input
+    // handlers (which receive no geometry) can rebuild the layout for
+    // hit-testing / focus movement.
     HomeData homeData_;
     std::array<bool, 2> homePane_{false, false};
     std::function<void(const HomeActivation&)> homeActivateCallback_;
-    int homeFocusedIndex_ = -1;
-    int homeFocusedIndex2_ = -1;
+    std::array<HomeFocusEntry, 2> homeFocus_{};
     float lastViewportWidth_ = 0.0f;
     float lastViewportHeight_ = 0.0f;
 
@@ -395,6 +396,12 @@ private:
     HomeLayoutResult ComputeHomeLayoutForPane(int paneIndex) const;
     void ActivateHomeItem(int paneIndex, int globalIndex, bool openInNewTab);
     void HandleHomeKeyDown(int virtualKey);
+    // quick-access-home hardening (HOME-POST-03): route activation for the
+    // currently focused Home target (item, or a section-header Clear stop).
+    void ActivateHomeFocus(const HomeFocusEntry& focus, bool openInNewTab);
+    // Drop a pane's focus when its target no longer exists in the fresh data
+    // (called from SetHomeData so clearing a section cannot strand focus).
+    void RevalidateHomeFocus();
 
     // quick-access-home 4.8: hit rects (viewport coordinates) of the "Clear"
     // affordances drawn in the Recent folders / Recent searches section
@@ -510,6 +517,235 @@ inline int HomeFirstItem(const ffui::HomeLayoutResult& layout) {
 
 inline int HomeLastItem(const ffui::HomeLayoutResult& layout) {
     return layout.totalItemCount <= 0 ? -1 : (std::max)(0, layout.totalItemCount - 1);
+}
+
+// quick-access-home hardening (HOME-POST-02/03): pure Home focus-model seams.
+//
+// `HomeItemFocusable` decides whether an item participates in keyboard focus,
+// hover, and activation: the empty-Pinned hint placeholder is not actionable,
+// and an unavailable known folder (empty path) is neither focusable nor
+// activatable -- it can never navigate to "This PC".
+//
+// `BuildHomeFocusList` is the deterministic traversal order: the section-header
+// Clear stop of a Recent folders / Recent searches section precedes that
+// section's items (matching the header-above-items spatial order), and items
+// appear in layout order. A section with no items draws no affordance and
+// therefore contributes no target.
+//
+// `HomeMoveFocusEntry` moves within that list: inside a section the existing
+// grid semantics are preserved (Up/Down jump +-columnCount, Left/Right move
+// between columns); a move that crosses a section boundary lands on the
+// neighboring section's header stop (its Clear affordance when present).
+// Initial focus and Home/End always land on items, never on a Clear stop, so a
+// stray Enter cannot wipe a history. Non-actionable items are never focused.
+
+inline const ffui::HomeItemLayout* FindHomeItem(const ffui::HomeLayoutResult& layout, int globalIndex) {
+    for (const auto& item : layout.items) {
+        if (item.globalIndex == globalIndex) return &item;
+    }
+    return nullptr;
+}
+
+inline bool HomeItemFocusable(const ffui::HomeData& data, const ffui::HomeItemLayout& item) {
+    switch (static_cast<ffui::HomeSectionKind>(item.sectionIndex)) {
+        case ffui::HomeSectionKind::Pinned:
+            return item.indexInSection >= 0 &&
+                   item.indexInSection < static_cast<int>(data.pinned.size()) &&
+                   !data.pinned[static_cast<size_t>(item.indexInSection)].path.empty();
+        case ffui::HomeSectionKind::RecentFolders:
+            return item.indexInSection >= 0 &&
+                   item.indexInSection < static_cast<int>(data.recentFolders.size()) &&
+                   !data.recentFolders[static_cast<size_t>(item.indexInSection)].empty();
+        case ffui::HomeSectionKind::RecentSearches:
+            return item.indexInSection >= 0 &&
+                   item.indexInSection < static_cast<int>(data.recentSearches.size());
+        case ffui::HomeSectionKind::CommonLocations:
+            // An unavailable known folder (empty path) is disabled: not
+            // focusable, not hoverable, not activatable.
+            return item.indexInSection >= 0 &&
+                   item.indexInSection < static_cast<int>(data.knownFolders.size()) &&
+                   !data.knownFolders[static_cast<size_t>(item.indexInSection)].path.empty();
+        case ffui::HomeSectionKind::QuickActions:
+            return item.indexInSection >= 0 && item.indexInSection < 4;
+    }
+    return false;
+}
+
+inline int HomeSectionOf(const ffui::HomeLayoutResult& layout, int globalIndex) {
+    for (const auto& section : layout.sections) {
+        if (globalIndex >= section.itemStart && globalIndex < section.itemStart + section.itemCount) {
+            return section.sectionIndex;
+        }
+    }
+    return -1;
+}
+
+inline std::vector<ffui::HomeFocusEntry> BuildHomeFocusList(const ffui::HomeLayoutResult& layout,
+                                                            const ffui::HomeData& data) {
+    std::vector<ffui::HomeFocusEntry> entries;
+    for (const auto& section : layout.sections) {
+        // The Clear affordance of a section with items precedes the section's
+        // items (header above items). A section with no items draws no
+        // affordance and contributes no target.
+        if (section.itemCount > 0) {
+            if (section.sectionIndex == static_cast<int>(ffui::HomeSectionKind::RecentFolders)) {
+                entries.push_back({ffui::HomeFocusTarget::ClearRecentFolders, -1});
+            } else if (section.sectionIndex == static_cast<int>(ffui::HomeSectionKind::RecentSearches)) {
+                entries.push_back({ffui::HomeFocusTarget::ClearRecentSearches, -1});
+            }
+        }
+        for (int i = 0; i < section.itemCount; ++i) {
+            const size_t index = static_cast<size_t>(section.itemStart + i);
+            if (index >= layout.items.size()) break;
+            const auto& item = layout.items[index];
+            if (HomeItemFocusable(data, item)) {
+                entries.push_back({ffui::HomeFocusTarget::Item, item.globalIndex});
+            }
+        }
+    }
+    return entries;
+}
+
+// First / last ITEM target of the focus list. Initial focus, Home, and End land
+// on items only: a Clear stop is reached by traversing across a section
+// boundary, never by "jumping" onto it, so a stray Enter cannot clear history.
+inline ffui::HomeFocusEntry HomeFirstFocusEntry(const std::vector<ffui::HomeFocusEntry>& focusList) {
+    for (const auto& entry : focusList) {
+        if (entry.target == ffui::HomeFocusTarget::Item) return entry;
+    }
+    return {};
+}
+
+inline ffui::HomeFocusEntry HomeLastFocusEntry(const std::vector<ffui::HomeFocusEntry>& focusList) {
+    for (auto it = focusList.rbegin(); it != focusList.rend(); ++it) {
+        if (it->target == ffui::HomeFocusTarget::Item) return *it;
+    }
+    return {};
+}
+
+inline ffui::HomeFocusEntry HomeMoveFocusEntry(const ffui::HomeLayoutResult& layout,
+                                               const std::vector<ffui::HomeFocusEntry>& focusList,
+                                               ffui::HomeFocusEntry current,
+                                               int deltaX, int deltaY) {
+    if (focusList.empty()) return {};
+    int pos = -1;
+    for (int i = 0; i < static_cast<int>(focusList.size()); ++i) {
+        if (focusList[static_cast<size_t>(i)] == current) {
+            pos = i;
+            break;
+        }
+    }
+    // No current focus: any movement selects the first item (never a Clear stop).
+    if (pos < 0) return HomeFirstFocusEntry(focusList);
+
+    if (deltaX != 0 && current.target == ffui::HomeFocusTarget::Item) {
+        const int grid = HomeMoveFocus(layout, current.itemIndex, deltaX, 0);
+        if (grid == current.itemIndex) return current; // horizontal clamp / single column
+        for (const auto& entry : focusList) {
+            if (entry.target == ffui::HomeFocusTarget::Item && entry.itemIndex == grid) return entry;
+        }
+        return current; // horizontal neighbor is not focusable: stay put
+    }
+    if (deltaY == 0) return current;
+
+    if (current.target == ffui::HomeFocusTarget::Item) {
+        const int currentSection = HomeSectionOf(layout, current.itemIndex);
+        const int grid = HomeMoveFocus(layout, current.itemIndex, 0, deltaY);
+        if (grid != current.itemIndex && HomeSectionOf(layout, grid) == currentSection) {
+            // Same-section grid jump; use the grid target when it is focusable,
+            // otherwise skip the section's non-focusable items in the movement
+            // direction (unavailable known folders are skipped, never focused).
+            for (const auto& entry : focusList) {
+                if (entry.target == ffui::HomeFocusTarget::Item && entry.itemIndex == grid) return entry;
+            }
+            int k = pos + deltaY;
+            while (k >= 0 && k < static_cast<int>(focusList.size())) {
+                const auto& entry = focusList[static_cast<size_t>(k)];
+                if (entry.target != ffui::HomeFocusTarget::Item) break;
+                if (HomeSectionOf(layout, entry.itemIndex) != currentSection) break;
+                return entry;
+            }
+        }
+        // Boundary (or clamped) move: scan the focus list in the movement
+        // direction for the first entry that belongs to the boundary -- the
+        // neighboring section's header Clear stop, or the first item of the
+        // neighboring section. Same-section entries are skipped so a two-column
+        // boundary move never jumps sideways.
+        for (int k = pos + deltaY; k >= 0 && k < static_cast<int>(focusList.size()); k += deltaY) {
+            const auto& entry = focusList[static_cast<size_t>(k)];
+            if (entry.target != ffui::HomeFocusTarget::Item) return entry; // header Clear stop
+            if (HomeSectionOf(layout, entry.itemIndex) != currentSection) return entry;
+        }
+        const int next = (std::clamp)(pos + deltaY, 0, static_cast<int>(focusList.size()) - 1);
+        return focusList[static_cast<size_t>(next)];
+    }
+
+    // Clear target: vertical movement steps to the neighboring entry.
+    const int next = (std::clamp)(pos + deltaY, 0, static_cast<int>(focusList.size()) - 1);
+    return focusList[static_cast<size_t>(next)];
+}
+
+// quick-access-home hardening (HOME-POST-02): pure activation mapping. Returns
+// nullopt for non-actionable items -- the empty-Pinned hint placeholder, and
+// ANY Folder destination whose path is empty (an unavailable known folder or a
+// malformed entry must NEVER navigate to "This PC"; Home -> This PC happens
+// only through an explicit This PC action).
+inline std::optional<ffui::HomeActivation> ComputeHomeActivation(const ffui::HomeData& data,
+                                                                 const ffui::HomeLayoutResult& layout,
+                                                                 int globalIndex, bool openInNewTab) {
+    const ffui::HomeItemLayout* found = FindHomeItem(layout, globalIndex);
+    if (found == nullptr || !HomeItemFocusable(data, *found)) return std::nullopt;
+
+    ffui::HomeActivation activation;
+    switch (static_cast<ffui::HomeSectionKind>(found->sectionIndex)) {
+        case ffui::HomeSectionKind::Pinned:
+            activation.kind = ffui::HomeActionKind::Folder;
+            activation.value = data.pinned[static_cast<size_t>(found->indexInSection)].path;
+            activation.openInNewTab = openInNewTab;
+            break;
+        case ffui::HomeSectionKind::RecentFolders:
+            activation.kind = ffui::HomeActionKind::Folder;
+            activation.value = data.recentFolders[static_cast<size_t>(found->indexInSection)];
+            activation.openInNewTab = openInNewTab;
+            break;
+        case ffui::HomeSectionKind::RecentSearches:
+            activation.kind = ffui::HomeActionKind::Search;
+            activation.value = data.recentSearches[static_cast<size_t>(found->indexInSection)];
+            activation.openInNewTab = openInNewTab;
+            break;
+        case ffui::HomeSectionKind::CommonLocations:
+            activation.kind = ffui::HomeActionKind::Folder;
+            activation.value = data.knownFolders[static_cast<size_t>(found->indexInSection)].path;
+            activation.openInNewTab = openInNewTab;
+            break;
+        case ffui::HomeSectionKind::QuickActions: {
+            // quick-access-home 4.7: New Tab / Search / Open Path / Settings map
+            // to existing commands only (design D4).
+            static const wchar_t* kCommands[] = {
+                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
+            activation.kind = ffui::HomeActionKind::QuickAction;
+            activation.value = kCommands[found->indexInSection];
+            break;
+        }
+    }
+    // Defensive: a Folder activation must always carry a real path. An empty
+    // destination is not "This PC" -- it is malformed state and is rejected.
+    if (activation.kind == ffui::HomeActionKind::Folder && activation.value.empty()) {
+        return std::nullopt;
+    }
+    return activation;
+}
+
+// quick-access-home hardening (HOME-POST-03): the Clear stop's activation kind.
+inline ffui::HomeActionKind HomeActionKindForFocusTarget(ffui::HomeFocusTarget target) {
+    switch (target) {
+        case ffui::HomeFocusTarget::ClearRecentFolders: return ffui::HomeActionKind::ClearRecentFolders;
+        case ffui::HomeFocusTarget::ClearRecentSearches: return ffui::HomeActionKind::ClearRecentSearches;
+        case ffui::HomeFocusTarget::None:
+        case ffui::HomeFocusTarget::Item:
+            break; // non-Clear targets have no Clear activation
+    }
+    return ffui::HomeActionKind::Folder;
 }
 
 } // namespace ffui

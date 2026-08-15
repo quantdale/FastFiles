@@ -865,6 +865,12 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     columnView_.SetHomeActivateCallback([this](const HomeActivation& activation) {
         switch (activation.kind) {
             case HomeActionKind::Folder:
+                // quick-access-home hardening (HOME-POST-02): defensive shell
+                // boundary -- a missing folder destination must NEVER collapse
+                // into the "This PC" root (which is only reachable through an
+                // explicit This PC action). ColumnView already refuses to emit
+                // empty Folder activations; this guards any other producer.
+                if (activation.value.empty()) return;
                 if (activation.openInNewTab) {
                     SaveActiveTabViewState();
                     navigationWorkspace_.OpenTab(activation.value);
@@ -901,7 +907,10 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 break;
             case HomeActionKind::ClearRecentFolders:
                 navigationWorkspace_.ClearRecentFolders();
-                navigationWorkspace_.MarkStateDirty();
+                // quick-access-home hardening: the spec's explicit Clear action
+                // persists immediately (safe atomic flush). Normal navigation
+                // recording still rides the 500 ms debounced writer.
+                navigationWorkspace_.FlushState();
                 RefreshHomeData();
                 break;
             case HomeActionKind::ClearRecentSearches:

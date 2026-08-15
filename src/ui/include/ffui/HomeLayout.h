@@ -188,6 +188,7 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
         HomeSectionLayout section;
         section.sectionIndex = def.index;
         section.itemStart = static_cast<int>(result.items.size());
+        section.itemCount = def.count; // the section owns items [itemStart, itemStart + itemCount)
         section.x = contentX;
         section.y = currentY;
         section.width = contentWidth;

@@ -283,14 +283,19 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         const float vso = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
         const float contentOffsetY = kBadgeHeight - vso;
         const int hit = ComputeHomeItemHitTest(layout, localPoint, contentOffsetY);
-        int& focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
-        if (hit >= 0) {
-            focused = hit;
+        HomeFocusEntry& focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
+        // quick-access-home hardening (HOME-POST-02): clicking a non-actionable
+        // item (unavailable known folder / hint placeholder) neither focuses
+        // nor activates; a miss clears focus like before.
+        const bool actionable = hit >= 0 && FindHomeItem(layout, hit) != nullptr &&
+                                HomeItemFocusable(homeData_, *FindHomeItem(layout, hit));
+        if (actionable) {
+            focus = {HomeFocusTarget::Item, hit};
             // quick-access-home 4.4: Ctrl (control) => open in new tab; the
             // activation always routes through the callback.
             ActivateHomeItem(pane, hit, control);
         } else {
-            focused = -1;
+            focus = {};
         }
         return;
     }
@@ -327,12 +332,18 @@ void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         // (no selection change). `hoverColumn_` is set to -1 in Home mode so the
         // column renderer's hover test (which requires a valid column) never
         // matches; the Home draw loop tests `hoverColumn_ == -1` instead.
+        // quick-access-home hardening (HOME-POST-02): non-actionable items
+        // (unavailable known folders / the hint placeholder) are never hover
+        // targets, so no hover overlay claims they are actionable cards.
         const float paneWidth = dualPane_ ? viewportWidth / 2.0f : viewportWidth;
         const float paneX = (dualPane_ && pane == 1) ? paneWidth : 0.0f;
         const D2D1_POINT_2F localPoint = D2D1::Point2F(clientPoint.x - paneX, clientPoint.y);
         const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
         const float vso = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
-        const int hit = ComputeHomeItemHitTest(layout, localPoint, kBadgeHeight - vso);
+        const int rawHit = ComputeHomeItemHitTest(layout, localPoint, kBadgeHeight - vso);
+        const int hit = (rawHit >= 0 && FindHomeItem(layout, rawHit) != nullptr &&
+                         HomeItemFocusable(homeData_, *FindHomeItem(layout, rawHit)))
+            ? rawHit : -1;
         if (hit != hoverItem_ || hoverColumn_ != -1 || !hoverActive_) {
             hoverItem_ = hit;
             hoverColumn_ = -1;
@@ -468,20 +479,36 @@ void ColumnView::ScrollVertical(float delta, float viewportHeight) {
 void ColumnView::EnsureFocusedItemVisible(float viewportHeight) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
     // quick-access-home 4.x: Home uses the focused item's rect from the layout.
+    // quick-access-home hardening (HOME-POST-03): a focused Clear stop uses its
+    // section header's rect.
     const int pane = activePane_;
     if (homePane_[pane]) {
-        const int focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
-        if (focused < 0) return;
+        const HomeFocusEntry focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
+        if (focus.target == HomeFocusTarget::None) return;
         const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
         float itemTop = 0.0f;
         float itemBottom = 0.0f;
-        for (const auto& item : layout.items) {
-            if (item.globalIndex == focused) {
-                itemTop = item.y;
-                itemBottom = item.y + item.height;
-                break;
+        if (focus.target == HomeFocusTarget::Item) {
+            for (const auto& item : layout.items) {
+                if (item.globalIndex == focus.itemIndex) {
+                    itemTop = item.y;
+                    itemBottom = item.y + item.height;
+                    break;
+                }
+            }
+        } else {
+            const int wantedSection = focus.target == HomeFocusTarget::ClearRecentFolders
+                ? static_cast<int>(HomeSectionKind::RecentFolders)
+                : static_cast<int>(HomeSectionKind::RecentSearches);
+            for (const auto& section : layout.sections) {
+                if (section.sectionIndex == wantedSection) {
+                    itemTop = section.headerY;
+                    itemBottom = section.headerY + section.headerHeight;
+                    break;
+                }
             }
         }
+        if (itemTop == 0.0f && itemBottom == 0.0f) return;
         const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
         float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
         if (itemTop < offset) offset = itemTop;
@@ -656,6 +683,10 @@ std::wstring ColumnView::ActivePanePath() const {
 // engine; the shell pushes a fresh `HomeData` and owns the activation routing.
 void ColumnView::SetHomeData(const HomeData& data) {
     homeData_ = data;
+    // quick-access-home hardening (HOME-POST-03): after a data refresh (e.g. a
+    // Clear action emptied a section) a focus target that no longer exists must
+    // not stay stranded and invisible.
+    RevalidateHomeFocus();
 }
 
 void ColumnView::SetHomeActivateCallback(std::function<void(const HomeActivation&)> callback) {
@@ -682,20 +713,44 @@ void ColumnView::SetPaneHome(int paneIndex, bool home) {
         if (paneIndex == 0) { verticalScrollOffset_ = 0.0f; scrollOffset_ = 0.0f; }
         else { verticalScrollOffset2_ = 0.0f; scrollOffset2_ = 0.0f; }
     }
-    if (paneIndex == 0) homeFocusedIndex_ = -1;
-    else homeFocusedIndex2_ = -1;
+    if (paneIndex == 0) homeFocus_[0] = {};
+    else homeFocus_[1] = {};
     hoverItem_ = -1;
     hoverColumn_ = -1;
     hoverActive_ = false;
 }
 
+// quick-access-home hardening (HOME-POST-03): drop each pane's focus when its
+// target no longer exists in the fresh data (cheap; called on every data push).
+void ColumnView::RevalidateHomeFocus() {
+    for (int pane = 0; pane < 2; ++pane) {
+        HomeFocusEntry& focus = homeFocus_[static_cast<size_t>(pane)];
+        if (focus.target == HomeFocusTarget::None) continue;
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+        const std::vector<HomeFocusEntry> focusList = BuildHomeFocusList(layout, homeData_);
+        const bool stillValid = std::find(focusList.begin(), focusList.end(), focus) != focusList.end();
+        if (!stillValid) focus = {};
+    }
+}
+
+void ColumnView::ActivateHomeFocus(const HomeFocusEntry& focus, bool openInNewTab) {
+    if (homeActivateCallback_ == nullptr) return;
+    if (focus.target == HomeFocusTarget::Item) {
+        ActivateHomeItem(activePane_, focus.itemIndex, openInNewTab);
+    } else if (focus.target == HomeFocusTarget::ClearRecentFolders ||
+               focus.target == HomeFocusTarget::ClearRecentSearches) {
+        // quick-access-home hardening (HOME-POST-03): Enter on a focused Clear
+        // stop invokes the existing clear operation through the callback.
+        HomeActivation activation;
+        activation.kind = HomeActionKindForFocusTarget(focus.target);
+        homeActivateCallback_(activation);
+    }
+}
+
 void ColumnView::HomeActivateFocused() {
     const int pane = activePane_;
     if (!homePane_[pane]) return;
-    const int focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
-    if (focused >= 0) {
-        ActivateHomeItem(pane, focused, false);
-    }
+    ActivateHomeFocus(pane == 0 ? homeFocus_[0] : homeFocus_[1], false);
 }
 
 // quick-access-home 4.2: rebuild the Home layout for a pane from the current
@@ -720,89 +775,56 @@ HomeLayoutResult ColumnView::ComputeHomeLayoutForPane(int paneIndex) const {
 }
 
 // quick-access-home 4.2/4.4: route a Home item activation through the callback.
-// The section + position map back to the owning data vector. The empty-pinned
-// placeholder (Pinned section, index 0, with `homeData_.pinned` empty) is a
-// non-clickable hint and is a no-op here.
+// The section + position map back to the owning data vector. quick-access-home
+// hardening (HOME-POST-02): the pure `ComputeHomeActivation` seam rejects the
+// empty-Pinned hint placeholder and any empty-path Folder destination (an
+// unavailable known folder must never navigate to "This PC").
 void ColumnView::ActivateHomeItem(int paneIndex, int globalIndex, bool openInNewTab) {
     if (homeActivateCallback_ == nullptr) return;
-    const HomeLayoutResult layout = ComputeHomeLayoutForPane(paneIndex);
-    const HomeItemLayout* found = nullptr;
-    for (const auto& item : layout.items) {
-        if (item.globalIndex == globalIndex) {
-            found = &item;
-            break;
-        }
-    }
-    if (found == nullptr) return;
-
-    HomeActivation activation;
-    switch (static_cast<HomeSectionKind>(found->sectionIndex)) {
-        case HomeSectionKind::Pinned:
-            if (homeData_.pinned.empty()) return; // hint placeholder: no-op
-            activation.kind = HomeActionKind::Folder;
-            activation.value = homeData_.pinned[found->indexInSection].path;
-            activation.openInNewTab = openInNewTab;
-            break;
-        case HomeSectionKind::RecentFolders:
-            activation.kind = HomeActionKind::Folder;
-            activation.value = homeData_.recentFolders[found->indexInSection];
-            activation.openInNewTab = openInNewTab;
-            break;
-        case HomeSectionKind::RecentSearches:
-            activation.kind = HomeActionKind::Search;
-            activation.value = homeData_.recentSearches[found->indexInSection];
-            activation.openInNewTab = openInNewTab;
-            break;
-        case HomeSectionKind::CommonLocations:
-            activation.kind = HomeActionKind::Folder;
-            activation.value = homeData_.knownFolders[found->indexInSection].path;
-            activation.openInNewTab = openInNewTab;
-            break;
-        case HomeSectionKind::QuickActions: {
-            // quick-access-home 4.7: New Tab / Search / Open Path / Settings map
-            // to existing commands only (design D4).
-            static const wchar_t* kCommands[] = {
-                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
-            if (found->indexInSection < 0 || found->indexInSection >= 4) return;
-            activation.kind = HomeActionKind::QuickAction;
-            activation.value = kCommands[found->indexInSection];
-            break;
-        }
-    }
-    homeActivateCallback_(activation);
+    const auto activation = ComputeHomeActivation(homeData_, ComputeHomeLayoutForPane(paneIndex),
+                                                  globalIndex, openInNewTab);
+    if (!activation.has_value()) return;
+    homeActivateCallback_(*activation);
 }
 
 // quick-access-home 4.5: keyboard model for the Home pane. Up/Down move across
-// the flat item list (+-columnCount), Left/Right between the two columns when
-// the layout is two-wide, Enter activates (Ctrl+Enter = new tab for
-// Folder/Search), Home/End jump to first/last. Escape and all other keys are
-// intentionally ignored here so the shell keeps owning them.
+// the deterministic focus list (grid-aware inside a section; a section-boundary
+// move lands on the section's Clear stop), Left/Right between the two columns
+// when the layout is two-wide, Enter activates the focused target (Ctrl+Enter =
+// new tab for Folder/Search), Home/End jump to first/last focus target. Escape
+// and all other keys are intentionally ignored here so the shell keeps owning
+// them. quick-access-home hardening (HOME-POST-03): the Clear affordances are
+// real focus targets; the empty-Pinned hint and unavailable known folders are
+// not.
 void ColumnView::HandleHomeKeyDown(int virtualKey) {
     const int pane = activePane_;
-    int& focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+    HomeFocusEntry& focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
     const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    const std::vector<HomeFocusEntry> focusList = BuildHomeFocusList(layout, homeData_);
     switch (virtualKey) {
         case VK_UP:
-            focused = HomeMoveFocus(layout, focused, 0, -1);
+            focus = HomeMoveFocusEntry(layout, focusList, focus, 0, -1);
             break;
         case VK_DOWN:
-            focused = HomeMoveFocus(layout, focused, 0, 1);
+            focus = HomeMoveFocusEntry(layout, focusList, focus, 0, 1);
             break;
         case VK_LEFT:
-            focused = HomeMoveFocus(layout, focused, -1, 0);
+            focus = HomeMoveFocusEntry(layout, focusList, focus, -1, 0);
             break;
         case VK_RIGHT:
-            focused = HomeMoveFocus(layout, focused, 1, 0);
+            focus = HomeMoveFocusEntry(layout, focusList, focus, 1, 0);
             break;
         case VK_HOME:
-            focused = HomeFirstItem(layout);
+            // quick-access-home hardening (HOME-POST-03): Home/End land on
+            // items, never on a Clear stop.
+            focus = HomeFirstFocusEntry(focusList);
             break;
         case VK_END:
-            focused = HomeLastItem(layout);
+            focus = HomeLastFocusEntry(focusList);
             break;
         case VK_RETURN: {
             const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            if (focused >= 0) ActivateHomeItem(pane, focused, control);
+            ActivateHomeFocus(focus, control);
             break;
         }
         default:
@@ -1380,7 +1402,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         if (!homePane_[paneIndex]) return;
         const float vso = paneIndex == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
         const bool isActivePane = (activePane_ == paneIndex);
-        const int focusedItem = paneIndex == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+        // quick-access-home hardening (HOME-POST-03): the focus is a typed
+        // target (item or a section-header Clear stop), never a bare index.
+        const HomeFocusEntry focusEntry = paneIndex == 0 ? homeFocus_[0] : homeFocus_[1];
 
         HomeLayoutInput input{};
         input.viewportWidth = (std::max)(0.0f, paneWidth);
@@ -1419,7 +1443,31 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 const float clearWidth = 44.0f;
                 const D2D1_RECT_F clearRect = D2D1::RectF(hx + section.headerWidth - clearWidth, hy,
                                                           hx + section.headerWidth, hy + section.headerHeight);
-                context->DrawText(L"Clear", 5, badgeTextFormat_.Get(), clearRect, textSecondaryBrush_.Get());
+                // quick-access-home hardening (HOME-POST-03): a focused Clear
+                // stop gets the same treatment as a focused item -- the system
+                // highlight fill in High Contrast, the focusStroke ring and
+                // primary text otherwise.
+                const bool isClearFocused = isActivePane && (
+                    (focusEntry.target == HomeFocusTarget::ClearRecentFolders &&
+                     section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) ||
+                    (focusEntry.target == HomeFocusTarget::ClearRecentSearches &&
+                     section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches)));
+                if (isClearFocused) {
+                    if (highContrast) {
+                        context->FillRoundedRectangle(
+                            D2D1::RoundedRect(D2D1::RectF(clearRect.left - 1.0f, clearRect.top + 1.0f,
+                                                          clearRect.right + 1.0f, clearRect.bottom - 1.0f),
+                                              kHomeRadiusMedium, kHomeRadiusMedium),
+                            selectionBrush_.Get());
+                    } else if (focusStrokeBrush_ != nullptr) {
+                        D2D1_ROUNDED_RECT fr{D2D1::RectF(clearRect.left - 1.5f, clearRect.top + 1.5f,
+                                                         clearRect.right + 1.5f, clearRect.bottom - 1.5f),
+                                             kHomeRadiusMedium, kHomeRadiusMedium};
+                        context->DrawRoundedRectangle(&fr, focusStrokeBrush_.Get(), 1.0f);
+                    }
+                }
+                context->DrawText(L"Clear", 5, badgeTextFormat_.Get(), clearRect,
+                                  isClearFocused ? textBrush_.Get() : textSecondaryBrush_.Get());
                 if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) {
                     homeClearButtons_[paneIndex].recentFolders = clearRect;
                 } else {
@@ -1433,7 +1481,12 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
             const float y = kBadgeHeight + item.y - vso;
             const float w = item.width;
             const float h = item.height;
-            const bool isFocused = isActivePane && item.globalIndex == focusedItem;
+            const bool isFocused = isActivePane && focusEntry.target == HomeFocusTarget::Item &&
+                                   item.globalIndex == focusEntry.itemIndex;
+            // quick-access-home hardening (HOME-POST-02): an unavailable known
+            // folder (empty path) renders with the disabled/secondary text
+            // treatment, matching the sidebar's disabled known-folder rows.
+            const bool itemDisabled = !HomeItemFocusable(homeData_, item);
 
             std::wstring primary;
             std::wstring secondary;
@@ -1476,7 +1529,8 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 }
             }
 
-            const bool hoverRow = isActivePane && hoverItem_ == item.globalIndex && hoverColumn_ == -1 &&
+            const bool hoverRow = isActivePane && !itemDisabled &&
+                                  hoverItem_ == item.globalIndex && hoverColumn_ == -1 &&
                                   (hoverActive_ || lingerFade) && !highContrast;
 
             // Focused fill (selection pill equivalent). High Contrast reuses the
@@ -1537,7 +1591,7 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 D2D1_RECT_F primaryRect = D2D1::RectF(textX, y + 2.0f, x + w - 8.0f,
                                                       secondary.empty() ? y + h - 2.0f : halfH);
                 context->DrawText(primary.c_str(), static_cast<UINT32>(primary.size()), textFormat_.Get(),
-                                  primaryRect, textBrush_.Get());
+                                  primaryRect, itemDisabled ? textSecondaryBrush_.Get() : textBrush_.Get());
             }
             if (!secondary.empty()) {
                 D2D1_RECT_F secondaryRect = D2D1::RectF(textX, y + h / 2.0f, x + w - 8.0f, y + h - 2.0f);
