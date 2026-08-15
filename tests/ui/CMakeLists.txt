@@ -38,11 +38,28 @@ add_executable(ffshell_layout_tests test_shell_layout.cpp)
 target_include_directories(ffshell_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffshell_layout_tests COMMAND ffshell_layout_tests)
 
+# quick-access-home 3.1: pure headless layout seam for the Home surface.
+# Mirrors ffshell_layout_tests / ffdetails_layout_tests: include only
+# ../../src/ui/include (no src/ui/src) so the header stays renderer-free.
+add_executable(ffhome_layout_tests test_home_layout.cpp)
+target_include_directories(ffhome_layout_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffhome_layout_tests COMMAND ffhome_layout_tests)
+
 add_executable(ffcolumn_hit_test_tests test_column_hit_test.cpp)
 target_include_directories(ffcolumn_hit_test_tests PRIVATE
     ../../src/ui/src ../../src/ui/include ../../src/protocol/include
     ../../src/ipc/include ../../src/setup/include ../../src/search/include)
 add_test(NAME ffcolumn_hit_test_tests COMMAND ffcolumn_hit_test_tests)
+
+# quick-access-home 4.6: headless tests for the Home hit-test / focus-movement
+# pure seams and the layout consumption. Mirrors ffcolumn_hit_test_tests: it
+# includes ColumnView.h for the inline geometry seams (no renderer/engine/shell),
+# so the same include dirs and no extra link libraries are needed.
+add_executable(ffhome_interaction_tests test_home_interaction.cpp)
+target_include_directories(ffhome_interaction_tests PRIVATE
+    .. ../../src/ui/src ../../src/ui/include ../../src/protocol/include
+    ../../src/ipc/include ../../src/setup/include ../../src/search/include)
+add_test(NAME ffhome_interaction_tests COMMAND ffhome_interaction_tests)
 
 add_executable(ffsnapshot_aggregate_tests test_snapshot_aggregate.cpp)
 target_include_directories(ffsnapshot_aggregate_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
@@ -81,4 +98,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffcolumn_hit_test_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests PROPERTIES TIMEOUT 120)

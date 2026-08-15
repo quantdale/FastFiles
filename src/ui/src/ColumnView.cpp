@@ -173,6 +173,11 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
 }
 
 void ColumnView::OnKeyDown(int virtualKey) {
+    // quick-access-home 4.5: the Home pane owns its own keyboard model.
+    if (homePane_[activePane_]) {
+        HandleHomeKeyDown(virtualKey);
+        return;
+    }
     int activateColumnIndex = -1;
     int activateItemIndex = -1;
 
@@ -249,6 +254,47 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         }
     }
     
+    const int pane = activePane_;
+    if (homePane_[pane]) {
+        // quick-access-home 4.8: the section-header Clear affordances first
+        // (their rects are recorded in viewport coordinates by RenderHomePane).
+        const auto& clears = homeClearButtons_[pane];
+        const auto inRect = [&clientPoint](const D2D1_RECT_F& rect) {
+            return clientPoint.x >= rect.left && clientPoint.x < rect.right &&
+                   clientPoint.y >= rect.top && clientPoint.y < rect.bottom;
+        };
+        if (inRect(clears.recentFolders) || inRect(clears.recentSearches)) {
+            if (homeActivateCallback_ != nullptr) {
+                HomeActivation activation;
+                activation.kind = inRect(clears.recentFolders)
+                    ? HomeActionKind::ClearRecentFolders : HomeActionKind::ClearRecentSearches;
+                homeActivateCallback_(activation);
+            }
+            return;
+        }
+        // quick-access-home 4.4: hit-test the Home surface. `clientPoint` is
+        // converted to pane-local coords (pane origin removed) and the vertical
+        // scroll offset is folded into the content offset so the Point2F lands
+        // in the same coordinate space the layout was drawn in.
+        const float paneWidth = dualPane_ ? viewportWidth / 2.0f : viewportWidth;
+        const float paneX = (dualPane_ && pane == 1) ? paneWidth : 0.0f;
+        const D2D1_POINT_2F localPoint = D2D1::Point2F(clientPoint.x - paneX, clientPoint.y);
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+        const float vso = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        const float contentOffsetY = kBadgeHeight - vso;
+        const int hit = ComputeHomeItemHitTest(layout, localPoint, contentOffsetY);
+        int& focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+        if (hit >= 0) {
+            focused = hit;
+            // quick-access-home 4.4: Ctrl (control) => open in new tab; the
+            // activation always routes through the callback.
+            ActivateHomeItem(pane, hit, control);
+        } else {
+            focused = -1;
+        }
+        return;
+    }
+
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
     const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
     const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
@@ -275,6 +321,31 @@ void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, floa
             ActivatePane(hoveredPane); // keep hover coords in the active pane, as OnMouseDown does
         }
     }
+    const int pane = activePane_;
+    if (homePane_[pane]) {
+        // quick-access-home 4.4: paint-only hover tracking for the Home surface
+        // (no selection change). `hoverColumn_` is set to -1 in Home mode so the
+        // column renderer's hover test (which requires a valid column) never
+        // matches; the Home draw loop tests `hoverColumn_ == -1` instead.
+        const float paneWidth = dualPane_ ? viewportWidth / 2.0f : viewportWidth;
+        const float paneX = (dualPane_ && pane == 1) ? paneWidth : 0.0f;
+        const D2D1_POINT_2F localPoint = D2D1::Point2F(clientPoint.x - paneX, clientPoint.y);
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+        const float vso = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        const int hit = ComputeHomeItemHitTest(layout, localPoint, kBadgeHeight - vso);
+        if (hit != hoverItem_ || hoverColumn_ != -1 || !hoverActive_) {
+            hoverItem_ = hit;
+            hoverColumn_ = -1;
+            hoverActive_ = true;
+            hoverEnterMs_ = static_cast<uint64_t>(GetTickCount64());
+            hoverOpacity_.AnimateTo(1.0f, kUiAnimationDefaultMs, hoverEnterMs_);
+            if (repaint_) {
+                repaint_();
+            }
+        }
+        return;
+    }
+
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
     const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
     const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
@@ -374,6 +445,16 @@ void ColumnView::RefreshAllColumns() {
 
 void ColumnView::ScrollVertical(float delta, float viewportHeight) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    // quick-access-home 4.x: Home clamps against the laid-out content height.
+    const int pane = activePane_;
+    if (homePane_[pane]) {
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+        const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+        const float maximum = (std::max)(0.0f, layout.contentHeight - visibleHeight);
+        float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        offset = std::clamp(offset + delta, 0.0f, maximum);
+        return;
+    }
     auto& columns = ActiveColumns();
     const int focusedIndex = ActiveFocusedColumnIndex();
     const size_t itemCount = focusedIndex >= 0 && focusedIndex < static_cast<int>(columns.size())
@@ -386,6 +467,29 @@ void ColumnView::ScrollVertical(float delta, float viewportHeight) {
 
 void ColumnView::EnsureFocusedItemVisible(float viewportHeight) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    // quick-access-home 4.x: Home uses the focused item's rect from the layout.
+    const int pane = activePane_;
+    if (homePane_[pane]) {
+        const int focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+        if (focused < 0) return;
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+        float itemTop = 0.0f;
+        float itemBottom = 0.0f;
+        for (const auto& item : layout.items) {
+            if (item.globalIndex == focused) {
+                itemTop = item.y;
+                itemBottom = item.y + item.height;
+                break;
+            }
+        }
+        const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+        float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        if (itemTop < offset) offset = itemTop;
+        else if (itemBottom > offset + visibleHeight) offset = itemBottom - visibleHeight;
+        const float maximum = (std::max)(0.0f, layout.contentHeight - visibleHeight);
+        offset = std::clamp(offset, 0.0f, maximum);
+        return;
+    }
     auto& columns = ActiveColumns();
     const int focusedIndex = ActiveFocusedColumnIndex();
     if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
@@ -533,6 +637,12 @@ int ColumnView::FocusedItemIndex() const {
 }
 
 std::wstring ColumnView::ActivePanePath() const {
+    // quick-access-home 4.2: a Home pane has no filesystem path -- returning the
+    // empty string keeps every downstream consumer (file ops, reconciliation,
+    // address-bar seeding) safe, identical to the "This PC" root.
+    if (homePane_[activePane_]) {
+        return {};
+    }
     std::lock_guard<std::mutex> lock(columnsMutex_);
     const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
     const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
@@ -540,6 +650,164 @@ std::wstring ColumnView::ActivePanePath() const {
         return {};
     }
     return columns[focusedIndex].path;
+}
+
+// quick-access-home 4.2: data + activation plumbing. These never touch the
+// engine; the shell pushes a fresh `HomeData` and owns the activation routing.
+void ColumnView::SetHomeData(const HomeData& data) {
+    homeData_ = data;
+}
+
+void ColumnView::SetHomeActivateCallback(std::function<void(const HomeActivation&)> callback) {
+    homeActivateCallback_ = std::move(callback);
+}
+
+bool ColumnView::IsPaneHome(int paneIndex) const {
+    if (paneIndex < 0 || paneIndex > 1) return false;
+    return homePane_[paneIndex];
+}
+
+void ColumnView::SetPaneHome(int paneIndex, bool home) {
+    if (paneIndex < 0 || paneIndex > 1) return;
+    if (home == homePane_[paneIndex]) return;
+    homePane_[paneIndex] = home;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = paneIndex == 0 ? columns_ : columns2_;
+        int& focusedIndex = paneIndex == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        // quick-access-home 4.2: entering Home discards the pane's stale column
+        // model so it is never rendered or engine-refreshed while Home is shown.
+        columns.clear();
+        focusedIndex = 0;
+        if (paneIndex == 0) { verticalScrollOffset_ = 0.0f; scrollOffset_ = 0.0f; }
+        else { verticalScrollOffset2_ = 0.0f; scrollOffset2_ = 0.0f; }
+    }
+    if (paneIndex == 0) homeFocusedIndex_ = -1;
+    else homeFocusedIndex2_ = -1;
+    hoverItem_ = -1;
+    hoverColumn_ = -1;
+    hoverActive_ = false;
+}
+
+void ColumnView::HomeActivateFocused() {
+    const int pane = activePane_;
+    if (!homePane_[pane]) return;
+    const int focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+    if (focused >= 0) {
+        ActivateHomeItem(pane, focused, false);
+    }
+}
+
+// quick-access-home 4.2: rebuild the Home layout for a pane from the current
+// `homeData_` and the last known viewport. Pure + cheap; the empty-pinned
+// placeholder keeps the Pinned section present (header + hint) so the laid-out
+// sections flow below it without colliding and hit-testing stays consistent.
+HomeLayoutResult ColumnView::ComputeHomeLayoutForPane(int paneIndex) const {
+    // Both panes share identical half-width geometry in dual-pane mode and the
+    // full width in single-pane mode, so the layout depends only on the last
+    // known viewport, not on which pane index is requested.
+    (void)paneIndex;
+    HomeLayoutInput input{};
+    const float paneWidth = dualPane_ ? (lastViewportWidth_ / 2.0f) : lastViewportWidth_;
+    input.viewportWidth = (std::max)(0.0f, paneWidth);
+    input.viewportHeight = lastViewportHeight_;
+    input.pinnedCount = homeData_.pinned.empty() ? 1 : static_cast<int>(homeData_.pinned.size());
+    input.recentFolderCount = static_cast<int>(homeData_.recentFolders.size());
+    input.recentSearchCount = static_cast<int>(homeData_.recentSearches.size());
+    input.knownFolderCount = static_cast<int>(homeData_.knownFolders.size());
+    input.showActions = homeData_.showActions;
+    return ComputeHomeLayout(input);
+}
+
+// quick-access-home 4.2/4.4: route a Home item activation through the callback.
+// The section + position map back to the owning data vector. The empty-pinned
+// placeholder (Pinned section, index 0, with `homeData_.pinned` empty) is a
+// non-clickable hint and is a no-op here.
+void ColumnView::ActivateHomeItem(int paneIndex, int globalIndex, bool openInNewTab) {
+    if (homeActivateCallback_ == nullptr) return;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(paneIndex);
+    const HomeItemLayout* found = nullptr;
+    for (const auto& item : layout.items) {
+        if (item.globalIndex == globalIndex) {
+            found = &item;
+            break;
+        }
+    }
+    if (found == nullptr) return;
+
+    HomeActivation activation;
+    switch (static_cast<HomeSectionKind>(found->sectionIndex)) {
+        case HomeSectionKind::Pinned:
+            if (homeData_.pinned.empty()) return; // hint placeholder: no-op
+            activation.kind = HomeActionKind::Folder;
+            activation.value = homeData_.pinned[found->indexInSection].path;
+            activation.openInNewTab = openInNewTab;
+            break;
+        case HomeSectionKind::RecentFolders:
+            activation.kind = HomeActionKind::Folder;
+            activation.value = homeData_.recentFolders[found->indexInSection];
+            activation.openInNewTab = openInNewTab;
+            break;
+        case HomeSectionKind::RecentSearches:
+            activation.kind = HomeActionKind::Search;
+            activation.value = homeData_.recentSearches[found->indexInSection];
+            activation.openInNewTab = openInNewTab;
+            break;
+        case HomeSectionKind::CommonLocations:
+            activation.kind = HomeActionKind::Folder;
+            activation.value = homeData_.knownFolders[found->indexInSection].path;
+            activation.openInNewTab = openInNewTab;
+            break;
+        case HomeSectionKind::QuickActions: {
+            // quick-access-home 4.7: New Tab / Search / Open Path / Settings map
+            // to existing commands only (design D4).
+            static const wchar_t* kCommands[] = {
+                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
+            if (found->indexInSection < 0 || found->indexInSection >= 4) return;
+            activation.kind = HomeActionKind::QuickAction;
+            activation.value = kCommands[found->indexInSection];
+            break;
+        }
+    }
+    homeActivateCallback_(activation);
+}
+
+// quick-access-home 4.5: keyboard model for the Home pane. Up/Down move across
+// the flat item list (+-columnCount), Left/Right between the two columns when
+// the layout is two-wide, Enter activates (Ctrl+Enter = new tab for
+// Folder/Search), Home/End jump to first/last. Escape and all other keys are
+// intentionally ignored here so the shell keeps owning them.
+void ColumnView::HandleHomeKeyDown(int virtualKey) {
+    const int pane = activePane_;
+    int& focused = pane == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    switch (virtualKey) {
+        case VK_UP:
+            focused = HomeMoveFocus(layout, focused, 0, -1);
+            break;
+        case VK_DOWN:
+            focused = HomeMoveFocus(layout, focused, 0, 1);
+            break;
+        case VK_LEFT:
+            focused = HomeMoveFocus(layout, focused, -1, 0);
+            break;
+        case VK_RIGHT:
+            focused = HomeMoveFocus(layout, focused, 1, 0);
+            break;
+        case VK_HOME:
+            focused = HomeFirstItem(layout);
+            break;
+        case VK_END:
+            focused = HomeLastItem(layout);
+            break;
+        case VK_RETURN: {
+            const bool control = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            if (focused >= 0) ActivateHomeItem(pane, focused, control);
+            break;
+        }
+        default:
+            break;
+    }
 }
 
 std::wstring ColumnView::RootPath() const {
@@ -764,17 +1032,31 @@ void ColumnView::SetDarkTheme(bool dark) {
         badgeActiveBrush_.Reset(); badgeActiveTextBrush_.Reset();
         badgeDegradedBrush_.Reset(); badgeDegradedTextBrush_.Reset();
         selectionSoftBrush_.Reset(); dividerBrush_.Reset(); hoverOverlayBrush_.Reset();
+        focusStrokeBrush_.Reset(); // quick-access-home 4.3: reset the new brush so it is recreated for the theme
     }
 }
 
 float ColumnView::ContentWidth() const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    // quick-access-home 4.x: a Home pane's content fills the pane, not columns.
+    if (homePane_[activePane_]) {
+        return lastViewportWidth_ > 0.0f
+            ? (dualPane_ ? lastViewportWidth_ / 2.0f : lastViewportWidth_)
+            : 0.0f;
+    }
     const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
     return kColumnWidth * static_cast<float>(columns.size());
 }
 
 float ColumnView::PaneContentWidth(int paneIndex) const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (paneIndex < 0 || paneIndex > 1) return 0.0f;
+    // quick-access-home 4.x: a Home pane's content fills the pane, not columns.
+    if (homePane_[paneIndex]) {
+        return lastViewportWidth_ > 0.0f
+            ? (dualPane_ ? lastViewportWidth_ / 2.0f : lastViewportWidth_)
+            : 0.0f;
+    }
     const auto& columns = paneIndex == 0 ? columns_ : columns2_;
     return kColumnWidth * static_cast<float>(columns.size());
 }
@@ -876,6 +1158,8 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
     context->CreateSolidColorBrush(theme.selectionSoft, &selectionSoftBrush_);
     context->CreateSolidColorBrush(theme.dividerSubtle, &dividerBrush_);
     context->CreateSolidColorBrush(theme.hoverOverlay, &hoverOverlayBrush_);
+    // quick-access-home 4.3: first consumer of the previously-unused focusStroke token.
+    context->CreateSolidColorBrush(theme.focusStroke, &focusStrokeBrush_);
 
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
@@ -891,6 +1175,11 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 
 void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2) {
     EnsureCreated(context, dwriteFactory);
+
+    // quick-access-home 4.x: remember the viewport so input handlers (which
+    // receive no geometry) can rebuild the Home layout for hit-testing / focus.
+    lastViewportWidth_ = viewportSize.width;
+    lastViewportHeight_ = viewportSize.height;
 
     const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
     context->Clear(theme.background);
@@ -930,6 +1219,10 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     // Task 3.4: there is a single hover target, so the fade advances once per
     // frame; the shell only repaints while HoverAnimating() holds.
     hoverOpacity_.Tick(nowMs);
+    // quick-access-home 4.3: hoisted to Render scope so both the column and
+    // Home render lambdas can read the lingering fade-out window.
+    const bool lingerFade = hoverLeaveMs_ != 0 &&
+        (nowMs - hoverLeaveMs_) < static_cast<uint64_t>(kUiAnimationDefaultMs);
 
     std::lock_guard<std::mutex> lock(columnsMutex_);
 
@@ -1017,7 +1310,8 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 // Task 3.4: hover tracks the active pane only; the lingering
                 // fade-out window (150 ms after OnMouseLeave) keeps the pill
                 // visible while it dims. Overlay is skipped in High Contrast.
-                const bool lingerFade = hoverLeaveMs_ != 0 && (nowMs - hoverLeaveMs_) < static_cast<uint64_t>(kUiAnimationDefaultMs);
+                // (lingerFade is hoisted to Render scope and shared with the
+                // Home render lambda.)
                 const bool hoverRow = isActivePane && hoverColumn_ == i && hoverItem_ == r && !isSelected && (hoverActive_ || lingerFade);
                 if (hoverRow && !highContrast) {
                     const float alpha = hoverOpacity_.Value();
@@ -1076,14 +1370,197 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         }
     };
 
+    // quick-access-home 4.3: render the Home surface for one pane. Drawn in the
+    // pane's rect (pane-local origin already removed via `paneX`), starting
+    // below the status badge like the column surface. The vertical scroll offset
+    // is applied so long lists scroll; a clip rect keeps content out of the
+    // badge band and off the dual-pane divider. High Contrast suppresses the
+    // token hover overlay and the focus ring and uses the system highlight.
+    auto RenderHomePane = [&](int paneIndex, float paneX, float paneWidth, float viewportHeight) {
+        if (!homePane_[paneIndex]) return;
+        const float vso = paneIndex == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        const bool isActivePane = (activePane_ == paneIndex);
+        const int focusedItem = paneIndex == 0 ? homeFocusedIndex_ : homeFocusedIndex2_;
+
+        HomeLayoutInput input{};
+        input.viewportWidth = (std::max)(0.0f, paneWidth);
+        input.viewportHeight = viewportHeight;
+        // Empty `pinned` is surfaced as one placeholder item so the Pinned
+        // section (header + "Pin folders to see them here." hint) still renders
+        // before the real sections, keeping hit-testing consistent.
+        input.pinnedCount = homeData_.pinned.empty() ? 1 : static_cast<int>(homeData_.pinned.size());
+        input.recentFolderCount = static_cast<int>(homeData_.recentFolders.size());
+        input.recentSearchCount = static_cast<int>(homeData_.recentSearches.size());
+        input.knownFolderCount = static_cast<int>(homeData_.knownFolders.size());
+        input.showActions = homeData_.showActions;
+        const HomeLayoutResult layout = ComputeHomeLayout(input);
+
+        static const wchar_t* kSectionTitles[] = {
+            L"Pinned", L"Recent folders", L"Recent searches", L"Common locations", L"Quick actions"};
+
+        // Clip to the pane minus the badge band.
+        D2D1_RECT_F clip = D2D1::RectF(paneX, kBadgeHeight, paneX + paneWidth, viewportSize.height);
+        context->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
+
+        // Section headers (drawn above each section's items). Recent folders /
+        // Recent searches additionally expose a right-aligned "Clear"
+        // affordance whose hit rect is recorded for OnMouseDown.
+        homeClearButtons_[paneIndex] = {};
+        for (const auto& section : layout.sections) {
+            const float hx = paneX + section.headerX;
+            const float hy = kBadgeHeight + section.headerY - vso;
+            const wchar_t* title = (section.sectionIndex >= 0 && section.sectionIndex <= 4)
+                ? kSectionTitles[section.sectionIndex] : L"";
+            D2D1_RECT_F hdrRect = D2D1::RectF(hx, hy, hx + section.headerWidth, hy + section.headerHeight);
+            context->DrawText(title, static_cast<UINT32>(wcslen(title)), badgeTextFormat_.Get(), hdrRect,
+                              textSecondaryBrush_.Get());
+            if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) ||
+                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches)) {
+                const float clearWidth = 44.0f;
+                const D2D1_RECT_F clearRect = D2D1::RectF(hx + section.headerWidth - clearWidth, hy,
+                                                          hx + section.headerWidth, hy + section.headerHeight);
+                context->DrawText(L"Clear", 5, badgeTextFormat_.Get(), clearRect, textSecondaryBrush_.Get());
+                if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) {
+                    homeClearButtons_[paneIndex].recentFolders = clearRect;
+                } else {
+                    homeClearButtons_[paneIndex].recentSearches = clearRect;
+                }
+            }
+        }
+
+        for (const auto& item : layout.items) {
+            const float x = paneX + item.x;
+            const float y = kBadgeHeight + item.y - vso;
+            const float w = item.width;
+            const float h = item.height;
+            const bool isFocused = isActivePane && item.globalIndex == focusedItem;
+
+            std::wstring primary;
+            std::wstring secondary;
+            std::wstring glyph;
+            bool isFolderIcon = false;
+            switch (static_cast<HomeSectionKind>(item.sectionIndex)) {
+                case HomeSectionKind::Pinned:
+                    if (homeData_.pinned.empty()) {
+                        primary = L"Pin folders to see them here."; // hint placeholder
+                    } else {
+                        const auto& b = homeData_.pinned[item.indexInSection];
+                        primary = b.displayName.empty() ? b.path : b.displayName;
+                        secondary = b.path;
+                        isFolderIcon = true;
+                    }
+                    break;
+                case HomeSectionKind::RecentFolders:
+                    primary = homeData_.recentFolders[item.indexInSection];
+                    isFolderIcon = true;
+                    break;
+                case HomeSectionKind::RecentSearches:
+                    primary = homeData_.recentSearches[item.indexInSection];
+                    glyph = L"\uE721"; // magnifier
+                    break;
+                case HomeSectionKind::CommonLocations: {
+                    const auto& b = homeData_.knownFolders[item.indexInSection];
+                    primary = b.displayName.empty() ? b.path : b.displayName;
+                    secondary = b.path;
+                    isFolderIcon = true;
+                    break;
+                }
+                case HomeSectionKind::QuickActions: {
+                    static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Open Path", L"Settings"};
+                    static const wchar_t* kGlyphs[] = {L"\uE8A7", L"\uE721", L"\uE8B7", L"\uE713"};
+                    if (item.indexInSection >= 0 && item.indexInSection < 4) {
+                        primary = kLabels[item.indexInSection];
+                        glyph = kGlyphs[item.indexInSection];
+                    }
+                    break;
+                }
+            }
+
+            const bool hoverRow = isActivePane && hoverItem_ == item.globalIndex && hoverColumn_ == -1 &&
+                                  (hoverActive_ || lingerFade) && !highContrast;
+
+            // Focused fill (selection pill equivalent). High Contrast reuses the
+            // system highlight brush set up above; otherwise the soft fill.
+            if (isFocused) {
+                D2D1_RECT_F fillRect = D2D1::RectF(x + 2.0f, y + 2.0f, x + w - 2.0f, y + h - 2.0f);
+                ID2D1SolidColorBrush* fillBrush = highContrast ? selectionBrush_.Get() : selectionSoftBrush_.Get();
+                ffui::UiFillRoundedRect(context, fillRect, fillBrush, kHomeRadiusMedium);
+            }
+
+            // Hover overlay (token overlay, suppressed in High Contrast).
+            if (hoverRow) {
+                const float alpha = hoverOpacity_.Value();
+                if (alpha > 0.001f) {
+                    D2D1_RECT_F hoverRect = D2D1::RectF(x + 2.0f, y + 2.0f, x + w - 2.0f, y + h - 2.0f);
+                    D2D1_COLOR_F transparentOverlay = theme.hoverOverlay;
+                    transparentOverlay.a = 0.0f;
+                    const D2D1_COLOR_F overlayColor = ffui::UiLerpColor(transparentOverlay, theme.hoverOverlay, alpha);
+                    ffui::UiFillHoverOverlay(context, hoverRect, kHomeRadiusMedium, overlayColor, &hoverOverlayBrush_);
+                }
+            }
+
+            // Focus ring: first consumer of the theme.focusStroke token; suppressed
+            // in High Contrast (the filled pill already signals focus there).
+            if (isFocused && !highContrast && focusStrokeBrush_ != nullptr) {
+                D2D1_ROUNDED_RECT fr{D2D1::RectF(x + 1.5f, y + 1.5f, x + w - 1.5f, y + h - 1.5f),
+                                     kHomeRadiusMedium, kHomeRadiusMedium};
+                context->DrawRoundedRectangle(&fr, focusStrokeBrush_.Get(), 1.0f);
+            }
+
+            // Icon / glyph + text. Folder items use the shared IconCache
+            // (Prefetch is cheap); everything else is a best-effort glyph char
+            // drawn in the existing font (label remains the source of truth).
+            float textX = x + 8.0f;
+            if (isFolderIcon) {
+                if (iconCache_ != nullptr) {
+                    iconCache_->Prefetch(ffui::FolderKey());
+                }
+                ID2D1Bitmap1* icon = nullptr;
+                if (iconCache_ != nullptr && iconCache_->Get(context, ffui::FolderKey(), &icon) && icon != nullptr) {
+                    const float iconY = y + (h - ffui::UiMetrics::kIconSize) / 2.0f;
+                    context->DrawBitmap(icon,
+                        D2D1::RectF(x + 8.0f, iconY, x + 8.0f + ffui::UiMetrics::kIconSize, iconY + ffui::UiMetrics::kIconSize),
+                        1.0f, D2D1_INTERPOLATION_MODE_LINEAR);
+                } else {
+                    D2D1_RECT_F glyphRect = D2D1::RectF(x + 8.0f, y + h / 2.0f - 4.0f, x + 16.0f, y + h / 2.0f + 4.0f);
+                    context->FillRectangle(glyphRect, folderGlyphBrush_.Get());
+                }
+                textX = x + 32.0f;
+            } else if (!glyph.empty()) {
+                D2D1_RECT_F glyphRect = D2D1::RectF(x + 8.0f, y, x + 32.0f, y + h);
+                context->DrawText(glyph.c_str(), 1, textFormat_.Get(), glyphRect, textSecondaryBrush_.Get());
+                textX = x + 32.0f;
+            }
+
+            if (!primary.empty()) {
+                const float halfH = y + h / 2.0f;
+                D2D1_RECT_F primaryRect = D2D1::RectF(textX, y + 2.0f, x + w - 8.0f,
+                                                      secondary.empty() ? y + h - 2.0f : halfH);
+                context->DrawText(primary.c_str(), static_cast<UINT32>(primary.size()), textFormat_.Get(),
+                                  primaryRect, textBrush_.Get());
+            }
+            if (!secondary.empty()) {
+                D2D1_RECT_F secondaryRect = D2D1::RectF(textX, y + h / 2.0f, x + w - 8.0f, y + h - 2.0f);
+                context->DrawText(secondary.c_str(), static_cast<UINT32>(secondary.size()), textFormat_.Get(),
+                                  secondaryRect, textSecondaryBrush_.Get());
+            }
+        }
+
+        context->PopAxisAlignedClip();
+    };
+
     if (dualPane_) {
         const float paneWidth = viewportSize.width / 2.0f;
-        RenderPane(columns_, 0.0f, paneWidth, scrollOffset, verticalScrollOffset_, activePane_ == 0);
+        if (homePane_[0]) RenderHomePane(0, 0.0f, paneWidth, viewportSize.height);
+        else RenderPane(columns_, 0.0f, paneWidth, scrollOffset, verticalScrollOffset_, activePane_ == 0);
+        // Keep the dual-pane divider regardless of which surface each pane shows.
         context->DrawLine(D2D1_POINT_2F{paneWidth, kBadgeHeight}, D2D1_POINT_2F{paneWidth, viewportSize.height},
                            borderBrush_.Get(), 2.0f);
-        RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2, verticalScrollOffset2_, activePane_ == 1);
+        if (homePane_[1]) RenderHomePane(1, paneWidth, paneWidth, viewportSize.height);
+        else RenderPane(columns2_, paneWidth, paneWidth, scrollOffset2, verticalScrollOffset2_, activePane_ == 1);
     } else {
-        RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset, verticalScrollOffset_, true);
+        if (homePane_[0]) RenderHomePane(0, 0.0f, viewportSize.width, viewportSize.height);
+        else RenderPane(columns_, 0.0f, viewportSize.width, scrollOffset, verticalScrollOffset_, true);
     }
 }
 
@@ -1095,7 +1572,13 @@ void ColumnView::SetDualPane(bool enabled) {
         // location. Clone the visible column model so the new pane is useful
         // immediately instead of presenting an empty surface until another
         // navigation event occurs.
-        columns2_ = columns_;
+        // quick-access-home 4.2: if pane 0 is Home, do NOT clone its (empty)
+        // column model into pane 2 -- the shell sets pane 2's state right after.
+        if (homePane_[0]) {
+            columns2_.clear();
+        } else {
+            columns2_ = columns_;
+        }
         focusedColumnIndex2_ = focusedColumnIndex_;
         scrollOffset2_ = scrollOffset_;
         verticalScrollOffset2_ = verticalScrollOffset_;
@@ -1146,7 +1629,10 @@ void ColumnView::SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, 
 void ColumnView::SavePaneState(int paneIndex, std::vector<std::wstring>& outColumnPaths,
                                int& outFocusedIndex, float& outScrollOffset) const {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_)) {
+    // quick-access-home 4.2: a Home pane has no column model to persist, so the
+    // shell treats an empty result as "re-navigate from currentPath" (which for
+    // Home means staying Home). Stale column paths must never persist.
+    if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_) || homePane_[paneIndex]) {
         outColumnPaths.clear();
         outFocusedIndex = 0;
         outScrollOffset = 0.0f;
@@ -1173,7 +1659,9 @@ void ColumnView::RestorePaneState(int paneIndex, const std::vector<std::wstring>
     if (columnPaths.empty()) return;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
-        if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_)) return;
+        // quick-access-home 4.2: ignore restore for Home panes; the shell sets
+        // Home state separately via SetPaneHome, so no stale columns reappear.
+        if (paneIndex < 0 || paneIndex > 1 || (paneIndex == 1 && !dualPane_) || homePane_[paneIndex]) return;
         auto& columns = paneIndex == 0 ? columns_ : columns2_;
         int& focusedIndexRef = paneIndex == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
         float& scrollOffsetRef = paneIndex == 0 ? scrollOffset_ : scrollOffset2_;

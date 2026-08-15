@@ -4,6 +4,8 @@
 // ramp (see modernize-ui-appearance foundation).
 #include "UITheme.h"
 #include "UiAnimation.h"
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <d2d1_1.h>
 #include <dwrite.h>
@@ -20,6 +22,9 @@
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "ffui/SnapshotFreshness.h"
+
+#include "ffui/HomeLayout.h" // quick-access-home 4.x: pure Home layout seam
+#include "HomeData.h"        // quick-access-home 4.1: HomeData / HomeActivation
 
 #ifdef _DEBUG
 #include "ffui/SelectionIdentity.h"
@@ -271,6 +276,18 @@ public:
     int& ActiveFocusedColumnIndex();
     float& ActiveScrollOffset();
 
+    // quick-access-home 4.2: per-pane Home mode. `SetPaneHome` switches a pane
+    // between the filesystem column surface and the Home surface; entering Home
+    // clears that pane's stale column model so it is never rendered or
+    // engine-refreshed. `ActivePanePath()` returns L"" for a Home pane.
+    void SetHomeData(const HomeData& data);
+    void SetHomeActivateCallback(std::function<void(const HomeActivation&)> callback);
+    void SetPaneHome(int paneIndex, bool home);
+    bool IsPaneHome(int paneIndex) const;
+    // Activate the active pane's currently focused Home item (keyboard Enter
+    // path). Activation always routes through the `homeActivateCallback_`.
+    void HomeActivateFocused();
+
     void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float scrollOffset, float scrollOffset2 = 0.0f);
 
     float ContentWidth() const;
@@ -332,6 +349,9 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selectionSoftBrush_;  // unfocused-selection soft fill
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;        // subtle 1-DIP column hairline
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hoverOverlayBrush_;   // hover overlay (alpha faded per frame)
+    // quick-access-home 4.3: first consumer of the previously-unused
+    // `focusStroke` theme token -- the 1-DIP focus ring around the focused Home item.
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> focusStrokeBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
     // Task 3 restyle: hover overlay state (see OnMouseMove/OnMouseLeave/
@@ -353,6 +373,38 @@ private:
     float scrollOffset2_ = 0.0f;
     float verticalScrollOffset_ = 0.0f;
     float verticalScrollOffset2_ = 0.0f;
+
+    // quick-access-home 4.2: Home surface state. `homePane_` marks which panes
+    // are showing the Home surface instead of columns; `homeFocusedIndex_(2)`
+    // is the keyboard/hover focus in the active pane's Home item list; the
+    // viewport size is remembered from Render so input handlers (which receive
+    // no geometry) can rebuild the layout for hit-testing / focus movement.
+    HomeData homeData_;
+    std::array<bool, 2> homePane_{false, false};
+    std::function<void(const HomeActivation&)> homeActivateCallback_;
+    int homeFocusedIndex_ = -1;
+    int homeFocusedIndex2_ = -1;
+    float lastViewportWidth_ = 0.0f;
+    float lastViewportHeight_ = 0.0f;
+
+    // quick-access-home 4.2: rebuild the Home layout for a pane from `homeData_`
+    // and the last known viewport. Pure + cheap; used by Render and input
+    // handlers. Empty `pinned` is surfaced as a single placeholder item (the
+    // "Pin folders to see them here." hint) so the Pinned section still renders
+    // with its header before the real sections, keeping hit-testing consistent.
+    HomeLayoutResult ComputeHomeLayoutForPane(int paneIndex) const;
+    void ActivateHomeItem(int paneIndex, int globalIndex, bool openInNewTab);
+    void HandleHomeKeyDown(int virtualKey);
+
+    // quick-access-home 4.8: hit rects (viewport coordinates) of the "Clear"
+    // affordances drawn in the Recent folders / Recent searches section
+    // headers, one pair per pane. Refreshed every Home render and hit-tested
+    // in OnMouseDown so clearing never needs keyboard focus plumbing.
+    struct HomeClearButtons {
+        D2D1_RECT_F recentFolders{0.0f, 0.0f, 0.0f, 0.0f};
+        D2D1_RECT_F recentSearches{0.0f, 0.0f, 0.0f, 0.0f};
+    };
+    std::array<HomeClearButtons, 2> homeClearButtons_{};
 };
 
 // Converts a navigation-surface point into the active pane's local column and
@@ -408,6 +460,56 @@ inline ColumnHitTestResult ComputeColumnHitTest(D2D1_POINT_2F clientPoint,
     }
     return {static_cast<int>(contentX / UiMetrics::kColumnWidth),
             static_cast<int>(contentY / UiMetrics::kRowHeight)};
+}
+
+// quick-access-home 4.4: pure hit-test over the Home surface. `clientPoint` is
+// already in pane-local DIP coordinates (the caller has removed the pane
+// origin), and `contentOffsetY` is the vertical offset the surface is drawn at
+// (the status badge height; plus any vertical scroll offset applied at draw
+// time). Returns the `globalIndex` of the item whose rect contains the point,
+// or -1. The `items` vector is bounded (<= kHomeMaxItems = 200) and in
+// ascending global order, so a short linear scan is sufficient and exact.
+inline int ComputeHomeItemHitTest(const ffui::HomeLayoutResult& layout, D2D1_POINT_2F clientPoint, float contentOffsetY) {
+    const float py = clientPoint.y - contentOffsetY;
+    for (const auto& item : layout.items) {
+        if (clientPoint.x >= item.x && clientPoint.x <= item.x + item.width &&
+            py >= item.y && py <= item.y + item.height) {
+            return item.globalIndex;
+        }
+    }
+    return -1;
+}
+
+// quick-access-home 4.5: grid-aware Home focus movement. `deltaY` moves a row
+// (+-columnCount in global index); `deltaX` moves a column (+-1) only when the
+// layout is two columns, otherwise it is a no-op. Out-of-range moves clamp at
+// the list bounds. A -1 "no focus" index with any movement lands on the first
+// item. Pure and total: a layout with no items (totalItemCount <= 0) returns
+// -1. Depends only on `columnCount` / `totalItemCount` so it works on a
+// partially-built layout (no `items` needed).
+inline int HomeMoveFocus(const ffui::HomeLayoutResult& layout, int currentGlobalIndex, int deltaX, int deltaY) {
+    if (layout.totalItemCount <= 0) {
+        return -1;
+    }
+    if (currentGlobalIndex < 0) {
+        return 0; // any movement from "no focus" selects the first item
+    }
+    const int columnCount = (std::max)(1, layout.columnCount);
+    int next = currentGlobalIndex + deltaY * columnCount;
+    if (deltaX != 0 && columnCount == 2) {
+        next += deltaX;
+    }
+    const int last = (std::max)(0, layout.totalItemCount - 1);
+    return (std::clamp)(next, 0, last);
+}
+
+// quick-access-home 4.5: Home/End jumps (first / last item of the whole list).
+inline int HomeFirstItem(const ffui::HomeLayoutResult& layout) {
+    return layout.totalItemCount <= 0 ? -1 : 0;
+}
+
+inline int HomeLastItem(const ffui::HomeLayoutResult& layout) {
+    return layout.totalItemCount <= 0 ? -1 : (std::max)(0, layout.totalItemCount - 1);
 }
 
 } // namespace ffui
