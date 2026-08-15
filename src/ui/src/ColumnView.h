@@ -26,6 +26,8 @@
 #include "ffui/HomeLayout.h" // quick-access-home 4.x: pure Home layout seam
 #include "HomeData.h"        // quick-access-home 4.1: HomeData / HomeActivation
 
+#include "ffui/UiaSurface.h"  // semantic-uia-core-surfaces 1.3: pure UIA projection seam
+
 #ifdef _DEBUG
 #include "ffui/SelectionIdentity.h"
 #endif
@@ -33,6 +35,9 @@
 #include "EngineClient.h"
 #include "Preview.h"
 #include "CommandSystem.h"
+
+#include "UiaNotifications.h" // semantic-uia-core-surfaces 2.6: semantic event sink
+#include "UiaProviderBase.h"  // semantic-uia-core-surfaces 1.1: owner-lifetime token
 
 namespace ffui {
 
@@ -187,8 +192,10 @@ inline std::vector<std::wstring> BuildNavigationPathChain(const std::wstring& pa
 // Tasks 5.3-5.10: the Finder-style multi-column navigation model and its
 // Direct2D/DirectWrite rendering, reading directory contents through
 // EngineClient's degraded-mode-backed snapshot (design.md D5).
-class ColumnView {
+class ColumnView : public UiaSurface {
 public:
+    ColumnView();
+    ~ColumnView() override;
     void Initialize(EngineClient* engineClient);
 
     // Task 5.3/5.4/5.5: selecting an item in a column. Folders truncate
@@ -309,19 +316,90 @@ public:
     static constexpr float kRowHeight = UiMetrics::kRowHeight;
     static constexpr float kBadgeHeight = UiMetrics::kBadgeHeight;
 
+    // semantic-uia-core-surfaces 2.4: UIA surface implementation. The
+    // provider tree queries and mutates ONLY through these methods, which
+    // project the exact state used for rendering and input (design D3).
+    UiaViewGeometry UiaGeometry() const override;
+    int UiaPaneCount() const override;
+    int UiaActivePane() const override;
+    bool UiaPaneIsHome(int pane) const override;
+    int UiaColumnCount(int pane) const override;
+    UiaColumnInfo UiaColumnInfoOf(int pane, int col) const override;
+    UiaItemInfo UiaItemInfoOf(int pane, int col, int row) const override;
+    int UiaFocusedColumn(int pane) const override;
+    int UiaFocusedRow(int pane, int column) const override;
+    float UiaVerticalScroll(int pane) const override;
+    int UiaHomeItemCount(int pane) const override;
+    UiaHomeItemInfo UiaHomeItemInfoOf(int pane, int globalIndex) const override;
+    int UiaHomeSectionCount(int pane) const override;
+    UiaHomeSectionInfo UiaHomeSectionInfoOf(int pane, int section) const override;
+    UiaHomeScrollInfo UiaHomeScrollInfoOf(int pane) const override;
+    int UiaHomeFocusTarget(int pane) const override;
+    int UiaHomeFocusIndex(int pane) const override;
+    void UiaActivatePane(int pane) override;
+    void UiaSelectItem(int pane, int col, int row) override;
+    void UiaToggleItem(int pane, int col, int row) override;
+    void UiaRangeSelectItem(int pane, int col, int row) override;
+    void UiaActivateItem(int pane, int col, int row) override;
+    void UiaSetItemFocus(int pane, int col, int row) override;
+    void UiaSetColumnFocus(int pane, int col) override;
+    void UiaScrollPane(int pane, float deltaX, float deltaY) override;
+    void UiaSetHorizontalScroll(int pane, float offsetDip) override;
+    void UiaScrollItemIntoView(int pane, int col, int row) override;
+    void UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) override;
+    void UiaActivateHomeClear(int pane, int clearKind) override;
+    void UiaSetHomeFocusItem(int pane, int globalIndex) override;
+    void UiaSetHomeFocusClear(int pane, int clearKind) override;
+    void UiaScrollHomeItemIntoView(int pane, int globalIndex) override;
+
+    // semantic-uia-core-surfaces 2.5: provider plumbing. The shell pushes the
+    // live viewport geometry on layout/DPI changes and every render,
+    // registers the pane-0 horizontal-scroll writer (the shell animates it
+    // like Shift+wheel), and creates/releases the fragment root.
+    void SetUiaGeometry(const UiaViewGeometry& geometry);
+    void SetUiaKeyboardFocusOwned(bool owned);
+    void SetUiaHorizontalScrollWriter(std::function<void(float)> writer);
+    void SetUiaEventSink(UiaEventSink sink, void* context);
+    Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> UiaRootProvider(HWND hwnd);
+    void ReleaseUiaProvider();
+
 private:
     static Column MakeComputerRootColumn();
     void TruncateAfter(int columnIndex);
     void RequestColumn(int columnIndex, const std::wstring& path);
     void RefreshColumnFromSnapshot(Column& column,
                                    const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
-                                   uint64_t generation);
+                                   uint64_t generation,
+                                   int pane, int columnIndex,
+                                   std::vector<UiaEventNotification>& outEvents);
     void MarkSnapshotLoadFailed(uint64_t generation);
     void MarkPathLoading(const std::wstring& path);
     static void SelectSingle(Column& column, int itemIndex);
     static void ToggleSelection(Column& column, int itemIndex);
     static void SelectRange(Column& column, int itemIndex);
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
+
+    // semantic-uia-core-surfaces 2.4/2.6: UIA projection state and event
+    // plumbing. Every event notification fires AFTER the mutating lock is
+    // released so a UIA client callback can re-enter the provider without
+    // deadlocking (design D6/D12).
+    struct UiaSelectionSnapshot {
+        bool valid = false;
+        int targetColumn = -1;
+        std::set<int> selected;
+        int focusColumn = -1;
+        int focusRow = -1;
+    };
+    UiaSelectionSnapshot CaptureUiaSelectionLocked(int pane, int targetColumn) const;
+    void NotifyUia(const UiaEventNotification& notification);
+    void NotifyUiaFocus();
+    void NotifyUiaSelectionTransition(const UiaSelectionSnapshot& before, int pane);
+    void ClampVerticalScrollForPane(int pane, float delta, float viewportHeight);
+    UiaViewGeometry uiaGeometry_;
+    std::function<void(float)> uiaHorizontalScrollWriter_;
+    UiaEventRouter uiaEvents_;
+    UiaOwnerStatePtr uiaState_;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> uiaProvider_;
 
     EngineClient* engineClient_ = nullptr;
     mutable std::mutex columnsMutex_;

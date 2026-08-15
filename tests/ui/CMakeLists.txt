@@ -86,6 +86,42 @@ target_include_directories(ffshortcut_routing_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffshortcut_routing_tests PRIVATE shell32)
 add_test(NAME ffshortcut_routing_tests COMMAND ffshortcut_routing_tests)
 
+# semantic-uia-core-surfaces 6.x: headless provider tests over a fake
+# UiaSurface (no window/renderer/engine). The provider sources compile into
+# the test targets; the seam headers come from src/ui/src + include.
+set(FFUIA_PROVIDER_SOURCES
+    ../../src/ui/src/UiaProviderBase.cpp
+    ../../src/ui/src/ColumnViewUiaProvider.cpp
+    ../../src/ui/src/SearchUiaProvider.cpp)
+set(FFUIA_TEST_INCLUDES
+    .. ../../src/ui/src ../../src/ui/include ../../src/protocol/include
+    ../../src/ipc/include ../../src/setup/include ../../src/search/include)
+set(FFUIA_TEST_LIBS ole32 oleaut32 uiautomationcore)
+
+add_executable(ffcolumnview_uia_tests test_columnview_uia.cpp ${FFUIA_PROVIDER_SOURCES})
+target_include_directories(ffcolumnview_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
+target_link_libraries(ffcolumnview_uia_tests PRIVATE ${FFUIA_TEST_LIBS})
+add_test(NAME ffcolumnview_uia_tests COMMAND ffcolumnview_uia_tests)
+
+add_executable(ffhome_uia_tests test_home_uia.cpp ${FFUIA_PROVIDER_SOURCES})
+target_include_directories(ffhome_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
+target_link_libraries(ffhome_uia_tests PRIVATE ${FFUIA_TEST_LIBS})
+add_test(NAME ffhome_uia_tests COMMAND ffhome_uia_tests)
+
+add_executable(ffsearch_uia_tests test_search_uia.cpp ${FFUIA_PROVIDER_SOURCES})
+target_include_directories(ffsearch_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
+target_link_libraries(ffsearch_uia_tests PRIVATE ${FFUIA_TEST_LIBS})
+add_test(NAME ffsearch_uia_tests COMMAND ffsearch_uia_tests)
+
+add_executable(ffuia_geometry_tests test_uia_geometry.cpp)
+target_include_directories(ffuia_geometry_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+add_test(NAME ffuia_geometry_tests COMMAND ffuia_geometry_tests)
+
+add_executable(ffuia_events_tests test_uia_events.cpp ${FFUIA_PROVIDER_SOURCES})
+target_include_directories(ffuia_events_tests PRIVATE ${FFUIA_TEST_INCLUDES})
+target_link_libraries(ffuia_events_tests PRIVATE ${FFUIA_TEST_LIBS})
+add_test(NAME ffuia_events_tests COMMAND ffuia_events_tests)
+
 # Debug-only read-only state query used by the disposable watcher/reorder
 # acceptance; it is intentionally not registered as a CTest test.
 add_executable(ffselection_identity_runtime_probe selection_identity_runtime_probe.cpp)

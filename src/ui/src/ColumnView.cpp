@@ -8,11 +8,13 @@
 #include "ffui/SelectionIdentity.h"
 #include "ffui/SnapshotPathLookup.h"
 #include "ffprotocol/Diagnostics.h"
+#include "ColumnViewUiaProvider.h" // semantic-uia-core-surfaces 2.4
 
 #include <algorithm>
 #include <cwchar>
 #include <functional>
 #include <windows.h>
+#include <wrl/implements.h> // Microsoft::WRL::Make
 
 namespace ffui {
 
@@ -56,7 +58,56 @@ void ApplyColumnFailure(Column& column, SnapshotFailureReason reason, uint64_t g
     }
 }
 
+// semantic-uia-core-surfaces 3.x/2.4: the unavailable/status messages drawn
+// inside a column, extracted from the Render lambdas so the UIA projection
+// exposes exactly the text the user sees.
+std::wstring UnavailableMessage(const Column& column) {
+    switch (column.freshness.failure) {
+        case SnapshotFailureReason::AccessDenied:
+            return L"You don't have permission to view this folder.";
+        case SnapshotFailureReason::PublishFailed:
+            return L"Unable to load this location — snapshot publication failed.";
+        case SnapshotFailureReason::EnumerationFailed:
+            return L"Unable to load this location — the folder could not be read.";
+        case SnapshotFailureReason::SnapshotLoadFailed:
+            return L"Unable to load this location — snapshot data could not be read.";
+        case SnapshotFailureReason::Disconnected:
+            return L"Unable to load this location — the engine is unavailable.";
+        case SnapshotFailureReason::PathMissing:
+        case SnapshotFailureReason::NoLongerAvailable:
+            return L"This folder is no longer available.";
+        case SnapshotFailureReason::None:
+            break;
+    }
+    return L"Unable to load this location.";
+}
+
+std::wstring StatusMessage(const Column& column) {
+    if (column.freshness.state == SnapshotViewState::Loading) return L"Refreshing…";
+    if (column.freshness.failure == SnapshotFailureReason::Disconnected) {
+        return L"Showing previous results — engine disconnected.";
+    }
+    if (column.freshness.failure == SnapshotFailureReason::PublishFailed) {
+        return L"Showing previous results — refresh failed (snapshot publication failed).";
+    }
+    return L"Showing previous results — refresh failed.";
+}
+
 } // namespace
+
+ColumnView::ColumnView() = default;
+
+ColumnView::~ColumnView() {
+    // semantic-uia-core-surfaces 1.1/2.4: flip the shared owner-lifetime
+    // token BEFORE the provider is released so any UIA client still holding
+    // an element of this surface gets clean failures instead of
+    // use-after-free (WM_DESTROY normally releases the provider earlier).
+    if (uiaState_) {
+        uiaState_->alive = false;
+    }
+    uiaEvents_.Clear();
+    uiaProvider_.Reset();
+}
 
 Column ColumnView::MakeComputerRootColumn() {
     Column root;
@@ -93,14 +144,24 @@ void ColumnView::Initialize(EngineClient* engineClient) {
 }
 
 void ColumnView::TruncateAfter(int columnIndex) {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    auto& columns = ActiveColumns();
-    if (columnIndex + 1 < static_cast<int>(columns.size())) {
-        columns.resize(columnIndex + 1);
+    const int pane = activePane_;
+    bool truncated = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = ActiveColumns();
+        if (columnIndex + 1 < static_cast<int>(columns.size())) {
+            columns.resize(columnIndex + 1);
+            truncated = true;
+        }
+    }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    if (truncated) {
+        NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
     }
 }
 
 void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
+    const int pane = activePane_;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
@@ -112,6 +173,8 @@ void ColumnView::RequestColumn(int /*columnIndex*/, const std::wstring& path) {
         if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
         else verticalScrollOffset2_ = 0.0f;
     }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
     if (engineClient_) {
         engineClient_->RequestDirectory(path);
     }
@@ -130,6 +193,12 @@ void ColumnView::SelectRange(Column& column, int itemIndex) {
 }
 
 void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool shift) {
+    const int pane = activePane_;
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, columnIndex);
+    }
     std::wstring childPath;
     bool isDirectory = false;
     {
@@ -154,8 +223,11 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
     }
 
     if (control || shift) {
-        std::lock_guard<std::mutex> lock(columnsMutex_);
-        ActiveFocusedColumnIndex() = columnIndex;
+        {
+            std::lock_guard<std::mutex> lock(columnsMutex_);
+            ActiveFocusedColumnIndex() = columnIndex;
+        }
+        NotifyUiaSelectionTransition(before, pane);
         return;
     }
 
@@ -170,6 +242,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         // is the correct/deeper focus target.
         RequestColumn(columnIndex + 1, childPath);
     }
+    NotifyUiaSelectionTransition(before, pane);
 }
 
 void ColumnView::OnKeyDown(int virtualKey) {
@@ -177,6 +250,12 @@ void ColumnView::OnKeyDown(int virtualKey) {
     if (homePane_[activePane_]) {
         HandleHomeKeyDown(virtualKey);
         return;
+    }
+    const int pane = activePane_;
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, ActiveFocusedColumnIndex());
     }
     int activateColumnIndex = -1;
     int activateItemIndex = -1;
@@ -232,6 +311,7 @@ void ColumnView::OnKeyDown(int virtualKey) {
     if (activateColumnIndex >= 0) {
         ActivateItem(activateColumnIndex, activateItemIndex);
     }
+    NotifyUiaSelectionTransition(before, pane);
 }
 
 void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth, bool control, bool shift) {
@@ -418,13 +498,22 @@ std::vector<SelectionItem> ColumnView::ActiveSelectionItems() const {
 }
 
 void ColumnView::SelectAll() {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    auto& columns = ActiveColumns();
-    int& focusedIndex = ActiveFocusedColumnIndex();
-    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
-    Column& column = columns[focusedIndex];
-    SelectAllItems(column.selectedIndices, column.selectionAnchor, column.focusIndex,
-                   static_cast<int>(column.items.size()));
+    const int pane = activePane_;
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, ActiveFocusedColumnIndex());
+    }
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = ActiveColumns();
+        int& focusedIndex = ActiveFocusedColumnIndex();
+        if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
+        Column& column = columns[focusedIndex];
+        SelectAllItems(column.selectedIndices, column.selectionAnchor, column.focusIndex,
+                       static_cast<int>(column.items.size()));
+    }
+    NotifyUiaSelectionTransition(before, pane);
 }
 
 void ColumnView::RefreshActiveColumn() {
@@ -454,10 +543,13 @@ void ColumnView::RefreshAllColumns() {
     for (const auto& path : paths) engineClient_->RequestDirectory(path);
 }
 
-void ColumnView::ScrollVertical(float delta, float viewportHeight) {
+// semantic-uia-core-surfaces 2.x: the real vertical-scroll clamp for one
+// pane (Home clamps against the laid-out content height; filesystem panes
+// against the focused column's item count). ScrollVertical and the UIA
+// Scroll pattern share this single implementation.
+void ColumnView::ClampVerticalScrollForPane(int pane, float delta, float viewportHeight) {
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    // quick-access-home 4.x: Home clamps against the laid-out content height.
-    const int pane = activePane_;
+    if (pane != 0 && pane != 1) return;
     if (homePane_[pane]) {
         const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
         const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
@@ -466,14 +558,18 @@ void ColumnView::ScrollVertical(float delta, float viewportHeight) {
         offset = std::clamp(offset + delta, 0.0f, maximum);
         return;
     }
-    auto& columns = ActiveColumns();
-    const int focusedIndex = ActiveFocusedColumnIndex();
+    auto& columns = pane == 0 ? columns_ : columns2_;
+    const int focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
     const size_t itemCount = focusedIndex >= 0 && focusedIndex < static_cast<int>(columns.size())
         ? columns[focusedIndex].items.size() : 0;
     const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
     const float maximum = (std::max)(0.0f, static_cast<float>(itemCount) * kRowHeight - visibleHeight);
-    float& offset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
     offset = std::clamp(offset + delta, 0.0f, maximum);
+}
+
+void ColumnView::ScrollVertical(float delta, float viewportHeight) {
+    ClampVerticalScrollForPane(activePane_, delta, viewportHeight);
 }
 
 void ColumnView::EnsureFocusedItemVisible(float viewportHeight) {
@@ -536,6 +632,7 @@ void ColumnView::NavigateToPath(const std::wstring& path, const std::wstring& se
     if (path.empty()) return;
     const std::vector<std::wstring> paths = BuildNavigationPathChain(path);
     if (paths.empty()) return;
+    const int pane = activePane_;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
@@ -552,24 +649,33 @@ void ColumnView::NavigateToPath(const std::wstring& path, const std::wstring& se
         pendingSelectionName_ = selectName;
         pendingSelectionPath_ = selectName.empty() ? std::wstring{} : paths.back();
     }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
     if (engineClient_ != nullptr) {
         for (const auto& columnPath : paths) engineClient_->RequestDirectory(columnPath);
     }
 }
 
 void ColumnView::NavigateToComputerRoot() {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    auto& columns = ActiveColumns();
-    columns.clear();
-    columns.push_back(MakeComputerRootColumn());
-    ActiveFocusedColumnIndex() = 0;
-    if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
-    else verticalScrollOffset2_ = 0.0f;
-    pendingSelectionName_.clear();
-    pendingSelectionPath_.clear();
-    hoverColumn_ = -1;
-    hoverItem_ = -1;
-    hoverActive_ = false;
+    const int pane = activePane_;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = ActiveColumns();
+        columns.clear();
+        columns.push_back(MakeComputerRootColumn());
+        ActiveFocusedColumnIndex() = 0;
+        if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
+        else verticalScrollOffset2_ = 0.0f;
+        pendingSelectionName_.clear();
+        pendingSelectionPath_.clear();
+        hoverColumn_ = -1;
+        hoverItem_ = -1;
+        hoverActive_ = false;
+    }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
 }
 
 void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirectory) {
@@ -597,6 +703,7 @@ void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirect
     } else {
         paths.push_back(containingPath);
     }
+    const int pane = activePane_;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
@@ -613,6 +720,9 @@ void ColumnView::NavigateToHierarchy(const std::wstring& fullPath, bool isDirect
         if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
         else verticalScrollOffset2_ = 0.0f;
     }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
     for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
     if (isDirectory && engineClient_ != nullptr) engineClient_->RequestDirectory(fullPath);
 }
@@ -627,6 +737,7 @@ void ColumnView::NavigateToHierarchy(const std::vector<std::wstring>& segments, 
         current += segments[index];
         paths.push_back(current);
     }
+    const int pane = activePane_;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         // Search results are opened in the pane that currently owns focus.
@@ -647,6 +758,9 @@ void ColumnView::NavigateToHierarchy(const std::vector<std::wstring>& segments, 
         if (activePane_ == 0) verticalScrollOffset_ = 0.0f;
         else verticalScrollOffset2_ = 0.0f;
     }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
     for (const auto& path : paths) if (engineClient_ != nullptr) engineClient_->RequestDirectory(path);
     if (isDirectory && engineClient_ != nullptr) {
         std::wstring folder = paths.back();
@@ -687,6 +801,11 @@ void ColumnView::SetHomeData(const HomeData& data) {
     // Clear action emptied a section) a focus target that no longer exists must
     // not stay stranded and invisible.
     RevalidateHomeFocus();
+    // semantic-uia-core-surfaces 3.4: the Home tree of both panes changed.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, 0, -1, -1, -1, -1, /*home=*/true});
+    NotifyUia({UiaEventKind::StructureBulkAdded, 0, -1, -1, -1, -1, /*home=*/true});
+    NotifyUia({UiaEventKind::StructureBulkRemoved, 1, -1, -1, -1, -1, /*home=*/true});
+    NotifyUia({UiaEventKind::StructureBulkAdded, 1, -1, -1, -1, -1, /*home=*/true});
 }
 
 void ColumnView::SetHomeActivateCallback(std::function<void(const HomeActivation&)> callback) {
@@ -718,18 +837,29 @@ void ColumnView::SetPaneHome(int paneIndex, bool home) {
     hoverItem_ = -1;
     hoverColumn_ = -1;
     hoverActive_ = false;
+    // semantic-uia-core-surfaces 2.6: the pane's children changed surface.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, paneIndex, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, paneIndex, -1, -1});
 }
 
 // quick-access-home hardening (HOME-POST-03): drop each pane's focus when its
 // target no longer exists in the fresh data (cheap; called on every data push).
 void ColumnView::RevalidateHomeFocus() {
+    bool focusDropped = false;
     for (int pane = 0; pane < 2; ++pane) {
         HomeFocusEntry& focus = homeFocus_[static_cast<size_t>(pane)];
         if (focus.target == HomeFocusTarget::None) continue;
         const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
         const std::vector<HomeFocusEntry> focusList = BuildHomeFocusList(layout, homeData_);
         const bool stillValid = std::find(focusList.begin(), focusList.end(), focus) != focusList.end();
-        if (!stillValid) focus = {};
+        if (!stillValid) {
+            focus = {};
+            focusDropped = true;
+        }
+    }
+    // semantic-uia-core-surfaces 3.4: a dropped focus target is a focus change.
+    if (focusDropped) {
+        NotifyUia({UiaEventKind::FocusChanged});
     }
 }
 
@@ -845,7 +975,9 @@ std::wstring ColumnView::RootPath() const {
 
 void ColumnView::RefreshColumnFromSnapshot(Column& column,
                                            const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
-                                           uint64_t generation) {
+                                           uint64_t generation,
+                                           int pane, int columnIndex,
+                                           std::vector<UiaEventNotification>& outEvents) {
     const auto* directory = FindSnapshotDirectory(snapshot, column.path);
     if (directory == nullptr) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
@@ -927,6 +1059,28 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
         pendingSelectionName_.clear();
         pendingSelectionPath_.clear();
     }
+
+    // semantic-uia-core-surfaces 2.6: the column's children were replaced and
+    // selection/focus were identity-restored; collect the notifications for
+    // the caller to fire after its lock is released.
+    outEvents.push_back({UiaEventKind::StructureBulkRemoved, pane, columnIndex, -1});
+    outEvents.push_back({UiaEventKind::StructureBulkAdded, pane, columnIndex, -1});
+    if (previousState.selectedIndices != column.selectedIndices) {
+        outEvents.push_back({UiaEventKind::SelectionInvalidated, pane, columnIndex, -1});
+        for (int row : column.selectedIndices) {
+            if (!previousState.selectedIndices.contains(row)) {
+                outEvents.push_back({UiaEventKind::ElementAddedToSelection, pane, columnIndex, row});
+            }
+        }
+        for (int row : previousState.selectedIndices) {
+            if (!column.selectedIndices.contains(row)) {
+                outEvents.push_back({UiaEventKind::ElementRemovedFromSelection, pane, columnIndex, row});
+            }
+        }
+    }
+    if (previousState.focusIndex != column.focusIndex) {
+        outEvents.push_back({UiaEventKind::FocusChanged, pane, columnIndex, -1});
+    }
 }
 
 void ColumnView::OnSnapshotUpdated(uint64_t announcedGeneration) {
@@ -951,18 +1105,30 @@ void ColumnView::OnSnapshotUpdated(uint64_t announcedGeneration) {
         MarkSnapshotLoadFailed(announcedGeneration);
         return;
     }
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    for (auto& column : columns_) {
-        if (column.path.empty()) {
-            continue; // the synthetic root (drive list) column isn't engine-backed
+    // semantic-uia-core-surfaces 2.6: refresh notifications are collected
+    // under the lock and fired after it is released (no reentrancy).
+    std::vector<UiaEventNotification> uiaEvents;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        for (int columnIndex = 0; columnIndex < static_cast<int>(columns_.size()); ++columnIndex) {
+            auto& column = columns_[static_cast<size_t>(columnIndex)];
+            if (column.path.empty()) {
+                continue; // the synthetic root (drive list) column isn't engine-backed
+            }
+            RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation,
+                                      0, columnIndex, uiaEvents);
         }
-        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
+        for (int columnIndex = 0; columnIndex < static_cast<int>(columns2_.size()); ++columnIndex) {
+            auto& column = columns2_[static_cast<size_t>(columnIndex)];
+            if (column.path.empty()) {
+                continue;
+            }
+            RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation,
+                                      1, columnIndex, uiaEvents);
+        }
     }
-    for (auto& column : columns2_) {
-        if (column.path.empty()) {
-            continue;
-        }
-        RefreshColumnFromSnapshot(column, snapshot->directories, snapshot->generation);
+    for (const auto& notification : uiaEvents) {
+        NotifyUia(notification);
     }
 }
 
@@ -989,14 +1155,20 @@ void ColumnView::OnDirectoryError(const std::wstring& path, ffprotocol::Director
 }
 
 void ColumnView::ShowUnavailableLocation(const std::wstring& displayName) {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    Column column;
-    column.path = displayName.empty() ? L"Unavailable location" : displayName;
-    column.freshness.Fail(SnapshotFailureReason::NoLongerAvailable);
-    columns_ = {std::move(column)};
-    focusedColumnIndex_ = 0;
-    pendingSelectionName_.clear();
-    pendingSelectionPath_.clear();
+    const int pane = activePane_;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        Column column;
+        column.path = displayName.empty() ? L"Unavailable location" : displayName;
+        column.freshness.Fail(SnapshotFailureReason::NoLongerAvailable);
+        columns_ = {std::move(column)};
+        focusedColumnIndex_ = 0;
+        pendingSelectionName_.clear();
+        pendingSelectionPath_.clear();
+    }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, pane, -1, -1});
+    NotifyUia({UiaEventKind::StructureBulkAdded, pane, -1, -1});
 }
 
 void ColumnView::MarkSnapshotLoadFailed(uint64_t generation) {
@@ -1267,50 +1439,22 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
             context->DrawLine(D2D1_POINT_2F{x + kColumnWidth, kBadgeHeight}, D2D1_POINT_2F{x + kColumnWidth, viewportSize.height},
                               dividerBrush_.Get(), 1.0f);
 
-            const auto unavailableMessage = [&column]() {
-                switch (column.freshness.failure) {
-                    case SnapshotFailureReason::AccessDenied:
-                        return L"You don't have permission to view this folder.";
-                    case SnapshotFailureReason::PublishFailed:
-                        return L"Unable to load this location — snapshot publication failed.";
-                    case SnapshotFailureReason::EnumerationFailed:
-                        return L"Unable to load this location — the folder could not be read.";
-                    case SnapshotFailureReason::SnapshotLoadFailed:
-                        return L"Unable to load this location — snapshot data could not be read.";
-                    case SnapshotFailureReason::Disconnected:
-                        return L"Unable to load this location — the engine is unavailable.";
-                    case SnapshotFailureReason::PathMissing:
-                    case SnapshotFailureReason::NoLongerAvailable:
-                        return L"This folder is no longer available.";
-                    case SnapshotFailureReason::None:
-                        break;
-                }
-                return L"Unable to load this location.";
-            };
-            const auto statusMessage = [&column]() {
-                if (column.freshness.state == SnapshotViewState::Loading) return L"Refreshing…";
-                if (column.freshness.failure == SnapshotFailureReason::Disconnected) {
-                    return L"Showing previous results — engine disconnected.";
-                }
-                if (column.freshness.failure == SnapshotFailureReason::PublishFailed) {
-                    return L"Showing previous results — refresh failed (snapshot publication failed).";
-                }
-                return L"Showing previous results — refresh failed.";
-            };
+            const std::wstring unavailableMessage = UnavailableMessage(column);
+            const std::wstring statusMessage = StatusMessage(column);
             if (column.freshness.state == SnapshotViewState::Unavailable) {
-                const wchar_t* message = unavailableMessage();
                 D2D1_RECT_F messageRect = D2D1::RectF(x + 8, kBadgeHeight + 8, x + kColumnWidth - 8, viewportSize.height - 8);
-                context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), messageRect, errorBrush_.Get());
+                context->DrawText(unavailableMessage.c_str(), static_cast<UINT32>(unavailableMessage.size()),
+                                  textFormat_.Get(), messageRect, errorBrush_.Get());
                 continue;
             }
 
             float contentTop = kBadgeHeight;
             if (column.freshness.state == SnapshotViewState::Loading ||
                 column.freshness.state == SnapshotViewState::StaleWithError) {
-                const wchar_t* message = statusMessage();
                 D2D1_RECT_F statusRect = D2D1::RectF(x + 8, kBadgeHeight + 4, x + kColumnWidth - 8,
                                                      kBadgeHeight + 24);
-                context->DrawText(message, static_cast<UINT32>(wcslen(message)), textFormat_.Get(), statusRect,
+                context->DrawText(statusMessage.c_str(), static_cast<UINT32>(statusMessage.size()),
+                                  textFormat_.Get(), statusRect,
                                   column.freshness.state == SnapshotViewState::StaleWithError
                                       ? errorBrush_.Get() : textSecondaryBrush_.Get());
                 contentTop += 24.0f;
@@ -1623,44 +1767,55 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 }
 
 void ColumnView::SetDualPane(bool enabled) {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (dualPane_ == enabled) return;
-    if (enabled) {
-        // NavigationWorkspace creates the second context at the current
-        // location. Clone the visible column model so the new pane is useful
-        // immediately instead of presenting an empty surface until another
-        // navigation event occurs.
-        // quick-access-home 4.2: if pane 0 is Home, do NOT clone its (empty)
-        // column model into pane 2 -- the shell sets pane 2's state right after.
-        if (homePane_[0]) {
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (enabled) {
+            // NavigationWorkspace creates the second context at the current
+            // location. Clone the visible column model so the new pane is useful
+            // immediately instead of presenting an empty surface until another
+            // navigation event occurs.
+            // quick-access-home 4.2: if pane 0 is Home, do NOT clone its (empty)
+            // column model into pane 2 -- the shell sets pane 2's state right after.
+            if (homePane_[0]) {
+                columns2_.clear();
+            } else {
+                columns2_ = columns_;
+            }
+            focusedColumnIndex2_ = focusedColumnIndex_;
+            scrollOffset2_ = scrollOffset_;
+            verticalScrollOffset2_ = verticalScrollOffset_;
+        }
+        dualPane_ = enabled;
+        if (!enabled) {
+            // NavigationWorkspace keeps whichever pane was active when the user
+            // disabled dual-pane mode. Promote that pane's rendered model to the
+            // single-pane slot instead of silently reverting to the old left pane.
+            if (activePane_ == 1) {
+                columns_ = std::move(columns2_);
+                focusedColumnIndex_ = focusedColumnIndex2_;
+                scrollOffset_ = scrollOffset2_;
+                verticalScrollOffset_ = verticalScrollOffset2_;
+            }
             columns2_.clear();
-        } else {
-            columns2_ = columns_;
+            activePane_ = 0;
         }
-        focusedColumnIndex2_ = focusedColumnIndex_;
-        scrollOffset2_ = scrollOffset_;
-        verticalScrollOffset2_ = verticalScrollOffset_;
     }
-    dualPane_ = enabled;
-    if (!enabled) {
-        // NavigationWorkspace keeps whichever pane was active when the user
-        // disabled dual-pane mode. Promote that pane's rendered model to the
-        // single-pane slot instead of silently reverting to the old left pane.
-        if (activePane_ == 1) {
-            columns_ = std::move(columns2_);
-            focusedColumnIndex_ = focusedColumnIndex2_;
-            scrollOffset_ = scrollOffset2_;
-            verticalScrollOffset_ = verticalScrollOffset2_;
-        }
-        columns2_.clear();
-        activePane_ = 0;
-    }
+    // semantic-uia-core-surfaces 2.6: pane set changed on the Column View group.
+    NotifyUia({UiaEventKind::StructureBulkAdded, -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
+    NotifyUia({UiaEventKind::StructureBulkRemoved, -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
 }
 
 void ColumnView::ActivatePane(int paneIndex) {
+    bool changed = false;
     if (paneIndex == 0 || (dualPane_ && paneIndex == 1)) {
         std::lock_guard<std::mutex> lock(columnsMutex_);
+        changed = activePane_ != paneIndex;
         activePane_ = paneIndex;
+    }
+    // semantic-uia-core-surfaces 2.6: pane switch moves the logical focus.
+    if (changed) {
+        NotifyUia({UiaEventKind::FocusChanged});
     }
 }
 
@@ -1715,6 +1870,7 @@ void ColumnView::RestoreActivePaneState(const std::vector<std::wstring>& columnP
 void ColumnView::RestorePaneState(int paneIndex, const std::vector<std::wstring>& columnPaths,
                                   int focusedIndex, float scrollOffset) {
     if (columnPaths.empty()) return;
+    bool changed = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         // quick-access-home 4.2: ignore restore for Home panes; the shell sets
@@ -1731,9 +1887,549 @@ void ColumnView::RestorePaneState(int paneIndex, const std::vector<std::wstring>
         }
         focusedIndexRef = std::clamp(focusedIndex, 0, static_cast<int>(columns.size()) - 1);
         scrollOffsetRef = scrollOffset;
+        changed = true;
+    }
+    // semantic-uia-core-surfaces 2.6: structure events fire post-lock.
+    if (changed) {
+        NotifyUia({UiaEventKind::StructureBulkRemoved, paneIndex, -1, -1});
+        NotifyUia({UiaEventKind::StructureBulkAdded, paneIndex, -1, -1});
     }
     for (const auto& path : columnPaths) {
         if (!path.empty() && engineClient_ != nullptr) engineClient_->RequestDirectory(path);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// semantic-uia-core-surfaces: UiaSurface implementation. Every query
+// projects real render/interaction state; every action routes into the exact
+// mutation logic keyboard/mouse input uses (design D3/D7-D10).
+// ---------------------------------------------------------------------------
+
+UiaViewGeometry ColumnView::UiaGeometry() const {
+    return uiaGeometry_;
+}
+
+int ColumnView::UiaPaneCount() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    return dualPane_ ? 2 : 1;
+}
+
+int ColumnView::UiaActivePane() const {
+    return activePane_;
+}
+
+bool ColumnView::UiaPaneIsHome(int pane) const {
+    return (pane == 0 || pane == 1) && homePane_[static_cast<size_t>(pane)];
+}
+
+int ColumnView::UiaColumnCount(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return 0;
+    return static_cast<int>((pane == 0 ? columns_ : columns2_).size());
+}
+
+UiaColumnInfo ColumnView::UiaColumnInfoOf(int pane, int col) const {
+    UiaColumnInfo info;
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return info;
+    const auto& columns = pane == 0 ? columns_ : columns2_;
+    if (col < 0 || col >= static_cast<int>(columns.size())) return info;
+    const Column& column = columns[static_cast<size_t>(col)];
+    info.path = column.path;
+    info.itemCount = static_cast<int>(column.items.size());
+    switch (column.freshness.state) {
+        case SnapshotViewState::Unavailable:
+            info.status = UiaColumnStatus::Unavailable;
+            info.statusText = UnavailableMessage(column);
+            break;
+        case SnapshotViewState::Loading:
+        case SnapshotViewState::StaleWithError:
+            info.status = UiaColumnStatus::Loading;
+            info.statusText = StatusMessage(column);
+            break;
+        case SnapshotViewState::Current:
+            if (column.items.empty()) {
+                info.status = UiaColumnStatus::Empty;
+                info.statusText = L"This folder is empty";
+            }
+            break;
+    }
+    return info;
+}
+
+UiaItemInfo ColumnView::UiaItemInfoOf(int pane, int col, int row) const {
+    UiaItemInfo info;
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return info;
+    const auto& columns = pane == 0 ? columns_ : columns2_;
+    if (col < 0 || col >= static_cast<int>(columns.size())) return info;
+    const Column& column = columns[static_cast<size_t>(col)];
+    if (row < 0 || row >= static_cast<int>(column.items.size())) return info;
+    const ColumnItem& item = column.items[static_cast<size_t>(row)];
+    info.name = item.name;
+    info.isDirectory = item.isDirectory;
+    info.sizeBytes = item.sizeBytes;
+    info.attributes = item.attributes;
+    info.volumeRowId = item.volumeRowId;
+    info.fileIdLow = item.fileIdLow;
+    info.fileIdHigh = item.fileIdHigh;
+    info.fullPath = JoinPath(column.path, item.name);
+    info.selected = column.selectedIndices.contains(row);
+    info.focused = column.focusIndex == row;
+    return info;
+}
+
+int ColumnView::UiaFocusedColumn(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return 0;
+    return pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+}
+
+int ColumnView::UiaFocusedRow(int pane, int column) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return -1;
+    const auto& columns = pane == 0 ? columns_ : columns2_;
+    if (column < 0 || column >= static_cast<int>(columns.size())) return -1;
+    return columns[static_cast<size_t>(column)].focusIndex;
+}
+
+float ColumnView::UiaVerticalScroll(int pane) const {
+    if (pane != 0 && pane != 1) return 0.0f;
+    return pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+}
+
+int ColumnView::UiaHomeItemCount(int pane) const {
+    if (pane != 0 && pane != 1) return 0;
+    return ComputeHomeLayoutForPane(pane).totalItemCount;
+}
+
+UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
+    UiaHomeItemInfo info;
+    if (pane != 0 && pane != 1) return info;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    const HomeItemLayout* found = FindHomeItem(layout, globalIndex);
+    if (found == nullptr) return info;
+    info.sectionKind = found->sectionIndex;
+    info.indexInSection = found->indexInSection;
+    info.globalIndex = globalIndex;
+    info.x = found->x;
+    info.y = found->y;
+    info.width = found->width;
+    info.height = found->height;
+    info.enabled = HomeItemFocusable(homeData_, *found);
+    switch (static_cast<HomeSectionKind>(found->sectionIndex)) {
+        case HomeSectionKind::Pinned:
+            if (homeData_.pinned.empty()) {
+                info.primary = L"Pin folders to see them here."; // hint placeholder
+                info.enabled = false;
+            } else {
+                const auto& b = homeData_.pinned[static_cast<size_t>(found->indexInSection)];
+                info.primary = b.displayName.empty() ? b.path : b.displayName;
+                info.secondary = b.path;
+                info.value = b.path;
+            }
+            break;
+        case HomeSectionKind::RecentFolders:
+            info.primary = homeData_.recentFolders[static_cast<size_t>(found->indexInSection)];
+            info.value = info.primary;
+            break;
+        case HomeSectionKind::RecentSearches:
+            info.primary = homeData_.recentSearches[static_cast<size_t>(found->indexInSection)];
+            info.value = info.primary;
+            break;
+        case HomeSectionKind::CommonLocations: {
+            const auto& b = homeData_.knownFolders[static_cast<size_t>(found->indexInSection)];
+            info.primary = b.displayName.empty() ? b.path : b.displayName;
+            info.secondary = b.path;
+            info.value = b.path;
+            break;
+        }
+        case HomeSectionKind::QuickActions: {
+            static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Open Path", L"Settings"};
+            static const wchar_t* kCommands[] = {
+                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
+            if (found->indexInSection >= 0 && found->indexInSection < 4) {
+                info.primary = kLabels[found->indexInSection];
+                info.value = kCommands[found->indexInSection];
+            }
+            break;
+        }
+    }
+    return info;
+}
+
+int ColumnView::UiaHomeSectionCount(int pane) const {
+    if (pane != 0 && pane != 1) return 0;
+    return static_cast<int>(ComputeHomeLayoutForPane(pane).sections.size());
+}
+
+UiaHomeSectionInfo ColumnView::UiaHomeSectionInfoOf(int pane, int section) const {
+    UiaHomeSectionInfo info;
+    if (pane != 0 && pane != 1) return info;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    if (section < 0 || section >= static_cast<int>(layout.sections.size())) return info;
+    const HomeSectionLayout& s = layout.sections[static_cast<size_t>(section)];
+    info.sectionKind = s.sectionIndex;
+    info.itemCount = s.itemCount;
+    info.firstGlobalIndex = s.itemStart;
+    info.headerX = s.headerX;
+    info.headerY = s.headerY;
+    info.headerWidth = s.headerWidth;
+    info.headerHeight = s.headerHeight;
+    info.clearAffordance = s.itemCount > 0 &&
+        (s.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) ||
+         s.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches));
+    return info;
+}
+
+UiaHomeScrollInfo ColumnView::UiaHomeScrollInfoOf(int pane) const {
+    UiaHomeScrollInfo info;
+    if (pane != 0 && pane != 1) return info;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    info.columnCount = layout.columnCount;
+    info.contentHeightDip = layout.contentHeight;
+    return info;
+}
+
+int ColumnView::UiaHomeFocusTarget(int pane) const {
+    if (pane != 0 && pane != 1) return kUiaHomeFocusNone;
+    const HomeFocusEntry focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
+    switch (focus.target) {
+        case HomeFocusTarget::Item: return kUiaHomeFocusItem;
+        case HomeFocusTarget::ClearRecentFolders: return kUiaHomeFocusClearRecentFolders;
+        case HomeFocusTarget::ClearRecentSearches: return kUiaHomeFocusClearRecentSearches;
+        default: return kUiaHomeFocusNone;
+    }
+}
+
+int ColumnView::UiaHomeFocusIndex(int pane) const {
+    if (pane != 0 && pane != 1) return -1;
+    return (pane == 0 ? homeFocus_[0] : homeFocus_[1]).itemIndex;
+}
+
+void ColumnView::UiaActivatePane(int pane) {
+    ActivatePane(pane);
+}
+
+void ColumnView::UiaSelectItem(int pane, int col, int row) {
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, col);
+    }
+    if (!before.valid) return;
+    if (pane != activePane_) ActivatePane(pane);
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        Column& column = columns[static_cast<size_t>(col)];
+        if (row < 0 || row >= static_cast<int>(column.items.size())) return;
+        SelectSingle(column, row);
+        int& focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        focusedIndex = col;
+    }
+    NotifyUiaSelectionTransition(before, pane);
+}
+
+void ColumnView::UiaToggleItem(int pane, int col, int row) {
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, col);
+    }
+    if (!before.valid) return;
+    if (pane != activePane_) ActivatePane(pane);
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        Column& column = columns[static_cast<size_t>(col)];
+        if (row < 0 || row >= static_cast<int>(column.items.size())) return;
+        ToggleSelection(column, row);
+        int& focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        focusedIndex = col;
+    }
+    NotifyUiaSelectionTransition(before, pane);
+}
+
+void ColumnView::UiaRangeSelectItem(int pane, int col, int row) {
+    UiaSelectionSnapshot before;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        before = CaptureUiaSelectionLocked(pane, col);
+    }
+    if (!before.valid) return;
+    if (pane != activePane_) ActivatePane(pane);
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        Column& column = columns[static_cast<size_t>(col)];
+        if (row < 0 || row >= static_cast<int>(column.items.size())) return;
+        SelectRange(column, row);
+        int& focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        focusedIndex = col;
+    }
+    NotifyUiaSelectionTransition(before, pane);
+}
+
+void ColumnView::UiaActivateItem(int pane, int col, int row) {
+    if (pane != activePane_) ActivatePane(pane);
+    ActivateItem(col, row, false, false);
+}
+
+void ColumnView::UiaSetItemFocus(int pane, int col, int row) {
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (pane != 0 && pane != 1) return;
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        if (row < 0 || row >= static_cast<int>(columns[static_cast<size_t>(col)].items.size())) return;
+        int& focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        Column& column = columns[static_cast<size_t>(col)];
+        changed = focusedIndex != col || column.focusIndex != row;
+        if (changed) {
+            focusedIndex = col;
+            column.focusIndex = row;
+        }
+    }
+    if (changed) {
+        NotifyUiaFocus();
+    }
+}
+
+void ColumnView::UiaSetColumnFocus(int pane, int col) {
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (pane != 0 && pane != 1) return;
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        int& focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+        changed = focusedIndex != col;
+        focusedIndex = col;
+    }
+    if (changed) {
+        NotifyUiaFocus();
+    }
+}
+
+void ColumnView::UiaScrollPane(int pane, float deltaX, float deltaY) {
+    if (pane != 0 && pane != 1) return;
+    if (deltaY != 0.0f) {
+        ClampVerticalScrollForPane(pane, deltaY, uiaGeometry_.heightDip);
+    }
+    if (deltaX != 0.0f && !homePane_[static_cast<size_t>(pane)]) {
+        const float current = pane == 0 ? uiaGeometry_.hScroll0Dip : scrollOffset2_;
+        UiaSetHorizontalScroll(pane, current + deltaX);
+    }
+}
+
+void ColumnView::UiaSetHorizontalScroll(int pane, float offsetDip) {
+    if (pane != 0 && pane != 1) return;
+    if (homePane_[static_cast<size_t>(pane)]) return;
+    float clamped = 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        const auto& columns = pane == 0 ? columns_ : columns2_;
+        const float paneWidth = dualPane_ ? (uiaGeometry_.widthDip / 2.0f) : uiaGeometry_.widthDip;
+        const float maxScroll = (std::max)(0.0f,
+            static_cast<float>(columns.size()) * kColumnWidth - paneWidth);
+        clamped = std::clamp(offsetDip, 0.0f, maxScroll);
+        if (pane == 1) {
+            scrollOffset2_ = clamped;
+        }
+    }
+    // Pane 0's horizontal offset is shell-animated (Shift+wheel path); the
+    // shell registered the writer and animates the same FloatAnimation.
+    if (pane == 0 && uiaHorizontalScrollWriter_) {
+        uiaHorizontalScrollWriter_(clamped);
+    }
+}
+
+void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (pane != 0 && pane != 1) return;
+    auto& columns = pane == 0 ? columns_ : columns2_;
+    if (col < 0 || col >= static_cast<int>(columns.size())) return;
+    Column& column = columns[static_cast<size_t>(col)];
+    if (row < 0 || row >= static_cast<int>(column.items.size())) return;
+    // Same clamp math as EnsureFocusedItemVisible, without touching focus.
+    const float visibleHeight = (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight);
+    const float top = static_cast<float>(row) * kRowHeight;
+    const float bottom = top + kRowHeight;
+    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    if (top < offset) offset = top;
+    else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
+    const float maximum = (std::max)(0.0f,
+        static_cast<float>(column.items.size()) * kRowHeight - visibleHeight);
+    offset = std::clamp(offset, 0.0f, maximum);
+}
+
+void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) {
+    if (pane != 0 && pane != 1) return;
+    ActivateHomeItem(pane, globalIndex, openInNewTab);
+}
+
+void ColumnView::UiaActivateHomeClear(int pane, int clearKind) {
+    if (pane != 0 && pane != 1 || homeActivateCallback_ == nullptr) return;
+    HomeActivation activation;
+    activation.kind = clearKind == kUiaHomeClearRecentFolders
+        ? HomeActionKind::ClearRecentFolders : HomeActionKind::ClearRecentSearches;
+    homeActivateCallback_(activation);
+}
+
+void ColumnView::UiaSetHomeFocusItem(int pane, int globalIndex) {
+    if (pane != 0 && pane != 1) return;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    const HomeItemLayout* found = FindHomeItem(layout, globalIndex);
+    if (found == nullptr || !HomeItemFocusable(homeData_, *found)) return;
+    HomeFocusEntry& focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
+    const HomeFocusEntry target{HomeFocusTarget::Item, globalIndex};
+    if (focus == target) return;
+    focus = target;
+    NotifyUiaFocus();
+}
+
+void ColumnView::UiaSetHomeFocusClear(int pane, int clearKind) {
+    if (pane != 0 && pane != 1) return;
+    const int wantedSection = clearKind == kUiaHomeClearRecentFolders
+        ? static_cast<int>(HomeSectionKind::RecentFolders)
+        : static_cast<int>(HomeSectionKind::RecentSearches);
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    bool present = false;
+    for (const auto& section : layout.sections) {
+        if (section.sectionIndex == wantedSection && section.itemCount > 0) {
+            present = true;
+            break;
+        }
+    }
+    if (!present) return;
+    HomeFocusEntry& focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
+    const HomeFocusTarget target = clearKind == kUiaHomeClearRecentFolders
+        ? HomeFocusTarget::ClearRecentFolders : HomeFocusTarget::ClearRecentSearches;
+    if (focus.target == target && focus.itemIndex == -1) return;
+    focus = {target, -1};
+    NotifyUiaFocus();
+}
+
+void ColumnView::UiaScrollHomeItemIntoView(int pane, int globalIndex) {
+    if (pane != 0 && pane != 1 || !homePane_[static_cast<size_t>(pane)]) return;
+    const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
+    float itemTop = 0.0f;
+    float itemBottom = 0.0f;
+    for (const auto& item : layout.items) {
+        if (item.globalIndex == globalIndex) {
+            itemTop = item.y;
+            itemBottom = item.y + item.height;
+            break;
+        }
+    }
+    if (itemTop == 0.0f && itemBottom == 0.0f) return;
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    const float visibleHeight = (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight);
+    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    if (itemTop < offset) offset = itemTop;
+    else if (itemBottom > offset + visibleHeight) offset = itemBottom - visibleHeight;
+    const float maximum = (std::max)(0.0f, layout.contentHeight - visibleHeight);
+    offset = std::clamp(offset, 0.0f, maximum);
+}
+
+// --- provider plumbing ------------------------------------------------------
+
+void ColumnView::SetUiaGeometry(const UiaViewGeometry& geometry) {
+    uiaGeometry_ = geometry;
+}
+
+void ColumnView::SetUiaKeyboardFocusOwned(bool owned) {
+    // Kept in sync with the real focus owner by the shell (WM_SETFOCUS /
+    // WM_KILLFOCUS and every render); providers project it into
+    // HasKeyboardFocus.
+    uiaGeometry_.keyboardFocus = owned;
+}
+
+void ColumnView::SetUiaHorizontalScrollWriter(std::function<void(float)> writer) {
+    uiaHorizontalScrollWriter_ = std::move(writer);
+}
+
+void ColumnView::SetUiaEventSink(UiaEventSink sink, void* context) {
+    uiaEvents_.Set(sink, context);
+}
+
+Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> ColumnView::UiaRootProvider(HWND hwnd) {
+    if (uiaProvider_ == nullptr) {
+        if (!uiaState_) {
+            uiaState_ = std::make_shared<UiaOwnerState>();
+        }
+        auto provider = Microsoft::WRL::ComPtr<ColumnViewUiaProvider>(new ColumnViewUiaProvider(uiaState_, this, hwnd));
+        uiaProvider_ = provider;
+        uiaEvents_.Set(&ColumnViewUiaProvider::SinkThunk, provider.Get());
+    }
+    return uiaProvider_;
+}
+
+void ColumnView::ReleaseUiaProvider() {
+    // semantic-uia-core-surfaces 1.1/2.5: flip the owner-lifetime token
+    // first so client-held elements become safe zombies, then drop the app's
+    // own references. UIAutomationCore keeps its own references on behalf of
+    // clients and disconnects them when the HWND is destroyed.
+    uiaEvents_.Clear();
+    if (uiaState_) {
+        uiaState_->alive = false;
+    }
+    uiaState_.reset();
+    uiaProvider_.Reset();
+}
+
+void ColumnView::NotifyUia(const UiaEventNotification& notification) {
+    uiaEvents_.Notify(notification);
+}
+
+void ColumnView::NotifyUiaFocus() {
+    NotifyUia({UiaEventKind::FocusChanged});
+}
+
+ColumnView::UiaSelectionSnapshot ColumnView::CaptureUiaSelectionLocked(int pane, int targetColumn) const {
+    UiaSelectionSnapshot snapshot;
+    snapshot.targetColumn = targetColumn;
+    if (pane != 0 && pane != 1) return snapshot;
+    const auto& columns = pane == 0 ? columns_ : columns2_;
+    snapshot.focusColumn = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+    if (snapshot.focusColumn >= 0 && snapshot.focusColumn < static_cast<int>(columns.size())) {
+        snapshot.focusRow = columns[static_cast<size_t>(snapshot.focusColumn)].focusIndex;
+    }
+    if (targetColumn < 0 || targetColumn >= static_cast<int>(columns.size())) return snapshot;
+    const Column& column = columns[static_cast<size_t>(targetColumn)];
+    snapshot.valid = true;
+    snapshot.selected = column.selectedIndices;
+    return snapshot;
+}
+
+void ColumnView::NotifyUiaSelectionTransition(const UiaSelectionSnapshot& before, int pane) {
+    if (!uiaEvents_.HasSink()) return;
+    UiaSelectionSnapshot now;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        now = CaptureUiaSelectionLocked(pane, before.targetColumn);
+    }
+    if (!before.valid && !now.valid) return;
+    if (before.selected != now.selected) {
+        NotifyUia({UiaEventKind::SelectionInvalidated, pane, before.targetColumn, -1});
+        for (int row : now.selected) {
+            if (!before.selected.contains(row)) {
+                NotifyUia({UiaEventKind::ElementAddedToSelection, pane, before.targetColumn, row});
+            }
+        }
+        for (int row : before.selected) {
+            if (!now.selected.contains(row)) {
+                NotifyUia({UiaEventKind::ElementRemovedFromSelection, pane, before.targetColumn, row});
+            }
+        }
+    }
+    if (before.focusColumn != now.focusColumn || before.focusRow != now.focusRow) {
+        NotifyUia({UiaEventKind::FocusChanged, pane, before.targetColumn, -1});
     }
 }
 

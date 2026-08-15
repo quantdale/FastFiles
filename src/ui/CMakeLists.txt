@@ -27,6 +27,9 @@ add_executable(FastFiles WIN32
   src/UiStyle.cpp
   src/UiAnimation.cpp
   src/IconCache.cpp
+  src/UiaProviderBase.cpp
+  src/ColumnViewUiaProvider.cpp
+  src/SearchUiaProvider.cpp
 )
 
 target_include_directories(FastFiles PRIVATE include)
@@ -53,4 +56,5 @@ target_link_libraries(FastFiles PRIVATE
   ole32
   comctl32
   comdlg32
+  uiautomationcore
 )

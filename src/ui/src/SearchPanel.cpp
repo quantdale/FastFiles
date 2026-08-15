@@ -5,6 +5,7 @@
 #include "UITheme.h"
 #include "Util.h"
 #include "ffui/SearchLayout.h"
+#include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 
 #include <array>
 #include <algorithm>
@@ -19,6 +20,7 @@
 #include <shlobj.h>
 #include <unordered_map>
 #include <wrl/client.h>
+#include <wrl/implements.h> // Microsoft::WRL::Make
 
 namespace ffui {
 namespace {
@@ -150,9 +152,36 @@ std::wstring FormatFileTime(uint64_t ticks) {
     swprintf_s(text, L"%04u-%02u-%02u %02u:%02u", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute);
     return text;
 }
+
+// semantic-uia-core-surfaces 4.2: the result list's subclassed window
+// procedure. WM_GETOBJECT (UiaRootObjectId) returns the search fragment
+// root; every other message -- including OBJID_CLIENT MSAA queries -- falls
+// through to the native ListView, so input, painting, and virtualization
+// are untouched.
+LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<SearchPanel*>(refData);
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr) {
+        Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> root = self->UiaRootProvider(hwnd);
+        if (root != nullptr) {
+            Microsoft::WRL::ComPtr<IRawElementProviderSimple> simple;
+            if (SUCCEEDED(root.As(&simple)) && simple != nullptr) {
+                return UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
+            }
+        }
+        return 0;
+    }
+    UNREFERENCED_PARAMETER(subclassId);
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
 }  // namespace
 
 SearchPanel::~SearchPanel() {
+    // semantic-uia-core-surfaces 4.x: drop the list subclass and flip the
+    // owner-lifetime token before releasing the provider so client-held
+    // elements become safe zombies.
+    if (list_) RemoveWindowSubclass(list_, SearchListProc, 3);
+    ReleaseUiaProvider();
     if (queryEdit_) RemoveWindowSubclass(queryEdit_, SearchEditProc, 1);
     if (status_) RemoveWindowSubclass(status_, StatusProc, 2);
     stopping_.store(true, std::memory_order_release);
@@ -202,6 +231,10 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
         SetWindowSubclass(queryEdit_, SearchEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     }
     SetWindowSubclass(status_, StatusProc, 2, reinterpret_cast<DWORD_PTR>(this));
+    // semantic-uia-core-surfaces 4.2: subclass the result list so WM_GETOBJECT
+    // returns the search fragment root (native virtual lists have no UIA item
+    // provider; see the change design D1/D15).
+    SetWindowSubclass(list_, SearchListProc, 3, reinterpret_cast<DWORD_PTR>(this));
     RefreshScopeLabels();
     for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created"})
         SendMessageW(sort_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
@@ -453,6 +486,9 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
                      results_.empty() ? StatusKind::NoResults : StatusKind::Info);
     }
     InvalidateRect(list_, nullptr, FALSE);
+    // semantic-uia-core-surfaces 4.4: the result set was replaced.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, -1, -1, -1, -1, -1, false, false, /*search=*/true});
+    NotifyUia({UiaEventKind::StructureBulkAdded, -1, -1, -1, -1, -1, false, false, /*search=*/true});
     return true;
 }
 
@@ -496,6 +532,9 @@ bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
                      results_.empty() ? StatusKind::NoResults : StatusKind::Info);
     }
     InvalidateRect(list_, nullptr, FALSE);
+    // semantic-uia-core-surfaces 4.4: the indexed result set was replaced.
+    NotifyUia({UiaEventKind::StructureBulkRemoved, -1, -1, -1, -1, -1, false, false, /*search=*/true});
+    NotifyUia({UiaEventKind::StructureBulkAdded, -1, -1, -1, -1, -1, false, false, /*search=*/true});
     return true;
 }
 
@@ -531,6 +570,34 @@ bool SearchPanel::HandleNotify(LPARAM lParam) {
                 : ffsearch::ReconstructPath(candidates_, static_cast<size_t>(found - candidates_.begin()));
             Hide();
             navigate_(candidate, reconstruction);
+        }
+        return true;
+    }
+    if (header->code == LVN_ITEMCHANGED) {
+        // semantic-uia-core-surfaces 4.3/4.4: native selection/focus changes
+        // (mouse + keyboard) become UIA selection/focus events.
+        const auto* change = reinterpret_cast<NMLISTVIEW*>(lParam);
+        if ((change->uChanged & LVIF_STATE) != 0) {
+            const int oldSelected = (change->uOldState & LVIS_SELECTED) != 0 ? change->iItem : -1;
+            const int newSelected = (change->uNewState & LVIS_SELECTED) != 0 ? change->iItem : -1;
+            if (oldSelected != newSelected) {
+                NotifyUia({UiaEventKind::SelectionInvalidated, -1, -1, -1, -1, -1,
+                           false, false, /*search=*/true, static_cast<size_t>(change->iItem)});
+                if (newSelected >= 0) {
+                    NotifyUia({UiaEventKind::ElementAddedToSelection, -1, -1, -1, -1, -1,
+                               false, false, /*search=*/true, static_cast<size_t>(newSelected)});
+                }
+                if (oldSelected >= 0) {
+                    NotifyUia({UiaEventKind::ElementRemovedFromSelection, -1, -1, -1, -1, -1,
+                               false, false, /*search=*/true, static_cast<size_t>(oldSelected)});
+                }
+            }
+            const bool oldFocused = (change->uOldState & LVIS_FOCUSED) != 0;
+            const bool newFocused = (change->uNewState & LVIS_FOCUSED) != 0;
+            if (oldFocused != newFocused && newFocused && change->iItem >= 0) {
+                NotifyUia({UiaEventKind::FocusChanged, -1, -1, -1, -1, -1,
+                           false, false, /*search=*/true, static_cast<size_t>(change->iItem)});
+            }
         }
         return true;
     }
@@ -1053,6 +1120,148 @@ void SearchPanel::SetQueryAndDispatch(const std::wstring& query) {
 
 void SearchPanel::SetHistoryChangedCallback(std::function<void()> cb) {
     historyChanged_ = std::move(cb);
+}
+
+// ---------------------------------------------------------------------------
+// semantic-uia-core-surfaces 4.x: UiaSurface implementation for the search
+// result list. Queries project the real result model and native list state;
+// actions route into the exact native list / navigation logic user input
+// uses (design D15).
+// ---------------------------------------------------------------------------
+
+size_t SearchPanel::UiaSearchResultCount() const {
+    return results_.size();
+}
+
+UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const {
+    UiaSearchResultInfo info;
+    if (index >= results_.size()) return info;
+    const ffsearch::Candidate& candidate = results_[index].candidate;
+    info.name = candidate.name;
+    info.folder = candidate.folder;
+    info.sizeBytes = candidate.sizeBytes;
+    info.modifiedTime = candidate.modifiedTime;
+    info.isDirectory = candidate.isDirectory;
+    info.volumeId = candidate.volumeId;
+    info.id = candidate.id;
+    info.fullPath = (std::filesystem::path(candidate.folder) / candidate.name).wstring();
+    if (list_ != nullptr) {
+        const int itemState = ListView_GetItemState(list_, static_cast<int>(index),
+                                                    LVIS_SELECTED | LVIS_FOCUSED);
+        info.selected = (itemState & LVIS_SELECTED) != 0;
+        info.focused = (itemState & LVIS_FOCUSED) != 0;
+    }
+    return info;
+}
+
+bool SearchPanel::UiaSearchResultRect(size_t index, RECT& outScreen) const {
+    if (list_ == nullptr || index >= results_.size()) return false;
+    RECT item{};
+    if (!ListView_GetItemRect(list_, static_cast<int>(index), &item, LVIR_BOUNDS)) return false;
+    outScreen = item;
+    ClientToScreen(list_, reinterpret_cast<POINT*>(&outScreen.left));
+    ClientToScreen(list_, reinterpret_cast<POINT*>(&outScreen.right));
+    return true;
+}
+
+bool SearchPanel::UiaSearchResultOffscreen(size_t index) const {
+    RECT rect{};
+    if (!UiaSearchResultRect(index, rect)) return true;
+    RECT client{};
+    GetClientRect(list_, &client);
+    POINT origin{0, 0};
+    ClientToScreen(list_, &origin);
+    client.left += origin.x;
+    client.right += origin.x;
+    client.top += origin.y;
+    client.bottom += origin.y;
+    return rect.bottom <= client.top || rect.top >= client.bottom ||
+           rect.right <= client.left || rect.left >= client.right;
+}
+
+bool SearchPanel::UiaSearchVisible() const {
+    return visible_;
+}
+
+bool SearchPanel::UiaSearchHasKeyboardFocus() const {
+    return list_ != nullptr && GetFocus() == list_;
+}
+
+HWND SearchPanel::UiaSearchHwnd() const {
+    return list_;
+}
+
+void SearchPanel::UiaSearchSelectItem(size_t index) {
+    if (list_ == nullptr || index >= results_.size()) return;
+    // The native single-select list: selection implies the focus item.
+    ListView_SetItemState(list_, static_cast<int>(index), LVIS_SELECTED, LVIS_SELECTED);
+    ListView_SetItemState(list_, static_cast<int>(index), LVIS_FOCUSED, LVIS_FOCUSED);
+}
+
+void SearchPanel::UiaSearchAddToSelection(size_t index) {
+    if (list_ == nullptr || index >= results_.size()) return;
+    if ((ListView_GetItemState(list_, static_cast<int>(index), LVIS_SELECTED) & LVIS_SELECTED) == 0) {
+        UiaSearchSelectItem(index);
+    }
+}
+
+void SearchPanel::UiaSearchRemoveFromSelection(size_t index) {
+    if (list_ == nullptr || index >= results_.size()) return;
+    ListView_SetItemState(list_, static_cast<int>(index), 0, LVIS_SELECTED);
+}
+
+void SearchPanel::UiaSearchSetFocusItem(size_t index) {
+    if (list_ == nullptr || index >= results_.size()) return;
+    UiaSearchSelectItem(index);
+    SetFocus(list_);
+}
+
+void SearchPanel::UiaSearchActivateItem(size_t index) {
+    if (index >= results_.size()) return;
+    // The exact search-to-navigation path used by NM_DBLCLK / LVN_ITEMACTIVATE.
+    const auto candidate = results_[index].candidate;
+    const auto found = std::find_if(candidates_.begin(), candidates_.end(), [&](const ffsearch::Candidate& entry) {
+        return entry.volumeId == candidate.volumeId && entry.id == candidate.id;
+    });
+    const auto reconstruction = found == candidates_.end()
+        ? ffsearch::PathReconstruction{}
+        : ffsearch::ReconstructPath(candidates_, static_cast<size_t>(found - candidates_.begin()));
+    Hide();
+    navigate_(candidate, reconstruction);
+}
+
+void SearchPanel::UiaSearchScrollIntoView(size_t index) {
+    if (list_ == nullptr || index >= results_.size()) return;
+    ListView_EnsureVisible(list_, static_cast<int>(index), FALSE);
+}
+
+void SearchPanel::SetUiaEventSink(UiaEventSink sink, void* context) {
+    uiaEvents_.Set(sink, context);
+}
+
+Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> SearchPanel::UiaRootProvider(HWND listHwnd) {
+    if (uiaProvider_ == nullptr) {
+        if (!uiaState_) {
+            uiaState_ = std::make_shared<UiaOwnerState>();
+        }
+        auto provider = Microsoft::WRL::ComPtr<SearchUiaProvider>(new SearchUiaProvider(uiaState_, this, listHwnd));
+        uiaProvider_ = provider;
+        uiaEvents_.Set(&SearchUiaProvider::SinkThunk, provider.Get());
+    }
+    return uiaProvider_;
+}
+
+void SearchPanel::ReleaseUiaProvider() {
+    uiaEvents_.Clear();
+    if (uiaState_) {
+        uiaState_->alive = false;
+    }
+    uiaState_.reset();
+    uiaProvider_.Reset();
+}
+
+void SearchPanel::NotifyUia(const UiaEventNotification& notification) {
+    uiaEvents_.Notify(notification);
 }
 
 } // namespace ffui

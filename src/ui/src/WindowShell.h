@@ -150,6 +150,9 @@ private:
     ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
     uint64_t pendingAggregateItemCount_ = 0;
     uint64_t pendingAggregateTotalSize_ = 0;
+    // semantic-uia-core-surfaces 2.5: bumped on every geometry push so the
+    // provider layer can cheaply validate its cached view.
+    uint64_t uiaGeometryRevision_ = 0;
 };
 
 } // namespace ffui

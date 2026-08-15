@@ -17,19 +17,22 @@
 
 #include "EngineClient.h"
 #include "ffui/ShellLayout.h"
+#include "ffui/UiaSurface.h" // semantic-uia-core-surfaces 4.x: UIA projection seam
 #include "ffsearch/Search.h"
 #include "ffsearch/History.h"
 #include "Util.h"
+#include "UiaNotifications.h" // semantic-uia-core-surfaces 4.4: semantic event sink
+#include "UiaProviderBase.h"  // semantic-uia-core-surfaces 1.1: owner-lifetime token
 
 namespace ffui {
 
 constexpr UINT WM_APP_SEARCH_COMPLETE = WM_APP + 6;
 constexpr UINT WM_APP_INDEXED_SEARCH_COMPLETE = WM_APP + 13;
 
-class SearchPanel {
+class SearchPanel : public UiaSurface {
 public:
     SearchPanel() = default;
-    ~SearchPanel();
+    ~SearchPanel() override;
     bool Initialize(HWND owner, EngineClient* engine,
                     std::function<void(const ffsearch::Candidate&, const ffsearch::PathReconstruction&)> navigate,
                     bool retainHistory);
@@ -175,6 +178,40 @@ private:
     // "folder"), resolved lazily via SHGetFileInfoW / SHGetStockIconInfo.
     std::map<std::wstring, int> iconIndexCache_;
     StatusKind statusKind_ = StatusKind::Info;
+
+    // semantic-uia-core-surfaces 4.x: UIA surface implementation for the
+    // search result list. The provider tree queries and mutates ONLY through
+    // these methods, which project the real result model and native list
+    // state (design D15).
+    size_t UiaSearchResultCount() const override;
+    UiaSearchResultInfo UiaSearchResultInfoOf(size_t index) const override;
+    bool UiaSearchResultRect(size_t index, RECT& outScreen) const override;
+    bool UiaSearchResultOffscreen(size_t index) const override;
+    bool UiaSearchVisible() const override;
+    bool UiaSearchHasKeyboardFocus() const override;
+    HWND UiaSearchHwnd() const override;
+    void UiaSearchSelectItem(size_t index) override;
+    void UiaSearchAddToSelection(size_t index) override;
+    void UiaSearchRemoveFromSelection(size_t index) override;
+    void UiaSearchSetFocusItem(size_t index) override;
+    void UiaSearchActivateItem(size_t index) override;
+    void UiaSearchScrollIntoView(size_t index) override;
+
+    // semantic-uia-core-surfaces 4.2/4.4: provider plumbing. The list HWND is
+    // subclassed (SearchListProc) so WM_GETOBJECT returns the fragment root;
+    // everything else falls through to the native control. Public because the
+    // subclass proc and the shell own the lifecycle.
+public:
+    void SetUiaEventSink(UiaEventSink sink, void* context);
+    Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> UiaRootProvider(HWND listHwnd);
+    void ReleaseUiaProvider();
+
+private:
+    void NotifyUia(const UiaEventNotification& notification);
+
+    UiaEventRouter uiaEvents_;
+    UiaOwnerStatePtr uiaState_;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> uiaProvider_;
 };
 
 } // namespace ffui

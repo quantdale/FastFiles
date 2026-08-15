@@ -801,6 +801,15 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     }
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
+    // semantic-uia-core-surfaces 2.5: pane-0 horizontal scrolling from the UIA
+    // Scroll pattern drives the same animated offset Shift+wheel uses.
+    columnView_.SetUiaHorizontalScrollWriter([this](float offset) {
+        const uint64_t now = GetTickCount64();
+        scrollAnim_.Snap(scrollAnim_.Value());
+        scrollAnim_.AnimateTo(offset, kUiAnimationDefaultMs, now);
+        HandleAnimationTimer(true);
+        RequestRepaint();
+    });
     if (!initialNavigationPath.empty()) {
         columnView_.NavigateToPath(initialNavigationPath);
     }
@@ -1149,6 +1158,24 @@ void WindowShell::Render() {
     D2D1_SIZE_F viewportSize = D2D1::SizeF(
         detailsLayout.availableColumnWidthDip,
         detailsLayout.viewportHeightDip);
+
+    // semantic-uia-core-surfaces 2.5/1.4: push the live geometry the UIA
+    // providers convert to screen coordinates. Updated every render (plain
+    // floats) so bounds always track the eased scroll offsets and layout.
+    {
+        UiaViewGeometry geometry;
+        geometry.originXDip = shellLayout.contentRect.left;
+        geometry.originYDip = shellLayout.contentRect.top;
+        geometry.widthDip = detailsLayout.availableColumnWidthDip;
+        geometry.heightDip = detailsLayout.viewportHeightDip;
+        geometry.dpiScale = CurrentDpiScale();
+        geometry.hScroll0Dip = scrollOffset_;
+        geometry.hScroll1Dip = columnView_.ScrollOffset2();
+        geometry.hwnd = hwnd_;
+        geometry.keyboardFocus = GetFocus() == hwnd_;
+        geometry.revision = ++uiaGeometryRevision_;
+        columnView_.SetUiaGeometry(geometry);
+    }
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
 
@@ -1553,6 +1580,36 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             RequestRepaint();
             return 0;
+        }
+
+        // semantic-uia-core-surfaces 2.5: WM_GETOBJECT integration -- the
+        // custom Column View / Home surface answers UIAutomationCore's
+        // provider request with its fragment root (design D2).
+        case WM_GETOBJECT: {
+            if (static_cast<LONG>(lParam) == UiaRootObjectId) {
+                Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> root =
+                    columnView_.UiaRootProvider(hwnd);
+                if (root != nullptr) {
+                    Microsoft::WRL::ComPtr<IRawElementProviderSimple> simple;
+                    if (SUCCEEDED(root.As(&simple)) && simple != nullptr) {
+                        return UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
+                    }
+                }
+                return 0;
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+
+        // semantic-uia-core-surfaces 2.5: real keyboard-focus ownership of the
+        // main window, projected into HasKeyboardFocus by the providers.
+        case WM_SETFOCUS: {
+            columnView_.SetUiaKeyboardFocusOwned(true);
+            return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
+
+        case WM_KILLFOCUS: {
+            columnView_.SetUiaKeyboardFocusOwned(false);
+            return DefWindowProcW(hwnd, message, wParam, lParam);
         }
 
         case WM_SETTINGCHANGE:
@@ -2184,6 +2241,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             dropTarget_.Reset();
             fileOperations_.Stop();
             previewController_.Clear();
+            // semantic-uia-core-surfaces 2.5: release the app's provider
+            // references; client-held elements become safe zombies via the
+            // owner-lifetime token before the HWND is destroyed.
+            columnView_.ReleaseUiaProvider();
+            searchPanel_.ReleaseUiaProvider();
             hwnd_ = nullptr;
             PostQuitMessage(0);
             return 0;
