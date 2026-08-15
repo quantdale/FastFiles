@@ -7,6 +7,7 @@ The whole product rests on one deliberately early architectural decision — a *
 ## Features
 
 - **Column View navigation** — Finder-style columns with keyboard-driven navigation (workspace, sidebar, chrome).
+- **Home / Quick Access** — a first-class Home navigation state (sidebar entry, `Alt+Home`, default for new tabs) with Pinned bookmarks, recent folders, recent searches, common locations, and quick actions — fully local and degraded-mode capable.
 - **Instant search** — query parsing over the indexed projection (`ffsearch`).
 - **File operations** — copy/move/rename/delete driven by `IFileOperation` on a dedicated STA worker thread, with a conflict dialog.
 - **File preview & properties** — in-app preview pane and property display.
