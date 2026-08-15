@@ -1878,3 +1878,17 @@ Validation: Debug PASS; Analyze PASS; serial CTest PASS 42/42 with the documente
 3. Reconcile stale entries against Git/source/tests.
 4. Execute `NEXT EXACT ACTION`.
 5. Do not restart completed investigation.
+
+## Session record 2026-08-15 — quick-access-home post-integration hardening (HOME-POST-01..04)
+
+Status: COMPLETE; pushed to `origin/main` at `2d0a74f` baseline + 3 commits (see git log). All four defects closed; full normal portable matrix green; privileged/trust campaign untouched.
+
+- HOME-POST-01: `WorkspaceState::recentlyClosedTabs` is now `std::deque<NavigationLocation>`; `CloseActiveTab`/`ReopenClosedTab` use `LocationOf(ActiveContext())`/`OpenTab(location)`; JSON keeps bare strings for filesystem entries, `{"kind": "home"}` objects for Home; legacy strings migrate as FileSystem; cap 16 unchanged.
+- HOME-POST-02: unavailable known folders (empty path) render disabled (secondary text), are excluded from focus/hover/activation via `HomeItemFocusable` + pure `ComputeHomeActivation`; shell callback rejects empty `HomeActionKind::Folder` values.
+- HOME-POST-03: `HomeFocusTarget`/`HomeFocusEntry` + pure `BuildHomeFocusList`/`HomeMoveFocusEntry`/`HomeFirstFocusEntry`/`HomeLastFocusEntry` seams; Clear stops are keyboard-focusable and Enter-activatable; initial/Home/End land on items only; `SetHomeData` revalidates focus; focus ring + High-Contrast highlight; mouse unchanged.
+- HOME-POST-04: `EnableDualPane` clones `LocationOf(ActiveContext())` (Home -> Home with fresh {Home} history; FS folder -> same folder; This PC -> FileSystem(empty)); shared `LocationOf` helper replaced chrome ternaries.
+- Adjacent: explicit Clear recent folders now calls `FlushState()` (immediate persistence per spec); typed-location leak audit found no further Home->This PC collapses; fixed latent `HomeSectionLayout::itemCount` seam bug (never populated; first consumer `BuildHomeFocusList`).
+- Validation: debug 55/55, release-test 55/55, analyze build green, asan fuzz pass, `verify.ps1 build`/`doctor` PASS, `check_diagnostic_policy.ps1`/`check_source_markers.ps1` PASS, `openspec validate --all --strict --no-interactive` 47/47, `git diff --check` clean, `ffdoc_drift_tests` PASS. Privileged trust suite NOT run.
+- Commits: `9611e08` (typed workspace locations), `4386d99` (unavailable + keyboard hardening), docs commit (openspec + this file).
+- Session artifacts not committed: `jobs.json`, `run.json` (baseline CI evidence for `2d0a74f`, run 31856328104); build helper `build/devshell.bat`, `build/vsrun.ps1` (untracked build/ noise).
+- NEXT recommended slice (do NOT start without instruction): New Window, per the mission.

@@ -21,6 +21,10 @@ FastFiles SHALL represent Home as an explicit navigation-location kind distinct 
 - **WHEN** any code path resolves the active context's location for a filesystem operation
 - **THEN** a Home location yields no path argument and the operation is rejected by existing empty-path guards
 
+#### Scenario: Closed Home tabs reopen as Home
+- **WHEN** the user closes a Home tab and later reopens it (Ctrl+Shift+T)
+- **THEN** the tab reopens at Home with an empty filesystem path -- the recently-closed-tab stack is typed, never an empty-path "This PC" entry, and legacy string entries migrate as filesystem locations
+
 ### Requirement: Persistent Home entry in the navigation sidebar
 FastFiles SHALL show a persistent Home entry at the top of the navigation sidebar, above Drives, Known Folders, and Bookmarks. Activating it SHALL make Home the active location of the active pane. It SHALL show a selected state while the active location is Home, and middle-click SHALL open Home in a new tab, matching existing sidebar conventions.
 
@@ -116,7 +120,7 @@ Home SHALL display the existing known-folder discovery results (Desktop, Documen
 
 #### Scenario: Unavailable known folder
 - **WHEN** a known folder cannot be resolved
-- **THEN** it is rendered disabled or omitted per the existing sidebar behavior
+- **THEN** it is rendered disabled per the existing sidebar behavior (secondary-text treatment), is skipped by keyboard focus traversal and hover, and cannot be activated by mouse, Enter, or Ctrl+Enter -- it NEVER navigates to "This PC" merely because its path is empty, and any empty-path folder activation is rejected at the shell boundary
 
 ### Requirement: Quick actions reuse existing commands
 Home SHALL expose a small actions strip of at most five entries (New Tab, Search, Open Path, Settings), each invoking an existing command. No new behavior SHALL be added solely to populate Home.
@@ -132,6 +136,10 @@ The Home surface SHALL be fully usable without a mouse: arrow keys move focus ac
 - **WHEN** the user focuses the Home pane and presses arrow keys
 - **THEN** focus moves between Home items with a visible focus outline
 
+#### Scenario: Keyboard traversal of the Clear affordances
+- **WHEN** the Recent folders or Recent searches section is present and the user traverses into it with the keyboard
+- **THEN** its header Clear affordance receives visible keyboard focus (existing focus token, suppressed in High Contrast) and Enter activates it; a section with no items exposes no such focus target, and the empty-Pinned hint is never a focus destination
+
 #### Scenario: Enter activates the focused item
 - **WHEN** the user presses Enter on a focused Home item
 - **THEN** the item activates (navigate, execute search, or run command)
@@ -142,6 +150,10 @@ Home SHALL belong to the active pane/context. One pane MAY show Home while the o
 #### Scenario: Home in one pane only
 - **WHEN** dual-pane mode is on and pane 1 is Home
 - **THEN** pane 2 continues to show its filesystem location and its own history, and activating a Home item changes only pane 1
+
+#### Scenario: Enabling dual pane from Home
+- **WHEN** the user enables dual-pane mode while the active pane is Home
+- **THEN** the new pane starts at Home with a fresh `{Home}` history (never "This PC"), and the active pane's typed location is cloned -- a filesystem folder clones that folder with a fresh `{folder}` history, and This PC clones FileSystem(empty), never Home
 
 #### Scenario: Tab isolation
 - **WHEN** the user switches tabs
