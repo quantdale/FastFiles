@@ -54,6 +54,49 @@ void TestMissingDescendantIsPartial() {
           "partial aggregate retains known file bytes as a lower bound");
 }
 
+// allocated-size-storage-accuracy 8.2/D8: degraded aggregation carries the
+// allocated subtotal over known descendants plus the completeness pair;
+// complete only when every descendant is known; unknown never becomes zero.
+void TestAllocatedAggregateCompletenessAndUnknown() {
+    ffprotocol::SnapshotDirectoryEntry known = File(L"known.bin", 10);
+    known.allocatedSizeBytes = 8;
+    known.allocatedSizeKnown = true;
+    ffprotocol::SnapshotDirectoryEntry zero = File(L"empty.bin", 0);
+    zero.allocatedSizeBytes = 0;
+    zero.allocatedSizeKnown = true; // genuine zero-byte file
+    ffprotocol::SnapshotDirectoryEntry unknown = File(L"unknown.bin", 20);
+    // allocatedSizeKnown stays false -- degraded entries are unknown
+
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot;
+    snapshot[L"C:\\"] = Success({Folder(L"sub"), known, zero, unknown});
+    snapshot[L"C:\\sub"] = Success({File(L"nested.bin", 4)});
+
+    const auto result = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\");
+    Check(result.complete, "fully browsed snapshot subtree is logically complete");
+    Check(result.totalSizeBytes == 34, "logical total is unaffected by allocated knowledge");
+    Check(result.allocatedBytesTotalCount == 5, "every descendant counts toward the allocated total");
+    Check(result.allocatedBytesKnownCount == 2, "only known descendants contribute to the known count");
+    Check(result.totalAllocatedSizeBytes == 8, "allocated subtotal covers only known descendants");
+    Check(!result.allocatedComplete,
+          "an aggregate with an unknown descendant is never allocated-complete");
+    Check(known.allocatedSizeKnown && known.allocatedSizeBytes == 8,
+          "a known zero-byte file stays distinct from an unknown one");
+
+    // All-known subtree: exact allocated total, allocated-complete.
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> allKnown;
+    allKnown[L"D:\\"] = Success({File(L"a.bin", 1), File(L"b.bin", 2)});
+    auto& a = allKnown[L"D:\\"].entries[0];
+    a.allocatedSizeBytes = 1;
+    a.allocatedSizeKnown = true;
+    auto& b = allKnown[L"D:\\"].entries[1];
+    b.allocatedSizeBytes = 3;
+    b.allocatedSizeKnown = true;
+    const auto knownResult = ffui::AggregateSnapshotDirectory(allKnown, L"D:\\");
+    Check(knownResult.allocatedComplete && knownResult.totalAllocatedSizeBytes == 4 &&
+              knownResult.allocatedBytesKnownCount == 2 && knownResult.allocatedBytesTotalCount == 2,
+          "an all-known subtree reports an exact, complete allocated total");
+}
+
 void TestCaseVariantDescendantIsTheSameWindowsDirectory() {
     std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot;
     snapshot[L"C:\\"] = Success({Folder(L"Fixture")});
@@ -86,6 +129,7 @@ void TestPendingSelectionPathIdentity() {
 int main() {
     TestCompleteKnownSubtree();
     TestMissingDescendantIsPartial();
+    TestAllocatedAggregateCompletenessAndUnknown();
     TestCaseVariantDescendantIsTheSameWindowsDirectory();
     TestUnavailableRoot();
     TestPendingSelectionPathIdentity();

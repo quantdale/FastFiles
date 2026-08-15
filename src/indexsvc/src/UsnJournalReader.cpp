@@ -26,7 +26,7 @@ constexpr std::chrono::milliseconds kIdlePollSliceInterval{100};
 constexpr uint64_t kMftSegmentNumberMask = 0x0000FFFFFFFFFFFFull;
 constexpr uint32_t kUsnReasonFileDelete = 0x00000200;
 
-bool IsRepresentableInLegacyV1(const ffprotocol::UsnDeltaV2& record) noexcept {
+bool IsRepresentableInLegacyV1(const ffprotocol::UsnDeltaV3& record) noexcept {
     if ((record.fixed.fieldMask & ~ffprotocol::kUsnFieldMaskAll) != 0) {
         return false;
     }
@@ -45,8 +45,8 @@ bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                       const std::vector<ffprotocol::UsnDeltaV2>& records, uint64_t latestUsn,
-                       ffprotocol::ProtocolVersion negotiatedVersion) {
+                      const std::vector<ffprotocol::UsnDeltaV3>& records, uint64_t latestUsn,
+                      ffprotocol::ProtocolVersion negotiatedVersion) {
     if (negotiatedVersion.major == 1) {
         // A major-1 peer does not know message 19 or the V2 presence mask.
         // Never encode an absent V2 field as a legacy zero: omit a partial
@@ -56,7 +56,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
         legacyRecords.reserve(records.size());
         for (const auto& record : records) {
             if (IsRepresentableInLegacyV1(record)) {
-                legacyRecords.push_back(ffprotocol::DowngradeUsnDeltaV2(record));
+                legacyRecords.push_back(ffprotocol::DowngradeUsnDeltaV3ToV1(record));
             }
         }
         const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaBatch(legacyRecords);
@@ -76,13 +76,43 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                                       payload.data(), static_cast<uint32_t>(payload.size()));
     }
 
-    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaV2Batch(records);
+    if (!ffprotocol::ProtocolSupportsAllocatedSize(negotiatedVersion)) {
+        // allocated-size-storage-accuracy D3/2.5: a {2,0} peer knows the V2
+        // presence mask but not the V3 record or the allocated-size bit.
+        // Records carrying the bit are omitted (non-delete updates are
+        // recovered by reconciliation); never zero-filled.
+        std::vector<ffprotocol::UsnDeltaV2> v2Records;
+        v2Records.reserve(records.size());
+        for (const auto& record : records) {
+            if (ffprotocol::IsRepresentableInUsnV2(record)) {
+                v2Records.push_back(ffprotocol::DowngradeUsnDeltaV3(record));
+            }
+        }
+        const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaV2Batch(v2Records);
+        ffprotocol::JournalRecordBatchV2Header header{};
+        header.volumeId = volumeId;
+        header.recordCount = static_cast<uint32_t>(v2Records.size());
+        header.latestUsn = latestUsn;
+        header.recordFormatVersion = 2;
 
-    ffprotocol::JournalRecordBatchV2Header header{};
+        std::vector<uint8_t> payload;
+        payload.reserve(sizeof(header) + serializedRecords.size());
+        const auto* headerBytes = reinterpret_cast<const uint8_t*>(&header);
+        payload.insert(payload.end(), headerBytes, headerBytes + sizeof(header));
+        payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
+
+        std::lock_guard<std::mutex> lock(writeMutex);
+        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV2),
+                                      payload.data(), static_cast<uint32_t>(payload.size()));
+    }
+
+    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaV3Batch(records);
+
+    ffprotocol::JournalRecordBatchV3Header header{};
     header.volumeId = volumeId;
     header.recordCount = static_cast<uint32_t>(records.size());
     header.latestUsn = latestUsn;
-    header.recordFormatVersion = 2;
+    header.recordFormatVersion = 3;
 
     std::vector<uint8_t> payload;
     payload.reserve(sizeof(header) + serializedRecords.size());
@@ -91,7 +121,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
 
     std::lock_guard<std::mutex> lock(writeMutex);
-    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV2),
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV3),
                                   payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
@@ -206,7 +236,7 @@ JournalStreamOutcome RunUsnJournalStream(
 
     USN startUsn = static_cast<USN>(resumeUsn);
     std::vector<uint8_t> readBuffer(kReadBufferSize);
-    std::vector<ffprotocol::UsnDeltaV2> batch;
+    std::vector<ffprotocol::UsnDeltaV3> batch;
     batch.reserve(kBatchSize);
     uint64_t latestUsnInBatch = resumeUsn;
     JournalStreamOutcome outcome = JournalStreamOutcome::Ended;
@@ -260,7 +290,7 @@ JournalStreamOutcome RunUsnJournalStream(
                 continue;
             }
 
-            ffprotocol::UsnDeltaV2 delta{};
+            ffprotocol::UsnDeltaV3 delta{};
             delta.fixed.usn = decoded->usn;
             delta.fixed.fileReferenceNumber = decoded->fileReferenceNumber;
             delta.fixed.parentFileReferenceNumber = decoded->parentFileReferenceNumber;
@@ -275,12 +305,18 @@ JournalStreamOutcome RunUsnJournalStream(
                 delta.fixed.lastModifiedTime = enriched->lastModifiedTime;
                 delta.fixed.lastAccessTime = enriched->lastAccessTime;
                 delta.fixed.sizeBytes = enriched->sizeBytes;
+                // allocated-size-storage-accuracy D2/2.5: re-enrichment
+                // yields both cached $FILE_NAME sizes from the same
+                // allowlisted parse, so the allocated-size bit is set
+                // together with the logical-size bit -- never separately,
+                // never derived.
+                delta.fixed.allocatedSizeBytes = enriched->allocatedSizeBytes;
                 delta.fixed.fileAttributes = enriched->fileAttributes;
                 delta.fileName = enriched->fileName;
                 delta.fixed.fieldMask = ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName |
                                         ffprotocol::kUsnFieldSizeBytes | ffprotocol::kUsnFieldCreationTime |
                                         ffprotocol::kUsnFieldLastModifiedTime | ffprotocol::kUsnFieldLastAccessTime |
-                                        ffprotocol::kUsnFieldAttributes;
+                                        ffprotocol::kUsnFieldAttributes | ffprotocol::kUsnFieldAllocatedSizeBytes;
             } else {
                 // Most commonly a delete: fall back to the raw
                 // USN_RECORD's own (shorter, but still allowlisted) name

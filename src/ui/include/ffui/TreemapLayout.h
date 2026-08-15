@@ -25,6 +25,14 @@ struct TreemapNode {
     bool isDirectory = false;
     uint64_t sizeBytes = 0;
     uint64_t totalSizeBytes = 0;
+    // allocated-size-storage-accuracy 7.2: the node's own size-on-disk and,
+    // for directories, the subtree's allocated aggregate with its explicit
+    // completeness pair. Unknown is never rendered as 0 B.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
+    uint64_t totalAllocatedSizeBytes = 0;
+    uint64_t allocatedKnownCount = 0;
+    uint64_t allocatedTotalCount = 0;
     bool calculating = false;
     bool aggregateResolved = false;
     bool aggregateFailed = false;

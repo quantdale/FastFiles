@@ -61,6 +61,14 @@ private:
         bool isDirectory = false;
         uint64_t sizeBytes = 0;
         uint64_t totalSizeBytes = 0; // subtree aggregate when known
+        // allocated-size-storage-accuracy 7.1: the item's own size-on-disk
+        // (files) plus the subtree's allocated aggregate with its explicit
+        // completeness pair (known/total counts) for directories.
+        uint64_t allocatedSizeBytes = 0;
+        bool allocatedSizeKnown = false;
+        uint64_t totalAllocatedSizeBytes = 0;
+        uint64_t allocatedKnownCount = 0;
+        uint64_t allocatedTotalCount = 0;
         uint32_t attributes = 0;
         uint64_t creationTime = 0;
         uint64_t lastModifiedTime = 0;
@@ -96,7 +104,10 @@ private:
     void RequestAggregateForParent(const ffprotocol::SnapshotDirectory& directory);
     std::pair<uint64_t, bool> CurrentParentTotals() const;
     void HandleAggregateResult(uint64_t requestId, ffprotocol::FolderAggregateStatus status,
-                               uint64_t itemCount, uint64_t totalSizeBytes);
+                               uint64_t itemCount, uint64_t totalSizeBytes,
+                               uint64_t totalAllocatedSizeBytes,
+                               uint64_t allocatedBytesKnownCount,
+                               uint64_t allocatedBytesTotalCount);
     void SortItems(int column, bool ascending);
     void PopulateCategoryFilter();
     void UpdateCategoryFilterFromControl();

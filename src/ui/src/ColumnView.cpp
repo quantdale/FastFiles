@@ -890,7 +890,9 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
     column.items.clear();
     column.items.reserve(directory->entries.size());
     for (const auto& entry : directory->entries) {
-        column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes, entry.attributes,
+        column.items.push_back({entry.name, entry.isDirectory, entry.sizeBytes,
+                                entry.allocatedSizeBytes, entry.allocatedSizeKnown,
+                                entry.attributes,
                                 static_cast<uint64_t>(entry.fileIdLow), static_cast<uint64_t>(entry.fileIdHigh),
                                 entry.volumeRowId});
     }
@@ -1111,7 +1113,9 @@ SelectionSummary ColumnView::CurrentSelectionSummary() const {
             continue;
         }
         const ColumnItem& item = column.items[index];
-        summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes, item.attributes, item.isDirectory,
+        summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes,
+                                  item.allocatedSizeBytes, item.allocatedSizeKnown,
+                                  item.attributes, item.isDirectory,
                                   item.fileIdLow, item.fileIdHigh, item.volumeRowId});
         if (!item.isDirectory) summary.knownSizeBytes += item.sizeBytes;
     }

@@ -79,6 +79,20 @@ std::optional<std::vector<MftRecordV1>> ParseMftBatch(
     return result;
 }
 
+std::optional<std::vector<MftRecordV2>> ParseMftBatchV2(
+    const uint8_t* payload, size_t payloadSize, uint32_t declaredCount) {
+    auto parsed = ParseBatch<MftRecordFixedV2>(payload, payloadSize, declaredCount);
+    if (!parsed) {
+        return std::nullopt;
+    }
+    std::vector<MftRecordV2> result;
+    result.reserve(parsed->size());
+    for (auto& [fixed, fileName] : *parsed) {
+        result.push_back(MftRecordV2{fixed, std::move(fileName)});
+    }
+    return result;
+}
+
 std::optional<std::vector<UsnDeltaV1>> ParseUsnDeltaBatch(
     const uint8_t* payload, size_t payloadSize, uint32_t declaredCount) {
     auto parsed = ParseBatch<UsnDeltaFixedV1>(payload, payloadSize, declaredCount);
@@ -106,6 +120,19 @@ std::optional<std::vector<UsnDeltaV2>> ParseUsnDeltaV2Batch(
     return result;
 }
 
+std::optional<std::vector<UsnDeltaV3>> ParseUsnDeltaV3Batch(
+    const uint8_t* payload, size_t payloadSize, uint32_t declaredCount) {
+    auto parsed = ParseBatch<UsnDeltaFixedV3>(payload, payloadSize, declaredCount);
+    if (!parsed) return std::nullopt;
+    std::vector<UsnDeltaV3> result;
+    result.reserve(parsed->size());
+    for (auto& [fixed, fileName] : *parsed) {
+        if ((fixed.fieldMask & ~kUsnFieldMaskAll) != 0) return std::nullopt;
+        result.push_back(UsnDeltaV3{fixed, std::move(fileName)});
+    }
+    return result;
+}
+
 UsnDeltaV2 UpgradeUsnDeltaV1(const UsnDeltaV1& record) {
     UsnDeltaV2 result{};
     result.fixed.usn = record.fixed.usn;
@@ -124,6 +151,66 @@ UsnDeltaV2 UpgradeUsnDeltaV1(const UsnDeltaV1& record) {
 }
 
 UsnDeltaV1 DowngradeUsnDeltaV2(const UsnDeltaV2& record) {
+    UsnDeltaV1 result{};
+    result.fixed.usn = record.fixed.usn;
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.reason = record.fixed.reason;
+    result.fixed.timestamp = record.fixed.timestamp;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
+UsnDeltaV3 UpgradeUsnDeltaV2(const UsnDeltaV2& record) {
+    UsnDeltaV3 result{};
+    result.fixed.usn = record.fixed.usn;
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.reason = record.fixed.reason;
+    result.fixed.timestamp = record.fixed.timestamp;
+    result.fixed.creationTime = record.fixed.creationTime;
+    result.fixed.lastModifiedTime = record.fixed.lastModifiedTime;
+    result.fixed.lastAccessTime = record.fixed.lastAccessTime;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fieldMask = record.fixed.fieldMask; // allocated bit absent -- V2 cannot carry it
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
+bool IsRepresentableInUsnV2(const UsnDeltaV3& record) noexcept {
+    if ((record.fixed.fieldMask & ~kUsnFieldMaskAll) != 0) {
+        return false;
+    }
+    // A V2 peer has no way to carry authoritative allocated size. Omitting
+    // the update (non-delete; recovered by reconciliation) is the only
+    // safe representation -- zero-filling would fabricate data.
+    return (record.fixed.fieldMask & kUsnFieldAllocatedSizeBytes) == 0;
+}
+
+UsnDeltaV2 DowngradeUsnDeltaV3(const UsnDeltaV3& record) {
+    UsnDeltaV2 result{};
+    result.fixed.usn = record.fixed.usn;
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.reason = record.fixed.reason;
+    result.fixed.timestamp = record.fixed.timestamp;
+    result.fixed.creationTime = record.fixed.creationTime;
+    result.fixed.lastModifiedTime = record.fixed.lastModifiedTime;
+    result.fixed.lastAccessTime = record.fixed.lastAccessTime;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fieldMask = record.fixed.fieldMask; // callers gate on IsRepresentableInUsnV2 first
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
+UsnDeltaV1 DowngradeUsnDeltaV3ToV1(const UsnDeltaV3& record) {
     UsnDeltaV1 result{};
     result.fixed.usn = record.fixed.usn;
     result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
@@ -171,11 +258,19 @@ std::vector<uint8_t> SerializeMftBatch(const std::vector<MftRecordV1>& records) 
     return SerializeBatch(records);
 }
 
+std::vector<uint8_t> SerializeMftBatchV2(const std::vector<MftRecordV2>& records) {
+    return SerializeBatch(records);
+}
+
 std::vector<uint8_t> SerializeUsnDeltaBatch(const std::vector<UsnDeltaV1>& records) {
     return SerializeBatch(records);
 }
 
 std::vector<uint8_t> SerializeUsnDeltaV2Batch(const std::vector<UsnDeltaV2>& records) {
+    return SerializeBatch(records);
+}
+
+std::vector<uint8_t> SerializeUsnDeltaV3Batch(const std::vector<UsnDeltaV3>& records) {
     return SerializeBatch(records);
 }
 

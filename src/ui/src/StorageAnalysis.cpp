@@ -109,9 +109,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
         !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
-    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"Modified"};
-    const int widths[] = {260, 80, 100, 120, 100, 145};
-    for (int i = 0; i < 6; ++i) {
+    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"Modified", L"Size on Disk"};
+    const int widths[] = {260, 80, 100, 120, 100, 145, 120};
+    for (int i = 0; i < 7; ++i) {
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
         column.pszText = const_cast<wchar_t*>(columns[i]);
         column.cx = widths[i];
@@ -451,6 +451,10 @@ void StorageAnalysis::RefreshData() {
         item.isDirectory = entry.isDirectory;
         item.sizeBytes = entry.sizeBytes;
         item.totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
+        // allocated-size-storage-accuracy 7.1: the entry's own size-on-disk
+        // rides the snapshot with an explicit known state.
+        item.allocatedSizeBytes = entry.allocatedSizeBytes;
+        item.allocatedSizeKnown = entry.allocatedSizeKnown;
         item.attributes = entry.attributes;
         item.creationTime = entry.creationTime;
         item.lastModifiedTime = entry.lastModifiedTime;
@@ -470,6 +474,9 @@ void StorageAnalysis::RefreshData() {
             const auto aggregate = ffui::AggregateSnapshotDirectory(
                 *snapshot, ffui::JoinSnapshotPath(targetPath, entry.name));
             item.totalSizeBytes = aggregate.totalSizeBytes;
+            item.totalAllocatedSizeBytes = aggregate.totalAllocatedSizeBytes;
+            item.allocatedKnownCount = aggregate.allocatedBytesKnownCount;
+            item.allocatedTotalCount = aggregate.allocatedBytesTotalCount;
             item.calculating = false;
             item.aggregateFailed = !aggregate.complete;
         }
@@ -524,7 +531,6 @@ void StorageAnalysis::RefreshData() {
     } else {
         RequestAggregateForParent(directory);
     }
-
     ListView_SetItemCountEx(list_, static_cast<int>(items_.size()), LVSICF_NOINVALIDATEALL);
     InvalidateRect(list_, nullptr, FALSE);
 
@@ -547,10 +553,12 @@ void StorageAnalysis::RequestAggregateForParent(const ffprotocol::SnapshotDirect
     engine_->RequestFolderAggregate(
         directory.volumeRowId, directory.directoryIdLow, directory.directoryIdHigh,
         [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status,
-               uint64_t itemCount, uint64_t totalSizeBytes) {
+               uint64_t itemCount, uint64_t totalSizeBytes, uint64_t totalAllocatedSizeBytes,
+               uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
             ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE,
                                              requestId, status,
-                                             itemCount, totalSizeBytes);
+                                             itemCount, totalSizeBytes, totalAllocatedSizeBytes,
+                                             allocatedBytesKnownCount, allocatedBytesTotalCount);
         });
 }
 
@@ -568,12 +576,15 @@ void StorageAnalysis::RequestAggregateForItem(size_t index) {
     engine_->RequestFolderAggregate(
         item.volumeRowId, item.fileIdLow, item.fileIdHigh,
         [this, requestId](uint64_t /*reqId*/, ffprotocol::FolderAggregateStatus status,
-                          uint64_t itemCount, uint64_t totalSizeBytes) {
+                          uint64_t itemCount, uint64_t totalSizeBytes, uint64_t totalAllocatedSizeBytes,
+                          uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
             // EngineClient's callback is already scoped to this request.  The
             // storage view intentionally uses its own compact request IDs for
             // ListView bookkeeping, so comparing the engine's global ID here
             // would discard every aggregate result after the first request.
-            ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE, requestId, status, itemCount, totalSizeBytes);
+            ffui::PostFolderAggregateResult(owner_, WM_APP_STORAGE_AGGREGATE, requestId, status, itemCount,
+                                            totalSizeBytes, totalAllocatedSizeBytes,
+                                            allocatedBytesKnownCount, allocatedBytesTotalCount);
         });
 }
 
@@ -602,7 +613,10 @@ std::pair<uint64_t, bool> StorageAnalysis::CurrentParentTotals() const {
 
 void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
                                             ffprotocol::FolderAggregateStatus status,
-                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes) {
+                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes,
+                                            uint64_t totalAllocatedSizeBytes,
+                                            uint64_t allocatedBytesKnownCount,
+                                            uint64_t allocatedBytesTotalCount) {
     if (requestId == parentRequestId_) {
         parentAggregatePending_ = false;
         parentAggregateKnown_ = status == ffprotocol::FolderAggregateStatus::Resolved;
@@ -627,10 +641,19 @@ void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
 
     if (status == ffprotocol::FolderAggregateStatus::Resolved) {
         itemIt->totalSizeBytes = totalSizeBytes;
+        // allocated-size-storage-accuracy 7.1: store the aggregate's
+        // allocated subtotal plus the completeness pair; the rendering
+        // layer decides exact / partial / unknown from the counts.
+        itemIt->totalAllocatedSizeBytes = totalAllocatedSizeBytes;
+        itemIt->allocatedKnownCount = allocatedBytesKnownCount;
+        itemIt->allocatedTotalCount = allocatedBytesTotalCount;
         itemIt->calculating = false;
         itemIt->aggregateFailed = false;
     } else if (status == ffprotocol::FolderAggregateStatus::NotFound) {
         itemIt->totalSizeBytes = 0;
+        itemIt->totalAllocatedSizeBytes = 0;
+        itemIt->allocatedKnownCount = 0;
+        itemIt->allocatedTotalCount = 0;
         itemIt->calculating = false;
         itemIt->aggregateFailed = true;
     }
@@ -644,7 +667,7 @@ void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
 }
 
 void StorageAnalysis::SortItems(int column, bool ascending) {
-    if (column < 0 || column >= 6) return;
+    if (column < 0 || column >= 7) return;
     sortColumn_ = column;
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
@@ -669,6 +692,16 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
                 return {item.isDirectory ? 0 : 1, percentage.known, percentage.sortKey};
             }
             case 5: return {0, true, static_cast<double>(item.lastModifiedTime)}; // modified
+            case 6:
+                // allocated-size-storage-accuracy 7.1: size-on-disk column --
+                // files sort on their own allocated size (known first),
+                // directories on the aggregate's known subtotal.
+                if (item.isDirectory) {
+                    return {item.isDirectory ? 0 : 1,
+                            !item.calculating && !item.aggregateFailed && item.allocatedKnownCount > 0,
+                            static_cast<double>(item.totalAllocatedSizeBytes)};
+                }
+                return {1, item.allocatedSizeKnown, static_cast<double>(item.allocatedSizeBytes)};
             default: return {0, true, 0.0};
         }
     };
@@ -850,6 +883,30 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                     }
                 }
                 break;
+            case 6: {
+                // allocated-size-storage-accuracy 7.1: Size on Disk column.
+                // Unknown is never rendered as 0 B; a partial directory
+                // aggregate is labeled with its known/total qualifier and a
+                // lower-bound marker -- never presented as an exact total.
+                if (item.isDirectory) {
+                    if (item.calculating) {
+                        text = L"Calculating…";
+                    } else if (item.allocatedTotalCount == 0) {
+                        text = ffui::FormatSize(0); // empty subtree: exactly zero on disk
+                    } else if (item.allocatedKnownCount == item.allocatedTotalCount) {
+                        text = ffui::FormatSize(item.totalAllocatedSizeBytes);
+                    } else if (item.allocatedKnownCount == 0) {
+                        text = L"—"; // descendants exist but none has a known size-on-disk
+                    } else {
+                        text = L"≥ " + ffui::FormatSize(item.totalAllocatedSizeBytes) + L" (" +
+                               std::to_wstring(item.allocatedKnownCount) + L"/" +
+                               std::to_wstring(item.allocatedTotalCount) + L")";
+                    }
+                } else {
+                    text = item.allocatedSizeKnown ? ffui::FormatSize(item.allocatedSizeBytes) : L"—";
+                }
+                break;
+            }
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);
         return true;
@@ -892,9 +949,13 @@ bool StorageAnalysis::HandleTimer(UINT_PTR timerId) {
 }
 
 bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
-    auto* payload = reinterpret_cast<ffprotocol::FolderAggregateResultPayload*>(lParam);
+    // allocated-size-storage-accuracy 6.3: the posted payload is the
+    // additive V2 shape (logical + allocated + completeness pair).
+    auto* payload = reinterpret_cast<ffprotocol::FolderAggregateResultV2Payload*>(lParam);
     if (!payload) return true;
-    HandleAggregateResult(payload->requestId, payload->status, payload->itemCount, payload->totalSizeBytes);
+    HandleAggregateResult(payload->requestId, payload->status, payload->itemCount, payload->totalSizeBytes,
+                          payload->totalAllocatedSizeBytes, payload->allocatedBytesKnownCount,
+                          payload->allocatedBytesTotalCount);
     delete payload;
     return true;
 }

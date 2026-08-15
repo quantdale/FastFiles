@@ -187,12 +187,20 @@ void VolumeSessionManager::Start() {
                                              std::vector<ffprotocol::MftRecordV1> records) {
         OnScanBatch(id, std::move(cursor), std::move(records));
     });
+    connection_.SetScanBatchV2Callback([this](ffprotocol::VolumeId id, std::vector<uint8_t> cursor,
+                                               std::vector<ffprotocol::MftRecordV2> records) {
+        OnScanBatchV2(id, std::move(cursor), std::move(records));
+    });
     connection_.SetScanCompleteCallback([this](ffprotocol::VolumeId id) { OnScanComplete(id); });
     connection_.SetJournalOpenedCallback(
         [this](ffprotocol::VolumeId id, uint64_t journalId, uint64_t currentUsn) { OnJournalOpened(id, journalId, currentUsn); });
     connection_.SetJournalBatchCallback([this](ffprotocol::VolumeId id, uint64_t latestUsn,
                                                 std::vector<ffprotocol::UsnDeltaV2> records) {
         OnJournalBatch(id, latestUsn, std::move(records));
+    });
+    connection_.SetJournalBatchV3Callback([this](ffprotocol::VolumeId id, uint64_t latestUsn,
+                                                  std::vector<ffprotocol::UsnDeltaV3> records) {
+        OnJournalBatchV3(id, latestUsn, std::move(records));
     });
     connection_.SetJournalResumeInvalidCallback([this](ffprotocol::VolumeId id) { OnJournalResumeInvalid(id); });
 
@@ -419,6 +427,23 @@ void VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralI
 
 void VolumeSessionManager::OnScanBatch(
     ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor, std::vector<ffprotocol::MftRecordV1> records) {
+    ApplyScanBatch(volumeId, std::move(cursor), [&](ffindexstore::VolumeRowId durableId) {
+        return pipeline_.ApplyMftBatch(durableId, records);
+    });
+}
+
+void VolumeSessionManager::OnScanBatchV2(
+    ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor, std::vector<ffprotocol::MftRecordV2> records) {
+    // allocated-size-storage-accuracy 5.2: identical lifecycle to the V1
+    // path; only the record type (and thus allocated-size availability)
+    // differs.
+    ApplyScanBatch(volumeId, std::move(cursor), [&](ffindexstore::VolumeRowId durableId) {
+        return pipeline_.ApplyMftBatch(durableId, records);
+    });
+}
+
+void VolumeSessionManager::ApplyScanBatch(ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor,
+                                          const std::function<bool(ffindexstore::VolumeRowId)>& apply) {
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
     {
@@ -437,7 +462,7 @@ void VolumeSessionManager::OnScanBatch(
         }
     }
 
-    if (!pipeline_.ApplyMftBatch(durableId, records)) {
+    if (!apply(durableId)) {
         return; // task 3.4: leave the cursor untouched so the next batch attempt (or a full restart) can retry
     }
     pipeline_.SetScanCursor(durableId, cursor);
@@ -501,6 +526,22 @@ void VolumeSessionManager::OnJournalOpened(ffprotocol::VolumeId volumeId, uint64
 
 void VolumeSessionManager::OnJournalBatch(
     ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records) {
+    ApplyJournalBatch(volumeId, latestUsn, [&](ffindexstore::VolumeRowId durableId) {
+        return pipeline_.ApplyUsnBatch(durableId, records);
+    });
+}
+
+void VolumeSessionManager::OnJournalBatchV3(
+    ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV3> records) {
+    // allocated-size-storage-accuracy 5.2: identical lifecycle to the V2
+    // path; only the record type (and thus allocated-size presence) differs.
+    ApplyJournalBatch(volumeId, latestUsn, [&](ffindexstore::VolumeRowId durableId) {
+        return pipeline_.ApplyUsnBatch(durableId, records);
+    });
+}
+
+void VolumeSessionManager::ApplyJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn,
+                                             const std::function<bool(ffindexstore::VolumeRowId)>& apply) {
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
     uint64_t journalId = 0;
@@ -520,7 +561,7 @@ void VolumeSessionManager::OnJournalBatch(
         }
     }
 
-    if (!pipeline_.ApplyUsnBatch(durableId, records)) {
+    if (!apply(durableId)) {
         return;
     }
     pipeline_.SetJournalPosition(durableId, journalId, latestUsn);

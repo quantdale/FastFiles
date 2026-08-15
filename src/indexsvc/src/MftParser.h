@@ -43,7 +43,12 @@ struct ParsedMftRecord {
     uint64_t creationTime = 0;
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
+    // logical size -- $FILE_NAME RealSize (offset 0x28 of the value)
     uint64_t sizeBytes = 0;
+    // allocated/on-disk size -- $FILE_NAME AllocatedSize (offset 0x20 of
+    // the value). Same cached-metadata source as sizeBytes; see
+    // allocated-size-storage-accuracy design D2.
+    uint64_t allocatedSizeBytes = 0;
     uint32_t fileAttributes = 0;
     std::u16string fileName;
 };

@@ -1,7 +1,34 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-13T05:20:00+08:00
-Status: HISTORICAL CAMPAIGN RECORD — DERIVE LIVE STATE BEFORE RESUMING
+Last updated: 2026-08-15T16:00:00+08:00
+Status: ACTIVE SESSION — allocated-size-storage-accuracy implementation; derive live Git state before resuming
+
+## Allocated-size session record (2026-08-15)
+
+- **Change:** `openspec/changes/allocated-size-storage-accuracy/` (proposal.md,
+  design.md, tasks.md, specs deltas) — closes storage-analysis D5's gap:
+  entries now carry logical + allocated (on-disk) size end-to-end with an
+  explicit unknown state. Canonical specs `filesystem-index-store` and
+  `storage-drilldown-and-treemap` synced; coordination notes added to
+  `storage-analysis` tasks 1.1/4.8 and `index-storage-and-scanning` 1.2.
+- **Layers changed:** MFT parser (`$FILE_NAME` AllocatedSize @ value+0x20);
+  wire protocol `{2,1}` + `MftRecordFixedV2`/`UsnDeltaFixedV3` +
+  `ScanRecordBatchV2`/`JournalRecordBatchV3` messages (+`kUsnFieldAllocatedSizeBytes`);
+  store schema v2 (`allocated_size_bytes` nullable, in-place v1→v2 ALTER);
+  projection entry + saturating aggregate completeness pair; snapshot format
+  v3 (+9 bytes/entry, fail-closed gate); UI seam `FolderAggregateResultV2`
+  (legacy type 13 still parsed); Storage Analysis "Size on Disk" column +
+  treemap hover details + degraded honest-unknown.
+- **Key sizes:** `ProjectionEntry` 96→104 bytes (+8); wire fixed records +8;
+  snapshot wire +9/entry (256 MiB bound capacity 3.89M→3.44M entries).
+- **Validated so far (debug preset):** full build green; `ctest --preset debug`
+  passes except `ffuia_driver_ps_tests`/`ffintake_gate_ps_tests`/`ffdoc_drift_tests`
+  reported Not Run — a pre-existing host quirk (CTest records the WindowsApps
+  pwsh alias path that cmd cannot spawn); all three pass when invoked with the
+  working `pwsh` directly.
+- **Remaining:** release-test preset + CTest, analyze preset, asan fuzz,
+  `verify.ps1 build`/`doctor`, `git diff --check`, then commit + push + clean
+  worktree handoff per the durable-state protocol.
 
 ## Durable-state protocol
 

@@ -170,6 +170,24 @@ void FuzzUsnDeltaBatchParsing(std::mt19937& rng) {
                       "a parsed USN V2 record contains only defined presence-mask bits");
             }
         }
+        // allocated-size-storage-accuracy 2.7: the additive V3 USN layout and
+        // V2 MFT layout must hold the same malformed-input discipline as
+        // their predecessors.
+        const auto parsedV3 = ffprotocol::ParseUsnDeltaV3Batch(payload.data(), payload.size(), declaredCount);
+        if (parsedV3.has_value()) {
+            Check(parsedV3->size() == declaredCount,
+                  "a successfully parsed USN V3 delta batch has exactly the declared count");
+            for (const auto& record : *parsedV3) {
+                Check((record.fixed.fieldMask & ~ffprotocol::kUsnFieldMaskAll) == 0,
+                      "a parsed USN V3 record contains only defined presence-mask bits");
+            }
+        }
+        const auto parsedMftV2 =
+            ffprotocol::ParseMftBatchV2(payload.data(), payload.size(), declaredCount);
+        if (parsedMftV2.has_value()) {
+            Check(parsedMftV2->size() == declaredCount,
+                  "a successfully parsed MFT V2 batch has exactly the declared count");
+        }
     }
 }
 

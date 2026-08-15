@@ -13,11 +13,12 @@ namespace ffindexstore {
 namespace {
 
 // task 1.4: PRAGMA user_version is the stored schema-version marker.
-// Greenfield only (design.md "Migration Plan") -- there is no prior
-// persisted format to migrate from, so Open() only knows how to create
-// this exact version or accept an already-matching one; a mismatched
-// nonzero version is refused rather than guessed at.
-constexpr int kCurrentSchemaVersion = 1;
+// Version 2 (allocated-size-storage-accuracy D4) adds the nullable
+// allocated_size_bytes column (NULL = unknown, never zero) via an in-place
+// ALTER TABLE for version-1 databases; a fresh database is created at
+// version 2 directly. A mismatched newer version is refused rather than
+// guessed at.
+constexpr int kCurrentSchemaVersion = 2;
 
 constexpr char kSchemaSql[] =
     "CREATE TABLE IF NOT EXISTS volumes ("
@@ -41,6 +42,9 @@ constexpr char kSchemaSql[] =
     "  parent_frn_high INTEGER NOT NULL DEFAULT 0,"
     "  name TEXT NOT NULL,"
     "  size_bytes INTEGER NOT NULL DEFAULT 0,"
+    // allocated-size-storage-accuracy D4: NULL == unknown. Zero is a valid
+    // size and is stored as 0, never as NULL.
+    "  allocated_size_bytes INTEGER,"
     "  creation_time INTEGER NOT NULL DEFAULT 0,"
     "  last_modified_time INTEGER NOT NULL DEFAULT 0,"
     "  last_access_time INTEGER NOT NULL DEFAULT 0,"
@@ -48,6 +52,14 @@ constexpr char kSchemaSql[] =
     "  PRIMARY KEY (volume_id, frn_low, frn_high)"
     ") WITHOUT ROWID;"
     "CREATE INDEX IF NOT EXISTS idx_entries_parent ON entries(volume_id, parent_frn_low, parent_frn_high);";
+
+// allocated-size-storage-accuracy D4: version 1 -> 2 in-place migration.
+// ALTER TABLE ADD COLUMN is metadata-only in SQLite (no table rewrite, no
+// row churn); pre-existing rows read back as NULL == unknown until
+// re-observed by a scan or reconciliation sweep. Runs inside the same
+// WAL/integrity-checked open path.
+constexpr char kMigrateV1ToV2Sql[] =
+    "ALTER TABLE entries ADD COLUMN allocated_size_bytes INTEGER;";
 
 uint64_t NowEpochSeconds() {
     return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
@@ -249,9 +261,24 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
             Close();
             return false;
         }
+    } else if (existingVersion == 1) {
+        // allocated-size-storage-accuracy D4: in-place migration of an
+        // existing version-1 database. Runs before the version marker is
+        // bumped; if the ALTER fails the database is left untouched and the
+        // open fails closed (the existing integrity-check/rebuild fallback
+        // in Main.cpp then applies).
+        if (!ExecSql(db_, kMigrateV1ToV2Sql)) {
+            Close();
+            return false;
+        }
+        char pragma[64];
+        std::snprintf(pragma, sizeof(pragma), "PRAGMA user_version=%d;", kCurrentSchemaVersion);
+        if (!ExecSql(db_, pragma)) {
+            Close();
+            return false;
+        }
     } else if (existingVersion != kCurrentSchemaVersion) {
-        // Greenfield deployment (design.md "Migration Plan") -- no
-        // in-place migration path exists yet for a future schema bump.
+        // A newer-than-understood schema is refused rather than guessed at.
         Close();
         return false;
     }
@@ -575,12 +602,15 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
 
     Statement upsert(db_,
         "INSERT INTO entries(volume_id, frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, "
-        "creation_time, last_modified_time, last_access_time, attributes) VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+        "allocated_size_bytes, creation_time, last_modified_time, last_access_time, attributes) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(volume_id, frn_low, frn_high) DO UPDATE SET "
         "parent_frn_low=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_low ELSE entries.parent_frn_low END, "
         "parent_frn_high=CASE WHEN (? & 1) != 0 THEN excluded.parent_frn_high ELSE entries.parent_frn_high END, "
         "name=CASE WHEN (? & 2) != 0 THEN excluded.name ELSE entries.name END, "
         "size_bytes=CASE WHEN (? & 4) != 0 THEN excluded.size_bytes ELSE entries.size_bytes END, "
+        "allocated_size_bytes=CASE WHEN (? & 128) != 0 THEN excluded.allocated_size_bytes "
+        "  ELSE entries.allocated_size_bytes END, "
         "creation_time=CASE WHEN (? & 8) != 0 THEN excluded.creation_time ELSE entries.creation_time END, "
         "last_modified_time=CASE WHEN (? & 16) != 0 THEN excluded.last_modified_time ELSE entries.last_modified_time END, "
         "last_access_time=CASE WHEN (? & 32) != 0 THEN excluded.last_access_time ELSE entries.last_access_time END, "
@@ -604,12 +634,18 @@ bool Store::ApplyBatch(VolumeRowId volumeRowId, const std::vector<EntryChange>& 
             sqlite3_bind_int64(upsert, 5, static_cast<sqlite3_int64>(record.parentId.high));
             sqlite3_bind_text(upsert, 6, nameUtf8.data(), static_cast<int>(nameUtf8.size()), SQLITE_TRANSIENT);
             sqlite3_bind_int64(upsert, 7, static_cast<sqlite3_int64>(record.sizeBytes));
-            sqlite3_bind_int64(upsert, 8, static_cast<sqlite3_int64>(record.creationTime));
-            sqlite3_bind_int64(upsert, 9, static_cast<sqlite3_int64>(record.lastModifiedTime));
-            sqlite3_bind_int64(upsert, 10, static_cast<sqlite3_int64>(record.lastAccessTime));
-            sqlite3_bind_int64(upsert, 11, static_cast<sqlite3_int64>(record.attributes));
+            if (record.allocatedSizeKnown) {
+                sqlite3_bind_int64(upsert, 8, static_cast<sqlite3_int64>(record.allocatedSizeBytes));
+            } else {
+                // Unknown is NULL on disk -- a genuine zero is stored as 0.
+                sqlite3_bind_null(upsert, 8);
+            }
+            sqlite3_bind_int64(upsert, 9, static_cast<sqlite3_int64>(record.creationTime));
+            sqlite3_bind_int64(upsert, 10, static_cast<sqlite3_int64>(record.lastModifiedTime));
+            sqlite3_bind_int64(upsert, 11, static_cast<sqlite3_int64>(record.lastAccessTime));
+            sqlite3_bind_int64(upsert, 12, static_cast<sqlite3_int64>(record.attributes));
             const sqlite3_int64 fields = static_cast<sqlite3_int64>(change.fields);
-            for (int parameter = 12; parameter <= 19; ++parameter) {
+            for (int parameter = 13; parameter <= 21; ++parameter) {
                 sqlite3_bind_int64(upsert, parameter, fields);
             }
             ok = sqlite3_step(upsert) == SQLITE_DONE;
@@ -644,8 +680,8 @@ bool Store::ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor) {
         return false;
     }
     Statement stmt(db_,
-        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, creation_time, "
-        "last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=?;");
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=?;");
     if (!stmt.Valid()) {
         return false;
     }
@@ -660,10 +696,15 @@ bool Store::ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor) {
         const int nameBytes = sqlite3_column_bytes(stmt, 4);
         record.name = Utf8ToUtf16(reinterpret_cast<const char*>(nameText), nameBytes);
         record.sizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 5));
-        record.creationTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 6));
-        record.lastModifiedTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 7));
-        record.lastAccessTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 8));
-        record.attributes = static_cast<uint32_t>(sqlite3_column_int64(stmt, 9));
+        // allocated-size-storage-accuracy D4: NULL on disk means unknown --
+        // read back as the explicit known flag, never as a fabricated zero.
+        record.allocatedSizeKnown = sqlite3_column_type(stmt, 6) != SQLITE_NULL;
+        record.allocatedSizeBytes =
+            record.allocatedSizeKnown ? static_cast<uint64_t>(sqlite3_column_int64(stmt, 6)) : 0;
+        record.creationTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 7));
+        record.lastModifiedTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 8));
+        record.lastAccessTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 9));
+        record.attributes = static_cast<uint32_t>(sqlite3_column_int64(stmt, 10));
         visitor(record);
     }
     return stepResult == SQLITE_DONE;
@@ -730,19 +771,26 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
     // never re-enters the walk as its own child and the recursion
     // terminates. We exclude the anchor itself from the aggregate by
     // counting only rows produced by the recursive term (depth > 1).
+    // allocated-size-storage-accuracy D7: the allocated subtotal sums only
+    // non-NULL rows and the known/total counts are the completeness pair;
+    // SUM semantics follow the existing size_bytes handling (SQLite
+    // promotes to floating point on 64-bit overflow, which is why the
+    // store-side aggregate is the evicted-volume fallback while the
+    // projection-side walk applies saturating checked arithmetic).
     Statement stmt(db_,
         "WITH RECURSIVE subtree AS ("
-        "  SELECT volume_id, frn_low, frn_high, size_bytes, 1 AS depth"
+        "  SELECT volume_id, frn_low, frn_high, size_bytes, allocated_size_bytes, 1 AS depth"
         "  FROM entries"
         "  WHERE volume_id=? AND frn_low=? AND frn_high=?"
         "  UNION ALL"
-        "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, s.depth + 1"
+        "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, e.allocated_size_bytes, s.depth + 1"
         "  FROM entries e"
         "  JOIN subtree s ON e.volume_id=s.volume_id"
         "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
         "    AND NOT (e.frn_low = e.parent_frn_low AND e.frn_high = e.parent_frn_high)"
         ")"
-        "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0)"
+        "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0), COALESCE(SUM(allocated_size_bytes), 0), "
+        "       COUNT(allocated_size_bytes), COUNT(*)"
         " FROM subtree"
         " WHERE depth > 1;");
     if (!stmt.Valid()) {
@@ -754,6 +802,9 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
     if (sqlite3_step(stmt) == SQLITE_ROW) {
         result.itemCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 0));
         result.totalSizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 1));
+        result.totalAllocatedSizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 2));
+        result.allocatedBytesKnownCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 3));
+        result.allocatedBytesTotalCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 4));
     }
     return result;
 }

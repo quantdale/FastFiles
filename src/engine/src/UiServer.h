@@ -172,8 +172,9 @@ private:
     bool SendUnavailableVolumes(const ClientConnectionPtr& client);
     bool SendForgetUnavailableVolumeResult(const ClientConnectionPtr& client, int64_t volumeRowId);
     bool SendFolderAggregateResult(const ClientConnectionPtr& client, uint64_t requestId,
-                                   ffprotocol::FolderAggregateStatus status,
-                                   uint64_t itemCount, uint64_t totalSizeBytes);
+                                   ffprotocol::FolderAggregateStatus status, uint64_t itemCount,
+                                   uint64_t totalSizeBytes, uint64_t totalAllocatedSizeBytes,
+                                   uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount);
     bool SendIndexedSearchResult(const ClientConnectionPtr& client, const ffprotocol::IndexedSearchResponse& response);
     bool SendVolumeStatus(const ClientConnectionPtr& client);
 

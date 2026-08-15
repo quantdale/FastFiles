@@ -136,12 +136,19 @@ public:
 
     // file-preview-and-properties §6.2 / storage-analysis §3.1: recursive
     // subtree aggregate from the durable store. Returns {itemCount,
-    // totalSizeBytes} for all descendants of `parentFrn` within `volumeRowId`,
-    // or {0, 0} if the root is unknown. Uses a recursive CTE so this works
-    // without rebuilding the projection.
+    // totalSizeBytes, ...} for all descendants of `parentFrn` within
+    // `volumeRowId`, or {0, 0, ...} if the root is unknown. Uses a recursive
+    // CTE so this works without rebuilding the projection.
+    // allocated-size-storage-accuracy D7: the allocated-size subtotal covers
+    // only descendants whose allocated size is known; the completeness pair
+    // (known count / total count) is the explicit state -- `Complete` only
+    // when every descendant is known, never a silently partial total.
     struct FolderAggregate {
         uint64_t itemCount = 0;
         uint64_t totalSizeBytes = 0;
+        uint64_t totalAllocatedSizeBytes = 0;
+        uint64_t allocatedBytesKnownCount = 0;
+        uint64_t allocatedBytesTotalCount = 0;
     };
     FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 

@@ -44,6 +44,12 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
         snapshotEntry.name = entry.name;
         snapshotEntry.isDirectory = entry.isDirectory;
         snapshotEntry.sizeBytes = entry.sizeBytes;
+        // allocated-size-storage-accuracy D8: the unprivileged
+        // FindFirstFileEx path does not surface allocated size, so degraded
+        // entries are unknown by construction -- never derived from logical
+        // size, never rendered as 0 B.
+        snapshotEntry.allocatedSizeBytes = 0;
+        snapshotEntry.allocatedSizeKnown = false;
         snapshotEntry.creationTime = entry.creationTime;
         snapshotEntry.lastModifiedTime = entry.lastModifiedTime;
         snapshotEntry.attributes = entry.attributes;
@@ -508,9 +514,16 @@ bool UiServer::SendForgetUnavailableVolumeResult(const ClientConnectionPtr& clie
 
 bool UiServer::SendFolderAggregateResult(const ClientConnectionPtr& client, uint64_t requestId,
                                          ffprotocol::FolderAggregateStatus status, uint64_t itemCount,
-                                         uint64_t totalSizeBytes) {
-    const ffprotocol::FolderAggregateResultPayload payload{requestId, status, itemCount, totalSizeBytes};
-    return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResult),
+                                         uint64_t totalSizeBytes, uint64_t totalAllocatedSizeBytes,
+                                         uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
+    // allocated-size-storage-accuracy D6: the engine always emits the
+    // additive FolderAggregateResultV2 (message 20); a legacy UI that only
+    // knows message 13 simply sees no reply for this request type and shows
+    // its pending state -- it never mis-parses the extended payload.
+    const ffprotocol::FolderAggregateResultV2Payload payload{
+        requestId, status, itemCount, totalSizeBytes, totalAllocatedSizeBytes,
+        allocatedBytesKnownCount, allocatedBytesTotalCount};
+    return client->Write(static_cast<uint16_t>(ffprotocol::UiMessageType::FolderAggregateResultV2),
                          &payload, sizeof(payload));
 }
 
@@ -637,7 +650,7 @@ void UiServer::HandleRequestFolderAggregate(const ClientConnectionPtr& client,
     std::memcpy(&request, framePayload.data(), sizeof(request));
 
     if (!onRequestFolderAggregate) {
-        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0, 0, 0, 0);
         return;
     }
 
@@ -645,11 +658,13 @@ void UiServer::HandleRequestFolderAggregate(const ClientConnectionPtr& client,
     const auto aggregateOpt = onRequestFolderAggregate(static_cast<ffindexstore::VolumeRowId>(request.volumeRowId), parentFrn);
 
     if (!aggregateOpt) {
-        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+        SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0, 0, 0, 0);
     } else {
         const auto& aggregate = *aggregateOpt;
         SendFolderAggregateResult(client, request.requestId, ffprotocol::FolderAggregateStatus::Resolved,
-                                  aggregate.itemCount, aggregate.totalSizeBytes);
+                                  aggregate.itemCount, aggregate.totalSizeBytes,
+                                  aggregate.totalAllocatedSizeBytes, aggregate.allocatedBytesKnownCount,
+                                  aggregate.allocatedBytesTotalCount);
     }
 }
 

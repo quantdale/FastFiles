@@ -122,6 +122,7 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
     bool haveName = false;
     uint64_t parentRef = 0;
     uint64_t realSize = 0;
+    uint64_t allocatedSize = 0;
     uint8_t bestNamespace = 0xFF;
     std::u16string bestName;
 
@@ -177,7 +178,14 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
                     // whatever name was seen first.
                     if (!haveName || (bestNamespace == kFileNameNamespaceDos && nsType != kFileNameNamespaceDos)) {
                         parentRef = ReadU64(value + 0);
+                        // allocated-size-storage-accuracy D2: the documented
+                        // $FILE_NAME layout carries AllocatedSize at offset
+                        // 0x20 (40) and RealSize at offset 0x28 (48) --
+                        // both inside the valueLength >= 66 bound already
+                        // required for the name fields below, so no
+                        // additional bounds condition is needed.
                         realSize = ReadU64(value + 48);
+                        allocatedSize = ReadU64(value + 40);
                         bestNamespace = nsType;
                         bestName.assign(reinterpret_cast<const char16_t*>(value + 66), nameLengthChars);
                         haveName = true;
@@ -199,6 +207,7 @@ std::optional<ParsedMftRecord> ParseMftAttributes(const uint8_t* record, size_t 
     result.lastModifiedTime = lastModifiedTime;
     result.lastAccessTime = lastAccessTime;
     result.sizeBytes = realSize;
+    result.allocatedSizeBytes = allocatedSize;
     // $STANDARD_INFORMATION's FileAttributes never carries
     // FILE_ATTRIBUTE_DIRECTORY for a directory record (a well-known NTFS
     // on-disk quirk) -- the record header's own directory flag is the

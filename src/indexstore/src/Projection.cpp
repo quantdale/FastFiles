@@ -401,6 +401,8 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.parentFrn = record.parentId;
         entry.nameId = nameId;
         entry.sizeBytes = record.sizeBytes;
+        entry.allocatedSizeBytes = record.allocatedSizeBytes;
+        entry.allocatedSizeKnown = record.allocatedSizeKnown;
         entry.creationTime = record.creationTime;
         entry.lastModifiedTime = record.lastModifiedTime;
         entry.lastAccessTime = record.lastAccessTime;
@@ -419,6 +421,8 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     entry.parentFrn = record.parentId;
     entry.nameId = nameId;
     entry.sizeBytes = record.sizeBytes;
+    entry.allocatedSizeBytes = record.allocatedSizeBytes;
+    entry.allocatedSizeKnown = record.allocatedSizeKnown;
     entry.creationTime = record.creationTime;
     entry.lastModifiedTime = record.lastModifiedTime;
     entry.lastAccessTime = record.lastAccessTime;
@@ -456,6 +460,8 @@ void Projection::UpsertPartial(VolumeRowId volumeRowId, const EntryRecord& recor
         merged.parentId = existing->parentFrn;
         merged.name = std::u16string(namePool_.Get(existing->nameId));
         merged.sizeBytes = existing->sizeBytes;
+        merged.allocatedSizeBytes = existing->allocatedSizeBytes;
+        merged.allocatedSizeKnown = existing->allocatedSizeKnown;
         merged.creationTime = existing->creationTime;
         merged.lastModifiedTime = existing->lastModifiedTime;
         merged.lastAccessTime = existing->lastAccessTime;
@@ -465,6 +471,14 @@ void Projection::UpsertPartial(VolumeRowId volumeRowId, const EntryRecord& recor
     if (HasEntryField(fields, kEntryFieldParentId)) merged.parentId = record.parentId;
     if (HasEntryField(fields, kEntryFieldName)) merged.name = record.name;
     if (HasEntryField(fields, kEntryFieldSizeBytes)) merged.sizeBytes = record.sizeBytes;
+    if (HasEntryField(fields, kEntryFieldAllocatedSizeBytes)) {
+        // allocated-size-storage-accuracy D5: authoritative only when the
+        // bit is present; absence preserves the previous value (and known
+        // state) above -- a partial update never erases a known allocated
+        // size with a fabricated zero.
+        merged.allocatedSizeBytes = record.allocatedSizeBytes;
+        merged.allocatedSizeKnown = record.allocatedSizeKnown;
+    }
     if (HasEntryField(fields, kEntryFieldCreationTime)) merged.creationTime = record.creationTime;
     if (HasEntryField(fields, kEntryFieldLastModifiedTime)) merged.lastModifiedTime = record.lastModifiedTime;
     if (HasEntryField(fields, kEntryFieldLastAccessTime)) merged.lastAccessTime = record.lastAccessTime;
@@ -478,6 +492,10 @@ void Projection::UpsertPartial(VolumeRowId volumeRowId, const EntryRecord& recor
     }
     if (!HasEntryField(fields, kEntryFieldSizeBytes) && existing == nullptr) {
         merged.sizeBytes = 0;
+    }
+    if (!HasEntryField(fields, kEntryFieldAllocatedSizeBytes) && existing == nullptr) {
+        merged.allocatedSizeBytes = 0;
+        merged.allocatedSizeKnown = false; // unknown, not zero -- zero is a valid size
     }
     if (!HasEntryField(fields, kEntryFieldCreationTime) && existing == nullptr) {
         merged.creationTime = 0;
@@ -594,6 +612,20 @@ std::optional<Projection::FolderAggregate> Projection::GetFolderAggregate(Volume
     std::vector<FileId> stack;
     stack.push_back(parentFrn);
 
+    // allocated-size-storage-accuracy D7: checked, saturating addition --
+    // a representationally impossible total must not wrap into a
+    // plausible-looking number; on saturation the aggregate is marked
+    // incomplete instead.
+    const auto saturatingAdd = [](uint64_t& destination, uint64_t value, bool& overflowed) {
+        if (std::numeric_limits<uint64_t>::max() - destination < value) {
+            destination = std::numeric_limits<uint64_t>::max();
+            overflowed = true;
+            return;
+        }
+        destination += value;
+    };
+
+    bool overflowed = false;
     while (!stack.empty()) {
         FileId current = stack.back();
         stack.pop_back();
@@ -602,13 +634,21 @@ std::optional<Projection::FolderAggregate> Projection::GetFolderAggregate(Volume
         for (uint32_t childIndex : children) {
             const auto& child = EntryAt(childIndex);
             ++result.itemCount;
-            result.totalSizeBytes += child.sizeBytes;
+            saturatingAdd(result.totalSizeBytes, child.sizeBytes, overflowed);
+            ++result.allocatedBytesTotalCount;
+            if (child.allocatedSizeKnown) {
+                saturatingAdd(result.totalAllocatedSizeBytes, child.allocatedSizeBytes, overflowed);
+                ++result.allocatedBytesKnownCount;
+            }
             if ((child.attributes & kFileAttributeDirectory) != 0) {
                 stack.push_back(child.frn);
             }
         }
     }
 
+    // Complete only when every descendant's allocated size is known AND no
+    // sum saturated -- a partial or wrapped subtotal is never exact.
+    result.complete = !overflowed && result.allocatedBytesKnownCount == result.allocatedBytesTotalCount;
     return result;
 }
 

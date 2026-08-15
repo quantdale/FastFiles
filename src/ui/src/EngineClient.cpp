@@ -477,7 +477,43 @@ void EngineClient::ReaderLoop() {
                 break;
             }
 
-            case UiMessageType::FolderAggregateResult: {
+            case UiMessageType::FolderAggregateResult:
+            case UiMessageType::FolderAggregateResultV2: {
+                // allocated-size-storage-accuracy D6: a legacy engine replies
+                // with the fixed FolderAggregateResult (13); the current
+                // engine replies with FolderAggregateResultV2 (20). Both are
+                // parsed here -- a legacy result simply carries no allocated
+                // fields, which the caller renders as unknown.
+                uint64_t totalAllocatedSizeBytes = 0;
+                uint64_t allocatedBytesKnownCount = 0;
+                uint64_t allocatedBytesTotalCount = 0;
+                if (frame.header.messageType == static_cast<uint16_t>(UiMessageType::FolderAggregateResultV2)) {
+                    if (frame.payload.size() != sizeof(ffprotocol::FolderAggregateResultV2Payload)) {
+                        break;
+                    }
+                    ffprotocol::FolderAggregateResultV2Payload payload{};
+                    std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+                    if (!ffprotocol::IsFolderAggregateStatusValid(payload.status)) {
+                        break;
+                    }
+                    totalAllocatedSizeBytes = payload.totalAllocatedSizeBytes;
+                    allocatedBytesKnownCount = payload.allocatedBytesKnownCount;
+                    allocatedBytesTotalCount = payload.allocatedBytesTotalCount;
+                    FolderAggregateCallback callback;
+                    {
+                        std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
+                        auto it = aggregateCallbacks_.find(payload.requestId);
+                        if (it != aggregateCallbacks_.end()) {
+                            callback = std::move(it->second);
+                            aggregateCallbacks_.erase(it);
+                        }
+                    }
+                    if (callback) {
+                        callback(payload.requestId, payload.status, payload.itemCount, payload.totalSizeBytes,
+                                 totalAllocatedSizeBytes, allocatedBytesKnownCount, allocatedBytesTotalCount);
+                    }
+                    break;
+                }
                 if (frame.payload.size() != sizeof(ffprotocol::FolderAggregateResultPayload)) {
                     break;
                 }
@@ -496,7 +532,8 @@ void EngineClient::ReaderLoop() {
                     }
                 }
                 if (callback) {
-                    callback(payload.requestId, payload.status, payload.itemCount, payload.totalSizeBytes);
+                    callback(payload.requestId, payload.status, payload.itemCount, payload.totalSizeBytes,
+                             totalAllocatedSizeBytes, allocatedBytesKnownCount, allocatedBytesTotalCount);
                 }
                 break;
             }
@@ -884,7 +921,7 @@ uint64_t EngineClient::RequestFolderAggregate(int64_t volumeRowId, uint64_t pare
             }
         }
         if (failed) {
-            failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0);
+            failed(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0, 0, 0, 0);
         }
     }
     return requestId;

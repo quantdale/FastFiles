@@ -146,11 +146,29 @@ public:
     // from the wire record's own parent FRN field, never from a computed
     // path.
     bool ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV1>& records);
+    // allocated-size-storage-accuracy 5.3: V2 scan records (additive
+    // allocated size) applied with the full-record mask, exactly like V1.
+    bool ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV2>& records);
     // USN_REASON_FILE_DELETE-flagged records are applied as removals;
     // everything else is an upsert (tasks.md 6.1's engine-side consumer).
     bool ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV1>& records);
     bool ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV2>& records);
+    // allocated-size-storage-accuracy 5.3: V3 USN records (additive
+    // allocated-size presence bit) applied with per-field presence masks.
+    bool ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV3>& records);
 
+private:
+    // Shared commit-then-apply tail for scan batches (allocated-size-
+    // storage-accuracy refactor: the V1/V2 overloads differ only in record
+    // conversion, so the durable-commit/projection/reconciliation logic
+    // lives here exactly once).
+    bool ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
+                              std::vector<ffindexstore::EntryChange>&& changes);
+    // Shared commit-then-apply tail for USN batches.
+    bool ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
+                              std::vector<ffindexstore::EntryChange>&& changes);
+
+public:
     bool SetVolumeAvailable(ffindexstore::VolumeRowId id, bool available, uint64_t nowTimestamp);
     bool SetScanCursor(ffindexstore::VolumeRowId id, const std::vector<uint8_t>& cursor);
     bool MarkScanComplete(ffindexstore::VolumeRowId id);

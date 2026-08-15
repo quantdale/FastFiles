@@ -3,6 +3,7 @@
 #include "TreemapFilter.h"
 #include "UITheme.h"
 #include "UiStyle.h"
+#include "Util.h"
 #include "ffui/SnapshotAggregate.h"
 
 #include <algorithm>
@@ -175,13 +176,21 @@ void TreemapView::BuildTree(const std::wstring& path) {
             node.volumeRowId, node.fileIdLow, node.fileIdHigh,
             [targetWindow, lifetime, generation, nodePath](uint64_t /*requestId*/,
                                                             ffprotocol::FolderAggregateStatus status,
-                                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes) {
+                                                            uint64_t /*itemCount*/, uint64_t totalSizeBytes,
+                                                            uint64_t totalAllocatedSizeBytes,
+                                                            uint64_t allocatedBytesKnownCount,
+                                                            uint64_t allocatedBytesTotalCount) {
                 if (!lifetime->load(std::memory_order_acquire)) return;
                 auto payload = std::make_unique<TreemapAggregatePayload>();
                 payload->generation = generation;
                 payload->path = nodePath;
                 payload->status = status;
                 payload->totalSizeBytes = totalSizeBytes;
+                // allocated-size-storage-accuracy 7.2: allocated subtotal +
+                // completeness pair ride the same async result.
+                payload->totalAllocatedSizeBytes = totalAllocatedSizeBytes;
+                payload->allocatedBytesKnownCount = allocatedBytesKnownCount;
+                payload->allocatedBytesTotalCount = allocatedBytesTotalCount;
                 if (PostMessageW(targetWindow, WM_APP_TREEMAP_AGGREGATE, 0,
                                  reinterpret_cast<LPARAM>(payload.get()))) {
                     payload.release();
@@ -209,6 +218,10 @@ void TreemapView::BuildTree(const std::wstring& path) {
             child->path = joinPath(parent.path, entry.name);
             child->isDirectory = entry.isDirectory;
             child->sizeBytes = entry.sizeBytes;
+            // allocated-size-storage-accuracy 7.2: per-entry size-on-disk
+            // with its explicit known state.
+            child->allocatedSizeBytes = entry.allocatedSizeBytes;
+            child->allocatedSizeKnown = entry.allocatedSizeKnown;
             child->totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
             child->calculating = entry.isDirectory;
             child->volumeRowId = entry.volumeRowId;
@@ -240,6 +253,10 @@ void TreemapView::BuildTree(const std::wstring& path) {
         node->path = joinPath(path, entry.name);
         node->isDirectory = entry.isDirectory;
         node->sizeBytes = entry.sizeBytes;
+        // allocated-size-storage-accuracy 7.2: per-entry size-on-disk with
+        // its explicit known state.
+        node->allocatedSizeBytes = entry.allocatedSizeBytes;
+        node->allocatedSizeKnown = entry.allocatedSizeKnown;
         node->totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
         node->calculating = entry.isDirectory;
         node->volumeRowId = entry.volumeRowId;
@@ -324,6 +341,38 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
             D2D1_RECT_F textRect = D2D1::RectF(rx + 4, ry + 2, rx + rw - 4, ry + rh - 2);
             context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
         }
+
+        // allocated-size-storage-accuracy 7.2: hover details on the hovered
+        // tile -- both values side by side, so a material divergence
+        // (sparse/compressed-style) is obvious. Unknown is never rendered as
+        // 0 B; a partial directory aggregate carries its known/total
+        // qualifier rather than masquerading as an exact total.
+        if (rect.node != nullptr && rect.node == hoveredNode_ && rw > 160.0f && rh > 52.0f) {
+            const auto sizeOnDiskText = [](const TreemapNode& node) -> std::wstring {
+                if (node.isDirectory) {
+                    if (node.allocatedTotalCount == 0) return L"Size on disk: 0 B";
+                    if (node.allocatedKnownCount == 0) return L"Size on disk: Unknown";
+                    if (node.allocatedKnownCount == node.allocatedTotalCount) {
+                        return L"Size on disk: " + ffui::FormatSize(node.totalAllocatedSizeBytes);
+                    }
+                    return L"Size on disk: ≥ " + ffui::FormatSize(node.totalAllocatedSizeBytes) + L" (" +
+                           std::to_wstring(node.allocatedKnownCount) + L"/" +
+                           std::to_wstring(node.allocatedTotalCount) + L")";
+                }
+                return node.allocatedSizeKnown
+                           ? L"Size on disk: " + ffui::FormatSize(node.allocatedSizeBytes)
+                           : L"Size on disk: Unknown";
+            };
+            D2D1_RECT_F detailsRect = D2D1::RectF(rx + 4, ry + rh - 34, rx + rw - 4, ry + rh - 2);
+            const std::wstring sizeLine = L"Size: " + ffui::FormatSize(
+                rect.node->isDirectory ? rect.node->totalSizeBytes : rect.node->sizeBytes);
+            context->DrawText(sizeLine.c_str(), static_cast<UINT32>(sizeLine.size()), textFormat_.Get(),
+                              detailsRect, textBrush_.Get());
+            D2D1_RECT_F detailsRect2 = D2D1::RectF(rx + 4, ry + rh - 20, rx + rw - 4, ry + rh - 2);
+            const std::wstring diskLine = sizeOnDiskText(*rect.node);
+            context->DrawText(diskLine.c_str(), static_cast<UINT32>(diskLine.size()), textFormat_.Get(),
+                              detailsRect2, textBrush_.Get());
+        }
     }
 }
 
@@ -342,11 +391,20 @@ bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
 
     if (payload->status == ffprotocol::FolderAggregateStatus::Resolved) {
         node->totalSizeBytes = payload->totalSizeBytes;
+        // allocated-size-storage-accuracy 7.2: store the aggregate's
+        // allocated subtotal and completeness pair; rendering derives
+        // exact / partial / unknown from the counts.
+        node->totalAllocatedSizeBytes = payload->totalAllocatedSizeBytes;
+        node->allocatedKnownCount = payload->allocatedBytesKnownCount;
+        node->allocatedTotalCount = payload->allocatedBytesTotalCount;
         node->calculating = false;
         node->aggregateResolved = true;
         node->aggregateFailed = false;
     } else {
         node->totalSizeBytes = 0;
+        node->totalAllocatedSizeBytes = 0;
+        node->allocatedKnownCount = 0;
+        node->allocatedTotalCount = 0;
         node->calculating = true;
         node->aggregateResolved = false;
         node->aggregateFailed = true;

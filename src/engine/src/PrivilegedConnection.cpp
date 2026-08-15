@@ -334,6 +334,41 @@ void PrivilegedConnection::DispatchReceivedFrame(
             break;
         }
 
+        case MessageType::ScanRecordBatchV2: {
+            // allocated-size-storage-accuracy 5.1: additive MFT record
+            // layout with allocated size; distinct message type plus an
+            // explicit recordFormatVersion so a V1 payload can never be
+            // misinterpreted as the larger fixed records.
+            if (frame.payload.size() < sizeof(ffprotocol::ScanRecordBatchV2Header)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::ScanRecordBatchV2Header header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            if (header.recordFormatVersion != 2) {
+                protocolViolation = true;
+                break;
+            }
+            const size_t afterHeader = sizeof(header);
+            if (frame.payload.size() < afterHeader + header.resumeCursorLengthBytes) {
+                protocolViolation = true;
+                break;
+            }
+            std::vector<uint8_t> cursor(
+                frame.payload.begin() + afterHeader, frame.payload.begin() + afterHeader + header.resumeCursorLengthBytes);
+            const size_t recordsOffset = afterHeader + header.resumeCursorLengthBytes;
+            auto records = ffprotocol::ParseMftBatchV2(
+                frame.payload.data() + recordsOffset, frame.payload.size() - recordsOffset, header.recordCount);
+            if (!records) {
+                protocolViolation = true;
+                break;
+            }
+            if (scanBatchV2Callback_) {
+                scanBatchV2Callback_(header.volumeId, std::move(cursor), std::move(*records));
+            }
+            break;
+        }
+
         case MessageType::ScanComplete: {
             if (frame.payload.size() != sizeof(ffprotocol::ScanCompletePayload)) {
                 protocolViolation = true;
@@ -418,6 +453,32 @@ void PrivilegedConnection::DispatchReceivedFrame(
             }
             if (journalBatchCallback_) {
                 journalBatchCallback_(header.volumeId, header.latestUsn, std::move(*records));
+            }
+            break;
+        }
+
+        case MessageType::JournalRecordBatchV3: {
+            // allocated-size-storage-accuracy 5.1: additive USN V3 layout
+            // (V2 + allocated-size presence bit).
+            if (frame.payload.size() < sizeof(ffprotocol::JournalRecordBatchV3Header)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::JournalRecordBatchV3Header header{};
+            std::memcpy(&header, frame.payload.data(), sizeof(header));
+            if (header.recordFormatVersion != 3) {
+                protocolViolation = true;
+                break;
+            }
+            const size_t recordsOffset = sizeof(header);
+            auto records = ffprotocol::ParseUsnDeltaV3Batch(
+                frame.payload.data() + recordsOffset, frame.payload.size() - recordsOffset, header.recordCount);
+            if (!records) {
+                protocolViolation = true;
+                break;
+            }
+            if (journalBatchV3Callback_) {
+                journalBatchV3Callback_(header.volumeId, header.latestUsn, std::move(*records));
             }
             break;
         }

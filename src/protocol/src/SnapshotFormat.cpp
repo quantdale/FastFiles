@@ -49,7 +49,11 @@ size_t SerializedSnapshotSizeImpl(const DirectoryMap& directories) noexcept {
             return 0;
         }
         for (const auto& entry : directory.entries) {
-            if (!AddBytes(total, 1 + sizeof(uint32_t) + 8 * sizeof(uint64_t), total)
+            // allocated-size-storage-accuracy D6: per-entry fixed size is
+            // 1 (isDirectory) + 8 (sizeBytes) + 8 (allocatedSizeBytes) +
+            // 1 (allocatedSizeKnown) + 4 (attributes) + 8*7 (timestamps,
+            // ids) -- the length-prefixed name follows.
+            if (!AddBytes(total, 1 + sizeof(uint32_t) + 2 * sizeof(uint64_t) + 1 + 7 * sizeof(uint64_t), total)
                 || !AddWideStringBytes(total, entry.name, total)) {
                 return 0;
             }
@@ -128,6 +132,8 @@ bool SerializeSnapshotToImpl(const DirectoryMap& directories, uint8_t* destinati
         for (const auto& entry : directory.entries) {
             if (!writer.WriteByte(entry.isDirectory ? 1 : 0)
                 || !writer.WriteU64(entry.sizeBytes)
+                || !writer.WriteU64(entry.allocatedSizeBytes)
+                || !writer.WriteByte(entry.allocatedSizeKnown ? 1 : 0)
                 || !writer.WriteU32(entry.attributes)
                 || !writer.WriteU64(entry.creationTime)
                 || !writer.WriteU64(entry.lastModifiedTime)
@@ -278,7 +284,9 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         // length prefix) bytes -- reject an implausible declared count
         // before reserve() ever sees an attacker-controlled value up to
         // UINT32_MAX (same discipline as Records.h/IsBatchCountPlausible).
-        constexpr size_t kMinBytesPerEntry = 1 + 8 * sizeof(uint64_t) + 2 * sizeof(uint32_t);
+        // allocated-size-storage-accuracy D6: +8 (allocatedSizeBytes) + 1
+        // (allocatedSizeKnown) per entry.
+        constexpr size_t kMinBytesPerEntry = 1 + 2 * sizeof(uint64_t) + 1 + sizeof(uint32_t) + 7 * sizeof(uint64_t);
         if (static_cast<uint64_t>(entryCount) * kMinBytesPerEntry > reader.Remaining()) {
             return std::nullopt;
         }
@@ -295,11 +303,14 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         for (uint32_t e = 0; e < entryCount; ++e) {
             uint8_t isDirectoryByte = 0;
             uint64_t sizeBytes = 0;
+            uint64_t allocatedSizeBytes = 0;
+            uint8_t allocatedSizeKnownByte = 0;
             uint32_t attributes = 0;
             uint64_t creationTime = 0, lastModifiedTime = 0, entryVolumeRowId = 0;
             uint64_t fileIdLow = 0, fileIdHigh = 0, entryParentIdLow = 0, entryParentIdHigh = 0;
             std::wstring name;
             if (!reader.ReadByte(isDirectoryByte) || !reader.ReadU64(sizeBytes)
+                || !reader.ReadU64(allocatedSizeBytes) || !reader.ReadByte(allocatedSizeKnownByte)
                 || !reader.ReadU32(attributes) || !reader.ReadU64(creationTime)
                 || !reader.ReadU64(lastModifiedTime) || !reader.ReadU64(entryVolumeRowId)
                 || !reader.ReadU64(fileIdLow) || !reader.ReadU64(fileIdHigh)
@@ -310,6 +321,8 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
             SnapshotDirectoryEntry entry;
             entry.isDirectory = isDirectoryByte != 0;
             entry.sizeBytes = sizeBytes;
+            entry.allocatedSizeBytes = allocatedSizeBytes;
+            entry.allocatedSizeKnown = allocatedSizeKnownByte != 0;
             entry.attributes = attributes;
             entry.creationTime = creationTime;
             entry.lastModifiedTime = lastModifiedTime;

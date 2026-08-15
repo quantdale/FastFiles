@@ -30,6 +30,25 @@ uint64_t DecodeCursor(const std::vector<uint8_t>& cursor) {
     return value;
 }
 
+// allocated-size-storage-accuracy D3/2.4: V2 -> V1 MFT record downgrade for
+// legacy peers. V1 cannot carry allocated size; dropping the field here is
+// lossless for the peer's purposes (the field simply does not exist in its
+// layout) -- unlike the USN presence-mask case there is no partial-update
+// hazard because full scan records always carry both values.
+ffprotocol::MftRecordV1 DowngradeMftRecordV2(const ffprotocol::MftRecordV2& record) {
+    ffprotocol::MftRecordV1 result{};
+    result.fixed.fileReferenceNumber = record.fixed.fileReferenceNumber;
+    result.fixed.parentFileReferenceNumber = record.fixed.parentFileReferenceNumber;
+    result.fixed.creationTime = record.fixed.creationTime;
+    result.fixed.lastModifiedTime = record.fixed.lastModifiedTime;
+    result.fixed.lastAccessTime = record.fixed.lastAccessTime;
+    result.fixed.sizeBytes = record.fixed.sizeBytes;
+    result.fixed.fileAttributes = record.fixed.fileAttributes;
+    result.fixed.fileNameLengthChars = record.fixed.fileNameLengthChars;
+    result.fileName = record.fileName;
+    return result;
+}
+
 std::vector<uint8_t> EncodeCursor(uint64_t nextFileReference) {
     std::vector<uint8_t> cursor(sizeof(uint64_t));
     std::memcpy(cursor.data(), &nextFileReference, sizeof(nextFileReference));
@@ -58,6 +77,34 @@ bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId vol
                                   payload.data(), static_cast<uint32_t>(payload.size()));
 }
 
+// allocated-size-storage-accuracy D3/2.4: ScanRecordBatchV2 with
+// MftRecordFixedV2 records (fixed layout + allocatedSizeBytes) for peers
+// that negotiated protocol {2,1}+. Distinct message type + explicit
+// recordFormatVersion so a legacy parser can never reinterpret the larger
+// fixed records as the V1 layout.
+bool SendScanBatchV2(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                     const std::vector<ffprotocol::MftRecordV2>& records, uint64_t nextFileReference) {
+    const std::vector<uint8_t> cursor = EncodeCursor(nextFileReference);
+    const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatchV2(records);
+
+    ffprotocol::ScanRecordBatchV2Header header{};
+    header.volumeId = volumeId;
+    header.recordCount = static_cast<uint32_t>(records.size());
+    header.resumeCursorLengthBytes = static_cast<uint16_t>(cursor.size());
+    header.recordFormatVersion = 2;
+
+    std::vector<uint8_t> payload;
+    payload.reserve(sizeof(header) + cursor.size() + serializedRecords.size());
+    const auto* headerBytes = reinterpret_cast<const uint8_t*>(&header);
+    payload.insert(payload.end(), headerBytes, headerBytes + sizeof(header));
+    payload.insert(payload.end(), cursor.begin(), cursor.end());
+    payload.insert(payload.end(), serializedRecords.begin(), serializedRecords.end());
+
+    std::lock_guard<std::mutex> lock(writeMutex);
+    return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatchV2),
+                                  payload.data(), static_cast<uint32_t>(payload.size()));
+}
+
 bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId) {
     ffprotocol::ScanCompletePayload payload{volumeId};
     std::lock_guard<std::mutex> lock(writeMutex);
@@ -82,7 +129,8 @@ private:
 
 void RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
-    const std::vector<uint8_t>& resumeCursor, bool lowPriority, const std::atomic<bool>& shouldStop) {
+    const std::vector<uint8_t>& resumeCursor, bool lowPriority,
+    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop) {
     // THREAD_MODE_BACKGROUND lowers both CPU and I/O scheduling priority
     // for the lifetime of a reconciliation worker. It is thread-local, so
     // normal scans and journal readers remain responsive.
@@ -145,8 +193,25 @@ void RunVolumeScan(
     std::vector<uint8_t> recordScratch(recordSize);
     std::vector<uint8_t> enumBuffer(kEnumBufferSize);
 
-    std::vector<ffprotocol::MftRecordV1> batch;
+    std::vector<ffprotocol::MftRecordV2> batch;
     batch.reserve(kBatchSize);
+    // allocated-size-storage-accuracy D3/2.4: records accumulate in the
+    // additive V2 shape; at send time they go out as V2 (peer negotiated
+    // {2,1}+) or are downgraded to the exact legacy V1 bytes for older
+    // peers. One accumulation path, two wire encodings.
+    const bool sendAllocated = ffprotocol::ProtocolSupportsAllocatedSize(negotiatedVersion);
+    const auto sendBatch = [&](const std::vector<ffprotocol::MftRecordV2>& records,
+                               uint64_t nextFileReference) {
+        if (sendAllocated) {
+            return SendScanBatchV2(pipe, writeMutex, volumeId, records, nextFileReference);
+        }
+        std::vector<ffprotocol::MftRecordV1> legacyRecords;
+        legacyRecords.reserve(records.size());
+        for (const auto& record : records) {
+            legacyRecords.push_back(DowngradeMftRecordV2(record));
+        }
+        return SendScanBatch(pipe, writeMutex, volumeId, legacyRecords, nextFileReference);
+    };
 
     // FSCTL_ENUM_USN_DATA returns the exact opaque file-reference value
     // required by its next call as the first 8 bytes of each output
@@ -240,13 +305,16 @@ void RunVolumeScan(
                 continue;
             }
 
-            ffprotocol::MftRecordV1 record{};
+            ffprotocol::MftRecordV2 record{};
             record.fixed.fileReferenceNumber = frn;
             record.fixed.parentFileReferenceNumber = parsed->parentFileReferenceNumber;
             record.fixed.creationTime = parsed->creationTime;
             record.fixed.lastModifiedTime = parsed->lastModifiedTime;
             record.fixed.lastAccessTime = parsed->lastAccessTime;
             record.fixed.sizeBytes = parsed->sizeBytes;
+            // allocated-size-storage-accuracy D2: both cached $FILE_NAME
+            // sizes flow from the same allowlisted parse.
+            record.fixed.allocatedSizeBytes = parsed->allocatedSizeBytes;
             record.fixed.fileAttributes = parsed->fileAttributes;
             record.fixed.fileNameLengthChars = static_cast<uint16_t>(parsed->fileName.size());
             record.fileName = std::move(parsed->fileName);
@@ -256,7 +324,7 @@ void RunVolumeScan(
                 // can replay a bounded prefix, which ingestion safely
                 // upserts; advancing to the buffer's next cursor here
                 // could skip records not processed yet.
-                writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, bufferStartFileReference);
+                writeFailed = !sendBatch(batch, bufferStartFileReference);
                 batch.clear();
             }
         }
@@ -279,13 +347,13 @@ void RunVolumeScan(
         }
 
         if (!writeFailed && bufferHadRecords) {
-            writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
+            writeFailed = !sendBatch(batch, nextFileReference);
             batch.clear();
         }
     }
 
     if (!batch.empty() && !writeFailed) {
-        writeFailed = !SendScanBatch(pipe, writeMutex, volumeId, batch, nextFileReference);
+        writeFailed = !sendBatch(batch, nextFileReference);
     }
 
     CloseHandle(volumeHandle);

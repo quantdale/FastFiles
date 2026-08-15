@@ -35,6 +35,15 @@ enum class MessageType : uint16_t {
     JournalRecordBatch = 17, // service -> client, zero or more per open journal
     JournalResumeInvalid = 18, // service -> engine: the supplied ResumeUsn is no longer valid (D6/task 7.6)
     JournalRecordBatchV2 = 19, // service -> engine, explicit USN field-presence format
+    // allocated-size-storage-accuracy D3: additive batch message types
+    // carrying allocated (on-disk) size. Sent only to peers that negotiated
+    // protocol {2,1}+ (ProtocolSupportsAllocatedSize); a legacy peer receives
+    // the V1/V2 messages above with byte-identical records. Distinct message
+    // types (not a re-used type) so a legacy parser can never reinterpret a
+    // new payload as the old fixed layout -- the same pattern as
+    // JournalRecordBatchV2.
+    ScanRecordBatchV2 = 20,    // service -> client, MFT record layout with allocatedSizeBytes
+    JournalRecordBatchV3 = 21, // service -> engine, USN V3 layout with allocatedSizeBytes presence bit
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -144,6 +153,18 @@ struct ScanRecordBatchHeader {
     uint16_t resumeCursorLengthBytes;
 };
 
+// allocated-size-storage-accuracy D3: ScanRecordBatchV2 payload --
+// identical shape plus an explicit recordFormatVersion so a parser cannot
+// mistake the V2 record stream (fixed layout + allocatedSizeBytes) for the
+// V1 one. The records are serialized MftRecordV2 batches
+// (SerializeMftBatchV2/ParseMftBatchV2).
+struct ScanRecordBatchV2Header {
+    VolumeId volumeId;
+    uint32_t recordCount;
+    uint16_t resumeCursorLengthBytes;
+    uint16_t recordFormatVersion;
+};
+
 struct ScanCompletePayload {
     VolumeId volumeId;
 };
@@ -174,6 +195,16 @@ struct JournalRecordBatchHeader {
 // V2 has a distinct message type and an explicit format version so a parser
 // cannot accidentally interpret a V1 payload as a complete metadata record.
 struct JournalRecordBatchV2Header {
+    VolumeId volumeId;
+    uint32_t recordCount;
+    uint64_t latestUsn;
+    uint16_t recordFormatVersion;
+};
+
+// allocated-size-storage-accuracy D3: JournalRecordBatchV3 payload --
+// same shape as V2 with recordFormatVersion 3 selecting the UsnDeltaFixedV3
+// record stream (V2 + allocatedSizeBytes under kUsnFieldAllocatedSizeBytes).
+struct JournalRecordBatchV3Header {
     VolumeId volumeId;
     uint32_t recordCount;
     uint64_t latestUsn;

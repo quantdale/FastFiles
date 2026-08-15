@@ -43,14 +43,18 @@ void TestUnrecognizedMessageTypeRejected() {
           "a real MessageType value round-trips");
 
     // Bounds around the closed command surface's current end
-    // (index-storage-and-scanning's JournalRecordBatchV2 = 19): the last
-    // assigned value must round-trip, the next unassigned one must not.
+    // (allocated-size-storage-accuracy's JournalRecordBatchV3 = 21): the
+    // last assigned value must round-trip, the next unassigned one must not.
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid)).has_value(),
           "JournalResumeInvalid (the newest service->engine message) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2)).has_value(),
           "JournalRecordBatchV2 (the explicit USN presence-mask format) round-trips");
-    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2) + 1).has_value() == false,
-          "the first unassigned value past JournalRecordBatchV2 is rejected");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanRecordBatchV2)).has_value(),
+          "ScanRecordBatchV2 (the MFT record layout with allocated size) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV3)).has_value(),
+          "JournalRecordBatchV3 (the USN V3 presence-mask format) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV3) + 1).has_value() == false,
+          "the first unassigned value past JournalRecordBatchV3 is rejected");
     Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
           "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
     Check(AreStartVolumeScanFlagsValid(0), "a normal-priority scan uses a valid zero flag set");
@@ -205,11 +209,192 @@ void TestUsnV2PresenceMaskRoundTripAndMalformedMask() {
           "a complete V2 USN record downgrades to the legacy V1 wire layout without message 19");
 }
 
+void TestMftV2RoundTripAndLegacyLayoutsUnchanged() {
+    // allocated-size-storage-accuracy 2.1/2.7: the V1/V2 packed layouts are
+    // compatibility contracts -- their sizes must never drift.
+    Check(sizeof(MftRecordFixedV1) == 8 * 6 + 4 + 2, "MftRecordFixedV1 size is pinned");
+    Check(sizeof(UsnDeltaFixedV1) == 8 * 5 + 4 * 2 + 2, "UsnDeltaFixedV1 size is pinned");
+    Check(sizeof(UsnDeltaFixedV2) == 8 * 8 + 4 * 3 + 2, "UsnDeltaFixedV2 size is pinned");
+    Check(sizeof(MftRecordFixedV2) == sizeof(MftRecordFixedV1) + sizeof(uint64_t),
+          "MftRecordFixedV2 is exactly V1 plus the additive allocated-size field");
+    Check(sizeof(UsnDeltaFixedV3) == sizeof(UsnDeltaFixedV2) + sizeof(uint64_t),
+          "UsnDeltaFixedV3 is exactly V2 plus the additive allocated-size field");
+
+    MftRecordV2 record{};
+    record.fixed.fileReferenceNumber = 0xCAFE;
+    record.fixed.parentFileReferenceNumber = 0xBEEF;
+    record.fixed.creationTime = 1;
+    record.fixed.lastModifiedTime = 2;
+    record.fixed.lastAccessTime = 3;
+    record.fixed.sizeBytes = 4096;
+    record.fixed.allocatedSizeBytes = 8192;
+    record.fixed.fileAttributes = 0x20;
+    record.fileName = u"allocated.bin";
+    record.fixed.fileNameLengthChars = static_cast<uint16_t>(record.fileName.size());
+
+    const auto payload = SerializeMftBatchV2({record});
+    const auto parsed = ParseMftBatchV2(payload.data(), payload.size(), 1);
+    Check(parsed.has_value() && parsed->size() == 1 && (*parsed)[0].fileName == record.fileName &&
+              (*parsed)[0].fixed.allocatedSizeBytes == 8192 && (*parsed)[0].fixed.sizeBytes == 4096,
+          "MFT V2 records round-trip allocated and logical size with the filename");
+
+    // An implausible count / trailing garbage / null buffer must reject the
+    // whole batch exactly like the V1 parser (same template discipline).
+    Check(!ParseMftBatchV2(payload.data(), payload.size(), 2).has_value(),
+          "MFT V2 count-vs-bytes mismatch rejects the whole batch");
+    auto trailing = payload;
+    trailing.push_back(0xEE);
+    Check(!ParseMftBatchV2(trailing.data(), trailing.size(), 1).has_value(),
+          "MFT V2 trailing bytes reject the whole batch");
+    Check(!ParseMftBatchV2(nullptr, sizeof(MftRecordFixedV2), 1).has_value(),
+          "a null MFT V2 buffer is rejected before dereference");
+}
+
+void TestUsnV3PresenceMaskRoundTripAndDowngradePolicy() {
+    // allocated-size-storage-accuracy 2.1/2.5: V3 = V2 + allocated size under
+    // an authoritative presence bit; the bit is set only after successful
+    // MFT re-enrichment and its absence must survive upgrades.
+    UsnDeltaV3 record{};
+    record.fixed.usn = 202;
+    record.fixed.fileReferenceNumber = 0x1111;
+    record.fixed.parentFileReferenceNumber = 0x2222;
+    record.fixed.reason = 0x00000001;
+    record.fixed.timestamp = 100;
+    record.fixed.creationTime = 200;
+    record.fixed.lastModifiedTime = 300;
+    record.fixed.lastAccessTime = 400;
+    record.fixed.sizeBytes = 500;
+    record.fixed.allocatedSizeBytes = 600;
+    record.fixed.fileAttributes = 0x20;
+    record.fixed.fieldMask = kUsnFieldMaskAll;
+    record.fileName = u"v3.txt";
+    record.fixed.fileNameLengthChars = static_cast<uint16_t>(record.fileName.size());
+
+    const auto payload = SerializeUsnDeltaV3Batch({record});
+    const auto parsed = ParseUsnDeltaV3Batch(payload.data(), payload.size(), 1);
+    Check(parsed.has_value() && parsed->size() == 1 && (*parsed)[0].fileName == record.fileName &&
+              (*parsed)[0].fixed.allocatedSizeBytes == 600 && (*parsed)[0].fixed.sizeBytes == 500 &&
+              (*parsed)[0].fixed.fieldMask == kUsnFieldMaskAll,
+          "USN V3 round-trips allocated size, logical size, and the full presence mask");
+
+    // Upgrade from V2 preserves the allocated bit as absent -- absence is
+    // never synthesized into a value.
+    UsnDeltaV2 v2{};
+    v2.fixed.usn = 7;
+    v2.fixed.fileReferenceNumber = 8;
+    v2.fixed.parentFileReferenceNumber = 9;
+    v2.fixed.reason = 1;
+    v2.fixed.timestamp = 10;
+    v2.fixed.lastModifiedTime = 11;
+    v2.fixed.fileAttributes = 0x10;
+    v2.fixed.fieldMask = kUsnFieldParentId | kUsnFieldName | kUsnFieldSizeBytes |
+                         kUsnFieldLastModifiedTime | kUsnFieldAttributes;
+    v2.fileName = u"upgraded.txt";
+    v2.fixed.fileNameLengthChars = static_cast<uint16_t>(v2.fileName.size());
+    const auto upgraded = UpgradeUsnDeltaV2(v2);
+    Check((upgraded.fixed.fieldMask & kUsnFieldAllocatedSizeBytes) == 0 &&
+              upgraded.fixed.allocatedSizeBytes == 0,
+          "upgrading a V2 record keeps the allocated-size bit absent (zero here is absence, not a value)");
+
+    // Downgrade policy: a record carrying the allocated bit is NOT
+    // representable for a V2 peer and must be omitted, never zero-filled.
+    Check(!IsRepresentableInUsnV2(record), "a V3 record with the allocated-size bit is not representable in V2");
+    UsnDeltaV3 withoutAllocated = record;
+    withoutAllocated.fixed.fieldMask = record.fixed.fieldMask & ~kUsnFieldAllocatedSizeBytes;
+    Check(IsRepresentableInUsnV2(withoutAllocated),
+          "a V3 record without the allocated-size bit is representable in V2");
+    const auto downgraded = DowngradeUsnDeltaV3(withoutAllocated);
+    const auto v2Payload = SerializeUsnDeltaV2Batch({downgraded});
+    const auto v2Parsed = ParseUsnDeltaV2Batch(v2Payload.data(), v2Payload.size(), 1);
+    Check(v2Parsed.has_value() && v2Parsed->size() == 1 &&
+              (*v2Parsed)[0].fixed.sizeBytes == record.fixed.sizeBytes &&
+              (*v2Parsed)[0].fixed.fieldMask == withoutAllocated.fixed.fieldMask &&
+              (*v2Parsed)[0].fileName == record.fileName,
+          "a representable V3 record downgrades to the V2 wire layout losslessly");
+
+    // Unknown mask bits reject the whole V3 batch, same as V2.
+    auto malformed = payload;
+    UsnDeltaFixedV3 malformedFixed{};
+    std::memcpy(&malformedFixed, malformed.data(), sizeof(malformedFixed));
+    malformedFixed.fieldMask |= 0x80000000u;
+    std::memcpy(malformed.data(), &malformedFixed, sizeof(malformedFixed));
+    Check(!ParseUsnDeltaV3Batch(malformed.data(), malformed.size(), 1).has_value(),
+          "unknown USN V3 presence-mask bits reject the whole batch");
+
+    // Protocol capability gate: allocated-size records flow only to {2,1}+
+    // peers; 2.0 and 1.x peers negotiate down and keep legacy layouts.
+    Check(ProtocolSupportsAllocatedSize({2, 1}), "protocol {2,1} supports the allocated-size records");
+    Check(ProtocolSupportsAllocatedSize({3, 0}), "a future major with matching minor gates open");
+    Check(!ProtocolSupportsAllocatedSize({2, 0}), "protocol {2,0} does not support the allocated-size records");
+    Check(!ProtocolSupportsAllocatedSize({1, 99}), "a major-1 peer never receives the allocated-size records");
+}
+
 void TestVersionCompatibility() {
     Check(IsVersionCompatible({2, 0}, {2, 5}), "same-major, newer-minor peer is compatible");
     Check(IsVersionCompatible({2, 0}, {1, 9}), "peer exactly one major version behind is compatible");
     Check(!IsVersionCompatible({2, 0}, {0, 9}), "peer more than one major version behind is incompatible");
     Check(!IsVersionCompatible({2, 0}, {3, 0}), "peer with a newer major version is incompatible");
+}
+
+// allocated-size-storage-accuracy 6.1: snapshot format v3 round-trips the
+// per-entry allocated size + known flag; the version gate fails closed for
+// any other format version.
+void TestSnapshotV3RoundTripAndVersionGate() {
+    // Compile-time pin: snapshot format is v3 (per-entry allocated size).
+    static_assert(kSnapshotFormatVersion == 3, "snapshot format must be v3 for allocated-size support");
+    // Runtime-derived versions (array indexing defeats /analyze's constant
+    // folding) so the fail-closed gate is genuinely exercised: the current
+    // version is accepted; any other version is rejected.
+    const uint32_t versions[] = {kSnapshotFormatVersion - 1, kSnapshotFormatVersion,
+                                 kSnapshotFormatVersion + 1};
+    for (uint32_t version : versions) {
+        Check(IsSnapshotFormatCompatible(version) == (version == kSnapshotFormatVersion),
+              "the snapshot version gate fails closed for every version other than the current one");
+    }
+
+    std::map<std::wstring, SnapshotDirectory> directories;
+    SnapshotDirectory directory;
+    directory.status = DirectoryEnumerationStatus::Success;
+    SnapshotDirectoryEntry entry;
+    entry.name = L"sparse.vhdx";
+    entry.isDirectory = false;
+    entry.sizeBytes = 40960;
+    entry.allocatedSizeBytes = 8192;
+    entry.allocatedSizeKnown = true;
+    SnapshotDirectoryEntry unknownEntry;
+    unknownEntry.name = L"degraded.bin";
+    unknownEntry.sizeBytes = 7;
+    unknownEntry.allocatedSizeKnown = false;
+    SnapshotDirectoryEntry zeroEntry;
+    zeroEntry.name = L"empty.bin";
+    zeroEntry.sizeBytes = 0;
+    zeroEntry.allocatedSizeBytes = 0;
+    zeroEntry.allocatedSizeKnown = true; // genuine zero, distinct from unknown
+    directory.entries = {entry, unknownEntry, zeroEntry};
+    directories[L"C:\\"] = directory;
+
+    const auto serialized = SerializeSnapshot(directories);
+    Check(!serialized.empty(), "v3 snapshot serializes");
+    const auto parsed = ParseSnapshot(serialized.data(), serialized.size());
+    Check(parsed.has_value(), "v3 snapshot parses");
+    if (!parsed) return;
+    const auto& parsedDir = parsed->at(L"C:\\");
+    Check(parsedDir.entries.size() == 3, "all entries round-trip");
+    Check(parsedDir.entries[0].allocatedSizeKnown && parsedDir.entries[0].allocatedSizeBytes == 8192 &&
+              parsedDir.entries[0].sizeBytes == 40960,
+          "known allocated size round-trips beside logical size");
+    Check(!parsedDir.entries[1].allocatedSizeKnown && parsedDir.entries[1].allocatedSizeBytes == 0,
+          "unknown stays unknown -- never fabricated as zero");
+    Check(parsedDir.entries[2].allocatedSizeKnown && parsedDir.entries[2].allocatedSizeBytes == 0,
+          "a genuine zero-byte file round-trips as known zero, distinct from unknown");
+
+    // Malformed v3 payloads follow the reject-the-whole-thing discipline.
+    auto truncated = serialized;
+    truncated.resize(truncated.size() - 1);
+    Check(!ParseSnapshot(truncated.data(), truncated.size()).has_value(),
+          "a truncated v3 snapshot is rejected");
+    Check(!ParseSnapshot(nullptr, sizeof(uint32_t)).has_value(),
+          "a null snapshot buffer is rejected before dereference");
 }
 
 void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
@@ -229,8 +414,10 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "IndexedSearchResult is part of the closed UI response surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::CancelIndexedSearch)).has_value(),
           "CancelIndexedSearch is part of the closed UI command surface");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::CancelIndexedSearch) + 1).has_value(),
-          "the first unassigned UI message after indexed search is rejected");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResultV2)).has_value(),
+          "FolderAggregateResultV2 (the additive allocated-size aggregate) round-trips");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResultV2) + 1).has_value(),
+          "the first unassigned UI message after FolderAggregateResultV2 is rejected");
     Check(sizeof(SetIndexingPausedPayload) == sizeof(uint8_t) + sizeof(uint8_t),
           "pause/resume request carries only a scope and a pause flag");
     Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
@@ -474,6 +661,9 @@ int main() {
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestUsnV2PresenceMaskRoundTripAndMalformedMask();
+    TestMftV2RoundTripAndLegacyLayoutsUnchanged();
+    TestUsnV3PresenceMaskRoundTripAndDowngradePolicy();
+    TestSnapshotV3RoundTripAndVersionGate();
     TestVersionCompatibility();
     TestIndexHealthPrecedence();
     TestIndexConditionDetailView();

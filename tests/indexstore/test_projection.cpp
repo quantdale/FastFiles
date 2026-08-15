@@ -119,6 +119,127 @@ void TestPartialUpsertPreservesAbsentMetadata() {
           "absent authoritative projection metadata is retained");
 }
 
+// allocated-size-storage-accuracy 4.2: full scans set both sizes; a partial
+// USN-style update without the allocated-size bit preserves the previous
+// value (and known state); a partial update with the bit corrects it.
+void TestAllocatedSizeFullPartialPreserveAndReconcile() {
+    Projection projection;
+
+    // Full scan record: both sizes authoritative.
+    EntryRecord full = MakeEntry(101, 100, u"sparse.vhdx");
+    full.sizeBytes = 40960;
+    full.allocatedSizeBytes = 8192;
+    full.allocatedSizeKnown = true;
+    projection.Upsert(1, full);
+    const ProjectionEntry* observed = projection.Find(1, FileId{101, 0});
+    Check(observed != nullptr && observed->sizeBytes == 40960 &&
+              observed->allocatedSizeBytes == 8192 && observed->allocatedSizeKnown,
+          "a full MFT-scan upsert sets logical and allocated size");
+
+    // Partial update without the allocated bit: previous value preserved.
+    EntryRecord delta = MakeEntry(101, 100, u"sparse.vhdx");
+    delta.sizeBytes = 50000; // logical size changed
+    delta.allocatedSizeBytes = 0;
+    delta.allocatedSizeKnown = false;
+    projection.UpsertPartial(1, delta, kEntryFieldSizeBytes | kEntryFieldLastModifiedTime);
+    observed = projection.Find(1, FileId{101, 0});
+    Check(observed != nullptr && observed->sizeBytes == 50000,
+          "a present logical-size field updates");
+    if (observed != nullptr) {
+        Check(observed->allocatedSizeBytes == 8192 && observed->allocatedSizeKnown,
+              "an absent allocated-size bit preserves the previously known value");
+    }
+
+    // Reconciliation-style full upsert corrects a stale allocated size.
+    EntryRecord reconciled = MakeEntry(101, 100, u"sparse.vhdx");
+    reconciled.sizeBytes = 50000;
+    reconciled.allocatedSizeBytes = 12288;
+    reconciled.allocatedSizeKnown = true;
+    projection.Upsert(1, reconciled);
+    observed = projection.Find(1, FileId{101, 0});
+    Check(observed != nullptr && observed->allocatedSizeBytes == 12288,
+          "reconciliation corrects stale allocated size");
+
+    // Brand-new entry from a partial update with no allocated bit: unknown,
+    // not zero -- distinguishable from a genuine zero-byte file.
+    EntryRecord freshDelta = MakeEntry(202, 100, u"fresh.bin");
+    freshDelta.sizeBytes = 10;
+    projection.UpsertPartial(1, freshDelta, kEntryFieldSizeBytes | kEntryFieldParentId | kEntryFieldName);
+    const ProjectionEntry* fresh = projection.Find(1, FileId{202, 0});
+    Check(fresh != nullptr && fresh->sizeBytes == 10 && !fresh->allocatedSizeKnown,
+          "a new entry from a partial update has unknown allocated size");
+
+    EntryRecord zero = MakeEntry(203, 100, u"empty.bin");
+    zero.sizeBytes = 0;
+    zero.allocatedSizeBytes = 0;
+    zero.allocatedSizeKnown = true;
+    projection.Upsert(1, zero);
+    const ProjectionEntry* zeroEntry = projection.Find(1, FileId{203, 0});
+    Check(zeroEntry != nullptr && zeroEntry->allocatedSizeKnown && zeroEntry->allocatedSizeBytes == 0,
+          "a known zero-byte file is distinct from unknown");
+}
+
+// allocated-size-storage-accuracy 4.2/D7: the projection aggregate carries
+// both totals with an explicit completeness pair and saturating arithmetic;
+// a partial subtotal is never presented as an exact total.
+void TestFolderAggregateWithAllocatedSizeAndCompleteness() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    proj.Upsert(1, MakeEntry(100, 5, u"dir", 0x10));
+    EntryRecord known = MakeEntry(200, 100, u"known.bin");
+    known.sizeBytes = 10;
+    known.allocatedSizeBytes = 8;
+    known.allocatedSizeKnown = true;
+    proj.Upsert(1, known);
+    EntryRecord unknown = MakeEntry(201, 100, u"unknown.bin");
+    unknown.sizeBytes = 20;
+    proj.Upsert(1, unknown);
+    EntryRecord zero = MakeEntry(202, 100, u"empty.bin");
+    zero.sizeBytes = 0;
+    zero.allocatedSizeBytes = 0;
+    zero.allocatedSizeKnown = true;
+    proj.Upsert(1, zero);
+
+    const auto rootAgg = proj.GetFolderAggregate(1, FileId{5, 0});
+    Check(rootAgg.has_value(), "root aggregate is present");
+    Check(rootAgg->itemCount == 4, "root aggregate counts every descendant");
+    Check(rootAgg->totalSizeBytes == 30, "root logical total sums all descendants");
+    Check(rootAgg->allocatedBytesTotalCount == 4, "every descendant counts toward the total");
+    Check(rootAgg->allocatedBytesKnownCount == 2, "known count covers only known descendants");
+    Check(rootAgg->totalAllocatedSizeBytes == 8, "allocated subtotal covers only known descendants");
+    Check(!rootAgg->complete || rootAgg->allocatedBytesKnownCount == rootAgg->allocatedBytesTotalCount,
+          "an aggregate with unknown descendants is not claimed complete");
+
+    const auto dirAgg = proj.GetFolderAggregate(1, FileId{100, 0});
+    Check(dirAgg.has_value() && dirAgg->itemCount == 3 && dirAgg->totalAllocatedSizeBytes == 8 &&
+              dirAgg->allocatedBytesKnownCount == 2 && dirAgg->allocatedBytesTotalCount == 3,
+          "a subtree with an unknown descendant reports the partial allocated subtotal");
+}
+
+// allocated-size-storage-accuracy 4.2/D7: checked arithmetic -- a subtree
+// whose sums exceed UINT64_MAX must saturate and mark the aggregate
+// incomplete, never wrap into a plausible-looking total.
+void TestFolderAggregateOverflowSaturatesAndMarksIncomplete() {
+    Projection proj;
+    proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
+    EntryRecord big = MakeEntry(200, 5, u"big.bin");
+    big.sizeBytes = UINT64_MAX;
+    big.allocatedSizeBytes = UINT64_MAX;
+    big.allocatedSizeKnown = true;
+    proj.Upsert(1, big);
+    EntryRecord more = MakeEntry(201, 5, u"more.bin");
+    more.sizeBytes = 1;
+    more.allocatedSizeBytes = 1;
+    more.allocatedSizeKnown = true;
+    proj.Upsert(1, more);
+
+    const auto aggregate = proj.GetFolderAggregate(1, FileId{5, 0});
+    Check(aggregate.has_value(), "overflow aggregate is present");
+    Check(aggregate->totalSizeBytes == UINT64_MAX && aggregate->totalAllocatedSizeBytes == UINT64_MAX,
+          "overflowing sums saturate at UINT64_MAX");
+    Check(!aggregate->complete, "a saturated aggregate is explicitly incomplete");
+}
+
 void TestRemoveDropsEntryButLeavesSiblingsIntact() {
     Projection proj;
     proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
@@ -347,6 +468,9 @@ int main() {
     TestChildrenLookupSupportsDirectoryListing();
     TestReparentingUpdatesParentChildIndex();
     TestPartialUpsertPreservesAbsentMetadata();
+    TestAllocatedSizeFullPartialPreserveAndReconcile();
+    TestFolderAggregateWithAllocatedSizeAndCompleteness();
+    TestFolderAggregateOverflowSaturatesAndMarksIncomplete();
     TestRemoveDropsEntryButLeavesSiblingsIntact();
     TestCycleDoesNotCauseInfiniteWalk();
     TestVolumesAreIsolatedFromEachOther();

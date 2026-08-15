@@ -29,6 +29,12 @@ struct ProjectionEntry {
     FileId parentFrn;
     NameId nameId = 0;
     uint64_t sizeBytes = 0;
+    // allocated-size-storage-accuracy D5: on-disk size with an explicit
+    // known flag -- zero is a valid size, never an absence sentinel.
+    // Full scans set both; partial updates preserve both unless the
+    // allocated-size bit is present in the update's field mask.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
     uint64_t creationTime = 0;
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
@@ -117,9 +123,18 @@ public:
     // count (all descendants, excluding the root itself) and the total
     // sizeBytes sum across every entry in that subtree. Returns std::nullopt
     // if the root is unknown, distinguishing "not indexed" from "empty folder".
+    // allocated-size-storage-accuracy D7: the allocated-size subtotal covers
+    // only descendants whose allocated size is known, with the completeness
+    // pair (known/total counts); Complete only when every descendant is
+    // known. Sums saturate at UINT64_MAX with completeness cleared on
+    // saturation -- a wrapped-looking total must never be presented as exact.
     struct FolderAggregate {
         uint64_t itemCount = 0;
         uint64_t totalSizeBytes = 0;
+        uint64_t totalAllocatedSizeBytes = 0;
+        uint64_t allocatedBytesKnownCount = 0;
+        uint64_t allocatedBytesTotalCount = 0;
+        bool complete = true;
     };
     std::optional<FolderAggregate> GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn) const;
     const ProjectionEntry& EntryAt(uint32_t index) const { return entries_[index]; }

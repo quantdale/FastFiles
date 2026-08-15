@@ -45,10 +45,18 @@ public:
     using VolumeListCallback = std::function<void(std::vector<ffprotocol::VolumeInfo>)>;
     using ScanBatchCallback = std::function<void(
         ffprotocol::VolumeId, std::vector<uint8_t> resumeCursor, std::vector<ffprotocol::MftRecordV1> records)>;
+    // allocated-size-storage-accuracy 5.1: V2 scan records (additive
+    // allocated size) from peers that negotiated protocol {2,1}+.
+    using ScanBatchV2Callback = std::function<void(
+        ffprotocol::VolumeId, std::vector<uint8_t> resumeCursor, std::vector<ffprotocol::MftRecordV2> records)>;
     using ScanCompleteCallback = std::function<void(ffprotocol::VolumeId)>;
     using JournalOpenedCallback = std::function<void(ffprotocol::VolumeId, uint64_t journalId, uint64_t currentUsn)>;
     using JournalBatchCallback =
         std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records)>;
+    // allocated-size-storage-accuracy 5.1: V3 journal records (additive
+    // allocated-size presence bit).
+    using JournalBatchV3Callback =
+        std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV3> records)>;
     // The service rejected the requested resume position as outside the
     // journal's retained range (MessageType::JournalResumeInvalid) -- the
     // payload carries no position, only the volume it concerns.
@@ -64,9 +72,11 @@ public:
     // after the connection is up.
     void SetVolumeListCallback(VolumeListCallback callback) { volumeListCallback_ = std::move(callback); }
     void SetScanBatchCallback(ScanBatchCallback callback) { scanBatchCallback_ = std::move(callback); }
+    void SetScanBatchV2Callback(ScanBatchV2Callback callback) { scanBatchV2Callback_ = std::move(callback); }
     void SetScanCompleteCallback(ScanCompleteCallback callback) { scanCompleteCallback_ = std::move(callback); }
     void SetJournalOpenedCallback(JournalOpenedCallback callback) { journalOpenedCallback_ = std::move(callback); }
     void SetJournalBatchCallback(JournalBatchCallback callback) { journalBatchCallback_ = std::move(callback); }
+    void SetJournalBatchV3Callback(JournalBatchV3Callback callback) { journalBatchV3Callback_ = std::move(callback); }
     void SetJournalResumeInvalidCallback(JournalResumeInvalidCallback callback) {
         journalResumeInvalidCallback_ = std::move(callback);
     }
@@ -130,9 +140,11 @@ private:
     StateChangeCallback onStateChange_;
     VolumeListCallback volumeListCallback_;
     ScanBatchCallback scanBatchCallback_;
+    ScanBatchV2Callback scanBatchV2Callback_;
     ScanCompleteCallback scanCompleteCallback_;
     JournalOpenedCallback journalOpenedCallback_;
     JournalBatchCallback journalBatchCallback_;
+    JournalBatchV3Callback journalBatchV3Callback_;
     JournalResumeInvalidCallback journalResumeInvalidCallback_;
 
     std::atomic<ConnectionState> state_{ConnectionState::Disconnected};

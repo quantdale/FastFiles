@@ -131,6 +131,26 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
     entry.lastModifiedTime = record.fixed.lastModifiedTime;
     entry.lastAccessTime = record.fixed.lastAccessTime;
     entry.attributes = record.fixed.fileAttributes;
+    // allocated-size-storage-accuracy 5.3: a V1 record predates the field;
+    // allocated size stays unknown (never fabricated).
+    entry.allocatedSizeKnown = false;
+    return entry;
+}
+
+ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV2& record) {
+    ffindexstore::EntryRecord entry;
+    entry.id = ffindexstore::FileId{record.fixed.fileReferenceNumber, 0};
+    entry.parentId = ffindexstore::FileId{record.fixed.parentFileReferenceNumber, 0};
+    entry.name = record.fileName;
+    entry.sizeBytes = record.fixed.sizeBytes;
+    entry.allocatedSizeBytes = record.fixed.allocatedSizeBytes;
+    // A parsed $FILE_NAME always yields both cached sizes, so a V2 scan
+    // record's allocated size is authoritative by construction.
+    entry.allocatedSizeKnown = true;
+    entry.creationTime = record.fixed.creationTime;
+    entry.lastModifiedTime = record.fixed.lastModifiedTime;
+    entry.lastAccessTime = record.fixed.lastAccessTime;
+    entry.attributes = record.fixed.fileAttributes;
     return entry;
 }
 
@@ -140,6 +160,24 @@ ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV2& record) {
     entry.parentId = ffindexstore::FileId{record.fixed.parentFileReferenceNumber, 0};
     entry.name = record.fileName;
     entry.sizeBytes = record.fixed.sizeBytes;
+    entry.creationTime = record.fixed.creationTime;
+    entry.lastModifiedTime = record.fixed.lastModifiedTime;
+    entry.lastAccessTime = record.fixed.lastAccessTime;
+    entry.attributes = record.fixed.fileAttributes;
+    return entry;
+}
+
+ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::UsnDeltaV3& record) {
+    ffindexstore::EntryRecord entry;
+    entry.id = ffindexstore::FileId{record.fixed.fileReferenceNumber, 0};
+    entry.parentId = ffindexstore::FileId{record.fixed.parentFileReferenceNumber, 0};
+    entry.name = record.fileName;
+    entry.sizeBytes = record.fixed.sizeBytes;
+    // allocated-size-storage-accuracy 5.3: the presence bit is authoritative
+    // -- the service sets it only after successful MFT re-enrichment, so an
+    // absent bit here means genuinely unknown, never a value to derive.
+    entry.allocatedSizeKnown = (record.fixed.fieldMask & ffprotocol::kUsnFieldAllocatedSizeBytes) != 0;
+    entry.allocatedSizeBytes = entry.allocatedSizeKnown ? record.fixed.allocatedSizeBytes : 0;
     entry.creationTime = record.fixed.creationTime;
     entry.lastModifiedTime = record.fixed.lastModifiedTime;
     entry.lastAccessTime = record.fixed.lastAccessTime;
@@ -157,6 +195,10 @@ std::optional<ffindexstore::EntryFieldMask> ToEntryFieldMask(ffprotocol::UsnDelt
     if ((fields & ffprotocol::kUsnFieldLastModifiedTime) != 0) result |= ffindexstore::kEntryFieldLastModifiedTime;
     if ((fields & ffprotocol::kUsnFieldLastAccessTime) != 0) result |= ffindexstore::kEntryFieldLastAccessTime;
     if ((fields & ffprotocol::kUsnFieldAttributes) != 0) result |= ffindexstore::kEntryFieldAttributes;
+    // allocated-size-storage-accuracy 5.3: one-to-one wire-bit to
+    // store-bit mapping; absence leaves the durable/projection value
+    // untouched (UpsertPartial's preserve semantics).
+    if ((fields & ffprotocol::kUsnFieldAllocatedSizeBytes) != 0) result |= ffindexstore::kEntryFieldAllocatedSizeBytes;
     return result;
 }
 
@@ -335,12 +377,28 @@ bool IndexPipeline::IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ff
 }
 
 bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV1>& records) {
-    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<ffindexstore::EntryChange> changes;
     changes.reserve(records.size());
     for (const auto& record : records) {
         changes.push_back({ffindexstore::EntryChangeKind::Upsert, ToEntryRecord(record)});
     }
+    return ApplyMftBatchChanges(volumeId, std::move(changes));
+}
+
+bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV2>& records) {
+    // allocated-size-storage-accuracy 5.3: identical to the V1 path; only
+    // the record conversion differs (allocated size authoritative).
+    std::vector<ffindexstore::EntryChange> changes;
+    changes.reserve(records.size());
+    for (const auto& record : records) {
+        changes.push_back({ffindexstore::EntryChangeKind::Upsert, ToEntryRecord(record)});
+    }
+    return ApplyMftBatchChanges(volumeId, std::move(changes));
+}
+
+bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
+                                         std::vector<ffindexstore::EntryChange>&& changes) {
+    std::lock_guard<std::mutex> lock(mutex_);
     // design.md D4: commit to the durable store first; the projection is
     // only touched once that commit has actually succeeded.
     if (!store_.ApplyBatch(volumeId, changes)) {
@@ -402,7 +460,6 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
 }
 
 bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV2>& records) {
-    std::lock_guard<std::mutex> lock(mutex_);
     std::vector<ffindexstore::EntryChange> changes;
     changes.reserve(records.size());
     for (const auto& record : records) {
@@ -417,6 +474,33 @@ bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std:
         }
         changes.push_back(std::move(change));
     }
+    return ApplyUsnBatchChanges(volumeId, std::move(changes));
+}
+
+bool IndexPipeline::ApplyUsnBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::UsnDeltaV3>& records) {
+    // allocated-size-storage-accuracy 5.3: identical to the V2 path; only
+    // the record conversion differs (allocated-size presence bit maps to
+    // kEntryFieldAllocatedSizeBytes, so absence preserves stored values).
+    std::vector<ffindexstore::EntryChange> changes;
+    changes.reserve(records.size());
+    for (const auto& record : records) {
+        ffindexstore::EntryChange change;
+        change.kind = (record.fixed.reason & kUsnReasonFileDelete) != 0 ? ffindexstore::EntryChangeKind::Remove
+                                                                         : ffindexstore::EntryChangeKind::Upsert;
+        change.record = ToEntryRecord(record);
+        if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+            const auto fields = ToEntryFieldMask(record.fixed.fieldMask);
+            if (!fields) return false;
+            change.fields = *fields;
+        }
+        changes.push_back(std::move(change));
+    }
+    return ApplyUsnBatchChanges(volumeId, std::move(changes));
+}
+
+bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
+                                         std::vector<ffindexstore::EntryChange>&& changes) {
+    std::lock_guard<std::mutex> lock(mutex_);
     if (!store_.ApplyBatch(volumeId, changes)) {
         return false;
     }
@@ -590,6 +674,10 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
                 snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));
                 snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
                 snapshotEntry.sizeBytes = child.sizeBytes;
+                // allocated-size-storage-accuracy 5.3/D6: carry the
+                // projection's explicit known state into the snapshot.
+                snapshotEntry.allocatedSizeBytes = child.allocatedSizeBytes;
+                snapshotEntry.allocatedSizeKnown = child.allocatedSizeKnown;
                 snapshotEntry.attributes = child.attributes;
                 snapshotEntry.creationTime = child.creationTime;
                 snapshotEntry.lastModifiedTime = child.lastModifiedTime;

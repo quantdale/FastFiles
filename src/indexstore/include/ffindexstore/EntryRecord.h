@@ -16,6 +16,11 @@ struct EntryRecord {
     FileId parentId;
     std::u16string name;
     uint64_t sizeBytes = 0;
+    // allocated-size-storage-accuracy D1/D4: on-disk size. `allocatedSizeKnown`
+    // is the explicit unknown state -- zero is a valid size, never an absence
+    // sentinel. The durable store persists unknown as NULL.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
     uint64_t creationTime = 0;
     uint64_t lastModifiedTime = 0;
     uint64_t lastAccessTime = 0;
@@ -34,10 +39,14 @@ constexpr EntryFieldMask kEntryFieldCreationTime = 1u << 3;
 constexpr EntryFieldMask kEntryFieldLastModifiedTime = 1u << 4;
 constexpr EntryFieldMask kEntryFieldLastAccessTime = 1u << 5;
 constexpr EntryFieldMask kEntryFieldAttributes = 1u << 6;
+// allocated-size-storage-accuracy D4/D5: present only when the allocated
+// size is authoritative (full MFT scan or successful re-enrichment); a
+// partial update without it preserves the previous value, never erasing it.
+constexpr EntryFieldMask kEntryFieldAllocatedSizeBytes = 1u << 7;
 constexpr EntryFieldMask kEntryFieldMaskAll =
     kEntryFieldParentId | kEntryFieldName | kEntryFieldSizeBytes |
     kEntryFieldCreationTime | kEntryFieldLastModifiedTime |
-    kEntryFieldLastAccessTime | kEntryFieldAttributes;
+    kEntryFieldLastAccessTime | kEntryFieldAttributes | kEntryFieldAllocatedSizeBytes;
 
 constexpr bool HasEntryField(EntryFieldMask fields, EntryFieldMask field) noexcept {
     return (fields & field) != 0;

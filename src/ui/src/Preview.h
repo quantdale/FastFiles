@@ -16,6 +16,10 @@ namespace ffui {
 struct FileDescriptor {
     std::wstring path;
     uint64_t sizeBytes = 0;
+    // allocated-size-storage-accuracy 6.3: size-on-disk with explicit known
+    // state, carried for the details pane (never rendered as 0 B).
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
     uint32_t attributes = 0;
     bool isDirectory = false;
     uint64_t fileIdLow = 0;

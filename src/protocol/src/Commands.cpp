@@ -22,6 +22,8 @@ std::optional<MessageType> ToMessageType(uint16_t raw) noexcept {
         case MessageType::JournalRecordBatch:
         case MessageType::JournalResumeInvalid:
         case MessageType::JournalRecordBatchV2:
+        case MessageType::ScanRecordBatchV2:
+        case MessageType::JournalRecordBatchV3:
             return static_cast<MessageType>(raw);
         default:
             return std::nullopt;

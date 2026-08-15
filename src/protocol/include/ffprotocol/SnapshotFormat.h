@@ -28,7 +28,11 @@ namespace ffprotocol {
 constexpr size_t kSnapshotMaximumPayloadBytes = 256 * 1024 * 1024;
 // audit-remediation FF-AUDIT-04: the header is versioned so a UI never
 // interprets a section written by an incompatible engine layout.
-constexpr uint32_t kSnapshotFormatVersion = 2;
+// allocated-size-storage-accuracy D6: version 3 adds per-entry allocated
+// (on-disk) size + an explicit known flag (9 bytes/entry). Both peers ship
+// in one install, so a mismatched build fails closed via
+// IsSnapshotFormatCompatible exactly as v2 did -- never silently mis-parsed.
+constexpr uint32_t kSnapshotFormatVersion = 3;
 
 constexpr bool IsSnapshotFormatCompatible(uint32_t formatVersion) noexcept {
     return formatVersion == kSnapshotFormatVersion;
@@ -60,6 +64,10 @@ struct SnapshotDirectoryEntry {
     std::wstring name;
     bool isDirectory = false;
     uint64_t sizeBytes = 0;
+    // allocated-size-storage-accuracy D1/D6: on-disk size with an explicit
+    // known flag -- zero is a valid size, unknown is never rendered as 0 B.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
     uint32_t attributes = 0;
     uint64_t creationTime = 0;
     uint64_t lastModifiedTime = 0;
@@ -86,8 +94,8 @@ using CaseInsensitiveSnapshotMap =
 // Serializes the given view of directories in path-sorted order (the
 // caller passes a std::map, which is already ordered) into the flat
 // format: [u32 directoryCount] { [len-prefixed path][u32 status][u32
-// entryCount] { [u8 isDirectory][u64 size][u32 attributes]
-// [len-prefixed name] } }.
+// entryCount] { [u8 isDirectory][u64 size][u64 allocatedSize][u8
+// allocatedSizeKnown][u32 attributes] [len-prefixed name] } }.
 std::vector<uint8_t> SerializeSnapshot(const std::map<std::wstring, SnapshotDirectory>& directories);
 std::vector<uint8_t> SerializeSnapshot(const CaseInsensitiveSnapshotMap& directories);
 

@@ -57,7 +57,9 @@ public:
     using ForgetUnavailableVolumeCallback =
         std::function<void(ffprotocol::ForgetUnavailableVolumeResultPayload)>;
     using FolderAggregateCallback =
-        std::function<void(uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes)>;
+        std::function<void(uint64_t requestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount,
+                           uint64_t totalSizeBytes, uint64_t totalAllocatedSizeBytes,
+                           uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount)>;
     using VolumeStatusCallback = std::function<void(std::vector<ffprotocol::VolumeStatusRecord>)>;
     using IndexedSearchCallback = std::function<void(ffprotocol::IndexedSearchResponse)>;
 

@@ -44,6 +44,10 @@ struct ColumnItem {
     std::wstring name;
     bool isDirectory = false;
     uint64_t sizeBytes = 0;
+    // allocated-size-storage-accuracy 6.3: size-on-disk with explicit known
+    // state, carried from the snapshot for the details pane.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
     uint32_t attributes = 0;
     uint64_t fileIdLow = 0;
     uint64_t fileIdHigh = 0;

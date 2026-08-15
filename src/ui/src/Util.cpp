@@ -36,9 +36,14 @@ std::wstring JoinPath(const std::wstring& base, const std::wstring& name) {
 
 void PostFolderAggregateResult(HWND target, UINT msg, uint64_t requestId,
                                ffprotocol::FolderAggregateStatus status,
-                               uint64_t itemCount, uint64_t totalSizeBytes) {
-    auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(
-        ffprotocol::FolderAggregateResultPayload{requestId, status, itemCount, totalSizeBytes});
+                               uint64_t itemCount, uint64_t totalSizeBytes,
+                               uint64_t totalAllocatedSizeBytes,
+                               uint64_t allocatedBytesKnownCount,
+                               uint64_t allocatedBytesTotalCount) {
+    auto payload = std::make_unique<ffprotocol::FolderAggregateResultV2Payload>(
+        ffprotocol::FolderAggregateResultV2Payload{requestId, status, itemCount, totalSizeBytes,
+                                                   totalAllocatedSizeBytes, allocatedBytesKnownCount,
+                                                   allocatedBytesTotalCount});
     if (target != nullptr
         && PostMessageW(target, msg, 0,
                         reinterpret_cast<LPARAM>(payload.get()))) {

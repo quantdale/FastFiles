@@ -34,6 +34,11 @@ enum class UiMessageType : uint16_t {
     RequestIndexedSearch = 17,   // UI -> Engine: bounded query against the durable projection
     IndexedSearchResult = 18,    // Engine -> UI: bounded candidate page/result
     CancelIndexedSearch = 19,    // audit-remediation FF-AUDIT-06: cancel one request on this UI connection
+    // allocated-size-storage-accuracy D6: additive aggregate response
+    // carrying the allocated-size subtotal plus the explicit completeness
+    // pair. Message 13 keeps its exact legacy payload; a UI that understands
+    // both parses either, treating a legacy result as allocated-unknown.
+    FolderAggregateResultV2 = 20, // Engine -> UI: subtree aggregate with allocated-size fields
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -147,6 +152,23 @@ struct FolderAggregateResultPayload {
     FolderAggregateStatus status;
     uint64_t itemCount;
     uint64_t totalSizeBytes;
+};
+
+// allocated-size-storage-accuracy D6/D7: extended aggregate result (message
+// 20). totalAllocatedSizeBytes is the subtotal over descendants whose
+// allocated size is known; allocatedBytesKnownCount/allocatedBytesTotalCount
+// are the completeness pair -- `Complete` only when the counts are equal,
+// so a partial subtotal is never presented as an exact total. Legacy
+// FolderAggregateResult (message 13) remains byte-identical and maps to
+// this shape with the allocated fields unknown.
+struct FolderAggregateResultV2Payload {
+    uint64_t requestId;
+    FolderAggregateStatus status;
+    uint64_t itemCount;
+    uint64_t totalSizeBytes;
+    uint64_t totalAllocatedSizeBytes;
+    uint64_t allocatedBytesKnownCount;
+    uint64_t allocatedBytesTotalCount;
 };
 
 // Per-volume index-health condition report (settings-and-appearance §7.3).

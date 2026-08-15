@@ -28,6 +28,11 @@ struct TreemapAggregatePayload {
     std::wstring path;
     ffprotocol::FolderAggregateStatus status = ffprotocol::FolderAggregateStatus::NotFound;
     uint64_t totalSizeBytes = 0;
+    // allocated-size-storage-accuracy 7.2: allocated subtotal + completeness
+    // pair from the engine's aggregate response.
+    uint64_t totalAllocatedSizeBytes = 0;
+    uint64_t allocatedBytesKnownCount = 0;
+    uint64_t allocatedBytesTotalCount = 0;
 };
 
 class TreemapView {

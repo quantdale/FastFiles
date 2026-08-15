@@ -37,6 +37,11 @@ namespace ffindexsvc {
 // interleave. Polls `shouldStop` between buffers/records/batches for
 // prompt cancellation (StopVolumeScan or connection teardown) rather
 // than only checking once per batch.
+// allocated-size-storage-accuracy D3/2.4: `negotiatedVersion` selects the
+// wire record layout. Peers that negotiated protocol {2,1}+
+// (ProtocolSupportsAllocatedSize) receive ScanRecordBatchV2 frames with
+// MftRecordFixedV2 records carrying allocated size; all other peers receive
+// the exact legacy ScanRecordBatch/MftRecordFixedV1 bytes.
 void RunVolumeScan(
     HANDLE pipe,
     std::mutex& writeMutex,
@@ -44,6 +49,7 @@ void RunVolumeScan(
     wchar_t driveLetter,
     const std::vector<uint8_t>& resumeCursor,
     bool lowPriority,
+    ffprotocol::ProtocolVersion negotiatedVersion,
     const std::atomic<bool>& shouldStop);
 
 } // namespace ffindexsvc

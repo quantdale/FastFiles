@@ -29,6 +29,7 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::RequestIndexedSearch:
         case UiMessageType::IndexedSearchResult:
         case UiMessageType::CancelIndexedSearch:
+        case UiMessageType::FolderAggregateResultV2:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;

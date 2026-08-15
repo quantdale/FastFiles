@@ -1362,8 +1362,12 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                 requestId = engineClient_.RequestFolderAggregate(
                     static_cast<int64_t>(selection->volumeRowId),
                     selection->fileIdLow, selection->fileIdHigh,
-                    [this](uint64_t engineRequestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes) {
-                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultPayload>(ffprotocol::FolderAggregateResultPayload{engineRequestId, status, itemCount, totalSizeBytes});
+                    [this](uint64_t engineRequestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes,
+                           uint64_t totalAllocatedSizeBytes, uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
+                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultV2Payload>(
+                            ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
+                                                                       totalAllocatedSizeBytes, allocatedBytesKnownCount,
+                                                                       allocatedBytesTotalCount});
                         const HWND target = hwnd_;
                         if (target != nullptr
                             && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
@@ -1384,6 +1388,11 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         } else {
             info += L"Type: " + typeLabel + L"\n";
             info += L"Size: " + ffui::FormatSize(selection->sizeBytes) + L"\n";
+            // allocated-size-storage-accuracy 6.3: size-on-disk when the
+            // snapshot carries it -- never 0 B, never logical size relabeled.
+            if (selection->allocatedSizeKnown) {
+                info += L"Size on disk: " + ffui::FormatSize(selection->allocatedSizeBytes) + L"\n";
+            }
             info += L"Created: " + FormatTime(data.ftCreationTime) + L"\n";
             info += L"Modified: " + FormatTime(data.ftLastWriteTime) + L"\n";
             info += L"Accessed: " + FormatTime(data.ftLastAccessTime) + L"\n";
@@ -1744,7 +1753,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_APP_FOLDER_AGGREGATE: {
-            auto* payload = reinterpret_cast<ffprotocol::FolderAggregateResultPayload*>(lParam);
+            // allocated-size-storage-accuracy 6.3: the posted payload is the
+            // additive V2 shape (logical + allocated + completeness pair).
+            auto* payload = reinterpret_cast<ffprotocol::FolderAggregateResultV2Payload*>(lParam);
             if (!payload) {
                 return 0;
             }

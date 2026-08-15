@@ -21,7 +21,8 @@ void WriteU64(std::vector<uint8_t>& buf, size_t offset, uint64_t v) { std::memcp
 // logic against a known-good input (and deliberately corrupted variants)
 // without requiring an actual NTFS volume.
 std::vector<uint8_t> BuildSyntheticRecord(uint16_t bytesPerSector, const std::u16string& name,
-                                           uint64_t parentRef, uint64_t size, bool directory) {
+                                           uint64_t parentRef, uint64_t size, bool directory,
+                                           uint64_t allocatedSize = 0) {
     constexpr size_t kRecordSize = 1024;
     std::vector<uint8_t> buf(kRecordSize, 0);
 
@@ -61,7 +62,8 @@ std::vector<uint8_t> BuildSyntheticRecord(uint16_t bytesPerSector, const std::u1
     WriteU32(buf, off + 16, static_cast<uint32_t>(fileNameValueLen));
     WriteU16(buf, off + 20, 24);
     WriteU64(buf, off + 24 + 0, parentRef);
-    WriteU64(buf, off + 24 + 48, size);
+    WriteU64(buf, off + 24 + 40, allocatedSize); // AllocatedSize (offset 0x20 of the value)
+    WriteU64(buf, off + 24 + 48, size);          // RealSize (offset 0x28 of the value)
     buf[off + 24 + 64] = static_cast<uint8_t>(name.size());
     buf[off + 24 + 65] = 1; // Win32 namespace
     std::memcpy(buf.data() + off + 24 + 66, name.data(), name.size() * 2);
@@ -90,7 +92,7 @@ std::vector<uint8_t> BuildSyntheticRecord(uint16_t bytesPerSector, const std::u1
 }
 
 void TestWellFormedRecordParsesCorrectly() {
-    auto record = BuildSyntheticRecord(512, u"hello.txt", 0x0005000000000005ULL, 12345, false);
+    auto record = BuildSyntheticRecord(512, u"hello.txt", 0x0005000000000005ULL, 12345, false, 99999);
     Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok,
           "a well-formed record passes fixup and validation");
 
@@ -99,11 +101,75 @@ void TestWellFormedRecordParsesCorrectly() {
     Check(parsed->fileName == u"hello.txt", "the $FILE_NAME name round-trips");
     Check(parsed->parentFileReferenceNumber == 0x0005000000000005ULL, "the parent FRN round-trips");
     Check(parsed->sizeBytes == 12345, "the $FILE_NAME RealSize round-trips as sizeBytes");
+    // allocated-size-storage-accuracy 1.1/1.2: AllocatedSize (offset 0x20)
+    // round-trips alongside RealSize (offset 0x28).
+    Check(parsed->allocatedSizeBytes == 99999, "the $FILE_NAME AllocatedSize round-trips as allocatedSizeBytes");
     Check(parsed->creationTime == 111, "creation time round-trips");
     Check(parsed->lastModifiedTime == 222, "last-modified time round-trips");
     Check(parsed->lastAccessTime == 444, "last-access time round-trips");
     Check((parsed->fileAttributes & 0x20) != 0, "the archive attribute bit round-trips");
     Check((parsed->fileAttributes & 0x10) == 0, "a non-directory record does not get the directory bit synthesized");
+}
+
+void TestSizesEqualLogicalEqualsAllocated() {
+    auto record = BuildSyntheticRecord(512, u"plain.bin", 5, 4096, false, 4096);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds");
+    auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed.has_value() && parsed->sizeBytes == 4096 && parsed->allocatedSizeBytes == 4096,
+          "a non-sparse, non-compressed file reports logical == allocated");
+}
+
+void TestSparseStyleDivergenceLogicalGreaterThanAllocated() {
+    // Sparse/compressed-style divergence: a 40 GB logical sparse file
+    // occupying only 8.3 GB on disk (allocated < logical).
+    constexpr uint64_t kLogical = 40ULL * 1024 * 1024 * 1024;
+    constexpr uint64_t kAllocated = 8ULL * 1024 * 1024 * 1024 + 300ULL * 1024 * 1024;
+    auto record = BuildSyntheticRecord(512, u"sparse.vhdx", 5, kLogical, false, kAllocated);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds");
+    auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed.has_value(), "sparse record parses");
+    Check(parsed->sizeBytes == kLogical, "logical size carries the sparse file's full size");
+    Check(parsed->allocatedSizeBytes == kAllocated, "allocated size carries the sparse file's real disk footprint");
+}
+
+void TestZeroSizesAreParsedAsKnownZeros() {
+    auto record = BuildSyntheticRecord(512, u"empty.txt", 5, 0, false, 0);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds");
+    auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed.has_value(), "zero-size record parses");
+    Check(parsed->sizeBytes == 0 && parsed->allocatedSizeBytes == 0,
+          "a zero-byte file yields zero logical and zero allocated -- both valid values, not absence");
+}
+
+void TestMaximalSizeValuesDoNotOverflow() {
+    auto record = BuildSyntheticRecord(512, u"max.bin", 5, UINT64_MAX, false, UINT64_MAX);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds");
+    auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(parsed.has_value(), "maximal-size record parses");
+    Check(parsed->sizeBytes == UINT64_MAX && parsed->allocatedSizeBytes == UINT64_MAX,
+          "maximal NTFS size values are carried verbatim (downstream sums saturate, they do not overflow)");
+}
+
+void TestTruncatedFileNameValueIsRejected() {
+    // allocated-size-storage-accuracy 1.2: a $FILE_NAME whose declared value
+    // is too short to hold the fixed layout (name length/name fields) must
+    // not be partially parsed -- the record is rejected unless another
+    // well-formed $FILE_NAME exists (skip-and-continue preserves the
+    // existing isolate-one-record semantics).
+    auto record = BuildSyntheticRecord(512, u"truncated.txt", 5, 1234, false, 5678);
+    Check(ApplyFixupAndValidate(record.data(), record.size(), 512) == FixupResult::Ok, "fixup succeeds");
+    constexpr size_t kFirstAttributeOffset = 0x30 + 3 * 2 + 6;
+    // $FILE_NAME header starts after $STANDARD_INFORMATION (24-byte header
+    // + 48-byte value); valueLength is at +16 of that header.
+    constexpr size_t kFileNameAttrOffset = kFirstAttributeOffset + 24 + 48;
+    // Shrink the $FILE_NAME value to 60 bytes: covers both size fields
+    // (48..56) but not the name fields at 64/66 -- must be rejected, so a
+    // truncated attribute can never yield sizes with a garbage name.
+    WriteU32(record, kFileNameAttrOffset + 16, 60);
+    WriteU32(record, kFileNameAttrOffset + 4, 24 + 60);
+    auto parsed = ParseMftAttributes(record.data(), record.size());
+    Check(!parsed.has_value(),
+          "a $FILE_NAME too short for its name fields rejects the record rather than parsing partial metadata");
 }
 
 void TestDirectoryFlagIsSynthesizedFromRecordHeader() {
@@ -276,6 +342,11 @@ void TestMissingStandardInformationRejected() {
 
 int main() {
     TestWellFormedRecordParsesCorrectly();
+    TestSizesEqualLogicalEqualsAllocated();
+    TestSparseStyleDivergenceLogicalGreaterThanAllocated();
+    TestZeroSizesAreParsedAsKnownZeros();
+    TestMaximalSizeValuesDoNotOverflow();
+    TestTruncatedFileNameValueIsRejected();
     TestDirectoryFlagIsSynthesizedFromRecordHeader();
     TestNotInUseRecordIsRejectedBeforeParsing();
     TestWrongSignatureIsRejected();

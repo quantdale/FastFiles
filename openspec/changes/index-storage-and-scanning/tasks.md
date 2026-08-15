@@ -1,7 +1,7 @@
 ## 1. Durable Storage Schema and Persistence Layer
 
 - [x] 1.1 Add SQLite as a bundled/statically-linked dependency of `FastFilesEngine`, opened in WAL journal mode with `synchronous=NORMAL`. (vendored amalgamation in `third_party/sqlite`, `ffindexstore::Store::Open`)
-- [x] 1.2 Design and create the `entries` table keyed by (volume identifier, `FileReferenceNumber`), sized to accommodate both NTFS's 64-bit and ReFS's 128-bit file identifiers, with columns for `ParentFileReferenceNumber`, name (plain string, not interned — see design.md D3), size, last-write time, and attribute flags.
+- [x] 1.2 Design and create the `entries` table keyed by (volume identifier, `FileReferenceNumber`), sized to accommodate both NTFS's 64-bit and ReFS's 128-bit file identifiers, with columns for `ParentFileReferenceNumber`, name (plain string, not interned — see design.md D3), size, last-write time, and attribute flags. — **coordination note (`allocated-size-storage-accuracy`)**: the "size" column tracked logical size only; allocated (on-disk) size is now delivered by `openspec/changes/allocated-size-storage-accuracy/` (schema v2 nullable `allocated_size_bytes` column, in-place migration, presence-mask semantics).
 - [x] 1.3 Design and create the `volumes` table keyed by durable volume identifier (volume GUID + cached serial number), with columns for availability status, last-seen timestamp, USN `JournalId`, persisted `ResumeUsn`, scan-progress cursor, and last-reconciliation timestamp.
 - [x] 1.4 Add a stored schema-version marker (e.g., `PRAGMA user_version` or a dedicated metadata row) to support future in-place migrations.
 - [x] 1.5 Implement batched, explicit-transaction writes for ingestion (multi-record commits, not per-record commits). (`Store::ApplyBatch`)

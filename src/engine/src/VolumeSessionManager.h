@@ -99,10 +99,24 @@ private:
 
     void OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes);
     void OnScanBatch(ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor, std::vector<ffprotocol::MftRecordV1> records);
+    // allocated-size-storage-accuracy 5.2: additive V2 scan records
+    // (allocated size) applied through the same pipeline path.
+    void OnScanBatchV2(ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor,
+                       std::vector<ffprotocol::MftRecordV2> records);
     void OnScanComplete(ffprotocol::VolumeId volumeId);
     void OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn);
     void OnJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records);
+    // allocated-size-storage-accuracy 5.2: additive V3 journal records.
+    void OnJournalBatchV3(ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV3> records);
     void OnJournalResumeInvalid(ffprotocol::VolumeId volumeId);
+
+    // allocated-size-storage-accuracy 5.2 refactor: shared pause-check /
+    // commit-before-cursor-advance lifecycle for scan and journal batches
+    // (the V1/V2 and V2/V3 record overloads differ only in conversion).
+    void ApplyScanBatch(ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor,
+                        const std::function<bool(ffindexstore::VolumeRowId)>& apply);
+    void ApplyJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn,
+                           const std::function<bool(ffindexstore::VolumeRowId)>& apply);
 
     // Issues StartVolumeScan (with the persisted cursor if the initial
     // scan never finished, task 6.3) and OpenUsnJournal (with the

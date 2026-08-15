@@ -252,8 +252,11 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
                 const auto volumeId = request.volumeId;
                 const bool lowPriority = (request.flags & ffprotocol::kStartVolumeScanLowPriority) != 0;
                 const auto stopFlag = worker.stopFlag;
-                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, stopFlag] {
-                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority, *stopFlag);
+                const auto peerVersion = negotiatedVersion;
+                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor,
+                                              lowPriority, peerVersion, stopFlag] {
+                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
+                                  peerVersion, *stopFlag);
                 });
                 activeScans.push_back(std::move(worker));
                 break;

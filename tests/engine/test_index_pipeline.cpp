@@ -147,8 +147,155 @@ void TestRebuildAfterRestartMatchesPriorState() {
           "state rebuilt from the durable store after a simulated restart matches what was persisted");
 }
 
-void TestReconciliationRemovesEntryNotSeenInFullScan() {
-    IndexPipeline pipeline;
+// allocated-size-storage-accuracy 5.5: V2 MFT scan records ingest both
+// sizes; the exported snapshot carries them; a restart rebuild restores
+// them from the durable store.
+void TestMftV2BatchIngestsAllocatedSizeAndExportsToSnapshot() {
+    const std::string dbPath = FreshDbPath("engine_test_mft_v2_allocated.db");
+    VolumeKey key;
+    key.serialNumber = 21;
+    VolumeRowId vol = 0;
+    {
+        IndexPipeline pipeline;
+        Check(pipeline.Open(dbPath), "the V2 scan fixture opens");
+        vol = pipeline.ResolveVolume(key);
+
+        std::vector<ffprotocol::MftRecordV2> batch;
+        auto make = [&](uint64_t id, uint64_t parent, std::u16string name, uint64_t logical,
+                        uint64_t allocated, bool directory) {
+            ffprotocol::MftRecordV2 record{};
+            record.fixed.fileReferenceNumber = id;
+            record.fixed.parentFileReferenceNumber = parent;
+            record.fixed.fileAttributes = directory ? 0x10 : 0;
+            record.fixed.sizeBytes = logical;
+            record.fixed.allocatedSizeBytes = allocated;
+            record.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
+            record.fileName = std::move(name);
+            batch.push_back(std::move(record));
+        };
+        make(5, 5, u"", 0, 0, true);
+        make(100, 5, u"Users", 0, 0, true);
+        make(101, 100, u"sparse.vhdx", 40960, 8192, false); // sparse-style divergence
+        make(102, 100, u"plain.bin", 4096, 4096, false);    // logical == allocated
+        make(103, 100, u"empty.bin", 0, 0, false);          // genuine zeros
+        Check(pipeline.ApplyMftBatch(vol, batch), "a V2 MFT batch applies");
+
+        auto snapshot = pipeline.ExportDirectorySnapshot(vol, L"C:");
+        const auto& entries = snapshot[L"C:\\Users"].entries;
+        const auto find = [&](const std::wstring& name) {
+            return std::find_if(entries.begin(), entries.end(),
+                                [&](const auto& entry) { return entry.name == name; });
+        };
+        const auto sparse = find(L"sparse.vhdx");
+        const auto plain = find(L"plain.bin");
+        const auto empty = find(L"empty.bin");
+        Check(sparse != entries.end() && sparse->allocatedSizeKnown && sparse->allocatedSizeBytes == 8192 &&
+                  sparse->sizeBytes == 40960,
+              "the snapshot carries the sparse file's allocated size beside its logical size");
+        Check(plain != entries.end() && plain->allocatedSizeKnown && plain->allocatedSizeBytes == 4096,
+              "logical == allocated round-trips as a known allocated value");
+        Check(empty != entries.end() && empty->allocatedSizeKnown && empty->allocatedSizeBytes == 0,
+              "a genuine zero-byte file is known-zero, not unknown");
+    }
+
+    // Restart: the durable store restores both values through RebuildAll.
+    IndexPipeline restarted;
+    Check(restarted.Open(dbPath), "the V2 scan fixture reopens");
+    int rebuiltVolumes = 0;
+    restarted.RebuildAll([&](VolumeRowId) { ++rebuiltVolumes; });
+    Check(rebuiltVolumes == 1, "the rebuilt volume is reported once");
+    auto snapshot = restarted.ExportDirectorySnapshot(vol, L"C:");
+    const auto& entries = snapshot[L"C:\\Users"].entries;
+    const auto sparse = std::find_if(entries.begin(), entries.end(),
+                                     [](const auto& entry) { return entry.name == L"sparse.vhdx"; });
+    Check(sparse != entries.end() && sparse->allocatedSizeKnown && sparse->allocatedSizeBytes == 8192,
+          "allocated size survives a restart rebuild from SQLite");
+}
+
+// allocated-size-storage-accuracy 5.5: V3 USN deltas update allocated size
+// only when the presence bit is set; an absent bit preserves the previously
+// known value end-to-end (store + projection + snapshot).
+void TestUsnV3PreservesAndCorrectsAllocatedSize() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_v3_allocated.db");
+    VolumeKey key;
+    key.serialNumber = 22;
+    const FileId fileId{101, 0};
+    VolumeRowId volume = 0;
+    {
+        IndexPipeline pipeline;
+        Check(pipeline.Open(dbPath), "the V3 USN fixture opens");
+        volume = pipeline.ResolveVolume(key);
+
+        // Full scan first: authoritative allocated size 8192.
+        std::vector<ffprotocol::MftRecordV2> scan;
+        auto scanRecord = [&](uint64_t id, uint64_t parent, std::u16string name, uint64_t logical,
+                              uint64_t allocated, bool directory) {
+            ffprotocol::MftRecordV2 record{};
+            record.fixed.fileReferenceNumber = id;
+            record.fixed.parentFileReferenceNumber = parent;
+            record.fixed.fileAttributes = directory ? 0x10 : 0;
+            record.fixed.sizeBytes = logical;
+            record.fixed.allocatedSizeBytes = allocated;
+            record.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
+            record.fileName = std::move(name);
+            scan.push_back(std::move(record));
+        };
+        scanRecord(5, 5, u"", 0, 0, true);
+        scanRecord(100, 5, u"Users", 0, 0, true);
+        scanRecord(101, 100, u"sparse.vhdx", 40960, 8192, false);
+        Check(pipeline.ApplyMftBatch(volume, scan), "the full V2 scan applies");
+
+        // Re-enrichment failed: the V3 delta carries NO allocated-size bit.
+        // The previously known value must survive, not be erased to zero.
+        ffprotocol::UsnDeltaV3 delta{};
+        delta.fixed.fileReferenceNumber = fileId.low;
+        delta.fixed.parentFileReferenceNumber = 100;
+        delta.fixed.sizeBytes = 50000; // logical size changed
+        delta.fixed.fileAttributes = 0;
+        delta.fixed.fileNameLengthChars = static_cast<uint16_t>(delta.fileName.size());
+        delta.fileName = u"sparse.vhdx";
+        delta.fixed.reason = 0x00000001; // USN_REASON_DATA_OVERWRITE
+        delta.fixed.timestamp = 777;
+        delta.fixed.fieldMask = ffprotocol::kUsnFieldParentId | ffprotocol::kUsnFieldName |
+                                ffprotocol::kUsnFieldSizeBytes | ffprotocol::kUsnFieldLastModifiedTime |
+                                ffprotocol::kUsnFieldAttributes;
+        Check(pipeline.ApplyUsnBatch(volume, {delta}), "a V3 delta without the allocated-size bit applies");
+
+        auto snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+        const auto& entries = snapshot[L"C:\\Users"].entries;
+        const auto sparse = std::find_if(entries.begin(), entries.end(),
+                                         [](const auto& entry) { return entry.name == L"sparse.vhdx"; });
+        Check(sparse != entries.end() && sparse->sizeBytes == 50000,
+              "the present logical-size field updates");
+        Check(sparse->allocatedSizeKnown && sparse->allocatedSizeBytes == 8192,
+              "an absent allocated-size bit preserves the previously known value through the snapshot");
+
+        // Successful re-enrichment: the bit IS set and corrects the value.
+        ffprotocol::UsnDeltaV3 correction = delta;
+        correction.fixed.allocatedSizeBytes = 12288;
+        correction.fixed.fieldMask = delta.fixed.fieldMask | ffprotocol::kUsnFieldAllocatedSizeBytes;
+        Check(pipeline.ApplyUsnBatch(volume, {correction}), "a V3 delta with the allocated-size bit applies");
+        snapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+        const auto& corrected = snapshot[L"C:\\Users"].entries;
+        const auto fixed = std::find_if(corrected.begin(), corrected.end(),
+                                        [](const auto& entry) { return entry.name == L"sparse.vhdx"; });
+        Check(fixed != corrected.end() && fixed->allocatedSizeKnown && fixed->allocatedSizeBytes == 12288,
+              "a present allocated-size bit corrects the stored value");
+    }
+
+    // Restart: the corrected value persists.
+    IndexPipeline restarted;
+    Check(restarted.Open(dbPath), "the V3 USN fixture reopens");
+    restarted.RebuildAll([](VolumeRowId) {});
+    auto snapshot = restarted.ExportDirectorySnapshot(volume, L"C:");
+    const auto& entries = snapshot[L"C:\\Users"].entries;
+    const auto sparse = std::find_if(entries.begin(), entries.end(),
+                                     [](const auto& entry) { return entry.name == L"sparse.vhdx"; });
+    Check(sparse != entries.end() && sparse->allocatedSizeKnown && sparse->allocatedSizeBytes == 12288,
+          "the corrected allocated size survives a restart");
+}
+
+void TestReconciliationRemovesEntryNotSeenInFullScan() {    IndexPipeline pipeline;
     pipeline.Open(FreshDbPath("engine_test_reconcile.db"));
     VolumeKey key;
     key.serialNumber = 1;
@@ -705,6 +852,8 @@ int main() {
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
     TestVolumeResolutionIsStable();
     TestApplyMftBatchAndExportSnapshot();
+    TestMftV2BatchIngestsAllocatedSizeAndExportsToSnapshot();
+    TestUsnV3PreservesAndCorrectsAllocatedSize();
     TestRebuildAfterRestartMatchesPriorState();
     TestReconciliationRemovesEntryNotSeenInFullScan();
     TestUsnDeleteReasonRemovesEntry();
