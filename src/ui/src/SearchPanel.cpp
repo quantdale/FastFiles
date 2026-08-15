@@ -1027,6 +1027,8 @@ void SearchPanel::RecordHistory(const std::wstring& query) {
     for (const auto& item : history_) SendMessageW(query_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
     SetWindowTextW(query_, query.c_str());
     updatingHistory_ = false;
+    // quick-access-home 5.6: the recorded query changed the Recent searches set.
+    if (historyChanged_) historyChanged_();
 }
 
 void SearchPanel::ClearHistory() {
@@ -1034,6 +1036,23 @@ void SearchPanel::ClearHistory() {
     SendMessageW(query_, CB_RESETCONTENT, 0, 0);
     historyStore_.Clear(HistoryPath());
     UpdateStatus(L"Search history cleared.");
+    // quick-access-home 5.6: the Recent searches set is now empty.
+    if (historyChanged_) historyChanged_();
+}
+
+std::vector<std::wstring> SearchPanel::RecentQueries(size_t maxCount) const {
+    const auto& queries = historyStore_.Queries();
+    if (queries.size() <= maxCount) return queries;
+    return {queries.begin(), queries.begin() + static_cast<std::ptrdiff_t>(maxCount)};
+}
+
+void SearchPanel::SetQueryAndDispatch(const std::wstring& query) {
+    SetWindowTextW(query_, query.c_str());
+    Dispatch(true);
+}
+
+void SearchPanel::SetHistoryChangedCallback(std::function<void()> cb) {
+    historyChanged_ = std::move(cb);
 }
 
 } // namespace ffui

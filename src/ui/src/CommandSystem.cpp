@@ -231,6 +231,9 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     bool ok = true;
     ok = RegisterOne(registry, handlers, L"navigation.back", L"Back", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_LEFT, ModifierAlt}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.forward", L"Forward", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_RIGHT, ModifierAlt}) && ok;
+    // quick-access-home 5.3: navigate the active context to Home (Alt+Home,
+    // matching Explorer). Global scope so it works even while an edit owns focus.
+    ok = RegisterOne(registry, handlers, L"navigation.home", L"Home", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_HOME, ModifierAlt}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.up", L"Up", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_BACK, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.refresh", L"Refresh", L"Navigation", kAnySelection, ShortcutScope::ActiveView, KeyChord{VK_F5, ModifierNone}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.focus-path", L"Focus Path Entry", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'L', ModifierControl}) && ok;

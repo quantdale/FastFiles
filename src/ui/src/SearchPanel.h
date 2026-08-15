@@ -54,6 +54,18 @@ public:
     void OnSnapshotUpdated();
     void SetEngineActive(bool active);
     void ClearHistory();
+    // quick-access-home 5.6: most-recent-first queries (the underlying store is
+    // dedupe-to-front), truncated to maxCount, for the Home Recent searches
+    // section. Reading the store's existing entries honors the retention policy
+    // (recorded queries still display even when recording is disabled).
+    std::vector<std::wstring> RecentQueries(size_t maxCount) const;
+    // quick-access-home 5.6: set the query text and run it through the existing
+    // dispatch pipeline. Callers show the panel first (ShowAndFocus) so the
+    // results surface; this method stays dumb about layout/visibility.
+    void SetQueryAndDispatch(const std::wstring& query);
+    // quick-access-home 5.6: invoked after search history is recorded or
+    // cleared so the shell can refresh the Home Recent searches section.
+    void SetHistoryChangedCallback(std::function<void()> cb);
 
     // Task 5: custom-painted query edit and status line. The subclassed controls
     // (SearchEditProc / StatusProc, free functions in the anonymous namespace of
@@ -121,6 +133,7 @@ private:
     ffsearch::SearchHistory historyStore_;
     std::wstring currentPath_;
     std::wstring currentPrimaryTerm_;
+    std::function<void()> historyChanged_;
     bool visible_ = false;
     bool engineActive_ = false;
     bool persistentCoverage_ = false;

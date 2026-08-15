@@ -15,6 +15,9 @@ public:
         std::wstring path;
         std::wstring displayName;
         bool openInNewTab = false;
+        // quick-access-home 5.1: true when the target is the Home surface (its
+        // path is empty; checked by the shell before the filesystem branches).
+        bool isHome = false;
     };
     using NavigateHandler = std::function<void(const NavigationTarget&)>;
 
@@ -23,10 +26,13 @@ public:
     void Refresh();
     int Width() const;
     void SetDarkTheme(bool dark);
+    // quick-access-home 5.1: invoked after the context-menu bookmark edits
+    // (rename/remove/reorder) commit so the shell can refresh the Home surface.
+    void SetBookmarksChangedCallback(std::function<void()> cb);
 
 private:
     enum class RowKind { Section, Item };
-    struct Row { RowKind kind; int section; size_t item; RECT bounds{}; std::wstring label; std::wstring path; };
+    struct Row { RowKind kind; int section; size_t item; RECT bounds{}; std::wstring label; std::wstring path; bool home = false; };
 
     static LRESULT CALLBACK WindowProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -38,6 +44,7 @@ private:
     HWND window_ = nullptr;
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;
+    std::function<void()> bookmarksChanged_;
     std::vector<Row> rows_;
     bool darkTheme_ = false;
     int hoveredRow_ = -1;

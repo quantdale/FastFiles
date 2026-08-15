@@ -12,10 +12,11 @@ namespace ffui {
 class NavigationChrome {
 public:
     // The second argument is true only when a tab transition should restore
-    // the target tab's saved ColumnView state instead of treating the path as
-    // a fresh navigation.  Address, breadcrumb, drive, and history changes
-    // remain ordinary path navigations.
-    using NavigateHandler = std::function<void(const std::wstring&, bool restoreTabState)>;
+    // the target tab's saved ColumnView state instead of treating the location
+    // as a fresh navigation.  Address, breadcrumb, drive, and history changes
+    // remain ordinary navigations. quick-access-home 5.2: the location is now
+    // typed so back/forward/new-tab/tab-switch can carry the Home kind.
+    using NavigateHandler = std::function<void(const ffui::NavigationLocation&, bool restoreTabState)>;
     using BeforeTabChangeHandler = std::function<void()>;
 
     ~NavigationChrome();
@@ -41,6 +42,11 @@ private:
     void EndAddressEdit(bool restoreFocus);
     void HandleAddressFocusLost();
     void NavigateTo(const std::wstring& path, bool restoreTabState = false);
+    // quick-access-home 5.2: typed navigation entry. Filesystem destinations
+    // (address/drive/breadcrumb commits) go through the FromPath wrapper below;
+    // back/forward/new-tab/tab-switch pass the active context's location so
+    // Home reaches the shell as a Home location, never as an empty path.
+    void NavigateToLocation(const NavigationLocation& location, bool restoreTabState = false);
     void RebuildDrives();
     void DrawBreadcrumbs(HDC dc, const RECT& client);
     void RebuildTabs();

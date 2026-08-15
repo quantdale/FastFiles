@@ -177,7 +177,13 @@ void NavigationChrome::HandleAddressFocusLost() {
 }
 
 void NavigationChrome::NavigateTo(const std::wstring& path, bool restoreTabState) {
-    if (navigate_) navigate_(path, restoreTabState);
+    // Address/drive/breadcrumb commits are always filesystem navigations; an
+    // empty path is the synthetic "This PC" root, never Home.
+    NavigateToLocation(NavigationLocation::FromPath(path), restoreTabState);
+}
+
+void NavigationChrome::NavigateToLocation(const NavigationLocation& location, bool restoreTabState) {
+    if (navigate_) navigate_(location, restoreTabState);
     Refresh();
 }
 
@@ -202,14 +208,19 @@ void NavigationChrome::RebuildTabs() {
     tabCloseButtons_.clear();
     hoverCloseTab_ = -1;
     for (size_t index = 0; index < workspace_->TabCount(); ++index) {
-        const std::wstring path = workspace_->TabPath(index);
+        // quick-access-home 5.2: read the typed tab location so a Home tab
+        // labels as "Home" instead of being collapsed into the "This PC"
+        // (empty-path) case.
+        const NavigationLocation location = workspace_->TabLocation(index);
         std::wstring label = std::to_wstring(index + 1) + L": ";
-        if (path.empty()) {
+        if (location.IsHome()) {
+            label += L"Home";
+        } else if (location.path.empty()) {
             label += L"This PC";
         } else {
-            const size_t slash = path.find_last_of(L"\\/");
-            label += slash == std::wstring::npos || slash + 1 >= path.size()
-                ? path : path.substr(slash + 1);
+            const size_t slash = location.path.find_last_of(L"\\/");
+            label += slash == std::wstring::npos || slash + 1 >= location.path.size()
+                ? location.path : location.path.substr(slash + 1);
         }
         HWND tab = CreateWindowExW(0, L"BUTTON", label.c_str(),
                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
@@ -257,8 +268,16 @@ void NavigationChrome::CloseTab(size_t index) {
     if (index != workspace_->ActiveTabIndex()) {
         workspace_->SwitchTab(index);
     }
-    if (workspace_->CloseActiveTab()) NavigateTo(workspace_->ActiveContext().currentPath, true);
-    else Refresh();
+    if (workspace_->CloseActiveTab()) {
+        // quick-access-home 5.2: navigate the newly-active tab with its typed
+        // location so a Home tab restores as Home, not as an empty path.
+        const auto& context = workspace_->ActiveContext();
+        NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
+                                                  : NavigationLocation::FromPath(context.currentPath),
+                           true);
+    } else {
+        Refresh();
+    }
 }
 
 void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
@@ -544,11 +563,17 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
         case WM_COMMAND: {
             const int id = LOWORD(wParam);
             if (id == kBackId && HIWORD(wParam) == BN_CLICKED && workspace_ && workspace_->GoBack()) {
-                NavigateTo(workspace_->ActiveContext().currentPath);
+                // quick-access-home 5.2: GoBack moved the model; sync the view
+                // with the active context's typed location (Home stays Home).
+                const auto& context = workspace_->ActiveContext();
+                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
+                                                          : NavigationLocation::FromPath(context.currentPath));
                 return 0;
             }
             if (id == kForwardId && HIWORD(wParam) == BN_CLICKED && workspace_ && workspace_->GoForward()) {
-                NavigateTo(workspace_->ActiveContext().currentPath);
+                const auto& context = workspace_->ActiveContext();
+                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
+                                                          : NavigationLocation::FromPath(context.currentPath));
                 return 0;
             }
             if (id == kDriveId && HIWORD(wParam) == CBN_SELCHANGE) {
@@ -561,15 +586,23 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             }
             if (id == kNewTabId && HIWORD(wParam) == BN_CLICKED && workspace_) {
                 if (beforeTabChange_) beforeTabChange_();
-                workspace_->OpenTab();
-                NavigateTo(workspace_->ActiveContext().currentPath, true);
+                workspace_->OpenTab(); // quick-access-home D7: new tab opens Home
+                const auto& context = workspace_->ActiveContext();
+                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
+                                                          : NavigationLocation::FromPath(context.currentPath),
+                                   true);
                 return 0;
             }
             if (HIWORD(wParam) == BN_CLICKED && workspace_ && id >= kTabBaseId && id < kTabBaseId + static_cast<int>(workspace_->TabCount())) {
                 const size_t index = static_cast<size_t>(id - kTabBaseId);
                 const bool switching = index != workspace_->ActiveTabIndex();
                 if (switching && beforeTabChange_) beforeTabChange_();
-                if (workspace_->SwitchTab(index)) NavigateTo(workspace_->ActiveContext().currentPath, switching);
+                if (workspace_->SwitchTab(index)) {
+                    const auto& context = workspace_->ActiveContext();
+                    NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
+                                                              : NavigationLocation::FromPath(context.currentPath),
+                                       switching);
+                }
                 return 0;
             }
             if (HIWORD(wParam) == BN_CLICKED && workspace_ && id >= kTabCloseBaseId && id < kTabCloseBaseId + static_cast<int>(workspace_->TabCount())) {

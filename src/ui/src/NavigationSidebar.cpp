@@ -102,6 +102,10 @@ void NavigationSidebar::SetDarkTheme(bool dark) {
     if (window_) InvalidateRect(window_, nullptr, FALSE);
 }
 
+void NavigationSidebar::SetBookmarksChangedCallback(std::function<void()> cb) {
+    bookmarksChanged_ = std::move(cb);
+}
+
 void NavigationSidebar::RebuildRows() {
     rows_.clear();
     hoveredRow_ = -1;
@@ -114,6 +118,10 @@ void NavigationSidebar::RebuildRows() {
             rows_.push_back({RowKind::Item, section, index, {}, L"  " + items[index].displayName, items[index].path});
         }
     };
+    // quick-access-home 5.1: a single Home entry precedes the Drives section.
+    // It has no section header (section -1), no leading indentation, and no
+    // filesystem path -- Home is a distinct navigation kind, not a folder.
+    rows_.push_back({RowKind::Item, -1, 0, {}, L"Home", {}, true});
     const auto& state = workspace_->State();
     addSection(0, L"Drives", state.drivesCollapsed);
     if (!state.drivesCollapsed) {
@@ -145,6 +153,10 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
     // True when the row's path is the location currently being browsed (or an
     // ancestor of it), so the item gets the Fluent selection pill.
     const auto isCurrentRow = [this](const Row& row) -> bool {
+        // quick-access-home 5.1: the Home row is current whenever the active
+        // context is Home (its path is empty, so the path match below would
+        // otherwise never select it).
+        if (row.home) return workspace_->ActiveContext().isHomeLocation;
         if (row.path.empty()) return false;
         const auto normalized = [](const std::wstring& value) -> std::wstring {
             std::wstring result = value;
@@ -171,7 +183,9 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
             DeleteObject(hb);
             DrawLabel(dc, row.label, {8, y, client.right - 8, y + kHeaderHeight}, true);
         } else {
-            const bool unavailable = row.path.empty();
+            // quick-access-home 5.1: the Home row has an empty path but is a
+            // real, navigable destination -- never render it unavailable.
+            const bool unavailable = row.path.empty() && !row.home;
             const bool hovered = pillsEnabled && static_cast<int>(index) == hoveredRow_;
             const bool selected = pillsEnabled && isCurrentRow(row);
             if (selected || hovered) {
@@ -271,7 +285,7 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                 if (row.kind == RowKind::Section) {
                     ToggleSection(row.section);
                 } else if (navigate_) {
-                    navigate_({row.path, row.label, message == WM_MBUTTONDOWN});
+                    navigate_({row.path, row.label, message == WM_MBUTTONDOWN, row.home});
                     InvalidateRect(window_, nullptr, FALSE);
                 }
                 return 0;
@@ -326,6 +340,9 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             }
             workspace_->FlushState();
             Refresh();
+            // quick-access-home 5.1: bookmark edits change what Home's Pinned
+            // section shows; let the shell refresh the Home surface.
+            if (bookmarksChanged_) bookmarksChanged_();
             return 0;
         }
     }

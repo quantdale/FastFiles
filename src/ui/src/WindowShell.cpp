@@ -162,17 +162,60 @@ WindowShell::WindowShell() : previewController_([this](uint64_t requestId, Previ
 
 void WindowShell::NavigateWorkspace(const std::wstring& path, const std::wstring& selectName) {
     if (path.empty()) return;
-    navigationWorkspace_.Navigate(path);
-    columnView_.NavigateToPath(path, selectName);
-    RefreshSelectionPresentation();
-    navigationChrome_.Refresh();
-    navigationSidebar_.Refresh();
-    RequestRepaint();
+    // quick-access-home 5.4: delegate the model + view sync to the single
+    // Home-aware entry, then re-apply the requested selection (NavigateToLocation
+    // performs a plain path navigation that cannot carry it).
+    NavigateToLocation(NavigationLocation::FromPath(path));
+    if (!selectName.empty()) {
+        columnView_.NavigateToPath(path, selectName);
+        RefreshSelectionPresentation();
+        RequestRepaint();
+    }
 }
 
 void WindowShell::NavigateColumnViewTo(const std::wstring& path) {
+    // View-only filesystem navigation (the model is already in sync -- used by
+    // back/forward where the model moved first). quick-access-home 5.4: clear
+    // the pane's Home kind; an empty path is "This PC", not Home.
+    columnView_.SetPaneHome(static_cast<int>(navigationWorkspace_.ActivePaneIndex()), false);
     if (path.empty()) columnView_.NavigateToComputerRoot();
     else columnView_.NavigateToPath(path);
+}
+
+void WindowShell::NavigateToLocation(const NavigationLocation& location) {
+    // quick-access-home 5.4: Home and filesystem destinations take separate
+    // model + view paths. `Navigate` no-ops when the model is already at the
+    // target location, so callers that moved the model first (back/forward,
+    // address/drive/breadcrumb commits) stay history-safe here.
+    const int activePane = static_cast<int>(navigationWorkspace_.ActivePaneIndex());
+    if (location.IsHome()) {
+        navigationWorkspace_.Navigate(NavigationLocation::Home());
+        columnView_.SetPaneHome(activePane, true);
+    } else {
+        navigationWorkspace_.Navigate(location.path);
+        columnView_.SetPaneHome(activePane, false);
+        if (location.path.empty()) columnView_.NavigateToComputerRoot();
+        else columnView_.NavigateToPath(location.path);
+    }
+    RefreshSelectionPresentation();
+    navigationChrome_.Refresh();
+    navigationSidebar_.Refresh();
+    RefreshHomeData();
+    RequestRepaint();
+}
+
+void WindowShell::RefreshHomeData() {
+    // quick-access-home 5.5: rebuild the Home snapshot from live state. Called
+    // from every data-mutation refresh point (navigation, back/forward, tabs,
+    // panes, bookmarks, recents, search history, known-folder re-resolve).
+    HomeData data;
+    data.pinned = navigationWorkspace_.State().bookmarks;
+    data.recentFolders = navigationWorkspace_.RecentFoldersForHome(10);
+    data.recentSearches = searchPanel_.RecentQueries(10);
+    data.knownFolders = navigationWorkspace_.EnumerateKnownFolders();
+    data.showActions = true;
+    columnView_.SetHomeData(data);
+    RequestRepaint();
 }
 
 void WindowShell::SaveActiveTabViewState() {
@@ -201,6 +244,13 @@ void WindowShell::RestoreActiveTabViewState() {
     for (size_t pane = 0; pane < navigationWorkspace_.ActivePaneCount(); ++pane) {
         const auto& context = navigationWorkspace_.PaneContext(pane);
         columnView_.ActivatePane(static_cast<int>(pane));
+        if (context.isHomeLocation) {
+            // quick-access-home 5.4: a Home pane carries no column state; keep
+            // the pane in Home mode and skip column restoration entirely.
+            columnView_.SetPaneHome(static_cast<int>(pane), true);
+            continue;
+        }
+        columnView_.SetPaneHome(static_cast<int>(pane), false);
         if (context.columnPaths.empty() ||
             (context.columnPaths.size() == 1 && context.columnPaths.front().empty())) {
             if (context.currentPath.empty()) columnView_.NavigateToComputerRoot();
@@ -365,10 +415,13 @@ bool WindowShell::InitializeCommands() {
                 RefreshSelectionPresentation();
                 RequestRepaint();
             } else if (commandId == L"navigation.up") {
+                // quick-access-home 5.4: from Home the active pane reports an
+                // empty path, so ParentNavigationPath returns nullopt and Up is
+                // a no-op -- Home has no filesystem parent.
                 const auto parentPath = ParentNavigationPath(columnView_.ActivePanePath());
                 if (parentPath.has_value()) {
                     if (parentPath->empty()) {
-                        navigationWorkspace_.Navigate({});
+                        navigationWorkspace_.Navigate(std::wstring{});
                         columnView_.NavigateToComputerRoot();
                         RefreshSelectionPresentation();
                         navigationChrome_.Refresh();
@@ -403,14 +456,16 @@ bool WindowShell::InitializeCommands() {
                     navigationWorkspace_.AddBookmark(path);
                     navigationWorkspace_.FlushState();
                     navigationSidebar_.Refresh();
+                    RefreshHomeData(); // quick-access-home 5.5: keep Home Pinned in sync
                     RequestRepaint();
                 }
             } else if (commandId == L"navigation.new-tab") {
                 SaveActiveTabViewState();
-                navigationWorkspace_.OpenTab();
+                navigationWorkspace_.OpenTab(); // quick-access-home D7: Home default
                 RestoreActiveTabViewState();
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
+                RefreshHomeData();
                 RequestRepaint();
             } else if (commandId == L"navigation.close-tab") {
                 SaveActiveTabViewState();
@@ -418,6 +473,7 @@ bool WindowShell::InitializeCommands() {
                     RestoreActiveTabViewState();
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
+                    RefreshHomeData();
                     RequestRepaint();
                 }
             } else if (commandId == L"navigation.next-tab" || commandId == L"navigation.previous-tab") {
@@ -432,6 +488,7 @@ bool WindowShell::InitializeCommands() {
                         RestoreActiveTabViewState();
                         RefreshSelectionPresentation();
                         navigationChrome_.Refresh();
+                        RefreshHomeData();
                         RequestRepaint();
                     }
                 }
@@ -440,16 +497,34 @@ bool WindowShell::InitializeCommands() {
                     RestoreActiveTabViewState();
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
+                    RefreshHomeData();
                     RequestRepaint();
                 }
             } else if (commandId == L"navigation.back" || commandId == L"navigation.forward") {
                 const bool moved = commandId == L"navigation.back" ? navigationWorkspace_.GoBack() : navigationWorkspace_.GoForward();
                 if (moved) {
-                    NavigateColumnViewTo(navigationWorkspace_.ActiveContext().currentPath);
+                    // quick-access-home 5.4: GoBack/GoForward already moved the
+                    // model, so calling Navigate here would push a duplicate
+                    // history entry. Sync the view only, restoring the pane's
+                    // Home/FS kind from the active context.
+                    const auto& context = navigationWorkspace_.ActiveContext();
+                    const int activePane = static_cast<int>(navigationWorkspace_.ActivePaneIndex());
+                    if (context.isHomeLocation) {
+                        columnView_.SetPaneHome(activePane, true);
+                    } else {
+                        columnView_.SetPaneHome(activePane, false);
+                        NavigateColumnViewTo(context.currentPath);
+                    }
                     RefreshSelectionPresentation();
                     navigationChrome_.Refresh();
+                    navigationSidebar_.Refresh();
+                    RefreshHomeData();
                     RequestRepaint();
                 }
+            } else if (commandId == L"navigation.home") {
+                // quick-access-home 5.3: Alt+Home navigates the active context
+                // to the Home surface.
+                NavigateToLocation(NavigationLocation::Home());
             } else if (commandId == L"navigation.toggle-column-view" || commandId == L"navigation.toggle-dual-pane") {
                 const bool enabled = !navigationWorkspace_.IsDualPane();
                 if (enabled) navigationWorkspace_.EnableDualPane();
@@ -458,6 +533,14 @@ bool WindowShell::InitializeCommands() {
                 // workspace state. Previously the command only changed the
                 // model, leaving ColumnView's dual-pane renderer disabled.
                 columnView_.SetDualPane(enabled);
+                // quick-access-home 5.4: after a pane-count change, sync each
+                // pane's Home kind so a Home pane stays Home and an FS pane
+                // renders columns.
+                for (size_t pane = 0; pane < navigationWorkspace_.ActivePaneCount(); ++pane) {
+                    columnView_.SetPaneHome(static_cast<int>(pane),
+                                            navigationWorkspace_.PaneContext(pane).isHomeLocation);
+                }
+                RefreshHomeData();
                 navigationChrome_.Refresh();
                 RequestRepaint();
             } else if (commandId == L"view.toggle-details-pane") {
@@ -519,6 +602,9 @@ bool WindowShell::InitializeCommands() {
         RequestRepaint();
     }, settings_.retainSearchHistory)) return false;
     searchPanel_.SetDefaultScope(settings_.defaultSearchScope);
+    // quick-access-home 5.6: search history changes refresh Home's Recent
+    // searches section.
+    searchPanel_.SetHistoryChangedCallback([this] { RefreshHomeData(); });
     return true;
 }
 
@@ -723,13 +809,34 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     // bitmap (16 DIP) with a themed glyph placeholder until it arrives.
     iconCache_ = std::make_unique<ffui::IconCache>(hwnd_);
     columnView_.SetIconCache(iconCache_.get());
-    if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const std::wstring& path, bool restoreTabState) {
+    if (!navigationChrome_.Initialize(hwnd_, &navigationWorkspace_, [this](const ffui::NavigationLocation& location, bool restoreTabState) {
+            // quick-access-home 5.2: restoreTabState restores a target tab's
+            // saved view (Home-safe); otherwise route through the single
+            // Home-aware navigation entry.
             if (restoreTabState) RestoreActiveTabViewState();
-            else NavigateColumnViewTo(path);
+            else NavigateToLocation(location);
             RefreshSelectionPresentation();
             RequestRepaint();
         }, [this] { SaveActiveTabViewState(); })) return false;
     if (!navigationSidebar_.Initialize(hwnd_, &navigationWorkspace_, [this](const NavigationSidebar::NavigationTarget& target) {
+            // quick-access-home 5.1: a Home target routes to Home navigation
+            // (or a fresh Home tab on middle-click) before any filesystem
+            // handling -- its path is empty and must not reach ShowUnavailableLocation.
+            if (target.isHome) {
+                if (target.openInNewTab) {
+                    SaveActiveTabViewState();
+                    navigationWorkspace_.OpenTab(); // Home default
+                    RestoreActiveTabViewState();
+                } else {
+                    NavigateToLocation(NavigationLocation::Home());
+                }
+                RefreshSelectionPresentation();
+                navigationChrome_.Refresh();
+                navigationSidebar_.Refresh();
+                RefreshHomeData();
+                RequestRepaint();
+                return;
+            }
             if (target.path.empty()) {
                 columnView_.ShowUnavailableLocation(target.displayName);
                 RefreshSelectionPresentation();
@@ -748,6 +855,61 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             navigationSidebar_.Refresh();
             RequestRepaint();
         })) return false;
+    // quick-access-home 5.5: sidebar bookmark edits (context-menu rename/remove/
+    // reorder) change Home's Pinned section; refresh the Home surface.
+    navigationSidebar_.SetBookmarksChangedCallback([this] { RefreshHomeData(); });
+    // quick-access-home 5.4: route Home item activation from ColumnView. Folder
+    // -> navigate (new tab when flagged); Search -> open search and run the
+    // query; QuickAction -> the named command; the two Clear* kinds empty the
+    // corresponding history.
+    columnView_.SetHomeActivateCallback([this](const HomeActivation& activation) {
+        switch (activation.kind) {
+            case HomeActionKind::Folder:
+                if (activation.openInNewTab) {
+                    SaveActiveTabViewState();
+                    navigationWorkspace_.OpenTab(activation.value);
+                    RestoreActiveTabViewState();
+                    RefreshSelectionPresentation();
+                    navigationChrome_.Refresh();
+                    navigationSidebar_.Refresh();
+                    RefreshHomeData();
+                    RequestRepaint();
+                } else {
+                    NavigateToLocation(NavigationLocation::FromPath(activation.value));
+                }
+                break;
+            case HomeActionKind::Search:
+                if (activation.openInNewTab) {
+                    SaveActiveTabViewState();
+                    navigationWorkspace_.OpenTab(); // Home default
+                    RestoreActiveTabViewState();
+                }
+                // Scope stays the user's persisted default (SetDefaultScope at
+                // init); from Home there is no folder context to fabricate, so
+                // ShowAndFocus passes an empty path and the existing selection
+                // governs the scope.
+                searchPanel_.ShowAndFocus(L"", engineActive_, CurrentShellLayout().contentRect);
+                searchPanel_.SetQueryAndDispatch(activation.value);
+                RefreshSelectionPresentation();
+                navigationChrome_.Refresh();
+                navigationSidebar_.Refresh();
+                RefreshHomeData();
+                RequestRepaint();
+                break;
+            case HomeActionKind::QuickAction:
+                InvokeCommand(activation.value);
+                break;
+            case HomeActionKind::ClearRecentFolders:
+                navigationWorkspace_.ClearRecentFolders();
+                navigationWorkspace_.MarkStateDirty();
+                RefreshHomeData();
+                break;
+            case HomeActionKind::ClearRecentSearches:
+                searchPanel_.ClearHistory();
+                RefreshHomeData();
+                break;
+        }
+    });
     if (!fileOperations_.Start(hwnd_)) return false;
     if (!InitializeCommands()) return false;
     if (!storageAnalysis_.Initialize(hwnd_, &engineClient_,
@@ -1024,7 +1186,10 @@ void WindowShell::Render() {
     // status/control region.  Do not leave the browse Details/status layer
     // underneath their native children; it would create a stale overlapping
     // strip at the bottom of their lists.
-    if (!searchPanel_.Visible() && !storageAnalysis_.Visible()) {
+    // quick-access-home 5.4: Home has no selection, so the details card must
+    // not draw over it.
+    if (!searchPanel_.Visible() && !storageAnalysis_.Visible() &&
+        !navigationWorkspace_.ActiveContext().isHomeLocation) {
         RenderDetails(context, detailsLayout);
     }
     context->SetTransform(D2D1::Matrix3x2F::Identity());
@@ -1376,6 +1541,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (settings_.theme == ffprotocol::ThemePreference::FollowSystem) ApplyTheme();
             navigationWorkspace_.ReResolveKnownFolders();
             navigationSidebar_.Refresh();
+            RefreshHomeData(); // quick-access-home 5.5: known folders may have changed
             return 0;
 
         case WM_PAINT: {
@@ -1894,13 +2060,22 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 columnView_.EnsureFocusedItemVisible(CurrentShellLayout().details.viewportHeightDip);
             }
             RefreshSelectionPresentation();
+            // quick-access-home 5.4: for a Home pane ActivePanePath() returns
+            // L"" and the active context's currentPath is also L"", so this
+            // reconciliation is naturally a no-op (both empty) -- Home never
+            // triggers a model Navigate here.
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
             }
             navigationChrome_.Refresh();
             if (wParam == VK_LEFT || wParam == VK_RIGHT || wParam == VK_RETURN) {
-                EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+                // quick-access-home 5.4: Home has no columns, so horizontal
+                // scroll-into-view is meaningless for a Home pane. EnsureFocusedItemVisible
+                // above is already Home-aware in ColumnView.
+                if (!columnView_.IsPaneHome(columnView_.ActivePane())) {
+                    EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+                }
             }
             RequestRepaint();
             return 0;

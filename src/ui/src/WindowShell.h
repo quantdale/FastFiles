@@ -67,6 +67,13 @@ private:
     void ShowContextMenu(POINT screenPoint);
     void NavigateWorkspace(const std::wstring& path, const std::wstring& selectName = {});
     void NavigateColumnViewTo(const std::wstring& path);
+    // quick-access-home 5.4: the single Home-aware navigation entry. Keeps the
+    // model, the per-pane ColumnView Home kind, and the Home data snapshot in
+    // lockstep for both Home and filesystem destinations.
+    void NavigateToLocation(const NavigationLocation& location);
+    // quick-access-home 5.5: rebuild the Home snapshot from live workspace /
+    // search state and push it into ColumnView (no polling).
+    void RefreshHomeData();
     void SaveActiveTabViewState();
     void RestoreActiveTabViewState();
     float NavigationViewportWidth() const;
