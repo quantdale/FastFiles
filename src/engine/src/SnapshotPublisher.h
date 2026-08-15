@@ -22,8 +22,29 @@ namespace ffengine {
 // mapping named <prefix>.<generation>, then the UI is notified of that name's
 // generation. The engine keeps only the current mapping; a UI that still holds
 // the previous mapping can finish reading it safely.
+//
+// Generation zero is the "no committed generation" sentinel and is never
+// published. Start() commits a canonical empty snapshot (zero directories,
+// non-empty payload) as the first usable generation
+// (kFirstGeneration), so a successful Start always exposes a valid,
+// parseable snapshot to a subscribing client before any directory has been
+// requested or any index rebuild has published (fix-initial-snapshot-handshake).
 class SnapshotPublisher {
 public:
+    // fix-initial-snapshot-handshake: the generation committed by Start().
+    // First content Publish() therefore returns kFirstGeneration + 1.
+    static constexpr uint64_t kFirstGeneration = 1;
+
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+    // fix-initial-snapshot-handshake failure-injection seams (test-only).
+    // A hook returning nullptr simulates a CreateFileMappingW/MapViewOfFile
+    // failure; the production calls are used whenever no hook is installed.
+    using TestCreateFileMapping = std::function<HANDLE(const std::wstring& name)>;
+    using TestMapViewOfFile = std::function<uint8_t*(HANDLE mapping)>;
+    static void SetCreateFileMappingHook(TestCreateFileMapping hook);
+    static void SetMapViewOfFileHook(TestMapViewOfFile hook);
+#endif
+
     // Optional attribution seam for the explicit scalability benchmark. The
     // regular publisher call passes no timing object and emits no logging.
     struct PublishTimings {

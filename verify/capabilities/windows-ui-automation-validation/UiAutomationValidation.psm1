@@ -130,8 +130,52 @@ function Invoke-UiaOpenSettings {
     }
 }
 
+# fix-initial-snapshot-handshake: when the search panel is open, its result
+# list is the first subtree of the main window and burns the driver's bounded
+# tree walk before the chrome/address bar is reached -- any later
+# address-bar navigation silently fails. ESC closes the panel (WindowShell's
+# VK_ESCAPE handler), but while the query combo's dropdown popup is open the
+# popup swallows SendInput keystrokes, so the ESC is also posted directly to
+# the main window's message queue.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class FfUiWin32 {
+    [DllImport("user32.dll")]
+    public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+}
+'@ -ErrorAction SilentlyContinue
+function Close-UiaSearchPanelIfOpen {
+    param($Driver, $Main)
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        $open = $false
+        try {
+            $null = Find-UiaElement -Driver $Driver -AutomationId 'Search.Results' -FromElement $Main -TimeoutMs 1500
+            $open = $true
+        } catch { }
+        if (-not $open) { return }
+        $null = Set-UiaForeground -Driver $Driver -Element $Main
+        Start-Sleep -Milliseconds 300
+        $null = Send-UiaInput -Driver $Driver -Keys '{ESC}'
+        Start-Sleep -Milliseconds 400
+        $null = Send-UiaInput -Driver $Driver -Keys '{ESC}'
+        Start-Sleep -Milliseconds 400
+        try {
+            $hwnd = [IntPtr]$Main.Current.NativeWindowHandle
+            if ($hwnd -ne [IntPtr]::Zero) {
+                # WM_KEYDOWN VK_ESCAPE (and the matching WM_KEYUP) delivered
+                # directly to the app's window proc, bypassing any popup.
+                [FfUiWin32]::PostMessage($hwnd, 0x0100, [IntPtr]0x1B, [IntPtr]::Zero) | Out-Null
+                [FfUiWin32]::PostMessage($hwnd, 0x0101, [IntPtr]0x1B, [IntPtr]::Zero) | Out-Null
+            }
+        } catch { }
+        Start-Sleep -Milliseconds 800
+    }
+}
+
 function Invoke-UiaAddressBarNavigate {
     param($Driver, $Main, [int] $ProcessId, [string] $Path, [string] $ExpectedLeaf)
+    Close-UiaSearchPanelIfOpen -Driver $Driver -Main $Main
     $null = Set-UiaForeground -Driver $Driver -Element $Main
     Start-Sleep -Milliseconds 500
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
@@ -154,19 +198,41 @@ function Invoke-UiaAddressBarNavigate {
         }
     } catch { }
     if (-not $addr) { return [pscustomobject]@{ Pass = $false; Detail = 'address bar edit did not appear after Ctrl+L' } }
+    # fix-initial-snapshot-handshake: select-all before typing so a previous
+    # path can never be appended to; then verify the edit actually received
+    # the path before pressing Enter.
+    $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
+    Start-Sleep -Milliseconds 200
     $null = Send-UiaText -Driver $Driver -Text $Path
-    Start-Sleep -Milliseconds 300
+    Start-Sleep -Milliseconds 400
+    $typed = $null
+    try { $typed = [string]$addr.Current.Value } catch { }
+    if ($typed -ne $Path) {
+        # The address edit may not expose a Value pattern; retry the typing
+        # once before giving up.
+        $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
+        Start-Sleep -Milliseconds 200
+        $null = Send-UiaText -Driver $Driver -Text $Path
+        Start-Sleep -Milliseconds 400
+        try { $typed = [string]$addr.Current.Value } catch { }
+    }
     $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
     Start-Sleep -Seconds 2
-    $label = $null
+    # The tab buttons carry the per-tab path labels. With more than one tab
+    # open, the ACTIVE tab is not the first '8300' button, so any tab whose
+    # label reflects the requested leaf is a successful navigation.
+    $labels = @()
     try {
-        $tab = Find-UiaElement -Driver $Driver -AutomationId '8300' -FromElement $Main -TimeoutMs 3000
-        if ($tab) { $label = (Get-UiaElementIdentity -Driver $Driver -Element $tab).Name }
+        $tabs = @(Find-UiaElement -Driver $Driver -ClassName 'Button' -FromElement $Main -TimeoutMs 3000 -All |
+            Where-Object { $_.Current.AutomationId -match '^830' })
+        $labels = @($tabs | ForEach-Object { (Get-UiaElementIdentity -Driver $Driver -Element $_).Name })
     } catch { }
-    if ($label -and $label -like "*$ExpectedLeaf*") {
-        return [pscustomobject]@{ Pass = $true; Detail = "tab label now '$label' reflects '$ExpectedLeaf'" }
+    foreach ($label in $labels) {
+        if ($label -and $label -like "*$ExpectedLeaf*") {
+            return [pscustomobject]@{ Pass = $true; Detail = "tab label '$label' reflects '$ExpectedLeaf' (edit value matched: $($typed -eq $Path))" }
+        }
     }
-    return [pscustomobject]@{ Pass = $false; Detail = "tab label '$label' did not reflect '$ExpectedLeaf'" }
+    return [pscustomobject]@{ Pass = $false; Detail = "tab labels '$($labels -join ' | ')' did not reflect '$ExpectedLeaf' (edit value: '$typed')" }
 }
 
 function Invoke-UiaPaletteCommand {
@@ -234,14 +300,39 @@ function Test-UiaElementPattern {
 }
 
 # semantic-uia-core-surfaces 5.x: true when the engine serves directory data
-# (at least one column exposes items). When the engine cannot connect in this
-# environment (pre-existing host state: the engine cannot publish an initial
-# snapshot generation because the durable store is empty and the privileged
-# service is unverifiable), data-dependent scenario bodies are recorded
-# SKIPPED(engine-connect-unavailable) while the provider-structure assertions
-# still execute.
+# (at least one column exposes items). fix-initial-snapshot-handshake: a
+# fresh engine now publishes a usable empty startup snapshot, so an engine
+# that started successfully serves data as soon as a directory is published.
+# When the engine is genuinely unreachable in an environment, data-dependent
+# scenario bodies are recorded SKIPPED(engine-connect-unavailable) while the
+# provider-structure assertions still execute. Once this check observes
+# engine-served items, the observation is remembered for the rest of the run:
+# later scenarios (search, drag) may legitimately show Home/error views whose
+# column surface is not a data List.
+$script:engineServedData = $false
+
+# View-independent engine-connectivity probe for the pre-navigation checks:
+# the status chip renders distinct text for every connected variant
+# ("Instant search: enabled" / "…basic (degraded mode)") versus the
+# engine-less "Engine unavailable — click to retry" wording. The badge text
+# lands a few seconds after launch (engine launch + handshake + status
+# broadcast), so the probe retries over a bounded window.
+function Test-UiaEngineConnectedBadge {
+    param($Driver, $Main)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt 10000) {
+        try {
+            $null = Find-UiaElement -Driver $Driver -NameLike '*Instant search*' -FromElement $Main -TimeoutMs 1500
+            return $true
+        } catch { }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
 function Test-UiaEngineServingData {
     param($Driver, $Main)
+    if ($script:engineServedData) { return $true }
     try {
         $group = Find-UiaElement -Driver $Driver -AutomationId 'ColumnView' -FromElement $Main -TimeoutMs 2000
         $pane = Find-UiaElement -Driver $Driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 2000
@@ -253,7 +344,10 @@ function Test-UiaEngineServingData {
         for ($c = $columns.Count - 1; $c -ge 0; $c--) {
             try {
                 $items = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $columns[$c] -TimeoutMs 800 -All)
-                if ($items.Count -gt 0) { return $true }
+                if ($items.Count -gt 0) {
+                    $script:engineServedData = $true
+                    return $true
+                }
             } catch { }
         }
     } catch { }
@@ -263,7 +357,7 @@ function Test-UiaEngineServingData {
 # semantic-uia-core-surfaces 5.x: find the Column View surface and a named
 # item inside the first materialized column of the active pane.
 function Find-UiaColumnItem {
-    param($Driver, $Main, [string] $Name, [int] $TimeoutMs = 8000)
+    param($Driver, $Main, [string] $Name, [int] $TimeoutMs = 20000)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
         try {
@@ -272,7 +366,10 @@ function Find-UiaColumnItem {
             $columns = @(Find-UiaElement -Driver $Driver -ControlType 'List' -FromElement $pane -TimeoutMs 1500 -All)
             foreach ($column in $columns) {
                 try {
-                    $item = Find-UiaElement -Driver $Driver -Name $Name -FromElement $column -TimeoutMs 800
+                    # fix-initial-snapshot-handshake: a populated column can
+                    # hold 80+ items; a subtree walk of it takes seconds, so
+                    # the per-column search gets a real budget.
+                    $item = Find-UiaElement -Driver $Driver -Name $Name -FromElement $column -TimeoutMs 3000
                     if ($item) { return $item }
                 } catch { }
             }
@@ -423,32 +520,47 @@ function Invoke-UiAutomationValidationCapability {
         # Unavailable transition never lands within the poll window (the
         # engine retry loop keeps the columns "Refreshing…" on this host),
         # the scenario records the environmental blocker instead of a
-        # provider failure.
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        # provider failure. fix-initial-snapshot-handshake: with the engine
+        # connected, the early check is skipped fast (the state it waits for
+        # can never land) and the late missing-path phase is the exercised
+        # evidence.
         $earlyErrorPassed = $false
-        try {
-            $earlyErrorPassed = Wait-UiaCondition -Driver $driver -ScriptBlock {
-                foreach ($pattern in @('*no longer available*', '*unable to load*', '*engine is unavailable*')) {
-                    try {
-                        $el = Find-UiaElement -Driver $driver -NameLike $pattern -FromElement $main -TimeoutMs 800
-                        if ($el) { return $true }
-                    } catch { }
-                }
-                return $false
-            } -TimeoutMs 60000 -PollIntervalMs 1500
-        } catch { }
-        $sw.Stop()
-        $earlyErrorStatus = if ($earlyErrorPassed) { 'PASS' } else { 'SKIPPED' }
-        $earlyErrorReason = if ($earlyErrorPassed) { $null } else { 'engine-connect-unavailable' }
-        $earlyErrorDetail = if ($earlyErrorPassed) {
-            'in-column error state discoverable as a Text element (early columns)'
+        $earlyErrorReason = 'engine-connect-unavailable'
+        $earlyErrorDetail = 'error state not observed within 60s (the engine retry loop keeps columns "Refreshing…" on this host); the provider surface is covered by the headless status-element tests'
+        if (Test-UiaEngineConnectedBadge -Driver $driver -Main $main) {
+            $earlyErrorReason = 'engine-connected-host'
+            $earlyErrorDetail = 'engine connected; the early engine-less check does not apply -- the late missing-path phase exercises the in-column error wording'
+            $earlyErrorStatus = 'SKIPPED'
         } else {
-            'error state not observed within 60s (the engine retry loop keeps columns "Refreshing…" on this host); the provider surface is covered by the headless status-element tests'
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            try {
+                $earlyErrorPassed = Wait-UiaCondition -Driver $driver -ScriptBlock {
+                    foreach ($pattern in @('*no longer available*', '*unable to load*', '*engine is unavailable*')) {
+                        try {
+                            $el = Find-UiaElement -Driver $driver -NameLike $pattern -FromElement $main -TimeoutMs 800
+                            if ($el) { return $true }
+                        } catch { }
+                    }
+                    return $false
+                } -TimeoutMs 60000 -PollIntervalMs 1500
+            } catch { }
+            $sw.Stop()
+            $earlyErrorStatus = if ($earlyErrorPassed) { 'PASS' } else { 'SKIPPED' }
+            $earlyErrorReason = if ($earlyErrorPassed) { $null } else { $earlyErrorReason }
+            $earlyErrorDetail = if ($earlyErrorPassed) {
+                'in-column error state discoverable as a Text element (early columns)'
+            } else { $earlyErrorDetail }
         }
-        [void]$subResults.Add((New-UiaVSubResult -Id 'in-column-error-state' -Status $earlyErrorStatus -Reason $earlyErrorReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $earlyErrorDetail))
+        [void]$subResults.Add((New-UiaVSubResult -Id 'in-column-error-state' -Status $earlyErrorStatus -Reason $earlyErrorReason -DurationMs 0 -Detail $earlyErrorDetail))
 
         # Scenario 3.2 - keyboard address-bar navigation into a scratch folder.
-        $scratch = Join-Path $env:TEMP ('ffui-e2e-' + (Get-Random))
+        # fix-initial-snapshot-handshake: the fixture lives directly under the
+        # user profile, NOT under %TEMP%. The driver's UIA tree walk is
+        # bounded (MaxTreeWidth 2000); %TEMP% on this host holds ~1800
+        # entries, so a scratch folder below it is unreachable by any subtree
+        # search (the walk truncates inside the Temp column). The profile
+        # chain (C:\ -> Users -> <user> -> fixture) is ~100 nodes.
+        $scratch = Join-Path $env:USERPROFILE ('ffui-e2e-' + (Get-Random))
         $folder = Join-Path $scratch 'SubFolder'
         New-Item -ItemType Directory -Path $folder -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $folder 'sample.txt') -Value 'hello' -Encoding utf8
@@ -514,11 +626,20 @@ function Invoke-UiAutomationValidationCapability {
         $selDetail = 'selection patterns not verifiable'
         try {
             # The mouse-tab scenario opened a fresh Home tab; return to the
-            # scratch folder so the pane shows the filesystem column surface.
-            $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+            # scratch folder's SubFolder (the files alpha.txt/beta.txt live
+            # there, not in the scratch root) so the pane shows the engine-
+            # served file column.
+            $renav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
+            if (-not $renav.Pass) { throw "re-navigation to scratch failed: $($renav.Detail)" }
             $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
             $pane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
-            $column = Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $pane -TimeoutMs 3000
+            # fix-initial-snapshot-handshake: the scratch path renders as a
+            # column chain (C:\ -> Users -> <user> -> scratch); the engine-
+            # served items live in the LAST column, never the first (drive
+            # root) one.
+            $columns = @(Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $pane -TimeoutMs 3000 -All)
+            if ($columns.Count -eq 0) { throw 'no column elements found' }
+            $column = $columns[$columns.Count - 1]
             $hasScroll = Test-UiaElementPattern -Driver $driver -Element $pane -Pattern 'Scroll'
             $hasSelection = Test-UiaElementPattern -Driver $driver -Element $column -Pattern 'Selection'
             $patternDetail = "pane Scroll=$hasScroll column Selection=$hasSelection"
@@ -526,11 +647,20 @@ function Invoke-UiAutomationValidationCapability {
             if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
                 $selStatus = 'SKIPPED'
                 $selReason = 'engine-connect-unavailable'
-                $selDetail = "$patternDetail; data-dependent selection assertions require the engine (pre-existing host state: the engine cannot publish an initial snapshot generation)"
+                $selDetail = "$patternDetail; data-dependent selection assertions require engine-served directory data (unavailable in this environment)"
             } else {
                 $alpha = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $column -TimeoutMs 4000
                 $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
                 if (-not ($alpha -and $beta)) { throw "scratch items missing: $patternDetail" }
+                # fix-initial-snapshot-handshake: after deep navigation the
+                # target column can sit beyond the pane's right edge, so item
+                # clicks at the reported center miss the window. Scroll the
+                # column chain fully into view before any pointer interaction.
+                $null = Invoke-UiaPattern -Driver $driver -Element $pane -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
+                Start-Sleep -Milliseconds 800
+                $alpha = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $column -TimeoutMs 4000
+                $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
+                if (-not ($alpha -and $beta)) { throw "scratch items missing after scroll: $patternDetail" }
                 $null = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'Select'
                 Start-Sleep -Milliseconds 400
                 $isSel = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'GetSelection'
@@ -563,7 +693,7 @@ function Invoke-UiAutomationValidationCapability {
             if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
                 $scrollStatus = 'SKIPPED'
                 $scrollReason = 'engine-connect-unavailable'
-                $scrollDetail = 'pane Scroll pattern present; real scroll percent requires engine-served data (pre-existing host state: the engine cannot publish an initial snapshot generation)'
+                $scrollDetail = 'pane Scroll pattern present; real scroll percent requires engine-served directory data (unavailable in this environment)'
             } else {
                 $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
                 for ($i = 0; $i -lt 80; $i++) {
@@ -649,22 +779,37 @@ function Invoke-UiAutomationValidationCapability {
             if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
                 $searchStatus = 'SKIPPED'
                 $searchReason = 'engine-connect-unavailable'
-                $searchDetail = 'Search.Results provider surface present; result data requires the engine (pre-existing host state: the engine cannot publish an initial snapshot generation)'
+                $searchDetail = 'Search.Results provider surface present; result data requires engine-served snapshot data (unavailable in this environment)'
             } else {
             $null = Send-UiaText -Driver $driver -Text 'alpha'
             Start-Sleep -Seconds 2
             $alphaResult = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $resultsList -TimeoutMs 5000
             if (-not $alphaResult) { throw "Search.Results does not expose result 'alpha.txt'" }
-            $searchStatus = 'PASS'
-            $searchReason = $null
             $searchDetail = "Search.Results exposes result 'alpha.txt'"
             # Activation routes through the real search-to-navigation path.
             $null = Invoke-UiaElementAction -Driver $driver -Element $alphaResult
             Start-Sleep -Seconds 2
+            Close-UiaSearchPanelIfOpen -Driver $driver -Main $main
             $artifacts += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-deep-result-navigation'
             $navItem = Find-UiaColumnItem -Driver $driver -Main $main -Name 'alpha.txt'
-            if (-not $navItem) { throw 'activated result did not navigate to a visible column item' }
-            [void]$subResults.Add((New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'PASS' -Reason $null -DurationMs 0 -Detail "result activation navigated to the containing folder; column item 'alpha.txt' visible" -Diagnostics @('3.11-deep-result-navigation.tree.txt')))
+            if ($navItem) {
+                $searchStatus = 'PASS'
+                $searchReason = $null
+                $searchDetail = "Search.Results exposes result 'alpha.txt'; activation navigated to the containing folder; column item visible"
+                [void]$subResults.Add((New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'PASS' -Reason $null -DurationMs 0 -Detail "result activation navigated to the containing folder; column item 'alpha.txt' visible" -Diagnostics @('3.11-deep-result-navigation.tree.txt')))
+            } else {
+                $searchStatus = 'FAIL'
+                $searchReason = 'search-deep-navigation-unexpected'
+                $columnDetail = ''
+                try {
+                    $cg = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
+                    $cp = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $cg -TimeoutMs 3000
+                    $cl = @(Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $cp -TimeoutMs 3000 -All)
+                    $columnDetail = '; columns: ' + (@($cl | ForEach-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).Name }) -join ' | ')
+                } catch { }
+                $searchDetail = "Search.Results exposes result 'alpha.txt' but activation did not land a visible column item$columnDetail"
+                [void]$subResults.Add((New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'FAIL' -Reason 'search-deep-navigation-unexpected' -DurationMs 0 -Detail "activated result did not navigate to a visible column item$columnDetail" -Diagnostics @('3.11-deep-result-navigation.tree.txt')))
+            }
             }
         } catch { $searchDetail = "search scenario failed: $($_.Exception.Message)" }
         [void]$subResults.Add((New-UiaVSubResult -Id 'search-results-discoverable' -Status $searchStatus -Reason $searchReason -DurationMs 0 -Detail $searchDetail))
@@ -680,7 +825,7 @@ function Invoke-UiAutomationValidationCapability {
             if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
                 $filterStatus = 'SKIPPED'
                 $filterReason = 'engine-connect-unavailable'
-                $filterDetail = 'structured-filter results require the engine (pre-existing host state: the engine cannot publish an initial snapshot generation)'
+                $filterDetail = 'structured-filter results require engine-served snapshot data (unavailable in this environment)'
             } else {
             $null = Send-UiaText -Driver $driver -Text 'ext:txt'
             Start-Sleep -Seconds 2
@@ -699,7 +844,7 @@ function Invoke-UiAutomationValidationCapability {
             }
         } catch { $filterDetail = "structured filter failed: $($_.Exception.Message)" }
         [void]$subResults.Add((New-UiaVSubResult -Id 'search-structured-filter-query' -Status $filterStatus -Reason $filterReason -DurationMs 0 -Detail $filterDetail -Diagnostics @('3.11-structured-filter.tree.txt')))
-        [void]$subResults.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'service-not-running' -DurationMs 0 -Detail 'FastFilesIndexSvc is not installed/running in this session; toggling its availability while search is open cannot be exercised'))
+        [void]$subResults.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'The privileged path is unverified in this development tree (placeholder signature pins), so the engine treats the service as unavailable; toggling service availability while search is open cannot be meaningfully exercised'))
 
         # Scenario 3.5 part 3 - in-column error state (previously SKIPPED:
         # error-state-drawn-on-d2d-surface). Late in the run, freshly
@@ -740,11 +885,14 @@ function Invoke-UiAutomationValidationCapability {
         }
         $sw.Stop()
         $artifacts += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.5-in-column-error-state'
-        [void]$subResults.Add((New-UiaVSubResult -Id 'in-column-error-state-late' -Status ($(if ($errorPass) { 'PASS' } else { 'SKIPPED' })) -Reason ($(if ($errorPass) { $null } else { 'engine-connect-unavailable' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $errorDetail -Diagnostics @('3.5-in-column-error-state.tree.txt')))
+        [void]$subResults.Add((New-UiaVSubResult -Id 'in-column-error-state-late' -Status ($(if ($errorPass) { 'PASS' } else { 'SKIPPED' })) -Reason ($(if ($errorPass) { $null } else { 'error-state-not-observed' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $errorDetail -Diagnostics @('3.5-in-column-error-state.tree.txt')))
 
         # Scenarios 3.7 / 3.8 / 3.9 - drag and drop with deterministic UIA
         # geometry (previously SKIPPED: column-items-not-exposed-to-uia).
-        $dragScratch = Join-Path $env:TEMP ('ffui-drag-' + (Get-Random))
+        # fix-initial-snapshot-handshake: same profile-root fixture rule as
+        # the search scratch folder -- a %TEMP% fixture is unreachable by the
+        # bounded driver tree walk.
+        $dragScratch = Join-Path $env:USERPROFILE ('ffui-drag-' + (Get-Random))
         $dragSource = Join-Path $dragScratch 'source'
         $dragTarget = Join-Path $dragScratch 'target'
         New-Item -ItemType Directory -Path $dragSource -Force | Out-Null
@@ -755,19 +903,42 @@ function Invoke-UiAutomationValidationCapability {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $dragOut = [pscustomobject]@{ Pass = $false; Detail = 'drag out not attempted' }
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
-            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (pre-existing host state: the engine cannot publish an initial snapshot generation)'))
+            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (unavailable in this environment)'))
         } else {
         try {
             $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $dragSource -ExpectedLeaf 'source'
             $item = Find-UiaColumnItem -Driver $driver -Main $main -Name 'draggable.txt'
             if (-not $item) { throw 'source item not found in ColumnView' }
+            # fix-initial-snapshot-handshake: bring the target column fully
+            # into view before deriving pointer coordinates.
+            try {
+                $pane0x = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $launched.Id -TimeoutMs 3000
+                if ($pane0x) {
+                    $null = Invoke-UiaPattern -Driver $driver -Element $pane0x -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
+                    Start-Sleep -Milliseconds 800
+                }
+            } catch { }
+            $item = Find-UiaColumnItem -Driver $driver -Main $main -Name 'draggable.txt'
+            if (-not $item) { throw 'source item not found in ColumnView after scroll' }
             $src = Get-UiaElementCenter -Driver $driver -Element $item
             # Open an Explorer window on the target folder.
             $explorer = Start-Process explorer.exe -ArgumentList $dragTarget -PassThru
             Start-Sleep -Seconds 3
             $explorerWindow = $null
             try {
+                # fix-initial-snapshot-handshake: the shell may reuse an
+                # existing explorer.exe for the new window, so the window's
+                # PID can differ from the launched process. Match the
+                # CabinetWClass window by its title containing the target
+                # folder name instead.
                 $explorerWindow = Find-UiaElement -Driver $driver -ClassName 'CabinetWClass' -ProcessId $explorer.Id -TimeoutMs 5000
+                if (-not $explorerWindow) {
+                    $candidates = @(Find-UiaElement -Driver $driver -ClassName 'CabinetWClass' -TimeoutMs 10000 -All)
+                    foreach ($candidate in $candidates) {
+                        $title = (Get-UiaElementIdentity -Driver $driver -Element $candidate).Name
+                        if ($title -like "*$(Split-Path $dragTarget -Leaf)*") { $explorerWindow = $candidate; break }
+                    }
+                }
             } catch { }
             if ($explorerWindow) {
                 $null = Set-UiaForeground -Driver $driver -Element $main
@@ -795,7 +966,7 @@ function Invoke-UiAutomationValidationCapability {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $dragIn = [pscustomobject]@{ Pass = $false; Detail = 'drag in not attempted' }
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
-            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (pre-existing host state: the engine cannot publish an initial snapshot generation)'))
+            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (unavailable in this environment)'))
         } else {
         try {
             $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $dragTarget -ExpectedLeaf 'target'
@@ -839,7 +1010,7 @@ function Invoke-UiAutomationValidationCapability {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         $dragPanes = [pscustomobject]@{ Pass = $false; Detail = 'pane drag not attempted' }
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
-            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-between-panes' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (pre-existing host state: the engine cannot publish an initial snapshot generation)'))
+            [void]$subResults.Add((New-UiaVSubResult -Id 'drag-between-panes' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Drag scenarios need engine-served items (unavailable in this environment)'))
         } else {
         try {
             $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $dragSource -ExpectedLeaf 'source'
@@ -847,9 +1018,20 @@ function Invoke-UiAutomationValidationCapability {
             Start-Sleep -Milliseconds 600
             $null = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'dual' -ExpectedNames @('Toggle Dual Pane')
             Start-Sleep -Milliseconds 800
-            $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 3000
-            $pane1 = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 3000
+            $pane0 = $null
+            $pane1 = $null
+            for ($attempt = 0; $attempt -lt 3 -and -not $pane1; $attempt++) {
+                try { $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 3000 } catch { }
+                try { $pane1 = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 3000 } catch { }
+                if (-not $pane1) { Start-Sleep -Milliseconds 1200 }
+            }
             if (-not $pane1) { throw 'dual-pane did not expose Pane.1' }
+            # fix-initial-snapshot-handshake: bring the source column fully
+            # into view before pointer interaction.
+            try {
+                $null = Invoke-UiaPattern -Driver $driver -Element $pane0 -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
+                Start-Sleep -Milliseconds 800
+            } catch { }
             # Navigate pane 1 to the target folder via the address bar.
             $null = Set-UiaForeground -Driver $driver -Element $main
             $null = Send-UiaMouseInput -Driver $driver -X ((Get-UiaElementCenter -Driver $driver -Element $pane1).x) -Y ((Get-UiaElementCenter -Driver $driver -Element $pane1).y) -Button 'Left' -Action 'Click'

@@ -99,7 +99,11 @@ function Invoke-UiaPattern {
     if (-not $Arguments) { $Arguments = @() }
 
     $pattern = Get-UiaPattern -Driver $Driver -Element $Element -PatternName $PatternName
-    if ($pattern._isMockPattern) {
+    # The mock marker exists only on the headless-test mock objects; a real
+    # UIAutomationClient pattern object (e.g. ScrollPattern) has no such
+    # property, so detecting it must not throw for real patterns.
+    $isMockPattern = $pattern -is [pscustomobject] -and $null -ne $pattern.PSObject.Properties['_isMockPattern']
+    if ($isMockPattern) {
         $record = Get-UiaMockRecord -Driver $Driver -Element $Element
         if (-not $record.PSObject.Properties['patternCalls']) { $record | Add-Member -NotePropertyName patternCalls -NotePropertyValue ([System.Collections.ArrayList]::new()) }
         [void]$record.patternCalls.Add([pscustomobject]@{ pattern = $PatternName; method = $Method; args = @($Arguments) })
@@ -128,7 +132,7 @@ function Invoke-UiaPattern {
         }
         'Selection' {
             switch ($Method) {
-                'GetSelection' { return $pattern.GetSelection() }
+                'GetSelection' { return $pattern.Current.GetSelection() }
                 default { throw "Selection pattern has no method '$Method'" }
             }
         }

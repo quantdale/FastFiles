@@ -88,6 +88,9 @@ add_executable(ffengine_ui_server_lifecycle_tests
 )
 target_include_directories(ffengine_ui_server_lifecycle_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_ui_server_lifecycle_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore shell32)
+# fix-initial-snapshot-handshake: enables the initial-publication
+# failure-injection seams (see SnapshotPublisher.h) for fail-closed coverage.
+target_compile_definitions(ffengine_ui_server_lifecycle_tests PRIVATE FF_SNAPSHOT_PUBLISHER_TESTING=1)
 add_test(NAME ffengine_ui_server_lifecycle_tests COMMAND ffengine_ui_server_lifecycle_tests)
 
 add_executable(ffengine_snapshot_publisher_tests
@@ -96,7 +99,30 @@ add_executable(ffengine_snapshot_publisher_tests
 )
 target_include_directories(ffengine_snapshot_publisher_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_snapshot_publisher_tests PRIVATE ffprotocol ffsetup)
+# fix-initial-snapshot-handshake: enables the initial-publication
+# failure-injection seams (see SnapshotPublisher.h) for fail-closed coverage.
+target_compile_definitions(ffengine_snapshot_publisher_tests PRIVATE FF_SNAPSHOT_PUBLISHER_TESTING=1)
 add_test(NAME ffengine_snapshot_publisher_tests COMMAND ffengine_snapshot_publisher_tests)
+
+# fix-initial-snapshot-handshake (tasks.md 3.x): end-to-end EngineClient <->
+# UiServer handshake over the real control pipe and real shared-memory
+# snapshots, with no directory published first. Unprivileged, no service, no
+# signing, no persistent user index.
+add_executable(ffengine_client_handshake_tests
+  test_engine_client_handshake.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/UiServer.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DirectoryWatcher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
+  ${CMAKE_SOURCE_DIR}/src/ui/src/EngineClient.cpp
+  ${CMAKE_SOURCE_DIR}/src/ui/src/EngineDiscovery.cpp
+)
+target_include_directories(ffengine_client_handshake_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/src/engine/src
+  ${CMAKE_SOURCE_DIR}/src/ui/src
+  ${CMAKE_SOURCE_DIR}/src/ui/include)
+target_link_libraries(ffengine_client_handshake_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore shell32)
+add_test(NAME ffengine_client_handshake_tests COMMAND ffengine_client_handshake_tests)
 
 # zero-touch-autonomous-engineering: subtree-gating unit tests (closes
 # settings-and-appearance 2.5). Compiles IndexPipeline.cpp directly so the
@@ -130,5 +156,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

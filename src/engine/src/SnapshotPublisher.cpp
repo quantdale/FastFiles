@@ -21,7 +21,25 @@ std::wstring GenerationSectionName(const std::wstring& prefix, uint64_t generati
     return prefix + L"." + std::to_wstring(generation);
 }
 
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+// fix-initial-snapshot-handshake failure-injection hooks; see
+// SnapshotPublisher.h. Installed only by test targets that compile this
+// translation unit with FF_SNAPSHOT_PUBLISHER_TESTING defined.
+SnapshotPublisher::TestCreateFileMapping gCreateFileMappingHook;
+SnapshotPublisher::TestMapViewOfFile gMapViewOfFileHook;
+#endif
+
 } // namespace
+
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+void SnapshotPublisher::SetCreateFileMappingHook(TestCreateFileMapping hook) {
+    gCreateFileMappingHook = std::move(hook);
+}
+
+void SnapshotPublisher::SetMapViewOfFileHook(TestMapViewOfFile hook) {
+    gMapViewOfFileHook = std::move(hook);
+}
+#endif
 
 SnapshotPublisher::~SnapshotPublisher() {
     Stop();
@@ -47,15 +65,32 @@ bool SnapshotPublisher::Start(DWORD sessionId) {
     sectionPrefix_ = std::wstring(sessionBuffer) + L"." + instanceBuffer;
     generation_.store(0);
 
+    // fix-initial-snapshot-handshake: a successful Start must immediately
+    // expose a usable snapshot generation, because UiServer exposes the
+    // control pipe right after this returns and a fresh UI subscribes before
+    // any directory has been requested or any durable index rebuild has
+    // published. Generation 0 stays the "no committed generation" sentinel;
+    // the first committed generation is a canonical empty snapshot -- zero
+    // directories in the ordinary serialized format (the directory count
+    // field alone, a non-empty 4-byte payload) -- so every reader parses it
+    // with the production parser and no special empty wire form exists.
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> emptySnapshot;
+    const size_t initialPayloadSize = ffprotocol::SerializedSnapshotSize(emptySnapshot);
+    const SnapshotWriter initialWriter = [&emptySnapshot](uint8_t* destination, size_t capacity) {
+        return ffprotocol::SerializeSnapshotTo(emptySnapshot, destination, capacity);
+    };
+
     HANDLE initialMapping = nullptr;
     uint8_t* initialView = nullptr;
-    if (!CreateGenerationMapping(0, 0, {}, initialMapping, initialView, nullptr)) {
+    if (!CreateGenerationMapping(kFirstGeneration, initialPayloadSize, initialWriter,
+                                 initialMapping, initialView, nullptr)) {
         sectionPrefix_.clear();
         generation_.store(0);
         return false;
     }
     mapping_ = initialMapping;
     view_ = initialView;
+    generation_.store(kFirstGeneration);
     return true;
 }
 
@@ -98,9 +133,17 @@ bool SnapshotPublisher::CreateGenerationMapping(uint64_t generation,
     }
     const std::wstring name = GenerationSectionName(sectionPrefix_, generation);
     SetLastError(ERROR_SUCCESS);
-    HANDLE candidate = CreateFileMappingW(
-        INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
-        static_cast<DWORD>(totalSize >> 32), static_cast<DWORD>(totalSize & 0xFFFFFFFFu), name.c_str());
+    HANDLE candidate = nullptr;
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+    if (gCreateFileMappingHook) {
+        candidate = gCreateFileMappingHook(name);
+    } else
+#endif
+    {
+        candidate = CreateFileMappingW(
+            INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE,
+            static_cast<DWORD>(totalSize >> 32), static_cast<DWORD>(totalSize & 0xFFFFFFFFu), name.c_str());
+    }
     if (candidate == nullptr) {
         return false;
     }
@@ -109,8 +152,16 @@ bool SnapshotPublisher::CreateGenerationMapping(uint64_t generation,
         return false;
     }
 
-    auto* candidateView = static_cast<uint8_t*>(MapViewOfFile(
-        candidate, FILE_MAP_ALL_ACCESS, 0, 0, static_cast<SIZE_T>(totalSize)));
+    uint8_t* candidateView = nullptr;
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+    if (gMapViewOfFileHook) {
+        candidateView = gMapViewOfFileHook(candidate);
+    } else
+#endif
+    {
+        candidateView = static_cast<uint8_t*>(MapViewOfFile(
+            candidate, FILE_MAP_ALL_ACCESS, 0, 0, static_cast<SIZE_T>(totalSize)));
+    }
     if (candidateView == nullptr) {
         CloseHandle(candidate);
         return false;

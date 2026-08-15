@@ -47,6 +47,32 @@ function Get-UiaParent {
     }
 }
 
+# Pattern-scoped UIA property ids live as static fields on their pattern
+# types (e.g. ScrollPattern.VerticallyScrollableProperty), not on
+# AutomationElement. Built lazily after the managed API assembly is loaded.
+# (A plain `$script:` variable cannot be null-tested in a module scope before
+# its first assignment, so the map is accessed via Get-Variable/Set-Variable.)
+function Get-UiaPatternPropertyId {
+    param([string] $Name)
+    if (-not (Get-Variable -Name UiaPatternPropertyMap -Scope Script -ErrorAction SilentlyContinue)) {
+        Initialize-UiaManagedApi
+        Set-Variable -Name UiaPatternPropertyMap -Scope Script -Value @{
+            'HorizontalScrollPercent'  = [System.Windows.Automation.ScrollPattern]::HorizontalScrollPercentProperty
+            'VerticalScrollPercent'    = [System.Windows.Automation.ScrollPattern]::VerticalScrollPercentProperty
+            'HorizontalViewSize'       = [System.Windows.Automation.ScrollPattern]::HorizontalViewSizeProperty
+            'VerticalViewSize'         = [System.Windows.Automation.ScrollPattern]::VerticalViewSizeProperty
+            'HorizontallyScrollable'   = [System.Windows.Automation.ScrollPattern]::HorizontallyScrollableProperty
+            'VerticallyScrollable'     = [System.Windows.Automation.ScrollPattern]::VerticallyScrollableProperty
+            'CanSelectMultiple'        = [System.Windows.Automation.SelectionPattern]::CanSelectMultipleProperty
+            'IsSelectionRequired'      = [System.Windows.Automation.SelectionPattern]::IsSelectionRequiredProperty
+            'IsSelected'               = [System.Windows.Automation.SelectionItemPattern]::IsSelectedProperty
+            'ToggleState'              = [System.Windows.Automation.TogglePattern]::ToggleStateProperty
+        }
+    }
+    $map = Get-Variable -Name UiaPatternPropertyMap -Scope Script -ValueOnly
+    return $map[$Name]
+}
+
 function Get-UiaElementProperty {
     param($Driver, $Element, [Parameter(Mandatory)][string] $Name)
     if (Test-UiaMockElement $Element) {
@@ -70,9 +96,25 @@ function Get-UiaElementProperty {
                 return @($Element.GetSupportedPatterns() | ForEach-Object { $_.ProgrammaticName -replace '^ControlPattern\.', '' })
             }
             default {
-                $propId = $Element.GetType().GetProperty("$Name" + 'Property')
+                # UIA property ids live on different classes: scroll/selection
+                # value properties are static fields of their pattern types
+                # (e.g. ScrollPattern.VerticallyScrollableProperty), while
+                # element-level ids are static fields of AutomationElement
+                # (e.g. IsKeyboardFocusableProperty). Resolve the id against
+                # the pattern map first, then the AutomationElement fields,
+                # then a real property (wrapper types).
+                $propId = $null
+                $patternProp = Get-UiaPatternPropertyId -Name $Name
+                if ($null -ne $patternProp) { $propId = $patternProp }
+                if (-not $propId) {
+                    $type = $Element.GetType()
+                    $flags = [System.Reflection.BindingFlags]::Public -bor [System.Reflection.BindingFlags]::Static
+                    $propId = $type.GetField("$Name" + 'Property', $flags)
+                    if (-not $propId) { $propId = $type.GetProperty("$Name" + 'Property', $flags) }
+                    if ($propId) { $propId = $propId.GetValue($null) }
+                }
                 if ($propId) {
-                    return $Element.GetCurrentPropertyValue($propId.GetValue($null))
+                    return $Element.GetCurrentPropertyValue($propId)
                 }
                 return $null
             }

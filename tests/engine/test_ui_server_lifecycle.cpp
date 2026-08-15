@@ -7,7 +7,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <string>
 #include <thread>
@@ -416,6 +418,332 @@ void TestFailedStartRollsBackSnapshot() {
     server.Stop();
 }
 
+// fix-initial-snapshot-handshake (tasks.md 8.x): if the initial snapshot
+// publication fails, UiServer::Start must fail closed -- no control pipe may
+// be exposed and no snapshot state may survive.
+void TestUiServerStartFailsOnInitialPublicationFailure() {
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+    const DWORD sessionId = GetCurrentProcessId() + 9;
+    const std::wstring pipeName = PipeName(sessionId);
+
+    ffengine::SnapshotPublisher::SetCreateFileMappingHook(
+        [](const std::wstring&) -> HANDLE { return nullptr; });
+    ffengine::UiServer server;
+    Check(!server.Start(sessionId),
+          "initial snapshot publication failure makes UiServer::Start fail");
+    HANDLE lateClient = ConnectToServer(pipeName);
+    Check(lateClient == INVALID_HANDLE_VALUE,
+          "failed UiServer start exposes no usable control pipe");
+    if (lateClient != nullptr && lateClient != INVALID_HANDLE_VALUE) CloseHandle(lateClient);
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, SnapshotSectionName(sessionId).c_str());
+    Check(mapping == nullptr, "failed UiServer start rolls back snapshot mapping state");
+    if (mapping != nullptr) CloseHandle(mapping);
+    ffengine::SnapshotPublisher::SetCreateFileMappingHook({});
+
+    Check(server.Start(sessionId),
+          "UiServer starts normally once the injection is cleared");
+    server.Stop();
+#endif
+}
+
+// fix-initial-snapshot-handshake: reads the next frame from `pipe`, skipping
+// frames of other types, until a frame of `messageType` arrives or the
+// deadline passes. The server writes SubscribeAck and EngineStatus back to
+// back, so a strict single-read sequence is not portable to every scenario.
+std::optional<ffipc::ReceivedFrame> ReadFrameUntilType(HANDLE pipe, uint16_t messageType,
+                                                       std::chrono::milliseconds timeout) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (std::chrono::steady_clock::now() < deadline) {
+        // A non-overlapped named pipe handle is waitable: it signals when a
+        // blocking read can make progress. Poll so a hung server cannot turn
+        // this regression into a CTest timeout.
+        if (WaitForSingleObject(pipe, 200) == WAIT_OBJECT_0) {
+            auto frame = ffipc::ReadFrame(pipe);
+            if (frame && frame->header.messageType == messageType) {
+                return frame;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+// fix-initial-snapshot-handshake: validates a published generation the same
+// way EngineClient::IsSnapshotGenerationUsable does (format compatible,
+// nonzero committed generation matching the expectation, bounded payload,
+// region large enough), then parses the payload. Returns nullopt on any
+// validation failure and sets ERROR_INVALID_DATA exactly like the client.
+std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> ValidateAndParseSnapshotSection(
+    const std::wstring& sectionName, uint64_t expectedGeneration) {
+    if (sectionName.empty()) return std::nullopt;
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sectionName.c_str());
+    if (mapping == nullptr) return std::nullopt;
+    const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
+    if (view == nullptr) {
+        CloseHandle(mapping);
+        return std::nullopt;
+    }
+    const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
+    bool valid = ffprotocol::IsSnapshotFormatCompatible(header->formatVersion)
+        && expectedGeneration != 0
+        && header->generation == expectedGeneration
+        && header->payloadSizeBytes <= ffprotocol::kSnapshotMaximumPayloadBytes
+        && header->payloadSizeBytes <= static_cast<uint64_t>(std::numeric_limits<size_t>::max()
+                                                             - sizeof(*header));
+    std::optional<std::map<std::wstring, ffprotocol::SnapshotDirectory>> parsed;
+    if (valid) {
+        parsed = ffprotocol::ParseSnapshot(view + sizeof(*header),
+                                           static_cast<size_t>(header->payloadSizeBytes));
+        if (!parsed.has_value()) valid = false;
+    }
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
+    if (!valid) {
+        SetLastError(ERROR_INVALID_DATA);
+        return std::nullopt;
+    }
+    return parsed;
+}
+
+// fix-initial-snapshot-handshake (tasks.md 4.x): the regression that the
+// engine-connect-snapshot-map-failed / 0xd startup failure was born from.
+// A fresh UI subscribes to a fresh engine BEFORE any directory has been
+// requested or published. The SubscribeAck must carry a usable nonzero
+// generation containing a canonical parseable empty snapshot, and the first
+// RequestDirectory must advance to the next generation with the requested
+// directory present.
+void TestSubscribeBeforeAnyDirectory() {
+    const auto root = MakeFixtureRoot(L"subscribe-first");
+    CreateFileIn(root, L"subscribe-first.txt");
+
+    // Real frame writer/pipe canceller: this client reads actual frames off
+    // the control pipe, exactly like EngineClient does.
+    ffengine::UiServer server;
+    const DWORD sessionId = GetCurrentProcessId() + 6;
+    const bool started = server.Start(sessionId);
+    Check(started, "subscribe-first UI server starts");
+    if (!started) {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+    HANDLE client = ConnectToServer(PipeName(sessionId));
+    Check(client != INVALID_HANDLE_VALUE, "subscribe-first client connects before any directory request");
+    if (client == INVALID_HANDLE_VALUE) {
+        server.Stop();
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    Check(SendSubscribe(client), "subscribe-first client subscribes before any directory request");
+    auto ack = ReadFrameUntilType(client, static_cast<uint16_t>(ffprotocol::UiMessageType::SubscribeAck),
+                                  kWaitDeadline);
+    Check(ack.has_value(), "subscribe-first client receives a SubscribeAck");
+    if (!ack.has_value()) {
+        CloseHandle(client);
+        server.Stop();
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+    Check(ack->payload.size() >= sizeof(ffprotocol::SubscribeAckPayload),
+          "subscribe-first SubscribeAck carries its fixed header");
+    ffprotocol::SubscribeAckPayload ackHeader{};
+    std::memcpy(&ackHeader, ack->payload.data(), sizeof(ackHeader));
+    std::wstring sectionPrefix(
+        reinterpret_cast<const wchar_t*>(ack->payload.data() + sizeof(ackHeader)),
+        ackHeader.sectionNameLengthChars);
+    std::printf("subscribe-first: acked generation %llu, prefix length %u\n",
+                static_cast<unsigned long long>(ackHeader.generationId),
+                static_cast<unsigned>(ackHeader.sectionNameLengthChars));
+    Check(ackHeader.generationId != 0, "SubscribeAck never advertises generation zero");
+    Check(!sectionPrefix.empty(), "SubscribeAck carries a section prefix");
+
+    const std::wstring sectionName = sectionPrefix + L"." + std::to_wstring(ackHeader.generationId);
+    auto initialSnapshot = ValidateAndParseSnapshotSection(sectionName, ackHeader.generationId);
+    Check(initialSnapshot.has_value(),
+          "the startup generation maps, validates, and parses with EngineClient semantics");
+    if (initialSnapshot.has_value()) {
+        Check(initialSnapshot->empty(),
+              "the startup generation contains a canonical empty snapshot (zero directories)");
+    }
+
+    // Only now is a directory requested; the next generation must advance by
+    // exactly one and contain the requested directory.
+    Check(SendRequestDirectory(client, root.wstring()), "subscribe-first client requests a directory");
+    auto next = ReadFrameUntilType(client, static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                   kWaitDeadline);
+    Check(next.has_value(), "subscribe-first client receives the first NewGeneration");
+    if (next.has_value()) {
+        Check(next->payload.size() == sizeof(ffprotocol::NewGenerationPayload),
+              "NewGeneration carries its fixed payload");
+        ffprotocol::NewGenerationPayload nextPayload{};
+        std::memcpy(&nextPayload, next->payload.data(), sizeof(nextPayload));
+        Check(nextPayload.generationId == ackHeader.generationId + 1,
+              "first directory request advances the generation by exactly one");
+        auto populated = ValidateAndParseSnapshotSection(sectionPrefix + L"." +
+                                                             std::to_wstring(nextPayload.generationId),
+                                                         nextPayload.generationId);
+        Check(populated.has_value() && populated->contains(root.wstring()),
+              "the advanced generation contains the requested directory");
+    }
+
+    CloseHandle(client);
+    server.Stop();
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "subscribe-first fixture is removed");
+}
+
+// fix-initial-snapshot-handshake (tasks.md 5.x): two UI clients subscribe
+// before any directory publication. Both must be acked with the same current
+// generation, both must map and parse the same empty snapshot, and both must
+// receive the next NewGeneration when a directory is published. No
+// client-specific mutation of the shared generation.
+void TestMultiClientSubscribeBeforePublication() {
+    const auto root = MakeFixtureRoot(L"multi-subscribe");
+    CreateFileIn(root, L"multi-subscribe.txt");
+
+    ffengine::UiServer server;
+    const DWORD sessionId = GetCurrentProcessId() + 7;
+    const bool started = server.Start(sessionId);
+    Check(started, "multi-subscribe UI server starts");
+    if (!started) {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+    HANDLE first = ConnectToServer(PipeName(sessionId));
+    HANDLE second = ConnectToServer(PipeName(sessionId));
+    Check(first != INVALID_HANDLE_VALUE && second != INVALID_HANDLE_VALUE,
+          "two clients connect before any directory publication");
+    if (first == INVALID_HANDLE_VALUE || second == INVALID_HANDLE_VALUE) {
+        if (first != INVALID_HANDLE_VALUE) CloseHandle(first);
+        if (second != INVALID_HANDLE_VALUE) CloseHandle(second);
+        server.Stop();
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    Check(SendSubscribe(first) && SendSubscribe(second), "both clients subscribe before publication");
+    auto firstAck = ReadFrameUntilType(first, static_cast<uint16_t>(ffprotocol::UiMessageType::SubscribeAck),
+                                       kWaitDeadline);
+    auto secondAck = ReadFrameUntilType(second, static_cast<uint16_t>(ffprotocol::UiMessageType::SubscribeAck),
+                                        kWaitDeadline);
+    Check(firstAck.has_value() && secondAck.has_value(), "both clients receive SubscribeAck");
+    if (!firstAck.has_value() || !secondAck.has_value()) {
+        CloseHandle(first);
+        CloseHandle(second);
+        server.Stop();
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+    ffprotocol::SubscribeAckPayload firstHeader{};
+    ffprotocol::SubscribeAckPayload secondHeader{};
+    std::memcpy(&firstHeader, firstAck->payload.data(), sizeof(firstHeader));
+    std::memcpy(&secondHeader, secondAck->payload.data(), sizeof(secondHeader));
+    Check(firstHeader.generationId != 0 && secondHeader.generationId != 0,
+          "both clients are acked with a nonzero generation");
+    Check(firstHeader.generationId == secondHeader.generationId,
+          "both clients receive the same current generation");
+
+    std::wstring firstPrefix(
+        reinterpret_cast<const wchar_t*>(firstAck->payload.data() + sizeof(firstHeader)),
+        firstHeader.sectionNameLengthChars);
+    auto firstSnapshot = ValidateAndParseSnapshotSection(
+        firstPrefix + L"." + std::to_wstring(firstHeader.generationId), firstHeader.generationId);
+    auto secondSnapshot = ValidateAndParseSnapshotSection(
+        firstPrefix + L"." + std::to_wstring(secondHeader.generationId), secondHeader.generationId);
+    Check(firstSnapshot.has_value() && secondSnapshot.has_value(),
+          "both clients map and parse the startup generation simultaneously");
+    Check(firstSnapshot.has_value() && firstSnapshot->empty()
+              && secondSnapshot.has_value() && secondSnapshot->empty(),
+          "both clients parse the same empty startup snapshot");
+
+    // One client requests a directory; BOTH clients must be notified.
+    Check(SendRequestDirectory(first, root.wstring()), "first client requests a directory");
+    auto firstNext = ReadFrameUntilType(first, static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                        kWaitDeadline);
+    auto secondNext = ReadFrameUntilType(second, static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                         kWaitDeadline);
+    Check(firstNext.has_value() && secondNext.has_value(),
+          "both clients receive the next NewGeneration after one publication");
+    if (firstNext.has_value() && secondNext.has_value()) {
+        ffprotocol::NewGenerationPayload firstPayload{};
+        ffprotocol::NewGenerationPayload secondPayload{};
+        std::memcpy(&firstPayload, firstNext->payload.data(), sizeof(firstPayload));
+        std::memcpy(&secondPayload, secondNext->payload.data(), sizeof(secondPayload));
+        Check(firstPayload.generationId == firstHeader.generationId + 1
+                  && secondPayload.generationId == secondHeader.generationId + 1,
+              "both clients observe the same next generation");
+        auto populated = ValidateAndParseSnapshotSection(
+            firstPrefix + L"." + std::to_wstring(firstPayload.generationId), firstPayload.generationId);
+        Check(populated.has_value() && populated->contains(root.wstring()),
+              "the shared next generation contains the requested directory for both clients");
+    }
+
+    CloseHandle(first);
+    CloseHandle(second);
+    server.Stop();
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+}
+
+// fix-initial-snapshot-handshake (tasks.md 6.x): rapid server start ->
+// connect -> subscribe -> map -> parse -> disconnect -> stop cycles with
+// unique session epochs. No sleeps are used to make it pass; the loop simply
+// must not observe a generation-0 ack, ERROR_INVALID_DATA, a missing-mapping
+// race, a leaked named-mapping collision, or a hang.
+void TestStartupSubscribeStress() {
+    constexpr int kIterations = 100;
+    int failedIterations = 0;
+    for (int iteration = 0; iteration < kIterations; ++iteration) {
+        ffengine::UiServer server;
+        // Offset far beyond the other tests' fixed session ids and unique per
+        // iteration: a leaked mapping or pipe from a previous iteration must
+        // never be silently reused.
+        const DWORD sessionId = static_cast<DWORD>(GetCurrentProcessId() + 100 + iteration);
+        if (!server.Start(sessionId)) {
+            ++failedIterations;
+            continue;
+        }
+        HANDLE client = ConnectToServer(PipeName(sessionId));
+        if (client == INVALID_HANDLE_VALUE) {
+            ++failedIterations;
+            server.Stop();
+            continue;
+        }
+        bool iterationOk = SendSubscribe(client);
+        (void)iterationOk;
+        auto ack = ReadFrameUntilType(client, static_cast<uint16_t>(ffprotocol::UiMessageType::SubscribeAck),
+                                      kWaitDeadline);
+        if (!ack.has_value() || ack->payload.size() < sizeof(ffprotocol::SubscribeAckPayload)) {
+            ++failedIterations;
+        } else {
+            ffprotocol::SubscribeAckPayload ackHeader{};
+            std::memcpy(&ackHeader, ack->payload.data(), sizeof(ackHeader));
+            if (ackHeader.generationId == 0) {
+                ++failedIterations;
+            } else {
+                std::wstring prefix(
+                    reinterpret_cast<const wchar_t*>(ack->payload.data() + sizeof(ackHeader)),
+                    ackHeader.sectionNameLengthChars);
+                if (!ValidateAndParseSnapshotSection(prefix + L"." + std::to_wstring(ackHeader.generationId),
+                                                     ackHeader.generationId).has_value()) {
+                    ++failedIterations;
+                }
+            }
+        }
+        CloseHandle(client);
+        server.Stop();
+    }
+    Check(failedIterations == 0,
+          "100 rapid startup/subscription cycles produce no generation-0 ack, no invalid-data "
+          "validation, no mapping race, and no named-mapping collision");
+}
+
 } // namespace
 
 int main() {
@@ -425,5 +753,9 @@ int main() {
     TestIdleShutdown();
     TestIndexedSearchCancellationIsConnectionScoped();
     TestFailedStartRollsBackSnapshot();
+    TestUiServerStartFailsOnInitialPublicationFailure();
+    TestSubscribeBeforeAnyDirectory();
+    TestMultiClientSubscribeBeforePublication();
+    TestStartupSubscribeStress();
     return FailureCount() == 0 ? 0 : 1;
 }

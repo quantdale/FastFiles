@@ -46,10 +46,19 @@ void TestPublisherUsesImmutableGenerations() {
     Check(publisher.Start(GetCurrentProcessId()), "snapshot publisher starts");
     if (publisher.SectionName().empty()) return;
 
+    // fix-initial-snapshot-handshake: startup alone must expose a usable
+    // generation -- no directory has been published at this point.
+    const uint64_t initialGeneration = publisher.CurrentGeneration();
+    Check(initialGeneration == ffengine::SnapshotPublisher::kFirstGeneration,
+          "startup commits the first usable generation before any publication");
+    HANDLE startupMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
+    Check(startupMapping != nullptr, "the startup generation mapping opens read-only");
+    if (startupMapping != nullptr) CloseHandle(startupMapping);
+
     const std::map<std::wstring, ffprotocol::SnapshotDirectory> first{
         {L"C:\\", MakeDirectory(L"first.txt", 11)}};
     const uint64_t firstGeneration = publisher.Publish(first);
-    Check(firstGeneration == 1, "first publication receives generation one");
+    Check(firstGeneration == initialGeneration + 1, "first publication advances the generation by one");
 
     HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
     Check(mapping != nullptr, "snapshot mapping opens read-only");
@@ -82,10 +91,17 @@ void TestPublisherUsesImmutableGenerations() {
     const std::map<std::wstring, ffprotocol::SnapshotDirectory> second{
         {L"C:\\", MakeDirectory(L"second.txt", 22)}};
     const std::wstring firstSectionName = publisher.CurrentSectionName();
+    // fix-initial-snapshot-handshake: a stale reader that still holds
+    // generation `firstGeneration` open must stay safe while the publisher
+    // advances -- the retained view keeps parsing the old immutable payload.
+    const uint64_t secondGeneration = publisher.Publish(second);
+    Check(secondGeneration == firstGeneration + 1, "second publication increments generation");
+    Check(firstHeader->generation == firstGeneration &&
+              ffprotocol::ParseSnapshot(view + sizeof(*firstHeader),
+                                        static_cast<size_t>(firstHeader->payloadSizeBytes)).has_value(),
+          "a stale prior-generation reader remains safe across publication");
     UnmapViewOfFile(view);
     CloseHandle(mapping);
-    const uint64_t secondGeneration = publisher.Publish(second);
-    Check(secondGeneration == 2, "second publication increments generation");
 
     Check(firstSectionName != publisher.CurrentSectionName(),
           "each publication receives a distinct immutable mapping name");
@@ -120,7 +136,7 @@ void TestPublisherUsesImmutableGenerations() {
           "large-directory fixture is above the old 8 MiB cliff but below the bounded payload");
     UnmapViewOfFile(view);
     CloseHandle(mapping);
-    Check(publisher.Publish(large) == 3,
+    Check(publisher.Publish(large) == secondGeneration + 1,
           "large directory publishes without falling into the old fixed-slot capacity cliff");
 
     std::map<std::wstring, ffprotocol::SnapshotDirectory> oversized;
@@ -132,10 +148,16 @@ void TestPublisherUsesImmutableGenerations() {
     Check(publisher.Publish(oversized) == 0, "oversized publication fails closed");
     Check(publisher.CurrentGeneration() == generationBeforeFailure,
           "failed publication does not advance or announce a generation");
+    const std::wstring priorPrefix = publisher.SectionName();
     publisher.Stop();
 
     Check(publisher.Start(GetCurrentProcessId() + 1), "snapshot publisher restarts");
-    Check(publisher.Publish(first) == 1, "restart begins a fresh generation sequence");
+    Check(!priorPrefix.empty() && publisher.SectionName() != priorPrefix,
+          "restart creates a fresh epoch prefix");
+    Check(publisher.CurrentGeneration() == ffengine::SnapshotPublisher::kFirstGeneration,
+          "restart again exposes a usable initial generation");
+    Check(publisher.Publish(first) == ffengine::SnapshotPublisher::kFirstGeneration + 1,
+          "restart begins a fresh generation sequence");
     publisher.Stop();
 }
 
@@ -185,13 +207,16 @@ void TestPublisherUnderThreadContention() {
     std::sort(generations.begin(), generations.end());
     bool contiguous = true;
     for (size_t index = 0; index < generations.size(); ++index) {
-        if (generations[index] != index + 1) {
+        // fix-initial-snapshot-handshake: the startup empty snapshot occupies
+        // kFirstGeneration, so the contended publishes are contiguous from
+        // kFirstGeneration + 1.
+        if (generations[index] != index + ffengine::SnapshotPublisher::kFirstGeneration + 1) {
             contiguous = false;
             break;
         }
     }
     Check(contiguous, "contended publications receive unique contiguous generations");
-    Check(publisher.CurrentGeneration() == kPublicationCount,
+    Check(publisher.CurrentGeneration() == kPublicationCount + ffengine::SnapshotPublisher::kFirstGeneration,
           "contended publications advance the publisher to the final generation");
 
     HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
@@ -203,7 +228,7 @@ void TestPublisherUnderThreadContention() {
             const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
             Check(header->formatVersion == ffprotocol::kSnapshotFormatVersion,
                   "contended publication keeps the supported snapshot format version");
-            Check(header->generation == kPublicationCount,
+            Check(header->generation == kPublicationCount + ffengine::SnapshotPublisher::kFirstGeneration,
                   "contended publication keeps the final immutable generation");
             Check(header->payloadSizeBytes <= ffprotocol::kSnapshotMaximumPayloadBytes,
                   "contended publication keeps the payload within the explicit bound");
@@ -230,8 +255,9 @@ void TestCaseVariantSnapshotKeysCoalesce() {
     Check(publisher.Start(GetCurrentProcessId() + 4),
           "case-insensitive snapshot publisher starts");
     if (publisher.SectionName().empty()) return;
-    Check(publisher.Publish(snapshot) == 1,
-          "case-insensitive snapshot map uses the publisher overload");
+    const uint64_t generationBeforePublish = publisher.CurrentGeneration();
+    Check(publisher.Publish(snapshot) == generationBeforePublish + 1,
+          "case-insensitive snapshot map uses the publisher overload and advances by one");
     publisher.Stop();
 }
 
@@ -255,6 +281,124 @@ void TestTwoPassSerializerBounds() {
           "an empty snapshot still has its directory-count payload");
 }
 
+// fix-initial-snapshot-handshake (tasks.md 1.x): startup before any user
+// directory is published must expose a valid, canonical, parseable empty
+// snapshot as the current generation.
+void TestPublisherStartupEmptySnapshot() {
+    ffengine::SnapshotPublisher publisher;
+    Check(publisher.Start(GetCurrentProcessId() + 8), "startup snapshot publisher starts");
+    if (publisher.SectionName().empty()) return;
+
+    const uint64_t initialGeneration = publisher.CurrentGeneration();
+    Check(initialGeneration == ffengine::SnapshotPublisher::kFirstGeneration,
+          "current generation is nonzero and equals the first usable generation after startup");
+    Check(initialGeneration != 0, "current generation is nonzero after successful startup");
+
+    const std::wstring sectionName = publisher.CurrentSectionName();
+    Check(!sectionName.empty(), "current section name is available after startup");
+    HANDLE mapping = OpenFileMappingW(FILE_MAP_READ, FALSE, sectionName.c_str());
+    Check(mapping != nullptr, "current section name opens read-only");
+    if (mapping == nullptr) {
+        publisher.Stop();
+        return;
+    }
+    const auto* view = static_cast<const uint8_t*>(MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0));
+    Check(view != nullptr, "current section maps read-only");
+    if (view == nullptr) {
+        CloseHandle(mapping);
+        publisher.Stop();
+        return;
+    }
+
+    const auto* header = reinterpret_cast<const ffprotocol::SnapshotSharedHeader*>(view);
+    Check(header->formatVersion == ffprotocol::kSnapshotFormatVersion,
+          "startup generation header format version is current");
+    Check(ffprotocol::IsSnapshotFormatCompatible(header->formatVersion),
+          "startup generation header is format-compatible");
+    Check(header->generation == initialGeneration,
+          "startup generation header commits the acknowledged generation");
+    Check(header->payloadSizeBytes == ffprotocol::SerializedSnapshotSize(
+              std::map<std::wstring, ffprotocol::SnapshotDirectory>{}),
+          "startup generation payload size equals the canonical serialized empty snapshot");
+    const auto parsed = ffprotocol::ParseSnapshot(view + sizeof(*header),
+                                                  static_cast<size_t>(header->payloadSizeBytes));
+    Check(parsed.has_value(), "startup generation payload parses with the production parser");
+    Check(parsed.has_value() && parsed->empty(),
+          "startup generation parses to an empty directory map");
+
+    // Immutability: without a Publish, the committed generation does not move.
+    const std::wstring stableSectionName = publisher.CurrentSectionName();
+    const uint64_t stableGeneration = publisher.CurrentGeneration();
+    Check(stableSectionName == sectionName && stableGeneration == initialGeneration,
+          "startup generation remains immutable until a publication");
+    UnmapViewOfFile(view);
+    CloseHandle(mapping);
+
+    // A subsequent non-empty publication advances by exactly one.
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> directories{
+        {L"C:\\startup", MakeDirectory(L"after-start.txt", 7)}};
+    const uint64_t nextGeneration = publisher.Publish(directories);
+    Check(nextGeneration == initialGeneration + 1,
+          "subsequent non-empty publication advances by exactly one generation");
+    Check(publisher.CurrentGeneration() == nextGeneration,
+          "publisher current generation follows the publication");
+
+    // A failed later publication preserves the prior valid generation.
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> oversized;
+    ffprotocol::SnapshotDirectory oversizedDirectory;
+    oversizedDirectory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+    const size_t oversizedPathLength = ffprotocol::kSnapshotMaximumPayloadBytes / sizeof(wchar_t) + 1;
+    oversized.emplace(std::wstring(oversizedPathLength, L'x'), std::move(oversizedDirectory));
+    Check(publisher.Publish(oversized) == 0, "failed later publication returns zero");
+    Check(publisher.CurrentGeneration() == nextGeneration,
+          "failed later publication preserves the prior valid generation");
+    const std::wstring priorPrefix = publisher.SectionName();
+    publisher.Stop();
+
+    // Restart: fresh epoch prefix, usable initial generation again.
+    Check(publisher.Start(GetCurrentProcessId() + 9), "startup snapshot publisher restarts");
+    Check(!priorPrefix.empty() && publisher.SectionName() != priorPrefix,
+          "restart creates a fresh epoch/prefix");
+    Check(publisher.CurrentGeneration() == ffengine::SnapshotPublisher::kFirstGeneration,
+          "restart again provides a usable initial generation");
+    HANDLE restartMapping = OpenFileMappingW(FILE_MAP_READ, FALSE, publisher.CurrentSectionName().c_str());
+    Check(restartMapping != nullptr, "restarted startup generation opens read-only");
+    if (restartMapping != nullptr) CloseHandle(restartMapping);
+    publisher.Stop();
+}
+
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+// fix-initial-snapshot-handshake (tasks.md 8.x): initial publication failure
+// must fail Start closed -- no usable generation, no leftover prefix.
+void TestPublisherStartFailureInjection() {
+    ffengine::SnapshotPublisher publisher;
+
+    ffengine::SnapshotPublisher::SetCreateFileMappingHook(
+        [](const std::wstring&) -> HANDLE { return nullptr; });
+    Check(!publisher.Start(GetCurrentProcessId() + 10),
+          "CreateFileMappingW failure on the initial generation fails Start");
+    Check(publisher.CurrentGeneration() == 0,
+          "failed startup leaves the generation at the zero sentinel");
+    Check(publisher.SectionName().empty(),
+          "failed startup rolls back the section prefix");
+    ffengine::SnapshotPublisher::SetCreateFileMappingHook({});
+    Check(publisher.Start(GetCurrentProcessId() + 11),
+          "publisher starts again once the injection is cleared");
+    publisher.Stop();
+
+    ffengine::SnapshotPublisher::SetMapViewOfFileHook(
+        [](HANDLE) -> uint8_t* { return nullptr; });
+    Check(!publisher.Start(GetCurrentProcessId() + 12),
+          "MapViewOfFile failure on the initial generation fails Start");
+    Check(publisher.CurrentGeneration() == 0 && publisher.SectionName().empty(),
+          "failed startup rolls back mapping and prefix state");
+    ffengine::SnapshotPublisher::SetMapViewOfFileHook({});
+    Check(publisher.Start(GetCurrentProcessId() + 13),
+          "publisher starts again after MapViewOfFile injection is cleared");
+    publisher.Stop();
+}
+#endif
+
 } // namespace
 
 int main() {
@@ -262,5 +406,9 @@ int main() {
     TestPublisherUnderThreadContention();
     TestCaseVariantSnapshotKeysCoalesce();
     TestTwoPassSerializerBounds();
+    TestPublisherStartupEmptySnapshot();
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+    TestPublisherStartFailureInjection();
+#endif
     return FailureCount() == 0 ? 0 : 1;
 }

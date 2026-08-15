@@ -52,6 +52,11 @@ enum class DiagnosticCode : uint32_t {
     FFDIAG_PROJECTION_MEMORY_PRESSURE = 33,
     FFDIAG_ENGINE_SIGNATURE_REJECTED = 34,
     FFDIAG_AUTHENTICODE_PINS_UNCONFIGURED = 35,
+    // fix-initial-snapshot-handshake: a UI subscription arrived while the
+    // server had no committed snapshot generation to acknowledge (internal
+    // invariant violation -- UiServer::Start must commit one before the
+    // listener opens). Metadata-only, as every diagnostic is.
+    FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID = 36,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

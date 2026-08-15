@@ -697,6 +697,20 @@ void UiServer::HandleConnection(HANDLE pipe) {
 
         switch (*messageType) {
             case UiMessageType::Subscribe: {
+                // fix-initial-snapshot-handshake: never acknowledge a
+                // subscription with an unusable snapshot. UiServer::Start
+                // commits a usable generation before exposing the listener,
+                // so this branch is unreachable in normal operation; it is a
+                // fail-closed guard so an internal regression surfaces as a
+                // stage-specific diagnostic instead of an infinite client
+                // reconnect loop over an advertised invalid generation.
+                if (snapshot_.SectionName().empty() || snapshot_.CurrentGeneration() == 0) {
+                    ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                  ffprotocol::DiagnosticCode::FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID,
+                                                  {}, {}, L"subscribe-without-valid-snapshot",
+                                                  ERROR_INVALID_STATE, 0});
+                    goto disconnected;
+                }
                 {
                     std::lock_guard<std::mutex> lock(clientsMutex_);
                     subscribedClients_.push_back(client);
