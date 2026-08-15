@@ -198,3 +198,7 @@ Rendering Home SHALL NOT perform network access, recursive filesystem enumeratio
 #### Scenario: Home renders from local state only
 - **WHEN** Home paints
 - **THEN** it draws only from in-memory state and cached icons, with work proportional to the small number of visible entries
+
+## Coordination: semantic-uia-core-surfaces
+
+This capability is complemented by the `ui-automation` specification, which requires this surface to expose its real semantics through Microsoft UI Automation (WM_GETOBJECT fragment root, `UiaSurface` projection seam, stable runtime IDs, bounded on-demand item providers, semantic events). Provider work must never create a parallel accessibility-only state model; it projects the exact state this specification defines.

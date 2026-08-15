@@ -35,8 +35,10 @@ $script:UiaEventIdResolver = @{
     ElementRemoved    = { [System.Windows.Automation.AutomationElementIdentifiers]::StructureChangedEvent }
 }
 
-# Pattern names this driver dispatches on (live + mock).
-$script:UiaPatternNames = @('Invoke','SelectionItem','Selection','Scroll','Value','Window','Drag')
+# Pattern names this driver dispatches on (live + mock). ScrollItem and
+# ItemContainer are the standard virtualization/scroll-into-view capabilities
+# exposed by the FastFiles UIA providers (semantic-uia-core-surfaces).
+$script:UiaPatternNames = @('Invoke','SelectionItem','Selection','Scroll','ScrollItem','ItemContainer','Value','Window','Drag')
 
 # VK codes for SendInput keyboard fallback.
 $script:UiaVkMap = @{

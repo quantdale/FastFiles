@@ -46,3 +46,7 @@ The column view SHALL handle permission-denied and no-longer-existing directorie
 #### Scenario: A directory disappears between listing and selection
 - **WHEN** a user selects a folder that was listed but has since been deleted or moved
 - **THEN** the column view SHALL display a clear "no longer available" message for that item and SHALL NOT crash or hang
+
+## Coordination: semantic-uia-core-surfaces
+
+This capability is complemented by the `ui-automation` specification, which requires this surface to expose its real semantics through Microsoft UI Automation (WM_GETOBJECT fragment root, `UiaSurface` projection seam, stable runtime IDs, bounded on-demand item providers, semantic events). Provider work must never create a parallel accessibility-only state model; it projects the exact state this specification defines.

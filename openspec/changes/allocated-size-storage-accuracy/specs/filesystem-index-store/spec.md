@@ -10,7 +10,7 @@ allocated (on-disk) size, with an explicit unknown state, through scan,
 journal, durable store, in-memory projection, snapshot, and folder
 aggregates.
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Per-Entry Logical and Allocated Size with Explicit Unknown
 

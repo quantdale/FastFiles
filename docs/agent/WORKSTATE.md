@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-15T16:00:00+08:00
-Status: ACTIVE SESSION — allocated-size-storage-accuracy implementation; derive live Git state before resuming
+Last updated: 2026-08-15T17:40:00+08:00
+Status: COMPLETE — semantic-uia-core-surfaces implemented, validated, committed, pushed
 
 ## Allocated-size session record (2026-08-15)
 
@@ -1926,3 +1926,68 @@ Status: COMPLETE; pushed to `origin/main` at `2d0a74f` baseline + 3 commits (see
 - Commits: `9611e08` (typed workspace locations), `4386d99` (unavailable + keyboard hardening), docs commit (openspec + this file).
 - Session artifacts not committed: `jobs.json`, `run.json` (baseline CI evidence for `2d0a74f`, run 31856328104); build helper `build/devshell.bat`, `build/vsrun.ps1` (untracked build/ noise).
 - NEXT recommended slice (do NOT start without instruction): New Window, per the mission.
+
+## Session record 2026-08-15 — semantic UIA for core surfaces (semantic-uia-core-surfaces)
+
+Status: COMPLETE; implementation committed and pushed to `origin/main` (see git log).
+
+- **Change:** `openspec/changes/semantic-uia-core-surfaces/` (proposal/design/
+  tasks/specs/ui-automation + evidence/e2e-validation.md). New canonical
+  `openspec/specs/ui-automation/spec.md`; coordination notes added to the
+  `column-view-browsing`, `quick-access-home`, `search-ui` canonical specs.
+- **Providers (all in the FastFiles UI target):** `UiaProviderBase.{h,cpp}`
+  (COM base, `UiaOwnerState` zombie token, VARIANT/runtime-ID/event helpers),
+  `UiaRuntimeIds.h` (namespaced runtime IDs: pane / column-path hash /
+  item FRN-or-path hash), `UiaNotifications.h` (post-lock semantic event
+  router), `UiaGeometry.h` (render-math rects, DPI conversion, offscreen),
+  `ColumnViewUiaProvider.{h,cpp}` (fragment root Window->ColumnView group->
+  panes->List columns->ListItem items; Home groups/sections/items/Clear
+  Buttons; Selection/SelectionItem/Invoke/Scroll/ScrollItem/ItemContainer
+  patterns), `SearchUiaProvider.{h,cpp}` (fragment root on the LVS_OWNERDATA
+  list via subclassed WM_GETOBJECT; SelectionItem/Invoke/ScrollItem/
+  ItemContainer). Seam: `src/ui/include/ffui/UiaSurface.h` (pure projection
+  interface implemented by ColumnView/SearchPanel; actions route into the
+  exact real mutation logic; events fire post-lock).
+- **Wiring:** WindowShell WM_GETOBJECT (UiaRootObjectId) + per-render
+  geometry push + WM_SETFOCUS/KILLFOCUS + WM_DESTROY provider release;
+  ColumnView/SearchPanel implement UiaSurface; events on
+  ActivateItem/OnKeyDown/SelectAll/navigation/Home refresh/snapshot refresh/
+  LVN_ITEMCHANGED/result replacement. Stale elements self-verify identity
+  per access and return UIA_E_ELEMENTNOTAVAILABLE (never retarget).
+- **Driver:** `ScrollItem`/`ItemContainer` patterns, `Send-UiaMouseDrag`,
+  `-Modifier` on `Send-UiaMouseInput`, and an ESC dismissal after the ALT-tap
+  in `Set-UiaForeground` (the ALT-tap activated the app menu bar and
+  swallowed the next chord). `tests/uia-driver/CMakeLists.txt` now
+  re-resolves `FF_PWSH_EXECUTABLE` when the cached pwsh path is dead — this
+  FIXED the pre-existing CTest "Not Run" quirk (a PowerShell 7.6.4->7.6.5
+  upgrade had removed the cached WindowsApps path); all three pwsh-gated
+  tests now run under CTest and pass.
+- **Tests (headless, fake UiaSurface):** `ffcolumnview_uia_tests`,
+  `ffhome_uia_tests`, `ffsearch_uia_tests`, `ffuia_geometry_tests`,
+  `ffuia_events_tests` (+10k-item enumeration benchmark: 291 ms first walk,
+  155 ms cached re-walk; cache bounded at 4096 items). CTest-registered.
+- **Live E2E:** `windows-ui-automation-validation` capability reworked —
+  previously provider-absence SKIPs are now real assertions
+  (launch/chrome, ColumnView structure + patterns, Home surface with Clear
+  buttons, error-state text element, search panel surface). Result:
+  `OVERALL: PASS (12 passed, 13 skipped with recorded reasons)` on this
+  host. The 13 SKIPs are `engine-connect-unavailable` (pre-existing host
+  state: the engine cannot publish an initial snapshot generation —
+  `engine-connect-snapshot-map-failed` 0xd — reproduced on the unmodified
+  baseline with my changes stashed; unrelated to this change) plus the
+  documented out-of-scope ones (treemap, privileged scan, service toggle).
+- **Validation:** debug CTest 60/60 (pwsh-gated tests now included),
+  release-test 60/60, analyze build clean (/analyze, warnings-as-errors),
+  `verify.ps1 build` PASS (was FAIL only due to the pwsh Not Run quirk —
+  now fixed), `verify.ps1 doctor` PASS, check_source_markers /
+  check_diagnostic_policy / check_doc_drift PASS, OpenSpec strict 50/50
+  (fixed the pre-existing allocated-size delta header format), git diff
+  --check clean.
+- **Environment note:** debug CMake cache was temporarily reconfigured with
+  `FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON` during E2E work and reverted to
+  OFF (the bypass breaks the portable Authenticode suite); the E2E result is
+  identical either way. The engine-connect host blocker was NOT fixed
+  (pre-existing, outside this change).
+- NEXT recommended slice (do NOT start without instruction): Treemap UIA
+  provider (documented follow-up) or the engine-connect initial-snapshot
+  gap in recovery-degraded-browsing.

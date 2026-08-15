@@ -110,3 +110,7 @@ The result list SHALL render only the rows currently within (or immediately adja
 #### Scenario: User disables search history recording
 - **WHEN** a user disables search history recording
 - **THEN** subsequently executed searches SHALL NOT be added to the history, while previously recorded entries (until separately cleared) remain unaffected
+
+## Coordination: semantic-uia-core-surfaces
+
+This capability is complemented by the `ui-automation` specification, which requires this surface to expose its real semantics through Microsoft UI Automation (WM_GETOBJECT fragment root, `UiaSurface` projection seam, stable runtime IDs, bounded on-demand item providers, semantic events). Provider work must never create a parallel accessibility-only state model; it projects the exact state this specification defines.

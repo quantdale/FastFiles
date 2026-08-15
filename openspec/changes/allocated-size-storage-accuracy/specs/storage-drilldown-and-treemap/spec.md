@@ -10,7 +10,7 @@ Surfaces allocated (on-disk) size wherever logical size is shown, with honest
 unknown and partial-aggregate rendering, while keeping treemap area
 logical-size-driven (storage-analysis design D5).
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Drill-Down Shows Logical and Allocated Size
 

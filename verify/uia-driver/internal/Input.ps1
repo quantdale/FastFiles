@@ -173,12 +173,16 @@ function Set-UiaForeground {
         # foreground ownership, which makes SendInput-based input land in the wrong
         # window (flaky). Robust sequence: restore minimized windows, set foreground,
         # tap ALT once (releases the foreground lock per user32 docs), retry, and
-        # poll-verify GetForegroundWindow == target before returning.
+        # poll-verify GetForegroundWindow == target before returning. The ALT tap
+        # activates the window's menu bar on menu-bearing windows, which swallows
+        # the next chord; ESC dismisses it.
         for ($i = 0; $i -lt 5; $i++) {
             $null = [FfNativeInput]::ShowWindow($hwnd, 9)      # SW_RESTORE (unminimize)
             $null = [FfNativeInput]::SetForegroundWindow($hwnd)
             $null = [FfNativeInput]::KeyDown(0x12)             # ALT down/up releases the lock
             $null = [FfNativeInput]::KeyUp(0x12)
+            $null = [FfNativeInput]::KeyDown(0x1B)             # ESC dismisses an activated menu
+            $null = [FfNativeInput]::KeyUp(0x1B)
             $null = [FfNativeInput]::SetForegroundWindow($hwnd)
             Start-Sleep -Milliseconds 200
             if ([FfNativeInput]::GetForegroundWindow() -eq $hwnd) { return $true }
@@ -253,13 +257,42 @@ function Send-UiaText {
 }
 
 function Send-UiaMouseInput {
-    param($Driver, [int] $X, [int] $Y, [ValidateSet('Left', 'Right')][string] $Button = 'Left', [ValidateSet('Click', 'Down', 'Up')][string] $Action = 'Click', [switch] $NoSend)
+    param($Driver, [int] $X, [int] $Y, [ValidateSet('Left', 'Right')][string] $Button = 'Left', [ValidateSet('Click', 'Down', 'Up')][string] $Action = 'Click', [ValidateSet('', 'Ctrl', 'Shift', 'Alt')][string] $Modifier = '', [switch] $NoSend)
     if (-not $NoSend) {
+        $vk = if ($Modifier -eq 'Ctrl') { 0x11 } elseif ($Modifier -eq 'Shift') { 0x10 } elseif ($Modifier -eq 'Alt') { 0x12 } else { 0 }
+        if ($vk -ne 0) { [void][FfNativeInput]::KeyDown($vk) }
         $null = [FfNativeInput]::MouseMove($X, $Y)
         $isLeft = ($Button -eq 'Left')
         if ($Action -in @('Click', 'Down')) { $null = [FfNativeInput]::MouseButton($isLeft, $true) }
         if ($Action -in @('Click', 'Up')) { $null = [FfNativeInput]::MouseButton($isLeft, $false) }
+        if ($vk -ne 0) { [void][FfNativeInput]::KeyUp($vk) }
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; action = $Action; x = $X; y = $Y; dryRun = $NoSend }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; action = $Action; x = $X; y = $Y; modifier = $Modifier; dryRun = $NoSend }
+}
+
+function Send-UiaMouseDrag {
+    <#
+        Pointer drag from one screen point to another (Down -> stepped moves ->
+        Up). Used by the drag scenarios with programmatic filesystem
+        verification; the source/destination geometry always comes from UIA
+        BoundingRectangles, never from pixels guessed by the caller.
+    #>
+    param($Driver, [int] $FromX, [int] $FromY, [int] $ToX, [int] $ToY,
+          [int] $Steps = 12, [int] $StepDelayMs = 30, [switch] $NoSend)
+    if (-not $NoSend) {
+        $null = [FfNativeInput]::MouseMove($FromX, $FromY)
+        Start-Sleep -Milliseconds 120
+        $null = [FfNativeInput]::MouseButton($true, $true)
+        Start-Sleep -Milliseconds 150
+        for ($i = 1; $i -le $Steps; $i++) {
+            $x = $FromX + [int](($ToX - $FromX) * $i / $Steps)
+            $y = $FromY + [int](($ToY - $FromY) * $i / $Steps)
+            $null = [FfNativeInput]::MouseMove($x, $y)
+            Start-Sleep -Milliseconds $StepDelayMs
+        }
+        Start-Sleep -Milliseconds 200
+        $null = [FfNativeInput]::MouseButton($true, $false)
+    }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }
 }
 

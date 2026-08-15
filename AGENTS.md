@@ -216,8 +216,30 @@ working tree must be clean before the session ends. Do not edit tracked state
 after CI merely to embed that run; keep the rule and historical evidence in
 the documents and derive the latest run externally.
 
-## Workflow: OpenSpec (spec-driven)
+## UI Automation provider conventions (semantic-uia-core-surfaces)
 
+- Custom-rendered surfaces answer `WM_GETOBJECT` (`UiaRootObjectId`) with a
+  fragment root via `UiaReturnRawElementProvider`. Never build
+  accessibility-only state, pixel automation, or hidden test hooks.
+- Providers depend only on the pure `ffui::UiaSurface` seam
+  (`src/ui/include/ffui/UiaSurface.h`); the surfaces (`ColumnView`,
+  `SearchPanel`) implement it, actions route into the exact real mutation
+  logic, and semantic events fire post-lock through the `UiaEventRouter`.
+- Runtime IDs are namespace-scoped (`src/ui/src/UiaRuntimeIds.h`): pane,
+  column path hash, item identity (indexed FRN/volumeRowId, else path).
+  Stale elements self-verify identity on every access and fail with
+  `UIA_E_ELEMENTNOTAVAILABLE` — they must never retarget the new occupant of
+  the same row index.
+- Lifetime: the `UiaOwnerState` token is flipped dead before provider
+  release (WM_DESTROY / surface destructor); client-held elements become
+  safe zombies afterwards. Item providers are created on demand with
+  bounded caches; columns and the search list expose
+  `ItemContainerProvider`; no provider work runs when no client is attached.
+- `BoundingRectangle` is physical screen pixels derived from the live
+  `UiaViewGeometry` (pushed every render); `IsOffscreen` = no intersection
+  with the viewport clip. No 96-DPI assumptions.
+
+## Workflow: OpenSpec (spec-driven)
 Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **12 of 15 changes are fully closed**; the current open work is `openspec/changes/close-independent-validation-gaps/tasks.md` (all tasks open) — that is the current open-work source of truth — plus the recovery change `openspec/changes/recovery-degraded-browsing/tasks.md` (engine discovery/launch reliability, connection-state visibility, degraded-browsing hardening). Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
 
 ## Coding style

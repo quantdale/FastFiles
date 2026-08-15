@@ -59,6 +59,8 @@ function Get-UiaPattern {
             'SelectionItem' { return $Element.GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern) }
             'Selection' { return $Element.GetCurrentPattern([System.Windows.Automation.SelectionPattern]::Pattern) }
             'Scroll' { return $Element.GetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern) }
+            'ScrollItem' { return $Element.GetCurrentPattern([System.Windows.Automation.ScrollItemPattern]::Pattern) }
+            'ItemContainer' { return $Element.GetCurrentPattern([System.Windows.Automation.ItemContainerPattern]::Pattern) }
             'Value' { return $Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern) }
             'Window' { return $Element.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern) }
             'Drag' {
@@ -143,6 +145,23 @@ function Invoke-UiaPattern {
                 'ScrollHorizontal' { $pattern.ScrollHorizontal([double]$Arguments[0]); return $true }
                 'ScrollVertical' { $pattern.ScrollVertical([double]$Arguments[0]); return $true }
                 default { throw "Scroll pattern has no method '$Method'" }
+            }
+        }
+        'ScrollItem' {
+            switch ($Method) {
+                'ScrollIntoView' { $pattern.ScrollIntoView(); return $true }
+                default { throw "ScrollItem pattern has no method '$Method'" }
+            }
+        }
+        'ItemContainer' {
+            switch ($Method) {
+                'FindItemByProperty' {
+                    if ($Arguments.Count -lt 2) { throw 'FindItemByProperty requires (propertyName, value)' }
+                    $prop = [System.Windows.Automation.AutomationElementIdentifiers].GetProperty($Arguments[0] + 'Property')
+                    $propId = $prop.GetValue($null)
+                    return $pattern.FindItemByProperty($null, $propId, $Arguments[1])
+                }
+                default { throw "ItemContainer pattern has no method '$Method'" }
             }
         }
         'Value' {
