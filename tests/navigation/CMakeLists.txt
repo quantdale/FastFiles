@@ -1,6 +1,9 @@
 add_executable(ffnavigation_tests
   test_navigation_workspace.cpp
+  test_home_location.cpp
+  test_recent_folders.cpp
   ../../src/ui/src/NavigationWorkspace.cpp
+  ../../src/ui/src/RecentFolders.cpp
 )
 target_include_directories(ffnavigation_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffnavigation_tests PRIVATE shell32 ole32)

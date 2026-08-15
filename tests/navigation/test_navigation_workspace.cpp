@@ -311,10 +311,16 @@ void TestConcurrentIndependentContextsReadDifferentPaths() {
           "forward navigation in context 3 leaves tab-0 panes at their paths");
     Check(workspace.CanGoForward(), "context 3 forward history intact after interleave");
 }
+// Test runners defined in the other translation units of this executable.
+void RunHomeLocationTests();
+void RunRecentFoldersTests();
+
 int main() {
     TestPathParsing(); TestParentNavigationPath(); TestSyntheticRootContext(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestInitialNavigationFallback(); TestCopyRelativePathBaseResolution();
     TestPerTabPaneContexts();
     TestConcurrentIndependentContextsReadDifferentPaths();
+    RunHomeLocationTests();
+    RunRecentFoldersTests();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

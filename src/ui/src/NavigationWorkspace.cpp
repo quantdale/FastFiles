@@ -9,6 +9,8 @@
 #include <shlobj.h>
 #include <windows.h>
 
+#include "RecentFolders.h"
+
 namespace ffui {
 namespace {
 
@@ -145,7 +147,7 @@ bool ExtractJsonString(const std::wstring& json, const wchar_t* name, size_t fro
 NavigationContext NavigationWorkspace::MakeContext(const std::wstring& path) {
     NavigationContext result;
     result.currentPath = path;
-    result.history.push_back(path);
+    result.history.push_back(NavigationLocation::FromPath(path));
     return result;
 }
 
@@ -170,6 +172,27 @@ std::wstring NavigationWorkspace::TabPath(size_t index) const {
     return tab.panes[pane].currentPath;
 }
 
+NavigationLocation NavigationWorkspace::TabLocation(size_t index) const {
+    if (index >= tabs_.size() || tabs_[index].panes.empty()) return NavigationLocation::FromPath({});
+    const auto& tab = tabs_[index];
+    const size_t pane = (std::min)(tab.activePane, tab.panes.size() - 1);
+    const auto& context = tab.panes[pane];
+    // For a Home tab the path is empty; for This PC the path is also empty but
+    // the kind stays FileSystem -- identical to TabPath's empty return.
+    return NavigationLocation{context.isHomeLocation ? NavigationLocation::Kind::Home : NavigationLocation::Kind::FileSystem,
+                              context.currentPath};
+}
+
+std::vector<std::wstring> NavigationWorkspace::RecentFoldersForHome(size_t maxCount) const {
+    return RecentFolderHistory::RecentForHome(state_.recentFolders, maxCount);
+}
+
+void NavigationWorkspace::ClearRecentFolders() {
+    // quick-access-home 2.3: clearing must persist, so mark the state dirty.
+    RecentFolderHistory::Clear(state_.recentFolders);
+    MarkStateDirty();
+}
+
 bool NavigationWorkspace::IsDualPane() const { return ActiveTab().panes.size() == 2; }
 bool NavigationWorkspace::CanGoBack() const { return ActiveContext().historyIndex > 0; }
 bool NavigationWorkspace::CanGoForward() const {
@@ -177,31 +200,66 @@ bool NavigationWorkspace::CanGoForward() const {
 }
 
 void NavigationWorkspace::Navigate(const std::wstring& path) {
+    Navigate(NavigationLocation::FromPath(path));
+}
+
+void NavigationWorkspace::Navigate(const NavigationLocation& location) {
     auto& context = ActiveContext();
-    if (path == context.currentPath) return;
-    context.history.resize(context.historyIndex + 1);
-    context.history.push_back(path);
+    // quick-access-home 1.3: kind-aware same-location no-op. Two Home
+    // locations are always "the same" (Home has no path); a filesystem
+    // navigation is a no-op only when the active context is already that exact
+    // filesystem path. Navigating to a filesystem path while Home is active, or
+    // to Home while a filesystem path is active, must NOT be treated as a
+    // no-op. Combined with the recording guard below, this also excludes
+    // selection/scroll churn from the history.
+    const bool sameLocation = location.IsHome()
+        ? context.isHomeLocation
+        : (!context.isHomeLocation && location.path == context.currentPath);
+    if (sameLocation) return;
+    // Truncate any forward history without default-constructing entries.
+    if (context.history.size() > context.historyIndex + 1) {
+        context.history.erase(context.history.begin() + static_cast<std::ptrdiff_t>(context.historyIndex + 1),
+                              context.history.end());
+    }
+    context.history.push_back(location);
     context.historyIndex = context.history.size() - 1;
-    context.currentPath = path;
+    context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
+    context.isHomeLocation = location.IsHome();
     context.addressBarMode = AddressBarMode::Breadcrumb;
     context.addressBarError.clear();
+    // quick-access-home 2.3: record only real filesystem folder visits. This
+    // automatically excludes Home (kind != FileSystem) and "This PC" (empty
+    // path); the no-op above already excludes non-changing navigations.
+    if (location.IsFileSystem() && !location.path.empty()) {
+        RecentFolderHistory::Record(state_.recentFolders, location.path);
+        MarkStateDirty();
+    }
 }
 
 bool NavigationWorkspace::GoBack() {
     if (!CanGoBack()) return false;
     auto& context = ActiveContext();
-    context.currentPath = context.history[--context.historyIndex];
+    const NavigationLocation& location = context.history[--context.historyIndex];
+    context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
+    context.isHomeLocation = location.IsHome();
     return true;
 }
 
 bool NavigationWorkspace::GoForward() {
     if (!CanGoForward()) return false;
     auto& context = ActiveContext();
-    context.currentPath = context.history[++context.historyIndex];
+    const NavigationLocation& location = context.history[++context.historyIndex];
+    context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
+    context.isHomeLocation = location.IsHome();
     return true;
 }
 
 std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
+    // quick-access-home 1.4: a Home context exposes a single, non-clickable
+    // "Home" segment (its path is empty, like the "This PC" first segment).
+    if (ActiveContext().isHomeLocation) {
+        return {{L"Home", L""}};
+    }
     const std::wstring& path = ActiveContext().currentPath;
     std::vector<BreadcrumbSegment> result{{L"This PC", L""}};
     if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
@@ -294,9 +352,23 @@ bool NavigationWorkspace::NavigateBreadcrumb(size_t segmentIndex) {
     return true;
 }
 
-void NavigationWorkspace::OpenTab(const std::optional<std::wstring>& path) {
-    tabs_.push_back({{MakeContext(path.value_or(ActiveContext().currentPath))}, 0});
+void NavigationWorkspace::OpenTab() {
+    // quick-access-home 1.3 / D7: a new tab opens Home by default.
+    OpenTab(NavigationLocation::Home());
+}
+
+void NavigationWorkspace::OpenTab(const NavigationLocation& location) {
+    NavigationContext context;
+    context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
+    context.isHomeLocation = location.IsHome();
+    context.history.push_back(location);
+    context.historyIndex = 0;
+    tabs_.push_back({{context}, 0});
     activeTab_ = tabs_.size() - 1;
+}
+
+void NavigationWorkspace::OpenTab(const std::wstring& path) {
+    OpenTab(NavigationLocation::FromPath(path));
 }
 
 bool NavigationWorkspace::CloseActiveTab() {
@@ -434,12 +506,17 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     if (!decoded) return true;
     const std::wstring& json = *decoded;
     if (!HasSupportedVersion(json)) return true;
-    state.sidebarCollapsed = ReadBoolean(json, L"sidebarCollapsed");
-    state.drivesCollapsed = ReadBoolean(json, L"drivesCollapsed");
-    state.knownFoldersCollapsed = ReadBoolean(json, L"knownFoldersCollapsed");
-    state.bookmarksCollapsed = ReadBoolean(json, L"bookmarksCollapsed");
+    return DeserializeState(json, state);
+}
+
+bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
+    out = {};
+    out.sidebarCollapsed = ReadBoolean(json, L"sidebarCollapsed");
+    out.drivesCollapsed = ReadBoolean(json, L"drivesCollapsed");
+    out.knownFoldersCollapsed = ReadBoolean(json, L"knownFoldersCollapsed");
+    out.bookmarksCollapsed = ReadBoolean(json, L"bookmarksCollapsed");
     size_t lastLocationCursor = 0;
-    ExtractJsonString(json, L"lastLocation", 0, state.lastLocation, lastLocationCursor);
+    ExtractJsonString(json, L"lastLocation", 0, out.lastLocation, lastLocationCursor);
 
     size_t cursor = 0;
     std::wstring path;
@@ -447,7 +524,7 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
         std::wstring displayName;
         size_t displayCursor = cursor;
         if (!ExtractJsonString(json, L"displayName", displayCursor, displayName, displayCursor)) break;
-        state.bookmarks.push_back({std::move(path), std::move(displayName)});
+        out.bookmarks.push_back({std::move(path), std::move(displayName)});
         cursor = displayCursor;
     }
 
@@ -456,25 +533,45 @@ bool NavigationWorkspace::LoadState(WorkspaceState& state) {
     const size_t close = open == std::wstring::npos ? std::wstring::npos : json.find(L']', open + 1);
     cursor = open == std::wstring::npos ? 0 : open + 1;
     while (open != std::wstring::npos && close != std::wstring::npos && cursor < close &&
-           state.recentlyClosedTabs.size() < kMaxRecentlyClosedTabs) {
+           out.recentlyClosedTabs.size() < kMaxRecentlyClosedTabs) {
         const size_t quote = json.find(L'"', cursor);
         if (quote == std::wstring::npos || quote >= close) break;
         std::wstring closedPath;
         size_t next = quote;
         if (!ParseQuoted(json, quote, closedPath, next)) break;
-        state.recentlyClosedTabs.push_back(std::move(closedPath));
+        out.recentlyClosedTabs.push_back(std::move(closedPath));
         cursor = next;
+    }
+
+    // quick-access-home 2.4: recentFolders is additive and optional. Missing
+    // field -> empty list; malformed/over-long individual entries are skipped
+    // without failing the whole document.
+    const size_t foldersKey = json.find(L"\"recentFolders\"");
+    const size_t fOpen = foldersKey == std::wstring::npos ? std::wstring::npos : json.find(L'[', foldersKey);
+    const size_t fClose = fOpen == std::wstring::npos ? std::wstring::npos : json.find(L']', fOpen + 1);
+    size_t fCursor = fOpen == std::wstring::npos ? 0 : fOpen + 1;
+    while (fOpen != std::wstring::npos && fClose != std::wstring::npos && fCursor < fClose &&
+           out.recentFolders.size() < RecentFolderHistory::kMaxRecentFoldersPersisted) {
+        fCursor = json.find_first_not_of(L" \t\r\n", fCursor);
+        if (fCursor == std::wstring::npos || fCursor >= fClose) break;
+        if (json[fCursor] != L'"') {
+            // Not a string entry (e.g. a number, object, or null): skip it.
+            const size_t commaOrClose = json.find_first_of(L",]", fCursor);
+            if (commaOrClose == std::wstring::npos) break;
+            if (json[commaOrClose] == L']') break;
+            fCursor = commaOrClose + 1;
+            continue;
+        }
+        std::wstring folderPath;
+        size_t next = fCursor;
+        if (!ParseQuoted(json, fCursor, folderPath, next)) break;
+        out.recentFolders.push_back(std::move(folderPath));
+        fCursor = next;
     }
     return true;
 }
 
-bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
-    const std::wstring file = StateFilePath();
-    if (file.empty()) return false;
-    std::error_code error;
-    std::filesystem::create_directories(std::filesystem::path(file).parent_path(), error);
-    if (error) return false;
-    const std::wstring temporary = file + L".tmp";
+std::wstring SerializeState(const WorkspaceState& state) {
     std::wostringstream document;
     document << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
             << L"\",\n  \"sidebarCollapsed\": "
@@ -491,8 +588,23 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
     for (size_t i = 0; i < state.recentlyClosedTabs.size(); ++i) {
         document << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentlyClosedTabs[i]) << L"\"";
     }
+    document << L"],\n  \"recentFolders\": [";
+    for (size_t i = 0; i < state.recentFolders.size(); ++i) {
+        document << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentFolders[i]) << L"\"";
+    }
     document << L"]\n}\n";
-    const auto encoded = WideToUtf8(document.str());
+    return document.str();
+}
+
+bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
+    const std::wstring file = StateFilePath();
+    if (file.empty()) return false;
+    std::error_code error;
+    std::filesystem::create_directories(std::filesystem::path(file).parent_path(), error);
+    if (error) return false;
+    const std::wstring temporary = file + L".tmp";
+    const auto document = SerializeState(state);
+    const auto encoded = WideToUtf8(document);
     if (!encoded) return false;
     std::ofstream output(temporary, std::ios::trunc | std::ios::binary);
     if (!output) return false;
@@ -590,7 +702,7 @@ PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std:
         return PathCommitResult::Invalid;
     }
     if (parsed.path.empty()) {
-        workspace.Navigate({});
+        workspace.Navigate(std::wstring{});
         return PathCommitResult::Navigated;
     }
     const DWORD attributes = GetFileAttributesW(parsed.path.c_str());

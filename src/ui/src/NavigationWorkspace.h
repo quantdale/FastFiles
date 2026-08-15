@@ -5,13 +5,19 @@
 #include <string>
 #include <vector>
 
+#include "NavigationLocation.h"
+
 namespace ffui {
 enum class AddressBarMode { Breadcrumb, EditableText };
 enum class PathCommitResult { Navigated, Invalid, NotFound };
-struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<std::wstring> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; };
+// quick-access-home 1.2: history is now typed (std::vector<NavigationLocation>)
+// so Back/Forward restores Home exactly; isHomeLocation mirrors the active kind.
+struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<NavigationLocation> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; bool isHomeLocation = false; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
 struct BreadcrumbSegment { std::wstring label; std::wstring path; };
-struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
+// quick-access-home 2.4: recentFolders is a new, additive, optional persisted
+// list (version stays 1; older files simply load an empty list).
+struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; std::deque<std::wstring> recentFolders; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
 // Plain UI state: no IPC/engine handles. All contexts use the shared EngineClient snapshot.
 class NavigationWorkspace {
 public:
@@ -24,13 +30,13 @@ public:
     size_t ActivePaneIndex() const;
     size_t ActivePaneCount() const;
     size_t ActiveTabIndex() const { return activeTab_; } size_t TabCount() const { return tabs_.size(); }
-    std::wstring TabPath(size_t index) const;
+    std::wstring TabPath(size_t index) const; NavigationLocation TabLocation(size_t index) const;
     bool IsDualPane() const; bool CanGoBack() const; bool CanGoForward() const;
-    void Navigate(const std::wstring& path); bool GoBack(); bool GoForward();
+    void Navigate(const std::wstring& path); void Navigate(const NavigationLocation& location); bool GoBack(); bool GoForward();
     std::vector<BreadcrumbSegment> Breadcrumbs() const;
     void BeginAddressBarEdit(); void CancelAddressBarEdit();
     bool NavigateBreadcrumb(size_t segmentIndex);
-    void OpenTab(const std::optional<std::wstring>& path = std::nullopt); bool CloseActiveTab(); bool SwitchTab(size_t index); bool ReopenClosedTab();
+    void OpenTab(); void OpenTab(const NavigationLocation& location); void OpenTab(const std::wstring& path); bool CloseActiveTab(); bool SwitchTab(size_t index); bool ReopenClosedTab();
     void EnableDualPane(); void DisableDualPane(); void ActivatePane(size_t paneIndex);
     // Returns the other (inactive) pane's current location in dual-pane mode
     // (the base folder Copy Relative Path resolves against per the
@@ -44,6 +50,9 @@ public:
     const WorkspaceState& State() const { return state_; } WorkspaceState& State() { return state_; }
     static std::vector<std::wstring> EnumerateDrives(); std::vector<Bookmark> EnumerateKnownFolders();
     void ReResolveKnownFolders();
+    // quick-access-home 2.3: recent-folder history accessors (cleared entries
+    // persist via the existing dirty-flag/flush machinery).
+    void ClearRecentFolders(); std::vector<std::wstring> RecentFoldersForHome(size_t maxCount) const;
     static bool LoadState(WorkspaceState& state); static bool SaveState(const WorkspaceState& state);
 private:
     struct Tab { std::vector<NavigationContext> panes; size_t activePane = 0; };
@@ -51,6 +60,14 @@ private:
     std::wstring defaultPath_; std::vector<Tab> tabs_; size_t activeTab_ = 0; WorkspaceState state_; bool stateDirty_ = false;
     std::vector<Bookmark> knownFoldersCache_; bool knownFoldersDirty_ = true;
 };
+
+// quick-access-home 2.5: pure (file-I/O-free) persistence seams so the
+// serialization round-trip and older-state migration are headless-testable
+// without writing to %LOCALAPPDATA%. SaveState/LoadState are thin wrappers
+// around these that only perform file read/write.
+std::wstring SerializeState(const WorkspaceState& state);
+bool DeserializeState(const std::wstring& json, WorkspaceState& out);
+
 struct ParsedPath { std::wstring path; std::wstring error; };
 ParsedPath ParseNavigationPath(const std::wstring& input);
 // Chooses the startup location without resurrecting a deleted persisted
