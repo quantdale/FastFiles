@@ -272,8 +272,7 @@ void NavigationChrome::CloseTab(size_t index) {
         // quick-access-home 5.2: navigate the newly-active tab with its typed
         // location so a Home tab restores as Home, not as an empty path.
         const auto& context = workspace_->ActiveContext();
-        NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
-                                                  : NavigationLocation::FromPath(context.currentPath),
+        NavigateToLocation(ffui::LocationOf(context),
                            true);
     } else {
         Refresh();
@@ -566,14 +565,12 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 // quick-access-home 5.2: GoBack moved the model; sync the view
                 // with the active context's typed location (Home stays Home).
                 const auto& context = workspace_->ActiveContext();
-                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
-                                                          : NavigationLocation::FromPath(context.currentPath));
+                NavigateToLocation(ffui::LocationOf(context));
                 return 0;
             }
             if (id == kForwardId && HIWORD(wParam) == BN_CLICKED && workspace_ && workspace_->GoForward()) {
                 const auto& context = workspace_->ActiveContext();
-                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
-                                                          : NavigationLocation::FromPath(context.currentPath));
+                NavigateToLocation(ffui::LocationOf(context));
                 return 0;
             }
             if (id == kDriveId && HIWORD(wParam) == CBN_SELCHANGE) {
@@ -588,8 +585,7 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 if (beforeTabChange_) beforeTabChange_();
                 workspace_->OpenTab(); // quick-access-home D7: new tab opens Home
                 const auto& context = workspace_->ActiveContext();
-                NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
-                                                          : NavigationLocation::FromPath(context.currentPath),
+                NavigateToLocation(ffui::LocationOf(context),
                                    true);
                 return 0;
             }
@@ -599,8 +595,7 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 if (switching && beforeTabChange_) beforeTabChange_();
                 if (workspace_->SwitchTab(index)) {
                     const auto& context = workspace_->ActiveContext();
-                    NavigateToLocation(context.isHomeLocation ? NavigationLocation::Home()
-                                                              : NavigationLocation::FromPath(context.currentPath),
+                    NavigateToLocation(ffui::LocationOf(context),
                                        switching);
                 }
                 return 0;

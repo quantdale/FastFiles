@@ -153,6 +153,62 @@ void TestPaneIsolation() {
           "pane 1 history ends with the filesystem entry");
     workspace.DisableDualPane();
 }
+
+void TestDualPaneFromHomePreservesKind() {
+    using namespace ffui;
+    // quick-access-home hardening (HOME-POST-04): enable dual pane AFTER the
+    // active pane navigated to Home. The new pane must start Home with a fresh
+    // {Home} history, not "This PC" (which an empty-path clone would produce).
+    NavigationWorkspace workspace(L"C:\\Start");
+    workspace.Navigate(NavigationLocation::Home());
+    workspace.EnableDualPane();
+    Check(workspace.ActivePaneCount() == 2, "dual pane is enabled");
+    Check(workspace.PaneContext(0).isHomeLocation && workspace.PaneContext(0).currentPath.empty(),
+          "pane 0 stays Home when dual pane is enabled from Home");
+    Check(workspace.PaneContext(1).isHomeLocation && workspace.PaneContext(1).currentPath.empty(),
+          "the new pane starts Home when dual pane is enabled from Home");
+    Check(!workspace.PaneContext(0).history.empty() && workspace.PaneContext(0).history.back().IsHome(),
+          "pane 0 keeps its own history ending at Home");
+    Check(workspace.PaneContext(1).history.size() == 1 && workspace.PaneContext(1).history.front().IsHome(),
+          "pane 1 history is exactly {Home}");
+
+    // Navigate pane 1 to a filesystem folder: pane 0 remains Home.
+    workspace.ActivatePane(1);
+    workspace.Navigate(L"C:\\Folder");
+    Check(workspace.PaneContext(1).currentPath == L"C:\\Folder" && !workspace.PaneContext(1).isHomeLocation,
+          "pane 1 navigates to a filesystem folder");
+    Check(workspace.PaneContext(0).isHomeLocation && workspace.PaneContext(0).currentPath.empty(),
+          "pane 0 remains Home after pane 1 navigates");
+    Check(workspace.PaneContext(1).history.size() == 2 && workspace.PaneContext(1).history.back().IsFileSystem() &&
+          workspace.PaneContext(1).history.front().IsHome(),
+          "pane 1 history is {Home, folder} -- its typed initial location is preserved");
+    workspace.DisableDualPane();
+    Check(!workspace.ActiveContext().isHomeLocation && workspace.ActiveContext().currentPath == L"C:\\Folder",
+          "disabling dual pane keeps the active pane (pane 1, filesystem)");
+}
+
+void TestDualPaneFromFilesystemAndThisPc() {
+    using namespace ffui;
+    // quick-access-home hardening (HOME-POST-04): from a filesystem folder the
+    // new pane clones the typed folder with a fresh {folder} history; from
+    // "This PC" it clones FileSystem(empty), never Home.
+    NavigationWorkspace workspace(L"C:\\Start");
+    workspace.Navigate(L"C:\\Foo");
+    workspace.EnableDualPane();
+    Check(!workspace.PaneContext(1).isHomeLocation &&
+          workspace.PaneContext(1).currentPath == L"C:\\Foo" &&
+          workspace.PaneContext(1).history.size() == 1 &&
+          workspace.PaneContext(1).history.front() == NavigationLocation::FromPath(L"C:\\Foo"),
+          "dual pane from a filesystem folder clones the typed folder with a fresh {folder} history");
+    workspace.DisableDualPane();
+
+    workspace.Navigate(L"");
+    workspace.EnableDualPane();
+    Check(!workspace.PaneContext(1).isHomeLocation && workspace.PaneContext(1).currentPath.empty() &&
+          workspace.PaneContext(1).history.size() == 1 &&
+          workspace.PaneContext(1).history.front() == NavigationLocation::FromPath(L""),
+          "dual pane from This PC clones FileSystem(empty), never Home");
+}
 }
 
 void RunHomeLocationTests() {
@@ -163,4 +219,6 @@ void RunHomeLocationTests() {
     TestOpenTabDefaultsAndKinds();
     TestTabIsolation();
     TestPaneIsolation();
+    TestDualPaneFromHomePreservesKind();
+    TestDualPaneFromFilesystemAndThisPc();
 }

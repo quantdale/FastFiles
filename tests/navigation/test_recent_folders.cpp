@@ -110,7 +110,7 @@ void TestPersistenceSeams() {
     WorkspaceState state;
     state.lastLocation = L"C:\\Start";
     state.bookmarks = {{L"C:\\X", L"X"}};
-    state.recentlyClosedTabs = {L"D:\\Closed"};
+    state.recentlyClosedTabs = {NavigationLocation::FromPath(L"D:\\Closed")};
     state.recentFolders = {L"C:\\A", L"C:\\B"};
     state.sidebarCollapsed = true;
     const std::wstring json = SerializeState(state);
@@ -123,7 +123,7 @@ void TestPersistenceSeams() {
           loaded.recentFolders[0] == L"C:\\A" && loaded.recentFolders[1] == L"C:\\B" &&
           loaded.lastLocation == L"C:\\Start" && loaded.bookmarks.size() == 1 &&
           loaded.bookmarks.front().path == L"C:\\X" &&
-          loaded.recentlyClosedTabs.size() == 1 && loaded.recentlyClosedTabs.front() == L"D:\\Closed" &&
+          loaded.recentlyClosedTabs.size() == 1 && loaded.recentlyClosedTabs.front().path == L"D:\\Closed" &&
           loaded.sidebarCollapsed,
           "round-trip through SerializeState/DeserializeState preserves recentFolders and other fields");
 

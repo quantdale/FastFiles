@@ -15,9 +15,23 @@ enum class PathCommitResult { Navigated, Invalid, NotFound };
 struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<NavigationLocation> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; bool isHomeLocation = false; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
 struct BreadcrumbSegment { std::wstring label; std::wstring path; };
+// quick-access-home hardening (HOME-POST-01): the single typed extraction from
+// a context to its NavigationLocation. A Home context always maps to the Home
+// location (never to an empty filesystem path), so every consumer that must
+// remember or clone a location (closed tabs, dual-pane, tab labels) uses this
+// helper instead of re-deriving `isHomeLocation ? Home() : FromPath(path)`.
+inline NavigationLocation LocationOf(const NavigationContext& context) {
+    return context.isHomeLocation ? NavigationLocation::Home()
+                                  : NavigationLocation::FromPath(context.currentPath);
+}
 // quick-access-home 2.4: recentFolders is a new, additive, optional persisted
 // list (version stays 1; older files simply load an empty list).
-struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<std::wstring> recentlyClosedTabs; std::deque<std::wstring> recentFolders; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
+// quick-access-home hardening (HOME-POST-01): recentlyClosedTabs is now typed
+// (std::deque<NavigationLocation>) so a closed Home tab reopens as Home. The
+// on-disk form stays backward compatible: filesystem entries remain bare path
+// strings; Home entries serialize as {"kind": "home"} objects; legacy string
+// entries deserialize as FileSystem locations.
+struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<NavigationLocation> recentlyClosedTabs; std::deque<std::wstring> recentFolders; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
 // Plain UI state: no IPC/engine handles. All contexts use the shared EngineClient snapshot.
 class NavigationWorkspace {
 public:
@@ -56,7 +70,10 @@ public:
     static bool LoadState(WorkspaceState& state); static bool SaveState(const WorkspaceState& state);
 private:
     struct Tab { std::vector<NavigationContext> panes; size_t activePane = 0; };
-    static NavigationContext MakeContext(const std::wstring& path); static std::wstring StateFilePath(); Tab& ActiveTab(); const Tab& ActiveTab() const;
+    // quick-access-home hardening (HOME-POST-04): contexts are created from a
+    // TYPED location so a Home context can never be born from an empty
+    // filesystem path. History is seeded with exactly that location.
+    static NavigationContext MakeContext(const NavigationLocation& location); static std::wstring StateFilePath(); Tab& ActiveTab(); const Tab& ActiveTab() const;
     std::wstring defaultPath_; std::vector<Tab> tabs_; size_t activeTab_ = 0; WorkspaceState state_; bool stateDirty_ = false;
     std::vector<Bookmark> knownFoldersCache_; bool knownFoldersDirty_ = true;
 };

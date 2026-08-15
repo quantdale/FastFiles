@@ -144,15 +144,16 @@ bool ExtractJsonString(const std::wstring& json, const wchar_t* name, size_t fro
 
 } // namespace
 
-NavigationContext NavigationWorkspace::MakeContext(const std::wstring& path) {
+NavigationContext NavigationWorkspace::MakeContext(const NavigationLocation& location) {
     NavigationContext result;
-    result.currentPath = path;
-    result.history.push_back(NavigationLocation::FromPath(path));
+    result.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
+    result.isHomeLocation = location.IsHome();
+    result.history.push_back(location);
     return result;
 }
 
 NavigationWorkspace::NavigationWorkspace(std::wstring defaultPath) : defaultPath_(std::move(defaultPath)) {
-    tabs_.push_back({{MakeContext(defaultPath_)}, 0});
+    tabs_.push_back({{MakeContext(NavigationLocation::FromPath(defaultPath_))}, 0});
     LoadState(state_);
 }
 
@@ -176,11 +177,9 @@ NavigationLocation NavigationWorkspace::TabLocation(size_t index) const {
     if (index >= tabs_.size() || tabs_[index].panes.empty()) return NavigationLocation::FromPath({});
     const auto& tab = tabs_[index];
     const size_t pane = (std::min)(tab.activePane, tab.panes.size() - 1);
-    const auto& context = tab.panes[pane];
-    // For a Home tab the path is empty; for This PC the path is also empty but
-    // the kind stays FileSystem -- identical to TabPath's empty return.
-    return NavigationLocation{context.isHomeLocation ? NavigationLocation::Kind::Home : NavigationLocation::Kind::FileSystem,
-                              context.currentPath};
+    // quick-access-home hardening: shared typed extraction -- a Home tab keeps
+    // its Home kind, This PC stays FileSystem(empty), never Home.
+    return LocationOf(tab.panes[pane]);
 }
 
 std::vector<std::wstring> NavigationWorkspace::RecentFoldersForHome(size_t maxCount) const {
@@ -358,12 +357,9 @@ void NavigationWorkspace::OpenTab() {
 }
 
 void NavigationWorkspace::OpenTab(const NavigationLocation& location) {
-    NavigationContext context;
-    context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
-    context.isHomeLocation = location.IsHome();
-    context.history.push_back(location);
-    context.historyIndex = 0;
-    tabs_.push_back({{context}, 0});
+    // quick-access-home hardening (HOME-POST-01/04): tabs are created from the
+    // typed location with a fresh {location} history.
+    tabs_.push_back({{MakeContext(location)}, 0});
     activeTab_ = tabs_.size() - 1;
 }
 
@@ -373,7 +369,10 @@ void NavigationWorkspace::OpenTab(const std::wstring& path) {
 
 bool NavigationWorkspace::CloseActiveTab() {
     if (tabs_.size() == 1) return false;
-    state_.recentlyClosedTabs.push_front(ActiveContext().currentPath);
+    // quick-access-home hardening (HOME-POST-01): remember the TYPED location.
+    // A closed Home tab (empty path) must reopen as Home, never as an empty
+    // filesystem path ("This PC").
+    state_.recentlyClosedTabs.push_front(LocationOf(ActiveContext()));
     if (state_.recentlyClosedTabs.size() > kMaxRecentlyClosedTabs) state_.recentlyClosedTabs.pop_back();
     tabs_.erase(tabs_.begin() + static_cast<std::ptrdiff_t>(activeTab_));
     activeTab_ = std::min(activeTab_, tabs_.size() - 1);
@@ -389,15 +388,23 @@ bool NavigationWorkspace::SwitchTab(size_t index) {
 
 bool NavigationWorkspace::ReopenClosedTab() {
     if (state_.recentlyClosedTabs.empty()) return false;
-    const auto path = state_.recentlyClosedTabs.front();
+    // quick-access-home hardening (HOME-POST-01): reopen restores the typed
+    // location (Home stays Home; FileSystem keeps its path; This PC stays
+    // FileSystem(empty)).
+    const auto location = state_.recentlyClosedTabs.front();
     state_.recentlyClosedTabs.pop_front();
-    OpenTab(path);
+    OpenTab(location);
     stateDirty_ = true;
     return true;
 }
 
 void NavigationWorkspace::EnableDualPane() {
-    if (!IsDualPane()) ActiveTab().panes.push_back(MakeContext(ActiveContext().currentPath));
+    // quick-access-home hardening (HOME-POST-04): clone the ACTIVE TYPED
+    // location instead of the bare path. From Home the new pane starts Home
+    // with history {Home}; from a filesystem context it starts at the same
+    // folder with a fresh {folder} history; This PC stays FileSystem(empty),
+    // never Home.
+    if (!IsDualPane()) ActiveTab().panes.push_back(MakeContext(LocationOf(ActiveContext())));
 }
 
 void NavigationWorkspace::DisableDualPane() {
@@ -528,19 +535,51 @@ bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
         cursor = displayCursor;
     }
 
+    // quick-access-home hardening (HOME-POST-01): recently-closed tabs are
+    // typed. Legacy documents store bare path strings; those load as
+    // FileSystem locations ("This PC" when the string is empty). Home entries
+    // are stored as {"kind": "home"} objects (and {"kind": "filesystem",
+    // "path": ...} objects are accepted for forward robustness). Malformed
+    // entries are skipped without failing the whole document.
     const size_t closedKey = json.find(L"\"recentlyClosedTabs\"");
     const size_t open = closedKey == std::wstring::npos ? std::wstring::npos : json.find(L'[', closedKey);
     const size_t close = open == std::wstring::npos ? std::wstring::npos : json.find(L']', open + 1);
-    cursor = open == std::wstring::npos ? 0 : open + 1;
-    while (open != std::wstring::npos && close != std::wstring::npos && cursor < close &&
+    size_t closedCursor = open == std::wstring::npos ? 0 : open + 1;
+    while (open != std::wstring::npos && close != std::wstring::npos && closedCursor < close &&
            out.recentlyClosedTabs.size() < kMaxRecentlyClosedTabs) {
-        const size_t quote = json.find(L'"', cursor);
-        if (quote == std::wstring::npos || quote >= close) break;
-        std::wstring closedPath;
-        size_t next = quote;
-        if (!ParseQuoted(json, quote, closedPath, next)) break;
-        out.recentlyClosedTabs.push_back(std::move(closedPath));
-        cursor = next;
+        closedCursor = json.find_first_not_of(L" \t\r\n", closedCursor);
+        if (closedCursor == std::wstring::npos || closedCursor >= close) break;
+        if (json[closedCursor] == L'"') {
+            std::wstring closedPath;
+            size_t next = closedCursor;
+            if (!ParseQuoted(json, closedCursor, closedPath, next)) break;
+            out.recentlyClosedTabs.push_back(NavigationLocation::FromPath(std::move(closedPath)));
+            closedCursor = next;
+        } else if (json[closedCursor] == L'{') {
+            const size_t braceEnd = json.find(L'}', closedCursor + 1);
+            if (braceEnd == std::wstring::npos || braceEnd > close) break;
+            const std::wstring object = json.substr(closedCursor, braceEnd - closedCursor + 1);
+            std::wstring kind;
+            size_t kindNext = 0;
+            std::wstring closedPath;
+            size_t pathNext = 0;
+            if (ExtractJsonString(object, L"kind", 0, kind, kindNext)) {
+                const bool hasPath = ExtractJsonString(object, L"path", kindNext, closedPath, pathNext);
+                if (kind == L"home") {
+                    out.recentlyClosedTabs.push_back(NavigationLocation::Home());
+                } else {
+                    out.recentlyClosedTabs.push_back(
+                        NavigationLocation::FromPath(hasPath ? std::move(closedPath) : std::wstring{}));
+                }
+            }
+            closedCursor = braceEnd + 1;
+        } else {
+            // Not a string or object entry (e.g. a number or null): skip it.
+            const size_t commaOrClose = json.find_first_of(L",]", closedCursor);
+            if (commaOrClose == std::wstring::npos) break;
+            if (json[commaOrClose] == L']') break;
+            closedCursor = commaOrClose + 1;
+        }
     }
 
     // quick-access-home 2.4: recentFolders is additive and optional. Missing
@@ -586,7 +625,16 @@ std::wstring SerializeState(const WorkspaceState& state) {
     }
     document << L"\n  ],\n  \"recentlyClosedTabs\": [";
     for (size_t i = 0; i < state.recentlyClosedTabs.size(); ++i) {
-        document << (i ? L", " : L"") << L"\"" << EscapeJson(state.recentlyClosedTabs[i]) << L"\"";
+        const auto& entry = state.recentlyClosedTabs[i];
+        document << (i ? L", " : L"");
+        // quick-access-home hardening (HOME-POST-01): filesystem entries keep
+        // the legacy bare-string form so older binaries still read them; only
+        // Home entries use the typed {"kind": "home"} object form.
+        if (entry.IsHome()) {
+            document << L"{\"kind\": \"home\"}";
+        } else {
+            document << L"\"" << EscapeJson(entry.path) << L"\"";
+        }
     }
     document << L"],\n  \"recentFolders\": [";
     for (size_t i = 0; i < state.recentFolders.size(); ++i) {

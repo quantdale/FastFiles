@@ -130,14 +130,14 @@ void TestWorkspacePersistenceFallback() {
     workspace.Navigate(unicodePath);
     workspace.State().bookmarks = {{unicodePath, unicodeName}};
     workspace.State().lastLocation = unicodePath;
-    workspace.State().recentlyClosedTabs = {unicodePath};
+    workspace.State().recentlyClosedTabs = {NavigationLocation::FromPath(unicodePath)};
     workspace.MarkStateDirty();
     Check(workspace.FlushState(), "workspace state accepts Unicode paths and labels");
     WorkspaceState unicodeLoaded{};
     Check(NavigationWorkspace::LoadState(unicodeLoaded) && unicodeLoaded.lastLocation == unicodePath &&
           unicodeLoaded.bookmarks.size() == 1 && unicodeLoaded.bookmarks.front().path == unicodePath &&
           unicodeLoaded.bookmarks.front().displayName == unicodeName &&
-          unicodeLoaded.recentlyClosedTabs.size() == 1 && unicodeLoaded.recentlyClosedTabs.front() == unicodePath,
+          unicodeLoaded.recentlyClosedTabs.size() == 1 && unicodeLoaded.recentlyClosedTabs.front().path == unicodePath,
           "workspace state round-trips Unicode paths and labels");
 
     const auto stateFile = localAppData / L"FastFiles" / L"workspace-state.json";
@@ -176,8 +176,8 @@ void TestWorkspacePersistenceFallback() {
     }
     NavigationWorkspace::LoadState(loaded);
     Check(loaded.recentlyClosedTabs.size() == 16 &&
-              loaded.recentlyClosedTabs.front() == L"C:\\Closed-0" &&
-              loaded.recentlyClosedTabs.back() == L"C:\\Closed-15",
+              loaded.recentlyClosedTabs.front().path == L"C:\\Closed-0" &&
+              loaded.recentlyClosedTabs.back().path == L"C:\\Closed-15",
           "workspace restore keeps the supported recently-closed-tab bound");
 
     std::filesystem::remove_all(localAppData, error);
@@ -315,11 +315,121 @@ void TestConcurrentIndependentContextsReadDifferentPaths() {
 void RunHomeLocationTests();
 void RunRecentFoldersTests();
 
+namespace {
+void TestTypedClosedTabReopen() {
+    using namespace ffui;
+    // quick-access-home hardening (HOME-POST-01): closing/reopening preserves
+    // the TYPED location, never an empty-string collapse.
+    NavigationWorkspace workspace(L"C:\\Start");
+
+    // A closed Home tab reopens as Home with history {Home}.
+    workspace.OpenTab(); // tab 1: Home (new-tab default)
+    Check(workspace.ActiveContext().isHomeLocation, "tab 1 is Home");
+    Check(workspace.CloseActiveTab(), "the Home tab closes");
+    Check(workspace.ReopenClosedTab() && workspace.ActiveContext().isHomeLocation &&
+          workspace.ActiveContext().currentPath.empty() &&
+          workspace.ActiveContext().history.size() == 1 &&
+          workspace.ActiveContext().history.front().IsHome(),
+          "a closed Home tab reopens as Home with history {Home}");
+
+    // A closed filesystem tab reopens at the same folder.
+    Check(workspace.CloseActiveTab(), "the reopened Home tab closes again");
+    workspace.OpenTab(L"D:\\Work");
+    Check(workspace.CloseActiveTab(), "the filesystem tab closes");
+    Check(workspace.ReopenClosedTab() && !workspace.ActiveContext().isHomeLocation &&
+          workspace.ActiveContext().currentPath == L"D:\\Work",
+          "a closed filesystem tab reopens at the same folder");
+
+    // A closed This PC tab reopens as This PC (FileSystem, empty) -- never Home.
+    Check(workspace.CloseActiveTab(), "the filesystem tab closes again");
+    workspace.OpenTab(L"");
+    Check(workspace.CloseActiveTab(), "the This PC tab closes");
+    Check(workspace.ReopenClosedTab() && !workspace.ActiveContext().isHomeLocation &&
+          workspace.ActiveContext().currentPath.empty(),
+          "a closed This PC tab reopens as This PC, not Home");
+}
+
+void TestTypedClosedTabStackOrder() {
+    using namespace ffui;
+    // quick-access-home hardening (HOME-POST-01): the mixed recently-closed
+    // stack preserves ordering AND kinds; reopening is LIFO per kind.
+    NavigationWorkspace workspace(L"C:\\Start");
+    workspace.OpenTab(NavigationLocation::Home());
+    workspace.CloseActiveTab(); // stack: [Home]
+    workspace.OpenTab(L"D:\\Work");
+    workspace.CloseActiveTab(); // stack: [FS(D:\Work), Home]
+    workspace.OpenTab(L"");
+    workspace.CloseActiveTab(); // stack: [FS(""), FS(D:\Work), Home]
+    const auto& stack = workspace.State().recentlyClosedTabs;
+    Check(stack.size() == 3, "three typed entries are retained");
+    Check(stack[0] == NavigationLocation::FromPath(L"") && stack[0].IsFileSystem() &&
+          !stack[0].IsHome(), "most recent closed tab is This PC (FileSystem)");
+    Check(stack[1] == NavigationLocation::FromPath(L"D:\\Work") && stack[1].IsFileSystem(),
+          "second entry is the filesystem folder");
+    Check(stack[2] == NavigationLocation::Home() && stack[2].IsHome(),
+          "oldest entry is Home");
+    Check(workspace.ReopenClosedTab() && !workspace.ActiveContext().isHomeLocation &&
+          workspace.ActiveContext().currentPath.empty(), "reopen 1 restores This PC");
+    Check(workspace.ReopenClosedTab() && workspace.ActiveContext().currentPath == L"D:\\Work",
+          "reopen 2 restores the folder");
+    Check(workspace.ReopenClosedTab() && workspace.ActiveContext().isHomeLocation,
+          "reopen 3 restores Home");
+    Check(!workspace.ReopenClosedTab(), "the stack is empty after three reopens");
+}
+
+void TestTypedClosedTabPersistence() {
+    using namespace ffui;
+    // quick-access-home hardening (HOME-POST-01): typed entries survive the
+    // serialize -> deserialize round trip (the headless model of a workspace
+    // restart) and reopen as their kind.
+    WorkspaceState state;
+    state.recentlyClosedTabs = {
+        NavigationLocation::Home(),
+        NavigationLocation::FromPath(L"C:\\X"),
+        NavigationLocation::FromPath(L"")};
+    const std::wstring json = SerializeState(state);
+    WorkspaceState loaded{};
+    Check(DeserializeState(json, loaded) && loaded.recentlyClosedTabs.size() == 3 &&
+          loaded.recentlyClosedTabs[0] == NavigationLocation::Home() &&
+          loaded.recentlyClosedTabs[1] == NavigationLocation::FromPath(L"C:\\X") &&
+          loaded.recentlyClosedTabs[2] == NavigationLocation::FromPath(L""),
+          "typed closed-tab entries round-trip through serialization");
+
+    // A persisted Home closed tab reopens as Home after a simulated restart.
+    NavigationWorkspace workspace(L"C:\\Start");
+    workspace.State().recentlyClosedTabs = loaded.recentlyClosedTabs;
+    Check(workspace.ReopenClosedTab() && workspace.ActiveContext().isHomeLocation,
+          "a persisted Home closed tab reopens as Home after restart");
+
+    // Legacy string entries migrate as FileSystem locations (including the
+    // empty string, which means This PC -- never Home).
+    const std::wstring legacy = L"{\"version\": 1, \"recentlyClosedTabs\": [\"C:\\\\Old\", \"\"]}";
+    WorkspaceState legacyLoaded{};
+    Check(DeserializeState(legacy, legacyLoaded) && legacyLoaded.recentlyClosedTabs.size() == 2 &&
+          legacyLoaded.recentlyClosedTabs[0] == NavigationLocation::FromPath(L"C:\\Old") &&
+          legacyLoaded.recentlyClosedTabs[1] == NavigationLocation::FromPath(L""),
+          "legacy string closed-tab entries migrate as FileSystem locations");
+
+    // The new object form for Home entries parses, and malformed entries are
+    // skipped without failing the whole document.
+    const std::wstring typed = L"{\"version\": 1, \"recentlyClosedTabs\": [{\"kind\": \"home\"}, 123, "
+                               L"{\"kind\": \"filesystem\", \"path\": \"C:\\\\New\"}]}";
+    WorkspaceState typedLoaded{};
+    Check(DeserializeState(typed, typedLoaded) && typedLoaded.recentlyClosedTabs.size() == 2 &&
+          typedLoaded.recentlyClosedTabs[0] == NavigationLocation::Home() &&
+          typedLoaded.recentlyClosedTabs[1] == NavigationLocation::FromPath(L"C:\\New"),
+          "typed object entries parse and a malformed entry is skipped");
+}
+} // namespace
+
 int main() {
     TestPathParsing(); TestParentNavigationPath(); TestSyntheticRootContext(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestInitialNavigationFallback(); TestCopyRelativePathBaseResolution();
     TestPerTabPaneContexts();
     TestConcurrentIndependentContextsReadDifferentPaths();
+    TestTypedClosedTabReopen();
+    TestTypedClosedTabStackOrder();
+    TestTypedClosedTabPersistence();
     RunHomeLocationTests();
     RunRecentFoldersTests();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
