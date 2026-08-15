@@ -19,6 +19,10 @@
 - **WHEN** the engine is not in the `Active` privileged state
 - **THEN** the published snapshot SHALL continue to reflect at least the directories the user has browsed or pinned, consistent with degraded-mode operation, even though whole-volume coverage is unavailable in that state
 
+#### Scenario: A fresh subscription is acknowledged with a usable startup generation
+- **WHEN** a UI client subscribes before any directory has been requested or published — fresh engine, empty index database, no indexed volumes, privileged service unavailable (coordination note: `fix-initial-snapshot-handshake`)
+- **THEN** the `SubscribeAck` SHALL carry a nonzero generation whose mapping the client can open, validate, and parse as a canonical empty snapshot (zero directories), and the first directory request SHALL advance to the next generation containing the requested directory
+
 ## ADDED Requirements
 
 ### Requirement: Ingestion of Privileged Scan and Journal Streams

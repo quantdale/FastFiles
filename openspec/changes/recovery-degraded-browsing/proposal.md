@@ -32,3 +32,19 @@ Secondary audit findings block the same "usable basic file manager" milestone:
 - **No changes** to the privileged path, signature pins, authentication, wire-format layouts, the security model, the index store, file operations, or the renderer.
 - **Performance**: the connection lifecycle adds no steady-state cost; the watcher bound and overflow recovery prevent unbounded growth and silent loss of synchronization.
 - **Compatibility**: no wire-format change (additive enum value only, both peers ship together); behavior on Windows 10/11 unchanged in kind.
+
+## Coordination note (fix-initial-snapshot-handshake, 2026-08-15)
+
+A later runtime regression exposed a **startup-generation gap** this change's
+earlier acceptance did not cover: `SnapshotPublisher::Start` committed
+generation 0, and `UiServer` exposed the control pipe before any directory or
+index publication, so a fresh UI subscribing immediately was acknowledged
+with `generationId == 0` and rejected it
+(`engine-connect-snapshot-map-failed` / `0xd`), then parked in
+`engine-connect-unavailable`. This change's evidence (engine launch,
+discovery, retry, reconnect) remains honest for the conditions it recorded;
+the new defect lived in the publish side of the same handshake, not in
+launch/connection-state handling. It is fixed and documented in
+`openspec/changes/fix-initial-snapshot-handshake/`, which adds the invariant
+"listener reachable ⇒ current snapshot generation ≥ 1, mapping valid,
+payload parses (possibly zero directories)".

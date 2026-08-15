@@ -81,3 +81,24 @@ Remaining SKIPs from independent blockers: `treemap-drawn-on-d2d-surface`
 dismissal after the ALT-tap in `Set-UiaForeground` (the ALT-tap activates a
 menu-bearing window's menu bar, which swallowed the next chord; ESC closes
 it). All driver headless tests pass.
+
+## Addendum — root cause resolved by fix-initial-snapshot-handshake (2026-08-15)
+
+The 13 SKIPs above include 12 `engine-connect-unavailable` entries whose
+underlying cause was this change's stated "pre-existing host state". That
+classification was honest at the time (the failure reproduced on the
+unmodified baseline, so this change did not cause it), but it was an
+environmental misdiagnosis: the defect was a deterministic product
+startup/protocol gap. `SnapshotPublisher::Start` committed generation 0 and
+`UiServer` exposed the control pipe before any directory or index
+publication, so a fresh UI subscribing immediately received
+`SubscribeAck{generationId == 0}` and rejected it by design
+(`engine-connect-snapshot-map-failed` / `0xd`), exhausting the bounded retry
+cycle into `engine-connect-unavailable`.
+
+`openspec/changes/fix-initial-snapshot-handshake/` fixes the publisher
+(startup commits a canonical empty snapshot as generation 1, generation 0
+remains the sentinel) and hardens the `SubscribeAck` contract; its evidence
+file records the pre-fix reproduction (acked generation 0), the fix, and the
+live re-validation of the scenarios listed under "Scenarios gated on it"
+above, which are no longer blocked by `engine-connect-unavailable`.

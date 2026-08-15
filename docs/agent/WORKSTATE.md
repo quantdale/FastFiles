@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-15T17:40:00+08:00
-Status: COMPLETE — semantic-uia-core-surfaces implemented, validated, committed, pushed
+Last updated: 2026-08-15T22:45:00+08:00
+Status: COMPLETE — fix-initial-snapshot-handshake implemented, validated, committed, pushed
 
 ## Allocated-size session record (2026-08-15)
 
@@ -1991,3 +1991,81 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
 - NEXT recommended slice (do NOT start without instruction): Treemap UIA
   provider (documented follow-up) or the engine-connect initial-snapshot
   gap in recovery-degraded-browsing.
+
+## Session record 2026-08-15 — fix initial snapshot handshake (fix-initial-snapshot-handshake)
+
+Status: COMPLETE; implementation committed and pushed to `origin/main` (see git log).
+
+- **Change:** `openspec/changes/fix-initial-snapshot-handshake/` (proposal/
+  design/tasks/specs/index-engine + evidence/reproduction-and-fix-validation.md).
+  Canonical `openspec/specs/index-engine/spec.md` gained the "fresh
+  subscription is acknowledged with a usable startup generation" scenario;
+  the `index-storage-and-scanning` delta spec was synced to match; a
+  coordination note was added to `recovery-degraded-browsing/proposal.md`
+  and an addendum to `semantic-uia-core-surfaces/evidence/e2e-validation.md`
+  (the earlier `engine-connect-unavailable` result was honest at the time;
+  its root cause was a product startup defect, now fixed — reclassified from
+  "pre-existing host environment blocker" to "pre-existing product startup
+  defect exposed by the semantic UIA E2E").
+- **Root cause (hypothesis confirmed with pre-fix reproduction):**
+  `SnapshotPublisher::Start` committed generation 0 (a zero-payload
+  `<prefix>.0` mapping) while `UiServer` exposed the control pipe before any
+  directory/index publication, so a fresh UI subscribing immediately received
+  `SubscribeAck{generationId == 0}`; `EngineClient::IsSnapshotGenerationUsable`
+  rejects generation 0 by design → `engine-connect-snapshot-map-failed` /
+  `0xd` → bounded retry exhaustion → `engine-connect-unavailable`. The
+  regression test added first (`TestSubscribeBeforeAnyDirectory`) reproduced
+  the exact failure on the unmodified code: acked generation 0, mapping
+  validation failed with ERROR_INVALID_DATA.
+- **Fix:** `SnapshotPublisher::Start` now commits a canonical empty snapshot
+  (`[u32 0]`, 4-byte payload, ordinary serialized format) as
+  `kFirstGeneration == 1`; generation 0 stays the uncommitted sentinel on
+  both sides (no client check weakened). `UiServer`'s `Subscribe` handler
+  fails closed (`FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID` /
+  `subscribe-without-valid-snapshot`) if no committed nonzero generation
+  exists. Start ordering unchanged (epoch/prefix → first committed
+  generation → security descriptor → listener). No wire-format change, no
+  version bump; first content publish is now generation 2.
+- **Tests:** `TestPublisherStartupEmptySnapshot` (+ relational generation
+  updates across the publisher suite, stale-reader check,
+  `FF_SNAPSHOT_PUBLISHER_TESTING` failure-injection seams);
+  `TestSubscribeBeforeAnyDirectory`, `TestMultiClientSubscribeBeforePublication`,
+  `TestStartupSubscribeStress` (100 cycles),
+  `TestUiServerStartFailsOnInitialPublicationFailure` in
+  `ffengine_ui_server_lifecycle_tests`; new `ffengine_client_handshake_tests`
+  target (true EngineClient ↔ UiServer handshake, empty-DB/empty-snapshot
+  connect, fixture directory advance).
+- **Live runtime:** fresh Debug launch from the build tree: UI launched the
+  sibling engine (`engine-launched`), `engine-connect-succeeded`, zero
+  `engine-connect-snapshot-map-failed`; UI Connected/degraded
+  (`privilegedPathActive == false`); real directory browsing (hundreds of
+  `ui-snapshot-column-refresh` events), real search results, generation
+  advance on every request/watcher change.
+- **Semantic UIA E2E re-run** (`windows-ui-automation-validation`, final run
+  `verify/runs/ad-hoc/20260815-144412`): 15 passed / 4 failed / 8 skipped;
+  **`engine-connect-unavailable` eliminated**. Previously skipped
+  engine-dependent scenarios now PASS with real data: column items (3.2),
+  selection + Ctrl+click multi-select (3.3), real viewport scroll (3.3),
+  search results + structured `ext:txt` filter (3.11). The 4 remaining FAILs
+  are harness-interaction issues in the E2E driver/capability layer (search
+  deep-nav post-activation walk, drag orchestration after the search panel
+  has been open, missing-path nav late in the session) — they run and fail
+  honestly; the product data path is proven by the passing scenarios.
+- **Harness fixes shipped with the change:** uia-driver `Invoke-UiaPattern`
+  real-pattern mock detection (fixed real `SelectionPattern.GetSelection` via
+  `Current.GetSelection()`), pattern-scoped UIA property ids (ScrollPattern
+  static fields) in `Get-UiaElementProperty`; capability fixture root moved
+  from `%TEMP%` (a ~1800-entry column exceeds the driver's 2000-node walk)
+  to the user profile, all-tabs navigation label check, select-all-before-
+  typing address-bar hardening, search-panel ESC close posted to the main
+  window (an open combo dropdown popup swallows SendInput),
+  horizontal pane-scroll-to-100% before item clicks, Explorer-window title
+  fallback, run-level engine-data memory flag, badge-based engine probe.
+- **Validation:** debug CTest 61/61, release-test 61/61, analyze build clean
+  (/analyze, warnings-as-errors), `verify.ps1 build`/`doctor` PASS,
+  check_source_markers / check_diagnostic_policy / check_doc_drift PASS,
+  OpenSpec strict 51/51, git diff --check clean. Debug cache was temporarily
+  reconfigured with `FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON` for the live E2E
+  and reverted to OFF (final state; portable Authenticode suite passes).
+- NEXT recommended slice (do NOT start without instruction): Treemap UIA
+  provider (documented follow-up).
