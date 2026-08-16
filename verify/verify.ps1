@@ -33,6 +33,9 @@ param(
     [switch] $Clean,
     [switch] $SkipAnalyze,
     [switch] $SkipTests,
+    # stabilize-live-uia-e2e: pass key=value options through to capabilities
+    # (e.g. -CapabilityOption UiaScenario=search-deep-result-navigation).
+    [string[]] $CapabilityOption,
     [string] $Provider = 'local',
     [switch] $Elevate,
     [switch] $ElevatedChild,
@@ -79,6 +82,7 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     foreach ($config in $Configuration) { $childArgs += @('-Configuration', $config) }
     if ($Clean) { $childArgs += '-Clean' }
     if ($SkipAnalyze) { $childArgs += '-SkipAnalyze' }
+    if ($CapabilityOption) { foreach ($opt in $CapabilityOption) { $childArgs += @('-CapabilityOption', $opt) } }
     if ($SkipTests) { $childArgs += '-SkipTests' }
     if ($RunTimestamp) { $childArgs += @('-RunTimestamp', $RunTimestamp) }
     if ($Format -ne 'human') { $childArgs += @('-Format', $Format) }
@@ -134,6 +138,12 @@ function Invoke-VerificationRun {
         Clean          = $Clean.IsPresent
         SkipAnalyze    = $SkipAnalyze.IsPresent
         SkipTests      = $SkipTests.IsPresent
+    }
+    # stabilize-live-uia-e2e: -CapabilityOption key=value entries merge into
+    # the options hashtable passed to every capability.
+    foreach ($opt in @($CapabilityOption | Where-Object { $null -ne $_ })) {
+        if ($opt -match '^([^=]+)=(.*)$') { $options[$matches[1]] = $matches[2] }
+        else { throw "Invalid -CapabilityOption '$opt' (expected key=value)" }
     }
     # Presence of CapabilityFilter in the options marks a -Capability-filtered run
     # (partial capability set). Consumers such as windows-performance-baselines use

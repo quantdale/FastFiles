@@ -107,6 +107,15 @@ function Invoke-UiaPattern {
         $record = Get-UiaMockRecord -Driver $Driver -Element $Element
         if (-not $record.PSObject.Properties['patternCalls']) { $record | Add-Member -NotePropertyName patternCalls -NotePropertyValue ([System.Collections.ArrayList]::new()) }
         [void]$record.patternCalls.Add([pscustomobject]@{ pattern = $PatternName; method = $Method; args = @($Arguments) })
+        # stabilize-live-uia-e2e 3.6: mock Value read-back so Set-UiaElementValue
+        # can verify assignment headlessly (Value.GetValue returns the stored
+        # value; Value.SetValue stores it).
+        if ($PatternName -eq 'Value') {
+            if ($Method -eq 'SetValue' -and $Arguments.Count -ge 1) {
+                $record.value = [string]$Arguments[0]
+            }
+            if ($Method -eq 'GetValue') { return $(if ($null -ne $record.PSObject.Properties['value']) { [string]$record.value } else { '' }) }
+        }
         foreach ($ev in @($Driver.Events)) {
             if (($PatternName -eq 'Invoke' -and $ev.eventName -eq 'Invoked') -or
                 ($PatternName -eq 'SelectionItem' -and $Method -eq 'Select' -and $ev.eventName -eq 'SelectionChanged')) {
@@ -161,8 +170,17 @@ function Invoke-UiaPattern {
             switch ($Method) {
                 'FindItemByProperty' {
                     if ($Arguments.Count -lt 2) { throw 'FindItemByProperty requires (propertyName, value)' }
-                    $prop = [System.Windows.Automation.AutomationElementIdentifiers].GetProperty($Arguments[0] + 'Property')
-                    $propId = $prop.GetValue($null)
+                    # AutomationElementIdentifiers.*Property are static readonly
+                    # FIELDS (e.g. NameProperty); resolve field first, then
+                    # property, matching Get-UiaElementProperty's fallback.
+                    $type = [System.Windows.Automation.AutomationElementIdentifiers]
+                    $field = $type.GetField($Arguments[0] + 'Property')
+                    if ($field) {
+                        $propId = $field.GetValue($null)
+                    } else {
+                        $prop = $type.GetProperty($Arguments[0] + 'Property')
+                        $propId = $prop.GetValue($null)
+                    }
                     return $pattern.FindItemByProperty($null, $propId, $Arguments[1])
                 }
                 default { throw "ItemContainer pattern has no method '$Method'" }

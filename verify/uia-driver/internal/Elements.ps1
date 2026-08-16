@@ -147,12 +147,21 @@ function Test-UiaElementMatches {
 }
 
 function Wait-UiaCondition {
+    <#
+        Poll a semantic condition until it is truthy or the bounded deadline
+        elapses. Returns $true/$false (never throws). On timeout, the optional
+        -OnTimeout scriptblock runs so callers can collect rich diagnostics
+        (foreground HWND, focus identity, tree excerpt, popup state, last
+        exception); -Description names the expected condition for diagnostics.
+    #>
     param(
         $Driver,
         [Parameter(Mandatory)][scriptblock] $ScriptBlock,
         [int] $TimeoutMs,
         [int] $PollIntervalMs,
-        [scriptblock] $Pump = $null
+        [scriptblock] $Pump = $null,
+        [string] $Description = '',
+        [scriptblock] $OnTimeout = $null
     )
     $timeout = Resolve-UiaTimeout -Driver $Driver -TimeoutMs $TimeoutMs
     $poll = $PollIntervalMs
@@ -163,6 +172,93 @@ function Wait-UiaCondition {
         if ($result) { return $true }
         if ($Pump) { & $Pump }
         Start-Sleep -Milliseconds $poll
+    }
+    if ($OnTimeout) {
+        try { $null = & $OnTimeout } catch { }
+    }
+    return $false
+}
+
+function Wait-UiaElement {
+    <#
+        Poll for an element matching the same identity criteria as
+        Find-UiaElement until it appears or the bounded deadline elapses.
+        Returns the element or $null; on timeout the optional -OnTimeout
+        scriptblock collects diagnostics. This is a true poll loop (an
+        element that appears later is found), unlike Find-UiaElement's
+        single bounded DFS.
+    #>
+    param(
+        [Parameter(Mandatory)] $Driver,
+        [string] $AutomationId,
+        [string] $Name,
+        [string] $NameLike,
+        [string] $ControlType,
+        [string] $ClassName,
+        [int] $ProcessId,
+        $FromElement,
+        [int] $TimeoutMs,
+        [int] $PollIntervalMs,
+        [string] $Description = '',
+        [scriptblock] $OnTimeout = $null
+    )
+    $timeout = Resolve-UiaTimeout -Driver $Driver -TimeoutMs $TimeoutMs
+    $poll = $PollIntervalMs
+    if ($poll -le 0) { $poll = Get-UiaDriverSetting -Driver $Driver -Name 'PollIntervalMs' -Fallback 50 }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastError = $null
+    while ($watch.ElapsedMilliseconds -lt $timeout) {
+        try {
+            $element = Find-UiaElement -Driver $Driver -AutomationId $AutomationId -Name $Name -NameLike $NameLike `
+                -ControlType $ControlType -ClassName $ClassName -ProcessId $ProcessId `
+                -FromElement $FromElement -TimeoutMs ([Math]::Max(500, $poll * 2))
+            if ($element) { return $element }
+        } catch { $lastError = $_.Exception.Message }
+        Start-Sleep -Milliseconds $poll
+    }
+    if ($OnTimeout) {
+        try { $null = & $OnTimeout } catch { }
+    }
+    return $null
+}
+
+function Wait-UiaElementGone {
+    <#
+        Poll until an element matching the criteria no longer exists in the
+        tree (or the bounded deadline elapses). Returns $true when gone.
+        Useful for semantically verifying that a panel/popup closed.
+    #>
+    param(
+        [Parameter(Mandatory)] $Driver,
+        [string] $AutomationId,
+        [string] $Name,
+        [string] $NameLike,
+        [string] $ControlType,
+        [string] $ClassName,
+        [int] $ProcessId,
+        $FromElement,
+        [int] $TimeoutMs,
+        [int] $PollIntervalMs,
+        [string] $Description = '',
+        [scriptblock] $OnTimeout = $null
+    )
+    $timeout = Resolve-UiaTimeout -Driver $Driver -TimeoutMs $TimeoutMs
+    $poll = $PollIntervalMs
+    if ($poll -le 0) { $poll = Get-UiaDriverSetting -Driver $Driver -Name 'PollIntervalMs' -Fallback 50 }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt $timeout) {
+        $stillThere = $false
+        try {
+            $element = Find-UiaElement -Driver $Driver -AutomationId $AutomationId -Name $Name -NameLike $NameLike `
+                -ControlType $ControlType -ClassName $ClassName -ProcessId $ProcessId `
+                -FromElement $FromElement -TimeoutMs ([Math]::Max(500, $poll * 2))
+            $stillThere = $null -ne $element
+        } catch { $stillThere = $false }
+        if (-not $stillThere) { return $true }
+        Start-Sleep -Milliseconds $poll
+    }
+    if ($OnTimeout) {
+        try { $null = & $OnTimeout } catch { }
     }
     return $false
 }

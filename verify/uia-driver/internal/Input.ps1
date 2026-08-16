@@ -25,6 +25,53 @@ public static class FfNativeInput
     public static extern IntPtr GetForegroundWindow();
 
     [DllImport("user32.dll")]
+    public static extern IntPtr GetCapture();
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GUITHREADINFO
+    {
+        public int cbSize;
+        public int flags;
+        public IntPtr hwndActive;
+        public IntPtr hwndFocus;
+        public IntPtr hwndCapture;
+        public IntPtr hwndMenuOwner;
+        public IntPtr hwndMoveSize;
+        public IntPtr hwndCaret;
+        public RECT rcCaret;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT
+    {
+        public int left;
+        public int top;
+        public int right;
+        public int bottom;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO lpgui);
+
+    // True when the thread owning hWnd currently holds mouse capture (an
+    // active OLE DoDragDrop session keeps the source window captured). The
+    // capture state is per-thread, so GetCapture on a foreign thread cannot
+    // see it; GetGUIThreadInfo is the cross-thread query.
+    public static bool ThreadHasCapture(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        uint tid;
+        GetWindowThreadProcessId(hWnd, out tid);
+        if (tid == 0) return false;
+        var info = new GUITHREADINFO { cbSize = System.Runtime.InteropServices.Marshal.SizeOf(typeof(GUITHREADINFO)) };
+        if (!GetGUIThreadInfo(tid, ref info)) return false;
+        return info.hwndCapture != IntPtr.Zero;
+    }
+
+    [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -276,21 +323,31 @@ function Send-UiaMouseDrag {
         Up). Used by the drag scenarios with programmatic filesystem
         verification; the source/destination geometry always comes from UIA
         BoundingRectangles, never from pixels guessed by the caller.
+        stabilize-live-uia-e2e: the initial pause after the button-down and a
+        small arm move are required for OLE drag sources (FastFiles and
+        Explorer) to enter DoDragDrop reliably with injected input.
     #>
     param($Driver, [int] $FromX, [int] $FromY, [int] $ToX, [int] $ToY,
-          [int] $Steps = 12, [int] $StepDelayMs = 30, [switch] $NoSend)
+          [int] $Steps = 20, [int] $StepDelayMs = 60, [switch] $NoSend)
     if (-not $NoSend) {
         $null = [FfNativeInput]::MouseMove($FromX, $FromY)
-        Start-Sleep -Milliseconds 120
+        Start-Sleep -Milliseconds 300
         $null = [FfNativeInput]::MouseButton($true, $true)
-        Start-Sleep -Milliseconds 150
+        Start-Sleep -Milliseconds 600
+        # Small arm move so the source crosses its drag threshold; the pause
+        # after the down must outlast the source's selection/repaint work or
+        # the arm move is swallowed and the drag never starts.
+        $armX = $FromX + [int](($ToX - $FromX) / 8)
+        $armY = $FromY + [int](($ToY - $FromY) / 8)
+        $null = [FfNativeInput]::MouseMove($armX, $armY)
+        Start-Sleep -Milliseconds 600
         for ($i = 1; $i -le $Steps; $i++) {
             $x = $FromX + [int](($ToX - $FromX) * $i / $Steps)
             $y = $FromY + [int](($ToY - $FromY) * $i / $Steps)
             $null = [FfNativeInput]::MouseMove($x, $y)
             Start-Sleep -Milliseconds $StepDelayMs
         }
-        Start-Sleep -Milliseconds 200
+        Start-Sleep -Milliseconds 800
         $null = [FfNativeInput]::MouseButton($true, $false)
     }
     return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }

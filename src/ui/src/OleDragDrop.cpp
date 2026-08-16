@@ -175,27 +175,32 @@ public:
         if (value == 0) delete this;
         return value;
     }
-    IFACEMETHODIMP DragEnter(IDataObject* object, DWORD keys, POINTL, DWORD* effect) override {
+    IFACEMETHODIMP DragEnter(IDataObject* object, DWORD keys, POINTL point, DWORD* effect) override {
         if (effect == nullptr) return E_POINTER;
         paths_ = ExtractPaths(object);
-        *effect = DetermineDropEffect(keys, *effect, paths_, destination_());
+        *effect = DetermineDropEffect(keys, *effect, paths_, destination_(point));
         return S_OK;
     }
-    IFACEMETHODIMP DragOver(DWORD keys, POINTL, DWORD* effect) override {
+    IFACEMETHODIMP DragOver(DWORD keys, POINTL point, DWORD* effect) override {
         if (effect == nullptr) return E_POINTER;
-        *effect = DetermineDropEffect(keys, *effect, paths_, destination_());
+        *effect = DetermineDropEffect(keys, *effect, paths_, destination_(point));
         return S_OK;
     }
     IFACEMETHODIMP DragLeave() override {
         paths_.clear();
         return S_OK;
     }
-    IFACEMETHODIMP Drop(IDataObject* object, DWORD keys, POINTL, DWORD* effect) override {
+    IFACEMETHODIMP Drop(IDataObject* object, DWORD keys, POINTL point, DWORD* effect) override {
         if (effect == nullptr) return E_POINTER;
         auto paths = ExtractPaths(object);
-        const DWORD chosen = DetermineDropEffect(keys, *effect, paths, destination_());
+        // stabilize-live-uia-e2e: resolve the destination once, from the
+        // final drop point, and hand it to the handler so the executed
+        // operation matches the negotiated effect (the active pane at drop
+        // time is the SOURCE pane -- the drag's mouse-down activated it).
+        const std::wstring destination = destination_(point);
+        const DWORD chosen = DetermineDropEffect(keys, *effect, paths, destination);
         *effect = chosen;
-        if (chosen != DROPEFFECT_NONE && !paths.empty()) handler_(std::move(paths), chosen);
+        if (chosen != DROPEFFECT_NONE && !paths.empty()) handler_(std::move(paths), chosen, destination);
         paths_.clear();
         return S_OK;
     }

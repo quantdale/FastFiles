@@ -148,9 +148,11 @@ int main() {
 
     bool dropCalled = false;
     IDropTarget* dropTarget = nullptr;
-    Check(SUCCEEDED(CreateFileDropTarget([] { return std::wstring(L"C:\\target"); },
-        [&](std::vector<std::wstring> paths, DWORD effect) {
-            dropCalled = paths.size() == 2 && effect == DROPEFFECT_MOVE;
+    Check(SUCCEEDED(CreateFileDropTarget([](POINTL) { return std::wstring(L"C:\\target"); },
+        [&](std::vector<std::wstring> paths, DWORD effect, std::wstring destination) {
+            // stabilize-live-uia-e2e: the executed destination must be the
+            // drop-point destination, not a re-derived active-pane path.
+            dropCalled = paths.size() == 2 && effect == DROPEFFECT_MOVE && destination == L"C:\\target";
         }, &dropTarget)), "drop target creation failed");
     DWORD effect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
     POINTL point{};

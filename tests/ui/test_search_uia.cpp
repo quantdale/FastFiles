@@ -4,6 +4,7 @@
 // behavior).
 
 #include "SearchUiaProvider.h"
+#include "SearchPanel.h" // stabilize-live-uia-e2e: activation marshal predicate
 #include "UiaTestSurface.h"
 
 #include <algorithm>
@@ -199,6 +200,17 @@ void TestSearchFindItem() {
 } // namespace
 
 int main() {
+    // stabilize-live-uia-e2e: the activation marshal predicate. UIA provider
+    // calls can arrive on a UIAutomationCore worker thread; UI-thread window
+    // creation (chrome tab rebuild) must never run there. Same-thread calls
+    // take the inline path unchanged.
+    Check(ffui::SearchPanel::SearchActivationNeedsUiThreadMarshal(100, 200),
+          "foreign thread activation is marshaled to the UI thread");
+    Check(!ffui::SearchPanel::SearchActivationNeedsUiThreadMarshal(200, 200),
+          "UI-thread activation takes the inline path");
+    Check(!ffui::SearchPanel::SearchActivationNeedsUiThreadMarshal(100, 0),
+          "unknown list thread never blocks activation");
+
     TestSearchTreeAndMetadata();
     TestSearchSelectionAndActivation();
     TestSearchVirtualization();

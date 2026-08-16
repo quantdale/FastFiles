@@ -24,7 +24,7 @@ $script:UiaWinFormsLoaded = $false
 
 foreach ($internal in @(
         'Constants.ps1', 'Common.ps1', 'Mock.ps1', 'Elements.ps1',
-        'Patterns.ps1', 'Input.ps1', 'Events.ps1', 'Dump.ps1')) {
+        'Patterns.ps1', 'Input.ps1', 'State.ps1', 'Events.ps1', 'Dump.ps1')) {
     . (Join-Path $PSScriptRoot (Join-Path 'internal' $internal))
 }
 
@@ -57,7 +57,7 @@ function Get-UiaDriverAvailability {
 function New-UiaDriver {
     <#
         Create a driver context. Defaults: TimeoutMs=5000, PollIntervalMs=50,
-        MaxTreeDepth=30, MaxTreeWidth=2000, View=Control, Provider=managed.
+        MaxTreeDepth=20, MaxTreeWidth=100, View=Control, Provider=managed.
         For headless tests create -Provider Mock and attach a recorded tree with
         Import-UiaRecordedTree.
     #>
@@ -91,4 +91,6 @@ Export-ModuleMember -Function `
     Get-UiaPattern, Invoke-UiaPattern, Test-UiaPatternAvailable, Invoke-UiaElementAction, `
     Get-UiaClickablePoint, Send-UiaInput, Send-UiaMouseInput, Send-UiaMouseDrag, Send-UiaText, Set-UiaForeground, `
     Register-UiaEvent, Wait-UiaEvent, Unregister-UiaEvent, `
-    Wait-UiaCondition, Get-UiaTreeDump, Export-UiaTreeDump, New-UiaTargetNotFoundError
+    Wait-UiaCondition, Wait-UiaElement, Wait-UiaElementGone, `
+    Get-UiaInteractiveState, Reset-UiaModifierKeys, Test-UiaForegroundWindow, Get-UiaTopmostWindowAt, Test-UiaPointInWindow, Wait-UiaStableRect, Set-UiaElementValue, Get-UiaElementTextValue, Get-UiaExplorerWindow, Set-UiaWindowPosition, Bring-UiaWindowToTop, `
+    Get-UiaTreeDump, Export-UiaTreeDump, New-UiaTargetNotFoundError

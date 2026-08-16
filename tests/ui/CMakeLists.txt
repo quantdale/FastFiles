@@ -113,6 +113,13 @@ target_include_directories(ffsearch_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
 target_link_libraries(ffsearch_uia_tests PRIVATE ${FFUIA_TEST_LIBS})
 add_test(NAME ffsearch_uia_tests COMMAND ffsearch_uia_tests)
 
+# stabilize-live-uia-e2e: drop-destination pane mapping (pane-of-drop-point).
+add_executable(ffdrop_destination_tests test_drop_destination.cpp ../../src/ui/src/OleDragDrop.cpp)
+target_include_directories(ffdrop_destination_tests PRIVATE ../../src/ui/include ../../src/ui/src)
+target_link_libraries(ffdrop_destination_tests PRIVATE ole32 uuid)
+add_test(NAME ffdrop_destination_tests COMMAND ffdrop_destination_tests)
+set_tests_properties(ffdrop_destination_tests PROPERTIES TIMEOUT 120)
+
 add_executable(ffuia_geometry_tests test_uia_geometry.cpp)
 target_include_directories(ffuia_geometry_tests PRIVATE ../../src/ui/src ../../src/ui/include)
 add_test(NAME ffuia_geometry_tests COMMAND ffuia_geometry_tests)

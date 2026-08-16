@@ -778,19 +778,24 @@ int ColumnView::FocusedItemIndex() const {
 }
 
 std::wstring ColumnView::ActivePanePath() const {
+    return PanePath(activePane_);
+}
+
+std::wstring ColumnView::PanePath(size_t pane) const {
+    // stabilize-live-uia-e2e: pane-of-drop-point destination for file drops.
     // quick-access-home 4.2: a Home pane has no filesystem path -- returning the
     // empty string keeps every downstream consumer (file ops, reconciliation,
     // address-bar seeding) safe, identical to the "This PC" root.
-    if (homePane_[activePane_]) {
+    if (pane >= 2 || homePane_[pane]) {
         return {};
     }
     std::lock_guard<std::mutex> lock(columnsMutex_);
-    const auto& columns = const_cast<ColumnView*>(this)->ActiveColumns();
-    const int& focusedIndex = const_cast<ColumnView*>(this)->ActiveFocusedColumnIndex();
-    if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) {
+    const auto& columns = pane == 0 ? columns_ : columns2_;
+    const int& focused = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
+    if (focused < 0 || focused >= static_cast<int>(columns.size())) {
         return {};
     }
-    return columns[focusedIndex].path;
+    return columns[static_cast<size_t>(focused)].path;
 }
 
 // quick-access-home 4.2: data + activation plumbing. These never touch the

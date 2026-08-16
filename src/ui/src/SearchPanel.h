@@ -28,6 +28,7 @@ namespace ffui {
 
 constexpr UINT WM_APP_SEARCH_COMPLETE = WM_APP + 6;
 constexpr UINT WM_APP_INDEXED_SEARCH_COMPLETE = WM_APP + 13;
+constexpr UINT WM_APP_SEARCH_RESULT_ACTIVATE = WM_APP + 53; // stabilize-live-uia-e2e
 
 class SearchPanel : public UiaSurface {
 public:
@@ -202,6 +203,23 @@ private:
     // everything else falls through to the native control. Public because the
     // subclass proc and the shell own the lifecycle.
 public:
+    // stabilize-live-uia-e2e: UIA provider calls can execute on a
+    // UIAutomationCore worker thread rather than the UI thread that owns the
+    // search list. Navigation mutates UI state (workspace, columns, chrome
+    // tab rebuild) and MUST run on the UI thread: windows created on a
+    // foreign thread (tab buttons) can never be destroyed by the UI thread
+    // (DestroyWindow fails cross-thread), leaving orphaned duplicate tabs
+    // that stall UIA enumeration. UiaSearchActivateItem therefore posts
+    // WM_APP_SEARCH_RESULT_ACTIVATE to the owner when invoked off-thread and
+    // WindowShell runs ActivateResultItem on the UI thread. The inline path
+    // is unchanged when the call already arrives on the UI thread.
+    static bool SearchActivationNeedsUiThreadMarshal(DWORD currentThreadId, DWORD listWindowThreadId) {
+        return listWindowThreadId != 0 && currentThreadId != listWindowThreadId;
+    }
+    // Runs the real search-to-navigation activation on the calling (UI)
+    // thread; re-validates the index against the current result set.
+    void ActivateResultItem(size_t index);
+
     void SetUiaEventSink(UiaEventSink sink, void* context);
     Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> UiaRootProvider(HWND listHwnd);
     void ReleaseUiaProvider();

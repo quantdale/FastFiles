@@ -238,6 +238,8 @@ public:
     std::vector<std::wstring> ActiveSelectionPaths() const;
     std::vector<SelectionItem> ActiveSelectionItems() const;
     std::wstring ActivePanePath() const;
+    // stabilize-live-uia-e2e: path of an arbitrary pane (drop-point destination).
+    std::wstring PanePath(size_t pane) const;
     std::wstring RootPath() const;
     void SelectAll();
     void RefreshActiveColumn();

@@ -965,9 +965,29 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     settingsDialog_.SetEngineClient(&engineClient_);
     IDropTarget* dropTarget = nullptr;
     if (FAILED(CreateFileDropTarget(
-            [this] { return columnView_.ActivePanePath(); },
-            [this](std::vector<std::wstring> paths, DWORD effect) {
-                const std::wstring destination = columnView_.ActivePanePath();
+            [this](POINTL point) {
+                // stabilize-live-uia-e2e: resolve the drop destination from
+                // the DROP POINT's pane (dual-pane split by content width),
+                // not the active pane: the drag's own mouse-down activates
+                // the source pane, which would make every cross-pane drag
+                // land back in the source folder. The conversion inverts
+                // UiaRectToScreen exactly: screen = (dip + originDip) * scale
+                // + clientOrigin (ClientToScreen of the client origin).
+                const auto shellLayout = CurrentShellLayout();
+                const float scale = CurrentDpiScale();
+                POINT clientOrigin{};
+                ClientToScreen(hwnd_, &clientOrigin);
+                const float clientX = DropPointClientXDip(point, clientOrigin, scale, shellLayout.contentRect.left);
+                const float viewportWidth = shellLayout.details.availableColumnWidthDip;
+                if (clientX < 0.0f || clientX >= viewportWidth) {
+                    return columnView_.ActivePanePath();
+                }
+                return columnView_.PanePath(PaneIndexForDropPoint(clientX, viewportWidth));
+            },
+            [this](std::vector<std::wstring> paths, DWORD effect, std::wstring destination) {
+                // stabilize-live-uia-e2e: destination comes from the drop
+                // point (the pane the user dropped on), NOT from the active
+                // pane: the drag's own mouse-down activated the source pane.
                 if (destination.empty()) return;
                 if (effect == DROPEFFECT_LINK) {
                     FileOperationRequest request{};
@@ -1672,6 +1692,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_APP_SEARCH_COMPLETE:
             searchPanel_.HandleCompletion(lParam);
+            return 0;
+
+        // stabilize-live-uia-e2e: search-result activation marshaled from the
+        // UIA provider thread to the UI thread (see SearchPanel::
+        // SearchActivationNeedsUiThreadMarshal). Runs the exact activation
+        // path; the index is re-validated against the current result set.
+        case WM_APP_SEARCH_RESULT_ACTIVATE:
+            searchPanel_.ActivateResultItem(static_cast<size_t>(wParam));
             return 0;
 
         case WM_APP_INDEXED_SEARCH_COMPLETE:

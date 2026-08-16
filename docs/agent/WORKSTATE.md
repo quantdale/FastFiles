@@ -1,7 +1,71 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-15T22:45:00+08:00
-Status: COMPLETE — fix-initial-snapshot-handshake implemented, validated, committed, pushed
+Last updated: 2026-08-16T19:30:00+08:00
+Status: IN PROGRESS — stabilize-live-uia-e2e implemented and validated; final
+validation gates + commit/push pending (see session record below)
+
+## stabilize-live-uia-e2e session record (2026-08-16)
+
+- **Change:** `openspec/changes/stabilize-live-uia-e2e/` — made the live
+  `windows-ui-automation-validation` capability deterministic and
+  order-independent; zero unexpected FAIL (baseline was 15 PASS / 4 FAIL /
+  8 SKIP at `f4ac7ee`).
+- **Two product defects found and FIXED (reclassified from harness-only):**
+  1. `search-deep-result-navigation`: search-result activation ran on a
+     UIAutomationCore worker thread and rebuilt the tab strip there,
+     orphaning duplicate tab buttons that the UI thread can never destroy
+     (measured threads 49572 vs 54328; ~20s per UIA enumeration stall).
+     Fix: `SearchPanel::UiaSearchActivateItem` marshals activation to the
+     UI thread via `WM_APP_SEARCH_RESULT_ACTIVATE`; regression tested in
+     `ffsearch_uia_tests`.
+  2. `drag-between-panes`: the drop destination resolved to the ACTIVE
+     pane (the drag's own mouse-down activates the source pane), AND the
+     screen→client conversion dropped the ClientToScreen client-origin
+     term (a pane-1 drop on a right-positioned window computed past the
+     viewport width and fell back to the source pane — observed live as
+     the product's own "destination already contains 'pane-drag.txt'."
+     conflict dialog). Fixes: drop-point pane resolution threaded through
+     `FileDropTarget` (`PaneIndexForDropPoint` + `ColumnView::PanePath`),
+     exact conversion inversion (`DropPointClientXDip`), and the executed
+     operation receives the drop-point destination (handler signature
+     carries it instead of re-deriving `ActivePanePath()`). Regression:
+     `ffdrop_destination_tests` (new target).
+- **Host/refresh prerequisites documented as SKIPs (evidence-recorded):**
+  `drag-in-from-explorer` — host Explorer DUIListView never initiates OLE
+  drags from synthetic input (semantic SelectionItemPattern.Select works;
+  down+move never arms); `in-column-error-state-late` — the stale-with-
+  error wording only appears on a refresh race (~35%); the engine
+  publishes an empty-OK directory for externally deleted folders.
+- **Harness architecture:** scenario registry + `-CapabilityOption
+  UiaScenario=` filtering through verify.ps1; `ScenarioContext` fresh
+  isolated lifecycles (launch retry, diagnostics-log connect await,
+  teardown closes Explorer windows, fixture removal); bounded semantic
+  waits with timeout diagnostics; foreground-ownership verification at
+  every input seam (`Test-UiaForegroundWindow`); drop-point coverage guard
+  (`Test-UiaPointInWindow`/`WindowFromPoint`); Explorer DUI view layout
+  quiescence wait (`Wait-UiaStableRect` — the drop-target re-registration
+  race after SetWindowPos); semantic source-item selection verification;
+  bounded reported retries (launch, foreground, Enter commit, top-raise,
+  drag ×3 with fresh geometry); `Ensure-UiaDualPane` semantic setup;
+  `Get-UiaExplorerWindow` structural discovery (class + PID set + address
+  value); `Reset-UiaModifierKeys`; `Get-UiaInteractiveState`.
+- **Live results (diagnostic build `build/debug-diagnostic` with
+  `FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`; degraded unprivileged
+  engine-connected path):** full capability **20 PASS / 6 SKIP / 0 FAIL**
+  (both `verify.ps1 run` and direct module invocation); final 10×
+  affected-set gate **50/50** (search-deep 10/10, drag-out 10/10,
+  drag-in 10/10 SKIP, pane-drag 10/10, error-late 10/10 SKIP); order
+  permutation B ×2 identical; SKIPs all name real independent
+  prerequisites (privileged-scan ×2, treemap-drawn-on-d2d-surface,
+  explorer-drag-source-unavailable, error-state-trigger-not-deterministic,
+  engine-connected-host).
+- **Validation completed:** uia-driver headless tests PASS; Debug CTest
+  62/62; release-test CTest 62/62; analyze build PASS (warning-clean);
+  `verify.ps1 build` PASS; `verify.ps1 doctor` PASS; check_source_markers /
+  check_diagnostic_policy / check_doc_drift PASS; OpenSpec strict 52/52;
+  `git diff --check` clean.
+- NEXT recommended slice (do NOT start without instruction): Treemap UIA
+  provider — the now-reliable live harness validates it directly.
 
 ## Allocated-size session record (2026-08-15)
 

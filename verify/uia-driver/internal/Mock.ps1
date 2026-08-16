@@ -33,6 +33,8 @@ function Import-UiaRecordedTree {
             patterns = @(if ($node.PSObject.Properties['patterns']) { $node.patterns } else { @() })
             clickablePoint = $(if ($node.PSObject.Properties['clickablePoint']) { $node.clickablePoint } else { $null })
             boundingRectangle = $(if ($node.PSObject.Properties['boundingRectangle']) { $node.boundingRectangle } else { $null })
+            value = $(if ($node.PSObject.Properties['value']) { [string]$node.value } else { $null })
+            isReadOnly = $(if ($node.PSObject.Properties['isReadOnly']) { $node.isReadOnly } else { $false })
             children = @(if ($node.PSObject.Properties['children']) { $node.children } else { @() })
         }
     }
@@ -81,6 +83,8 @@ function Get-UiaMockProperty {
         'SupportedPatterns' { return $rec.patterns }
         'BoundingRectangle' { return $rec.boundingRectangle }
         'ClickablePoint' { return $rec.clickablePoint }
+        'Value' { return $(if ($null -ne $rec.PSObject.Properties['value']) { [string]$rec.value } else { '' }) }
+        'IsReadOnly' { return $(if ($null -ne $rec.PSObject.Properties['isReadOnly']) { $rec.isReadOnly } else { $false }) }
         default { return $null }
     }
 }

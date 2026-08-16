@@ -1,0 +1,123 @@
+{
+  "root": "Desktop",
+  "nodes": [
+    {
+      "id": "Desktop",
+      "name": "Desktop",
+      "automationId": null,
+      "controlType": "Pane",
+      "className": "#32769",
+      "processId": 0,
+      "children": [
+        "UserShell",
+        "TestExplorer",
+        "UnrelatedExplorer"
+      ]
+    },
+    {
+      "id": "UserShell",
+      "name": "Taskbar",
+      "automationId": null,
+      "controlType": "Pane",
+      "className": "Shell_TrayWnd",
+      "processId": 11111,
+      "children": []
+    },
+    {
+      "id": "TestExplorer",
+      "name": "ffui-drag-42-target",
+      "automationId": null,
+      "controlType": "Window",
+      "className": "CabinetWClass",
+      "processId": 4242,
+      "children": [
+        "TestExplorerAddress",
+        "TestExplorerView",
+        "TestExplorerTab"
+      ]
+    },
+    {
+      "id": "TestExplorerAddress",
+      "name": "Address: C:\\Users\\Test\\ffui-drag-42\\target",
+      "automationId": "Toolbar",
+      "controlType": "Edit",
+      "className": "Edit",
+      "processId": 4242,
+      "patterns": [
+        "Value"
+      ],
+      "children": [],
+      "value": "C:\\Users\\Test\\ffui-drag-42\\target"
+    },
+    {
+      "id": "TestExplorerView",
+      "name": "target",
+      "automationId": "ShellView",
+      "controlType": "Pane",
+      "className": "DirectUIHWND",
+      "processId": 4242,
+      "children": [],
+      "boundingRectangle": {
+        "x": 100,
+        "y": 100,
+        "width": 800,
+        "height": 500
+      }
+    },
+    {
+      "id": "UnrelatedExplorer",
+      "name": "Downloads - File Explorer",
+      "automationId": null,
+      "controlType": "Window",
+      "className": "CabinetWClass",
+      "processId": 4242,
+      "children": [
+        "UnrelatedAddress",
+        "UnrelatedView"
+      ]
+    },
+    {
+      "id": "UnrelatedAddress",
+      "name": "Address: C:\\Users\\Test\\Downloads",
+      "automationId": "Toolbar",
+      "controlType": "Edit",
+      "className": "Edit",
+      "processId": 4242,
+      "patterns": [
+        "Value"
+      ],
+      "children": [],
+      "value": "C:\\Users\\Test\\Downloads",
+      "boundingRectangle": {
+        "x": 0,
+        "y": 0,
+        "width": 10,
+        "height": 10
+      }
+    },
+    {
+      "id": "TestExplorerTab",
+      "name": "target",
+      "automationId": null,
+      "controlType": "TabItem",
+      "className": "ListViewItem",
+      "processId": 4242,
+      "children": []
+    },
+    {
+      "id": "UnrelatedView",
+      "name": "Downloads",
+      "automationId": "ShellView",
+      "controlType": "Pane",
+      "className": "DUIListView",
+      "processId": 4242,
+      "boundingRectangle": {
+        "x": 100,
+        "y": 100,
+        "width": 800,
+        "height": 500
+      },
+      "children": []
+    }
+  ]
+}

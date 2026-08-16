@@ -1218,6 +1218,23 @@ void SearchPanel::UiaSearchSetFocusItem(size_t index) {
 
 void SearchPanel::UiaSearchActivateItem(size_t index) {
     if (index >= results_.size()) return;
+    // stabilize-live-uia-e2e: provider calls can land on a UIAutomationCore
+    // worker thread; UI state (workspace, columns, chrome tab rebuild) must
+    // be mutated on the UI thread. See SearchActivationNeedsUiThreadMarshal.
+    if (SearchActivationNeedsUiThreadMarshal(GetCurrentThreadId(),
+                                             GetWindowThreadProcessId(list_, nullptr))) {
+        if (PostMessageW(owner_, WM_APP_SEARCH_RESULT_ACTIVATE,
+                         static_cast<WPARAM>(index), 0)) {
+            return; // WindowShell runs ActivateResultItem on the UI thread.
+        }
+        // PostMessage failure (owner gone): fall through to the inline path
+        // rather than dropping the activation.
+    }
+    ActivateResultItem(index);
+}
+
+void SearchPanel::ActivateResultItem(size_t index) {
+    if (index >= results_.size()) return;
     // The exact search-to-navigation path used by NM_DBLCLK / LVN_ITEMACTIVATE.
     const auto candidate = results_[index].candidate;
     const auto found = std::find_if(candidates_.begin(), candidates_.end(), [&](const ffsearch::Candidate& entry) {

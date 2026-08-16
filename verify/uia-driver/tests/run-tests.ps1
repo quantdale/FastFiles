@@ -195,6 +195,70 @@ Check ($ms.used -eq 'SendInput' -and $ms.dryRun) 'mouse dry-run records SendInpu
 $tx = Send-UiaText -Driver $mock -Text 'C:\Temp\sub dir' -NoSend
 Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15) 'unicode text dry-run records char count'
 
+Write-Host "== stabilize-live-uia-e2e: bounded semantic waits =="
+$onTimeoutRan = $false
+$condTimeout = Wait-UiaCondition -Driver $mock -TimeoutMs 300 -PollIntervalMs 30 -Description 'never true' -OnTimeout { $script:onTimeoutRan = $true; return $true } -ScriptBlock { return $false }
+Check (-not $condTimeout) 'bounded wait times out returning false'
+Check $onTimeoutRan 'timeout diagnostics scriptblock runs on timeout'
+$waitEl = Wait-UiaElement -Driver $mock -AutomationId 'Nav1' -FromElement $root -TimeoutMs 500
+Check ($null -ne $waitEl) 'Wait-UiaElement finds an existing element'
+$waitMissing = Wait-UiaElement -Driver $mock -AutomationId 'NoSuchElement' -FromElement $root -TimeoutMs 300 -PollIntervalMs 30
+Check ($null -eq $waitMissing) 'Wait-UiaElement returns null for a missing element'
+$gone = Wait-UiaElementGone -Driver $mock -AutomationId 'NoSuchElement' -FromElement $root -TimeoutMs 300 -PollIntervalMs 30
+Check $gone 'Wait-UiaElementGone returns true when element is absent'
+$gonePresent = Wait-UiaElementGone -Driver $mock -AutomationId 'Nav1' -FromElement $root -TimeoutMs 300 -PollIntervalMs 30
+Check (-not $gonePresent) 'Wait-UiaElementGone returns false while element exists'
+
+Write-Host "== stabilize-live-uia-e2e: ValuePattern assignment =="
+$valSet = Set-UiaElementValue -Driver $mock -Element $search -Value 'C:\Users\Test\Documents'
+Check ($valSet.ok -and $valSet.used -eq 'ValuePattern') "ValuePattern assignment ok (used=$($valSet.used))"
+Check ($valSet.current -eq 'C:\Users\Test\Documents') "Value read-back matches, got '$($valSet.current)'"
+$valRec = Get-UiaMockRecord -Driver $mock -Element $search
+$setCall = @($valRec.patternCalls | Where-Object { $_.pattern -eq 'Value' -and $_.method -eq 'SetValue' })
+Check ($setCall.Count -ge 1 -and $setCall[0].args[0] -eq 'C:\Users\Test\Documents') 'mock records the SetValue call with the argument'
+$noValue = Find-UiaElement -Driver $mock -AutomationId 'ConnectionBadge'
+$valFail = Set-UiaElementValue -Driver $mock -Element $noValue -Value 'x'
+Check (-not $valFail.ok -and $valFail.used -eq 'unavailable') 'element without ValuePattern fails cleanly as unavailable'
+$textVal = Get-UiaElementTextValue -Driver $mock -Element $search
+Check ($textVal -eq 'C:\Users\Test\Documents') "text value falls back to element Name, got '$textVal'"
+$badgeText = Get-UiaElementTextValue -Driver $mock -Element $noValue
+Check ($badgeText -eq 'Connection: Degraded') 'text value reads the element Name when no Value pattern exists'
+$entryList = Find-UiaElement -Driver $mock -AutomationId 'EntryList'
+$nav0 = Find-UiaElement -Driver $mock -AutomationId 'Nav0'
+$nav0Rec = Get-UiaMockRecord -Driver $mock -Element $nav0
+$nav0Rec.patterns = @('SelectionItem', 'Invoke', 'ScrollItem', 'ItemContainer')
+$icFind = Invoke-UiaPattern -Driver $mock -Element $nav0 -PatternName 'ItemContainer' -Method 'FindItemByProperty' -Arguments @('Name', 'Docs')
+Check ($icFind -eq $true) 'ItemContainer FindItemByProperty records on mock'
+$icCall = @($nav0Rec.patternCalls | Where-Object { $_.pattern -eq 'ItemContainer' -and $_.method -eq 'FindItemByProperty' })
+Check ($icCall.Count -ge 1 -and $icCall[0].args[0] -eq 'Name' -and $icCall[0].args[1] -eq 'Docs') 'ItemContainer call recorded with property name and value'
+
+Write-Host "== stabilize-live-uia-e2e: modifier reset + interactive state =="
+$modReset = Reset-UiaModifierKeys -Driver $mock -NoSend
+Check ($modReset.kind -eq 'modifier-reset' -and $modReset.released -contains 0x11 -and $modReset.released -contains 0x5B) 'modifier reset lists ctrl and win key-up vks'
+$state = Get-UiaInteractiveState -Driver $mock -ProcessId 4242
+Check ($state.PSObject.Properties['TimestampUtc'] -ne $null -and $state.Windows.Count -eq 0) 'interactive state envelope is safe on mock drivers'
+$fgProbe = Test-UiaForegroundWindow -Driver $mock -Element $mock.Root
+Check ($fgProbe -eq $true) 'foreground ownership probe is safe on mock drivers'
+$topAt = Get-UiaTopmostWindowAt -Driver $mock -X 100 -Y 100
+Check ($null -eq $topAt) 'topmost-window probe returns null on mock drivers'
+$inWin = Test-UiaPointInWindow -Driver $mock -Element $mock.Root -X 100 -Y 100
+Check ($inWin -eq $true) 'point-in-window probe is safe on mock drivers'
+$stable = Wait-UiaStableRect -Driver $mock -Element $mock.Root -StableReads 2 -IntervalMs 10 -TimeoutMs 500
+Check ($stable -eq $true) 'rect-stability wait is safe on mock drivers'
+
+Write-Host "== stabilize-live-uia-e2e: Explorer window discovery =="
+$explorerTree = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\explorer-windows.json'
+$expMock = New-UiaDriver -Provider mock -TimeoutMs 1000
+$null = Import-UiaRecordedTree -Driver $expMock -Path $explorerTree
+$found = Get-UiaExplorerWindow -Driver $expMock -ExpectedPath 'C:\Users\Test\ffui-drag-42\target' -CandidateProcessIds @(4242) -TimeoutMs 1000 -PollIntervalMs 50
+$foundId = if ($found) { (Get-UiaElementIdentity -Driver $expMock -Element $found).Name } else { $null }
+Check ($foundId -eq 'ffui-drag-42-target') "Explorer discovery binds the window with the matching address value, got '$foundId'"
+$found2 = Get-UiaExplorerWindow -Driver $expMock -ExpectedPath 'C:\Users\Test\Downloads' -CandidateProcessIds @(4242) -TimeoutMs 1000 -PollIntervalMs 50
+$found2Id = if ($found2) { (Get-UiaElementIdentity -Driver $expMock -Element $found2).Name } else { $null }
+Check ($found2Id -eq 'Downloads - File Explorer') 'Explorer discovery matches the second window by its own address'
+$foundNone = Get-UiaExplorerWindow -Driver $expMock -ExpectedPath 'C:\Users\Test\ffui-drag-42\source' -CandidateProcessIds @(4242) -TimeoutMs 300 -PollIntervalMs 50
+Check ($null -eq $foundNone) 'Explorer discovery returns null for an unmatched path'
+
 Write-Host ""
 if ($script:failures -gt 0) {
     Write-Host "RESULT: $script:failures check(s) FAILED"
