@@ -1626,123 +1626,191 @@ function Invoke-UiaScenarioDragPanes {
 # created -> navigated -> deleted externally -> refresh -> semantic Text
 # element with the no-longer-available wording.
 function Invoke-UiaScenarioErrorStateLate {
+    <#
+    .SYNOPSIS
+        deterministic-missing-path-state: deterministic missing-path validation.
+
+        Creates a disposable directory, navigates to it through the real UI,
+        retains a sentinel row provider, externally deletes the currently
+        displayed directory, asserts the exact missing-path status deterministically
+        through the watcher-driven current-view transition, then recreates and
+        verifies recovery. The scenario lifecycle launches/tears down its own
+        repo-built FastFiles UI/engine (ScenarioContext); no pre-existing process
+        is required.
+
+        Post-fix contract: the ONLY successful missing-state assertion is the
+        exact Column status "This folder is no longer available." with
+        ControlType=Text, valid bounds, absent pre-delete rows, and a stale
+        held provider. The old broad-pattern/error-state-trigger-not-deterministic
+        SKIP escape path has been removed.
+    #>
     param($Context, [string] $ArtifactsDir)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
     $pid = $Context.Launched.Id
+    $leaf = 'ffui-error-' + (Get-Random)
+    $missing = Join-Path $env:USERPROFILE $leaf
     $fail = { param($detail) New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'FAIL' -Reason 'error-state-not-observed' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
-    $missing = Join-Path $env:USERPROFILE ('ffui-error-' + (Get-Random))
+    # --- fixture: disposable directory with a sentinel file ---
     New-Item -ItemType Directory -Path $missing -Force | Out-Null
-    # Non-empty fixture: the stale view must carry real content so the
-    # refresh-failure wording ("Showing previous results - refresh failed.")
-    # is what the column shows instead of the empty-folder fallback.
-    Set-Content -LiteralPath (Join-Path $missing 'probe.txt') -Value 'x' -Encoding utf8
+    Set-Content -LiteralPath (Join-Path $missing 'before-delete.txt') -Value 'pre-fix-sentinel' -Encoding utf8
     [void]$Context.Fixtures.Add($missing)
     try {
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $missing -ExpectedLeaf (Split-Path $missing -Leaf)
-        if (-not $nav.Pass) { return & $fail "navigation to the fixture folder failed: $($nav.Detail)" }
-        # Delete the folder externally, then navigate away and back through
-        # history: the workspace history still holds the deleted path, and
-        # back-navigation re-requests it (address-bar re-entry is rejected at
-        # commit time for missing paths, so history is the supported trigger).
+        # --- Phase 1: navigate to the directory and confirm sentinel is visible ---
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $missing -ExpectedLeaf $leaf
+        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        # deterministic-missing-path-state 6.2: reacquire the terminal Column
+        # View semantically (direct-child navigation, never whole-window DFS),
+        # find the sentinel row, and retain its provider reference for the
+        # stale-provider assertion after deletion.
+        $sentinel = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'before-delete.txt' -PaneId 'Pane.0' -TimeoutMs 15000
+        if (-not $sentinel) { return & $fail "pre-delete sentinel 'before-delete.txt' not found in terminal column" }
+        $sentinelIdent = Get-UiaElementIdentity -Driver $driver -Element $sentinel
+        $sentinelBr = Get-UiaElementProperty -Driver $driver -Element $sentinel -Name 'BoundingRectangle'
+        # --- Phase 2: externally delete the currently displayed directory ---
+        # deterministic-missing-path-state D4: the watcher detects the directory
+        # removal, invokes the terminal refresh callback, re-enumerates the path,
+        # publishes NotFound through the normal snapshot generation path, and the
+        # UI transitions from current-content to unavailable. This is the
+        # current-view-driven approach: we observe the watcher transition directly
+        # rather than manufacturing a navigation/history race.
         Remove-Item -LiteralPath $missing -Recurse -Force -ErrorAction SilentlyContinue
-        Start-Sleep -Milliseconds 400
-        $parent = Split-Path $missing -Parent
-        $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $parent -ExpectedLeaf (Split-Path $parent -Leaf)
-        $null = Set-UiaForeground -Driver $driver -Element $main
-        $null = Reset-UiaModifierKeys -Driver $driver
-        Start-Sleep -Milliseconds 300
-        # Use the real back BUTTON via its Invoke pattern (keyboard Alt+Left
-        # delivery was flaky); the button is the canonical history-back affordance.
-        $backOk = $false
-        try {
-            $backBtn = Find-UiaElement -Driver $driver -AutomationId '8201' -FromElement $main -TimeoutMs 3000
-            if ($backBtn) {
-                $null = Invoke-UiaElementAction -Driver $driver -Element $backBtn
-                $backOk = $true
-            }
-        } catch { }
-        if (-not $backOk) {
-            $null = Send-UiaInput -Driver $driver -Keys '{ALT}{LEFT}'
-        }
-        # Verify the back-navigation actually returned to the deleted folder
-        # (the terminal column shows the fixture leaf) before waiting for the
-        # error wording.
-        $backOk = Wait-UiaCondition -Driver $driver -TimeoutMs 8000 -PollIntervalMs 400 -Description "back to deleted folder" -ScriptBlock {
-            $col = $null
+        # --- Phase 3: wait for the exact missing-path status ---
+        # deterministic-missing-path-state D6: the ONLY successful assertion is
+        # the exact unavailable wording. Broad patterns ("unable to load", "refresh
+        # failed", "engine is unavailable", etc.) and "This folder is empty" are
+        # explicit failures — they denote states other than the confirmed NotFound.
+        $exactStatus = 'This folder is no longer available.'
+        $statusEl = $null
+        $statusIdent = $null
+        $statusBr = $null
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        $statusFound = $false
+        while ([DateTime]::UtcNow -lt $deadline) {
             try {
-                $col = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
-                if (-not $col) { return $false }
-                $cols = @(Get-UiaChildren -Driver $driver -Element $col | Where-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
-                if ($cols.Count -eq 0) { return $false }
-                $name = (Get-UiaElementIdentity -Driver $driver -Element $cols[$cols.Count - 1]).Name
-                return ($name -like "*$(Split-Path $missing -Leaf)*")
-            } catch { return $false }
-        }
-        if (-not $backOk) {
-            # Alt+Left may not have been delivered (foreground contention) or
-            # the engine refresh for the deleted folder is still in flight;
-            # retry the back gesture with bounded retries.
-            for ($retry = 0; $retry -lt 2 -and -not $backOk; $retry++) {
-                $null = Set-UiaForeground -Driver $driver -Element $main
-                Start-Sleep -Milliseconds 400
-                try {
-                    $backBtn = Find-UiaElement -Driver $driver -AutomationId '8201' -FromElement $main -TimeoutMs 3000
-                    if ($backBtn) { $null = Invoke-UiaElementAction -Driver $driver -Element $backBtn }
-                    else { $null = Send-UiaInput -Driver $driver -Keys '{ALT}{LEFT}' }
-                } catch { $null = Send-UiaInput -Driver $driver -Keys '{ALT}{LEFT}' }
-                Start-Sleep -Milliseconds 1500
-                $backOk = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 400 -Description "back to deleted folder (retry)" -ScriptBlock {
-                    $col = $null
-                    try {
-                        $col = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
-                        if (-not $col) { return $false }
-                        $cols = @(Get-UiaChildren -Driver $driver -Element $col | Where-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
-                        if ($cols.Count -eq 0) { return $false }
-                        $name = (Get-UiaElementIdentity -Driver $driver -Element $cols[$cols.Count - 1]).Name
-                        return ($name -like "*$(Split-Path $missing -Leaf)*")
-                    } catch { return $false }
-                }
-            }
-        }
-        $found = Wait-UiaCondition -Driver $driver -TimeoutMs 30000 -PollIntervalMs 500 -Description "in-column error text" -ScriptBlock {
-            foreach ($pattern in @('*no longer available*', '*unable to load*', '*could not be read*', '*engine is unavailable*', '*Showing previous results*', '*refresh failed*')) {
-                try {
-                    $el = Find-UiaElement -Driver $driver -NameLike $pattern -FromElement $main -TimeoutMs 800
-                    if ($el) {
-                        $script:errorElementIdentity = Get-UiaElementIdentity -Driver $driver -Element $el
-                        return $true
+                $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+                if ($pane) {
+                    $cols = @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                        (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
+                    if ($cols.Count -gt 0) {
+                        $terminalCol = $cols[$cols.Count - 1]
+                        # Search for the exact status text across the whole main element
+                        # (the status element is a child of the column provider, not
+                        # necessarily findable via -FromElement on the terminal column
+                        # due to UIA fragment navigation order).
+                        $el = Find-UiaElement -Driver $driver -Name $exactStatus -FromElement $main -TimeoutMs 600
+                        if ($el) {
+                            $statusEl = $el
+                            $statusIdent = Get-UiaElementIdentity -Driver $driver -Element $el
+                            $statusBr = Get-UiaElementProperty -Driver $driver -Element $el -Name 'BoundingRectangle'
+                            $statusFound = $true
+                            break
+                        }
                     }
-                } catch { }
-            }
-            return $false
+                }
+            } catch { }
+            Start-Sleep -Milliseconds 400
         }
         $sw.Stop()
-        if ($found) {
-            $ident = $script:errorElementIdentity
-            return New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "in-column error state discoverable as a Text element after external deletion + refresh (identity: '$($ident.Name)' [$($ident.ControlType)])"
-        }
-        # stabilize-live-uia-e2e: when the refresh does NOT race, the engine
-        # publishes an empty-OK directory for the deleted folder and the
-        # column renders "This folder is empty" -- the error wording is not
-        # deterministically reachable through supported flows on this host.
-        # Recorded SKIPPED with the evidence rather than a fabricated PASS.
-        return New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'SKIPPED' -Reason 'error-state-trigger-not-deterministic' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'The in-column error wording is not deterministically reachable: the engine publishes an empty-OK directory for an externally deleted folder, so the column renders "This folder is empty"; the "Showing previous results - refresh failed." stale-with-error wording only appears on a refresh race (observed PASS ~35% of runs)'
-        $st = Get-UiaInteractiveState -Driver $driver -ProcessId $pid
-        $terminal = ''
-        try {
-            $col = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
-            if ($col) {
-                $cols = @(Get-UiaChildren -Driver $driver -Element $col | Where-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
-                if ($cols.Count -gt 0) {
-                    $kids = @(Get-UiaChildren -Driver $driver -Element $cols[$cols.Count - 1])
-                    $names = @($kids | ForEach-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).Name }) -join '|'
-                    $terminal = "terminal='$((Get-UiaElementIdentity -Driver $driver -Element $cols[$cols.Count - 1]).Name)' items=$($kids.Count) [$names]"
+        if (-not $statusFound) {
+            # collect diagnostics for the FAIL path
+            $st = Get-UiaInteractiveState -Driver $driver -ProcessId $pid
+            $diagInfo = ''
+            try {
+                $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+                if ($pane) {
+                    $cols = @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                        (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
+                    $colNames = @($cols | ForEach-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).Name })
+                    $diagInfo = "cols=$($cols.Count) [$($colNames -join ' | ')]"
+                    if ($cols.Count -gt 0) {
+                        $termCol = $cols[$cols.Count - 1]
+                        $kids = @(Get-UiaChildren -Driver $driver -Element $termCol)
+                        $kidNames = @($kids | ForEach-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).Name }) -join '|'
+                        $diagInfo += " terminal='$((Get-UiaElementIdentity -Driver $driver -Element $termCol).Name)' items=$($kids.Count) [$kidNames]"
+                    }
                 }
-            }
-        } catch { }
-        return & $fail "no error-state element found for a deleted path (backOk=$backOk); fg='$($st.ForegroundTitle)' popups=$(@($st.Popups | ForEach-Object { $_.className }) -join ',') $terminal"
+            } catch { }
+            return & $fail "exact missing-path status '$exactStatus' not found ($diagInfo); fg='$($st.ForegroundTitle)' popups=$(@($st.Popups | ForEach-Object { $_.className }) -join ',')"
+        }
+        # --- Phase 4: assert the missing state (tasks 5.1-5.3, 6.4) ---
+        # 5.1: ControlType must be Text (the ColumnStatusUiaProvider exposes
+        # UIA_TextControlTypeId for the unavailable status element).
+        if ($statusIdent.ControlType -ne 'Text') {
+            return & $fail "status element ControlType='$($statusIdent.ControlType)' != 'Text'"
+        }
+        # 5.1: BoundingRectangle must be non-zero (in-column geometry).
+        $statusBr = Get-UiaElementProperty -Driver $driver -Element $statusEl -Name 'BoundingRectangle'
+        if (-not $statusBr -or $statusBr.width -le 0 -or $statusBr.height -le 0) {
+            return & $fail "status element BoundingRectangle invalid (width=$($statusBr.width) height=$($statusBr.height))"
+        }
+        # 6.4: No false positive — "This folder is empty" must NOT be present
+        # (that would denote Success(0), not NotFound).
+        $emptyEl = $null
+        try { $emptyEl = Find-UiaElement -Driver $driver -Name 'This folder is empty' -FromElement $main -TimeoutMs 500 } catch { }
+        if ($emptyEl) {
+            return & $fail "false positive: 'This folder is empty' found — denotes Success(0) not NotFound"
+        }
+        # 6.4: Pre-delete sentinel must be absent from current children of
+        # the terminal column (the column was cleared by ForceUnavailable).
+        $staleSentinelGone = $true
+        try { $null = Find-UiaElement -Driver $driver -Name 'before-delete.txt' -FromElement $main -TimeoutMs 500; $staleSentinelGone = $false } catch { }
+        if (-not $staleSentinelGone) {
+            return & $fail "pre-delete sentinel 'before-delete.txt' still present after deletion"
+        }
+        # 5.2: Held sentinel provider must be stale under the stale-element
+        # contract (the element's owner state is dead; any property access
+        # must fail with UIA_E_ELEMENTNOTAVAILABLE or equivalent).
+        # Get-UiaElementProperty catches COM exceptions and returns $null,
+        # so we check for null return rather than catching.
+        $providerStale = $true
+        $probeVal = Get-UiaElementProperty -Driver $driver -Element $sentinel -Name 'Name'
+        if ($null -ne $probeVal) { $providerStale = $false }
+        if (-not $providerStale) {
+            return & $fail "held sentinel provider is NOT stale after deletion (retarget risk)"
+        }
+        # --- Phase 5: recreate and verify recovery (tasks 6.5, D7) ---
+        New-Item -ItemType Directory -Path $missing -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $missing 'after-recreate.txt') -Value 'recovery-sentinel' -Encoding utf8
+        # Navigate to parent then back into the recreated path. The address bar
+        # rejects commits for missing paths (UI-level guard), so the parent
+        # re-entry followed by re-navigation is the supported recovery trigger.
+        $parent = Split-Path $missing -Parent
+        $parentLeaf = Split-Path $parent -Leaf
+        $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $parent -ExpectedLeaf $parentLeaf
+        $reNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $missing -ExpectedLeaf $leaf
+        if (-not $reNav.Pass) { return & $fail "re-navigation to recreated folder failed: $($reNav.Detail)" }
+        $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
+        $newSentinel = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'after-recreate.txt' -PaneId 'Pane.0' -TimeoutMs 15000
+        $sw2.Stop()
+        if (-not $newSentinel) { return & $fail "post-recovery sentinel 'after-recreate.txt' not found" }
+        $newSentinelIdent = Get-UiaElementIdentity -Driver $driver -Element $newSentinel
+        $newSentinelBr = Get-UiaElementProperty -Driver $driver -Element $newSentinel -Name 'BoundingRectangle'
+        # 6.5: old sentinel must still be absent (it was deleted, not recreated).
+        $oldGoneAfterRecovery = $true
+        try { $null = Find-UiaElement -Driver $driver -Name 'before-delete.txt' -FromElement $main -TimeoutMs 500; $oldGoneAfterRecovery = $false } catch { }
+        if (-not $oldGoneAfterRecovery) {
+            return & $fail "old sentinel 'before-delete.txt' present after recovery (stale data not cleared)"
+        }
+        # 6.5: unavailable status must be gone (column is now current with contents).
+        $goneStatus = $true
+        try { $null = Find-UiaElement -Driver $driver -Name $exactStatus -FromElement $main -TimeoutMs 500; $goneStatus = $false } catch { }
+        if (-not $goneStatus) {
+            return & $fail "missing-path status '$exactStatus' still visible after recovery"
+        }
+        # 5.2 (recovery): old held provider must STILL be stale — it must not
+        # retarget the recreated directory's new occupant of the same slot.
+        $providerStillStale = $true
+        $probeVal2 = Get-UiaElementProperty -Driver $driver -Element $sentinel -Name 'Name'
+        if ($null -ne $probeVal2) { $providerStillStale = $false }
+        if (-not $providerStillStale) {
+            return & $fail "old held provider retargets after recreation (stale-element contract violated)"
+        }
+        # All assertions passed.
+        $duration = $sw.Elapsed.TotalMilliseconds
+        $recoveryMs = $sw2.Elapsed.TotalMilliseconds
+        return New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'PASS' -Reason $null -DurationMs $duration -Detail "missing-path deterministic: status='$exactStatus' ControlType=$($statusIdent.ControlType) bounds=[$([math]::Round($statusBr.width,0))x$([math]::Round($statusBr.height,0))] sentinel-provider-stale pre-delete-sentinel-absent recovery-new-sentinel='$($newSentinelIdent.Name)' old-provider-retarget-blocked recovery-ms=$recoveryMs"
     } catch {
         return & $fail "scenario failed: $($_.Exception.Message)"
     }

@@ -1,12 +1,41 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-17
-Status: COMPLETE — semantic-treemap-uia implemented, validated (Debug 64/64,
-release-test 64/64, analyze clean, OpenSpec 53/53, verify build PASS, treemap
-live 10/10 PASS, full capability 21 PASS / 5 SKIP / 0 FAIL), committed as
-`2169e858f9cb3e757d613946756481593b188c2e`, pushed to origin/main
-(HEAD == origin/main, working tree clean). GitHub Actions CI: pending/not
-queried (MCP auth unavailable; `gh` CLI not installed).
+Status: IN PROGRESS — deterministic-missing-path-state live UIA closure complete.
+Engine fix (commit `eea6922`) + harness rewrite validated: Debug 64/64,
+full capability 22 PASS / 4 SKIP / 0 FAIL, `in-column-error-state-late`
+10/10 PASS (avg 3305ms), contamination-free, all policy/drift gates clean.
+Awaiting commit/push of harness changes + evidence/tasks updates.
+
+## deterministic-missing-path-state session record (2026-08-17)
+
+- **Change:** `openspec/changes/deterministic-missing-path-state/` — make
+  missing-path state deterministic across enumeration, watcher, merge,
+  snapshot, and UIA; convert `in-column-error-state-late` from
+  `SKIPPED(error-state-trigger-not-deterministic)` to deterministic PASS.
+- **Engine fix** (commit `eea6922`, already on origin/main): four defect
+  chains fixed — unpublished request failure, stale indexed merge
+  resurrection, silent watcher terminal error, LKG overrides terminal failure.
+- **Harness fix** (this session):
+  1. Rebuilt stale `build/debug-diagnostic` engine binary (was Aug 16, pre-fix).
+  2. Rewrote `Invoke-UiaScenarioErrorStateLate`: current-view-driven deletion,
+     exact status text assertion (`"This folder is no longer available."`),
+     ControlType=Text, valid BoundingRectangle, stale-provider proof,
+     pre-delete sentinel absent, recovery with new sentinel, old provider
+     retarget blocked. No `error-state-trigger-not-deterministic` SKIP path.
+  3. Fixed `Find-UiaElement` try-catch handling (UIA throws on not-found).
+  4. Fixed stale-provider check to use null-return detection (driver catches
+     COM exceptions).
+- **Live validation results:**
+  - Scenario PASS with all assertions verified
+  - 10/10 PASS (3200-3551ms, avg 3305ms)
+  - Contamination-free (stable→missing→stable, missing→unrelated→missing)
+  - Full capability: 22 PASS / 4 SKIP / 0 FAIL
+  - CTest: 64/64 PASS
+  - All policy/drift gates: PASS
+- **Root cause of initial harness failures:** stale engine binary in
+  `build/debug-diagnostic` (built before the `eea6922` fix). The terminal
+  watcher refresh code was in source but not compiled into the binary.
 
 ## semantic-treemap-uia session record (2026-08-17)
 
