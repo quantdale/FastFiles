@@ -94,6 +94,54 @@ void TestIncompatibleFormatStartsFreshMappingSource() {
           "an incompatible snapshot re-map starts a fresh source state");
 }
 
+// deterministic-missing-path-state D6: confirmed terminal path states
+// (NotFound, AccessDenied) must force Unavailable even when a
+// last-known-good generation exists, so the column clears its rows and
+// shows the unavailable wording instead of stale-retained content.
+void TestForceUnavailableClearsWithLKG() {
+    ffui::SnapshotFreshness state;
+    state.AcceptGeneration(1);
+    Check(state.HasLastKnownGood(), "baseline has last-known-good");
+    Check(state.state == ffui::SnapshotViewState::Current, "baseline is current");
+
+    // ForceUnavailable for NotFound overrides StaleWithError behavior
+    Check(state.ForceUnavailable(ffui::SnapshotFailureReason::NoLongerAvailable, 2),
+          "ForceUnavailable accepts generation 2");
+    Check(state.state == ffui::SnapshotViewState::Unavailable,
+          "ForceUnavailable sets Unavailable even with LKG");
+    Check(state.HasLastKnownGood(), "LKG is preserved so recovery can later succeed");
+    Check(state.failure == ffui::SnapshotFailureReason::NoLongerAvailable,
+          "failure reason is recorded");
+
+    // Recovery: successful generation clears the Unavailable state
+    Check(state.AcceptGeneration(3), "later generation accepted after ForceUnavailable");
+    Check(state.state == ffui::SnapshotViewState::Current,
+          "successful recovery clears ForceUnavailable state");
+    Check(state.failure == ffui::SnapshotFailureReason::None,
+          "recovery clears failure reason");
+}
+
+void TestForceUnavailableRejectsOlderGeneration() {
+    ffui::SnapshotFreshness state;
+    state.AcceptGeneration(5);
+    Check(!state.ForceUnavailable(ffui::SnapshotFailureReason::AccessDenied, 3),
+          "ForceUnavailable rejects generation older than requested");
+    Check(state.state == ffui::SnapshotViewState::Current,
+          "old generation does not change state");
+}
+
+// deterministic-missing-path-state D6: regular Fail with LKG still
+// produces StaleWithError for transient failures (EnumerationFailed,
+// PublishFailed, etc.) -- only terminal states use ForceUnavailable.
+void TestRegularFailStillStaleWithError() {
+    ffui::SnapshotFreshness state;
+    state.AcceptGeneration(1);
+    Check(state.Fail(ffui::SnapshotFailureReason::EnumerationFailed),
+          "transient failure is recorded");
+    Check(state.state == ffui::SnapshotViewState::StaleWithError,
+          "transient failure with LKG still produces StaleWithError");
+}
+
 } // namespace
 
 int main() {
@@ -103,5 +151,8 @@ int main() {
     TestMappingFailureAndGenerationOrdering();
     TestRepeatedFailureDoesNotAccumulateState();
     TestIncompatibleFormatStartsFreshMappingSource();
+    TestForceUnavailableClearsWithLKG();
+    TestForceUnavailableRejectsOlderGeneration();
+    TestRegularFailStillStaleWithError();
     return FailureCount() == 0 ? 0 : 1;
 }

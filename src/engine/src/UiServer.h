@@ -16,6 +16,7 @@
 #include "ffsetup/SecurityDescriptors.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
+#include "ffprotocol/WindowsPath.h"
 
 #include "DirectoryWatcher.h"
 #include "SnapshotPublisher.h"
@@ -185,6 +186,23 @@ private:
 
     std::mutex directoriesMutex_;
     ffprotocol::CaseInsensitiveSnapshotMap directories_;
+
+    // deterministic-missing-path-state D2/D3: per-path observation ordering.
+    // An explicit degraded filesystem observation (from request or watcher
+    // refresh) outranks a later stale indexed merge for the same path. Each
+    // entry records the source, status, and a monotonically increasing epoch.
+    enum class ObservationSource : uint8_t {
+        Request,      // explicit HandleRequestDirectory enumeration
+        WatchRefresh, // watcher change callback re-enumeration
+        IndexedMerge, // indexed export merge
+    };
+    struct PathObservation {
+        ObservationSource source = ObservationSource::IndexedMerge;
+        ffprotocol::DirectoryEnumerationStatus status = ffprotocol::DirectoryEnumerationStatus::Success;
+        uint64_t epoch = 0;
+    };
+    std::map<std::wstring, PathObservation, ffprotocol::CaseInsensitivePathLess> pathObservations_;
+    uint64_t nextObservationEpoch_ = 1;
 
     std::mutex clientsMutex_;
     std::vector<ClientConnectionPtr> subscribedClients_;

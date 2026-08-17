@@ -208,6 +208,100 @@ void TestWatcherEvictsLeastRecentlyUsedRoot() {
 }
 
 #ifdef FF_DIRECTORY_WATCHER_TESTING
+// deterministic-missing-path-state D4: a terminal non-overflow error
+// invokes exactly one final refresh callback before retiring the watch.
+void TestWatcherTerminalErrorInvokesFinalRefresh() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    std::filesystem::path localAppData = root / L"local-app-data";
+    std::error_code error;
+    Check(std::filesystem::create_directories(localAppData, error),
+          "terminal-refresh diagnostics directory fixture is created");
+
+    std::vector<wchar_t> previousLocalAppData(32768);
+    const DWORD previousLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", previousLocalAppData.data(), static_cast<DWORD>(previousLocalAppData.size()));
+    Check(SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str()),
+          "terminal-refresh test redirects diagnostics to its disposable fixture");
+
+    // Simulate: normal success -> terminal error. The callback should fire
+    // for the success AND for the terminal refresh, then the watch stops.
+    auto completions = std::make_shared<std::deque<ffengine::DirectoryWatcher::TestCompletion>>(
+        std::deque<ffengine::DirectoryWatcher::TestCompletion>{
+            {ERROR_SUCCESS, 16},   // normal change notification
+            {ERROR_ACCESS_DENIED, 0} // terminal error
+        });
+    std::mutex callbackMutex;
+    std::condition_variable callbackCondition;
+    int callbacks = 0;
+    {
+        ffengine::DirectoryWatcher watcher([completions] {
+            if (completions->empty()) return std::optional<ffengine::DirectoryWatcher::TestCompletion>{};
+            const auto completion = completions->front();
+            completions->pop_front();
+            return std::optional<ffengine::DirectoryWatcher::TestCompletion>{completion};
+        });
+        watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        std::unique_lock<std::mutex> lock(callbackMutex);
+        Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks >= 2; }),
+              "terminal error fires exactly one final refresh callback after normal notification");
+        Check(callbacks == 2,
+              "callback count is 2: one normal + one terminal refresh");
+        watcher.Unwatch(root.wstring());
+    }
+
+    const auto diagnosticsPath = localAppData / L"FastFiles" / L"logs" / L"diagnostics.log";
+    std::ifstream diagnostics(diagnosticsPath, std::ios::binary);
+    const std::string diagnosticText((std::istreambuf_iterator<char>(diagnostics)),
+                                     std::istreambuf_iterator<char>());
+    Check(diagnosticText.find("state=watch-terminal-refresh") != std::string::npos,
+          "terminal refresh is recorded in diagnostics");
+    Check(diagnosticText.find("state=watch-failed") != std::string::npos,
+          "terminal failure is also recorded");
+    diagnostics.close();
+
+    if (previousLength == 0) {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    } else {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", previousLocalAppData.data());
+    }
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "terminal-refresh fixture is removed");
+}
+
+// deterministic-missing-path-state D4/3.4: explicit shutdown/cancellation
+// never fabricates a NotFound or other failure observation.
+void TestWatcherShutdownDoesNotFabricateError() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    std::mutex callbackMutex;
+    std::condition_variable callbackCondition;
+    int callbacks = 0;
+    {
+        ffengine::DirectoryWatcher watcher;
+        watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        Sleep(100);
+        // UnwatchAll simulates shutdown -- the callback should never fire
+        // after this point.
+        watcher.UnwatchAll();
+    }
+    {
+        std::lock_guard<std::mutex> lock(callbackMutex);
+        Check(callbacks == 0,
+              "shutdown/unwatch does not fabricate any change/error notification");
+    }
+
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "shutdown-no-fabricate fixture is removed");
+}
+
 void TestWatcherRecoversFromInjectedOverflow() {
     const std::filesystem::path root = MakeFixtureRoot();
     const std::filesystem::path localAppData = root / L"local-app-data";
@@ -323,6 +417,8 @@ int main() {
     TestCaseVariantPathIsIdempotent();
     TestWatcherEvictsLeastRecentlyUsedRoot();
 #ifdef FF_DIRECTORY_WATCHER_TESTING
+    TestWatcherTerminalErrorInvokesFinalRefresh();
+    TestWatcherShutdownDoesNotFabricateError();
     TestWatcherRecoversFromInjectedOverflow();
     TestWatcherGivesUpAfterEightInjectedOverflows();
 #endif

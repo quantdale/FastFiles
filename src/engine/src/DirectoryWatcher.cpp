@@ -226,6 +226,17 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
                                       ffprotocol::DiagnosticCode::FFDIAG_WATCH_FAILED,
                                       path, {}, L"watch-failed", error, 0});
+        // deterministic-missing-path-state D4: terminal non-overflow error --
+        // invoke one final refresh callback so the path's current state is
+        // published before the watch retires. stopRequested is already false
+        // (checked at the top), so this is never a fabricated failure from
+        // shutdown/cancellation (task 3.4). The callback re-enumerates the
+        // path and publishes the resulting status through the normal snapshot
+        // generation path (task 3.2).
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                      ffprotocol::DiagnosticCode::FFDIAG_WATCH_TERMINAL_REFRESH,
+                                      path, {}, L"watch-terminal-refresh", error, 0});
+        callback(path);
         return false;
     };
 

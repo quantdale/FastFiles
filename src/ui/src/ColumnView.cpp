@@ -51,8 +51,21 @@ void ClearUnavailableColumn(Column& column) {
     column.focusIndex = -1;
 }
 
+// deterministic-missing-path-state D6: terminal path states (NotFound,
+// AccessDenied) force the column to Unavailable, clearing retained rows.
+// Transient failures (EnumerationFailed, PublishFailed, etc.) use the
+// standard Fail which preserves labeled-stale rows when a last-known-good
+// generation exists.
 void ApplyColumnFailure(Column& column, SnapshotFailureReason reason, uint64_t generation = 0) {
-    if (!column.freshness.Fail(reason, generation)) return;
+    bool applied = false;
+    if (reason == SnapshotFailureReason::NoLongerAvailable
+        || reason == SnapshotFailureReason::AccessDenied
+        || reason == SnapshotFailureReason::PathMissing) {
+        applied = column.freshness.ForceUnavailable(reason, generation);
+    } else {
+        applied = column.freshness.Fail(reason, generation);
+    }
+    if (!applied) return;
     if (column.freshness.state == SnapshotViewState::Unavailable) {
         ClearUnavailableColumn(column);
     }

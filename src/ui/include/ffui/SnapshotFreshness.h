@@ -73,6 +73,19 @@ struct SnapshotFreshness {
         return true;
     }
 
+    // deterministic-missing-path-state D6: confirmed terminal path states
+    // (NotFound, AccessDenied) force Unavailable regardless of whether a
+    // last-known-good generation exists. This ensures a confirmed missing
+    // directory is never rendered as stale-but-retained content; rows are
+    // cleared and the canonical unavailable wording is shown.
+    bool ForceUnavailable(SnapshotFailureReason reason, uint64_t generation = 0) noexcept {
+        if (generation != 0 && generation < requestedGeneration) return false;
+        if (generation != 0) requestedGeneration = generation;
+        failure = reason;
+        state = SnapshotViewState::Unavailable;
+        return true;
+    }
+
     // A restarted engine owns a new generation sequence.  The old rows may
     // remain visible during the reload, but their old generation cannot block
     // the first valid generation from the new mapping.

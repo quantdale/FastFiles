@@ -57,6 +57,14 @@ enum class DiagnosticCode : uint32_t {
     // invariant violation -- UiServer::Start must commit one before the
     // listener opens). Metadata-only, as every diagnostic is.
     FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID = 36,
+    // deterministic-missing-path-state D4: one final re-enumeration before
+    // a terminal watch error retires the watch, so the path's current
+    // state is published instead of silently left stale.
+    FFDIAG_WATCH_TERMINAL_REFRESH = 37,
+    // deterministic-missing-path-state D2/D3: an indexed merge entry was
+    // suppressed because a newer explicit failure observation already
+    // exists for the same canonical path.
+    FFDIAG_INDEXED_MERGE_SUPPRESSED = 38,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

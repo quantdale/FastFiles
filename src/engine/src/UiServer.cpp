@@ -353,6 +353,11 @@ void UiServer::OnDirectoryChanged(const std::wstring& path) {
     {
         std::lock_guard<std::mutex> lock(directoriesMutex_);
         directories_[path] = ToSnapshotDirectory(result);
+        // deterministic-missing-path-state D2: record watcher observation
+        // for merge precedence ordering (task 2.1).
+        const auto snapStatus = static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status);
+        pathObservations_[path] = PathObservation{
+            ObservationSource::WatchRefresh, snapStatus, nextObservationEpoch_++};
     }
     if (!RepublishAndBroadcastGeneration()) {
         // A watcher refresh has no single requesting client.  Surface the
@@ -447,7 +452,33 @@ void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::Snapshot
             if (normalizedPath.size() == 2 && normalizedPath[1] == L':') {
                 normalizedPath.push_back(L'\\');
             }
+            // deterministic-missing-path-state D2/D3: a stale indexed
+            // Success must not overwrite a newer explicit failure
+            // observation for the same canonical path. The observation
+            // map records explicit filesystem results from requests and
+            // watcher refreshes; indexed data is only inserted if no
+            // newer explicit failure observation exists for the path
+            // (task 2.1, 2.2).
+            const auto obsIt = pathObservations_.find(normalizedPath);
+            if (obsIt != pathObservations_.end()
+                && obsIt->second.source != ObservationSource::IndexedMerge
+                && obsIt->second.status != ffprotocol::DirectoryEnumerationStatus::Success) {
+                // A newer explicit failure (NotFound/AccessDenied/IoError)
+                // exists for this path. Do not overwrite with stale indexed
+                // success (task 2.1). Record the suppression for diagnostics.
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_INDEXED_MERGE_SUPPRESSED,
+                                              normalizedPath, {}, L"indexed-merge-suppressed",
+                                              0, 0});
+                continue;
+            }
             directories_[normalizedPath] = std::move(directory);
+            // Record the indexed merge as an observation so future
+            // watcher/request observations can be compared (task 2.3).
+            pathObservations_[normalizedPath] = PathObservation{
+                ObservationSource::IndexedMerge,
+                ffprotocol::DirectoryEnumerationStatus::Success,
+                nextObservationEpoch_++};
         }
     }
     RepublishAndBroadcastGeneration();
@@ -470,6 +501,19 @@ void UiServer::RemoveVolumeDirectories(wchar_t driveLetter) {
             }
             if (normalized == root || normalized.starts_with(descendantPrefix)) {
                 it = directories_.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        // deterministic-missing-path-state: clean up observation state for
+        // removed volume paths so tombstones don't accumulate (task 2.2).
+        for (auto it = pathObservations_.begin(); it != pathObservations_.end();) {
+            std::wstring normalized = it->first;
+            if (!normalized.empty()) {
+                normalized[0] = static_cast<wchar_t>(towupper(normalized[0]));
+            }
+            if (normalized == root || normalized.starts_with(descendantPrefix)) {
+                it = pathObservations_.erase(it);
             } else {
                 ++it;
             }
@@ -603,9 +647,16 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
     watcher_.Watch(path, [this](const std::wstring& changedPath) { OnDirectoryChanged(changedPath); });
 
     auto result = EnumerateDirectoryDegraded(path);
+    const auto snapshotDir = ToSnapshotDirectory(result);
     {
         std::lock_guard<std::mutex> lock(directoriesMutex_);
-        directories_[path] = ToSnapshotDirectory(result);
+        directories_[path] = snapshotDir;
+        // deterministic-missing-path-state D2: record the explicit
+        // filesystem observation so a later stale indexed merge cannot
+        // resurrect a deleted path (task 2.1).
+        const auto snapStatus = static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status);
+        pathObservations_[path] = PathObservation{
+            ObservationSource::Request, snapStatus, nextObservationEpoch_++};
     }
 
     if (result.status == EnumerationStatus::AccessDenied) {
@@ -613,6 +664,10 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ACCESS_DENIED,
                                       path, {}, L"access-denied", ERROR_ACCESS_DENIED, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::AccessDenied);
+        // deterministic-missing-path-state D1: publish the failure status
+        // into the snapshot so every subscribed client sees the terminal
+        // state, not just the requesting one (task 4.1).
+        RepublishAndBroadcastGeneration();
         return;
     }
     if (result.status == EnumerationStatus::NotFound) {
@@ -620,6 +675,7 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_NOT_FOUND,
                                       path, {}, L"not-found", ERROR_PATH_NOT_FOUND, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::NoLongerAvailable);
+        RepublishAndBroadcastGeneration();
         return;
     }
     if (result.status == EnumerationStatus::IoError) {
@@ -627,6 +683,7 @@ void UiServer::HandleRequestDirectory(const ClientConnectionPtr& client, const s
                                       ffprotocol::DiagnosticCode::FFDIAG_DIRECTORY_ENUMERATION_FAILED,
                                       path, {}, L"enumeration-failed", ERROR_READ_FAULT, 0});
         SendDirectoryError(client, path, ffprotocol::DirectoryErrorReason::EnumerationFailed);
+        RepublishAndBroadcastGeneration();
         return;
     }
 

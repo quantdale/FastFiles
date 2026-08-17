@@ -1,11 +1,12 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-17
-Status: semantic-treemap-uia implemented, validated (Debug 64/64, release-test
-64/64, /analyze clean, OpenSpec 53/53, verify build PASS, treemap live
-scenario PASS; repeatability + full-capability counts pending final run).
-Committed + pushed to origin/main (HEAD == origin/main, working tree clean);
-hosted CI queried after push.
+Status: COMPLETE — semantic-treemap-uia implemented, validated (Debug 64/64,
+release-test 64/64, analyze clean, OpenSpec 53/53, verify build PASS, treemap
+live 10/10 PASS, full capability 21 PASS / 5 SKIP / 0 FAIL), committed as
+`2169e858f9cb3e757d613946756481593b188c2e`, pushed to origin/main
+(HEAD == origin/main, working tree clean). GitHub Actions CI: pending/not
+queried (MCP auth unavailable; `gh` CLI not installed).
 
 ## semantic-treemap-uia session record (2026-08-17)
 
@@ -95,12 +96,7 @@ hosted CI queried after push.
   doctor` PASS (SKIPs are tool-not-found/no-op); `openspec validate
   --all --strict` 53/53; `check_source_markers.ps1` / `check_diagnostic_policy.ps1`
   / `tests/drift/check_doc_drift.ps1` all PASS; `git diff --check` clean.
-- NEXT EXACT ACTION: finish the treemap live-scenario 10x repeatability gate,
-  re-run the full `windows-ui-automation-validation` capability (expect 0
-  unexpected FAIL; SKIP drops to 5 with `treemap-drawn-on-d2d-surface`
-  removed), then `git add` the task-owned set,
-  `git commit`, `git push origin main`, verify HEAD == origin/main,
-  query hosted CI, write the final report per deadline-70.
+- NEXT EXACT ACTION: COMPLETE. No remaining work on this slice.
 
 ## stabilize-live-uia-e2e session record (2026-08-16)
 
