@@ -124,3 +124,29 @@ The parked production-validation campaign remains parked.
 No background polling thread is introduced. Additional per-path state is bounded by the same requested/watched directory lifecycle and should be removed when no longer needed or when the existing watcher/directory cache evicts it.
 
 Locks remain short; filesystem enumeration is not performed while holding the publication map lock. Snapshot publication remains generation-based and immutable for readers.
+
+## D13 — Continuation live harness owns launch and uses an exact oracle
+
+After implementation commit `eea692287153ba3374098b8a76bf16761875cd66`, the native correctness chain is fixed but the live acceptance remains open. The continuation session MUST treat `windows-ui-automation-validation` as the owner of the FastFiles lifecycle: when its availability probe reports an interactive Windows/UIA context, the harness launches the repo-built UI/engine itself. An already-running FastFiles process is not a prerequisite.
+
+The old `Invoke-UiaScenarioErrorStateLate` behavior is historical evidence, not the post-fix oracle. In particular, these broad states MUST NOT count as a successful missing-path assertion:
+
+- `Showing previous results`;
+- `refresh failed`;
+- generic `unable to load`;
+- `engine is unavailable`;
+- `This folder is empty`.
+
+For the confirmed-deletion transition the only successful semantic state is the exact Column status `This folder is no longer available.` with `ControlType=Text`, usable bounds, and no pre-delete row exposed as current. The scenario MUST retain a provider for the pre-delete sentinel and prove stale-provider safety after deletion and after recreation.
+
+The preferred live sequence is current-view driven rather than race driven:
+
+1. create a non-empty disposable folder;
+2. navigate to it normally and retain the sentinel provider;
+3. externally delete that currently displayed folder;
+4. wait semantically for the exact missing status without first manufacturing a navigation/history race;
+5. assert old semantic rows/providers are stale;
+6. recreate the same path with a different sentinel;
+7. perform a normal supported re-request/navigation and verify recovery.
+
+Only a failed capability availability probe (for example session 0/services, non-interactive user context, or unavailable UIA driver) may block the live gate. Such a case is `BLOCKED_ENVIRONMENT`, not `BLOCKED_EXTERNAL`. Lack of production signing, FastFilesIndexSvc, or MFT/USN access is irrelevant to this change.
