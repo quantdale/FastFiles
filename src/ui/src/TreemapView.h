@@ -6,7 +6,9 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 #include <windows.h>
 #include <wrl/client.h>
@@ -14,6 +16,7 @@
 #include "EngineClient.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffui/TreemapLayout.h"
+#include "ffui/TreemapSemantics.h"
 #include "UITheme.h"
 #include "UiStyle.h"
 
@@ -38,14 +41,20 @@ struct TreemapAggregatePayload {
 class TreemapView {
 public:
     using NavigateHandler = std::function<void(const std::wstring& path, bool isDirectory)>;
+    using UiaEventHandler = std::function<void(const UiaEventNotification&)>;
     TreemapView() = default;
     ~TreemapView();
 
     bool Initialize(HWND owner, EngineClient* engine,
                     NavigateHandler navigate);
+    void SetUiaEventHandler(UiaEventHandler handler);
+
+    // UI-thread mutations (all acquire uiaMutex_; semantic events are pushed
+    // through the handler AFTER the lock is released so a provider callback
+    // that re-enters the view can never deadlock).
     void ShowAndFocus(const std::wstring& currentPath);
     void Hide();
-    bool Visible() const { return visible_; }
+    bool Visible() const { return visible_.load(std::memory_order_acquire); }
     void Reposition();
     void Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
     bool HandleNotify(LPARAM lParam);
@@ -56,24 +65,55 @@ public:
     void SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId);
     void OnSnapshotUpdated();
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
+    void SetVolumeInfo(const TreemapVolumeInfo& volume);
+
+    // semantic-treemap-uia 6.x: the bounded, thread-safe semantic projection.
+    // UIAutomationCore worker threads may call these; every accessor takes a
+    // bounded lock over plain values and performs no filesystem/engine work.
+    bool UiaActive() const { return visible_.load(std::memory_order_acquire); }
+    uint64_t UiaGeneration() const { return buildGeneration_.load(std::memory_order_acquire); }
+    std::wstring UiaScopePath() const;
+    uint64_t UiaScopeHash() const;
+    int UiaTileCount() const;
+    TreemapUiaItemInfo UiaTileInfo(int index) const;
+    int UiaTileIndex(uint64_t identityHash) const;
+    bool UiaFindTile(uint64_t identityHash, TreemapUiaItemInfo& out) const;
+    TreemapUiaItemInfo UiaTileHitTest(float normalizedX, float normalizedY) const;
 
 private:
     void BuildTree(const std::wstring& path);
     void RebuildLayout();
     static TreemapNode* FindNode(TreemapNode* root, const std::wstring& path);
     static uint64_t RecomputeTotals(TreemapNode& node);
+    TreemapUiaItemInfo BuildTileInfoLocked(const TreemapNode& node, const TreemapRect& rect) const;
+    void EmitUiaEvent(const UiaEventNotification& notification);
 
     HWND owner_ = nullptr;
     EngineClient* engine_ = nullptr;
     NavigateHandler navigate_;
+    UiaEventHandler uiaEventHandler_;
+
+    // Guards every read/write of the renderable state below. UIAutomationCore
+    // worker threads read the semantic projection under this lock; the UI
+    // thread mutates under it too. Events are always emitted after release.
+    mutable std::recursive_mutex uiaMutex_;
 
     std::unique_ptr<TreemapNode> root_;
     std::vector<TreemapRect> layout_;
+    // Layout index by stable identity hash, rebuilt with every layout. The
+    // provider resolves tiles in O(1) via this map instead of a linear walk
+    // (semantic-treemap-uia 16.x).
+    std::unordered_map<uint64_t, size_t> layoutIndexByIdentity_;
+    // Caller-owned home of the synthetic "Other small items" catch-all node
+    // created by the last RebuildLayout (semantic-treemap-uia 5.x). Cleared on
+    // every rebuild; survives until then so hover/projection can read it.
+    std::vector<std::unique_ptr<TreemapNode>> syntheticNodes_;
     std::wstring currentPath_;
     const CategoryEngine* categoryEngine_ = nullptr;
     std::wstring categoryId_;
-    bool visible_ = false;
-    uint64_t buildGeneration_ = 0;
+    std::atomic<bool> visible_{false};
+    std::atomic<uint64_t> buildGeneration_{0};
+    TreemapVolumeInfo volumeInfo_;
     std::shared_ptr<std::atomic<bool>> lifetime_ = std::make_shared<std::atomic<bool>>(true);
 
     // The treemap is drawn under the shell's Translate(sidebar, chrome)

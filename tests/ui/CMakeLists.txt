@@ -92,7 +92,8 @@ add_test(NAME ffshortcut_routing_tests COMMAND ffshortcut_routing_tests)
 set(FFUIA_PROVIDER_SOURCES
     ../../src/ui/src/UiaProviderBase.cpp
     ../../src/ui/src/ColumnViewUiaProvider.cpp
-    ../../src/ui/src/SearchUiaProvider.cpp)
+    ../../src/ui/src/SearchUiaProvider.cpp
+    ../../src/ui/src/TreemapUiaProvider.cpp)
 set(FFUIA_TEST_INCLUDES
     .. ../../src/ui/src ../../src/ui/include ../../src/protocol/include
     ../../src/ipc/include ../../src/setup/include ../../src/search/include)
@@ -134,6 +135,17 @@ add_test(NAME ffuia_events_tests COMMAND ffuia_events_tests)
 add_executable(ffselection_identity_runtime_probe selection_identity_runtime_probe.cpp)
 target_include_directories(ffselection_identity_runtime_probe PRIVATE ../../src/ui/include)
 
+# semantic-treemap-uia 33.J: pure headless metadata/formatting tests.
+add_executable(fftreemap_metadata_tests test_treemap_metadata.cpp)
+target_include_directories(fftreemap_metadata_tests PRIVATE ../../src/ui/include)
+add_test(NAME fftreemap_metadata_tests COMMAND fftreemap_metadata_tests)
+
+# semantic-treemap-uia 33.M: headless provider tests over a fake treemap surface.
+add_executable(fftreemap_uia_tests test_treemap_uia.cpp ${FFUIA_PROVIDER_SOURCES})
+target_include_directories(fftreemap_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
+target_link_libraries(fftreemap_uia_tests PRIVATE ${FFUIA_TEST_LIBS})
+add_test(NAME fftreemap_uia_tests COMMAND fftreemap_uia_tests)
+
 # Modernize-ui-appearance foundation seams: token/color conversions, animation
 # easing, and icon-cache keying are plain C++ testable without a renderer.
 # UiAnimation.cpp is compiled in for FloatAnimation/SystemAnimationsEnabled.
@@ -141,4 +153,4 @@ add_executable(ffui_style_tests test_ui_style.cpp ../../src/ui/src/UiAnimation.c
 target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../src/ui/src)
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests PROPERTIES TIMEOUT 120)

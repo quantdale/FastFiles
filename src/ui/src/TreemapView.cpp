@@ -5,7 +5,9 @@
 #include "UiStyle.h"
 #include "Util.h"
 #include "ffui/SnapshotAggregate.h"
+#include "UiaProviderBase.h" // UIA_ItemStatusPropertyId for the aggregate-completion property event
 
+#include <UIAutomationClient.h>
 #include <algorithm>
 #include <cmath>
 #include <functional>
@@ -36,19 +38,49 @@ bool TreemapView::Initialize(HWND owner, EngineClient* engine,
     return true;
 }
 
+void TreemapView::SetUiaEventHandler(UiaEventHandler handler) {
+    uiaEventHandler_ = std::move(handler);
+}
+
+void TreemapView::EmitUiaEvent(const UiaEventNotification& notification) {
+    if (uiaEventHandler_) uiaEventHandler_(notification);
+}
+
 void TreemapView::ShowAndFocus(const std::wstring& currentPath) {
-    currentPath_ = currentPath;
-    visible_ = true;
-    BuildTree(currentPath);
-    Reposition();
+    {
+        std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+        currentPath_ = currentPath;
+        visible_.store(true, std::memory_order_release);
+        BuildTree(currentPath);
+        Reposition();
+    }
+    // semantic-treemap-uia 30.x: structure events after the lock is released.
+    UiaEventNotification notification;
+    notification.kind = UiaEventKind::StructureChanged;
+    notification.treemap = true;
+    notification.treemapScopeHash = UiaHashWide(currentPath);
+    EmitUiaEvent(notification);
 }
 
 void TreemapView::Hide() {
-    if (!visible_) return;
-    visible_ = false;
-    root_.reset();
-    layout_.clear();
-    hoveredNode_ = nullptr;
+    const bool wasVisible = visible_.load(std::memory_order_acquire);
+    {
+        std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+        if (!visible_.load(std::memory_order_acquire)) return;
+        visible_.store(false, std::memory_order_release);
+        root_.reset();
+        layout_.clear();
+        layoutIndexByIdentity_.clear();
+        syntheticNodes_.clear();
+        hoveredNode_ = nullptr;
+    }
+    if (wasVisible) {
+        UiaEventNotification notification;
+        notification.kind = UiaEventKind::StructureChanged;
+        notification.treemap = true;
+        notification.treemapScopeHash = UiaHashWide(currentPath_);
+        EmitUiaEvent(notification);
+    }
 }
 
 TreemapNode* TreemapView::FindNode(TreemapNode* root, const std::wstring& path) {
@@ -82,16 +114,21 @@ uint64_t TreemapView::RecomputeTotals(TreemapNode& node) {
 
 void TreemapView::RebuildLayout() {
     layout_.clear();
+    syntheticNodes_.clear();
+    layoutIndexByIdentity_.clear();
     if (!root_ || root_->children.empty()) return;
 
     std::vector<TreemapNode*> nodes;
     nodes.reserve(root_->children.size());
     for (const auto& child : root_->children) nodes.push_back(child.get());
-    std::sort(nodes.begin(), nodes.end(), [](TreemapNode* left, TreemapNode* right) {
-        return left->totalSizeBytes > right->totalSizeBytes;
-    });
     LayoutTreemap(layout_, kPadding, kPadding, 100.0f - 2 * kPadding,
-                  100.0f - 2 * kPadding, nodes, 0);
+                  100.0f - 2 * kPadding, nodes, 0, &syntheticNodes_);
+
+    // semantic-treemap-uia 16.x: identity -> layout index, rebuilt here under
+    // the same lock so the provider resolves tiles in O(1).
+    for (size_t i = 0; i < layout_.size(); ++i) {
+        layoutIndexByIdentity_[TreemapNodeIdentityHash(*layout_[i].node, currentPath_)] = i;
+    }
 }
 
 void TreemapView::Reposition() {
@@ -99,8 +136,18 @@ void TreemapView::Reposition() {
 }
 
 void TreemapView::OnSnapshotUpdated() {
-    if (!visible_) return;
-    BuildTree(currentPath_);
+    if (!visible_.load(std::memory_order_acquire)) return;
+    const std::wstring path = currentPath_;
+    {
+        std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+        if (!visible_.load(std::memory_order_acquire)) return;
+        BuildTree(path);
+    }
+    UiaEventNotification notification;
+    notification.kind = UiaEventKind::StructureChanged;
+    notification.treemap = true;
+    notification.treemapScopeHash = UiaHashWide(path);
+    EmitUiaEvent(notification);
 }
 
 void TreemapView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory) {
@@ -130,12 +177,23 @@ void TreemapView::SetDarkTheme(bool dark) {
 }
 
 void TreemapView::SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId) {
-    categoryEngine_ = categoryEngine;
-    categoryId_ = categoryId;
-    if (visible_) {
-        BuildTree(currentPath_);
-        InvalidateRect(owner_, nullptr, FALSE);
+    std::wstring scope = currentPath_;
+    {
+        std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+        categoryEngine_ = categoryEngine;
+        categoryId_ = categoryId;
+        if (visible_.load(std::memory_order_acquire)) {
+            BuildTree(currentPath_);
+            InvalidateRect(owner_, nullptr, FALSE);
+        }
     }
+    // semantic-treemap-uia 27.x: the filter changes the displayed scope, so
+    // surviving identities get fresh providers and removed ones fail stale.
+    UiaEventNotification notification;
+    notification.kind = UiaEventKind::StructureChanged;
+    notification.treemap = true;
+    notification.treemapScopeHash = UiaHashWide(scope);
+    EmitUiaEvent(notification);
 }
 
 void TreemapView::BuildTree(const std::wstring& path) {
@@ -279,7 +337,8 @@ void TreemapView::BuildTree(const std::wstring& path) {
 }
 
 void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
-    if (!visible_ || layout_.empty()) return;
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    if (!visible_.load(std::memory_order_acquire) || layout_.empty()) return;
 
     EnsureCreated(context, dwriteFactory);
     const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
@@ -342,36 +401,28 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
             context->DrawText(label.c_str(), static_cast<UINT32>(label.size()), textFormat_.Get(), textRect, textBrush_.Get());
         }
 
-        // allocated-size-storage-accuracy 7.2: hover details on the hovered
-        // tile -- both values side by side, so a material divergence
-        // (sparse/compressed-style) is obvious. Unknown is never rendered as
-        // 0 B; a partial directory aggregate carries its known/total
-        // qualifier rather than masquerading as an exact total.
-        if (rect.node != nullptr && rect.node == hoveredNode_ && rw > 160.0f && rh > 52.0f) {
-            const auto sizeOnDiskText = [](const TreemapNode& node) -> std::wstring {
-                if (node.isDirectory) {
-                    if (node.allocatedTotalCount == 0) return L"Size on disk: 0 B";
-                    if (node.allocatedKnownCount == 0) return L"Size on disk: Unknown";
-                    if (node.allocatedKnownCount == node.allocatedTotalCount) {
-                        return L"Size on disk: " + ffui::FormatSize(node.totalAllocatedSizeBytes);
-                    }
-                    return L"Size on disk: ≥ " + ffui::FormatSize(node.totalAllocatedSizeBytes) + L" (" +
-                           std::to_wstring(node.allocatedKnownCount) + L"/" +
-                           std::to_wstring(node.allocatedTotalCount) + L")";
+        // semantic-treemap-uia 7.x: hover metadata comes from the same pure
+        // BuildTreemapItemMetadata helper the UIA projection uses, so the
+        // rendered text and the accessible description can never drift. Full
+        // path, logical size, allocated size (with honest unknown/partial
+        // state), and both percentages are the canonical facts (spec
+        // storage-drilldown-and-treemap). The tile must be large enough to
+        // draw the lines; the FullDescription always carries everything.
+        if (rect.node != nullptr && rect.node == hoveredNode_ && rw > 160.0f) {
+            const TreemapUiaItemInfo hoverInfo = BuildTileInfoLocked(*rect.node, rect);
+            const bool full = rh > 76.0f;    // path/size/disk/percentages
+            const bool compact = rh > 52.0f; // path/size
+            if (full || compact) {
+                const int lineCount = full ? 4 : 2;
+                float lineY = ry + rh - (full ? 68.0f : 36.0f);
+                for (int i = 0; i < lineCount && static_cast<size_t>(i) < hoverInfo.hoverLines.size(); ++i) {
+                    const std::wstring& line = hoverInfo.hoverLines[static_cast<size_t>(i)];
+                    D2D1_RECT_F lineRect = D2D1::RectF(rx + 4, lineY, rx + rw - 4, lineY + 16.0f);
+                    context->DrawText(line.c_str(), static_cast<UINT32>(line.size()), textFormat_.Get(),
+                                      lineRect, textBrush_.Get());
+                    lineY += 17.0f;
                 }
-                return node.allocatedSizeKnown
-                           ? L"Size on disk: " + ffui::FormatSize(node.allocatedSizeBytes)
-                           : L"Size on disk: Unknown";
-            };
-            D2D1_RECT_F detailsRect = D2D1::RectF(rx + 4, ry + rh - 34, rx + rw - 4, ry + rh - 2);
-            const std::wstring sizeLine = L"Size: " + ffui::FormatSize(
-                rect.node->isDirectory ? rect.node->totalSizeBytes : rect.node->sizeBytes);
-            context->DrawText(sizeLine.c_str(), static_cast<UINT32>(sizeLine.size()), textFormat_.Get(),
-                              detailsRect, textBrush_.Get());
-            D2D1_RECT_F detailsRect2 = D2D1::RectF(rx + 4, ry + rh - 20, rx + rw - 4, ry + rh - 2);
-            const std::wstring diskLine = sizeOnDiskText(*rect.node);
-            context->DrawText(diskLine.c_str(), static_cast<UINT32>(diskLine.size()), textFormat_.Get(),
-                              detailsRect2, textBrush_.Get());
+            }
         }
     }
 }
@@ -383,41 +434,69 @@ bool TreemapView::HandleNotify(LPARAM lParam) {
 
 bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
     std::unique_ptr<TreemapAggregatePayload> payload(reinterpret_cast<TreemapAggregatePayload*>(lParam));
-    if (!payload || !visible_ || payload->generation != buildGeneration_) return true;
+    if (!payload || payload->generation != buildGeneration_.load(std::memory_order_acquire)) return true;
     if (categoryEngine_ != nullptr && !categoryId_.empty()) return true;
 
-    TreemapNode* node = FindNode(root_.get(), payload->path);
-    if (node == nullptr || !node->isDirectory) return true;
+    std::wstring scope = currentPath_;
+    uint64_t tileIdentity = 0;
+    std::wstring oldStatus;
+    std::wstring newStatus;
+    {
+        std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+        if (!visible_.load(std::memory_order_acquire)) return true;
 
-    if (payload->status == ffprotocol::FolderAggregateStatus::Resolved) {
-        node->totalSizeBytes = payload->totalSizeBytes;
-        // allocated-size-storage-accuracy 7.2: store the aggregate's
-        // allocated subtotal and completeness pair; rendering derives
-        // exact / partial / unknown from the counts.
-        node->totalAllocatedSizeBytes = payload->totalAllocatedSizeBytes;
-        node->allocatedKnownCount = payload->allocatedBytesKnownCount;
-        node->allocatedTotalCount = payload->allocatedBytesTotalCount;
-        node->calculating = false;
-        node->aggregateResolved = true;
-        node->aggregateFailed = false;
-    } else {
-        node->totalSizeBytes = 0;
-        node->totalAllocatedSizeBytes = 0;
-        node->allocatedKnownCount = 0;
-        node->allocatedTotalCount = 0;
-        node->calculating = true;
-        node->aggregateResolved = false;
-        node->aggregateFailed = true;
+        TreemapNode* node = FindNode(root_.get(), payload->path);
+        if (node == nullptr || !node->isDirectory) return true;
+        tileIdentity = TreemapNodeIdentityHash(*node, currentPath_);
+        oldStatus = node->calculating ? L"Calculating…" : L"Partial";
+
+        if (payload->status == ffprotocol::FolderAggregateStatus::Resolved) {
+            node->totalSizeBytes = payload->totalSizeBytes;
+            // allocated-size-storage-accuracy 7.2: store the aggregate's
+            // allocated subtotal and completeness pair; rendering derives
+            // exact / partial / unknown from the counts.
+            node->totalAllocatedSizeBytes = payload->totalAllocatedSizeBytes;
+            node->allocatedKnownCount = payload->allocatedBytesKnownCount;
+            node->allocatedTotalCount = payload->allocatedBytesTotalCount;
+            node->calculating = false;
+            node->aggregateResolved = true;
+            node->aggregateFailed = false;
+            newStatus = L"";
+        } else {
+            node->totalSizeBytes = 0;
+            node->totalAllocatedSizeBytes = 0;
+            node->allocatedKnownCount = 0;
+            node->allocatedTotalCount = 0;
+            node->calculating = true;
+            node->aggregateResolved = false;
+            node->aggregateFailed = true;
+            newStatus = L"Partial";
+        }
+
+        if (root_) RecomputeTotals(*root_);
+        RebuildLayout();
+        InvalidateRect(owner_, nullptr, FALSE);
     }
 
-    if (root_) RecomputeTotals(*root_);
-    RebuildLayout();
-    InvalidateRect(owner_, nullptr, FALSE);
+    // semantic-treemap-uia 25/44.x: the tile keeps its semantic identity --
+    // only its metadata / bounds / ItemStatus resolved. Notify the provider
+    // after the lock: PropertyChanged (ItemStatus) on the surviving tile.
+    UiaEventNotification notification;
+    notification.kind = UiaEventKind::PropertyChanged;
+    notification.treemap = true;
+    notification.treemapScopeHash = UiaHashWide(scope);
+    notification.treemapTileHash = tileIdentity;
+    notification.propertyId = UIA_ItemStatusPropertyId;
+    notification.propertyOldText = std::move(oldStatus);
+    notification.propertyNewText = std::move(newStatus);
+    EmitUiaEvent(notification);
     return true;
 }
 
 bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
-    if (!visible_) return false;
+    if (!visible_.load(std::memory_order_acquire)) return false;
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    if (!visible_.load(std::memory_order_acquire)) return false;
     // lParam holds raw client coordinates; the treemap is drawn under the
     // shell's Translate(sidebar, chrome) transform and scaled by viewport/100,
     // so translate back into normalized 0..100 treemap space before hit-testing.
@@ -434,7 +513,10 @@ bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
 }
 
 bool TreemapView::HandleLButtonDown(WPARAM /*wParam*/, LPARAM lParam) {
-    if (!visible_ || layout_.empty() || viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) {
+    if (!visible_.load(std::memory_order_acquire)) return false;
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    if (!visible_.load(std::memory_order_acquire) || layout_.empty() ||
+        viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) {
         return false;
     }
 
@@ -451,6 +533,86 @@ bool TreemapView::HandleLButtonDown(WPARAM /*wParam*/, LPARAM lParam) {
         return true;
     }
     return false;
+}
+
+void TreemapView::SetVolumeInfo(const TreemapVolumeInfo& volume) {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    volumeInfo_ = volume;
+}
+
+// --- semantic projection (semantic-treemap-uia 6/13/21/22) ---
+
+std::wstring TreemapView::UiaScopePath() const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    return currentPath_;
+}
+
+uint64_t TreemapView::UiaScopeHash() const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    return UiaHashWide(currentPath_);
+}
+
+int TreemapView::UiaTileCount() const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    return static_cast<int>(layout_.size());
+}
+
+TreemapUiaItemInfo TreemapView::BuildTileInfoLocked(const TreemapNode& node, const TreemapRect& rect) const {
+    // The displayed parent/scope total is the filtered tree's own root total:
+    // percentages use the category-filtered displayed scope (existing product
+    // behavior). Unknown root totals make the parent percentage unknown too.
+    const uint64_t parentTotal = root_ ? root_->totalSizeBytes : 0;
+    const bool parentKnown = root_ ? !root_->calculating : false;
+
+    bool offscreen = false;
+    if (viewportSize_.width > 0.0f && viewportSize_.height > 0.0f) {
+        const float rx = rect.x * (viewportSize_.width / 100.0f);
+        const float ry = rect.y * (viewportSize_.height / 100.0f);
+        const float rw = rect.width * (viewportSize_.width / 100.0f);
+        const float rh = rect.height * (viewportSize_.height / 100.0f);
+        if (rx + rw < 0 || ry + rh < 0 || rx > viewportSize_.width || ry > viewportSize_.height) {
+            offscreen = true;
+        }
+    }
+    return BuildTreemapItemMetadata(node, parentTotal, parentKnown, volumeInfo_, currentPath_,
+                                    buildGeneration_.load(std::memory_order_acquire),
+                                    UiaHashWide(currentPath_),
+                                    rect.x, rect.y, rect.width, rect.height, offscreen);
+}
+
+TreemapUiaItemInfo TreemapView::UiaTileInfo(int index) const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    if (index < 0 || static_cast<size_t>(index) >= layout_.size()) return {};
+    const TreemapRect& rect = layout_[static_cast<size_t>(index)];
+    if (rect.node == nullptr) return {};
+    return BuildTileInfoLocked(*rect.node, rect);
+}
+
+int TreemapView::UiaTileIndex(uint64_t identityHash) const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    const auto it = layoutIndexByIdentity_.find(identityHash);
+    if (it == layoutIndexByIdentity_.end()) return -1;
+    return static_cast<int>(it->second);
+}
+
+bool TreemapView::UiaFindTile(uint64_t identityHash, TreemapUiaItemInfo& out) const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    const auto it = layoutIndexByIdentity_.find(identityHash);
+    if (it == layoutIndexByIdentity_.end()) return false;
+    const TreemapRect& rect = layout_[it->second];
+    if (rect.node == nullptr) return false;
+    out = BuildTileInfoLocked(*rect.node, rect);
+    return true;
+}
+
+TreemapUiaItemInfo TreemapView::UiaTileHitTest(float normalizedX, float normalizedY) const {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    TreemapNode* node = HitTest(layout_, normalizedX, normalizedY);
+    if (node == nullptr) return {};
+    for (const auto& rect : layout_) {
+        if (rect.node == node) return BuildTileInfoLocked(*rect.node, rect);
+    }
+    return {};
 }
 
 } // namespace ffui

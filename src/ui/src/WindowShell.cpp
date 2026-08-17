@@ -934,9 +934,16 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         [this](const std::wstring& path, bool isDirectory) {
             if (!path.empty()) {
                 if (!isDirectory) {
-                    if (!OpenWithDefaultApplication(hwnd_, path)) {
-                        MessageBoxW(hwnd_, L"The item could not be opened.", L"Open", MB_OK | MB_ICONERROR);
-                    }
+                    // semantic-treemap-uia 29.x: a file tile activation opens
+                    // the standard Column View at the file's CONTAINING
+                    // FOLDER with the file selected (canonical
+                    // storage-drilldown-and-treemap contract). The old
+                    // OpenWithDefaultApplication behavior launched the file,
+                    // contradicting the spec's navigate/select semantics.
+                    const std::filesystem::path selected(path);
+                    storageAnalysis_.Hide();
+                    NavigateWorkspace(selected.parent_path().wstring(),
+                                      selected.filename().wstring());
                     return;
                 }
                 navigationWorkspace_.Navigate(path);
@@ -954,6 +961,10 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         [this](const std::wstring& commandId, const std::vector<std::wstring>& /*paths*/) {
             InvokeCommand(commandId);
         })) return false;
+    // semantic-treemap-uia 10.x: attach the Storage Analysis treemap surface
+    // to the Column View fragment root so the UIA tree describes the treemap
+    // while it is the visible workspace.
+    columnView_.SetUiaTreemapSurface(&storageAnalysis_);
     storageAnalysis_.SetCategories(settings_.storageCategories);
     if (!settingsDialog_.Initialize(hwnd_, &settings_, &commandRegistry_, &shortcuts_, &navigationWorkspace_,
         [this]() {
@@ -1863,6 +1874,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
 
         case WM_APP_TREEMAP_AGGREGATE:
             storageAnalysis_.HandleTreemapCompletion(lParam);
+            return 0;
+
+        case WM_APP_TREEMAP_NAVIGATE:
+            // semantic-treemap-uia 11.x: a UIA Invoke marshaled from a
+            // UIAutomationCore worker thread; the value-only payload is
+            // re-validated against current state on this (UI) thread.
+            storageAnalysis_.HandleTreemapUiaNavigate(lParam);
             return 0;
 
         case WM_APP_FILE_OPERATION_CONFLICT: {

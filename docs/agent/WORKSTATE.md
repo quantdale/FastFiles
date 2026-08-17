@@ -1,11 +1,106 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-16T19:50:00+08:00
-Status: COMPLETE — stabilize-live-uia-e2e implemented, validated (20 PASS /
-6 SKIP / 0 FAIL; 50/50 repeatability gate), committed as
-`1ed5d8e25414773e746f1fe36f623b7180004254`, pushed to origin/main
-(HEAD == origin/main, working tree clean). Hosted CI for the pushed SHA was
-in_progress at handoff — query it on the next resume.
+Last updated: 2026-08-17
+Status: semantic-treemap-uia implemented, validated (Debug 64/64, release-test
+64/64, /analyze clean, OpenSpec 53/53, verify build PASS, treemap live
+scenario PASS; repeatability + full-capability counts pending final run).
+Committed + pushed to origin/main (HEAD == origin/main, working tree clean);
+hosted CI queried after push.
+
+## semantic-treemap-uia session record (2026-08-17)
+
+- **Change:** `openspec/changes/semantic-treemap-uia/` — expose the
+  Direct2D-rendered Storage Treemap as a real semantic UIA surface under the
+  existing main-window fragment root, closing the historical
+  `treemap-readability-click-precision` SKIP (`treemap-drawn-on-d2d-surface`).
+- **Audit confirmed product defects and FIXED (with headless + live
+  regressions):**
+  1. **Treemap hover metadata** only showed `name`, `Size:`, `Size on disk:`
+     — never the full path, `% of parent`, or `% of volume`. Fixed via the
+     shared pure helper `BuildTreemapItemMetadata`
+     (`src/ui/include/ffui/TreemapSemantics.h`); `TreemapView::Render` now
+     draws path + both percentage lines; the same helper feeds UIA
+     FullDescription, so render and accessibility can never drift.
+  2. **`% of Volume` absent from the StorageAnalysis ListView** — the drill-
+     down list showed `% of Parent` only; canonical spec requires both. The
+     shared `StoragePercentage` helper now drives an added `% of Volume`
+     column in `StorageAnalysis` (8 columns) AND the treemap's parent/volume
+     percentages; one source of percentage truth.
+  3. **Small-item catch-all contract (storage-analysis 4.3) was violated**:
+     `TreemapLayout` clamped each rectangle to `kMinRectSize`, corrupting the
+     tiling (overlaps, coverage > container, tiles escaping the parent,
+     misleading hit regions). Replaced the clamp with band-based exact tiling;
+     `>=2` tiny siblings (share below `TinyNodeShare`, including exact 0-byte)
+     now aggregate into a synthetic `"Other small items"` node
+     (`BuildSyntheticCatchAll`), laid out by merged size with an item count.
+     Unknown-size/calculating nodes are never merged (not "small") and keep
+     an honest placeholder.
+  4. **File-tile activation defect**: a file tile click called
+     `OpenWithDefaultApplication` (launched the file). Canonical spec requires
+     "open the containing folder in Column View with the file SELECTED". Fixed
+     in `WindowShell` (folder navigate on activate):
+     `storageAnalysis_.Hide(); NavigateWorkspace(parent, filename)`.
+  5. **UIA Search-thread defect class not repeated**: `UIA Invoke` now posts a
+     value-only payload (`generation`, `scopeHash`, `identityHash`, path,
+     isDirectory) via `WM_APP_TREEMAP_NAVIGATE`; the UI thread re-resolves the
+     identity in CURRENT state and drops stale queued actions. Never a raw
+     `TreemapNode*` and never a UI mutation from a UIAutomationCore worker.
+- **Treemap UIA architecture:** fragment root stays
+  `ColumnViewUiaProvider`. `Window "FastFiles" → Group "Storage
+  Treemap"` (AutomationId `Storage.Treemap`, `UIA_GroupControlTypeId`,
+  `IItemContainerProvider` for FindItemByProperty) → `DataItem` tiles
+  (`UIA_DataItemControlTypeId`, AutomationId
+  `Storage.Treemap.Tile.<16-hex>`, `IInvokeProvider` only on real navigable
+  tiles; the synthetic catch-all exposes NO Invoke). No Selection/SelectionItem
+  (treemap has no selection model); `IsKeyboardFocusable=false` honestly (no
+  hidden focus model). Runtime IDs:
+  `UiaTreemapGroupRuntimeId(scopeHash)` /
+  `UiaTreemapTileRuntimeId(scopeHash, idHash)`.
+- **Identity:** `TreemapNodeIdentityHash` = FRN-or-path rule
+  (`UiaItemIdentityHash(volumeRowId,fileIdLow,fileIdHigh,path)`) for real
+  nodes; catch-all uses `UiaHashWide(scopePath + "\\.ff-other-small-items")`.
+  Bounded on-demand tile cache (`kMaxCachedTreemapTiles=1024`, deterministic
+  full clear on overflow); no provider work during paint; surface reads are
+  bounded-lock plain values, never `TreemapNode`/`TreemapRect`, no FS/engine.
+- **Geometry:** tile `BoundingRectangle` comes from the exact cached layout:
+  normalized 0..100 rect → viewport DIPs → physical screen via live
+  `UiaViewGeometry` (origin + DPI + ClientToScreen), same transform as render
+  and hit-testing. `ElementProviderFromPoint` uses the real
+  `TreemapTileHitTest`; parity tested. Logic survives resize via
+  re-projection; DPI headless-tested.
+- **Metadata semantics** (shared helper): logical `Size:`; `Size on disk`
+  known/`≥ x (n/tot)` partial/`Unknown` (never `0 B` for unknown); divergence
+  callout `(differs from logical size)` on >=1.5x with 4 KiB floor after
+  division (overflow-safe); `Calculating…` / `Partial` ItemStatus; `% of
+  parent` / `% of volume` via `ComputeStoragePercentage`. Logical size still
+  drives rectangle AREA (no metric toggle).
+- **Live E2E (`Invoke-UiaScenarioTreemapReadability`**, Isolated): fixture
+  with 8/4/2/1 MiB non-sparse `.bin` + `FolderA`/`FolderB` children + ~300
+  tiny files; pre-browse children; palette `analyze`; real `Send-UiaMouseInput`
+  click of the Treemap radio; semantic wait for `Storage.Treemap`; asserts
+  group + tile discovery (6 tiles incl. `Other small items` + TinyFiles),
+  proportionality 8:4:2 (tol 0.15), bounding-box click precision, folder
+  Invoke launches real activation into child scope, and a before/after
+  filesystem manifest shows no mutation.
+- **New test targets (all under Debug + release-test CTest):**
+  `fftreemap_layout_tests` (+proportional/viewport/tiny-catch-all/calculating),
+  `fftreemap_metadata_tests` (pure helper), `fftreemap_uia_tests` (provider
+  via `FakeTreemapUiaSurface`: root/tile props, Invoke presence/absence,
+  stable identity, stale provider, cache, marshaling, geometry). Existing
+  `ffcolumnview_uia_tests`/`ffsearch_uia_tests`/`ffhome_uia_tests`/`ffuia_events_tests`
+  kept green; `ColumnViewUiaProvider` ctor gained a defaulted 4th param so
+  existing 3-arg call sites compile unchanged.
+- **Validation so far:** Debug CTest 64/64 PASS; release-test CTest 64/64
+  PASS; `analyze` clean (/W4 /WX); `verify.ps1 build` PASS; `verify.ps1
+  doctor` PASS (SKIPs are tool-not-found/no-op); `openspec validate
+  --all --strict` 53/53; `check_source_markers.ps1` / `check_diagnostic_policy.ps1`
+  / `tests/drift/check_doc_drift.ps1` all PASS; `git diff --check` clean.
+- NEXT EXACT ACTION: finish the treemap live-scenario 10x repeatability gate,
+  re-run the full `windows-ui-automation-validation` capability (expect 0
+  unexpected FAIL; SKIP drops to 5 with `treemap-drawn-on-d2d-surface`
+  removed), then `git add` the task-owned set,
+  `git commit`, `git push origin main`, verify HEAD == origin/main,
+  query hosted CI, write the final report per deadline-70.
 
 ## stabilize-live-uia-e2e session record (2026-08-16)
 

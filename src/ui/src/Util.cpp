@@ -4,26 +4,15 @@
 #include <memory>
 
 #include "ffprotocol/UiProtocol.h"
+#include "ffui/TreemapSemantics.h"
 
 namespace ffui {
 
 std::wstring FormatSize(uint64_t bytes) {
-    if (bytes >= 1024ULL * 1024ULL * 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f GB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
-        return buffer;
-    }
-    if (bytes >= 1024ULL * 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-        return buffer;
-    }
-    if (bytes >= 1024ULL) {
-        wchar_t buffer[64]{};
-        swprintf_s(buffer, L"%.1f KB", static_cast<double>(bytes) / 1024.0);
-        return buffer;
-    }
-    return std::to_wstring(bytes) + L" B";
+    // semantic-treemap-uia 7.x: one canonical size formatter lives in the
+    // pure TreemapSemantics header so hover text, the storage ListView, and
+    // UIA metadata can never drift.
+    return TreemapFormatSize(bytes);
 }
 
 std::wstring JoinPath(const std::wstring& base, const std::wstring& name) {

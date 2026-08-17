@@ -30,6 +30,7 @@ add_executable(FastFiles WIN32
   src/UiaProviderBase.cpp
   src/ColumnViewUiaProvider.cpp
   src/SearchUiaProvider.cpp
+  src/TreemapUiaProvider.cpp
 )
 
 target_include_directories(FastFiles PRIVATE include)

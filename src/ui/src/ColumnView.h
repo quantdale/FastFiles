@@ -41,6 +41,10 @@
 
 namespace ffui {
 
+// semantic-treemap-uia 10.x: forward declaration -- ColumnView only stores
+// the pointer to the Storage Analysis treemap surface.
+class TreemapUiaSurface;
+
 // Provided by the shared type-icon cache (IconCache.h); forward-declared here
 // because ColumnView only stores the pointer and never needs the complete type.
 class IconCache;
@@ -362,6 +366,10 @@ public:
     void SetUiaKeyboardFocusOwned(bool owned);
     void SetUiaHorizontalScrollWriter(std::function<void(float)> writer);
     void SetUiaEventSink(UiaEventSink sink, void* context);
+    // semantic-treemap-uia 10.x: attaches the Storage Analysis treemap
+    // surface to the fragment root so the provider tree describes the
+    // treemap while it is the visible workspace.
+    void SetUiaTreemapSurface(TreemapUiaSurface* treemapSurface);
     Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> UiaRootProvider(HWND hwnd);
     void ReleaseUiaProvider();
 
@@ -402,6 +410,9 @@ private:
     UiaEventRouter uiaEvents_;
     UiaOwnerStatePtr uiaState_;
     Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> uiaProvider_;
+    // semantic-treemap-uia 10.x: the Storage Analysis treemap semantic
+    // surface, passed to the provider at creation / re-wired on attach.
+    ffui::TreemapUiaSurface* uiaTreemapSurface_ = nullptr;
 
     EngineClient* engineClient_ = nullptr;
     mutable std::mutex columnsMutex_;

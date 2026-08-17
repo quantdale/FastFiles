@@ -2363,12 +2363,23 @@ void ColumnView::SetUiaEventSink(UiaEventSink sink, void* context) {
     uiaEvents_.Set(sink, context);
 }
 
+void ColumnView::SetUiaTreemapSurface(TreemapUiaSurface* treemapSurface) {
+    uiaTreemapSurface_ = treemapSurface;
+    if (uiaProvider_ != nullptr) {
+        auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+        if (provider != nullptr) {
+            provider->SetTreemapSurface(treemapSurface);
+        }
+    }
+}
+
 Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> ColumnView::UiaRootProvider(HWND hwnd) {
     if (uiaProvider_ == nullptr) {
         if (!uiaState_) {
             uiaState_ = std::make_shared<UiaOwnerState>();
         }
-        auto provider = Microsoft::WRL::ComPtr<ColumnViewUiaProvider>(new ColumnViewUiaProvider(uiaState_, this, hwnd));
+        auto provider = Microsoft::WRL::ComPtr<ColumnViewUiaProvider>(
+            new ColumnViewUiaProvider(uiaState_, this, hwnd, uiaTreemapSurface_));
         uiaProvider_ = provider;
         uiaEvents_.Set(&ColumnViewUiaProvider::SinkThunk, provider.Get());
     }
@@ -2381,6 +2392,14 @@ void ColumnView::ReleaseUiaProvider() {
     // own references. UIAutomationCore keeps its own references on behalf of
     // clients and disconnects them when the HWND is destroyed.
     uiaEvents_.Clear();
+    if (uiaProvider_ != nullptr) {
+        auto* provider = static_cast<ColumnViewUiaProvider*>(uiaProvider_.Get());
+        if (provider != nullptr) {
+            // Detach the treemap event subscription on the UI thread before
+            // the tree is dropped (the surface outlives the provider tree).
+            provider->SetTreemapSurface(nullptr);
+        }
+    }
     if (uiaState_) {
         uiaState_->alive = false;
     }

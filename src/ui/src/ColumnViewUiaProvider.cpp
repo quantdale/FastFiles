@@ -123,14 +123,50 @@ int RowOfItemProvider(ColumnViewUiaProvider* owner, int pane, int column,
 // ColumnViewUiaProvider (fragment root / controller)
 // ---------------------------------------------------------------------------
 
-ColumnViewUiaProvider::ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND hwnd)
-    : UiaProviderBase(std::move(state)), surface_(surface), hwnd_(hwnd) {
+ColumnViewUiaProvider::ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND hwnd,
+                                             TreemapUiaSurface* treemapSurface)
+    : UiaProviderBase(std::move(state)), surface_(surface), treemapSurface_(treemapSurface), hwnd_(hwnd) {
     if (hwnd_ != nullptr && IsWindow(hwnd_)) {
         UiaHostProviderFromHwnd(hwnd_, &hostProvider_);
     }
+    // semantic-treemap-uia 30.x: subscribe to the treemap semantic events.
+    // The controller raises standard UIA events for structure/property
+    // changes and invalidates the provider cache (see HandleNotification).
+    if (treemapSurface_ != nullptr && treemapSurface_->TreemapEvents() != nullptr) {
+        treemapSurface_->TreemapEvents()->Set(&ColumnViewUiaProvider::SinkThunk, this);
+        treemapEventsSubscribed_ = true;
+    }
 }
 
-ColumnViewUiaProvider::~ColumnViewUiaProvider() = default;
+void ColumnViewUiaProvider::SetTreemapSurface(TreemapUiaSurface* treemapSurface) {
+    // Re-wire the event subscription when the surface is attached after the
+    // provider was created (the shell wires it once at startup).
+    if (treemapEventsSubscribed_) {
+        if (treemapSurface_ != nullptr && treemapSurface_->TreemapEvents() != nullptr) {
+            treemapSurface_->TreemapEvents()->Clear();
+        }
+        treemapEventsSubscribed_ = false;
+    }
+    treemapSurface_ = treemapSurface;
+    if (treemapSurface_ != nullptr && treemapSurface_->TreemapEvents() != nullptr) {
+        treemapSurface_->TreemapEvents()->Set(&ColumnViewUiaProvider::SinkThunk, this);
+        treemapEventsSubscribed_ = true;
+    }
+    InvalidateTreemap();
+}
+
+ColumnViewUiaProvider::~ColumnViewUiaProvider() {
+    // The controller owns the subscription; detach it so the surface never
+    // calls back into a freed provider. Safe on any thread: the surface's
+    // router clears plain scalar fields and the surface outlives the tree
+    // (ColumnView::ReleaseUiaProvider runs on the UI thread before the
+    // surface is torn down).
+    if (treemapEventsSubscribed_ && treemapSurface_ != nullptr &&
+        treemapSurface_->TreemapEvents() != nullptr) {
+        treemapSurface_->TreemapEvents()->Clear();
+        treemapEventsSubscribed_ = false;
+    }
+}
 
 STDMETHODIMP ColumnViewUiaProvider::GetPatternProvider(PATTERNID /*patternId*/, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
@@ -181,6 +217,17 @@ STDMETHODIMP ColumnViewUiaProvider::Navigate(NavigateDirection direction, IRawEl
     *retVal = nullptr;
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
     if (direction == NavigateDirection_FirstChild || direction == NavigateDirection_LastChild) {
+        // semantic-treemap-uia 10.x: the provider tree describes what is
+        // ACTUALLY visible -- the treemap group replaces the Column View
+        // group while the storage Treemap view is active, instead of
+        // exposing an obscured Column View subtree.
+        if (treemapSurface_ != nullptr && treemapSurface_->TreemapActive()) {
+            auto treemapGroup = TreemapGroupElement();
+            if (treemapGroup != nullptr) {
+                *retVal = treemapGroup.Detach();
+            }
+            return S_OK;
+        }
         auto group = GroupElement();
         if (group != nullptr) {
             *retVal = group.Detach();
@@ -254,6 +301,33 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     const double yDip = static_cast<double>(pt.y) / scale - geometry.originYDip;
     if (xDip < 0.0 || xDip >= geometry.widthDip || yDip < 0.0 || yDip >= geometry.heightDip) {
         return S_OK; // outside the navigation viewport
+    }
+
+    // semantic-treemap-uia 18.x: while the treemap is active, hit-testing
+    // goes through the EXACT cached treemap layout (same HitTest the mouse
+    // click/hover use), converted to normalized 0..100 space with the same
+    // viewport divide. The result MUST agree with HandleLButtonDown.
+    if (treemapSurface_ != nullptr && treemapSurface_->TreemapActive()) {
+        const float normalizedX = geometry.widthDip > 0.0f
+                                      ? static_cast<float>(xDip / geometry.widthDip) * 100.0f
+                                      : -1.0f;
+        const float normalizedY = geometry.heightDip > 0.0f
+                                      ? static_cast<float>(yDip / geometry.heightDip) * 100.0f
+                                      : -1.0f;
+        const TreemapUiaItemInfo tile = treemapSurface_->TreemapTileHitTest(normalizedX, normalizedY);
+        if (tile.identityHash != 0) {
+            auto tileElement = TreemapTileElement(tile.scopeHash, tile.identityHash);
+            if (tileElement != nullptr) {
+                *retVal = tileElement.Detach();
+                return S_OK;
+            }
+        }
+        // Gutter/empty area inside the treemap viewport resolves to the group.
+        auto treemapGroup = TreemapGroupElement();
+        if (treemapGroup != nullptr) {
+            *retVal = treemapGroup.Detach();
+        }
+        return S_OK;
     }
 
     const int paneCount = surface_->UiaPaneCount();
@@ -353,6 +427,13 @@ STDMETHODIMP ColumnViewUiaProvider::GetFocus(IRawElementProviderFragment** retVa
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
+    // semantic-treemap-uia 9.x: the treemap has no keyboard-focus model.
+    // While it is active there is no real focus target in the navigation
+    // surface, so GetFocus honestly reports null instead of pretending the
+    // obscured Column View is focused.
+    if (treemapSurface_ != nullptr && treemapSurface_->TreemapActive()) {
+        return S_OK;
+    }
     auto focused = FocusElement();
     if (focused != nullptr) {
         Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
@@ -539,6 +620,33 @@ Microsoft::WRL::ComPtr<HomeClearUiaProvider> ColumnViewUiaProvider::HomeClearEle
     return provider;
 }
 
+Microsoft::WRL::ComPtr<TreemapGroupUiaProvider> ColumnViewUiaProvider::TreemapGroupElement() {
+    if (!Alive() || treemapSurface_ == nullptr) return nullptr;
+    if (treemapGroup_ == nullptr) {
+        treemapGroup_ = Microsoft::WRL::ComPtr<TreemapGroupUiaProvider>(new TreemapGroupUiaProvider(this));
+    }
+    return treemapGroup_;
+}
+
+Microsoft::WRL::ComPtr<TreemapTileUiaProvider> ColumnViewUiaProvider::TreemapTileElement(uint64_t scopeHash, uint64_t idHash) {
+    if (!Alive() || treemapSurface_ == nullptr) return nullptr;
+    const uint64_t key = UiaCombineKey(scopeHash, idHash);
+    auto it = treemapTiles_.find(key);
+    if (it != treemapTiles_.end() && it->second != nullptr) {
+        return it->second;
+    }
+    // Bounded, deterministic cache: on overflow clear the whole tile cache.
+    if (treemapTileCacheSize_ >= kMaxCachedTreemapTiles) {
+        treemapTiles_.clear();
+        treemapTileCacheSize_ = 0;
+    }
+    auto provider = Microsoft::WRL::ComPtr<TreemapTileUiaProvider>(
+        new TreemapTileUiaProvider(this, scopeHash, idHash));
+    ++treemapTileCacheSize_;
+    treemapTiles_[key] = provider;
+    return provider;
+}
+
 // --- cache invalidation ----------------------------------------------------
 
 void ColumnViewUiaProvider::InvalidateColumn(int pane, uint64_t pathHash) {
@@ -593,6 +701,12 @@ void ColumnViewUiaProvider::InvalidateHome(int pane) {
     homeGroups_[static_cast<size_t>(pane)].Reset();
 }
 
+void ColumnViewUiaProvider::InvalidateTreemap() {
+    treemapTiles_.clear();
+    treemapTileCacheSize_ = 0;
+    treemapGroup_.Reset();
+}
+
 void ColumnViewUiaProvider::InvalidateAll() {
     columns_.clear();
     items_.clear();
@@ -607,6 +721,7 @@ void ColumnViewUiaProvider::InvalidateAll() {
     group_.Reset();
     itemCacheSize_ = 0;
     homeItemCacheSize_ = 0;
+    InvalidateTreemap();
 }
 
 // --- events ----------------------------------------------------------------
@@ -654,6 +769,18 @@ void ColumnViewUiaProvider::HandleNotification(const UiaEventNotification& notif
                     : (notification.kind == UiaEventKind::StructureBulkAdded
                            ? StructureChangeType_ChildrenBulkAdded
                            : StructureChangeType_ChildrenReordered);
+            if (notification.treemap) {
+                // semantic-treemap-uia 30.x: scope changed / snapshot
+                // rebuild / filter changed / opened / closed. Providers of
+                // the old structure fail stale; surviving identities are
+                // re-minted by the new scope.
+                auto treemapGroup = TreemapGroupElement();
+                if (treemapGroup != nullptr) {
+                    UiaProviderBase::RaiseStructureChanged(treemapGroup.Get(), changeType, nullptr);
+                }
+                InvalidateTreemap();
+                return;
+            }
             if (notification.group) {
                 auto group = GroupElement();
                 if (group != nullptr) {
@@ -685,6 +812,13 @@ void ColumnViewUiaProvider::HandleNotification(const UiaEventNotification& notif
             return;
         }
         case UiaEventKind::Invoked: {
+            if (notification.treemap) {
+                auto tile = TreemapTileElement(notification.treemapScopeHash, notification.treemapTileHash);
+                if (tile != nullptr) {
+                    UiaProviderBase::RaiseInvoked(tile.Get());
+                }
+                return;
+            }
             if (notification.home) {
                 auto item = HomeItemElement(notification.pane, notification.homeIndex);
                 if (item != nullptr) {
@@ -700,6 +834,25 @@ void ColumnViewUiaProvider::HandleNotification(const UiaEventNotification& notif
             return;
         }
         case UiaEventKind::PropertyChanged: {
+            if (notification.treemap) {
+                // aggregate completion: same semantic tile, updated
+                // metadata / ItemStatus / bounds. PropertyChanged on the
+                // surviving provider; the cache entry stays valid.
+                auto tile = TreemapTileElement(notification.treemapScopeHash, notification.treemapTileHash);
+                if (tile != nullptr) {
+                    VARIANT oldValue{};
+                    VARIANT newValue{};
+                    VariantInit(&oldValue);
+                    VariantInit(&newValue);
+                    SetVariantString(&oldValue, notification.propertyOldText);
+                    SetVariantString(&newValue, notification.propertyNewText);
+                    UiaProviderBase::RaisePropertyChanged(tile.Get(), notification.propertyId,
+                                                          oldValue, newValue);
+                    VariantClear(&oldValue);
+                    VariantClear(&newValue);
+                }
+                return;
+            }
             if (!notification.home) return;
             auto item = HomeItemElement(notification.pane, notification.homeIndex);
             if (item != nullptr) {
@@ -721,6 +874,9 @@ void ColumnViewUiaProvider::HandleNotification(const UiaEventNotification& notif
 
 void ColumnViewUiaProvider::NotifyFocusChanged() {
     if (!Alive() || surface_ == nullptr) return;
+    // The treemap has no focus model; do not raise focus on the obscured
+    // Column View while it is active.
+    if (treemapSurface_ != nullptr && treemapSurface_->TreemapActive()) return;
     auto focused = FocusElement();
     if (focused != nullptr) {
         UiaProviderBase::RaiseFocusChanged(focused.Get());

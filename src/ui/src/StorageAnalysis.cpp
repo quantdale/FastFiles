@@ -62,6 +62,8 @@ void SetSortIndicator(HWND list, int column, bool ascending) {
 } // namespace
 
 StorageAnalysis::~StorageAnalysis() {
+    uiaEvents_.Clear();
+    treemapView_.SetUiaEventHandler(nullptr);
     Hide();
 }
 
@@ -109,9 +111,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
         !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
-    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"Modified", L"Size on Disk"};
-    const int widths[] = {260, 80, 100, 120, 100, 145, 120};
-    for (int i = 0; i < 7; ++i) {
+    const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
+    const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
+    for (int i = 0; i < 8; ++i) {
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
         column.pszText = const_cast<wchar_t*>(columns[i]);
         column.cx = widths[i];
@@ -137,14 +139,70 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     // Wire the treemap into the storage panel so it renders the current folder
     // when the Treemap view mode is selected. Treemap navigation updates the
     // panel's current path and rebuilds the tree, then delegates to the shell.
+    // Mouse clicks and UIA Invoke funnel through the same NavigateFromTreemap
+    // mutation (semantic-treemap-uia 11/28).
     treemapView_.Initialize(owner_, engine_, [this](const std::wstring& path, bool isDirectory) {
-        currentPath_ = path;
-        if (isDirectory) {
-            treemapView_.ShowAndFocus(path);
-        }
-        if (navigate_) navigate_(path, isDirectory);
+        NavigateFromTreemap(path, isDirectory);
+    });
+    treemapView_.SetUiaEventHandler([this](const UiaEventNotification& notification) {
+        uiaEvents_.Notify(notification);
     });
     treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
+    return true;
+}
+
+// semantic-treemap-uia 11/28: the one real navigation mutation shared by the
+// treemap mouse-click callback and the UI-thread side of a UIA Invoke.
+void StorageAnalysis::NavigateFromTreemap(const std::wstring& path, bool isDirectory) {
+    currentPath_ = path;
+    if (isDirectory) {
+        treemapView_.ShowAndFocus(path);
+    }
+    if (navigate_) navigate_(path, isDirectory);
+}
+
+// semantic-treemap-uia 11.x: a UIA Invoke may arrive on a UIAutomationCore
+// worker thread. Never mutate UI state there -- marshal a value-only payload
+// to the owning UI thread, which re-validates the stable identity against
+// CURRENT state and drops it if the tile changed (generation/scope/identity).
+void StorageAnalysis::TreemapActivateItem(const TreemapUiaItemInfo& item) {
+    if (!item.invokable) return;
+    const DWORD uiThread = GetWindowThreadProcessId(owner_, nullptr);
+    if (uiThread != 0 && GetCurrentThreadId() != uiThread) {
+        auto payload = std::make_unique<TreemapNavigatePayload>();
+        payload->generation = item.generation;
+        payload->scopeHash = item.scopeHash;
+        payload->identityHash = item.identityHash;
+        payload->fullPath = item.fullPath;
+        payload->isDirectory = item.isDirectory;
+        if (PostMessageW(owner_, WM_APP_TREEMAP_NAVIGATE, 0,
+                         reinterpret_cast<LPARAM>(payload.get()))) {
+            payload.release();
+            return;
+        }
+        // PostMessage failed (e.g. the window is being torn down): drop the
+        // action safely -- never run navigation on this worker thread.
+        return;
+    }
+    // Already on the UI thread: re-validate and run the real mutation.
+    TreemapUiaItemInfo current;
+    if (!treemapView_.UiaFindTile(item.identityHash, current)) return;
+    if (current.generation != item.generation || current.scopeHash != item.scopeHash) return;
+    if (!current.invokable) return;
+    NavigateFromTreemap(current.fullPath, current.isDirectory);
+}
+
+bool StorageAnalysis::HandleTreemapUiaNavigate(LPARAM lParam) {
+    std::unique_ptr<TreemapNavigatePayload> payload(reinterpret_cast<TreemapNavigatePayload*>(lParam));
+    if (!payload) return true;
+    // Re-resolve the stable identity in CURRENT state; a stale queued action
+    // (snapshot refresh, category filter, scope navigation, Hide, teardown)
+    // must never retarget the new occupant of the same position.
+    TreemapUiaItemInfo current;
+    if (!treemapView_.UiaFindTile(payload->identityHash, current)) return true;
+    if (current.generation != payload->generation || current.scopeHash != payload->scopeHash) return true;
+    if (!current.invokable) return true;
+    NavigateFromTreemap(current.fullPath, current.isDirectory);
     return true;
 }
 
@@ -398,6 +456,12 @@ void StorageAnalysis::RefreshOverview() {
 
 void StorageAnalysis::RefreshData() {
     if (!visible_) return;
+
+    // semantic-treemap-uia 22.x: percentage-of-volume denominator from the
+    // same OS ground truth as the overview; the treemap metadata uses the
+    // identical value.
+    UpdateVolumeUsedBytes();
+    treemapView_.SetVolumeInfo({volumeUsedBytes_, volumeUsedKnown_});
 
     // A refresh invalidates all outstanding row requests. Request IDs are
     // monotonic, so a late callback from the previous listing cannot be
@@ -666,8 +730,24 @@ void StorageAnalysis::HandleAggregateResult(uint64_t requestId,
     InvalidateRect(list_, nullptr, FALSE);
 }
 
+// semantic-treemap-uia 22.x: the "overall volume" denominator for
+// percentage-of-volume. Same GetDiskFreeSpaceExW ground truth as the storage
+// overview (RefreshOverview); the volume hosting the current scope.
+void StorageAnalysis::UpdateVolumeUsedBytes() {
+    volumeUsedKnown_ = false;
+    volumeUsedBytes_ = 0;
+    if (currentPath_.empty() || currentPath_[0] == L'\0') return;
+    wchar_t root[4] = {currentPath_[0], L':', L'\\', L'\0'};
+    if (currentPath_.size() >= 2 && currentPath_[1] != L':') return;
+    ULARGE_INTEGER total{}, freeAvail{};
+    if (GetDiskFreeSpaceExW(root, &freeAvail, &total, nullptr)) {
+        volumeUsedBytes_ = total.QuadPart > freeAvail.QuadPart ? total.QuadPart - freeAvail.QuadPart : 0;
+        volumeUsedKnown_ = true;
+    }
+}
+
 void StorageAnalysis::SortItems(int column, bool ascending) {
-    if (column < 0 || column >= 7) return;
+    if (column < 0 || column >= 8) return;
     sortColumn_ = column;
     sortAscending_ = ascending;
     SetSortIndicator(list_, column, ascending);
@@ -678,7 +758,7 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
         double value = 0.0;
     };
     const auto [parentTotal, parentKnown] = CurrentParentTotals();
-    auto getSortKey = [parentTotal, parentKnown](const DrillItem& item, int col) -> SortKey {
+    auto getSortKey = [this, parentTotal, parentKnown](const DrillItem& item, int col) -> SortKey {
         switch (col) {
             case 0: return {item.isDirectory ? 0 : 1, true, 0.0}; // name: folders first, then name
             case 1: return {item.isDirectory ? 0 : 1, true, 0.0}; // type: folders first
@@ -691,8 +771,16 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
                     (!item.isDirectory || (!item.calculating && !item.aggregateFailed)));
                 return {item.isDirectory ? 0 : 1, percentage.known, percentage.sortKey};
             }
-            case 5: return {0, true, static_cast<double>(item.lastModifiedTime)}; // modified
-            case 6:
+            case 5: {
+                // semantic-treemap-uia 22.x: percentage of the overall volume
+                // (OS used bytes). Unknown denominators/items sort last.
+                const auto percentage = ComputeStoragePercentage(
+                    item.totalSizeBytes, volumeUsedBytes_, volumeUsedKnown_ &&
+                    (!item.isDirectory || (!item.calculating && !item.aggregateFailed)));
+                return {item.isDirectory ? 0 : 1, percentage.known, percentage.sortKey};
+            }
+            case 6: return {0, true, static_cast<double>(item.lastModifiedTime)}; // modified
+            case 7:
                 // allocated-size-storage-accuracy 7.1: size-on-disk column --
                 // files sort on their own allocated size (known first),
                 // directories on the aggregate's known subtotal.
@@ -711,7 +799,7 @@ void StorageAnalysis::SortItems(int column, bool ascending) {
         const auto keyB = getSortKey(b, column);
         if (keyA.group != keyB.group) return ascending ? keyA.group < keyB.group : keyA.group > keyB.group;
         if (keyA.known != keyB.known) return ascending ? keyA.known > keyB.known : keyA.known < keyB.known;
-        const bool equalValue = column == 4
+        const bool equalValue = (column == 4 || column == 5)
             ? StoragePercentageNearlyEqual(keyA.value, keyB.value)
             : keyA.value == keyB.value;
         if (!equalValue) {
@@ -865,7 +953,18 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                 text = percentage.display;
                 break;
             }
-            case 5:
+            case 5: {
+                // semantic-treemap-uia 22.x: % of Volume -- the same
+                // ComputeStoragePercentage helper and the same OS used-bytes
+                // denominator the treemap metadata uses (one percentage
+                // source, never a second implementation).
+                const auto percentage = ComputeStoragePercentage(
+                    item.totalSizeBytes, volumeUsedBytes_, volumeUsedKnown_ &&
+                    (!item.isDirectory || (!item.calculating && !item.aggregateFailed)));
+                text = percentage.display;
+                break;
+            }
+            case 6:
                 if (item.lastModifiedTime == 0) {
                     text = L"—";
                 } else {
@@ -883,7 +982,7 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
                     }
                 }
                 break;
-            case 6: {
+            case 7: {
                 // allocated-size-storage-accuracy 7.1: Size on Disk column.
                 // Unknown is never rendered as 0 B; a partial directory
                 // aggregate is labeled with its known/total qualifier and a

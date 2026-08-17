@@ -13,6 +13,7 @@
 #include "ffui/ShellLayout.h"
 #include "ffui/StorageVisibility.h"
 #include "ffui/StoragePercentage.h"
+#include "ffui/TreemapSemantics.h"
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
@@ -22,7 +23,20 @@ namespace ffui {
 
 constexpr UINT WM_APP_STORAGE_AGGREGATE = WM_APP + 10;
 
-class StorageAnalysis {
+// semantic-treemap-uia 11.x: value-only payload for marshaling a UIA Invoke to
+// the owning UI thread. Never carries pointers: the UI thread re-resolves the
+// stable identity against CURRENT state and drops it if the tile changed.
+constexpr UINT WM_APP_TREEMAP_NAVIGATE = WM_APP + 54;
+
+struct TreemapNavigatePayload {
+    uint64_t generation = 0;
+    uint64_t scopeHash = 0;
+    uint64_t identityHash = 0;
+    std::wstring fullPath;
+    bool isDirectory = false;
+};
+
+class StorageAnalysis : public TreemapUiaSurface {
 public:
     StorageAnalysis() = default;
     ~StorageAnalysis();
@@ -44,6 +58,7 @@ public:
     bool HandleTimer(UINT_PTR timerId);
     bool HandleCompletion(LPARAM lParam);
     bool HandleTreemapCompletion(LPARAM lParam);
+    bool HandleTreemapUiaNavigate(LPARAM lParam);
     bool HandleMouseMove(WPARAM wParam, LPARAM lParam);
     bool HandleLButtonDown(WPARAM wParam, LPARAM lParam);
     void SetEngineActive(bool active);
@@ -51,9 +66,31 @@ public:
     void OnSnapshotUpdated();
     void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
 
+    // semantic-treemap-uia 30.x: the provider controller subscribes here;
+    // notifications are pushed after the view released its locks.
+    void SetUiaEventSink(UiaEventSink sink, void* context) { uiaEvents_.Set(sink, context); }
+
     using ViewMode = StorageViewMode;
     void SetViewMode(ViewMode mode);
     ViewMode GetViewMode() const { return viewMode_; }
+
+    // --- TreemapUiaSurface (semantic-treemap-uia 6.x): the provider consumes
+    // the same bounded semantic projection the renderer and hit-tester use. ---
+    bool TreemapActive() const override { return treemapView_.UiaActive(); }
+    uint64_t TreemapGeneration() const override { return treemapView_.UiaGeneration(); }
+    uint64_t TreemapScopeHash() const override { return treemapView_.UiaScopeHash(); }
+    std::wstring TreemapScopePath() const override { return treemapView_.UiaScopePath(); }
+    int TreemapTileCount() const override { return treemapView_.UiaTileCount(); }
+    TreemapUiaItemInfo TreemapTileInfo(int index) const override { return treemapView_.UiaTileInfo(index); }
+    int TreemapTileIndex(uint64_t identityHash) const override { return treemapView_.UiaTileIndex(identityHash); }
+    bool TreemapFindTile(uint64_t identityHash, TreemapUiaItemInfo& out) const override {
+        return treemapView_.UiaFindTile(identityHash, out);
+    }
+    TreemapUiaItemInfo TreemapTileHitTest(float normalizedX, float normalizedY) const override {
+        return treemapView_.UiaTileHitTest(normalizedX, normalizedY);
+    }
+    void TreemapActivateItem(const TreemapUiaItemInfo& item) override;
+    UiaEventRouter* TreemapEvents() override { return &uiaEvents_; }
 
 private:
     struct DrillItem {
@@ -112,6 +149,10 @@ private:
     void PopulateCategoryFilter();
     void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
+    void UpdateVolumeUsedBytes();
+    // semantic-treemap-uia 11/28: the single real navigation mutation shared
+    // by the mouse-click callback and the UI-thread side of a UIA Invoke.
+    void NavigateFromTreemap(const std::wstring& path, bool isDirectory);
 
     HWND owner_ = nullptr;
     HWND list_ = nullptr;
@@ -143,6 +184,16 @@ private:
     bool engineActive_ = false;
     bool darkTheme_ = false;
     ViewMode viewMode_ = ViewMode::Overview;
+
+    // semantic-treemap-uia 22.x: percentage-of-volume denominator -- the
+    // OS-reported used bytes of the volume hosting the current scope, from the
+    // same GetDiskFreeSpaceExW ground truth the storage overview uses.
+    uint64_t volumeUsedBytes_ = 0;
+    bool volumeUsedKnown_ = false;
+
+    // semantic-treemap-uia 30.x: semantic events pushed after locks are
+    // released; the provider controller registers itself via SetUiaEventSink.
+    UiaEventRouter uiaEvents_;
 
     int sortColumn_ = 3; // default: sort by Subtree Size descending
     bool sortAscending_ = false;

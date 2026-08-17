@@ -34,6 +34,7 @@
 #include <wrl/client.h>
 
 #include "ffui/UiaSurface.h"
+#include "TreemapUiaProvider.h"
 #include "UiaGeometry.h"
 #include "UiaNotifications.h"
 #include "UiaProviderBase.h" // also provides uiautomationcore.h + OLE prerequisites
@@ -403,7 +404,8 @@ class ColumnViewUiaProvider final
       public IRawElementProviderFragment,
       public IRawElementProviderFragmentRoot {
 public:
-    ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND hwnd);
+    ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND hwnd,
+                          TreemapUiaSurface* treemapSurface = nullptr);
     ~ColumnViewUiaProvider() override;
 
     FFUIA_QI_BEGIN()
@@ -434,6 +436,10 @@ public:
     bool SurfaceAlive() const noexcept { return Alive(); }
     UiaViewGeometry Geometry() const { return surface_ != nullptr ? surface_->UiaGeometry() : UiaViewGeometry{}; }
     HWND Hwnd() const noexcept { return hwnd_; }
+    // The treemap semantic surface (StorageAnalysis), wired after the views
+    // are constructed; null while the storage panel is absent.
+    TreemapUiaSurface* TreemapSurface() const noexcept { return treemapSurface_; }
+    void SetTreemapSurface(TreemapUiaSurface* treemapSurface);
 
     // Event sink entry point (registered as the view's UiaEventRouter sink).
     static void SinkThunk(const UiaEventNotification& notification, void* context);
@@ -448,6 +454,10 @@ public:
     Microsoft::WRL::ComPtr<HomeSectionUiaProvider> HomeSectionElement(int pane, int ordinal);
     Microsoft::WRL::ComPtr<HomeItemUiaProvider> HomeItemElement(int pane, int globalIndex);
     Microsoft::WRL::ComPtr<HomeClearUiaProvider> HomeClearElement(int pane, int clearKind);
+    // Treemap surface elements (semantic-treemap-uia 16.x: on-demand,
+    // bounded cache).
+    Microsoft::WRL::ComPtr<TreemapGroupUiaProvider> TreemapGroupElement();
+    Microsoft::WRL::ComPtr<TreemapTileUiaProvider> TreemapTileElement(uint64_t scopeHash, uint64_t idHash);
 
     // Focus resolution (GetFocus + focus events).
     Microsoft::WRL::ComPtr<UiaProviderBase> FocusElement();
@@ -456,6 +466,7 @@ public:
     void InvalidateColumn(int pane, uint64_t pathHash);
     void InvalidatePane(int pane);
     void InvalidateHome(int pane);
+    void InvalidateTreemap();
     void InvalidateAll();
 
     // Bounded item caches: on overflow the whole item cache clears (simple,
@@ -463,6 +474,9 @@ public:
     static constexpr size_t kMaxCachedItems = 4096;
     static constexpr size_t kMaxCachedColumns = 64;
     static constexpr size_t kMaxCachedHomeItems = 512;
+    // Treemap tiles: one provider per distinct tile identity, capped; on
+    // overflow the whole treemap tile cache clears (deterministic, bounded).
+    static constexpr size_t kMaxCachedTreemapTiles = 1024;
 
 private:
     friend class ColumnViewGroupUiaProvider;
@@ -474,6 +488,8 @@ private:
     friend class HomeSectionUiaProvider;
     friend class HomeItemUiaProvider;
     friend class HomeClearUiaProvider;
+    friend class TreemapGroupUiaProvider;
+    friend class TreemapTileUiaProvider;
 
     void HandleNotification(const UiaEventNotification& notification);
     void NotifyFocusChanged();
@@ -493,8 +509,13 @@ private:
     std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<HomeClearUiaProvider>> homeClears_;
     size_t itemCacheSize_ = 0;
     size_t homeItemCacheSize_ = 0;
+    Microsoft::WRL::ComPtr<TreemapGroupUiaProvider> treemapGroup_;
+    std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<TreemapTileUiaProvider>> treemapTiles_;
+    size_t treemapTileCacheSize_ = 0;
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> hostProvider_; // UiaHostProviderFromHwnd
     UiaSurface* surface_ = nullptr;
+    TreemapUiaSurface* treemapSurface_ = nullptr;
+    bool treemapEventsSubscribed_ = false;
     HWND hwnd_ = nullptr;
 };
 
