@@ -118,6 +118,10 @@ ffsearch::Candidate MakeOwnedCandidate(const ffsearch::CandidateView& view) {
     candidate.id = view.id;
     candidate.parentId = view.parentId;
     candidate.persistentIndexed = view.persistentIndexed;
+    // indexed-search-allocated-size D3: copy the projection's allocated-size
+    // metadata with no new I/O -- it lives in the same lightweight view.
+    candidate.allocatedSizeBytes = view.allocatedSizeBytes;
+    candidate.allocatedSizeKnown = view.allocatedSizeKnown;
     return candidate;
 }
 
@@ -910,6 +914,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                     entry.parentFrn.low,
                     true,
                     nameAsciiLower,
+                    // indexed-search-allocated-size D3: appended after nameAsciiLower
+                    // -- existing view callers mapping by position are unaffected.
+                    entry.allocatedSizeBytes,
+                    entry.allocatedSizeKnown,
                 };
                 if (detailedDiagnostics) {
                     ++nameViewsConstructed;
@@ -1006,6 +1014,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             candidate.createdTime = entry.creationTime;
             candidate.isDirectory = (entry.attributes & kFileAttributeDirectory) != 0;
             candidate.persistentIndexed = true;
+            // indexed-search-allocated-size D3: owning fallback path copies the
+            // same two scalars the view path carries.
+            candidate.allocatedSizeBytes = entry.allocatedSizeBytes;
+            candidate.allocatedSizeKnown = entry.allocatedSizeKnown;
             if (entry.parentFrn == entry.frn) {
                 candidate.name = prefixIt->second + L"\\";
             } else {
@@ -1096,7 +1108,10 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         result.candidates.push_back({candidate.name, candidate.folder, candidate.sizeBytes,
                                      candidate.modifiedTime, candidate.isDirectory,
                                      candidate.createdTime, candidate.volumeId, candidate.id,
-                                     candidate.parentId, candidate.persistentIndexed});
+                                     candidate.parentId, candidate.persistentIndexed,
+                                     // indexed-search-allocated-size D5: carry the on-disk
+                                     // size + knownness into the additive V2 response layout.
+                                     candidate.allocatedSizeBytes, candidate.allocatedSizeKnown});
     }
     if (timings != nullptr) {
         timings->responseMaterializationMs =

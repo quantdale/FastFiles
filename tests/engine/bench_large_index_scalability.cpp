@@ -521,7 +521,10 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.timings.projectionOnly = projectionOnly;
     const auto response = pipeline.SearchIndexed(request, &outcome.timings);
     const auto serializationStart = Clock::now();
-    const std::vector<uint8_t> payload = ffprotocol::SerializeIndexedSearchResponse(response);
+    // indexed-search-allocated-size D5: the engine now emits the additive V2
+    // response, so the wire measurement exercises V2 serialization/parse (an extra
+    // 8-byte allocated field per candidate, no algorithmic change).
+    const std::vector<uint8_t> payload = ffprotocol::SerializeIndexedSearchResponseV2(response);
     const double serializationMs = ElapsedMs(serializationStart);
 
     double parseMs = 0.0;
@@ -529,7 +532,7 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     size_t parsedCount = 0;
     if (!payload.empty()) {
         const auto parseStart = Clock::now();
-        const auto parsed = ffprotocol::ParseIndexedSearchResponse(payload.data(), payload.size());
+        const auto parsed = ffprotocol::ParseIndexedSearchResponseV2(payload.data(), payload.size());
         parseMs = ElapsedMs(parseStart);
         if (parsed) {
             const auto materializationStart = Clock::now();

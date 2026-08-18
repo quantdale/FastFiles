@@ -39,6 +39,11 @@ enum class UiMessageType : uint16_t {
     // pair. Message 13 keeps its exact legacy payload; a UI that understands
     // both parses either, treating a legacy result as allocated-unknown.
     FolderAggregateResultV2 = 20, // Engine -> UI: subtree aggregate with allocated-size fields
+    // indexed-search-allocated-size D5: additive extended indexed-search result
+    // carrying on-disk allocated size + explicit knownness per candidate. Message
+    // 18 keeps its exact legacy payload and decodes as allocated-unknown; a UI
+    // that understands both parses either, never reinterpreting the legacy layout.
+    IndexedSearchResultV2 = 21, // Engine -> UI: indexed result with allocated-size fields
 };
 
 std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept;
@@ -213,7 +218,7 @@ struct SetIndexingPausedPayload {
 struct IndexedSearchRequestHeader {
     uint64_t requestId;
     uint8_t scope;       // 0..3: CurrentFolder .. AllIndexedLocations
-    uint8_t sortField;   // 0..5: Relevance .. Created
+    uint8_t sortField;   // 0..6: Relevance .. AllocatedSize (Size on Disk)
     uint8_t descending;  // 0 or 1
     uint8_t reserved;
     uint16_t queryLengthChars;
@@ -253,6 +258,25 @@ struct IndexedSearchCandidateHeader {
     uint64_t createdTime;
 };
 
+// indexed-search-allocated-size D5: additive extended candidate header carried
+// by message 21. Every legacy field is preserved byte-for-byte; the only new
+// wire data is the trailing `allocatedSizeBytes` and the knownness bit (0x04 in
+// `flags`). The legacy header is intentionally NOT reinterpreted -- a UI that
+// only knows message 18 still decodes it and maps allocated size to unknown.
+struct IndexedSearchCandidateHeaderV2 {
+    uint16_t nameLengthChars;
+    uint16_t folderLengthChars;
+    uint8_t flags; // bit 0 = directory, bit 1 = persistent-indexed, bit 2 = allocated-known
+    uint8_t reserved[3];
+    int64_t volumeId;
+    uint64_t id;
+    uint64_t parentId;
+    uint64_t sizeBytes;
+    uint64_t modifiedTime;
+    uint64_t createdTime;
+    uint64_t allocatedSizeBytes;
+};
+
 #pragma pack(pop)
 
 struct IndexedSearchRequest {
@@ -276,6 +300,14 @@ struct IndexedSearchCandidate {
     uint64_t id = 0;
     uint64_t parentId = 0;
     bool persistentIndexed = true;
+    // indexed-search-allocated-size D1/D5: on-disk allocated size + explicit
+    // knownness. A legacy (message 18) decode leaves both at their zero/false
+    // defaults, so a legacy candidate is always allocated-unknown; the V2
+    // decoder (message 21) fills them from the extended header. Appended so the
+    // existing positional aggregate initializers keep mapping to the members
+    // they always did.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
 };
 
 struct IndexedSearchResponse {
@@ -302,12 +334,27 @@ std::optional<IndexedSearchRequest> ParseIndexedSearchRequest(const uint8_t* pay
 std::optional<IndexedSearchResponse> ParseIndexedSearchResponse(const uint8_t* payload,
                                                                 size_t payloadSize);
 
+// indexed-search-allocated-size D5: additive V2 response parser. Identical
+// bounds/length/flag policy to the legacy parser, plus the extended
+// `allocatedSizeBytes` field and knownness bit (0x04). A legacy (message 18)
+// payload must NOT be fed here; this decodes only the message-21 layout and maps
+// the knownness bit into IndexedSearchCandidate.allocatedSizeKnown.
+std::optional<IndexedSearchResponse> ParseIndexedSearchResponseV2(const uint8_t* payload,
+                                                                  size_t payloadSize);
+
 // Serializes a trusted engine response while enforcing the protocol-wide frame
 // budget. `outTruncated` reports byte/count truncation performed by the
 // serializer in addition to response.truncated.
 std::vector<uint8_t> SerializeIndexedSearchRequest(const IndexedSearchRequest& request);
 std::vector<uint8_t> SerializeIndexedSearchResponse(const IndexedSearchResponse& response,
                                                     bool* outTruncated = nullptr);
+
+// indexed-search-allocated-size D5: additive V2 response serializer. Emits the
+// message-21 layout; when a candidate's allocated size is unknown it writes
+// zero on-disk bytes (never a fabricated value). Same frame-budget/truncation
+// contract as the legacy serializer.
+std::vector<uint8_t> SerializeIndexedSearchResponseV2(const IndexedSearchResponse& response,
+                                                      bool* outTruncated = nullptr);
 
 enum class UiFrameValidationResult {
     Valid,

@@ -197,9 +197,12 @@ void UiServer::ClientConnection::IndexedSearchWorker() {
         }
         if (!stopping && !task.cancellation->load(std::memory_order_acquire)
             && response.status != ffprotocol::IndexedSearchStatus::Cancelled) {
-            const auto payload = ffprotocol::SerializeIndexedSearchResponse(response);
+            // indexed-search-allocated-size D5: emit the additive V2 response so
+            // the UI receives on-disk size + knownness; legacy message 18 is
+            // preserved byte-for-byte and still decoded as allocated-unknown.
+            const auto payload = ffprotocol::SerializeIndexedSearchResponseV2(response);
             if (!payload.empty()) {
-                Write(static_cast<uint16_t>(UiMessageType::IndexedSearchResult),
+                Write(static_cast<uint16_t>(UiMessageType::IndexedSearchResultV2),
                       payload.data(), static_cast<uint32_t>(payload.size()));
             }
         }

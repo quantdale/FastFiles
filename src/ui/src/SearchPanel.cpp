@@ -4,6 +4,7 @@
 #include "IconCache.h"
 #include "UITheme.h"
 #include "Util.h"
+#include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D7: shared Size-on-Disk wording
 #include "ffui/SearchLayout.h"
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 
@@ -236,12 +237,12 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     // provider; see the change design D1/D15).
     SetWindowSubclass(list_, SearchListProc, 3, reinterpret_cast<DWORD_PTR>(this));
     RefreshScopeLabels();
-    for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created"})
+    for (const wchar_t* text : {L"Relevance", L"Filename", L"Path", L"Size", L"Modified", L"Created", L"Size on Disk"})
         SendMessageW(sort_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
     SendMessageW(sort_, CB_SETCURSEL, 0, 0);
-    const wchar_t* columns[] = {L"Name", L"Type", L"Location", L"Size", L"Modified"};
-    const int widths[] = {220, 80, 360, 100, 145};
-    for (int index = 0; index < 5; ++index) {
+    const wchar_t* columns[] = {L"Name", L"Type", L"Location", L"Size", L"Modified", L"Size on Disk"};
+    const int widths[] = {220, 80, 360, 100, 145, 110};
+    for (int index = 0; index < 6; ++index) {
         LVCOLUMNW column{LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM};
         column.pszText = const_cast<wchar_t*>(columns[index]);
         column.cx = widths[index];
@@ -520,6 +521,10 @@ bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
         searchCandidate.id = candidate.id;
         searchCandidate.parentId = candidate.parentId;
         searchCandidate.persistentIndexed = candidate.persistentIndexed;
+        // indexed-search-allocated-size D1: carry on-disk size + knownness from
+        // the V2 response into the Search row model verbatim.
+        searchCandidate.allocatedSizeBytes = candidate.allocatedSizeBytes;
+        searchCandidate.allocatedSizeKnown = candidate.allocatedSizeKnown;
         candidates_.push_back(searchCandidate);
         results_.push_back({searchCandidate, ffsearch::ClassifyMatch(searchCandidate, currentPrimaryTerm_)});
     }
@@ -554,6 +559,11 @@ bool SearchPanel::HandleNotify(LPARAM lParam) {
             case 2: text = candidate.folder; break;
             case 3: text = candidate.isDirectory ? L"—" : ffui::FormatSize(candidate.sizeBytes); break;
             case 4: text = FormatFileTime(candidate.modifiedTime); break;
+            // indexed-search-allocated-size D7: Size on Disk column mirrors the
+            // shared wording (known bytes, known zero, or explicit unknown).
+            case 5: text = ffui::SearchAllocatedSizeText(candidate.allocatedSizeBytes,
+                                                         candidate.allocatedSizeKnown, ffui::FormatSize);
+                    break;
         }
         wcsncpy_s(info->item.pszText, static_cast<size_t>(info->item.cchTextMax), text.c_str(), _TRUNCATE);
         return true;
@@ -673,9 +683,28 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
     const int textLeft = row.left + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceS)) +
                          Scaled(static_cast<int>(ffui::UiMetrics::kIconSize)) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceXs));
 
-    // Reserve the right side for the location path (folder), capped at 50% of
-    // the row so a long name still has room.
-    const int rowWidth = static_cast<int>(row.right - row.left);
+    // indexed-search-allocated-size D7: a right-aligned metadata block renders
+    // "logical • Size on Disk • modified" so the two sizes stay visibly distinct
+    // without redesigning the result surface. Directories show a dash for logical
+    // size (matching the Size column); the on-disk wording comes from the shared
+    // helper so the row and the UIA projection cannot drift in meaning.
+    const std::wstring metaLogical = candidate.isDirectory ? L"—" : ffui::FormatSize(candidate.sizeBytes);
+    const std::wstring metaOnDisk = ffui::SearchAllocatedSizeText(candidate.allocatedSizeBytes,
+                                                                  candidate.allocatedSizeKnown, ffui::FormatSize);
+    const std::wstring metaModified = FormatFileTime(candidate.modifiedTime);
+    const std::wstring metaText = metaLogical + L" • " + metaOnDisk + L" • " + metaModified;
+    int metaWidth = 0;
+    {
+        HGDIOBJ previous = SelectObject(dc, font);
+        SIZE metaSize{};
+        GetTextExtentPoint32W(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaSize);
+        SelectObject(dc, previous);
+        metaWidth = static_cast<int>(metaSize.cx) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceM));
+    }
+    const int contentRight = (std::max)(textLeft, static_cast<int>(row.right) - metaWidth);
+
+    // Reserve the left-of-metadata band for the location path (folder), capped
+    // at 50% of the remaining row so a long name still has room.
     int locationWidth = 0;
     if (!candidate.folder.empty()) {
         SetTextColor(dc, locationColor);
@@ -684,9 +713,9 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
         GetTextExtentPoint32W(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &locationSize);
         SelectObject(dc, previous);
         locationWidth = (std::min)(static_cast<int>(locationSize.cx) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceM)),
-                                   rowWidth / 2);
+                                   (std::max)(0, contentRight - textLeft) / 2);
     }
-    const int nameRight = row.right - locationWidth;
+    const int nameRight = contentRight - locationWidth;
 
     // Draw the name with the matched span highlighted; the span is expanded to
     // never split a surrogate pair.
@@ -700,12 +729,24 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
         DrawRowText(dc, font, x, row, candidate.name.substr(span.start + span.count), nameColor);
     }
 
-    // Location path, right-aligned and ellipsized.
+    // Location path, right-aligned and ellipsized, in the band left of the
+    // metadata block.
     if (!candidate.folder.empty() && locationWidth > 0) {
         SetTextColor(dc, locationColor);
         HGDIOBJ previous = SelectObject(dc, font);
-        RECT locationRect{nameRight, row.top, row.right, row.bottom};
+        RECT locationRect{nameRight, row.top, contentRight, row.bottom};
         DrawTextW(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &locationRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_RIGHT | DT_END_ELLIPSIS);
+        SelectObject(dc, previous);
+    }
+
+    // Metadata block (logical • Size on Disk • modified), right-aligned in the
+    // reserved band on the far right.
+    {
+        SetTextColor(dc, locationColor);
+        HGDIOBJ previous = SelectObject(dc, font);
+        RECT metaRect{contentRight, row.top, row.right, row.bottom};
+        DrawTextW(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaRect,
                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_RIGHT | DT_END_ELLIPSIS);
         SelectObject(dc, previous);
     }
@@ -1012,6 +1053,11 @@ void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidate
                 candidate.sizeBytes = entry.sizeBytes;
                 candidate.createdTime = entry.creationTime;
                 candidate.modifiedTime = entry.lastModifiedTime;
+                // indexed-search-allocated-size D4: propagate the snapshot entry's
+                // explicit allocated-state verbatim; degraded enumeration never sets
+                // it, so this stays unknown rather than cloning logical size.
+                candidate.allocatedSizeBytes = entry.allocatedSizeBytes;
+                candidate.allocatedSizeKnown = entry.allocatedSizeKnown;
                 continue;
             }
             const uint64_t id = entry.isDirectory && directoryIds.contains(fullPath) ? directoryIds.at(fullPath) : nextId++;
@@ -1019,7 +1065,10 @@ void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidate
                                   entry.creationTime, entry.volumeRowId != 0 ? entry.volumeRowId : ffsearch::VolumeId(path),
                                   entry.fileIdLow != 0 ? entry.fileIdLow : id,
                                   entry.parentIdLow != 0 ? entry.parentIdLow : parentId,
-                                  directory.volumeRowId != 0 || entry.volumeRowId != 0});
+                                  directory.volumeRowId != 0 || entry.volumeRowId != 0,
+                                  // indexed-search-allocated-size D4: verbatim propagation of the
+                                  // snapshot entry's allocated state (unknown in degraded mode).
+                                  entry.allocatedSizeBytes, entry.allocatedSizeKnown});
         }
     }
 
@@ -1144,6 +1193,10 @@ UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const {
     info.isDirectory = candidate.isDirectory;
     info.volumeId = candidate.volumeId;
     info.id = candidate.id;
+    // indexed-search-allocated-size D9: project on-disk size + knownness from the
+    // exact rendered result so the accessible description agrees with the row.
+    info.allocatedSizeBytes = candidate.allocatedSizeBytes;
+    info.allocatedSizeKnown = candidate.allocatedSizeKnown;
     info.fullPath = (std::filesystem::path(candidate.folder) / candidate.name).wstring();
     if (list_ != nullptr) {
         const int itemState = ListView_GetItemState(list_, static_cast<int>(index),

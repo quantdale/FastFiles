@@ -30,6 +30,7 @@ std::optional<UiMessageType> ToUiMessageType(uint16_t raw) noexcept {
         case UiMessageType::IndexedSearchResult:
         case UiMessageType::CancelIndexedSearch:
         case UiMessageType::FolderAggregateResultV2:
+        case UiMessageType::IndexedSearchResultV2:
             return static_cast<UiMessageType>(raw);
         default:
             return std::nullopt;
@@ -80,7 +81,15 @@ bool IsIndexedSearchScopeValid(uint8_t scope) noexcept {
 }
 
 bool IsIndexedSearchSortValid(uint8_t sortField) noexcept {
-    return sortField <= 5;
+    // indexed-search-allocated-size D6: every pre-existing sort value (0..5,
+    // Relevance..Created) keeps its exact numeric meaning, and the new
+    // Size-on-Disk value (6) is validated explicitly rather than interpreted as
+    // a continuation of the old range. A switch over the closed set keeps the
+    // contract fail-closed: any value outside 0..6 is rejected.
+    switch (sortField) {
+        case 0: case 1: case 2: case 3: case 4: case 5: case 6: return true;
+        default: return false;
+    }
 }
 
 namespace {
@@ -290,6 +299,158 @@ std::vector<uint8_t> SerializeIndexedSearchResponse(const IndexedSearchResponse&
         candidateHeader.sizeBytes = candidate.sizeBytes;
         candidateHeader.modifiedTime = candidate.modifiedTime;
         candidateHeader.createdTime = candidate.createdTime;
+
+        size_t nameBytes = candidate.name.size() * sizeof(wchar_t);
+        size_t folderBytes = candidate.folder.size() * sizeof(wchar_t);
+        size_t candidateBytes = sizeof(candidateHeader);
+        if (!AddBytes(candidateBytes, nameBytes, &candidateBytes) ||
+            !AddBytes(candidateBytes, folderBytes, &candidateBytes) ||
+            candidateBytes > kMaxPayload - payload.size()) {
+            truncated = true;
+            break;
+        }
+        const size_t previousSize = payload.size();
+        if (!AppendBytes(payload, &candidateHeader, sizeof(candidateHeader), kMaxPayload)) {
+            return {};
+        }
+        const auto* nameData = reinterpret_cast<const uint8_t*>(candidate.name.data());
+        const auto* folderData = reinterpret_cast<const uint8_t*>(candidate.folder.data());
+        if (!AppendBytes(payload, nameData, nameBytes, kMaxPayload) ||
+            !AppendBytes(payload, folderData, folderBytes, kMaxPayload)) {
+            payload.resize(previousSize);
+            truncated = true;
+            break;
+        }
+        ++count;
+    }
+    if (count < response.candidates.size()) {
+        truncated = true;
+    }
+    IndexedSearchResultHeader header{};
+    header.requestId = response.requestId;
+    header.status = response.status;
+    header.truncated = truncated ? 1 : 0;
+    header.count = count;
+    std::memcpy(payload.data(), &header, sizeof(header));
+    if (outTruncated != nullptr) {
+        *outTruncated = truncated;
+    }
+    return payload;
+}
+
+std::optional<IndexedSearchResponse> ParseIndexedSearchResponseV2(const uint8_t* payload,
+                                                                  size_t payloadSize) {
+    if (payload == nullptr || payloadSize < sizeof(IndexedSearchResultHeader) ||
+        payloadSize > kMaxFrameSize - sizeof(FrameHeader)) {
+        return std::nullopt;
+    }
+
+    IndexedSearchResultHeader header{};
+    std::memcpy(&header, payload, sizeof(header));
+    if (header.requestId == 0 || !IsIndexedSearchStatusValid(header.status) ||
+        header.truncated > 1 || header.reserved != 0 ||
+        header.count > kMaxIndexedSearchResultCount) {
+        return std::nullopt;
+    }
+
+    IndexedSearchResponse result;
+    result.requestId = header.requestId;
+    result.status = header.status;
+    result.truncated = header.truncated != 0;
+    result.candidates.reserve(header.count);
+
+    size_t offset = sizeof(header);
+    for (uint32_t index = 0; index < header.count; ++index) {
+        size_t fixedEnd = 0;
+        if (!AddBytes(offset, sizeof(IndexedSearchCandidateHeaderV2), &fixedEnd) ||
+            fixedEnd > payloadSize) {
+            return std::nullopt;
+        }
+        IndexedSearchCandidateHeaderV2 candidateHeader{};
+        std::memcpy(&candidateHeader, payload + offset, sizeof(candidateHeader));
+        if (!IsCandidateLengthValid(candidateHeader.nameLengthChars, false) ||
+            !IsCandidateLengthValid(candidateHeader.folderLengthChars, true) ||
+            (candidateHeader.flags & ~uint8_t{0x07}) != 0 ||
+            candidateHeader.reserved[0] != 0 || candidateHeader.reserved[1] != 0 ||
+            candidateHeader.reserved[2] != 0) {
+            return std::nullopt;
+        }
+        // indexed-search-allocated-size D5: an unknown allocated size must never
+        // carry fabricated on-disk bytes. Reject the contradiction rather than
+        // decoding a value the engine is not allowed to emit.
+        if (!((candidateHeader.flags & 0x04) != 0) && candidateHeader.allocatedSizeBytes != 0) {
+            return std::nullopt;
+        }
+        size_t nameBytes = 0;
+        size_t folderBytes = 0;
+        if (!LengthBytes(candidateHeader.nameLengthChars, &nameBytes) ||
+            !LengthBytes(candidateHeader.folderLengthChars, &folderBytes)) {
+            return std::nullopt;
+        }
+        size_t stringEnd = fixedEnd;
+        if (!AddBytes(stringEnd, nameBytes, &stringEnd) ||
+            !AddBytes(stringEnd, folderBytes, &stringEnd) || stringEnd > payloadSize) {
+            return std::nullopt;
+        }
+
+        const auto* nameData = reinterpret_cast<const wchar_t*>(payload + fixedEnd);
+        const auto* folderData = reinterpret_cast<const wchar_t*>(payload + fixedEnd + nameBytes);
+        IndexedSearchCandidate candidate;
+        candidate.name.assign(nameData, candidateHeader.nameLengthChars);
+        candidate.folder.assign(folderData, candidateHeader.folderLengthChars);
+        candidate.isDirectory = (candidateHeader.flags & 0x01) != 0;
+        candidate.persistentIndexed = (candidateHeader.flags & 0x02) != 0;
+        candidate.volumeId = candidateHeader.volumeId;
+        candidate.id = candidateHeader.id;
+        candidate.parentId = candidateHeader.parentId;
+        candidate.sizeBytes = candidateHeader.sizeBytes;
+        candidate.modifiedTime = candidateHeader.modifiedTime;
+        candidate.createdTime = candidateHeader.createdTime;
+        candidate.allocatedSizeKnown = (candidateHeader.flags & 0x04) != 0;
+        candidate.allocatedSizeBytes = candidateHeader.allocatedSizeBytes;
+        result.candidates.push_back(std::move(candidate));
+        offset = stringEnd;
+    }
+    if (offset != payloadSize) {
+        return std::nullopt;
+    }
+    return result;
+}
+
+std::vector<uint8_t> SerializeIndexedSearchResponseV2(const IndexedSearchResponse& response,
+                                                      bool* outTruncated) {
+    if (outTruncated != nullptr) {
+        *outTruncated = false;
+    }
+    if (response.requestId == 0 || !IsIndexedSearchStatusValid(response.status) ||
+        response.candidates.size() > kMaxIndexedSearchResultCount) {
+        return {};
+    }
+
+    constexpr size_t kMaxPayload = kMaxFrameSize - sizeof(FrameHeader);
+    std::vector<uint8_t> payload(sizeof(IndexedSearchResultHeader));
+    uint32_t count = 0;
+    bool truncated = response.truncated;
+    for (const auto& candidate : response.candidates) {
+        if (candidate.name.empty() || candidate.name.size() > kMaxPathLengthChars ||
+            candidate.folder.size() > kMaxPathLengthChars) {
+            return {};
+        }
+        IndexedSearchCandidateHeaderV2 candidateHeader{};
+        candidateHeader.nameLengthChars = static_cast<uint16_t>(candidate.name.size());
+        candidateHeader.folderLengthChars = static_cast<uint16_t>(candidate.folder.size());
+        candidateHeader.flags = static_cast<uint8_t>((candidate.isDirectory ? 0x01 : 0) |
+                                                     (candidate.persistentIndexed ? 0x02 : 0) |
+                                                     (candidate.allocatedSizeKnown ? 0x04 : 0));
+        candidateHeader.volumeId = candidate.volumeId;
+        candidateHeader.id = candidate.id;
+        candidateHeader.parentId = candidate.parentId;
+        candidateHeader.sizeBytes = candidate.sizeBytes;
+        candidateHeader.modifiedTime = candidate.modifiedTime;
+        candidateHeader.createdTime = candidate.createdTime;
+        // indexed-search-allocated-size D5: never emit fabricated on-disk bytes
+        // for an unknown candidate -- collapse any stray value to zero.
+        candidateHeader.allocatedSizeBytes = candidate.allocatedSizeKnown ? candidate.allocatedSizeBytes : 0;
 
         size_t nameBytes = candidate.name.size() * sizeof(wchar_t);
         size_t folderBytes = candidate.folder.size() * sizeof(wchar_t);

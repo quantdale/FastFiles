@@ -846,6 +846,81 @@ void TestIndexedSearchCancellationStopsProjectionWork() {
           "final indexed-search latency is not dominated by obsolete work");
 }
 
+// indexed-search-allocated-size D1/D3/D5: projection-backed indexed Search
+// carries allocated size + knownness for known, known-zero, and unknown sources,
+// and the Size-on-Disk sort places unknown last in both directions.
+void TestIndexedSearchPropagatesAllocatedSize() {
+    const std::string dbPath = FreshDbPath("engine_test_indexed_allocated.db");
+    VolumeKey key;
+    key.serialNumber = 31;
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "the indexed allocated-size fixture opens");
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV2> batch;
+    auto v2 = [&](uint64_t id, uint64_t parent, std::u16string name, uint64_t logical,
+                  uint64_t allocated, bool directory) {
+        ffprotocol::MftRecordV2 record{};
+        record.fixed.fileReferenceNumber = id;
+        record.fixed.parentFileReferenceNumber = parent;
+        record.fixed.fileAttributes = directory ? 0x10 : 0;
+        record.fixed.sizeBytes = logical;
+        record.fixed.allocatedSizeBytes = allocated;
+        record.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
+        record.fileName = std::move(name);
+        batch.push_back(std::move(record));
+    };
+    v2(5, 5, u"", 0, 0, true);
+    v2(100, 5, u"Users", 0, 0, true);
+    v2(101, 100, u"known.txt", 100, 80, false);   // known allocated 80
+    v2(102, 100, u"zero.txt", 0, 0, false);        // known zero
+    Check(pipeline.ApplyMftBatch(volume, batch), "the known/zero allocated-size fixtures apply through the V2 scan path");
+    // unknown.txt comes from a V1 record (no allocated-size field) -> unknown.
+    std::vector<ffprotocol::MftRecordV1> unknownBatch;
+    unknownBatch.push_back(MakeMftRecord(103, 100, u"unknown.txt", 50, 0));
+    Check(pipeline.ApplyMftBatch(volume, unknownBatch), "the unknown allocated-size fixture applies through the V1 scan path");
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 1;
+    request.scope = 3; // AllIndexedLocations
+    request.sortField = 6; // AllocatedSize
+    request.descending = false;
+    request.maxResults = 100;
+    request.query = L"txt";
+    const auto result = pipeline.SearchIndexed(request);
+    Check(result.status == ffprotocol::IndexedSearchStatus::Completed && result.candidates.size() == 3,
+          "indexed search over allocated-size fixtures completes with all three candidates");
+
+    auto find = [&](const std::wstring& name) -> const ffprotocol::IndexedSearchCandidate* {
+        for (const auto& c : result.candidates) {
+            if (c.name == name) return &c;
+        }
+        return nullptr;
+    };
+    const auto* known = find(L"known.txt");
+    const auto* zero = find(L"zero.txt");
+    const auto* unknown = find(L"unknown.txt");
+    Check(known != nullptr && known->allocatedSizeKnown && known->allocatedSizeBytes == 80,
+          "indexed search propagates known allocated size to the response candidate");
+    Check(zero != nullptr && zero->allocatedSizeKnown && zero->allocatedSizeBytes == 0,
+          "indexed search propagates known-zero allocated size to the response candidate");
+    Check(unknown != nullptr && !unknown->allocatedSizeKnown && unknown->allocatedSizeBytes == 0,
+          "indexed search keeps a V1-source candidate allocated-unknown (never fabricated from logical size)");
+    // AllocatedSize ascending: known-zero, known, then unknown last.
+    Check(result.candidates[0].name == L"zero.txt" && result.candidates[1].name == L"known.txt" &&
+              result.candidates[2].name == L"unknown.txt",
+          "AllocatedSize ascending places known rows first and the unknown row last");
+
+    request.sortField = 6;
+    request.descending = true;
+    const auto desc = pipeline.SearchIndexed(request);
+    Check(desc.candidates[2].name == L"unknown.txt" && !desc.candidates[2].allocatedSizeKnown,
+          "AllocatedSize descending still places the unknown row last");
+}
+
 } // namespace
 
 int main() {
@@ -863,6 +938,7 @@ int main() {
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();
     TestIndexedSearchCancellationStopsProjectionWork();
+    TestIndexedSearchPropagatesAllocatedSize();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

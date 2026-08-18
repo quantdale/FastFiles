@@ -75,6 +75,23 @@ void SortResults(std::vector<SearchResult>& results, SortField field, bool desce
             case SortField::Size: primary = left.candidate.sizeBytes < right.candidate.sizeBytes ? -1 : left.candidate.sizeBytes > right.candidate.sizeBytes ? 1 : 0; break;
             case SortField::Modified: primary = left.candidate.modifiedTime < right.candidate.modifiedTime ? -1 : left.candidate.modifiedTime > right.candidate.modifiedTime ? 1 : 0; break;
             case SortField::Created: primary = left.candidate.createdTime < right.candidate.createdTime ? -1 : left.candidate.createdTime > right.candidate.createdTime ? 1 : 0; break;
+            case SortField::AllocatedSize: {
+                // indexed-search-allocated-size D6: known values sort numerically;
+                // an UNKNOWN allocated size always sorts AFTER every known value in
+                // BOTH directions (never behaves like zero or UINT64_MAX). When the
+                // two rows differ only in knownness, the direction is decided here
+                // and must not be flipped by `descending`.
+                const bool leftKnown = left.candidate.allocatedSizeKnown;
+                const bool rightKnown = right.candidate.allocatedSizeKnown;
+                if (leftKnown != rightKnown) return leftKnown;
+                if (leftKnown) {
+                    primary = left.candidate.allocatedSizeBytes < right.candidate.allocatedSizeBytes ? -1
+                             : left.candidate.allocatedSizeBytes > right.candidate.allocatedSizeBytes ? 1 : 0;
+                }
+                // Both unknown: no primary ordering from allocated size; the
+                // alphabetical tie-break below applies (deterministic unknowns).
+                break;
+            }
         }
         if (primary != 0) return descending ? primary > 0 : primary < 0;
         return CompareOrdinal(left.candidate.name, right.candidate.name) < 0;

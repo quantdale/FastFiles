@@ -559,6 +559,27 @@ void EngineClient::ReaderLoop() {
                 break;
             }
 
+            case UiMessageType::IndexedSearchResultV2: {
+                const auto response = ffprotocol::ParseIndexedSearchResponseV2(
+                    frame.payload.data(), frame.payload.size());
+                if (!response) {
+                    break;
+                }
+                IndexedSearchCallback callback;
+                {
+                    std::lock_guard<std::mutex> lock(indexedSearchCallbackMutex_);
+                    auto it = indexedSearchCallbacks_.find(response->requestId);
+                    if (it != indexedSearchCallbacks_.end()) {
+                        callback = std::move(it->second);
+                        indexedSearchCallbacks_.erase(it);
+                    }
+                }
+                if (callback) {
+                    callback(std::move(*response));
+                }
+                break;
+            }
+
             case UiMessageType::VolumeStatus: {
                 if (frame.payload.size() < sizeof(ffprotocol::VolumeStatusHeader)) {
                     break;

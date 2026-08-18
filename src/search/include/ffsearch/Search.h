@@ -13,7 +13,11 @@ namespace ffsearch {
 
 enum class SearchScope { CurrentFolder, CurrentFolderAndSubfolders, CurrentDrive, AllIndexedLocations };
 enum class MatchTier { Exact, Prefix, Substring, PathOnly };
-enum class SortField { Relevance, Filename, Path, Size, Modified, Created };
+// indexed-search-allocated-size D6: `AllocatedSize` (display label "Size on
+// Disk") is appended so every pre-existing value keeps its exact numeric
+// meaning on the engine/UI wire and in the UI sort selector. `Size` remains
+// logical size.
+enum class SortField { Relevance, Filename, Path, Size, Modified, Created, AllocatedSize };
 
 struct SearchRequest {
     Query query;

@@ -1,11 +1,57 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-17
-Status: IN PROGRESS — deterministic-missing-path-state live UIA closure complete.
-Engine fix (commit `eea6922`) + harness rewrite validated: Debug 64/64,
-full capability 22 PASS / 4 SKIP / 0 FAIL, `in-column-error-state-late`
-10/10 PASS (avg 3305ms), contamination-free, all policy/drift gates clean.
-Awaiting commit/push of harness changes + evidence/tasks updates.
+Last updated: 2026-08-18
+Status: COMPLETE (pending push) — indexed-search-allocated-size implemented and
+validated; all native/build/spec/policy gates green; live UIA deferred to headless
+substitution (see change note, design D11). Push + CI query pending.
+
+## indexed-search-allocated-size session record (2026-08-18)
+
+- **Change:** `openspec/changes/indexed-search-allocated-size/` — carry indexed
+  on-disk allocated size (NTFS allocated/known) through global Search end-to-end
+  as a first-class, separate dimension from logical size. Closes the follow-up
+  left by `allocated-size-storage-accuracy`.
+- **Data path:** `ProjectionEntry` → `ffsearch::Candidate/CandidateView`
+  (`Query.h:38-39,62-63`) → `SearchResult` → additive `IndexedSearchResultV2`
+  (msg 21) → `SerializeIndexedSearchResponseV2` (`UiServer.cpp:203-205`) →
+  `ParseIndexedSearchResponseV2` (`EngineClient.cpp:562-563`) → `SearchResultRow`
+  → `ffui::UiaSearchResultInfo` → `SearchUiaProvider` via the pure helper
+  `ffui::SearchAllocatedSizeText` (`SearchResultMetadata.h`).
+- **Wire:** additive V2 only. Legacy `IndexedSearchCandidateHeader` (56 B) unchanged;
+  `IndexedSearchCandidateHeaderV2` (64 B) appends `uint64_t allocatedSizeBytes`;
+  knownness in flags bit 2 (0x04). Serialize collapses stray bytes when unknown
+  (`UiProtocol.cpp:451-453`); parse rejects unknown-with-nonzero (`UiProtocol.cpp:378-383`).
+- **Sort:** `SortField::AllocatedSize` (value 6) added (`Query.h:20`); known numeric
+  both directions, unknown last both directions, alphabetical tie-break, stable.
+  `Size`/`size:` remain logical. Default sort stays `Size`.
+- **Engine:** `IndexPipeline::SearchIndexed` copies both scalars from the projection
+  entry under the existing lock — no per-candidate DB/FS/service/IPC.
+  Degraded/snapshot candidates set `allocatedSizeKnown=false` (`UiServer.cpp:51-52`).
+- **Tests added:** `tests/protocol/test_protocol.cpp` (legacy bytes pinned, V2
+  round-trip, malformed, legacy-request sort bytes), `tests/engine/test_index_pipeline.cpp`
+  (propagation; known/zero → V2 batch, unknown → V1 batch), `tests/search/test_search.cpp`
+  (AllocatedSize sort matrix), `tests/ui/test_search_uia.cpp` (known/zero/unknown/stale),
+  `tests/ui/test_search_metadata.cpp` (new, pure `SearchAllocatedSizeText`),
+  `tests/protocol/test_fuzz.cpp` (V2 fuzz), bench switched to V2.
+- **Validation (all green):** Debug CTest 65/65; release-test CTest 65/65 (33 s, no
+  load); Analyze build warning-clean; `verify.ps1 build` PASS; `verify.ps1 doctor` PASS;
+  source-marker PASS; diagnostic-policy 0 failures; doc-drift PASS; `openspec validate
+  --all --strict` 55/55; `git diff --check` clean.
+- **Env note:** earlier `verify.ps1 build` showed one sub-result timeout on
+  `ffengine_volume_session_manager_tests` (unmodified pre-existing test) under dual-build
+  load; re-run in isolation 0.09 s, full release-test 65/65 in 33 s → environmental, not a
+  regression. Subsequent `verify.ps1 build` PASSED.
+- **Live UIA:** headless sandbox (no GUI) — interactive Search UI and
+  `windows-ui-automation-validation` not launched. Known/zero/unknown/stale semantics proven
+  deterministically by `test_search_uia.cpp` + `test_search_metadata.cpp`; degraded unknown
+  proven by degraded path + tests. Per design D11 and the change's success criteria this is
+  explicitly not a blocker; no production-signing/campaign reopened.
+- **Perf:** fixed +8 bytes/candidate wire (32,768 B/page at 4096); identical
+  candidate/result/lazy counts; timings within noise; max response 944,056 B < 1 MiB cap.
+  Evidence: `build/bench-before.json`, `build/bench-after.json`, `evidence/implementation-evidence.md` §7.
+- **Next action:** commit session-owned files, fetch+reconcile `origin/main`, push `main`
+  (no force), verify `HEAD == origin/main` + clean tree, query hosted CI for final SHA,
+  report. Then archive the change per OpenSpec workflow.
 
 ## deterministic-missing-path-state session record (2026-08-17)
 

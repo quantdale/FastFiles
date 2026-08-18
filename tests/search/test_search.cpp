@@ -158,6 +158,52 @@ int main() {
     Check(!partial.complete && partial.unresolvedParentId == 12 && partial.segments.back() == L"file.txt",
           "broken parent chain returns partial resolution and stop id");
 
+    // indexed-search-allocated-size D6: Size on Disk sort matrix. Logical and
+    // allocated values intentionally differ; unknown sorts after every known row
+    // in both directions, known zero participates numerically, and ties fall back
+    // to the deterministic alphabetical secondary ordering.
+    std::vector<ffsearch::Candidate> allocatedEntries{
+        {L"a.txt", L"C:\\work", 100, 0, false, 0, 1, 2, 1, true, 80, true},
+        {L"b.txt", L"C:\\work", 50, 0, false, 0, 1, 3, 1, true, 0, true},
+        {L"c.txt", L"C:\\work", 75, 0, false, 0, 1, 4, 1, true, 40, true},
+        {L"d.txt", L"C:\\work", 25, 0, false, 0, 1, 5, 1, true, 0, false},
+        {L"e.txt", L"C:\\work", 90, 0, false, 0, 1, 6, 1, true, 80, true},
+    };
+    ffsearch::SearchRequest allocatedRequest{ffsearch::ParseQuery(L"txt", registry),
+                                              ffsearch::SearchScope::AllIndexedLocations};
+    allocatedRequest.maxResults = 0;
+
+    allocatedRequest.sortField = ffsearch::SortField::AllocatedSize;
+    allocatedRequest.descending = false;
+    auto asc = ffsearch::ExecuteSearch(allocatedEntries, allocatedRequest);
+    Check(asc.results.size() == 5, "allocated-size sort returns every candidate");
+    Check(asc.results[0].candidate.name == L"b.txt" && asc.results[0].candidate.allocatedSizeBytes == 0 &&
+              asc.results[0].candidate.allocatedSizeKnown,
+          "allocated ascending: known zero first");
+    Check(asc.results[1].candidate.name == L"c.txt" && asc.results[1].candidate.allocatedSizeBytes == 40,
+          "allocated ascending: known 40 second");
+    Check(asc.results[2].candidate.name == L"a.txt" && asc.results[3].candidate.name == L"e.txt",
+          "allocated ascending: known-80 tie breaks alphabetically (a before e)");
+    Check(asc.results[4].candidate.name == L"d.txt" && !asc.results[4].candidate.allocatedSizeKnown,
+          "allocated ascending: unknown last");
+
+    allocatedRequest.descending = true;
+    auto desc = ffsearch::ExecuteSearch(allocatedEntries, allocatedRequest);
+    Check(desc.results[0].candidate.allocatedSizeBytes == 80 && desc.results[1].candidate.allocatedSizeBytes == 80,
+          "allocated descending: known 80 first");
+    Check(desc.results[2].candidate.allocatedSizeBytes == 40 && desc.results[3].candidate.allocatedSizeBytes == 0,
+          "allocated descending: known 40 then known zero");
+    Check(desc.results[4].candidate.name == L"d.txt" && !desc.results[4].candidate.allocatedSizeKnown,
+          "allocated descending: unknown still last");
+
+    // Logical Size sort is unchanged and independent: ascending by logical size
+    // orders d(25) first, which differs from the allocated order above.
+    allocatedRequest.sortField = ffsearch::SortField::Size;
+    allocatedRequest.descending = false;
+    auto logicalAsc = ffsearch::ExecuteSearch(allocatedEntries, allocatedRequest);
+    Check(logicalAsc.results[0].candidate.name == L"d.txt" && logicalAsc.results[0].candidate.sizeBytes == 25,
+          "logical Size sort (ascending) first by logical bytes, independent of allocated");
+
     const auto historyPath = std::filesystem::temp_directory_path() / L"fastfiles-search-tests" / L"history.txt";
     ffsearch::SearchHistory history;
     Check(history.Record(L"first query", historyPath) && history.Record(L"second query", historyPath),

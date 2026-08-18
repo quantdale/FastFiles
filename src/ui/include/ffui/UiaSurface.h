@@ -135,6 +135,11 @@ struct UiaSearchResultInfo {
     std::wstring fullPath;       // folder + name (identity fallback)
     bool selected = false;
     bool focused = false;
+    // indexed-search-allocated-size D7/D9: on-disk allocated size + explicit
+    // knownness, projected verbatim from the rendered result so the accessible
+    // description and the visible row agree. Default-constructed == unknown.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
 };
 
 // The one seam. Non-pure members have safe defaults so a test fake (or a

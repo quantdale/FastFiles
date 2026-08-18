@@ -197,6 +197,81 @@ void TestSearchFindItem() {
     VariantClear(&name);
 }
 
+ffui::UiaSearchResultInfo MakeAllocatedResult(size_t index, uint64_t sizeBytes,
+                                               uint64_t allocatedSizeBytes, bool allocatedSizeKnown) {
+    ffui::UiaSearchResultInfo info;
+    info.name = L"file" + std::to_wstring(index) + L".txt";
+    info.folder = L"C:\\Search";
+    info.sizeBytes = sizeBytes;
+    info.modifiedTime = 132500000000000000ull;
+    info.isDirectory = false;
+    info.volumeId = 0;
+    info.fullPath = L"C:\\Search\\" + info.name;
+    info.allocatedSizeBytes = allocatedSizeBytes;
+    info.allocatedSizeKnown = allocatedSizeKnown;
+    return info;
+}
+
+void TestSearchAllocatedSizeMetadata() {
+    fftest::FakeUiaSurface surface;
+    surface.searchVisible = true;
+    // known (logical 80 MiB, on-disk 8 MiB), known zero (logical 0, on-disk 0),
+    // unknown (logical 50 bytes, on-disk unknown).
+    surface.searchResults.push_back(MakeAllocatedResult(0, 80 * 1024 * 1024, 8 * 1024 * 1024, true));
+    surface.searchResults.push_back(MakeAllocatedResult(1, 0, 0, true));
+    surface.searchResults.push_back(MakeAllocatedResult(2, 50, 0, false));
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::SearchUiaProvider root(state, &surface, nullptr);
+
+    auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    const std::wstring known = GetStringProperty(first.Get(), UIA_FullDescriptionPropertyId);
+    Check(known.find(L"8 MB on disk") != std::wstring::npos, "known allocated size appears in the accessible description");
+    Check(known.find(L"Size on disk unknown") == std::wstring::npos, "known result is not reported as unknown");
+
+    auto second = NextSibling(first.Get());
+    const std::wstring zero = GetStringProperty(second.Get(), UIA_FullDescriptionPropertyId);
+    Check(zero.find(L"0 bytes on disk") != std::wstring::npos, "known zero reads as 0 bytes on disk, not unknown");
+
+    auto third = NextSibling(second.Get());
+    const std::wstring unknown = GetStringProperty(third.Get(), UIA_FullDescriptionPropertyId);
+    Check(unknown.find(L"Size on disk unknown") != std::wstring::npos, "unknown allocated size reads as explicit unknown");
+    Check(unknown.find(L"on disk") == std::wstring::npos ||
+              unknown.find(L"bytes on disk") == std::wstring::npos,
+          "unknown result carries no fabricated on-disk byte count");
+}
+
+void TestSearchAllocatedStaleAndReplacement() {
+    // indexed-search-allocated-size D9: the stale/query-replacement contract holds
+    // with allocated metadata present -- a held provider never retargets to the new
+    // result or leaks its stale on-disk value.
+    fftest::FakeUiaSurface surface;
+    surface.searchVisible = true;
+    surface.searchResults.push_back(MakeAllocatedResult(0, 100, 80, true));
+    surface.searchResults.push_back(MakeAllocatedResult(1, 50, 0, false));
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::SearchUiaProvider root(state, &surface, nullptr);
+
+    auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto second = NextSibling(first.Get());
+    Check(GetStringProperty(second.Get(), UIA_FullDescriptionPropertyId).find(L"Size on disk unknown") != std::wstring::npos,
+          "pre-replacement result projects its own allocated state");
+
+    // New query replaces the result set; the stale provider must fail cleanly.
+    auto stale = second;
+    surface.searchResults.clear();
+    auto fresh = MakeAllocatedResult(0, 200 * 1024 * 1024, 160 * 1024 * 1024, true);
+    surface.searchResults.push_back(fresh);
+    VARIANT value{};
+    VariantInit(&value);
+    Check(GetPropertyHr(stale.Get(), UIA_FullDescriptionPropertyId, &value) == UIA_E_ELEMENTNOTAVAILABLE,
+          "stale result fails cleanly after a new query (no leaked allocated metadata)");
+    VariantClear(&value);
+
+    auto freshFirst = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    const std::wstring freshDesc = GetStringProperty(freshFirst.Get(), UIA_FullDescriptionPropertyId);
+    Check(freshDesc.find(L"160 MB on disk") != std::wstring::npos, "fresh result projects the replacement allocated state");
+}
+
 } // namespace
 
 int main() {
@@ -215,6 +290,8 @@ int main() {
     TestSearchSelectionAndActivation();
     TestSearchVirtualization();
     TestSearchFindItem();
+    TestSearchAllocatedSizeMetadata();
+    TestSearchAllocatedStaleAndReplacement();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffsearch_uia_tests: %d check(s) failed\n", FailureCount());

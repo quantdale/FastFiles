@@ -1,5 +1,6 @@
 #include "SearchUiaProvider.h"
 
+#include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D9: shared Size-on-Disk wording
 #include <algorithm>
 #include <commctrl.h>   // ListView_* macros for the host list geometry
 #include <cwctype>
@@ -473,6 +474,13 @@ STDMETHODIMP SearchResultUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
             if (!info.isDirectory) {
                 description += L", " + UiaSearchSizeText(info.sizeBytes);
             }
+            // indexed-search-allocated-size D9: expose Size on Disk through the
+            // shared helper using the established UIA byte wording, so the
+            // accessible description and the visible row agree on the semantics
+            // (known bytes, known zero, or explicit unknown). No parallel
+            // accessibility-only metadata source is introduced.
+            description += L", " + SearchAllocatedSizeText(info.allocatedSizeBytes, info.allocatedSizeKnown,
+                                                         UiaSearchSizeText);
             description += L", modified " + UiaSearchTimeText(info.modifiedTime);
             UiaProviderBase::SetVariantString(retVal, description);
             return S_OK;

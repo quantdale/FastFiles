@@ -213,6 +213,24 @@ void FuzzSnapshotParsing(std::mt19937& rng) {
     }
 }
 
+// indexed-search-allocated-size D5/D12: fuzz the additive V2 indexed-search
+// response parser. Property under test: it never crashes, any accepted result
+// reports exactly the declared candidate count, and an unknown allocated size
+// never carries fabricated on-disk bytes (fail-closed invariant).
+void FuzzIndexedSearchResponseV2(std::mt19937& rng) {
+    std::uniform_int_distribution<size_t> sizeDist(0, 4096);
+    for (int i = 0; i < kIterationsPerFuzzer; ++i) {
+        const std::vector<uint8_t> payload = RandomBytes(rng, sizeDist(rng));
+        const auto parsed = ffprotocol::ParseIndexedSearchResponseV2(payload.data(), payload.size());
+        if (parsed.has_value()) {
+            for (const auto& candidate : parsed->candidates) {
+                Check(candidate.allocatedSizeKnown || candidate.allocatedSizeBytes == 0,
+                      "V2 parser never yields an unknown candidate with nonzero fabricated on-disk bytes");
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -223,6 +241,7 @@ int main() {
     FuzzMftBatchParsing(rng);
     FuzzUsnDeltaBatchParsing(rng);
     FuzzSnapshotParsing(rng);
+    FuzzIndexedSearchResponseV2(rng);
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "\n%d fuzz check(s) failed\n", fftest::FailureCount());

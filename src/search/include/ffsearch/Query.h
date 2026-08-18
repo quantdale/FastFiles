@@ -28,6 +28,15 @@ struct Candidate {
     // candidates as indexed records, so the default preserves that contract;
     // the UI marks degraded-only records false at its snapshot boundary.
     bool persistentIndexed = true;
+    // indexed-search-allocated-size D1: on-disk allocation as a dimension
+    // separate from logical `sizeBytes`, with explicit knownness. Zero is a
+    // valid KNOWN value, never the absence sentinel, so the default is
+    // unknown-and-zero and unknown is never synthesized from `sizeBytes`.
+    // Appended after `persistentIndexed` on purpose: existing positional
+    // aggregate initializers keep initializing exactly the members they
+    // always did, and a new source of allocated truth is never introduced.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
 };
 
 // A projection-backed candidate. The name is a view into the immutable
@@ -46,6 +55,12 @@ struct CandidateView {
     uint64_t parentId = 0;
     bool persistentIndexed = true;
     bool nameAsciiLower = false;
+    // indexed-search-allocated-size D3: copied straight from the projection
+    // entry while the existing traversal already holds the projection lock --
+    // two scalars travelling with the lightweight record, no extra I/O and no
+    // eager path reconstruction.
+    uint64_t allocatedSizeBytes = 0;
+    bool allocatedSizeKnown = false;
 };
 
 struct SizeFilter { enum class Op { Equal, Greater, GreaterEqual, Less, LessEqual, Range }; Op op; uint64_t first; uint64_t second = 0; };

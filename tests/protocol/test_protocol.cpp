@@ -416,8 +416,10 @@ void TestUiVolumeLifecycleMessagesAreClosedAndFixedSize() {
           "CancelIndexedSearch is part of the closed UI command surface");
     Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResultV2)).has_value(),
           "FolderAggregateResultV2 (the additive allocated-size aggregate) round-trips");
-    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::FolderAggregateResultV2) + 1).has_value(),
-          "the first unassigned UI message after FolderAggregateResultV2 is rejected");
+    Check(ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResultV2)).has_value(),
+          "IndexedSearchResultV2 (the additive allocated-size indexed search) round-trips");
+    Check(!ToUiMessageType(static_cast<uint16_t>(UiMessageType::IndexedSearchResultV2) + 1).has_value(),
+          "the first unassigned UI message after IndexedSearchResultV2 is rejected");
     Check(sizeof(SetIndexingPausedPayload) == sizeof(uint8_t) + sizeof(uint8_t),
           "pause/resume request carries only a scope and a pause flag");
     Check(sizeof(ForgetUnavailableVolumePayload) == sizeof(int64_t),
@@ -650,6 +652,144 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     RemoveDirectoryW(uniquePath);
 }
 
+// indexed-search-allocated-size D12: legacy request byte-pinning per sort value.
+void TestIndexedSearchLegacyRequestSortBytes() {
+    // Every pre-existing sort value (0..5) keeps its exact legacy request byte
+    // layout; the new AllocatedSize value (6) is validated separately and must
+    // not shift the others. A future change that renumbers the sort field would
+    // break the "differ only in the sort byte" pin.
+    std::vector<std::vector<uint8_t>> perSort;
+    for (uint8_t sort = 0; sort <= 5; ++sort) {
+        IndexedSearchRequest request;
+        request.requestId = 42;
+        request.scope = 3;
+        request.sortField = sort;
+        request.descending = false;
+        request.maxResults = 100;
+        request.query = L"report";
+        request.scopePath = L"C:\\Root";
+        const auto payload = SerializeIndexedSearchRequest(request);
+        Check(!payload.empty() && payload.size() == sizeof(IndexedSearchRequestHeader) +
+                 request.query.size() * sizeof(wchar_t) + request.scopePath.size() * sizeof(wchar_t),
+              "legacy indexed request serializes to its fixed + variable length for every pre-existing sort");
+        // sortField byte sits at offset 8 (requestId) + 1 (scope) = 9.
+        Check(payload[9] == sort, "legacy indexed request pins the sort field byte for the pre-existing sort value");
+        perSort.push_back(payload);
+    }
+    for (size_t i = 1; i < perSort.size(); ++i) {
+        Check(perSort[i].size() == perSort[0].size(), "pre-existing sort requests keep identical legacy length");
+        size_t differ = 0;
+        for (size_t b = 0; b < perSort[i].size(); ++b) {
+            if (perSort[i][b] != perSort[0][b]) ++differ;
+        }
+        Check(differ == 1, "pre-existing sort requests differ only in the sort field byte");
+    }
+}
+
+// indexed-search-allocated-size D5/D12: the legacy V1 response is byte-identical
+// to pre-change; it decodes allocated size as unknown and never emits fabricated
+// on-disk bytes.
+void TestIndexedSearchLegacyAllocatedUnknown() {
+    IndexedSearchResponse response;
+    response.requestId = 7;
+    response.status = IndexedSearchStatus::Completed;
+    // The candidate sets allocatedSizeBytes/Known, but the legacy V1 path must
+    // ignore them and decode as allocated-unknown.
+    response.candidates.push_back({L"a.txt", L"C:\\", 42, 0, false, 0, 1, 1, 1, true, 9999, true});
+    const auto legacy = SerializeIndexedSearchResponse(response);
+    const auto parsed = ParseIndexedSearchResponse(legacy.data(), legacy.size());
+    Check(parsed.has_value() && parsed->candidates.size() == 1, "legacy V1 indexed response round-trips");
+    Check(!parsed->candidates[0].allocatedSizeKnown && parsed->candidates[0].allocatedSizeBytes == 0,
+          "legacy parse maps allocated size to unknown (new fields ignored)");
+    // The legacy wire bytes are unchanged by the added fields: a candidate with
+    // and without allocated set serialize to byte-identical legacy payloads.
+    IndexedSearchResponse unset = response;
+    unset.candidates[0].allocatedSizeBytes = 0;
+    unset.candidates[0].allocatedSizeKnown = false;
+    Check(SerializeIndexedSearchResponse(unset) == legacy,
+          "legacy indexed response bytes are unaffected by the added allocated fields");
+    Check(sizeof(IndexedSearchCandidateHeader) == 56, "legacy candidate header layout is unchanged (56 bytes)");
+}
+
+// indexed-search-allocated-size D6/D12: the additive V2 response round-trips
+// known nonzero, known zero, and unknown exactly.
+void TestIndexedSearchV2RoundTrips() {
+    IndexedSearchResponse response;
+    response.requestId = 11;
+    response.status = IndexedSearchStatus::Completed;
+    response.candidates.push_back({L"known.txt", L"C:\\", 100, 0, false, 0, 1, 1, 1, true, 80, true});
+    response.candidates.push_back({L"zero.txt", L"C:\\", 0, 0, false, 0, 1, 2, 1, true, 0, true});
+    response.candidates.push_back({L"unknown.txt", L"C:\\", 50, 0, false, 0, 1, 3, 1, true, 0, false});
+    const auto payload = SerializeIndexedSearchResponseV2(response);
+    Check(!payload.empty(), "V2 indexed response serializes");
+    Check(sizeof(IndexedSearchCandidateHeaderV2) == sizeof(IndexedSearchCandidateHeader) + 8,
+          "V2 candidate header appends exactly the 8-byte allocated field");
+    const auto parsed = ParseIndexedSearchResponseV2(payload.data(), payload.size());
+    Check(parsed.has_value() && parsed->candidates.size() == 3, "V2 response round-trips 3 candidates");
+    auto find = [&](const wchar_t* name) -> const IndexedSearchCandidate* {
+        for (const auto& c : parsed->candidates) {
+            if (c.name == name) return &c;
+        }
+        return nullptr;
+    };
+    const auto* known = find(L"known.txt");
+    const auto* zero = find(L"zero.txt");
+    const auto* unknown = find(L"unknown.txt");
+    Check(known != nullptr && known->allocatedSizeKnown && known->allocatedSizeBytes == 80,
+          "V2 known nonzero allocated size survives the round trip");
+    Check(zero != nullptr && zero->allocatedSizeKnown && zero->allocatedSizeBytes == 0,
+          "V2 known zero allocated size survives the round trip");
+    Check(unknown != nullptr && !unknown->allocatedSizeKnown && unknown->allocatedSizeBytes == 0,
+          "V2 unknown allocated size survives the round trip without fabricated bytes");
+}
+
+// indexed-search-allocated-size D4/D5/D12: V2 parser fails closed on trailing
+// bytes, fabricated unknown bytes, reserved bits, undefined flags, and reports
+// frame-budget truncation honestly.
+void TestIndexedSearchV2Malformed() {
+    IndexedSearchResponse make;
+    make.requestId = 1;
+    make.status = IndexedSearchStatus::Completed;
+    make.candidates.push_back({L"x.txt", L"C:\\", 1, 0, false, 0, 1, 1, 1, true, 5, true});
+    auto payload = SerializeIndexedSearchResponseV2(make);
+    Check(!payload.empty(), "V2 serializer emits a known candidate");
+
+    auto trailing = payload;
+    trailing.push_back(0x00);
+    Check(!ParseIndexedSearchResponseV2(trailing.data(), trailing.size()), "V2 rejects trailing bytes");
+
+    // Unknown with fabricated (nonzero) on-disk bytes: clear the known bit while
+    // leaving the nonzero allocatedSizeBytes. Flag byte is at header(16)+4.
+    auto fabricated = payload;
+    fabricated[sizeof(IndexedSearchResultHeader) + 4] &= ~uint8_t{0x04};
+    Check(!ParseIndexedSearchResponseV2(fabricated.data(), fabricated.size()),
+          "V2 rejects an unknown candidate that carries fabricated on-disk bytes");
+
+    auto reserved = payload;
+    reserved[sizeof(IndexedSearchResultHeader) + 5] = 1; // first reserved byte
+    Check(!ParseIndexedSearchResponseV2(reserved.data(), reserved.size()), "V2 rejects a nonzero reserved byte");
+
+    auto badFlag = payload;
+    badFlag[sizeof(IndexedSearchResultHeader) + 4] |= 0x08; // undefined flag bit
+    Check(!ParseIndexedSearchResponseV2(badFlag.data(), badFlag.size()), "V2 rejects an undefined flag bit");
+
+    IndexedSearchResponse large;
+    large.requestId = 2;
+    large.status = IndexedSearchStatus::Completed;
+    const std::wstring longFolder(32767, L'X');
+    for (int i = 0; i != 32; ++i) {
+        large.candidates.push_back({L"x.txt", longFolder, 1, 0, false, 0, 1,
+                                     static_cast<uint64_t>(i + 1), 5, true,
+                                     static_cast<uint64_t>(i + 1), true});
+    }
+    bool truncated = false;
+    const auto bound = SerializeIndexedSearchResponseV2(large, &truncated);
+    const auto boundParsed = ParseIndexedSearchResponseV2(bound.data(), bound.size());
+    Check(truncated && boundParsed.has_value() && boundParsed->truncated &&
+              boundParsed->candidates.size() < static_cast<size_t>(large.candidates.size()),
+          "V2 serialization enforces the frame budget and reports truncation honestly");
+}
+
 } // namespace
 
 int main() {
@@ -658,6 +798,10 @@ int main() {
     TestUnsupportedStructVersionRejected();
     TestUiVolumeLifecycleMessagesAreClosedAndFixedSize();
     TestIndexedSearchWireBoundsAndRoundTrip();
+    TestIndexedSearchLegacyRequestSortBytes();
+    TestIndexedSearchLegacyAllocatedUnknown();
+    TestIndexedSearchV2RoundTrips();
+    TestIndexedSearchV2Malformed();
     TestRecordCountPayloadMismatchRejected();
     TestOutOfRangeLengthPrefixedFieldRejectsWholeRecord();
     TestUsnV2PresenceMaskRoundTripAndMalformedMask();

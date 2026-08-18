@@ -17,6 +17,14 @@ The result list SHALL display, for each result, the filename, item type (file or
 - **WHEN** a degraded Search result has no authoritative allocated-size metadata
 - **THEN** the result row SHALL present Size on Disk as Unknown (or equivalent explicit wording) and SHALL remain otherwise usable
 
+#### Scenario: Result row shows required metadata
+- **WHEN** a search returns at least one matching entry
+- **THEN** each row in the result list SHALL show that entry's filename, type, location path, logical size, Size on Disk, and last-modified time
+
+#### Scenario: No matches found is clearly indicated
+- **WHEN** a search completes and no entries match the current query and scope
+- **THEN** the UI SHALL display an explicit "no results" indication, distinguishable from the state where a search is still in progress
+
 ### Requirement: Sortable Result List
 In addition to the existing sort choices, the Search UI SHALL expose a distinct `Size on Disk` sort. Existing `Size` continues to mean logical size. The visible sort selection and direction SHALL reflect which dimension is active.
 
@@ -29,6 +37,14 @@ Unknown Size-on-Disk rows SHALL remain after known rows in both ascending and de
 #### Scenario: Existing Size sort remains logical
 - **WHEN** the user selects `Size`
 - **THEN** Search SHALL sort by logical size exactly as before this change
+
+#### Scenario: Changing the sort field reorders results
+- **WHEN** a user selects a sort field other than relevance (for example, logical size or Size on Disk)
+- **THEN** the result list SHALL reorder according to that field and SHALL visibly indicate the newly active sort field and direction
+
+#### Scenario: Default sort is relevance
+- **WHEN** a user performs a search without having changed the sort field
+- **THEN** the result list SHALL be ordered by relevance by default
 
 ## ADDED Requirements
 
