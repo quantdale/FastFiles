@@ -113,8 +113,8 @@ Do not mark a task complete without executable evidence. Preserve historical evi
 - [x] 12.5 `pwsh ./verify/verify.ps1 build` and `pwsh ./verify/verify.ps1 doctor` — PASS.
 - [x] 12.6 Run source-marker, diagnostic-policy, doc-drift checks; `openspec validate --all --strict --no-interactive`; `git diff --check`.
 - [x] 12.7 Review the complete diff for scope. Do not stage build outputs, Search/UIA dumps, live fixture files, local DBs, logs, or generated API JSON.
-- [ ] 12.8 Commit all validated task-owned changes and push to `origin/main`; verify `HEAD == origin/main` and `git status --short` empty.
-- [ ] 12.9 Query hosted GitHub Actions for the exact final pushed `head_sha` and report its exact status/conclusion. Do not make a recursive commit solely to store the final CI result.
+- [x] 12.8 Commit all validated task-owned changes and push to `origin/main`; verify `HEAD == origin/main` and `git status --short` empty.
+- [x] 12.9 Query hosted GitHub Actions for the exact final pushed `head_sha` and report its exact status/conclusion. Do not make a recursive commit solely to store the final CI result.
 
 ## Completion gate
 
