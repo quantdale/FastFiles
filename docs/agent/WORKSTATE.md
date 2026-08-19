@@ -2302,3 +2302,45 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
   and reverted to OFF (final state; portable Authenticode suite passes).
 - NEXT recommended slice (do NOT start without instruction): Treemap UIA
   provider (documented follow-up).
+
+## Production-readiness consolidation (2026-08-20)
+
+- **Goal:** "continue until production ready — bug free, stable, usable, core
+  features solid, all issues resolved." All *code-achievable* hardening is
+  complete; repo is fully green and pushed.
+- **Gates green (pushed SHA 49026e1, HEAD == origin/main, clean tree):**
+  `verify.ps1 build` PASS; `ctest --test-dir build/debug` 65/65 PASS;
+  `openspec validate --all --strict` 55/55 PASS; `check_doc_drift.ps1`,
+  `check_source_markers.ps1`, `check_diagnostic_policy.ps1` all PASS;
+  `git diff --check` clean.
+- **Prior hardening slices (all pushed):** engine DB WideChar off-by-one, IPC
+  bad_alloc/null payload, snapshot wstring overflow, ReconstructPath FRN
+  cross-volume fix, ColumnView UIA race, OleDragDrop overflow, Preview UB,
+  Store close/Utf8, Projection memory limit, installer ACL/empty-DACL/service
+  verify, PeerImageMatch, GroupSetup empty user, History temp race,
+  Store WAL page_size, ColumnView Home UIA locks, allocated-size-storage
+  validation, scan cursor overflow + PrivilegedConnection::Stop atomic
+  exchange, treemap §1–§9 evidence + close-out.
+- **Semantic-treemap-uia CLOSED (2026-08-20):** §9.1 evidence directory
+  complete, §9.2 commit/push/verify complete — change now 0 open tasks.
+- **Residual = 17 open tasks, ALL externally gated (cannot be closed from a
+  headless sandbox without fabricating evidence — forbidden):**
+  - `close-independent-validation-gaps` (6): 4.2 release-pipeline provisioning
+    clause (needs authorized production signer/pins); 4.5/4.6/4.7/4.8
+    privileged-path signed install + real MFT/USN + fftest + clean-host matrix
+    (need code-signing cert + elevated host); 5.1 visual matrix (interactive
+    Windows desktop).
+  - `indexed-search-allocated-size` (6): 10.1–10.6 live UIA / `windows-ui-
+    automation-validation` runs on the built executable (interactive desktop).
+  - `zero-touch-autonomous-engineering` (3): 6.3/6.4/6.6 guest provisioning
+    (no Windows install media / clean template available).
+  - `autonomous-runtime-verification` (2): 2.3/2.4 Hyper-V guest OS install +
+    WinRM reachability (VM exists but holds zero data blocks, no media).
+- **Conclusion:** code-achievable production hardening done and verified green;
+  remaining 17 items require a live GUI host / signing certs / provisioned VM
+  (external). Goal is at the environment boundary — blocked on external
+  resources, not on code work.
+- NEXT (only if external resources supplied): run live GUI visual + UIA matrix
+  (4.5/4.6/4.7/4.8/5.1/10.1–10.6), provision code-signing + production pins,
+  install signed service and validate privileged MFT/USN, provision a
+  Windows guest and validate autonomous cross-provider runs.
