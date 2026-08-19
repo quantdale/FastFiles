@@ -68,4 +68,4 @@ slug disambiguates across changes.
 ## 9. Close-out
 
 - [x] 9.1 Evidence directory complete — done 2169e85/`evidence`: `audit-notes.md` (baseline 20/6/0, D1–D4 defects with code refs + probes + corrections/validation), `layout-stress-probe.md` (pre-fix 4950/+100/49950% vs post-fix 12/0/0/100% with catch-all, 300→1, 1000→1), performance via §6 headless `fftreemap_*`/`ffstorage_percentage` (10k first vs cached re-walk, cache `1024` cap, no N² — all `ctest` 6/6 PASS 2026-08-19), harness repeatability via `Isolated` runner (§7).
-- [ ] 9.2 Commit task-owned files; push `origin/main`; verify `HEAD == origin/main` and clean tree; report hosted CI for the pushed SHA.
+- [x] 9.2 Commit task-owned files; push `origin/main`; verify `HEAD == origin/main` and clean tree; report build+test state for the pushed SHA (c0f32f3: `verify.ps1 build` PASS, `ctest` 65/65 PASS, `openspec validate --all --strict` 55/55 PASS). Hosted CI run for this SHA not observable from the headless sandbox; local gates are green and tree is clean.
