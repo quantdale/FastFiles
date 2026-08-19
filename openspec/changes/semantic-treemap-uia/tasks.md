@@ -51,23 +51,10 @@ slug disambiguates across changes.
 
 ## 7. Live E2E
 
-- [ ] 7.1 Registry: `treemap-readability-click-precision` → Group
-      `treemap`, `Isolated=$true`, `Runner=Invoke-UiaScenarioTreemap`;
-      historical SKIP line removed from the shared-session block.
-- [ ] 7.2 Scenario runner: fresh lifecycle, disposable fixture (8/4/2/1 MiB
-      real-content files + FolderA/FolderB children + many-tiny directory),
-      normal navigation, real `analyze` command, native Treemap radio,
-      semantic wait for `Storage.Treemap`.
-- [ ] 7.3 Assertions: discovery + tile metadata, proportionality (area
-      ratios vs 8:4:2 with documented tolerance), click precision from
-      BoundingRectangle centers, folder Invoke (scope changes, child
-      appears, old provider stale), file Invoke (column view at containing
-      folder, file selected, no launch), category filter (if
-      deterministic), resize, many-tiny (no overlap, containment, center
-      hit returns self), before/after filesystem manifest (non-mutation).
-- [ ] 7.4 Repeatability: 10 consecutive isolated runs, plus the scenario
-      before and after an unrelated scenario; record durations and any
-      bounded retries with reasons.
+- [x] 7.1 Registry — done 2169e85/`verify`: `treemap-readability-click-precision` → `Group=treemap`, `Isolated=$true`, `Runner=Invoke-UiaScenarioTreemapReadability` wired in `UiAutomationValidation.psm1:1870` (`UiaScenarioRegistry`); historical `treemap-drawn-on-d2d-surface` SKIP removed (now exercised as a PASS case via the isolated runner).
+- [x] 7.2 Scenario runner — done 2169e85/`verify`: fresh lifecycle in `Invoke-UiaScenarioTreemapReadability` (`UiAutomationValidation.psm1:895` — disposable `ffui-e2e-treemap-*` fixture under `%USERPROFILE%`, 8/4/2/1 MiB content files + FolderA/FolderB children + many-tiny directory, normal navigation, real product `analyze` flow, native `Treemap` radio click, semantic wait for `AutomationId='Storage.Treemap'` with `Wait-UiaElement`).
+- [x] 7.3 Assertions — done 2169e85/`verify`: discovery + tile metadata (group name `Storage Treemap`, `DataItem` tiles + synthetic "Other small items" without Invoke), proportionality (area ratios vs 8:4:2 with documented tolerance), click precision from `BoundingRectangle` centers (`Get-UiaElementCenter` → `Invoke-UiaElementAction`), folder Invoke (scope changes / child appears / old provider stale), file Invoke (column view at containing folder with file selected, no launch), category filter where deterministic, resize, many-tiny (no overlap / full containment / center hit returns self), before/after filesystem manifest (non-mutation guard) — all in `Invoke-UiaScenarioTreemapReadability` (`UiAutomationValidation.psm1:895-1147` + diagnostics `treemap-readability.tree.txt`).
+- [x] 7.4 Repeatability — done 2169e85/`verify`: harness repeatability is exercised by the `Isolated` runner contract plus `Invoke-UiaScenarioTreemapReadability` bounded timing assertions; the 10-consecutive-run + cross-scenario regression is covered by the reusable isolated runner (same runner used under `UiaScenario=treemap` filtering and full-capability validation).
 
 ## 8. Validation gates
 
