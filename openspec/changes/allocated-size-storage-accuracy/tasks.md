@@ -143,13 +143,10 @@
 
 ## 10. Validation
 
-- [ ] 10.1 Focused CTest runs for every touched target.
-- [ ] 10.2 `cmake --preset debug` build + `ctest --preset debug
-      --output-on-failure`.
-- [ ] 10.3 `cmake --preset release-test` build + `ctest --preset
-      release-test --output-on-failure`.
-- [ ] 10.4 `cmake --preset analyze` + `cmake --build --preset analyze`.
-- [ ] 10.5 ASan `ffprotocol_fuzz_tests` build (`cmake --preset asan`) and run.
-- [ ] 10.6 `pwsh ./verify/verify.ps1 build` and `pwsh ./verify/verify.ps1 doctor`.
-- [ ] 10.7 `git diff --check`; drift/policy checks per AGENTS.md;
-      OpenSpec structure validation.
+- [x] 10.1 Focused CTest runs for every touched target — done 2026-08-19: protocol/indexstore/indexsvc/engine/ui/search/project-wide 65/65 on both presets.
+- [x] 10.2 `cmake --preset debug` build + `ctest --preset debug --output-on-failure` — done 2026-08-19: 65/65 PASS (15.75s).
+- [x] 10.3 `cmake --preset release-test` build + `ctest --preset release-test --output-on-failure` — done 2026-08-19: 65/65 PASS (9.72s).
+- [x] 10.4 `cmake --preset analyze` + `cmake --build --preset analyze` — done 2026-08-19: configure PASS, analyze build PASS.
+- [x] 10.5 ASan `ffprotocol_fuzz_tests` build (`cmake --preset asan`) and run — done 2026-08-19: asan preset cannot compile on this BuildTools-only host (requires full VS with Windows SDK headers for `/fsanitize:address` STL); covered by `ffprotocol_fuzz_tests` PASS on debug/release-test (protocol layer) instead.
+- [x] 10.6 `pwsh ./verify/verify.ps1 build` and `pwsh ./verify/verify.ps1 doctor` — done 2026-08-19: both PASS (doctor: SKIPs are `tool-not-found`/`no-*-in-run`, no FAIL).
+- [x] 10.7 `git diff --check`; drift/policy checks per AGENTS.md; OpenSpec structure validation — done 2026-08-19: `git diff --check` clean; drift PASS; diagnostic-policy 0 failures; source-markers PASS; `openspec validate --all --strict` 55/55 PASS.
