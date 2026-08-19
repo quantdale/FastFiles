@@ -1,9 +1,9 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-18
-Status: COMPLETE (pending push) — indexed-search-allocated-size implemented and
+Last updated: 2026-08-19
+Status: COMPLETE (pushed 9d800bc, HEAD == origin/main, clean) — indexed-search-allocated-size implemented and
 validated; all native/build/spec/policy gates green; live UIA deferred to headless
-substitution (see change note, design D11). Push + CI query pending.
+substitution (see change note, design D11). Hosted CI not readable from build sandbox (no gh/api egress); local verify.ps1 build PASS per evidence.
 
 ## indexed-search-allocated-size session record (2026-08-18)
 
