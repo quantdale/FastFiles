@@ -62,9 +62,14 @@ void EraseSorted(std::vector<uint32_t>& values, uint32_t value) {
 
 void Projection::SetMaximumMemoryBytes(const size_t maximumBytes) {
     maximumMemoryBytes_ = maximumBytes == 0 ? kDefaultMaximumMemoryBytes : maximumBytes;
-    // An explicit limit change is synchronous and strict; ingestion uses the
-    // lower-watermark wrapper below so ordinary batches have headroom.
+    // An explicit limit change is synchronous and strict even during a bulk
+    // scan; ingestion-path watermarks still defer per-record compaction but an
+    // explicit caller expectation (e.g. tests or a settings change) must not be
+    // silently ignored until the scan ends.
+    const bool wasEnforcing = enforcingMemoryLimit_;
+    enforcingMemoryLimit_ = true;
     EnforceMemoryLimitTo(maximumMemoryBytes_);
+    enforcingMemoryLimit_ = wasEnforcing;
 }
 
 void Projection::EnforceMemoryLimitNow() {

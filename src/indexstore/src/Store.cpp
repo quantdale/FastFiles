@@ -114,6 +114,9 @@ std::string Utf16ToUtf8(const std::u16string& in) {
 }
 
 std::u16string Utf8ToUtf16(const char* data, int lengthBytes) {
+    if (data == nullptr || lengthBytes <= 0) {
+        return {};
+    }
     std::u16string out;
     out.reserve(static_cast<size_t>(lengthBytes));
     size_t i = 0;
@@ -292,7 +295,7 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
 
 void Store::Close() {
     if (db_ != nullptr) {
-        sqlite3_close(db_);
+        sqlite3_close_v2(db_);
         db_ = nullptr;
     }
     dbPathUtf8_.clear();

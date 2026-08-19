@@ -29,6 +29,9 @@ SetupResult CreateGroupIfMissing() noexcept {
 } // namespace
 
 SetupResult CreateAuthorizedClientGroupAndAddUser(const std::wstring& userName) noexcept {
+    if (userName.empty()) {
+        return SetupResult::Failure(ERROR_INVALID_PARAMETER);
+    }
     SetupResult created = CreateGroupIfMissing();
     if (!created.success) {
         return created;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <cwctype>
 #include <initializer_list>
 #include <thread>
@@ -118,7 +119,12 @@ public:
         } else if (read >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFF && static_cast<unsigned char>(bytes[1]) == 0xFE) {
             PreviewResult result;
             result.kind = PreviewKind::Text;
-            result.text.assign(reinterpret_cast<const wchar_t*>(bytes.data() + 2), (read - 2) / sizeof(wchar_t));
+            const size_t wcharCount = (read - 2) / sizeof(wchar_t);
+            result.text.resize(wcharCount);
+            if (wcharCount > 0) {
+                // Avoid unaligned wchar_t* reinterpretation of the byte buffer.
+                std::memcpy(result.text.data(), bytes.data() + 2, wcharCount * sizeof(wchar_t));
+            }
             LimitLines(result, gotSize && size.QuadPart > kByteCeiling);
             return result;
         } else if (read >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFE && static_cast<unsigned char>(bytes[1]) == 0xFF) {

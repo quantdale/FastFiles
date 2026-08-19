@@ -38,7 +38,10 @@ bool IsRunningElevated() {
 // elevated with the same arguments, waits, and propagates the exit code.
 int RelaunchElevated(const std::wstring& arguments) {
     wchar_t ownPath[MAX_PATH * 4];
-    GetModuleFileNameW(nullptr, ownPath, static_cast<DWORD>(std::size(ownPath)));
+    const DWORD length = GetModuleFileNameW(nullptr, ownPath, static_cast<DWORD>(std::size(ownPath)));
+    if (length == 0 || length >= std::size(ownPath)) {
+        return 1;
+    }
 
     SHELLEXECUTEINFOW info{};
     info.cbSize = sizeof(info);
@@ -61,7 +64,10 @@ int RelaunchElevated(const std::wstring& arguments) {
 std::wstring GetOwnPath() {
     wchar_t ownPath[MAX_PATH * 4];
     const DWORD length = GetModuleFileNameW(nullptr, ownPath, static_cast<DWORD>(std::size(ownPath)));
-    return length == 0 ? std::wstring() : std::wstring(ownPath, length);
+    if (length == 0 || length >= std::size(ownPath)) {
+        return std::wstring();
+    }
+    return std::wstring(ownPath, length);
 }
 
 bool IsInstalledUninstaller(const std::wstring& ownPath) {

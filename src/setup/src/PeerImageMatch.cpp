@@ -30,17 +30,22 @@ std::wstring NormalizePathNamespace(std::wstring path) {
 bool IsExpectedInstalledBinary(const std::wstring& processImagePath,
                                const std::wstring& expectedInstallDir,
                                const std::wstring& expectedFileName) {
-    wchar_t canonicalPath[MAX_PATH * 4];
-    wchar_t canonicalInstallDir[MAX_PATH * 4];
-    if (GetFullPathNameW(processImagePath.c_str(), static_cast<DWORD>(std::size(canonicalPath)), canonicalPath, nullptr) == 0) {
+    if (processImagePath.empty() || expectedInstallDir.empty() || expectedFileName.empty()) {
         return false;
     }
-    if (GetFullPathNameW(expectedInstallDir.c_str(), static_cast<DWORD>(std::size(canonicalInstallDir)), canonicalInstallDir, nullptr) == 0) {
+    wchar_t canonicalPath[MAX_PATH * 4];
+    wchar_t canonicalInstallDir[MAX_PATH * 4];
+    const DWORD pathLen = GetFullPathNameW(processImagePath.c_str(), static_cast<DWORD>(std::size(canonicalPath)), canonicalPath, nullptr);
+    if (pathLen == 0 || pathLen >= std::size(canonicalPath)) {
+        return false;
+    }
+    const DWORD dirLen = GetFullPathNameW(expectedInstallDir.c_str(), static_cast<DWORD>(std::size(canonicalInstallDir)), canonicalInstallDir, nullptr);
+    if (dirLen == 0 || dirLen >= std::size(canonicalInstallDir)) {
         return false;
     }
 
-    std::wstring fullPath = NormalizePathNamespace(canonicalPath);
-    std::wstring dir = NormalizePathNamespace(canonicalInstallDir);
+    std::wstring fullPath = NormalizePathNamespace(std::wstring(canonicalPath, pathLen));
+    std::wstring dir = NormalizePathNamespace(std::wstring(canonicalInstallDir, dirLen));
     if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) {
         dir.pop_back();
     }

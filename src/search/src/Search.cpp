@@ -218,9 +218,9 @@ PathReconstruction ReconstructPath(const std::vector<Candidate>& entries, size_t
     std::unordered_map<EntryKey, const Candidate*, EntryKeyHash> byId;
     for (const auto& entry : entries) byId.emplace(EntryKey{entry.volumeId, entry.id}, &entry);
     const Candidate* current = &entries[entryIndex];
-    std::unordered_set<uint64_t> seen;
+    std::unordered_set<EntryKey, EntryKeyHash> seen;
     while (current != nullptr) {
-        if (!seen.insert(current->id).second) {
+        if (!seen.insert(EntryKey{current->volumeId, current->id}).second) {
             result.unresolvedParentId = current->id;
             break;
         }

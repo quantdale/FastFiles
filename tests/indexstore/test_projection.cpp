@@ -277,7 +277,8 @@ void TestVolumesAreIsolatedFromEachOther() {
 }
 
 void TestRebuildFromStoreMatchesPersistedData() {
-    auto dbPath = std::filesystem::temp_directory_path() / "ffindexstore_projection_rebuild.db";
+    auto dbPath = std::filesystem::temp_directory_path() /
+                  ("ffindexstore_projection_rebuild_" + std::to_string(GetCurrentProcessId()) + ".db");
     std::filesystem::remove(dbPath);
     std::filesystem::remove(dbPath.string() + "-wal");
     std::filesystem::remove(dbPath.string() + "-shm");
@@ -296,6 +297,10 @@ void TestRebuildFromStoreMatchesPersistedData() {
     proj.RebuildVolumeFromStore(store, vol, store.CountEntries(vol));
     Check(proj.EntryCount() == 2, "rebuild loads every persisted row");
     Check(proj.Find(vol, FileId{100, 0}) != nullptr, "rebuilt projection matches durable store contents");
+    store.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
 }
 
 void TestFolderAggregateCountsSubtree() {

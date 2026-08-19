@@ -264,7 +264,11 @@ std::optional<ReceivedFrame> ReadFrame(HANDLE pipeHandle) noexcept {
     ReceivedFrame frame;
     frame.header = header;
     const uint32_t payloadSize = header.totalLength - static_cast<uint32_t>(sizeof(header));
-    frame.payload.resize(payloadSize);
+    try {
+        frame.payload.resize(payloadSize);
+    } catch (...) {
+        return std::nullopt;
+    }
     if (payloadSize > 0 && !ReadExact(pipeHandle, frame.payload.data(), payloadSize)) {
         return std::nullopt;
     }
@@ -285,7 +289,11 @@ std::optional<ReceivedFrame> ReadFrameOverlapped(
     ReceivedFrame frame;
     frame.header = header;
     const uint32_t payloadSize = header.totalLength - static_cast<uint32_t>(sizeof(header));
-    frame.payload.resize(payloadSize);
+    try {
+        frame.payload.resize(payloadSize);
+    } catch (...) {
+        return std::nullopt;
+    }
     if (payloadSize > 0 && !ReadExactOverlapped(pipeHandle, frame.payload.data(), payloadSize, deadline)) {
         return std::nullopt;
     }
@@ -293,6 +301,9 @@ std::optional<ReceivedFrame> ReadFrameOverlapped(
 }
 
 bool WriteFrame(HANDLE pipeHandle, uint16_t messageType, const void* payload, uint32_t payloadSize) noexcept {
+    if (payloadSize > 0 && payload == nullptr) {
+        return false;
+    }
     const uint64_t totalLength64 = sizeof(ffprotocol::FrameHeader) + static_cast<uint64_t>(payloadSize);
     if (totalLength64 > ffprotocol::kMaxFrameSize) {
         return false;

@@ -29,7 +29,11 @@ std::optional<std::vector<std::pair<FixedT, std::u16string>>> ParseBatch(
     }
 
     std::vector<std::pair<FixedT, std::u16string>> records;
-    records.reserve(declaredCount);
+    try {
+        records.reserve(declaredCount);
+    } catch (...) {
+        return std::nullopt;
+    }
 
     size_t offset = 0;
     for (uint32_t i = 0; i < declaredCount; ++i) {

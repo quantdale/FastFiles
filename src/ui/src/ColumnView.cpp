@@ -1924,6 +1924,7 @@ void ColumnView::RestorePaneState(int paneIndex, const std::vector<std::wstring>
 // ---------------------------------------------------------------------------
 
 UiaViewGeometry ColumnView::UiaGeometry() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     return uiaGeometry_;
 }
 
@@ -1933,10 +1934,12 @@ int ColumnView::UiaPaneCount() const {
 }
 
 int ColumnView::UiaActivePane() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     return activePane_;
 }
 
 bool ColumnView::UiaPaneIsHome(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     return (pane == 0 || pane == 1) && homePane_[static_cast<size_t>(pane)];
 }
 
@@ -2012,11 +2015,13 @@ int ColumnView::UiaFocusedRow(int pane, int column) const {
 }
 
 float ColumnView::UiaVerticalScroll(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (pane != 0 && pane != 1) return 0.0f;
     return pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
 }
 
 int ColumnView::UiaHomeItemCount(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (pane != 0 && pane != 1) return 0;
     return ComputeHomeLayoutForPane(pane).totalItemCount;
 }
@@ -2358,6 +2363,7 @@ void ColumnView::UiaScrollHomeItemIntoView(int pane, int globalIndex) {
 // --- provider plumbing ------------------------------------------------------
 
 void ColumnView::SetUiaGeometry(const UiaViewGeometry& geometry) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     uiaGeometry_ = geometry;
 }
 
@@ -2365,6 +2371,7 @@ void ColumnView::SetUiaKeyboardFocusOwned(bool owned) {
     // Kept in sync with the real focus owner by the shell (WM_SETFOCUS /
     // WM_KILLFOCUS and every render); providers project it into
     // HasKeyboardFocus.
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     uiaGeometry_.keyboardFocus = owned;
 }
 

@@ -76,7 +76,11 @@ public:
         if (format == nullptr || medium == nullptr) return E_POINTER;
         if (FAILED(QueryGetData(format))) return DV_E_FORMATETC;
         size_t characterCount = 1;
-        for (const auto& path : paths_) characterCount += path.size() + 1;
+        for (const auto& path : paths_) {
+            if (path.size() > SIZE_MAX / sizeof(wchar_t) - characterCount - 1) return E_OUTOFMEMORY;
+            characterCount += path.size() + 1;
+        }
+        if (characterCount > (SIZE_MAX - sizeof(DROPFILES)) / sizeof(wchar_t)) return E_OUTOFMEMORY;
         const SIZE_T byteCount = sizeof(DROPFILES) + characterCount * sizeof(wchar_t);
         HGLOBAL storage = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, byteCount);
         if (storage == nullptr) return E_OUTOFMEMORY;

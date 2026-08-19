@@ -57,7 +57,7 @@ ctest --test-dir build/debug -R ffprotocol_fuzz_tests --output-on-failure   # si
 cmake --preset analyze && cmake --build --preset analyze   # + MSVC /analyze
 ```
 
-Presets: `debug`, `release`, `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`). CTest presets exist for `debug` and `release` only (no `analyze` test preset). Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
+Presets: `debug`, `release`, `release-test` (RelWithDebInfo unsigned test artifact), `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`), `asan` (Debug + ASan via `/fsanitize:address`). CTest presets exist for `debug`, `release`, and `release-test` only (no `analyze`/`asan` test preset). Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
 Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus`; link `/DYNAMICBASE /NXCOMPAT /guard:cf`); **warnings are errors** — new code must be warning-clean. The vendored SQLite C amalgamation (`third_party/sqlite/`) keeps its own warning config (compiled as C for the SQLite target only) and must not trip FastFiles analysis; avoid incidental edits there.
 

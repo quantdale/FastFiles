@@ -582,8 +582,13 @@ bool WaitForServiceRunning(DWORD timeoutMs) {
 bool VerifyServiceStartedFresh() {
     const std::wstring diagPath = ffprotocol::DiagnosticLogPath();
     std::error_code fileError;
-    const ULONGLONG logBytesBefore = diagPath.empty() ? 0
-        : static_cast<ULONGLONG>(std::filesystem::file_size(std::filesystem::path(diagPath), fileError));
+    ULONGLONG logBytesBefore = 0;
+    if (!diagPath.empty()) {
+        const auto size = std::filesystem::file_size(std::filesystem::path(diagPath), fileError);
+        if (!fileError) {
+            logBytesBefore = static_cast<ULONGLONG>(size);
+        }
+    }
 
     StartIndexService();
     if (!WaitForServiceRunning(30000)) {
@@ -625,13 +630,13 @@ void RemoveBackupState(const std::wstring& installDir) {
 // the parent's inherited ACEs (e.g. Program Files) propagate back, returning
 // the directory to its default state before the staged binaries are removed.
 void ResetInstallDirectoryAcl(const std::wstring& path) {
-    ACL emptyAcl;
-    if (!InitializeAcl(&emptyAcl, sizeof(emptyAcl), ACL_REVISION)) {
-        return;
-    }
+    // Pass a null DACL with UNPROTECTED so the directory inherits from its
+    // parent again. An empty (zero-ACE) DACL would deny everyone, including
+    // the owner, and prevent the subsequent DeleteInstalledBinaries cleanup
+    // from succeeding when running as the elevated installer.
     SetNamedSecurityInfoW(const_cast<wchar_t*>(path.c_str()), SE_FILE_OBJECT,
         DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION,
-        nullptr, nullptr, &emptyAcl, nullptr);
+        nullptr, nullptr, nullptr, nullptr);
 }
 
 void DeleteInstalledBinaries(const std::wstring& installDir) {

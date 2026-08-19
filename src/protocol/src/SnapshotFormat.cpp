@@ -188,6 +188,9 @@ public:
         if (!ReadU32(lengthChars)) {
             return false;
         }
+        if (lengthChars > std::numeric_limits<size_t>::max() / sizeof(wchar_t)) {
+            return false;
+        }
         const size_t byteLength = static_cast<size_t>(lengthChars) * sizeof(wchar_t);
         if (remaining() < byteLength) {
             return false;
@@ -298,7 +301,11 @@ std::optional<std::map<std::wstring, SnapshotDirectory>> ParseSnapshot(const uin
         directory.directoryIdHigh = directoryIdHigh;
         directory.parentIdLow = parentIdLow;
         directory.parentIdHigh = parentIdHigh;
-        directory.entries.reserve(entryCount);
+        try {
+            directory.entries.reserve(entryCount);
+        } catch (...) {
+            return std::nullopt;
+        }
 
         for (uint32_t e = 0; e < entryCount; ++e) {
             uint8_t isDirectoryByte = 0;

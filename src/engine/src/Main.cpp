@@ -66,8 +66,12 @@ std::string GetIndexDatabasePathUtf8() {
     if (utf8Length <= 0) {
         return {};
     }
-    std::string dbPathUtf8(static_cast<size_t>(utf8Length) - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, dbPathWide.c_str(), -1, dbPathUtf8.data(), utf8Length, nullptr, nullptr);
+    std::string dbPathUtf8(static_cast<size_t>(utf8Length), '\0');
+    const int converted = WideCharToMultiByte(CP_UTF8, 0, dbPathWide.c_str(), -1, dbPathUtf8.data(), utf8Length, nullptr, nullptr);
+    if (converted <= 0) {
+        return {};
+    }
+    dbPathUtf8.resize(static_cast<size_t>(converted - 1));
     return dbPathUtf8;
 }
 
@@ -82,8 +86,12 @@ void DeleteIndexDatabaseFiles(const std::string& dbPathUtf8) {
     if (wideLength <= 0) {
         return;
     }
-    std::wstring dbPathWide(static_cast<size_t>(wideLength) - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, dbPathUtf8.c_str(), -1, dbPathWide.data(), wideLength);
+    std::wstring dbPathWide(static_cast<size_t>(wideLength), L'\0');
+    const int converted = MultiByteToWideChar(CP_UTF8, 0, dbPathUtf8.c_str(), -1, dbPathWide.data(), wideLength);
+    if (converted <= 0) {
+        return;
+    }
+    dbPathWide.resize(static_cast<size_t>(converted - 1));
     DeleteFileW(dbPathWide.c_str());
     DeleteFileW((dbPathWide + L"-wal").c_str());
     DeleteFileW((dbPathWide + L"-shm").c_str());
