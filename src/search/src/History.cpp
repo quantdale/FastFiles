@@ -98,7 +98,20 @@ bool SearchHistory::Save(const std::filesystem::path& path) const {
     std::error_code error;
     if (!path.parent_path().empty()) std::filesystem::create_directories(path.parent_path(), error);
     if (error) return false;
-    const std::filesystem::path temporary = path.wstring() + L".tmp";
+    const std::wstring parentW = path.parent_path().wstring();
+    // Use a unique temp name so two concurrent saves don't collide on
+    // "<file>.tmp" and a crash-left stale .tmp can't be silently reused.
+    // When there's no parent (bare filename), fall back to "<file>.tmp".
+    std::filesystem::path temporary;
+    if (parentW.empty()) {
+        temporary = std::filesystem::path(path.wstring() + L".tmp");
+    } else {
+        wchar_t uniqueTemp[MAX_PATH * 4] = {};
+        if (GetTempFileNameW(parentW.c_str(), L"ffh", 0, uniqueTemp) == 0) {
+            return false;
+        }
+        temporary = uniqueTemp;
+    }
     std::ofstream output(temporary, std::ios::trunc | std::ios::binary);
     if (!output) return false;
     for (size_t index = 0; index < queries_.size(); ++index) {

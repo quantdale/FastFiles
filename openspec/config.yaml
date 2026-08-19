@@ -13,7 +13,7 @@ context: |
   never forces the app to run as admin for normal use. CMake FATAL_ERRORs on
   non-Windows; there is no cross-platform layer (Win32/COM/Direct2D/NTFS only).
 
-  Tech stack: C++20, CMake (presets debug/release/analyze), MSVC with
+  Tech stack: C++20, CMake (presets debug/release/release-test/analyze/asan), MSVC with
   /W4 /WX - warnings are errors, named-pipe IPC (ffipc/ffprotocol), vendored
   SQLite (ffindexstore), PowerShell verification harness (verify/verify.ps1,
   verify/intake.ps1). Tests are plain C++ executables registered with CTest
