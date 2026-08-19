@@ -1,9 +1,18 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-19
-Status: COMPLETE (pushed 9d800bc, HEAD == origin/main, clean) — indexed-search-allocated-size implemented and
-validated; all native/build/spec/policy gates green; live UIA deferred to headless
-substitution (see change note, design D11). Hosted CI not readable from build sandbox (no gh/api egress); local verify.ps1 build PASS per evidence.
+Status: indexed-search-allocated-size IMPLEMENTED — live UIA validated with the actual
+`build/debug-diagnostic` binaries (`FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`, no production
+signing / trust-store / service-install / privileged MFT campaign). Focused `search-allocated-size`
+isolated scenario: 10/10 PASS on this host; the latest run is written to `verify/runs/ad-hoc/<run-id>/`
+and proves `Search.Results` discoverability, per-row logical + explicit `Size on disk unknown`
+(no fabricated `0`/logical echo), UIA `FullDescription` via raw `UIA_FullDescriptionPropertyId`,
+query-replacement stability, and the `Size on Disk` ↔ `Size` sort-control toggle (alphabetical
+`UNKNOWN` vs logical order, selection agreement) — all degraded where `UNKNOWN` is the correct state.
+Full `windows-ui-automation-validation` and `verify.ps1 build`/`doctor` gates are still pending as
+the final acceptance step before marking COMPLETE and pushing to `origin/main` (see current evidence
+below; WORKSTATE remains the durable resume point until `HEAD == origin/main` + clean tree + hosted CI
+for that SHA are verified).
 
 ## indexed-search-allocated-size session record (2026-08-18)
 
@@ -23,7 +32,9 @@ substitution (see change note, design D11). Hosted CI not readable from build sa
   (`UiProtocol.cpp:451-453`); parse rejects unknown-with-nonzero (`UiProtocol.cpp:378-383`).
 - **Sort:** `SortField::AllocatedSize` (value 6) added (`Query.h:20`); known numeric
   both directions, unknown last both directions, alphabetical tie-break, stable.
-  `Size`/`size:` remain logical. Default sort stays `Size`.
+  `Size`/`size:` remain logical. Product default sort is `Relevance` (not `Size` — the
+  previous note claiming `Default sort stays Size` was corrected to match the existing
+  `ScopeSort` behavior and the `search-ui` spec).
 - **Engine:** `IndexPipeline::SearchIndexed` copies both scalars from the projection
   entry under the existing lock — no per-candidate DB/FS/service/IPC.
   Degraded/snapshot candidates set `allocatedSizeKnown=false` (`UiServer.cpp:51-52`).
@@ -41,11 +52,18 @@ substitution (see change note, design D11). Hosted CI not readable from build sa
   `ffengine_volume_session_manager_tests` (unmodified pre-existing test) under dual-build
   load; re-run in isolation 0.09 s, full release-test 65/65 in 33 s → environmental, not a
   regression. Subsequent `verify.ps1 build` PASSED.
-- **Live UIA:** headless sandbox (no GUI) — interactive Search UI and
-  `windows-ui-automation-validation` not launched. Known/zero/unknown/stale semantics proven
-  deterministically by `test_search_uia.cpp` + `test_search_metadata.cpp`; degraded unknown
-  proven by degraded path + tests. Per design D11 and the change's success criteria this is
-  explicitly not a blocker; no production-signing/campaign reopened.
+- **Live UIA:** proven live on this Windows host in degraded mode (where
+  `allocatedSizeKnown=false` is the correct `Size on Disk` state — no fabricated `0` or logical
+  echo). The focused isolated `search-allocated-size` scenario passed 10/10 on this host, each run
+  evidencing `Search.Results` discoverability, per-result logical `bytes/KB/MB/GB` + `Size on disk
+  unknown` via raw `FullDescription` (managed `FullDescriptionProperty` is null here, so the run reads
+  `UIA_FullDescriptionPropertyId` 30103/30159 through the native UIA node), query-replacement
+  narrowing/restoration, and the real `Size on Disk` ↔ `Size` sort-control toggle (7103 via
+  `ExpandCollapse`/`SelectionItem` on `BoundingRectangle` + `SelectionPattern` verification): `Size on
+  Disk` deterministically alphabetical when all unknown, `Size` logical ascending, and back to `Size
+  on Disk`. The complementary known/zero/stale/replacement + legacy-wire contracts remain proved
+  deterministically by `tests/ui/test_search_uia.cpp` (`TestSearchAllocatedSizeMetadata`,
+  `TestSearchAllocatedStaleAndReplacement`), `tests/ui/test_search_metadata.cpp`, and the V2 wire tests.
 - **Perf:** fixed +8 bytes/candidate wire (32,768 B/page at 4096); identical
   candidate/result/lazy counts; timings within noise; max response 944,056 B < 1 MiB cap.
   Evidence: `build/bench-before.json`, `build/bench-after.json`, `evidence/implementation-evidence.md` §7.

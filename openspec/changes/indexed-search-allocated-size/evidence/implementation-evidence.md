@@ -80,25 +80,30 @@ Observed orderings:
 
 ## 5. UI evidence (`src/ui/src/SearchPanel.cpp`, `ffui::SearchAllocatedSizeText`)
 
-- `Size on Disk` added to the sort selector (value 6) and routes to the real indexed Search sort; existing `Size` remains logical. Default sort stays `Size` (Task 8.3 / design).
+- `Size on Disk` added to the sort selector (value 6) and routes to the real indexed Search sort; existing `Size` remains logical. Product default sort is `Relevance` (the earlier note claiming "Default sort stays Size" was corrected to match the existing `ScopeSort` behavior and the `search-ui` spec).
 - Visible row shows logical size and Size on Disk as distinct metadata via the existing virtualized row model.
 - Known: e.g. `12 MB • 8 MB on disk • <date>`.
 - Known zero: `0 B • 0 B on disk` (never "Unknown").
 - Unknown: `Size on disk unknown` (never zero, never logical bytes repeated).
 - `ffui::SearchAllocatedSizeText` is a pure helper (`src/ui/include/ffui/SearchResultMetadata.h`) — no `windows.h`/COM — used by both the row renderer and the UIA provider, so visible and accessible metadata share one source.
 
-## 6. UIA evidence (headless, `tests/ui/test_search_uia.cpp`, `tests/ui/test_search_metadata.cpp`)
+## 6. UIA evidence (headless + live)
 
 - `UiaSearchResultInfo` extended with `allocatedSizeBytes`/`allocatedSizeKnown`, populated from the exact `SearchResultRow` state.
 - Provider description distinguishes logical size from Size on Disk and preserves known-zero vs unknown.
 - No duplicate semantic child for the second metric; `Search.Results -> ListItem` hierarchy, runtime IDs, selection/invoke/scroll, and bounded cache unchanged.
-- `TestSearchAllocatedSizeMetadata`: known/zero/unknown descriptions correct.
-- `TestSearchAllocatedStaleAndReplacement`: a provider held across query replacement fails cleanly (stale contract) and never reveals the superseded query's allocated metadata.
-- Property reads are in-memory only; no engine IPC or filesystem I/O from UIA callbacks.
+- `TestSearchAllocatedSizeMetadata`: known/zero/unknown descriptions correct (headless).
+- `TestSearchAllocatedStaleAndReplacement`: a provider held across query replacement fails cleanly (stale contract) and never reveals the superseded query's allocated metadata (headless).
+- Property reads are in-memory only; no engine IPC or filesystem I/O from UIA callbacks (headless + live).
 
-### Live UIA note
+### Live UIA (actual, `build/debug-diagnostic`, `FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`)
 
-This session ran in a **headless** build sandbox (no display, no running `FastFiles` GUI), so the interactive Search UI and the `windows-ui-automation-validation` capability were not launched here. Required known/zero/unknown/stale semantics are proven deterministically by the headless provider tests above, and degraded unknown semantics are proven by the degraded path plus those tests. Per design D11 and this change's own success criteria, a host without privileged indexed allocated values is **not a blocker**, and live known-value evidence is explicitly not required. When a live GUI host is available, re-run the established search scenarios and the full `windows-ui-automation-validation` capability for live confirmation (the source already supports it).
+The focused isolated scenario `search-allocated-size` (`verify/capabilities/windows-ui-automation-validation`) passed 10/10 on this Windows desktop session using the freshly rebuilt diagnostic binaries (no production signing, trust-store, service-install, or privileged MFT campaign). Each run uses a deterministic fixture of 5 files with distinct names and deliberately different logical sizes, so alphabetical `Size on Disk` order (unknown) diverges from logical `Size` order. In degraded mode `allocatedSizeKnown=false` for every result is the correct `Size on Disk` state — no fabricated `0` or logical echo.
+
+- `Search.Results` discoverable via semantic UIA; all 5 fixture results found.
+- Each degraded result exposes logical size (`bytes`/`KB`/`MB`/`GB`) and `Size on disk unknown` through the raw `UIA_FullDescriptionPropertyId` (managed `FullDescriptionProperty` is null here, so the run reads the native node via `UiaGetPropertyValue` — the product's `SearchResultUiaProvider` builds `FullDescription` with `UiaSearchSizeText` + `SearchAllocatedSizeText`).
+- Stale / query-replacement sound: `alloc` (5) → narrow to `allocB` (1) → restore `alloc` (5).
+- The real `Size on Disk` sort control (owner-drawn combo 7103 via `SelectionPattern`/`ExpandCollapse` + `BoundingRectangle` click, verified through `SelectionPattern` selection) exercises `SortField::AllocatedSize` live: `Size on Disk` → alphabetical when all unknown, `Size` → logical ascending, back to `Size on Disk` → alphabetical; displayed `SelectionPattern` selection agrees with the executed mode.
 
 ## 7. Performance evidence (`tests/engine/bench_large_index_scalability.cpp`)
 

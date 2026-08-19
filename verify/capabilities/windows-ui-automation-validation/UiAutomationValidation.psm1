@@ -889,6 +889,325 @@ function Invoke-UiaScenarioSearchDeep {
     }
 }
 
+# indexed-search-allocated-size (Tasks 10.1-10.6): live, deterministic proof that
+# global Search carries the on-disk/allocated-size dimension through the real UI
+# and the semantic UIA provider, in ordinary degraded/unprivileged mode (where
+# allocated size is legitimately UNKNOWN). All known-value correctness is already
+# covered deterministically by the headless provider/sort tests; this scenario
+# proves the *live* degraded unknown semantics and the live Size-on-Disk sort
+# control. No OCR, no pixels, no fixed coordinates, no test-only hooks: every
+# geometry/input comes from UIA elements (the sort ComboBox and result rows).
+function Get-UiaSearchResultOrder {
+    param($Driver, $ResultsList, [string] $NamePattern = '.*')
+    $items = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $ResultsList -TimeoutMs 6000 -All)
+    if ($items.Count -eq 0) {
+        $items = @(Find-UiaElement -Driver $Driver -FromElement $ResultsList -TimeoutMs 6000 -All)
+    }
+    return @($items | Where-Object { (Get-UiaElementProperty -Driver $Driver -Element $_ -Name 'Name') -match $NamePattern } |
+        ForEach-Object { Get-UiaElementProperty -Driver $Driver -Element $_ -Name 'Name' })
+}
+
+function Test-UiaOrderEquals {
+    param([array] $A, [array] $B)
+    if ($A.Count -ne $B.Count) { return $false }
+    for ($i = 0; $i -lt $A.Count; $i++) { if ($A[$i] -ne $B[$i]) { return $false } }
+    return $true
+}
+
+# The managed UIAutomationClient in this environment does not bind
+# AutomationElement.FullDescriptionProperty (UIA property id 30103): both
+# AutomationElement.FullDescriptionProperty and AutomationProperty.LookupById(30103)
+# are null, while Name (30005) is available. The product's SearchResultUiaProvider
+# exposes FullDescription correctly (proven by the C++ headless tests), so we read it
+# through the raw IUIAutomationElement COM interface using the element's native
+# _hnode pointer. The vtable matches IUIAutomationElement through GetCurrentPropertyValue.
+$script:UiaFullDescriptionComDefined = $false
+function Get-UiaFullDescriptionRaw {
+    param($Element)
+    if (-not $script:UiaFullDescriptionComDefined) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace FfUiaCom {
+  public static class RawUia {
+    [DllImport("UIAutomationCore.dll", PreserveSig=true)]
+    public static extern int UiaGetPropertyValue(IntPtr hnode, int propertyId, out object value);
+  }
+}
+'@
+        $script:UiaFullDescriptionComDefined = $true
+    }
+    try {
+        $fld = $Element.GetType().GetField('_hnode', [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic -bor [System.Reflection.BindingFlags]::Public)
+        $safe = $fld.GetValue($Element)
+        $hnode = [IntPtr]::Zero
+        try { $hnode = $safe.DangerousGetHandle() } catch { $hnode = $safe.handle }
+        if ($hnode -eq [IntPtr]::Zero) { return $null }
+        $val = $null
+        # UIA_FullDescriptionPropertyId is 30159 (Win10+). The managed
+        # UIAutomationClient in this environment does not bind it as a static
+        # AutomationProperty, so AutomationElement.GetCurrentPropertyValue throws
+        # "Unsupported Property" even though the provider (SearchUiaProvider)
+        # correctly implements it. Read through the raw UIA Core API.
+        $hr = [FfUiaCom.RawUia]::UiaGetPropertyValue($hnode, 30159, [ref]$val)
+        if ($hr -ge 0 -and $null -ne $val -and $val -ne [System.DBNull]::Value) { return [string]$val }
+    } catch { }
+    return $null
+}
+
+function Get-UiaSearchSortCombo {
+    param($Driver, [int] $ProcessId)
+    $combos = @(Find-UiaElement -Driver $Driver -ControlType 'ComboBox' -ProcessId $ProcessId -TimeoutMs 4000 -All)
+    foreach ($c in $combos) {
+        try {
+            if ((Get-UiaElementProperty -Driver $Driver -Element $c -Name 'AutomationId') -eq '7103') { return $c }
+        } catch { }
+    }
+    $sortFields = @('Relevance', 'Filename', 'Path', 'Size', 'Modified', 'Created', 'Size on Disk')
+    foreach ($c in $combos) {
+        try {
+            $v = Invoke-UiaPattern -Driver $Driver -Element $c -PatternName 'Value' -Method 'GetValue'
+            if ($v -and $sortFields -contains $v) { return $c }
+        } catch { }
+    }
+    return $null
+}
+
+function Get-UiaComboSelectionName {
+    param($Driver, $Combo)
+    try {
+        $sel = Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Selection' -Method 'GetSelection'
+        if ($sel -and $sel.Count -gt 0) { return $sel[0].Current.Name }
+    } catch { }
+    try { return Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Value' -Method 'GetValue' } catch { }
+    return ''
+}
+
+function Set-UiaSearchSort {
+    param($Driver, $Combo, [string] $ItemName)
+    # The sort combo is owner-drawn (CBS_OWNERDRAWFIXED) and in this UIA binding
+    # exposes SelectionPattern / ExpandCollapsePattern rather than ValuePattern.
+    # Drive it the native Win32 way: expand, select the ListItem by Name,
+    # collapse, and re-read the combo's current selection via its SelectionPattern.
+    # Use the item's BoundingRectangle center as the click point — no fixed
+    # coordinates, pure UIA geometry as required.
+    try {
+        $ec = $null
+        try { $ec = $Combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) } catch { }
+        if ($ec) { $ec.Expand() } else { Invoke-UiaElementAction -Driver $Driver -Element $Combo | Out-Null }
+        Start-Sleep -Milliseconds 600
+        $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Combo -TimeoutMs 4000
+        if (-not $item) { try { if ($ec) { $ec.Collapse() } } catch { }; return $false }
+        $center = Get-UiaElementCenter -Driver $Driver -Element $item
+        if ($center -and $center.x -gt 0 -and $center.y -gt 0) {
+            $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
+        } else {
+            Invoke-UiaPattern -Driver $Driver -Element $item -PatternName 'SelectionItem' -Method 'Select'
+        }
+        Start-Sleep -Milliseconds 900
+        # Verify the selection migrated back to the combo.
+        $sel = $null
+        try { $sel = Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Selection' -Method 'GetSelection' } catch { }
+        if ($sel -and $sel.Count -gt 0) {
+            foreach ($s in $sel) { if ($s.Current.Name -eq $ItemName) { try { if ($ec) { $ec.Collapse() } } catch { }; return $true } }
+        }
+        # Toggle once more if the palette ate the click.
+        try { if ($ec) { $ec.Collapse() } catch { } } catch { }
+        Start-Sleep -Milliseconds 400
+        $sel2 = $null
+        try { $sel2 = Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Selection' -Method 'GetSelection' } catch { }
+        if ($sel2 -and $sel2.Count -gt 0) {
+            foreach ($s in $sel2) { if ($s.Current.Name -eq $ItemName) { return $true } }
+        }
+        return $false
+    } catch { return $false }
+}
+
+function Invoke-UiaScenarioSearchAllocatedSize {
+    param($Context, [string] $ArtifactsDir)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $driver = $Context.Driver
+    $main = $Context.Main
+    $pid = $Context.Launched.Id
+    $id = 'search-allocated-size'
+    $fail = { param($detail) New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'search-allocated-size-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
+
+    if (-not $Context.Ready) {
+        return New-UiaVSubResult -Id $id -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); search needs engine-served data"
+    }
+
+    # Fixture: distinct names and deliberately different LOGICAL sizes, chosen so
+    # alphabetical order differs from logical-size order. In degraded mode every
+    # file's allocated/on-disk size is legitimately UNKNOWN.
+    $scratch = Join-Path $env:USERPROFILE ('ffui-alloc-' + (Get-Random))
+    New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+    $files = @(
+        @{ name = 'allocA.txt'; size = 5000 },
+        @{ name = 'allocB.txt'; size = 1000 },
+        @{ name = 'allocC.txt'; size = 9000 },
+        @{ name = 'allocD.txt'; size = 3000 },
+        @{ name = 'allocE.txt'; size = 7000 }
+    )
+    foreach ($f in $files) {
+        $p = Join-Path $scratch $f.name
+        $fs = [System.IO.FileStream]::new($p, [System.IO.FileMode]::Create)
+        $fs.SetLength($f.size); $fs.Close()
+    }
+    [void]$Context.Fixtures.Add($scratch)
+
+    try {
+        # Ensure FastFiles owns the foreground before navigation. Lab popups
+        # (e.g. browser games, stale settings dialogs from aborted runs) can
+        # steal foreground; dismiss a lingering FastFilesSettingsDialog first,
+        # then retry Set-UiaForeground and minimize the blocker via ShowWindow
+        # if needed. No pixel/coordinate fallback.
+        try {
+            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 400
+            if ($stale) { try { Invoke-UiaElementAction -Driver $driver -Element $stale | Out-Null; Start-Sleep -Milliseconds 400 } catch { } }
+        } catch { }
+        for ($fgAttempt = 0; $fgAttempt -lt 6; $fgAttempt++) {
+            $null = Set-UiaForeground -Driver $driver -Element $main
+            Start-Sleep -Milliseconds 700
+            if (Test-UiaForegroundWindow -Driver $driver -Element $main) { break }
+            # Transient engine-owned window can steal foreground right after launch;
+            # also the settings dialog can own input focus. Give both a chance.
+            try {
+                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 300
+                if ($dlg) {
+                    $cancel = Find-UiaElement -Driver $driver -AutomationId '2' -FromElement $dlg -TimeoutMs 300
+                    Invoke-UiaElementAction -Driver $driver -Element $cancel | Out-Null; Start-Sleep -Milliseconds 400
+                }
+            } catch { }
+            # If foreground is still the diagnostic engine window, yield and retry.
+            try {
+                $fg = Get-UiaElementProperty -Driver $driver -Element (Get-UiaRootElement -Driver $driver) -Name 'Name'
+                if ($fg -match 'FastFilesEngine') { Start-Sleep -Milliseconds 600 }
+            } catch { }
+        }
+        $nav = $null
+        for ($navAttempt = 0; $navAttempt -lt 3 -and -not ($nav -and $nav.Pass); $navAttempt++) {
+            if ($navAttempt -gt 0) {
+                $null = Set-UiaForeground -Driver $driver -Element $main
+                Start-Sleep -Milliseconds 600
+            }
+            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        }
+        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        Start-Sleep -Milliseconds 300
+
+        # Open the search panel.
+        $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
+        if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
+
+        $resultsList = $null
+        try { $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $pid -TimeoutMs 6000 -PollIntervalMs 250 } catch { }
+        if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
+
+        # Query that matches all fixture files.
+        $null = Send-UiaText -Driver $driver -Text 'alloc'
+        Start-Sleep -Seconds 2
+
+        # Discoverability + per-result semantic metadata (degraded = unknown).
+        $fixtureItems = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        if ($fixtureItems.Count -lt 5) {
+            $all = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 4000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
+            return & $fail "expected 5 fixture results for 'alloc', found $($fixtureItems.Count) (all results: $($all -join ', '))"
+        }
+
+        # In this environment the managed FullDescriptionProperty (id 30103) is
+        # null, so the normal wrapped reader returns ''. The product's fragment
+        # provider is correct (proven deterministically by the C++ headless tests
+        # indexed-search-allocated-size tasks 7/8), but the managed UIA client's
+        # UIAutomationClient.dll does not bind UIA_FullDescriptionPropertyId. The
+        # visible row already renders the allocated unknown (proved by launch), so
+        # validate the semantic counterpart via the provider projection instead.
+        $logicalPresent = $false
+        $allUnknown = $true
+        $fabricated = $false
+        $fdDump = @()
+        foreach ($it in $fixtureItems) {
+            $nm = $it.Current.Name
+            $fd = Get-UiaFullDescriptionRaw -Element $it
+            if ($null -eq $fd) { $fd = '' }
+            $fdDump += "[$nm]=$fd"
+            if ($fd -match '\d+\s*(bytes|KB|MB|GB)') { $logicalPresent = $true }
+            if ($fd -notmatch 'Size on disk unknown') { $allUnknown = $false }
+            if ($fd -match '\d+\s*(bytes|KB|MB|GB)\s+on disk') { $fabricated = $true }
+        }
+        if (-not $logicalPresent) { return & $fail "a degraded result does not expose its logical size in FullDescription :: $($fdDump -join ' | ')" }
+        if (-not $allUnknown) { return & $fail "not every degraded result reports 'Size on disk unknown' :: $($fdDump -join ' | ')" }
+        if ($fabricated) { return & $fail "a result fabricated on-disk size (logical echoed as on disk / 0 B on disk) :: $($fdDump -join ' | ')" }
+
+        # Stale / query-replacement soundness: narrow, then restore the set.
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
+        $null = Send-UiaText -Driver $driver -Text 'allocB'
+        Start-Sleep -Seconds 2
+        $narrow = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        if ($narrow.Count -ne 1 -or (Get-UiaElementProperty -Driver $driver -Element $narrow[0] -Name 'Name') -notmatch 'allocB\.txt') {
+            return & $fail "query replacement to 'allocB' did not narrow to a single allocB result (count=$($narrow.Count))"
+        }
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
+        $null = Send-UiaText -Driver $driver -Text 'alloc'
+        Start-Sleep -Seconds 2
+        $restored = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        if ($restored.Count -lt 5) {
+            return & $fail "query replacement back to 'alloc' did not restore the full fixture set (count=$($restored.Count))"
+        }
+
+        # Exercise the real Size on Disk sort control live. All allocated values
+        # are UNKNOWN in degraded mode, so Size on Disk must resolve to the
+        # deterministic unknown ordering (alphabetical tie-break); Size must be
+        # logical-size ordering. The two must differ, proving the control routes
+        # to distinct sort fields, and the displayed selection must agree.
+        $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $pid
+        if (-not $combo) { return & $fail 'could not locate the Search sort ComboBox' }
+
+        $alphaExpected = @('allocA.txt', 'allocB.txt', 'allocC.txt', 'allocD.txt', 'allocE.txt')
+        $logicalExpected = @('allocB.txt', 'allocD.txt', 'allocA.txt', 'allocE.txt', 'allocC.txt')
+
+        $defSel = Get-UiaComboSelectionName -Driver $driver -Combo $combo
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk')) {
+            return & $fail "could not select 'Size on Disk' in the sort control"
+        }
+        $sel1 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
+        $okSod = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size on Disk order" -ScriptBlock {
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
+        }
+        $orderSod = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        if (-not $okSod) { return & $fail "Size on Disk did not resolve to the deterministic unknown (alphabetical) order; got: $($orderSod -join ', ')" }
+
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size')) {
+            return & $fail "could not select 'Size' in the sort control"
+        }
+        $sel2 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
+        $okSize = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size order" -ScriptBlock {
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($logicalExpected -join ',')
+        }
+        $orderSize = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        if (-not $okSize) { return & $fail "Size (logical) did not resolve to logical-size ascending order; got: $($orderSize -join ', ')" }
+
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk')) {
+            return & $fail "could not re-select 'Size on Disk' in the sort control"
+        }
+        $okSod2 = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size on Disk restored order" -ScriptBlock {
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
+        }
+        $orderSod2 = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        if (-not $okSod2) { return & $fail "Size on Disk was not restored to alphabetical order; got: $($orderSod2 -join ', ')" }
+
+        $sw.Stop()
+        return New-UiaVSubResult -Id $id -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds `
+            -Detail "Search.Results discoverable; each degraded result exposes logical size + 'Size on disk unknown' (no fabrication, no 0 B on disk echo); query replacement sound; sort control default='$defSel', Size on Disk -> alphabetical ($($orderSod -join ',')), Size -> logical ($($orderSize -join ',')), back to Size on Disk -> alphabetical ($($orderSod2 -join ',')); displayed selection agrees (sel1='$sel1', sel2='$sel2')" `
+            -Diagnostics @('search-allocated-size.tree.txt')
+    } catch {
+        return & $fail "scenario failed: $($_.Exception.Message)"
+    }
+}
+
 # semantic-treemap-uia 52.x: treemap readability, proportionality, click
 # precision, folder/file Invoke, and many-tiles stress test. Requires the
 # TreemapUIA provider layer and the shared StorageAnalysis treemap surface.
@@ -1872,6 +2191,7 @@ $script:UiaScenarioRegistry = @{
     'search-results-discoverable'              = @{ Group = 'search';  Isolated = $false }
     'search-deep-result-navigation'            = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchDeep -Context $ctx -ArtifactsDir $dir } }
     'search-structured-filter-query'           = @{ Group = 'search';  Isolated = $false }
+    'search-allocated-size'                    = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchAllocatedSize -Context $ctx -ArtifactsDir $dir } }
     'search-toggle-service-while-open'         = @{ Group = 'privileged'; Isolated = $false }
     'in-column-error-state-late'               = @{ Group = 'error';   Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioErrorStateLate -Context $ctx -ArtifactsDir $dir } }
     'drag-out-to-explorer'                     = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragOut -Context $ctx -ArtifactsDir $dir } }

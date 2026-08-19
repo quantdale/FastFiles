@@ -61,8 +61,13 @@ bool NameMatches(const std::wstring& name, const VARIANT& value) {
     return _wcsicmp(name.c_str(), expected.c_str()) == 0;
 }
 
-// Format a file's logical size (matches the details presentation; the
-// search model has no allocated size and the pipeline is not widened).
+// Logical-size formatter for a Search result's UIA FullDescription. It
+// formats the candidate's logical `sizeBytes` only; allocated/on-disk size
+// is rendered separately by `SearchAllocatedSizeText` so the two metrics
+// stay visibly distinct (indexed-search-allocated-size D7/D9). The search
+// model and engine pipeline now carry allocated size, but this helper
+// remains the single source for the logical-size wording shared by the row
+// renderer and the UIA provider.
 std::wstring UiaSearchSizeText(uint64_t sizeBytes) {
     if (sizeBytes >= 1024ull * 1024ull * 1024ull) {
         return std::to_wstring(sizeBytes / (1024ull * 1024ull * 1024ull)) + L" GB";
