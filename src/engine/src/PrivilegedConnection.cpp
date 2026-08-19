@@ -78,10 +78,9 @@ void PrivilegedConnection::Start(std::wstring installDir, StateChangeCallback on
 }
 
 void PrivilegedConnection::Stop() {
-    if (!running_) {
+    if (!running_.exchange(false)) {
         return;
     }
-    running_ = false;
     PipePtr connecting;
     PipePtr active;
     {

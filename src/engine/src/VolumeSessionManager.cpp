@@ -8,6 +8,8 @@
 
 #include "VolumeIdentity.h"
 
+#include "ffprotocol/Diagnostics.h"
+
 namespace ffengine {
 
 namespace {
@@ -33,6 +35,17 @@ constexpr std::chrono::minutes kSchedulerPollInterval{10};
 
 std::vector<uint8_t> BuildStartScanPayload(ffprotocol::ProtocolVersion version, ffprotocol::VolumeId volumeId,
                                            const std::vector<uint8_t>& cursor, uint16_t flags) {
+    // A persisted cursor from a corrupt DB can exceed protocol limits; truncating
+    // would scan from the wrong offset and cause silent index gaps. Treat it as a
+    // non-recoverable cursor (fail-closed diagnostic + full rescan) instead.
+    if (cursor.size() > ffprotocol::kMaxScanCursorLengthBytes) {
+        ffprotocol::AppendDiagnostic(
+            {ffprotocol::DiagnosticCategory::VolumeStateTransition,
+             ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED, {}, {},
+             L"BuildStartScanPayload cursor oversize", ERROR_INVALID_DATA,
+             static_cast<uint64_t>(cursor.size())});
+        return {};
+    }
     const bool useV1 = version.major == 1;
     const size_t headerSize = useV1 ? sizeof(ffprotocol::StartVolumeScanRequestV1)
                                     : sizeof(ffprotocol::StartVolumeScanRequest);
@@ -362,6 +375,11 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
         RefreshProjectionScanState();
         std::vector<uint8_t> cursor = meta ? meta->scanCursor : std::vector<uint8_t>{};
         auto payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, cursor, 0);
+        if (payload.empty() && !cursor.empty()) {
+            // Oversize corrupt cursor — already logged inside BuildStartScanPayload.
+            // Force a clean rescan from offset 0 rather than silently truncating.
+            payload = BuildStartScanPayload(connection_.NegotiatedVersion(), ephemeralId, {}, 0);
+        }
         connection_.SendRequest(static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan), payload.data(),
                                  static_cast<uint32_t>(payload.size()));
     }
