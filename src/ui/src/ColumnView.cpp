@@ -2027,6 +2027,7 @@ int ColumnView::UiaHomeItemCount(int pane) const {
 }
 
 UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     UiaHomeItemInfo info;
     if (pane != 0 && pane != 1) return info;
     const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
@@ -2082,11 +2083,13 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
 }
 
 int ColumnView::UiaHomeSectionCount(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (pane != 0 && pane != 1) return 0;
     return static_cast<int>(ComputeHomeLayoutForPane(pane).sections.size());
 }
 
 UiaHomeSectionInfo ColumnView::UiaHomeSectionInfoOf(int pane, int section) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     UiaHomeSectionInfo info;
     if (pane != 0 && pane != 1) return info;
     const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
@@ -2106,6 +2109,7 @@ UiaHomeSectionInfo ColumnView::UiaHomeSectionInfoOf(int pane, int section) const
 }
 
 UiaHomeScrollInfo ColumnView::UiaHomeScrollInfoOf(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     UiaHomeScrollInfo info;
     if (pane != 0 && pane != 1) return info;
     const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
@@ -2115,6 +2119,7 @@ UiaHomeScrollInfo ColumnView::UiaHomeScrollInfoOf(int pane) const {
 }
 
 int ColumnView::UiaHomeFocusTarget(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (pane != 0 && pane != 1) return kUiaHomeFocusNone;
     const HomeFocusEntry focus = pane == 0 ? homeFocus_[0] : homeFocus_[1];
     switch (focus.target) {
@@ -2126,6 +2131,7 @@ int ColumnView::UiaHomeFocusTarget(int pane) const {
 }
 
 int ColumnView::UiaHomeFocusIndex(int pane) const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
     if (pane != 0 && pane != 1) return -1;
     return (pane == 0 ? homeFocus_[0] : homeFocus_[1]).itemIndex;
 }

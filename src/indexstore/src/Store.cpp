@@ -314,18 +314,25 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     if (db_ == nullptr) {
         return false;
     }
-    // sqlite3_wal_checkpoint_v2's PASSIVE mode reports how many frames are
-    // currently in the WAL (before any of this call's own checkpointing)
-    // via the first output parameter; approximating bytes from frame count
-    // (each frame is one page-sized record, default 4096 bytes) is enough
-    // to decide whether the size-triggered forced checkpoint (design.md
-    // "Risks": unbounded WAL growth) should escalate to RESTART, without
-    // needing a second connection or raw file stat.
     int frameCount = 0;
     if (sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_PASSIVE, &frameCount, nullptr) != SQLITE_OK) {
         return false;
     }
-    const uint64_t approxWalBytes = static_cast<uint64_t>(frameCount) * 4096u;
+    // Use the real page size rather than a hardcoded 4096 — custom page sizes
+    // (PRAGMA page_size) make the old approximation wrong by up to 8x. Query
+    // the handle's actual page size; fall back to 4096 only if the query fails.
+    int pageSize = 4096;
+    {
+        sqlite3_stmt* stmt = nullptr;
+        if (sqlite3_prepare_v2(db_, "PRAGMA page_size;", -1, &stmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                const int p = sqlite3_column_int(stmt, 0);
+                if (p > 0) pageSize = p;
+            }
+            sqlite3_finalize(stmt);
+        }
+    }
+    const uint64_t approxWalBytes = static_cast<uint64_t>(frameCount) * static_cast<uint64_t>(pageSize);
     if (approxWalBytes > thresholdBytes) {
         return sqlite3_wal_checkpoint_v2(db_, nullptr, SQLITE_CHECKPOINT_RESTART, nullptr, nullptr) == SQLITE_OK;
     }
