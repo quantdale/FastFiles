@@ -2485,3 +2485,41 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
 - NEXT recommended slice (do NOT start without instruction): nothing code-achievable remains in this
   change; the global externally-gated follow-ups (privileged signing/MFT-USN/clean-host, interactive
   GUI/UIA matrix, VM provisioning) are unchanged and require external resources.
+
+## Portable production-readiness verification + IPC test hardening (2026-08-20)
+
+- **Scope:** the user asked to make the whole codebase production ready. This session established
+  the current local/portable gate truth and closed the one genuinely code-doable deferred follow-up.
+  Environment: non-interactive VS BuildTools shell (cmake/ninja/cl via `vcvarsall x64`); no elevation,
+  no code-signing material, no interactive desktop.
+- **Ground-truth gates (all green on this host):**
+  - Debug configure/build clean; full Debug CTest **67/67 PASS** (45.3 s).
+  - `cmake --preset analyze` (`/W4 /WX /analyze`) builds clean (warning-clean); product + the two
+    touched test targets rebuilt with no warnings.
+  - ASan build (`/fsanitize=address`) of `ffprotocol_fuzz_tests` clean; ran **20,000 iterations ×
+    6 fuzzers** (service/UI frame validation, MFT/USN V1–V3 batch parsing, snapshot format, V2
+    indexed-search response) with **zero ASan findings** (leak detection unsupported on this platform;
+    `halt_on_error=1`).
+  - `ffdoc_drift_tests` PASS after a CRLF normalization (my added test lines had introduced one lone LF;
+    normalized `tests/ipc/test_pipe_framing.cpp` back to the repository CRLF convention — 280 .cpp/.h
+    files now clean).
+- **Concrete improvement — close `close-independent-validation-gaps` deferred IPC follow-up (tests only):**
+  - Added `TestSynchronousReadReassemblesAcrossChunkedWrites` and `TestSynchronousReadReturnsOnBrokenPipe`
+    to `tests/ipc/test_pipe_framing.cpp`. They exercise the **synchronous** `ReadFrame` reassembly path
+    (header + payload delivered as separate small pipe writes; reader must accumulate short reads) and
+    clean peer-disconnect (`nullopt` after the write handle closes) — the overlapped equivalents were
+    already covered; the synchronous reader was the documented gap. Both pass; registered in `main()`.
+  - Bounded testing-process improvement: `tests/protocol/test_fuzz.cpp` `main` now accepts an optional
+    `argv[1]` seed (`std::strtoul`) so a fuzzer failure is byte-reproducible; the default fixed seed is
+    retained when no argument is given. Verified both default and `0xDEADBEEF` seeds pass (including under ASan).
+- **Code-review findings:** no latent `TODO/FIXME/HACK/BUG` markers remain in `src/`; the IPC framing
+  (`ReadExact` short-read loop, overlapped cancellation/quarantine, broken-pipe `nullopt`) is already
+  robust, so no framing fix was needed — only the missing synchronous-path tests.
+- **Status:** the repository is production-ready on every local/portable gate (build, 67 CTest, /analyze,
+  ASan fuzz, doc-drift). The remaining `close-independent-validation-gaps` open items (4.2, 4.5–4.8,
+  5.1) are all `[external]`: authorized production signing, elevated clean-host privileged MFT/USN
+  validation, and interactive GUI/UIA visual acceptance (incl. real aggregate-backed `% of Parent` sum).
+  Those require resources not present in this session and were not fabricated as complete.
+- **NEXT EXACT ACTION:** provide authorized signing material + an elevated clean-host/VM and an
+  interactive desktop to close 4.2/4.5–4.8/5.1; otherwise no safe local implementation frontier remains.
+  This session's edits are uncommitted (test-only); commit on request.

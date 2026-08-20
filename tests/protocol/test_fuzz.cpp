@@ -233,8 +233,13 @@ void FuzzIndexedSearchResponseV2(std::mt19937& rng) {
 
 } // namespace
 
-int main() {
-    std::mt19937 rng(kSeed);
+int main(int argc, char** argv) {
+    uint32_t seed = kSeed;
+    if (argc > 1) {
+        seed = static_cast<uint32_t>(std::strtoul(argv[1], nullptr, 0));
+    }
+
+    std::mt19937 rng(seed);
 
     FuzzServiceFrameValidation(rng);
     FuzzUiFrameValidation(rng);
@@ -244,9 +249,9 @@ int main() {
     FuzzIndexedSearchResponseV2(rng);
 
     if (fftest::FailureCount() > 0) {
-        std::fprintf(stderr, "\n%d fuzz check(s) failed\n", fftest::FailureCount());
+        std::fprintf(stderr, "\n%d fuzz check(s) failed (seed 0x%08X)\n", fftest::FailureCount(), seed);
         return EXIT_FAILURE;
     }
-    std::printf("all fuzz checks passed (%d iterations/fuzzer, seed 0x%08X)\n", kIterationsPerFuzzer, kSeed);
+    std::printf("all fuzz checks passed (%d iterations/fuzzer, seed 0x%08X)\n", kIterationsPerFuzzer, seed);
     return EXIT_SUCCESS;
 }

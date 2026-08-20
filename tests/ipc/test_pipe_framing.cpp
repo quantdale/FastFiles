@@ -281,14 +281,85 @@ void TestPartialFrameReadTimesOutWithoutAHelperThread() {
     header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
     DWORD written = 0;
     Check(WriteFile(pipe.client, &header, sizeof(header), &written, nullptr) != FALSE
-              && written == sizeof(header),
-          "partial-frame header is delivered before the payload stalls");
+               && written == sizeof(header),
+           "partial-frame header is delivered before the payload stalls");
     const auto started = std::chrono::steady_clock::now();
     const auto received = ffipc::ReadFrameOverlapped(
         pipe.server, started + std::chrono::milliseconds(100));
     const auto elapsed = std::chrono::steady_clock::now() - started;
     Check(!received.has_value(), "partial-frame payload stall returns no frame");
     Check(elapsed < std::chrono::seconds(2), "partial-frame timeout has a real wall-clock bound");
+}
+
+// close-independent-validation-gaps deferred follow-up: the synchronous reader
+// (ReadExact loop) must reassemble a frame whose header and payload arrive as
+// separate pipe writes and must not require a single monolithic ReadFile.
+void TestSynchronousReadReassemblesAcrossChunkedWrites() {
+    AnonymousPipe pipe = MakePipe();
+    Check(pipe.read != nullptr && pipe.write != nullptr, "chunked-write pipe is created");
+    if (pipe.read == nullptr || pipe.write == nullptr) return;
+
+    const size_t payloadSize = 4096;
+    std::vector<uint8_t> payload(payloadSize);
+    for (size_t i = 0; i < payload.size(); ++i) payload[i] = static_cast<uint8_t>(i % 253);
+
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + payloadSize);
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch);
+
+    std::thread writer([&] {
+        DWORD written = 0;
+        Check(WriteFile(pipe.write, &header, sizeof(header), &written, nullptr) != FALSE
+                   && written == sizeof(header),
+               "chunked header delivered before payload");
+        // Deliver the payload in small pieces so the reader must accumulate
+        // short reads rather than receiving one full buffer.
+        size_t offset = 0;
+        while (offset < payloadSize) {
+            const size_t chunk = (std::min)(static_cast<size_t>(37), payloadSize - offset);
+            DWORD chunkWritten = 0;
+            if (!WriteFile(pipe.write, payload.data() + offset, static_cast<DWORD>(chunk),
+                           &chunkWritten, nullptr)) {
+                break;
+            }
+            offset += chunkWritten;
+        }
+        Check(offset == payloadSize, "chunked payload fully delivered");
+    });
+
+    const auto received = ffipc::ReadFrame(pipe.read);
+    writer.join();
+    Check(received.has_value(), "synchronous reader reassembles a frame split across chunked writes");
+    Check(received && received->header.totalLength == sizeof(header) + payloadSize,
+          "reassembled frame reports its exact declared length");
+    Check(received && received->payload == payload,
+          "reassembled payload matches byte-for-byte across short reads");
+}
+
+// close-independent-validation-gaps deferred follow-up: a clean peer disconnect
+// (write handle closed) must end the synchronous reader with nullopt for any
+// subsequent frame, while a fully-delivered frame before the disconnect is still
+// returned intact.
+void TestSynchronousReadReturnsOnBrokenPipe() {
+    AnonymousPipe pipe = MakePipe();
+    Check(pipe.read != nullptr && pipe.write != nullptr, "broken-pipe test pipe is created");
+    if (pipe.read == nullptr || pipe.write == nullptr) return;
+
+    const uint32_t sentinel = 0x12345678u;
+    Check(ffipc::WriteFrame(pipe.write,
+             static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), &sentinel, sizeof(sentinel)),
+           "pre-disconnect frame is written");
+    const auto first = ffipc::ReadFrame(pipe.read);
+    Check(first.has_value(), "frame delivered before disconnect is read intact");
+    Check(first && first->payload.size() == sizeof(sentinel)
+               && std::memcmp(first->payload.data(), &sentinel, sizeof(sentinel)) == 0,
+           "pre-disconnect frame payload is read intact");
+
+    CloseHandle(pipe.write);
+    pipe.write = nullptr;
+    const auto afterClose = ffipc::ReadFrame(pipe.read);
+    Check(!afterClose.has_value(), "synchronous reader returns nullopt on a broken pipe");
 }
 
 } // namespace
@@ -303,5 +374,7 @@ int main() {
     TestPeerDeathDuringFrameReturns();
     TestOverlappedWriteTimesOutWhenPeerDoesNotRead();
     TestPartialFrameReadTimesOutWithoutAHelperThread();
+    TestSynchronousReadReassemblesAcrossChunkedWrites();
+    TestSynchronousReadReturnsOnBrokenPipe();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
