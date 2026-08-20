@@ -2550,3 +2550,29 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
 - **NEXT EXACT ACTION:** no safe local implementation frontier remains. Provide authorized signing
   material + an elevated clean-host/VM + an interactive desktop to close the external gates; otherwise
   deepen a specific component only on explicit request.
+
+## ASan continuous-gate strengthening (2026-08-20)
+
+- **Discovery:** an `asan` CI job (`ci.yml`) already exists and runs `ffprotocol_fuzz_tests` under
+  `/fsanitize=address` via `ctest --test-dir build/asan -R ffprotocol_fuzz_tests`. A naive attempt to add
+  an `include`-filtered `asan` *testPreset* failed: `include`/`exclude` in `testPresets` is a preset-schema
+  v10 feature, so bumping the file's `"version"` would have broken the CMake-3.25-compatible presets on
+  older runners. Reverted `CMakePresets.json` to its original state (verified valid; `ctest --test-dir
+  build/asan -R ffprotocol_fuzz_tests` passes locally — 18.7 s).
+- **Improvement:** extended the existing `asan` job to also build and run `ffipc_framing_tests` under
+  AddressSanitizer (`-R "ffprotocol_fuzz_tests|ffipc_framing_tests"`). The IPC framing reads untrusted
+  peer-declared frame magnitudes and pipe bytes, so it is memory-sensitive; verified ASan-clean locally
+  (0.64 s). The memory-safety gate now covers both the protocol untrusted-byte parsers and the IPC
+  framing layer.
+- **Session fuzz hardening that the gate now exercises:** `tests/protocol/test_fuzz.cpp` now fuzzes all
+  exported untrusted-byte parsers (service/UI frame validation, MFT/USN V1–V3 batches, snapshot, legacy
+  + V2 indexed-search response, indexed-search request) and accepts an optional seed; `tests/ipc/
+  test_pipe_framing.cpp` now covers synchronous partial-read reassembly, broken-pipe, back-to-back frame
+  delimiting, and a 200-frame burst.
+- **Verification this session (all green):** Debug CTest 67/67; Release-test CTest 67/67; `/analyze`
+  warning-clean; ASan `ffprotocol_fuzz_tests` (8 fuzzers × 20,000 iters) and `ffipc_framing_tests` both
+  ASan-clean; `ffdoc_drift_tests` PASS. Commits: `3c29e0e`, `912e571`, `0a560e4`, `1165ae8`, plus this
+  `ci.yml` ASan-gate extension.
+- **Status:** the repository is production-ready on every local/portable + memory-safety gate. Remaining
+  `close-independent-validation-gaps` items (4.2, 4.5–4.8, 5.1) remain `[external]` (signing, elevated
+  clean-host, interactive visual) and were not fabricated as complete.
