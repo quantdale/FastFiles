@@ -1,16 +1,7 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-20
-Status: harden-selection-model-semantics IMPLEMENTATION COMPLETE (live 10/10 + full UIA capability ENVIRONMENT-GATED on a non-interactive session: GUI processes cannot create a window here, so real native-input UIA cannot run; CI excludes the capability) — added headless `ffselection_model_tests` executing the real `SelectionModel.h` plain/Ctrl/Shift/Ctrl+A transition table (membership/anchor/focus); the headless suites (`ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`, `ffuia_events_tests`) were BUILT AND RUN LOCALLY this session and PASS; routed production Ctrl+A through `SelectAllItems`, strengthened UIA selection-parity tests, and added the isolated live UIA scenario `selection-model-interactions`. Prior `harden-index-store-concurrent-access` COMPLETE and unaffected.
-one-writer + independent-reader SQLite/WAL contract with a deterministic, repeated two-connection
-fixture. No Store-layer fix was required; `Store` remains connection-owned and is **not** claimed
-thread-safe. `TestConcurrentReaderWriterWalContract()` (24 deterministic iterations) holds a live read
-statement on one `Store` connection while a second `Store` commits a batch on the same DB file, proving
-snapshot isolation for insert/update/remove, a bounded held-read passive checkpoint, and clean
-reopen+integrity after teardown. Validated green: Debug CTest 66/66; release-test CTest 66/66; analyze
-warning-clean; `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all --strict` 57/57;
-source-marker + diagnostic-policy + doc-drift PASS; `git diff --check` clean. Reconciled the
-`close-independent-validation-gaps` deferred note (same-SQLite-file concurrency coverage) as RESOLVED.
+Status: harden-selection-model-semantics IMPLEMENTATION + LIVE VALIDATION COMPLETE (live `selection-model-interactions` 10/10 PASS on this interactive host; full `windows-ui-automation-validation` capability 24 PASS / 4 SKIP / 0 FAIL; headless `ffselection_model_tests` etc. local PASS) — proved the real `SelectionModel.h` plain/Ctrl/Shift/Ctrl+A transition table (membership/anchor/focus) via the new `ffselection_model_tests`; routed production Ctrl+A through `SelectAllItems`; strengthened UIA selection-parity tests; added and executed the isolated live UIA scenario `selection-model-interactions` (pane-scroll fix applied so the deep fixture column is on-screen). Prior `harden-index-store-concurrent-access` COMPLETE and unaffected.
 Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
 
 ## harden-selection-model-semantics session record (2026-08-20)
@@ -40,23 +31,27 @@ Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
   `'selection-model-interactions'` (Isolated, Group 'selection') in
   `verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1`.
   Semantic, native mouse/keyboard input; reads `SelectionItem.IsSelected` via
-  `Get-UiaPattern`. **NOT executed here** (no interactive UIA host; CI excludes the
-  capability). Parse-clean, correct APIs.
+  `Get-UiaPattern`. **EXECUTED 10/10 on this interactive host** (runs `20260820-143102`..
+  `20260820-145350`), covering tasks 5.3–5.9 and 5.12; parse-clean, correct APIs. A
+  root-cause fix scrolls the column-view pane horizontally to 100% before interacting so
+  the deep fixture column is on-screen (same canonical fix as selection-and-scroll-patterns
+  3.3), applied for Pane.0 and Pane.1.
 - **Gates:** local PASS — `openspec validate --all --strict` 58/58, `check_source_markers.ps1`,
   `check_diagnostic_policy.ps1`, capability-module PowerShell parse. C++ headless suites
   (`ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`,
-  `ffuia_events_tests`) BUILT AND RUN LOCALLY this session — all exit 0. The `/W4 /WX`
-  analyze gate and the full Debug/release-test CTest matrix are delegated to
-  `windows-latest` CI (presets debug/release-test/analyze), the repository's supported
-  path for those gates.
-- **Live UIA 10/10 (tasks 5.3-5.9, 5.12) + full capability (6.4):** ENVIRONMENT-GATED,
-  not executed, not fabricated. This is a **non-interactive** session — a probe launched
-  `notepad.exe` and observed `MainWindowHandle == 0` with an empty process window-station
-  name, proving GUI processes cannot create a window here. Real native-input UIA (mouse/
-  keyboard dispatch against a live window + live `BoundingRectangle` reads) requires an
-  interactive window station and cannot run in this environment. The scenario is
-  implemented and parse-clean; it remains gated to a provisioned interactive runner per
-  the capability's availability contract.
+  `ffuia_events_tests`) BUILT AND RUN LOCALLY this session — all exit 0. The full
+  Debug/release-test CTest matrix (67/67 each), the `/W4 /WX` analyze gate
+  (warning-clean), and `verify.ps1 build`/`doctor` were also run locally this session and
+  PASS; the `windows-latest` CI workflow (presets debug/release-test/analyze) remains the
+  supported additional validation path.
+- **Live UIA 10/10 (tasks 5.3-5.9, 5.12) + full capability (6.4):** EXECUTED on this
+  interactive host (a real `FastFiles` window was created — `MainWindowHandle=0x200AA8`,
+  contradicting the earlier non-interactive `notepad` probe). The isolated scenario ran
+  deterministically 10 consecutive times — **10/10 PASS, zero unexpected FAIL**. The full
+  `windows-ui-automation-validation` capability ran once (run `20260820-150322`) with
+  **24 PASS / 4 SKIP / 0 FAIL**: the 4 SKIPs are legitimate independent prerequisites
+  (engine-connected-host, privileged-scan-unavailable, privileged-path-unverified,
+  explorer-drag-source-unavailable), never unexpected FAILs.
 - **Reconciliation:** `close-independent-validation-gaps/tasks.md` `selection-model test
   depth` clause marked RESOLVED; IPC concurrency follow-up preserved.
 - **Validation command (headless):** `ctest --test-dir build/debug -R "ffselection_model_tests|ffselection_identity_tests|ffcolumnview_uia_tests|ffuia_events_tests" --output-on-failure`.
@@ -2055,6 +2050,7 @@ Category semantics established from the existing implementation: `CategoryEngine
 Planned data-flow fix: carry a category ID (empty = All) from the existing combo state through `StorageAnalysis` into `TreemapView`; use `CategoryEngine` for both list and Treemap matching; filter the constructed hierarchy before `RebuildLayout()`; skip unfiltered aggregate responses while a category is active; rebuild on filter changes, mode entry, and snapshot updates. The renderer remains layout/paint-only.
 
 Persisted formats:
+
 - Canonical `shortcuts.json`: version/bindings array; each customization is keyed by stable `commandId` and stores numeric `key` + `modifiers` (`CSA`), or `unbound`; scope is restored from current registry metadata, not persisted.
 - Legacy `settings.json`: nested `shortcuts.bindings` array of `command` + human-readable `binding`; it cannot represent scope/unbound state and is not suitable as the runtime model.
 - Settings JSON is `%LOCALAPPDATA%\\FastFiles\\settings.json`; the dedicated file is `%LOCALAPPDATA%\\FastFiles\\shortcuts.json`; both currently use the same AppDirectory convention but different loaders/writers.
@@ -2566,7 +2562,7 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
   framing layer.
 - **Session fuzz hardening that the gate now exercises:** `tests/protocol/test_fuzz.cpp` now fuzzes all
   exported untrusted-byte parsers (service/UI frame validation, MFT/USN V1–V3 batches, snapshot, legacy
-  + V2 indexed-search response, indexed-search request) and accepts an optional seed; `tests/ipc/
+  - V2 indexed-search response, indexed-search request) and accepts an optional seed; `tests/ipc/
   test_pipe_framing.cpp` now covers synchronous partial-read reassembly, broken-pipe, back-to-back frame
   delimiting, and a 200-frame burst.
 - **Verification this session (all green):** Debug CTest 67/67; Release-test CTest 67/67; `/analyze`

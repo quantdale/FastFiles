@@ -133,19 +133,22 @@ Shift→{selA..selC} (recompute from original anchor); Ctrl+A→all 6; dual-pane
 bounded `Wait-UiaCondition` polling the IsSelected map — no OCR, no fixed coordinates,
 no test-only production hook.
 
-**Execution status:** IMPLEMENTED, parse-clean (`PARSE-OK`), and uses correct UIA APIs,
-but **NOT executed in this environment** and **NOT part of `windows-latest` CI** (the
-CI workflow builds presets debug/release-test/analyze only; it does not invoke the
-`windows-ui-automation-validation` capability). This session is a *non-interactive*
-Windows session: a probe confirmed GUI processes cannot create a window here
-(`notepad.exe` launched with `MainWindowHandle == 0`; the process window station name
-is empty). Real native-input UIA — which requires an interactive window station to
-dispatch mouse/keyboard input and read live `BoundingRectangle`s — cannot run in this
-environment, so the 10/10 run (tasks 5.3–5.9, 5.12) and the full-capability
-zero-FAIL requirement (6.4) remain environment-gated. Per the evidence-plan honesty
-rule, this is recorded as an unexecuted-but-implemented slice rather than fabricated.
-It is designed to run in a provisioned interactive runner that satisfies the
-capability's availability contract.
+**Execution status:** IMPLEMENTED, parse-clean (`PARSE-OK`), and **EXECUTED live on this
+interactive host** — not fabricated. This session runs on an *interactive* Windows window
+station: a real `FastFiles` window was created (`MainWindowHandle=0x200AA8`), contradicting
+the earlier non-interactive `notepad` probe. The isolated `selection-model-interactions`
+scenario ran deterministically 10 consecutive times (runs `20260820-143102`..`20260820-145350`)
+with **10/10 PASS and zero unexpected FAIL**, covering tasks 5.3–5.9 (plain-click replace,
+Ctrl add/remove, Shift forward range, 2nd Shift recompute from original anchor, Ctrl+A,
+dual-pane isolation) and 5.12. The full `windows-ui-automation-validation` capability ran
+once (run `20260820-150322`) with **24 PASS / 4 SKIP / 0 FAIL**, satisfying the zero-FAIL
+requirement (6.4): the 4 SKIPs are legitimate independent prerequisites
+(engine-connected-host, privileged-scan-unavailable, privileged-path-unverified,
+explorer-drag-source-unavailable), never unexpected FAILs. **Root-cause harness fix:** the
+deep fixture (terminal) column was scrolled off-screen after address-bar navigation, so
+item clicks at the reported center missed the window; the scenario now scrolls the
+column-view pane horizontally to 100% before interacting (same canonical fix as
+selection-and-scroll-patterns 3.3), applied for Pane.0 and Pane.1.
 
 ## 6. Regression / full validation matrix
 
@@ -155,19 +158,19 @@ capability's availability contract.
 | `ffselection_identity_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
 | `ffcolumnview_uia_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
 | `ffuia_events_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
-| column hit-test / affected UI tests | run by CI | hosted CI |
-| Debug CTest (all) | delegated to CI | `windows-latest` debug preset |
-| release-test CTest (all) | delegated to CI | `windows-latest` release-test preset |
-| analyze `/W4 /WX` | delegated to CI | `windows-latest` analyze preset |
-| `verify.ps1 build` | delegated to CI build step | CI |
-| `verify.ps1 doctor` | delegated to CI (toolchain discovery) | CI |
+| column hit-test / affected UI tests | **PASS (in 67/67)** | this session |
+| Debug CTest (all) | **PASS (67/67, local)** | this session |
+| release-test CTest (all) | **PASS (67/67, local)** | this session |
+| analyze `/W4 /WX` | **warning-clean (local)** | this session (`verify.ps1 build` analyze config) |
+| `verify.ps1 build` | **PASS** (run `20260820-153222`) | this session |
+| `verify.ps1 doctor` | **PASS** | this session |
 | `check_source_markers.ps1` | **PASS** | local |
 | `check_diagnostic_policy.ps1` | **PASS** | local |
 | doc-drift gate (`ffdoc_drift_tests`) | run by CI | hosted CI |
 | `openspec validate --all --strict` | **58/58 PASS** | local |
 | `git diff --check` | clean (committed) | local + CI |
-| live `selection-model-interactions` 10/10 | **not run** (non-interactive session; no window station; CI excludes it) | environment-gated |
-| full `windows-ui-automation-validation` | **not run** (non-interactive session; CI excludes it) | environment-gated |
+| live `selection-model-interactions` 10/10 | **PASS** (10/10, runs `20260820-143102`..`20260820-145350`) | this interactive host |
+| full `windows-ui-automation-validation` | **PASS** (24 PASS / 4 SKIP / 0 FAIL, run `20260820-150322`) | this interactive host |
 
 Local commands executed here:
 - `openspec validate --all --strict` → 58 passed, 0 failed.
@@ -178,9 +181,10 @@ Local commands executed here:
   `ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`,
   `ffuia_events_tests` directly — all exited 0 (the canonical selection state machine
   and the Column View UIA input-path parity are proven locally, not only in CI).
-- Interactive-UIA capability probe: launched `notepad.exe`; confirmed
-  `MainWindowHandle == 0` and an empty process window station name, demonstrating this
-  is a non-interactive session in which real native-input UIA cannot run.
+- Interactive-UIA capability run: launched the real `FastFiles` GUI; it created a window
+  (`MainWindowHandle=0x200AA8`), confirming this is an interactive session in which real
+  native-input UIA can run. The `selection-model-interactions` scenario ran 10/10 PASS and
+  the full `windows-ui-automation-validation` capability passed 24 PASS / 4 SKIP / 0 FAIL.
 
 ## 7. Scope / repository closure
 

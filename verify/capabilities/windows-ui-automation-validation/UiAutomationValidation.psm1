@@ -2292,6 +2292,22 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         $null = Send-UiaMouseInput -Driver $driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click' -Modifier $Modifier
         return $true
     }
+    # harden-selection-model-semantics: after deep address-bar navigation the
+    # fixture (terminal) column can sit beyond the pane's right edge, so item
+    # clicks at the reported center miss the window. Bring the terminal column
+    # fully on-screen by scrolling the column-view pane horizontally to the end
+    # (the same proven fix used by selection-and-scroll-patterns 3.3).
+    $scrollPaneRight = {
+        param([string]$PaneId = 'Pane.0')
+        try {
+            $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
+            if (-not $group) { return }
+            $pane = Find-UiaElement -Driver $driver -AutomationId $PaneId -FromElement $group -TimeoutMs 3000
+            if (-not $pane) { return }
+            $null = Invoke-UiaPattern -Driver $driver -Element $pane -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
+            Start-Sleep -Milliseconds 600
+        } catch { }
+    }
     # Bounded semantic wait: poll the IsSelected map until it equals the
     # expected name set (order-independent), or the deadline elapses.
     $waitSelection = {
@@ -2339,6 +2355,11 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
+
+        # harden-selection-model-semantics: bring the fixture (terminal) column
+        # fully on-screen before interacting (deep address-bar navigation leaves it
+        # scrolled past the pane's right edge otherwise).
+        & $scrollPaneRight 'Pane.0'
 
         # --- 5.2: semantically assert the expected fixture rows exist before
         # any interaction (stale providers reacquired on each attempt). ---
@@ -2415,6 +2436,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         Start-Sleep -Milliseconds 400
         $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)" }
+        & $scrollPaneRight 'Pane.1'
         # Wait for Pane.1's terminal column to expose the fixture rows.
         $p1Owned = Wait-UiaCondition -Driver $driver -TimeoutMs 12000 -PollIntervalMs 300 -Description "Pane.1 terminal column shows fixture rows" -ScriptBlock {
             try {

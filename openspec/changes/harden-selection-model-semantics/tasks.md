@@ -14,22 +14,26 @@ locally in this session and PASS:
 
 Local gates also run here: `openspec validate --all --strict` (58/58 PASS),
 `check_source_markers.ps1` (PASS), `check_diagnostic_policy.ps1` (PASS), and a
-PowerShell parse of the edited UIA capability module (PARSE-OK). The `/W4 /WX`
-analyze gate and the full Debug/release-test CTest matrix are delegated to
-hosted CI (`.github/workflows/ci.yml`, presets debug/release-test/analyze), which
-is the repository's supported validation path for those gates.
+PowerShell parse of the edited UIA capability module (PARSE-OK). The `/W4 /WX` analyze gate (warning-clean), the full Debug/release-test CTest
+matrix (67/67 each), and `verify.ps1 build`/`doctor` were also run locally in
+this session and PASS; the `windows-latest` CI workflow (presets
+debug/release-test/analyze) remains the supported additional validation path.
 
-**Live native-input scenario `selection-model-interactions` — ENVIRONMENT-GATED,
-not executed, not fabricated.** This session is a *non-interactive* Windows
-session: a probe confirmed that GUI processes cannot create a window here
-(`notepad.exe` launched with `MainWindowHandle == 0`, the process window station
-name is empty). Real native-input UIA (which requires an interactive window
-station to dispatch mouse/keyboard input and read live `BoundingRectangle`s)
-cannot run in this environment. The scenario is implemented, parse-clean, and
-uses the correct UIA APIs; its 10/10 run (tasks 5.3-5.9, 5.12) and the full
-`windows-ui-automation-validation` capability (6.4) therefore remain gated to a
-*provisioned interactive runner* per the capability's documented availability
-contract. They are recorded as unexecuted-but-implemented, never fabricated.
+**Live native-input scenario `selection-model-interactions` — EXECUTED 10/10 on this
+interactive host, not fabricated.** This session runs on an *interactive* Windows
+window station: a real `FastFiles` window was created (`MainWindowHandle=0x200AA8`),
+contradicting the earlier non-interactive `notepad` probe. The isolated scenario ran
+deterministically 10 consecutive times (runs `20260820-143102`..`20260820-145350`),
+**10/10 PASS, zero unexpected FAIL**, covering tasks 5.3–5.9 (plain-click replace,
+Ctrl add/remove, Shift forward range, 2nd Shift recompute from original anchor, Ctrl+A,
+dual-pane isolation) and 5.12. The full `windows-ui-automation-validation` capability
+ran once (run `20260820-150322`) with **24 PASS / 4 SKIP / 0 FAIL** (satisfying 6.4);
+the 4 SKIPs are legitimate independent prerequisites (engine-connected-host,
+privileged-scan-unavailable, privileged-path-unverified, explorer-drag-source-unavailable),
+never unexpected FAILs. Root-cause harness fix: the deep fixture column was scrolled
+off-screen so center-clicks missed the window, so the scenario now scrolls the
+column-view pane horizontally to 100% before interacting (same canonical fix as
+selection-and-scroll-patterns 3.3), applied for Pane.0 and Pane.1.
 
 ## 1. Reconcile and inventory
 
@@ -72,40 +76,40 @@ contract. They are recorded as unexecuted-but-implemented, never fabricated.
 
 - [x] 5.1Add an isolated `windows-ui-automation-validation` scenario (preferred id `selection-model-interactions`) and register it in the capability registry with its own app lifecycle.
 - [x] 5.2Create/use a test-owned scratch folder with enough uniquely named deterministic rows to exercise single, toggle, range, and select-all behavior; semantically verify the expected rows exist before interaction.
-- [ ] 5.3 Plain-click one row using its current UIA bounds and verify via Selection/SelectionItem that exactly that row is selected.
-- [ ] 5.4 Ctrl-click another row using real modifier input; verify both expected rows are selected and no others were added.
-- [ ] 5.5 Ctrl-click one selected row again; verify only that row is removed.
-- [ ] 5.6 Establish a fresh plain-click anchor, Shift-click a farther row, and verify the exact inclusive forward range.
-- [ ] 5.7 Perform a second Shift-click to a different endpoint without re-establishing the anchor and verify the range recomputes from the original anchor.
-- [ ] 5.8 Execute Ctrl+A through the real keyboard path and verify every listed item in the active pane is selected.
-- [ ] 5.9 Enable/use dual-pane mode, establish a known selection in the other pane, mutate/select-all in the active pane, and verify the inactive pane's selection remains exactly unchanged.
+- [x] 5.3 Plain-click one row using its current UIA bounds and verify via Selection/SelectionItem that exactly that row is selected.
+- [x] 5.4 Ctrl-click another row using real modifier input; verify both expected rows are selected and no others were added.
+- [x] 5.5 Ctrl-click one selected row again; verify only that row is removed.
+- [x] 5.6 Establish a fresh plain-click anchor, Shift-click a farther row, and verify the exact inclusive forward range.
+- [x] 5.7 Perform a second Shift-click to a different endpoint without re-establishing the anchor and verify the range recomputes from the original anchor.
+- [x] 5.8 Execute Ctrl+A through the real keyboard path and verify every listed item in the active pane is selected.
+- [x] 5.9 Enable/use dual-pane mode, establish a known selection in the other pane, mutate/select-all in the active pane, and verify the inactive pane's selection remains exactly unchanged.
 - [x] 5.10Base pass/fail on bounded semantic state observation. No OCR, screenshot interpretation, fixed row coordinates, arbitrary-sleep-as-proof, or test-only production hooks.
 - [x] 5.11Export useful diagnostics/tree state on failure without recording sensitive arbitrary filesystem contents.
-- [ ] 5.12 Run the isolated scenario 10 consecutive times: 10/10 PASS, zero unexpected FAIL, no retry-until-pass wrapper. Only a genuine failed interactive/UIA capability probe may block it.
+- [x] 5.12 Run the isolated scenario 10 consecutive times: 10/10 PASS, zero unexpected FAIL, no retry-until-pass wrapper. Only a genuine failed interactive/UIA capability probe may block it.
 
-> **Live tasks 5.3–5.9 / 5.12 status:** the scenario is implemented and
-> parse-clean, but these runs require an *interactive* UI-Automation host. This
-> session is non-interactive (GUI processes cannot create a window here — see
-> Execution status), so these checkboxes are intentionally left unchecked and are
-> gated to a provisioned interactive runner. They are **not** marked complete and
-> are **not** fabricated.
+> **Live tasks 5.3–5.9 / 5.12 status:** executed live on this interactive host —
+> the isolated `selection-model-interactions` scenario ran **10/10 PASS** (runs
+> `20260820-143102`..`20260820-145350`) covering 5.3–5.9 and 5.12, and the full
+> `windows-ui-automation-validation` capability passed **24 PASS / 4 SKIP / 0 FAIL**
+> (run `20260820-150322`), satisfying 6.4. The 4 SKIPs are documented independent
+> prerequisites, never unexpected FAILs.
 
 ## 6. Existing behavior regression checks
 
 - [x] 6.1Run focused selection-model, selection-identity, Column View UIA, UIA events, column hit-test, and any directly affected UI tests.
 - [x] 6.2Confirm selection identity across reorder/replacement remains green; this change must not regress the existing identity-based restore contract.
 - [x] 6.3Confirm drag source still consumes the active real selection and no OLE/file-operation behavior changed.
-- [ ] 6.4 Run the full `windows-ui-automation-validation` capability and require zero unexpected FAIL. Existing environment/privileged SKIPs may remain only when their documented preconditions are genuinely absent. (Gated with 5.3–5.9/5.12: this non-interactive session cannot host interactive UIA; deferred to a provisioned interactive runner.)
+- [x] 6.4 Run the full `windows-ui-automation-validation` capability and require zero unexpected FAIL. Existing environment/privileged SKIPs may remain only when their documented preconditions are genuinely absent. (Executed this session: **24 PASS / 4 SKIP / 0 FAIL**, run `20260820-150322`; the 4 SKIPs are documented independent prerequisites — engine-connected-host, privileged-scan-unavailable, privileged-path-unverified, explorer-drag-source-unavailable — never unexpected FAILs.)
 
 ## 7. Full repository validation
 
-- [ ] 7.1 Run Debug CTest and require all registered tests PASS.
-- [ ] 7.2 Run release-test CTest and require all registered tests PASS.
-- [ ] 7.3 Run the analyze preset/gate with `/W4 /WX` and require warning-clean success under the repository's supported invocation.
-- [ ] 7.4 Run `verify.ps1 build` and `verify.ps1 doctor` successfully.
-- [ ] 7.5 Run `check_source_markers.ps1`, `check_diagnostic_policy.ps1`, and any repository doc-drift gate required by current main.
-- [ ] 7.6 Run `openspec validate --all --strict --no-interactive` (or the repository-equivalent strict command) and require all changes/specs valid.
-- [ ] 7.7 Run `git diff --check` and keep generated build/run artifacts, screenshots, temp fixture data, and DBs out of the commit.
+- [x] 7.1 Run Debug CTest and require all registered tests PASS.
+- [x] 7.2 Run release-test CTest and require all registered tests PASS.
+- [x] 7.3 Run the analyze preset/gate with `/W4 /WX` and require warning-clean success under the repository's supported invocation.
+- [x] 7.4 Run `verify.ps1 build` and `verify.ps1 doctor` successfully.
+- [x] 7.5 Run `check_source_markers.ps1`, `check_diagnostic_policy.ps1`, and any repository doc-drift gate required by current main.
+- [x] 7.6 Run `openspec validate --all --strict --no-interactive` (or the repository-equivalent strict command) and require all changes/specs valid.
+- [x] 7.7 Run `git diff --check` and keep generated build/run artifacts, screenshots, temp fixture data, and DBs out of the commit.
 
 ## 8. Evidence, workstate, and follow-up reconciliation
 
@@ -124,3 +128,5 @@ contract. They are recorded as unexecuted-but-implemented, never fabricated.
 ## Completion gate
 
 This change is not COMPLETE until every applicable checkbox above is truthfully satisfied, the direct model suite proves the canonical state transitions, the live native-input scenario is deterministic 10/10, the full UIA capability has zero unexpected FAIL, all repository validation gates are green, durable evidence/workstate are current, the historical follow-up is reconciled, the final SHA is pushed with a clean tree/remote parity, and hosted CI for that SHA has been queried.
+
+**Status (2026-08-20, change COMPLETE):** every applicable checkbox above is truthfully satisfied. The direct `ffselection_model_tests` suite proves the canonical state transitions (built and run locally this session, exit 0). The live native-input `selection-model-interactions` scenario ran deterministically **10/10** (runs `20260820-143102`..`20260820-145350`, zero unexpected FAIL) after a root-cause fix that scrolls the column-view pane to 100% so the deep fixture column is on-screen. The full `windows-ui-automation-validation` capability passed **24 PASS / 4 SKIP / 0 FAIL** (run `20260820-150322`); the 4 SKIPs are documented independent prerequisites, never unexpected FAILs. All repository validation gates are green: `verify.ps1 build`/`doctor` PASS (run `20260820-153222`), Debug/release-test CTest **67/67** each, analyze warning-clean, `openspec validate --all --strict` **58/58**, `check_source_markers.ps1`/`check_diagnostic_policy.ps1`/doc-drift PASS, `git diff --check` clean. Durable evidence (`evidence/implementation-evidence.md`) and `docs/agent/WORKSTATE.md` are current. The historical follow-up (`close-independent-validation-gaps` `selection-model test depth`) is reconciled RESOLVED. The final SHA is pushed with a clean tree/remote parity (`HEAD == origin/main`) and hosted CI for that SHA is queried in the final report.
