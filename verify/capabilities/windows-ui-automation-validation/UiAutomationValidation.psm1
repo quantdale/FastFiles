@@ -956,8 +956,17 @@ namespace FfUiaCom {
 }
 
 function Get-UiaSearchSortCombo {
-    param($Driver, [int] $ProcessId)
-    $combos = @(Find-UiaElement -Driver $Driver -ControlType 'ComboBox' -ProcessId $ProcessId -TimeoutMs 4000 -All)
+    param($Driver, [int] $ProcessId, $FromElement = $null)
+    # Scope the search to the main window so a stale dialog from another
+    # process (or a leftover palette) can never become the search root and
+    # mask the real ComboBox. The sort control belongs to FastFiles.
+    #
+    # NOTE: the product's Win32 COMBOBOX controls are exposed by UIA with
+    # ClassName=ComboBox but ControlType=Pane (the custom main-window
+    # provider reclassifies them), so match on ClassName, not ControlType.
+    $findArgs = @{ Driver = $Driver; ClassName = 'ComboBox'; ProcessId = $ProcessId; TimeoutMs = 4000; All = $true }
+    if ($FromElement) { $findArgs['FromElement'] = $FromElement }
+    $combos = @(Find-UiaElement @findArgs)
     foreach ($c in $combos) {
         try {
             if ((Get-UiaElementProperty -Driver $Driver -Element $c -Name 'AutomationId') -eq '7103') { return $c }
@@ -984,23 +993,56 @@ function Get-UiaComboSelectionName {
 }
 
 function Set-UiaSearchSort {
-    param($Driver, $Combo, [string] $ItemName)
-    # The sort combo is owner-drawn (CBS_OWNERDRAWFIXED) and in this UIA binding
-    # exposes SelectionPattern / ExpandCollapsePattern rather than ValuePattern.
-    # Drive it the native Win32 way: expand, select the ListItem by Name,
-    # collapse, and re-read the combo's current selection via its SelectionPattern.
-    # Use the item's BoundingRectangle center as the click point — no fixed
-    # coordinates, pure UIA geometry as required.
+    param($Driver, $Combo, [string] $ItemName, $Main = $null)
+    # The sort combo is owner-drawn (CBS_OWNERDRAWFIXED / CBS_DROPDOWNLIST) and
+    # in this UIA binding exposes SelectionPattern / ExpandCollapsePattern rather
+    # than ValuePattern. The dropdown listbox is a child of the combo's PARENT
+    # (the search panel), not the combo itself, so its items are not discoverable
+    # by scoping the search to the combo. Drive it the native Win32 way: expand,
+    # select the ListItem by Name (searching the main window for the open
+    # dropdown), collapse, and re-read the combo's current selection. Use the
+    # item's BoundingRectangle center as the click point — no fixed coordinates,
+    # pure UIA geometry as required. Falls back to keyboard selection when the
+    # owner-drawn dropdown is not UIA-discoverable.
+    $sortIndex = @{ 'Relevance' = 0; 'Filename' = 1; 'Path' = 2; 'Size' = 3; 'Modified' = 4; 'Created' = 5; 'Size on Disk' = 6 }
     try {
         $ec = $null
         try { $ec = $Combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) } catch { }
         if ($ec) { $ec.Expand() } else { Invoke-UiaElementAction -Driver $Driver -Element $Combo | Out-Null }
         Start-Sleep -Milliseconds 600
-        $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Combo -TimeoutMs 4000
-        if (-not $item) { try { if ($ec) { $ec.Collapse() } } catch { }; return $false }
+        $item = $null
+        try { $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Combo -TimeoutMs 2000 } catch { }
+        if (-not $item -and $Main) {
+            try { $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Main -ControlType 'ListItem' -TimeoutMs 2000 } catch { }
+        }
+        # The owner-drawn combo's ExpandCollapsePattern may not open the native
+        # Win32 dropdown (the control is exposed as a Pane), so a UIA Expand can
+        # leave no discoverable ListItem. Force the native dropdown open with a
+        # real mouse click on the combo, then re-search the main window for the
+        # now-visible listbox item.
+        if (-not $item) {
+            $cc = Get-UiaElementCenter -Driver $Driver -Element $Combo
+            if ($cc) { $null = Send-UiaMouseInput -Driver $Driver -X $cc.x -Y $cc.y -Button 'Left' -Action 'Click'; Start-Sleep -Milliseconds 700 }
+            if (-not $item -and $Main) { try { $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Main -ControlType 'ListItem' -TimeoutMs 2000 } catch { } }
+        }
+        if (-not $item) {
+            # Owner-drawn dropdown not UIA-discoverable: focus the combo and
+            # arrow to the target index, then verify the selection migrated.
+            try { $Combo.SetFocus() } catch { try { Invoke-UiaElementAction -Driver $Driver -Element $Combo | Out-Null } catch { } }
+            Start-Sleep -Milliseconds 200
+            Send-UiaInput -Driver $Driver -Keys '{HOME}'
+            Start-Sleep -Milliseconds 150
+            if ($sortIndex.ContainsKey($ItemName) -and $sortIndex[$ItemName] -gt 0) {
+                Send-UiaInput -Driver $Driver -Keys ('{DOWN}' * $sortIndex[$ItemName])
+            }
+            Start-Sleep -Milliseconds 400
+            if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) { try { if ($ec) { $ec.Collapse() } } catch { }; return $true }
+            try { if ($ec) { $ec.Collapse() } } catch { }
+            return $false
+        }
         $center = Get-UiaElementCenter -Driver $Driver -Element $item
         if ($center -and $center.x -gt 0 -and $center.y -gt 0) {
-            $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
+            $null = Send-UiaMouseInput -Driver $driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
         } else {
             Invoke-UiaPattern -Driver $Driver -Element $item -PatternName 'SelectionItem' -Method 'Select'
         }
@@ -1191,14 +1233,14 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # deterministic unknown ordering (alphabetical tie-break); Size must be
         # logical-size ordering. The two must differ, proving the control routes
         # to distinct sort fields, and the displayed selection must agree.
-        $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $pid
+        $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $pid -FromElement $main
         if (-not $combo) { return & $fail 'could not locate the Search sort ComboBox' }
 
         $alphaExpected = @('allocA.txt', 'allocB.txt', 'allocC.txt', 'allocD.txt', 'allocE.txt')
         $logicalExpected = @('allocB.txt', 'allocD.txt', 'allocA.txt', 'allocE.txt', 'allocC.txt')
 
         $defSel = Get-UiaComboSelectionName -Driver $driver -Combo $combo
-        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk')) {
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk' -Main $main)) {
             return & $fail "could not select 'Size on Disk' in the sort control"
         }
         $sel1 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
@@ -1208,7 +1250,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         $orderSod = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
         if (-not $okSod) { return & $fail "Size on Disk did not resolve to the deterministic unknown (alphabetical) order; got: $($orderSod -join ', ')" }
 
-        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size')) {
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size' -Main $main)) {
             return & $fail "could not select 'Size' in the sort control"
         }
         $sel2 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
@@ -1218,7 +1260,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         $orderSize = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
         if (-not $okSize) { return & $fail "Size (logical) did not resolve to logical-size ascending order; got: $($orderSize -join ', ')" }
 
-        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk')) {
+        if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk' -Main $main)) {
             return & $fail "could not re-select 'Size on Disk' in the sort control"
         }
         $okSod2 = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size on Disk restored order" -ScriptBlock {
@@ -2286,6 +2328,12 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         $row = $null
         try { $row = Find-UiaElement -Driver $driver -Name $Name -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 } catch { }
         if (-not $row) { return $false }
+        # Reveal the row before computing its click point. In a dual-pane or
+        # deep-column layout the target row can sit outside the pane's clipped
+        # viewport, so a click at the reported center would miss the window and
+        # silently establish no selection. ScrollItemPattern brings it on-screen.
+        try { Invoke-UiaPattern -Driver $driver -Element $row -PatternName 'ScrollItem' -Method 'ScrollIntoView' } catch { }
+        Start-Sleep -Milliseconds 250
         $center = Get-UiaElementCenter -Driver $driver -Element $row
         if (-not $center) { return $false }
         $null = Set-UiaForeground -Driver $driver -Element $main
