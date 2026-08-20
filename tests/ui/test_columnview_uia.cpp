@@ -8,6 +8,7 @@
 #include "UiaTestSurface.h"
 
 #include <algorithm>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -622,12 +623,212 @@ void TestStatusTextElement() {
           "status element carries the visible error message");
 }
 
+// Walk the column's item children to the Nth item (0-based).
+Microsoft::WRL::ComPtr<IRawElementProviderFragment> ItemAtColumn(
+    IRawElementProviderFragment* column, int index) {
+    auto item = FirstChild(column);
+    for (int i = 0; i < index && item != nullptr; ++i) {
+        item = NextSibling(item.Get());
+    }
+    return item;
+}
+
+Microsoft::WRL::ComPtr<ISelectionItemProvider> AsSelectionItem(
+    IRawElementProviderFragment* item) {
+    Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
+    if (item != nullptr) {
+        (void)item->QueryInterface(IID_ISelectionItemProvider, &selection);
+    }
+    return selection;
+}
+
+// Collect the display Names of every element returned by the owning column's
+// ISelectionProvider::GetSelection() into an ordered set, so exact membership
+// can be asserted regardless of returned order.
+std::set<std::wstring> GetSelectedNames(ISelectionProvider* selection) {
+    std::set<std::wstring> names;
+    SAFEARRAY* selected = nullptr;
+    if (FAILED(selection->GetSelection(&selected)) || selected == nullptr) {
+        return names;
+    }
+    LONG lower = 0;
+    LONG upper = -1;
+    SafeArrayGetLBound(selected, 1, &lower);
+    SafeArrayGetUBound(selected, 1, &upper);
+    for (LONG i = lower; i <= upper; ++i) {
+        IRawElementProviderSimple* raw = nullptr;
+        if (SUCCEEDED(SafeArrayGetElement(selected, &i, &raw)) && raw != nullptr) {
+            Microsoft::WRL::ComPtr<IRawElementProviderSimple> element;
+            element.Attach(raw); // owns the ref from SafeArrayGetElement
+            names.insert(GetName(element.Get()));
+        }
+    }
+    SafeArrayDestroy(selected);
+    return names;
+}
+
+// 4.2: SelectionItem.Select() replaces the selection and the previously
+// selected item reports IsSelected==FALSE through the real provider.
+void TestSelectionSelectReplacesAndReports() {
+    auto surface = MakeSinglePaneSurface(); // item 0 selected initially
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto column = FirstChild(pane.Get());
+
+    Microsoft::WRL::ComPtr<ISelectionProvider> selection;
+    Check(SUCCEEDED(column->QueryInterface(IID_ISelectionProvider, &selection)),
+          "column exposes ISelectionProvider");
+
+    // Initial selection is exactly item 0.
+    Check(GetSelectedNames(selection.Get()) == std::set<std::wstring>{L"Folder0"},
+          "initial selection is exactly item 0");
+
+    // Locate item 0 (Folder0) and item 3 (file3.txt) through the real tree.
+    auto item0 = AsSelectionItem(ItemAtColumn(column.Get(), 0).Get());
+    auto item3 = AsSelectionItem(ItemAtColumn(column.Get(), 3).Get());
+    Check(item0 != nullptr && item3 != nullptr, "items 0 and 3 expose SelectionItem");
+
+    // Select item 3 via UIA -> replaces the entire selection.
+    Check(SUCCEEDED(item3->Select()), "Select() on item 3 succeeds");
+    Check(GetSelectedNames(selection.Get()) == std::set<std::wstring>{L"file3.txt"},
+          "GetSelection returns exactly the target (item 3)");
+    BOOL isSelected = FALSE;
+    item0->get_IsSelected(&isSelected);
+    Check(isSelected == FALSE, "previously selected item 0 reports IsSelected==FALSE");
+}
+
+// 4.3: AddToSelection() on an unselected item yields exactly the multi-select
+// union and leaves unrelated items unselected.
+void TestSelectionAddToSelectionMembership() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto column = FirstChild(pane.Get());
+
+    Microsoft::WRL::ComPtr<ISelectionProvider> selection;
+    Check(SUCCEEDED(column->QueryInterface(IID_ISelectionProvider, &selection)),
+          "column exposes ISelectionProvider");
+
+    auto item0 = AsSelectionItem(ItemAtColumn(column.Get(), 0).Get());
+    auto item2 = AsSelectionItem(ItemAtColumn(column.Get(), 2).Get());
+    auto item3 = AsSelectionItem(ItemAtColumn(column.Get(), 3).Get());
+    Check(item0 != nullptr && item2 != nullptr && item3 != nullptr,
+          "items 0, 2, and 3 expose SelectionItem");
+
+    // Start with item 3 selected only.
+    Check(SUCCEEDED(item3->Select()), "Select() on item 3 succeeds");
+    Check(GetSelectedNames(selection.Get()) == std::set<std::wstring>{L"file3.txt"},
+          "starting selection is exactly item 3");
+
+    // AddToSelection on item 0 -> {item0, item3}.
+    Check(SUCCEEDED(item0->AddToSelection()), "AddToSelection on item 0 succeeds");
+    Check(GetSelectedNames(selection.Get()) ==
+              std::set<std::wstring>{L"Folder0", L"file3.txt"},
+          "GetSelection returns exactly {item0, item3}");
+    BOOL isSelected = FALSE;
+    item0->get_IsSelected(&isSelected);
+    Check(isSelected == TRUE, "item 0 is selected after AddToSelection");
+    item2->get_IsSelected(&isSelected);
+    Check(isSelected == FALSE, "unrelated item 2 reports IsSelected==FALSE");
+}
+
+// 4.4: RemoveFromSelection() removes only its target; remaining members stay.
+void TestSelectionRemoveFromSelectionMembership() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto column = FirstChild(pane.Get());
+
+    Microsoft::WRL::ComPtr<ISelectionProvider> selection;
+    Check(SUCCEEDED(column->QueryInterface(IID_ISelectionProvider, &selection)),
+          "column exposes ISelectionProvider");
+
+    auto item0 = AsSelectionItem(ItemAtColumn(column.Get(), 0).Get());
+    auto item3 = AsSelectionItem(ItemAtColumn(column.Get(), 3).Get());
+    Check(item0 != nullptr && item3 != nullptr, "items 0 and 3 expose SelectionItem");
+
+    // Precondition: {item0, item3} selected.
+    Check(SUCCEEDED(item3->Select()), "Select() on item 3 succeeds");
+    Check(SUCCEEDED(item0->AddToSelection()), "AddToSelection on item 0 succeeds");
+    Check(GetSelectedNames(selection.Get()) ==
+              std::set<std::wstring>{L"Folder0", L"file3.txt"},
+          "precondition: {item0, item3} selected");
+
+    // RemoveFromSelection on item 0 -> only item 3 remains.
+    Check(SUCCEEDED(item0->RemoveFromSelection()), "RemoveFromSelection on item 0 succeeds");
+    Check(GetSelectedNames(selection.Get()) == std::set<std::wstring>{L"file3.txt"},
+          "GetSelection returns exactly {item3} after removal");
+    BOOL isSelected = FALSE;
+    item3->get_IsSelected(&isSelected);
+    Check(isSelected == TRUE, "item 3 remains IsSelected==TRUE");
+    item0->get_IsSelected(&isSelected);
+    Check(isSelected == FALSE, "item 0 is deselected after removal");
+}
+
+// 4.5: Mutating a same-index item in one pane must not alter selection
+// membership in the other pane (read strictly through the real providers).
+void TestSelectionDualPaneIsolation() {
+    auto surface = MakeDualPaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane0 = FirstChild(group.Get());
+    auto pane1 = NextSibling(pane0.Get());
+    Check(pane1 != nullptr, "dual-pane exposes pane 1");
+    auto column0 = FirstChild(pane0.Get());
+    auto column1 = FirstChild(pane1.Get());
+
+    Microsoft::WRL::ComPtr<ISelectionProvider> selection0;
+    Microsoft::WRL::ComPtr<ISelectionProvider> selection1;
+    Check(SUCCEEDED(column0->QueryInterface(IID_ISelectionProvider, &selection0)),
+          "pane-0 column exposes ISelectionProvider");
+    Check(SUCCEEDED(column1->QueryInterface(IID_ISelectionProvider, &selection1)),
+          "pane-1 column exposes ISelectionProvider");
+
+    // Establish a real selection in pane 0 (Select item 0).
+    auto item0p0 = AsSelectionItem(FirstChild(column0.Get()).Get());
+    Check(item0p0 != nullptr, "pane-0 item 0 exposes SelectionItem");
+    Check(SUCCEEDED(item0p0->Select()), "pane-0 item 0 Select succeeds");
+    Check(std::find(surface.actions.begin(), surface.actions.end(),
+                    L"select:0:0:0") != surface.actions.end(),
+          "selection routed to pane 0");
+    Check(GetSelectedNames(selection0.Get()) == std::set<std::wstring>{L"Folder0"},
+          "pane 0 selection is exactly item 0");
+
+    // Mutate the same-index item 0 in pane 1.
+    auto item0p1 = AsSelectionItem(FirstChild(column1.Get()).Get());
+    Check(item0p1 != nullptr, "pane-1 item 0 exposes SelectionItem");
+    Check(SUCCEEDED(item0p1->Select()), "pane-1 item 0 Select succeeds");
+    Check(std::find(surface.actions.begin(), surface.actions.end(),
+                    L"select:1:0:0") != surface.actions.end(),
+          "same-index mutation routed to pane 1, never pane 0");
+    Check(GetSelectedNames(selection1.Get()) == std::set<std::wstring>{L"shared.txt"},
+          "pane 1 target is selected");
+
+    // Pane 0's selection is unchanged by the pane-1 mutation.
+    Check(GetSelectedNames(selection0.Get()) == std::set<std::wstring>{L"Folder0"},
+          "pane 0 selection remains exactly item 0 after pane-1 mutation");
+    BOOL isSelected = FALSE;
+    item0p0->get_IsSelected(&isSelected);
+    Check(isSelected == TRUE, "pane-0 item 0 still reports IsSelected==TRUE");
+}
+
 } // namespace
 
 int main() {
     TestHierarchyAndNames();
     TestControlTypesAndIds();
     TestSelectionPattern();
+    TestSelectionSelectReplacesAndReports();
+    TestSelectionAddToSelectionMembership();
+    TestSelectionRemoveFromSelectionMembership();
+    TestSelectionDualPaneIsolation();
     TestInvokeAndScrollItem();
     TestScrollPattern();
     TestOffscreenAndBounds();

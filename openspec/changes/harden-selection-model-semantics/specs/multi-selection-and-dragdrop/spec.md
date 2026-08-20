@@ -35,9 +35,9 @@ Shift-clicking an item within an active pane SHALL select the contiguous visual 
 - **WHEN** a user has selected a single item as the anchor and then Shift-clicks a different item further down or up the same pane
 - **THEN** every item visually between the anchor and the clicked item, inclusive, SHALL become selected and focus SHALL move to the clicked endpoint
 
-#### Scenario: A subsequent Shift-click reuses the original anchor
+#### Scenario: A subsequent Shift-click re-anchors the range
 - **WHEN** a user Shift-clicks a new item after already performing one Shift-click range selection from the same anchor
-- **THEN** the selected range SHALL be recomputed from the original anchor to the newly clicked item, replacing the previous range, and the original anchor SHALL remain the range origin
+- **THEN** the selected range SHALL be recomputed from the same (original) anchor to the newly clicked item, replacing the previous range, and the original anchor SHALL remain the range origin rather than silently re-anchoring to the previous endpoint
 
 #### Scenario: Shift-click without an established anchor is deterministic
 - **WHEN** no valid selection anchor exists and the user Shift-clicks an item

@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-20
-Status: harden-index-store-concurrent-access COMPLETE — proven and hardened the existing
+Status: harden-selection-model-semantics IMPLEMENTATION COMPLETE (live 10/10 + full UIA capability environment-gated: no interactive UIA host here; CI excludes the capability) — added headless `ffselection_model_tests` executing the real `SelectionModel.h` plain/Ctrl/Shift/Ctrl+A transition table (membership/anchor/focus), routed production Ctrl+A through `SelectAllItems`, strengthened UIA selection-parity tests, and added the isolated live UIA scenario `selection-model-interactions`. Prior `harden-index-store-concurrent-access` COMPLETE and unaffected.
 one-writer + independent-reader SQLite/WAL contract with a deterministic, repeated two-connection
 fixture. No Store-layer fix was required; `Store` remains connection-owned and is **not** claimed
 thread-safe. `TestConcurrentReaderWriterWalContract()` (24 deterministic iterations) holds a live read
@@ -12,6 +12,40 @@ warning-clean; `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all 
 source-marker + diagnostic-policy + doc-drift PASS; `git diff --check` clean. Reconciled the
 `close-independent-validation-gaps` deferred note (same-SQLite-file concurrency coverage) as RESOLVED.
 Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
+
+## harden-selection-model-semantics session record (2026-08-20)
+
+- **Change:** `openspec/changes/harden-selection-model-semantics/` — prove the real
+  `SelectionModel.h` state machine and the actual Column View input path; UIA parity;
+  isolated live native-input selection scenario.
+- **Headless suite:** NEW `tests/ui/test_selection_model.cpp` + `ffselection_model_tests`
+  CTest target (`tests/ui/CMakeLists.txt`). Includes production `SelectionModel.h` (no
+  copy); asserts membership/anchor/focus after plain replace, Ctrl add/remove/first,
+  Shift forward/backward, repeated Shift from a stable anchor, Shift-without-anchor,
+  mixed sequences, and `SelectAllItems` for N>0/N=0. Executed by hosted CI (no local
+  CMake/Ninja/MSBuild in this environment).
+- **Production fix:** `ColumnView::OnKeyDown('A')` now calls `SelectAllItems(...)`
+  (the same seam `SelectAll()` uses) instead of a hand-written duplicate; also
+  correctly invalidates anchor/focus on an empty column (canonical "no valid
+  anchor/focus").
+- **UIA parity:** `tests/ui/test_columnview_uia.cpp` strengthened with
+  `TestSelectionSelectReplacesAndReports` (4.2), `TestSelectionAddToSelectionMembership`
+  (4.3), `TestSelectionRemoveFromSelectionMembership` (4.4), `TestSelectionDualPaneIsolation`
+  (4.5) — all read through the real provider `GetSelection`/`IsSelected`.
+- **Live scenario:** NEW `Invoke-UiaScenarioSelectionModelInteractions` + registry entry
+  `'selection-model-interactions'` (Isolated, Group 'selection') in
+  `verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1`.
+  Semantic, native mouse/keyboard input; reads `SelectionItem.IsSelected` via
+  `Get-UiaPattern`. **NOT executed here** (no interactive UIA host; CI excludes the
+  capability). Parse-clean, correct APIs.
+- **Gates:** local PASS — `openspec validate --all --strict` 58/58, `check_source_markers.ps1`,
+  `check_diagnostic_policy.ps1`, capability-module PowerShell parse. Build/run of C++
+  headless suites and `/W4 /WX` analyze delegated to `windows-latest` CI (presets
+  debug/release-test/analyze).
+- **Reconciliation:** `close-independent-validation-gaps/tasks.md` `selection-model test
+  depth` clause marked RESOLVED; IPC concurrency follow-up preserved.
+- **Validation command (headless):** `ctest --test-dir build/debug -R "ffselection_model_tests|ffselection_identity_tests|ffcolumnview_uia_tests|ffuia_events_tests" --output-on-failure`.
+- **Final SHA / CI:** set on push to `main`; reported in the executor handoff.
 
 ## allocated-size-search-filter session record (2026-08-20)
 

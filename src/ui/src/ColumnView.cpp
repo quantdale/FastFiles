@@ -305,15 +305,14 @@ void ColumnView::OnKeyDown(int virtualKey) {
                 activateItemIndex = focused.focusIndex;
                 break;
             case 'A':
+                // harden-selection-model-semantics 3.1: route Ctrl+A through the
+                // same tested Select All seam used by ColumnView::SelectAll so the
+                // real keyboard path cannot drift from the proven select-all
+                // semantic. SelectAllItems also correctly invalidates anchor/focus
+                // on an empty column (canonical: "no valid anchor/focus").
                 if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
-                    focused.selectedIndices.clear();
-                    for (int index = 0; index < static_cast<int>(focused.items.size()); ++index) {
-                        focused.selectedIndices.insert(index);
-                    }
-                    focused.focusIndex = focused.items.empty() ? -1 : 0;
-                    if (!focused.items.empty()) {
-                        focused.selectionAnchor = 0;
-                    }
+                    SelectAllItems(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
+                                   static_cast<int>(focused.items.size()));
                 }
                 break;
             default:

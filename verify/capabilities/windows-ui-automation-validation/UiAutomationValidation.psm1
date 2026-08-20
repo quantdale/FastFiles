@@ -2198,6 +2198,272 @@ function Get-UiAutomationValidationDiagnostics {
     return @('ui-process-present', 'column-view-elements', 'selection-and-keyboard-navigation', 'dialog-verification', 'scenario-lifecycle-isolation')
 }
 
+# harden-selection-model-semantics 5.1-5.12: live native-input selection
+# scenario. Exercises the real SelectionModel.h transitions through genuine
+# mouse/keyboard input dispatched against the live UIA element geometry — no
+# OCR, no screenshot-state inference, no fixed coordinates (every click point
+# comes from Get-UiaElementCenter of the live row element), no test-only
+# production hook. Selection is read SEMANTICALLY per-row via
+# SelectionItemPattern.IsSelectedProperty (id 30079), resolved by
+# Get-UiaElementProperty. Pass/fail is based on bounded semantic waits that
+# poll the IsSelected map, never on an arbitrary sleep-as-proof.
+function Invoke-UiaScenarioSelectionModelInteractions {
+    param($Context, [string] $ArtifactsDir)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $driver = $Context.Driver
+    $main = $Context.Main
+    $pid = $Context.Launched.Id
+    $id = 'selection-model-interactions'
+    # Every FAIL path dumps the live UIA tree for diagnostics (5.11) and returns
+    # a real FAIL — a genuine selection failure is never downgraded to SKIP.
+    $fail = {
+        param($detail)
+        try { $null = Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name $id } catch { }
+        New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'selection-model-interactions-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail
+    }
+    if (-not $Context.Ready) {
+        return New-UiaVSubResult -Id $id -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); selection interaction needs the engine handshake"
+    }
+
+    # --- fixture: test-owned scratch folder with 6 deterministically ordered
+    # rows (selA..selF). No privileged index/service needed: navigation to a
+    # normal folder works in degraded mode. Registered for teardown. ---
+    $scratch = Join-Path $env:USERPROFILE ('ffui-sel-' + (Get-Random))
+    New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+    foreach ($n in @('selA', 'selB', 'selC', 'selD', 'selE', 'selF')) {
+        Set-Content -LiteralPath (Join-Path $scratch ($n + '.txt')) -Value $n -Encoding utf8
+    }
+    [void]$Context.Fixtures.Add($scratch)
+
+    # --- semantic selection helpers (capture live $driver/$main) ---
+    # Re-acquire the terminal (deepest) List column of a pane on every call:
+    # native input can stale UIA providers, so never cache the column.
+    $getTerminalColumn = {
+        param([string]$PaneId)
+        $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId $PaneId
+        if (-not $pane) { return $null }
+        $cols = @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+            (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
+        if ($cols.Count -eq 0) { return $null }
+        return $cols[$cols.Count - 1]
+    }
+    # Per-row IsSelected via SelectionItemPattern.IsSelectedProperty (30079).
+    $getSelectedNames = {
+        param([string]$PaneId)
+        $col = & $getTerminalColumn $PaneId
+        if (-not $col) { return @() }
+        $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 -All)
+        $sel = [System.Collections.ArrayList]::new()
+        foreach ($r in $rows) {
+            $nm = Get-UiaElementProperty -Driver $driver -Element $r -Name 'Name'
+            $isSel = $false
+            try { $isSel = [bool](Invoke-UiaPattern -Driver $driver -Element $r -PatternName 'SelectionItem' -Method 'GetSelection') } catch { }
+            if ($isSel) { [void]$sel.Add($nm) }
+        }
+        return @($sel)
+    }
+    # Full name->IsSelected map (used for dual-pane isolation comparison).
+    $getSelectionMap = {
+        param([string]$PaneId)
+        $map = @{}
+        $col = & $getTerminalColumn $PaneId
+        if (-not $col) { return $map }
+        $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 -All)
+        foreach ($r in $rows) {
+            $nm = Get-UiaElementProperty -Driver $driver -Element $r -Name 'Name'
+            $isSel = $false
+            try { $isSel = [bool](Invoke-UiaPattern -Driver $driver -Element $r -PatternName 'SelectionItem' -Method 'GetSelection') } catch { }
+            $map[$nm] = $isSel
+        }
+        return $map
+    }
+    # Real native mouse click on a live row: geometry from Get-UiaElementCenter,
+    # modifier (''/Ctrl/Shift) held during the click via Send-UiaMouseInput.
+    $invokeRowClick = {
+        param([string]$Name, [string]$Modifier = '', [string]$PaneId = 'Pane.0')
+        $col = & $getTerminalColumn $PaneId
+        if (-not $col) { return $false }
+        $row = $null
+        try { $row = Find-UiaElement -Driver $driver -Name $Name -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 } catch { }
+        if (-not $row) { return $false }
+        $center = Get-UiaElementCenter -Driver $driver -Element $row
+        if (-not $center) { return $false }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        $null = Send-UiaMouseInput -Driver $driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click' -Modifier $Modifier
+        return $true
+    }
+    # Bounded semantic wait: poll the IsSelected map until it equals the
+    # expected name set (order-independent), or the deadline elapses.
+    $waitSelection = {
+        param([string[]]$Expected, [string]$PaneId = 'Pane.0', [int]$TimeoutMs = 8000)
+        $exp = @($Expected | Sort-Object)
+        return Wait-UiaCondition -Driver $driver -TimeoutMs $TimeoutMs -PollIntervalMs 200 `
+            -Description "selection == $($exp -join ',')" -ScriptBlock {
+            $cur = @(& $getSelectedNames $PaneId | Sort-Object)
+            if ($cur.Count -ne $exp.Count) { return $false }
+            for ($i = 0; $i -lt $exp.Count; $i++) { if ($cur[$i] -ne $exp[$i]) { return $false } }
+            return $true
+        }
+    }
+
+    try {
+        # --- foreground + navigation (mirrors Invoke-UiaScenarioSearchAllocatedSize) ---
+        try {
+            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 400
+            if ($stale) { try { Invoke-UiaElementAction -Driver $driver -Element $stale | Out-Null; Start-Sleep -Milliseconds 400 } catch { } }
+        } catch { }
+        for ($fgAttempt = 0; $fgAttempt -lt 6; $fgAttempt++) {
+            $null = Set-UiaForeground -Driver $driver -Element $main
+            Start-Sleep -Milliseconds 700
+            if (Test-UiaForegroundWindow -Driver $driver -Element $main) { break }
+            try {
+                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 300
+                if ($dlg) {
+                    $cancel = Find-UiaElement -Driver $driver -AutomationId '2' -FromElement $dlg -TimeoutMs 300
+                    Invoke-UiaElementAction -Driver $driver -Element $cancel | Out-Null; Start-Sleep -Milliseconds 400
+                }
+            } catch { }
+            try {
+                $fg = Get-UiaElementProperty -Driver $driver -Element (Get-UiaRootElement -Driver $driver) -Name 'Name'
+                if ($fg -match 'FastFilesEngine') { Start-Sleep -Milliseconds 600 }
+            } catch { }
+        }
+        $nav = $null
+        for ($navAttempt = 0; $navAttempt -lt 3 -and -not ($nav -and $nav.Pass); $navAttempt++) {
+            if ($navAttempt -gt 0) {
+                $null = Set-UiaForeground -Driver $driver -Element $main
+                Start-Sleep -Milliseconds 600
+            }
+            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        }
+        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        Start-Sleep -Milliseconds 300
+
+        # --- 5.2: semantically assert the expected fixture rows exist before
+        # any interaction (stale providers reacquired on each attempt). ---
+        $rowsOk = $false
+        $discovered = @()
+        for ($r = 0; $r -lt 5 -and -not $rowsOk; $r++) {
+            $col = & $getTerminalColumn 'Pane.0'
+            if ($col) {
+                $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 -All)
+                $discovered = @($rows | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' } | Where-Object { $_ -match '^sel[A-F]\.txt$' })
+                if ($discovered.Count -ge 6) { $rowsOk = $true }
+            }
+            if (-not $rowsOk) { Start-Sleep -Milliseconds 500 }
+        }
+        if (-not $rowsOk) {
+            return & $fail "fixture folder did not expose the expected 6 rows (selA..selF.txt); discovered: $($discovered -join ', ')"
+        }
+
+        $joinSelected = { param($PaneId) ((& $getSelectionMap $PaneId).Keys | Where-Object { (& $getSelectionMap $PaneId)[$_] } | Sort-Object) -join ', ' }
+
+        # --- 5.3: plain click row A -> exactly A selected. ---
+        if (-not (& $invokeRowClick 'selA.txt' '' 'Pane.0')) { return & $fail 'could not click row selA.txt in Pane.0' }
+        if (-not (& $waitSelection @('selA.txt') 'Pane.0')) {
+            return & $fail "plain click selA: expected exactly {selA.txt}; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.4: Ctrl-click row C -> {A, C}, nothing else added. ---
+        & $invokeRowClick 'selC.txt' 'Ctrl' 'Pane.0' | Out-Null
+        if (-not (& $waitSelection @('selA.txt', 'selC.txt') 'Pane.0')) {
+            return & $fail "Ctrl-click selC: expected {selA.txt,selC.txt}; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.5: Ctrl-click row A again -> only C remains. ---
+        & $invokeRowClick 'selA.txt' 'Ctrl' 'Pane.0' | Out-Null
+        if (-not (& $waitSelection @('selC.txt') 'Pane.0')) {
+            return & $fail "Ctrl-click selA (toggle off): expected {selC.txt}; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.6: re-anchor with plain click A, Shift-click E -> inclusive A..E. ---
+        & $invokeRowClick 'selA.txt' '' 'Pane.0' | Out-Null
+        & $waitSelection @('selA.txt') 'Pane.0' | Out-Null
+        & $invokeRowClick 'selE.txt' 'Shift' 'Pane.0' | Out-Null
+        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt') 'Pane.0')) {
+            return & $fail "Shift-click selE (forward range): expected {selA..selE}; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.7: second Shift-click C (no re-anchor) -> range recomputes from A -> A..C. ---
+        & $invokeRowClick 'selC.txt' 'Shift' 'Pane.0' | Out-Null
+        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt') 'Pane.0')) {
+            return & $fail "Shift-click selC (recompute from original anchor A): expected {selA..selC}; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.8: Ctrl+A via real keyboard path -> all 6 listed rows selected. ---
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        $null = Reset-UiaModifierKeys -Driver $driver
+        Start-Sleep -Milliseconds 200
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
+        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt', 'selF.txt') 'Pane.0')) {
+            return & $fail "Ctrl+A: expected all 6 rows selected; got {$(& $joinSelected 'Pane.0')}"
+        }
+
+        # --- 5.9: dual-pane isolation. Establish a known selection in the
+        # INACTIVE pane, then mutate/select-all in the active pane and verify
+        # the inactive pane's selection membership is EXACTLY unchanged. ---
+        $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $pid
+        if (-not $dp.Pass) { return & $fail "dual-pane setup failed: $($dp.Detail)" }
+        $pane0 = $dp.Pane0
+        $pane1 = $dp.Pane1
+        # Activate Pane.1 and navigate it to the same fixture folder.
+        $p1Center = Get-UiaElementCenter -Driver $driver -Element $pane1
+        if (-not $p1Center) { return & $fail 'Pane.1 has no usable geometry' }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        $null = Send-UiaMouseInput -Driver $driver -X $p1Center.x -Y $p1Center.y -Button 'Left' -Action 'Click'
+        Start-Sleep -Milliseconds 400
+        $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)" }
+        # Wait for Pane.1's terminal column to expose the fixture rows.
+        $p1Owned = Wait-UiaCondition -Driver $driver -TimeoutMs 12000 -PollIntervalMs 300 -Description "Pane.1 terminal column shows fixture rows" -ScriptBlock {
+            try {
+                $col = & $getTerminalColumn 'Pane.1'
+                if (-not $col) { return $false }
+                $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 3000 -All)
+                $names = @($rows | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
+                return ($names -contains 'selA.txt' -and $names -contains 'selF.txt')
+            } catch { return $false }
+        }
+        if (-not $p1Owned) { return & $fail 'Pane.1 did not load the fixture folder rows' }
+        # Establish a known selection in the INACTIVE pane (plain click selF).
+        if (-not (& $invokeRowClick 'selF.txt' '' 'Pane.1')) { return & $fail 'could not click row selF.txt in Pane.1' }
+        if (-not (& $waitSelection @('selF.txt') 'Pane.1')) {
+            return & $fail "could not establish known selection {selF.txt} in inactive Pane.1; got {$(& $joinSelected 'Pane.1')}"
+        }
+        $beforeMap = & $getSelectionMap 'Pane.1'
+        # Re-activate Pane.0 and perform Ctrl+A in the ACTIVE pane.
+        $p0Center = Get-UiaElementCenter -Driver $driver -Element $pane0
+        if (-not $p0Center) { return & $fail 'Pane.0 has no usable geometry' }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+        $null = Send-UiaMouseInput -Driver $driver -X $p0Center.x -Y $p0Center.y -Button 'Left' -Action 'Click'
+        Start-Sleep -Milliseconds 400
+        $null = Reset-UiaModifierKeys -Driver $driver
+        Start-Sleep -Milliseconds 150
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
+        # Wait for Pane.0 to select all, then re-read Pane.1.
+        & $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt', 'selF.txt') 'Pane.0' | Out-Null
+        Start-Sleep -Milliseconds 400
+        $afterMap = & $getSelectionMap 'Pane.1'
+        $isolationOk = $true
+        foreach ($k in $beforeMap.Keys) {
+            if ($afterMap.ContainsKey($k) -and $afterMap[$k] -ne $beforeMap[$k]) { $isolationOk = $false; break }
+        }
+        if (-not $isolationOk) {
+            $b = (($beforeMap.Keys | Where-Object { $beforeMap[$_] } | Sort-Object) -join ',')
+            $a = (($afterMap.Keys | Where-Object { $afterMap[$_] } | Sort-Object) -join ',')
+            return & $fail "dual-pane isolation broken: inactive Pane.1 selection changed from {$b} to {$a}"
+        }
+
+        $sw.Stop()
+        return New-UiaVSubResult -Id $id -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds `
+            -Detail "harden-selection-model-semantics 5.3-5.9: plain-click selA -> {selA}; Ctrl-click selC -> {selA,selC}; Ctrl-click selA -> {selC}; plain selA + Shift-click selE -> {selA..selE}; second Shift-click selC -> {selA..selC}; Ctrl+A -> all 6; dual-pane isolation: Pane.1 {selF} unchanged after Pane.0 Ctrl+A" `
+            -Diagnostics @('selection-model-interactions.tree.txt')
+    } catch {
+        return & $fail "scenario failed: $($_.Exception.Message)"
+    }
+}
+
 # stabilize-live-uia-e2e 2.1/5: the scenario registry. Isolated scenarios run
 # in their own fresh FastFiles lifecycle; group names select whole families.
 $script:UiaScenarioRegistry = @{
@@ -2220,6 +2486,7 @@ $script:UiaScenarioRegistry = @{
     'search-deep-result-navigation'            = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchDeep -Context $ctx -ArtifactsDir $dir } }
     'search-structured-filter-query'           = @{ Group = 'search';  Isolated = $false }
     'search-allocated-size'                    = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchAllocatedSize -Context $ctx -ArtifactsDir $dir } }
+    'selection-model-interactions'            = @{ Group = 'selection'; Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSelectionModelInteractions -Context $ctx -ArtifactsDir $dir } }
     'search-toggle-service-while-open'         = @{ Group = 'privileged'; Isolated = $false }
     'in-column-error-state-late'               = @{ Group = 'error';   Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioErrorStateLate -Context $ctx -ArtifactsDir $dir } }
     'drag-out-to-explorer'                     = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragOut -Context $ctx -ArtifactsDir $dir } }

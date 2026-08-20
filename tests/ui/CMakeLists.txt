@@ -73,6 +73,15 @@ add_executable(ffselection_identity_tests test_selection_identity.cpp)
 target_include_directories(ffselection_identity_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffselection_identity_tests COMMAND ffselection_identity_tests)
 
+# harden-selection-model-semantics 2.1: direct, executable regression matrix for
+# the production selection state machine. Includes the real SelectionModel.h
+# (no copy) and asserts membership/anchor/focus after every canonical
+# plain/Ctrl/Shift/Ctrl+A transition.
+add_executable(ffselection_model_tests test_selection_model.cpp)
+target_include_directories(ffselection_model_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+add_test(NAME ffselection_model_tests COMMAND ffselection_model_tests)
+set_tests_properties(ffselection_model_tests PROPERTIES TIMEOUT 120)
+
 add_executable(ffsnapshot_freshness_tests test_snapshot_freshness.cpp)
 target_include_directories(ffsnapshot_freshness_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
 add_test(NAME ffsnapshot_freshness_tests COMMAND ffsnapshot_freshness_tests)
