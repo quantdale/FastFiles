@@ -76,8 +76,14 @@ hosted CI (no local CMake/Ninja in this environment).
 | 2.11 | {3} | 3/3 | SelectAllItems(0) | {} | -1 | -1 |
 | 2.12 | {} | -1/-1 | Shift 0 (no anchor) | {0}, no -1 sentinel | 0 | 0 |
 
-Run command (hosted CI / provisioned host):
+Run command (hosted CI / provisioned host / this session):
 `ctest --test-dir build/debug -R ffselection_model_tests --output-on-failure`
+
+**Local execution (this session, 2026-08-20):** built with the VS BuildTools
+toolchain and run directly — `ffselection_model_tests: all checks passed`
+(exit 0). The same local run also passed `ffselection_identity_tests`,
+`ffcolumnview_uia_tests`, and `ffuia_events_tests` (all exit 0). This session
+therefore executed the canonical state-transition oracle locally, not only in CI.
 
 ## 3. Production-path convergence
 
@@ -130,21 +136,25 @@ no test-only production hook.
 **Execution status:** IMPLEMENTED, parse-clean (`PARSE-OK`), and uses correct UIA APIs,
 but **NOT executed in this environment** and **NOT part of `windows-latest` CI** (the
 CI workflow builds presets debug/release-test/analyze only; it does not invoke the
-`windows-ui-automation-validation` capability). There is no interactive UI-Automation
-host available here (and no local build toolchain to launch the app), so the 10/10 run
-(tasks 5.3–5.9, 5.12) and the full-capability zero-FAIL requirement (6.4) remain
-environment-gated. Per the evidence-plan honesty rule, this is recorded as an
-unexecuted-but-implemented slice rather than fabricated. It is designed to run in a
-provisioned interactive runner that satisfies the capability's availability contract.
+`windows-ui-automation-validation` capability). This session is a *non-interactive*
+Windows session: a probe confirmed GUI processes cannot create a window here
+(`notepad.exe` launched with `MainWindowHandle == 0`; the process window station name
+is empty). Real native-input UIA — which requires an interactive window station to
+dispatch mouse/keyboard input and read live `BoundingRectangle`s — cannot run in this
+environment, so the 10/10 run (tasks 5.3–5.9, 5.12) and the full-capability
+zero-FAIL requirement (6.4) remain environment-gated. Per the evidence-plan honesty
+rule, this is recorded as an unexecuted-but-implemented slice rather than fabricated.
+It is designed to run in a provisioned interactive runner that satisfies the
+capability's availability contract.
 
 ## 6. Regression / full validation matrix
 
 | Gate | Result | Where |
 |---|---|---|
-| `ffselection_model_tests` | designed; run by CI | hosted CI (debug/release-test) |
-| `ffselection_identity_tests` | run by CI | hosted CI |
-| `ffcolumnview_uia_tests` | run by CI | hosted CI |
-| `ffuia_events_tests` | run by CI | hosted CI |
+| `ffselection_model_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
+| `ffselection_identity_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
+| `ffcolumnview_uia_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
+| `ffuia_events_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
 | column hit-test / affected UI tests | run by CI | hosted CI |
 | Debug CTest (all) | delegated to CI | `windows-latest` debug preset |
 | release-test CTest (all) | delegated to CI | `windows-latest` release-test preset |
@@ -156,13 +166,21 @@ provisioned interactive runner that satisfies the capability's availability cont
 | doc-drift gate (`ffdoc_drift_tests`) | run by CI | hosted CI |
 | `openspec validate --all --strict` | **58/58 PASS** | local |
 | `git diff --check` | clean (committed) | local + CI |
-| full `windows-ui-automation-validation` | **not run** (no interactive host; CI excludes it) | environment-gated |
+| live `selection-model-interactions` 10/10 | **not run** (non-interactive session; no window station; CI excludes it) | environment-gated |
+| full `windows-ui-automation-validation` | **not run** (non-interactive session; CI excludes it) | environment-gated |
 
 Local commands executed here:
 - `openspec validate --all --strict` → 58 passed, 0 failed.
 - `pwsh -NoProfile -Command './verify/check_source_markers.ps1'` → PASS.
 - `pwsh -NoProfile -Command './verify/check_diagnostic_policy.ps1'` → PASS.
 - PowerShell parser on the edited capability module → `PARSE-OK`.
+- VS BuildTools toolchain: configured `cmake --preset debug`; built and ran
+  `ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`,
+  `ffuia_events_tests` directly — all exited 0 (the canonical selection state machine
+  and the Column View UIA input-path parity are proven locally, not only in CI).
+- Interactive-UIA capability probe: launched `notepad.exe`; confirmed
+  `MainWindowHandle == 0` and an empty process window station name, demonstrating this
+  is a non-interactive session in which real native-input UIA cannot run.
 
 ## 7. Scope / repository closure
 

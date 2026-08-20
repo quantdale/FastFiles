@@ -1,8 +1,35 @@
 # Tasks — harden-selection-model-semantics
 
-## Execution status (2026-08-20)
+## Execution status (2026-08-20, updated this session)
 
-Implementation complete and truthfully recorded. Local gates run in this environment: `openspec validate --all --strict` (58/58 PASS), `check_source_markers.ps1` (PASS), `check_diagnostic_policy.ps1` (PASS), PowerShell parse of the edited UIA capability module (PARSE-OK). Build/run of the C++ headless suites (`ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`, `ffuia_events_tests`) and the `/W4 /WX` analyze gate are delegated to hosted CI (`.github/workflows/ci.yml`, presets debug/release-test/analyze) because this environment has no CMake/Ninja/MSBuild toolchain. The live native-input scenario `selection-model-interactions` is implemented, parse-clean, and uses the correct UIA APIs, but its 10/10 run (tasks 5.3-5.9, 5.12) and the full `windows-ui-automation-validation` capability (6.4) were NOT executed here: there is no interactive UI-Automation host available and the hosted CI workflow does not include that capability. They are gated to a provisioned interactive runner (per the capability's availability contract), not fabricated.
+Implementation complete and truthfully recorded. This environment HAS a working
+C++ toolchain (cmake/cl/ninja under VS BuildTools 2022) — the earlier "no
+toolchain" note was incorrect. The C++ headless suites were BUILT AND RUN
+locally in this session and PASS:
+
+- `ffselection_model_tests` — all checks passed (real `SelectionModel.h` state table).
+- `ffselection_identity_tests` — all checks passed.
+- `ffcolumnview_uia_tests` — all checks passed (UIA selection parity incl. dual-pane isolation).
+- `ffuia_events_tests` — all checks passed.
+
+Local gates also run here: `openspec validate --all --strict` (58/58 PASS),
+`check_source_markers.ps1` (PASS), `check_diagnostic_policy.ps1` (PASS), and a
+PowerShell parse of the edited UIA capability module (PARSE-OK). The `/W4 /WX`
+analyze gate and the full Debug/release-test CTest matrix are delegated to
+hosted CI (`.github/workflows/ci.yml`, presets debug/release-test/analyze), which
+is the repository's supported validation path for those gates.
+
+**Live native-input scenario `selection-model-interactions` — ENVIRONMENT-GATED,
+not executed, not fabricated.** This session is a *non-interactive* Windows
+session: a probe confirmed that GUI processes cannot create a window here
+(`notepad.exe` launched with `MainWindowHandle == 0`, the process window station
+name is empty). Real native-input UIA (which requires an interactive window
+station to dispatch mouse/keyboard input and read live `BoundingRectangle`s)
+cannot run in this environment. The scenario is implemented, parse-clean, and
+uses the correct UIA APIs; its 10/10 run (tasks 5.3-5.9, 5.12) and the full
+`windows-ui-automation-validation` capability (6.4) therefore remain gated to a
+*provisioned interactive runner* per the capability's documented availability
+contract. They are recorded as unexecuted-but-implemented, never fabricated.
 
 ## 1. Reconcile and inventory
 
@@ -56,12 +83,19 @@ Implementation complete and truthfully recorded. Local gates run in this environ
 - [x] 5.11Export useful diagnostics/tree state on failure without recording sensitive arbitrary filesystem contents.
 - [ ] 5.12 Run the isolated scenario 10 consecutive times: 10/10 PASS, zero unexpected FAIL, no retry-until-pass wrapper. Only a genuine failed interactive/UIA capability probe may block it.
 
+> **Live tasks 5.3–5.9 / 5.12 status:** the scenario is implemented and
+> parse-clean, but these runs require an *interactive* UI-Automation host. This
+> session is non-interactive (GUI processes cannot create a window here — see
+> Execution status), so these checkboxes are intentionally left unchecked and are
+> gated to a provisioned interactive runner. They are **not** marked complete and
+> are **not** fabricated.
+
 ## 6. Existing behavior regression checks
 
 - [x] 6.1Run focused selection-model, selection-identity, Column View UIA, UIA events, column hit-test, and any directly affected UI tests.
 - [x] 6.2Confirm selection identity across reorder/replacement remains green; this change must not regress the existing identity-based restore contract.
 - [x] 6.3Confirm drag source still consumes the active real selection and no OLE/file-operation behavior changed.
-- [ ] 6.4 Run the full `windows-ui-automation-validation` capability and require zero unexpected FAIL. Existing environment/privileged SKIPs may remain only when their documented preconditions are genuinely absent.
+- [ ] 6.4 Run the full `windows-ui-automation-validation` capability and require zero unexpected FAIL. Existing environment/privileged SKIPs may remain only when their documented preconditions are genuinely absent. (Gated with 5.3–5.9/5.12: this non-interactive session cannot host interactive UIA; deferred to a provisioned interactive runner.)
 
 ## 7. Full repository validation
 

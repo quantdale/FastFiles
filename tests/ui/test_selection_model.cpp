@@ -32,12 +32,12 @@ bool SameSet(const std::set<int>& a, const std::set<int>& b) {
 
 void CheckState(const char* label, const ModelState& s,
                 const std::set<int>& expSelected, int expAnchor, int expFocus) {
-    Check(SameSet(s.selected, expSelected),
-          std::string(label) + ": selected set mismatch");
-    Check(s.anchor == expAnchor,
-          std::string(label) + ": anchor mismatch");
-    Check(s.focus == expFocus,
-          std::string(label) + ": focus mismatch");
+    const std::string selMsg = std::string(label) + ": selected set mismatch";
+    const std::string anchorMsg = std::string(label) + ": anchor mismatch";
+    const std::string focusMsg = std::string(label) + ": focus mismatch";
+    Check(SameSet(s.selected, expSelected), selMsg.c_str());
+    Check(s.anchor == expAnchor, anchorMsg.c_str());
+    Check(s.focus == expFocus, focusMsg.c_str());
 }
 
 // 2.2 / 2.3: plain click from empty and from a multi-selection.

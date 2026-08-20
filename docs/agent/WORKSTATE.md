@@ -1,7 +1,7 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-20
-Status: harden-selection-model-semantics IMPLEMENTATION COMPLETE (live 10/10 + full UIA capability environment-gated: no interactive UIA host here; CI excludes the capability) — added headless `ffselection_model_tests` executing the real `SelectionModel.h` plain/Ctrl/Shift/Ctrl+A transition table (membership/anchor/focus), routed production Ctrl+A through `SelectAllItems`, strengthened UIA selection-parity tests, and added the isolated live UIA scenario `selection-model-interactions`. Prior `harden-index-store-concurrent-access` COMPLETE and unaffected.
+Status: harden-selection-model-semantics IMPLEMENTATION COMPLETE (live 10/10 + full UIA capability ENVIRONMENT-GATED on a non-interactive session: GUI processes cannot create a window here, so real native-input UIA cannot run; CI excludes the capability) — added headless `ffselection_model_tests` executing the real `SelectionModel.h` plain/Ctrl/Shift/Ctrl+A transition table (membership/anchor/focus); the headless suites (`ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`, `ffuia_events_tests`) were BUILT AND RUN LOCALLY this session and PASS; routed production Ctrl+A through `SelectAllItems`, strengthened UIA selection-parity tests, and added the isolated live UIA scenario `selection-model-interactions`. Prior `harden-index-store-concurrent-access` COMPLETE and unaffected.
 one-writer + independent-reader SQLite/WAL contract with a deterministic, repeated two-connection
 fixture. No Store-layer fix was required; `Store` remains connection-owned and is **not** claimed
 thread-safe. `TestConcurrentReaderWriterWalContract()` (24 deterministic iterations) holds a live read
@@ -22,8 +22,12 @@ Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
   CTest target (`tests/ui/CMakeLists.txt`). Includes production `SelectionModel.h` (no
   copy); asserts membership/anchor/focus after plain replace, Ctrl add/remove/first,
   Shift forward/backward, repeated Shift from a stable anchor, Shift-without-anchor,
-  mixed sequences, and `SelectAllItems` for N>0/N=0. Executed by hosted CI (no local
-  CMake/Ninja/MSBuild in this environment).
+  mixed sequences, and `SelectAllItems` for N>0/N=0. **BUILT AND RUN LOCALLY this
+  session (VS BuildTools cmake/cl/ninja) — all checks passed (exit 0).** Also run by
+  hosted CI. (`tests/ui/test_selection_model.cpp` carries a small working-tree fix: the
+  `Check` helper takes `const char*`, so the `CheckState` helper now passes
+  `selMsg.c_str()` etc. instead of a dangling `std::string` temporary — this was the
+  uncommitted delta left from the prior commit and is included in this session's push.)
 - **Production fix:** `ColumnView::OnKeyDown('A')` now calls `SelectAllItems(...)`
   (the same seam `SelectAll()` uses) instead of a hand-written duplicate; also
   correctly invalidates anchor/focus on an empty column (canonical "no valid
@@ -39,9 +43,20 @@ Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
   `Get-UiaPattern`. **NOT executed here** (no interactive UIA host; CI excludes the
   capability). Parse-clean, correct APIs.
 - **Gates:** local PASS — `openspec validate --all --strict` 58/58, `check_source_markers.ps1`,
-  `check_diagnostic_policy.ps1`, capability-module PowerShell parse. Build/run of C++
-  headless suites and `/W4 /WX` analyze delegated to `windows-latest` CI (presets
-  debug/release-test/analyze).
+  `check_diagnostic_policy.ps1`, capability-module PowerShell parse. C++ headless suites
+  (`ffselection_model_tests`, `ffselection_identity_tests`, `ffcolumnview_uia_tests`,
+  `ffuia_events_tests`) BUILT AND RUN LOCALLY this session — all exit 0. The `/W4 /WX`
+  analyze gate and the full Debug/release-test CTest matrix are delegated to
+  `windows-latest` CI (presets debug/release-test/analyze), the repository's supported
+  path for those gates.
+- **Live UIA 10/10 (tasks 5.3-5.9, 5.12) + full capability (6.4):** ENVIRONMENT-GATED,
+  not executed, not fabricated. This is a **non-interactive** session — a probe launched
+  `notepad.exe` and observed `MainWindowHandle == 0` with an empty process window-station
+  name, proving GUI processes cannot create a window here. Real native-input UIA (mouse/
+  keyboard dispatch against a live window + live `BoundingRectangle` reads) requires an
+  interactive window station and cannot run in this environment. The scenario is
+  implemented and parse-clean; it remains gated to a provisioned interactive runner per
+  the capability's availability contract.
 - **Reconciliation:** `close-independent-validation-gaps/tasks.md` `selection-model test
   depth` clause marked RESOLVED; IPC concurrency follow-up preserved.
 - **Validation command (headless):** `ctest --test-dir build/debug -R "ffselection_model_tests|ffselection_identity_tests|ffcolumnview_uia_tests|ffuia_events_tests" --output-on-failure`.
