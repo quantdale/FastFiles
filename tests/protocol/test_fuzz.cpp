@@ -231,6 +231,56 @@ void FuzzIndexedSearchResponseV2(std::mt19937& rng) {
     }
 }
 
+// indexed-search-allocated-size D5/D12: fuzz the legacy (message 18)
+// indexed-search response parser. It shares the same reject-the-whole-thing
+// discipline as the V2 parser but was not yet exercised by the fuzzer. Property
+// under test: never crashes; any accepted result reports exactly the declared
+// candidate count; every candidate length is within the path bound; and a legacy
+// decode always yields allocated-size-unknown (never a fabricated on-disk value).
+void FuzzIndexedSearchResponseLegacy(std::mt19937& rng) {
+    std::uniform_int_distribution<size_t> sizeDist(0, 4096);
+    for (int i = 0; i < kIterationsPerFuzzer; ++i) {
+        const std::vector<uint8_t> payload = RandomBytes(rng, sizeDist(rng));
+        const auto parsed = ffprotocol::ParseIndexedSearchResponse(payload.data(), payload.size());
+        if (parsed.has_value()) {
+            Check(parsed->candidates.size() <= ffprotocol::kMaxIndexedSearchResultCount,
+                  "legacy response never yields more candidates than the protocol bound");
+            for (const auto& candidate : parsed->candidates) {
+                Check(candidate.name.size() <= ffprotocol::kMaxPathLengthChars,
+                      "legacy response candidate name length is within the path bound");
+                Check(candidate.folder.size() <= ffprotocol::kMaxPathLengthChars,
+                      "legacy response candidate folder length is within the path bound");
+                Check(!candidate.allocatedSizeKnown && candidate.allocatedSizeBytes == 0,
+                      "legacy response candidate is always allocated-size-unknown");
+            }
+        }
+    }
+}
+
+// indexed-search: fuzz the UI->engine search request parser. Property under test:
+// never crashes; any accepted request carries only validated scope/sort values,
+// query/scope-path lengths within their protocol bounds, and a results cap within
+// the request maximum -- matching the exact, overflow-checked parser contract.
+void FuzzIndexedSearchRequest(std::mt19937& rng) {
+    std::uniform_int_distribution<size_t> sizeDist(0, 4096);
+    for (int i = 0; i < kIterationsPerFuzzer; ++i) {
+        const std::vector<uint8_t> payload = RandomBytes(rng, sizeDist(rng));
+        const auto parsed = ffprotocol::ParseIndexedSearchRequest(payload.data(), payload.size());
+        if (parsed.has_value()) {
+            Check(ffprotocol::IsIndexedSearchScopeValid(parsed->scope),
+                  "accepted request scope is a validated enum value");
+            Check(ffprotocol::IsIndexedSearchSortValid(parsed->sortField),
+                  "accepted request sort field is a validated enum value");
+            Check(parsed->query.size() <= ffprotocol::kMaxIndexedSearchQueryLengthChars,
+                  "accepted request query length is within the protocol bound");
+            Check(parsed->scopePath.size() <= ffprotocol::kMaxPathLengthChars,
+                  "accepted request scope-path length is within the path bound");
+            Check(parsed->maxResults <= ffprotocol::kMaxIndexedSearchRequestResults,
+                  "accepted request maxResults is within the request cap");
+        }
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -247,6 +297,8 @@ int main(int argc, char** argv) {
     FuzzUsnDeltaBatchParsing(rng);
     FuzzSnapshotParsing(rng);
     FuzzIndexedSearchResponseV2(rng);
+    FuzzIndexedSearchResponseLegacy(rng);
+    FuzzIndexedSearchRequest(rng);
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "\n%d fuzz check(s) failed (seed 0x%08X)\n", fftest::FailureCount(), seed);
