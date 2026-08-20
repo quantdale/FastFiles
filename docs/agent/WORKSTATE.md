@@ -2572,3 +2572,20 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
 - **Status:** the repository is production-ready on every local/portable + memory-safety gate. Remaining
   `close-independent-validation-gaps` items (4.2, 4.5–4.8, 5.1) remain `[external]` (signing, elevated
   clean-host, interactive visual) and were not fabricated as complete.
+
+## Session record 2026-08-20 — production-readiness re-verification sweep (GOAL: complete codebase / production ready)
+
+Status: CODEBASE CONFIRMED PRODUCTION-READY on every local/portable + static-analysis + memory-safety gate. All 11 remaining OpenSpec tasks (across `close-independent-validation-gaps`, `autonomous-runtime-verification`, `zero-touch-autonomous-engineering`) are `[external]` and cannot be closed without fabricating evidence (forbidden).
+
+- Re-verified from a clean checkout, not trusting prior summaries: VS2022 BuildTools `vcvarsall x64` environment (MINGW64 bash needs it — direct PATH export does not propagate INCLUDE/LIB to `rc.exe`/`cl.exe`).
+- **Debug build** clean; **Debug CTest 67/67 PASS** (45 s).
+- **Release-test (RelWithDebInfo) build** clean; **CTest 67/67 PASS** (40 s).
+- **`/analyze`** (`FASTFILES_STATIC_ANALYSIS=ON`) build warning-clean — exit 0, 0 warnings/errors (production binaries compiled under `/W4 /WX /analyze`).
+- **AddressSanitizer** gate: `ffprotocol_fuzz_tests` + `ffipc_framing_tests` PASS under `/fsanitize=address` (0 findings).
+- **OpenSpec strict** (`openspec validate --all --strict --no-interactive`): **58/58 PASS**.
+- **`check_source_markers.ps1`** PASS (no TEMP-DEBUG/DEBUG_STALL markers in 202 production sources); **`check_diagnostic_policy.ps1`** PASS (fail-closed; no diagnostic escape hatch in release/release-test caches).
+- Source hygiene: zero `TODO/FIXME/HACK/BUG/XXX/STUB`/`not implemented` markers, zero unimplemented-stub `throw`/`assert(false)` in `src/`.
+- Working tree: removed 26 stray prior-session + local build logs/scripts; committed the 2 pending `harden-selection-model-semantics` markdown-polish doc edits (`54c8cfd`); tree clean, no trailing-whitespace diff.
+- **Residual = 11 open tasks, all external:** `close-independent-validation-gaps` 4.2/4.5–4.8/5.1 (authorized production signer+pins; signed privileged install + real MFT/USN on elevated clean host; `fftest` + clean-host matrix; interactive Windows visual/UIA matrix); `autonomous-runtime-verification` 2.3/2.4 (disposable VM provider — no Windows install media / guest OS on this host); `zero-touch-autonomous-engineering` 6.3/6.4/6.6 (guest provisioning / WinRM / clean snapshot — no media).
+- **Conclusion:** the FastFiles *codebase* is complete and production-ready on every attainable gate. The 11 residual items are validation/evidence tasks requiring out-of-sandbox resources (signing cert, elevated clean host, interactive desktop, Windows install media) and must not be fabricated. Goal resolution = complete-with-external-residual.
+- NEXT (only if external resources supplied): provision authorized signing + production pins, install signed service and validate privileged MFT/USN, run interactive GUI/UIA visual matrix, provision a Windows guest and validate autonomous cross-provider runs.
