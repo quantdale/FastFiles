@@ -1,18 +1,53 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-19
-Status: indexed-search-allocated-size IMPLEMENTED — live UIA validated with the actual
-`build/debug-diagnostic` binaries (`FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`, no production
-signing / trust-store / service-install / privileged MFT campaign). Focused `search-allocated-size`
-isolated scenario: 10/10 PASS on this host; the latest run is written to `verify/runs/ad-hoc/<run-id>/`
-and proves `Search.Results` discoverability, per-row logical + explicit `Size on disk unknown`
-(no fabricated `0`/logical echo), UIA `FullDescription` via raw `UIA_FullDescriptionPropertyId`,
-query-replacement stability, and the `Size on Disk` ↔ `Size` sort-control toggle (alphabetical
-`UNKNOWN` vs logical order, selection agreement) — all degraded where `UNKNOWN` is the correct state.
-Full `windows-ui-automation-validation` and `verify.ps1 build`/`doctor` gates are still pending as
-the final acceptance step before marking COMPLETE and pushing to `origin/main` (see current evidence
-below; WORKSTATE remains the durable resume point until `HEAD == origin/main` + clean tree + hosted CI
-for that SHA are verified).
+Last updated: 2026-08-20
+Status: allocated-size-search-filter COMPLETE — prior indexed-search-allocated-size closure reconciled;
+this slice (ondisk:) registered, view+owning semantics proved, degraded live Search validated. Verified
+on this host with `build/debug-diagnostic` (`FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`, no production
+signing/trust-store/service-install/privileged MFT). Focused `search-allocated-size` (now extended for
+`ondisk:>=0B` degraded-UNKNOWN non-fabrication + restore) isolated 10/10 PASS; full
+`windows-ui-automation-validation` 23 PASS / 4 SKIP / 0 FAIL; Debug CTest 66/66; release-test CTest 66/66;
+analyze warning-clean; `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all --strict` 56/56.
+Prior indexed-search-allocated-size live evidence (Search.Results discoverability, per-row
+`Size on disk unknown` via raw `UIA_FullDescriptionPropertyId`, query-replacement, `Size on Disk` ↔
+`Size` sort toggle) remains proved and is now extended, not re-litigated. WORKSTATE reconciles the
+stale `3ad54ae` top-paragraph claim that final acceptance was pending — that state was resolved when the
+prior evidence was committed; this change closes the follow-up filter.
+
+## allocated-size-search-filter session record (2026-08-20)
+
+- **Change:** `openspec/changes/allocated-size-search-filter/` — add `ondisk:` allocated-size Search
+  filter (single canonical key, reusing the `size:` binary-size grammar per D2).
+- **Spec:** `specs/search-query-engine` and `specs/search-ui` deltas now carry every prior base scenario
+  plus the new `ondisk:` scenarios (MODIFIED requirements preserve the whole requirement block).
+- **Registry/query:** `FilterRegistry::WithDefaults()` registers `ondisk` (`Query.cpp:373`);
+  `ParseSizeFilter` reused; `PredicateKind::AllocatedSize` distinct from `Size` (`Query.h:78`,
+  `Query.cpp:443-447,571`); malformed `ondisk:` → `invalidFilters`, not `unrecognizedKeys`.
+- **Predicate:** `MakeAllocatedSizePredicate` (owning) + view lambda both gate on
+  `allocatedSizeKnown` (`Query.cpp:266-386`); `UNKNOWN` never matches any numeric predicate,
+  including `0B`/`>=0B`; known-zero is numeric zero; `size:` remains logical (`sizeBytes`);
+  `ondisk:` is metadata-only (`requiresFolder==false`, `viewCompatible==true`, no eager path).
+- **Tests added:**
+  - `tests/search/test_ondisk_filter.cpp` — deterministic owning/view §4.1-4.9, 7.4
+    (exact/comparison/range/zero/unknown/logical-vs-allocated divergence/implicit-AND/scope/malformed
+    /overflow/unit/owning-vs-view equivalence/requiresFolder/kind attribution).
+  - `tests/engine/test_index_pipeline.cpp::TestIndexedSearchOndiskFilter` — projection-backed
+    `SearchIndexed` with known/zero/unknown metadata, view-path eligibility, no eager
+    path, `size:` vs `ondisk:` divergence, AND/scope/cancellation.
+  - `verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1` —
+    `search-allocated-size` extended inside the same isolated lifecycle to additionally prove
+    `ondisk:>=0B` degraded-UNKNOWN non-fabrication and restore (generation/cancellation sound).
+- **Validation (this session, actual host):** Debug CTest 66/66 PASS; release-test 66/66 PASS;
+  analyze `/W4 /WX` warning-clean; `verify.ps1 build` PASS; `doctor` PASS; source-marker PASS;
+  diagnostic-policy PASS; `openspec validate --all --strict` 56/56; `git diff --check` clean;
+  isolated `search-allocated-size` 10/10 PASS (`verify/runs/ad-hoc/20260820-013115` … `013738`);
+  full `windows-ui-automation-validation` 23 PASS / 4 SKIP / 0 FAIL (`20260820-012613`);
+  no new I/O/protocol/wire change, no privileged-production campaign.
+- **Stale baseline reconciled (§D11):** the `3ad54ae` top-paragraph was stale; prior
+  indexed-search-allocated-size live/full evidence was already committed and is now
+  acknowledged as COMPLETE. New evidence for `ondisk:` is `implementation-evidence.md` §5-7.
+- **Handoff:** final validated state pushed to `origin/main` (HEAD == origin/main, clean tree);
+  hosted CI for that SHA queried below; the session ends with WORKSTATE committed.
 
 ## indexed-search-allocated-size session record (2026-08-18)
 

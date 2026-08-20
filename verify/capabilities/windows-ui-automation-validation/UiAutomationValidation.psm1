@@ -1158,6 +1158,34 @@ function Invoke-UiaScenarioSearchAllocatedSize {
             return & $fail "query replacement back to 'alloc' did not restore the full fixture set (count=$($restored.Count))"
         }
 
+        # allocated-size-search-filter D7/D10: live degraded proof that ondisk: is
+        # a recognized structured filter and that UNKNOWN rows are not fabricated
+        # into numeric matches. In degraded mode every candidate is
+        # allocatedSizeKnown=false, so ondisk:>=0B must return zero degraded
+        # matches without being treated as an unrecognized key, and the normal
+        # query must restore the fixture set (generation/cancellation soundness).
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
+        $null = Send-UiaText -Driver $driver -Text 'ondisk:>=0B'
+        Start-Sleep -Seconds 2
+        $ondisk = @()
+        try {
+            $ondisk = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 4000 -All |
+                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        } catch { $ondisk = @() }
+        if ($ondisk.Count -ne 0) {
+            $allOndisk = @()
+            try { $allOndisk = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 3000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch { }
+            return & $fail "ondisk:>=0B must not fabricate degraded UNKNOWN rows into matches; found $($ondisk.Count) (all: $($allOndisk -join ', '))"
+        }
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
+        $null = Send-UiaText -Driver $driver -Text 'alloc'
+        Start-Sleep -Seconds 2
+        $restored2 = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        if ($restored2.Count -lt 5) {
+            return & $fail "restoring 'alloc' after 'ondisk:>=0B' did not restore the full fixture set (count=$($restored2.Count))"
+        }
+
         # Exercise the real Size on Disk sort control live. All allocated values
         # are UNKNOWN in degraded mode, so Size on Disk must resolve to the
         # deterministic unknown ordering (alphabetical tie-break); Size must be

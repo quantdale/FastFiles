@@ -921,6 +921,161 @@ void TestIndexedSearchPropagatesAllocatedSize() {
           "AllocatedSize descending still places the unknown row last");
 }
 
+// allocated-size-search-filter D1-D6: ondisk: indexed Search filtering uses
+// projection-backed allocated metadata directly, with owning/view equivalence,
+// metadata-only evaluation, and unknown never matching.
+void TestIndexedSearchOndiskFilter() {
+    const std::string dbPath = FreshDbPath("engine_test_ondisk_filter.db");
+    VolumeKey key;
+    key.serialNumber = 32;
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "ondisk filter fixture opens");
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV2> batch;
+    auto v2 = [&](uint64_t id, uint64_t parent, std::u16string name, uint64_t logical,
+                  uint64_t allocated, bool directory) {
+        ffprotocol::MftRecordV2 record{};
+        record.fixed.fileReferenceNumber = id;
+        record.fixed.parentFileReferenceNumber = parent;
+        record.fixed.fileAttributes = directory ? 0x10 : 0;
+        record.fixed.sizeBytes = logical;
+        record.fixed.allocatedSizeBytes = allocated;
+        record.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
+        record.fileName = std::move(name);
+        batch.push_back(std::move(record));
+    };
+    v2(5, 5, u"", 0, 0, true);
+    v2(100, 5, u"Users", 0, 0, true);
+    // Deliberately different logical vs allocated so size: and ondisk: diverge
+    v2(101, 100, u"known_large.bin", 1 * 1024 * 1024, 8 * 1024 * 1024, false); // logical small, allocated large
+    v2(102, 100, u"known_zero.bin", 512 * 1024, 0, false);                    // known zero
+    v2(103, 100, u"known_small.bin", 10 * 1024 * 1024, 1 * 1024 * 1024, false); // logical large, allocated small
+    Check(pipeline.ApplyMftBatch(volume, batch), "ondisk filter fixtures apply");
+    std::vector<ffprotocol::MftRecordV1> unknownBatch;
+    unknownBatch.push_back(MakeMftRecord(104, 100, u"unknown_stray.bin", 0, 9 * 1024 * 1024));
+    Check(pipeline.ApplyMftBatch(volume, unknownBatch), "unknown stray fixture applies");
+
+    auto search = [&](const std::wstring& query, IndexPipeline::SearchTimings* timings = nullptr) {
+        ffprotocol::IndexedSearchRequest req;
+        req.requestId = 1;
+        req.scope = 3;
+        req.sortField = 0;
+        req.maxResults = 100;
+        req.query = query;
+        return pipeline.SearchIndexed(req, timings);
+    };
+
+    // View-compatible ondisk queries: no eager path materialization for metadata-only filters
+    {
+        IndexPipeline::SearchTimings timings;
+        timings.detailedDiagnostics = true;
+        auto result = search(L"ondisk:>1MB", &timings);
+        Check(result.status == ffprotocol::IndexedSearchStatus::Completed,
+              "ondisk:>1MB indexed search completes");
+        // AllIndexedLocations + ondisk: (metadata-only) should not need path lookups beyond materialization
+        // The pathNeededDecisions/pathLookups diagnostic counts should be comparable to size:>1MB
+        IndexPipeline::SearchTimings sizeTimings;
+        sizeTimings.detailedDiagnostics = true;
+        auto sizeResult = search(L"size:>1MB", &sizeTimings);
+        Check(sizeResult.status == ffprotocol::IndexedSearchStatus::Completed, "size:>1MB indexed search completes");
+        // Both are metadata-only: candidate counts should be comparable
+        Check(timings.candidateCount == sizeTimings.candidateCount,
+              "ondisk: and size: traverse the same candidate count");
+    }
+
+    // Exact known nonzero
+    {
+        auto result = search(L"ondisk:8MB");
+        Check(result.candidates.size() == 1 && result.candidates[0].name == L"known_large.bin",
+              "ondisk:8MB matches only known_large");
+    }
+    // Comparison operators (anchored where directory zero rows would otherwise inflate counts)
+    {
+        auto result = search(L"ondisk:>7MB");
+        Check(result.candidates.size() == 1 && result.candidates[0].name == L"known_large.bin",
+              "ondisk:>7MB matches known_large only");
+        result = search(L"ondisk:>=8MB");
+        Check(result.candidates.size() == 1, "ondisk:>=8MB matches exact");
+        result = search(L"ondisk:<2MB known");
+        Check(result.candidates.size() == 2, "ondisk:<2MB with file anchor matches known_zero + known_small");
+        result = search(L"known_zero ondisk:<=0B");
+        Check(result.candidates.size() == 1 && result.candidates[0].name == L"known_zero.bin",
+              "ondisk:<=0B matches known zero only");
+    }
+    // Known zero: directory entries (C:\, Users) also have allocated known-zero;
+    // anchor the zero query to file candidates so the structural dirs do not
+    // inflate the count. Directories correctly matching ondisk:0B is the
+    // intended predicate semantics (known zero is zero regardless of kind).
+    {
+        auto result = search(L"known_zero ondisk:0B");
+        Check(result.candidates.size() == 1 && result.candidates[0].name == L"known_zero.bin",
+              "ondisk:0B matches known zero file (anchored)");
+        result = search(L"ondisk:0B..1KB known_zero");
+        Check(result.candidates.size() == 1, "ondisk:0B..1KB contains zero file");
+        // Unanchored ondisk:0B also matches the structural directory rows whose
+        // allocated size is legitimately known-zero (C:\ root + Users dir).
+        auto unanchored = search(L"ondisk:0B");
+        Check(unanchored.candidates.size() == 3, "unanchored ondisk:0B also matches directory known-zero rows");
+    }
+    // UNKNOWN: no numeric predicate matches unknown, even >=0B
+    {
+        auto result = search(L"ondisk:>=0B");
+        // Should match all known rows (3 file + 2 directory known-zero dirs) — not unknown_stray
+        for (const auto& c : result.candidates) {
+            Check(c.name != L"unknown_stray.bin", "ondisk:>=0B does not fabricate unknown stray");
+        }
+        // known_large + known_zero + known_small + 2 directory rows (C:\, Users)
+        Check(result.candidates.size() == 5, "ondisk:>=0B matches exactly the known rows (including directory known-zero)");
+        result = search(L"known_zero ondisk:0B");
+        Check(result.candidates.size() == 1, "ondisk:0B does not match unknown rows");
+    }
+    // size: vs ondisk: divergence (logical vs allocated)
+    {
+        auto sizeResult = search(L"size:>5MB");
+        auto ondiskResult = search(L"ondisk:>5MB");
+        // size:>5MB matches known_small (logical 10MB); ondisk:>5MB matches known_large (allocated 8MB)
+        const bool sizeHasKnownSmall = std::any_of(sizeResult.candidates.begin(), sizeResult.candidates.end(),
+                                                    [](const auto& c) { return c.name == L"known_small.bin"; });
+        const bool sizeHasKnownLarge = std::any_of(sizeResult.candidates.begin(), sizeResult.candidates.end(),
+                                                    [](const auto& c) { return c.name == L"known_large.bin"; });
+        const bool ondiskHasKnownSmall = std::any_of(ondiskResult.candidates.begin(), ondiskResult.candidates.end(),
+                                                      [](const auto& c) { return c.name == L"known_small.bin"; });
+        const bool ondiskHasKnownLarge = std::any_of(ondiskResult.candidates.begin(), ondiskResult.candidates.end(),
+                                                      [](const auto& c) { return c.name == L"known_large.bin"; });
+        Check(sizeHasKnownSmall && !sizeHasKnownLarge, "size:>5MB selects logical-large allocated-small");
+        Check(ondiskHasKnownLarge && !ondiskHasKnownSmall, "ondisk:>5MB selects allocated-large logical-small");
+    }
+    // Implicit AND via indexed search: scope + text term + ondisk
+    {
+        ffprotocol::IndexedSearchRequest req;
+        req.requestId = 1;
+        req.scope = 3;
+        req.sortField = 0;
+        req.maxResults = 100;
+        req.query = L"known_large ondisk:>1MB";
+        auto result = pipeline.SearchIndexed(req);
+        Check(result.candidates.size() == 1 && result.candidates[0].name == L"known_large.bin",
+              "text term + ondisk implicit AND via indexed search");
+    }
+    // Cancellation still chunk-bounded
+    {
+        ffprotocol::IndexedSearchRequest req;
+        req.requestId = 1;
+        req.scope = 3;
+        req.sortField = 0;
+        req.maxResults = 100;
+        req.query = L"ondisk:>1MB";
+        int checks = 0;
+        auto result = pipeline.SearchIndexed(req, nullptr, [&checks] { return ++checks >= 2; });
+        Check(result.status == ffprotocol::IndexedSearchStatus::Cancelled,
+              "ondisk indexed search cancellation is still chunk-bounded");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -939,6 +1094,7 @@ int main() {
     TestIndexedSearchUsesProjectionPathsAndScopes();
     TestIndexedSearchCancellationStopsProjectionWork();
     TestIndexedSearchPropagatesAllocatedSize();
+    TestIndexedSearchOndiskFilter();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

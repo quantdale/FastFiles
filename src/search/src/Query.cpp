@@ -263,6 +263,26 @@ Predicate MakeSizePredicate(const FilterValue& value) {
     return [filter](const Candidate& c) { switch (filter.op) { case SizeFilter::Op::Equal: return c.sizeBytes == filter.first; case SizeFilter::Op::Greater: return c.sizeBytes > filter.first; case SizeFilter::Op::GreaterEqual: return c.sizeBytes >= filter.first; case SizeFilter::Op::Less: return c.sizeBytes < filter.first; case SizeFilter::Op::LessEqual: return c.sizeBytes <= filter.first; case SizeFilter::Op::Range: return c.sizeBytes >= filter.first && c.sizeBytes <= filter.second; } return false; };
 }
 
+// allocated-size-search-filter D2/D3: ondisk: reuses the SizeFilter value
+// grammar (operators, ranges, B/KB/MB/GB) but evaluates allocatedSizeBytes
+// only when allocatedSizeKnown==true. UNKNOWN never matches a numeric
+// predicate in either direction and never falls back to logical size.
+Predicate MakeAllocatedSizePredicate(const FilterValue& value) {
+    const auto filter = std::get<SizeFilter>(value);
+    return [filter](const Candidate& c) {
+        if (!c.allocatedSizeKnown) return false;
+        switch (filter.op) {
+            case SizeFilter::Op::Equal: return c.allocatedSizeBytes == filter.first;
+            case SizeFilter::Op::Greater: return c.allocatedSizeBytes > filter.first;
+            case SizeFilter::Op::GreaterEqual: return c.allocatedSizeBytes >= filter.first;
+            case SizeFilter::Op::Less: return c.allocatedSizeBytes < filter.first;
+            case SizeFilter::Op::LessEqual: return c.allocatedSizeBytes <= filter.first;
+            case SizeFilter::Op::Range: return c.allocatedSizeBytes >= filter.first && c.allocatedSizeBytes <= filter.second;
+        }
+        return false;
+    };
+}
+
 uint64_t CurrentFileTime() { FILETIME ft{}; GetSystemTimeAsFileTime(&ft); ULARGE_INTEGER value{}; value.LowPart = ft.dwLowDateTime; value.HighPart = ft.dwHighDateTime; return value.QuadPart; }
 std::optional<uint64_t> ParseDay(std::wstring_view value) {
     if (value.size() != 10 || value[4] != L'-' || value[7] != L'-') return std::nullopt;
@@ -347,6 +367,24 @@ FilterRegistry FilterRegistry::WithDefaults() {
         const auto filter = std::get<SizeFilter>(value);
         return [filter](const CandidateView& c) { switch (filter.op) { case SizeFilter::Op::Equal: return c.sizeBytes == filter.first; case SizeFilter::Op::Greater: return c.sizeBytes > filter.first; case SizeFilter::Op::GreaterEqual: return c.sizeBytes >= filter.first; case SizeFilter::Op::Less: return c.sizeBytes < filter.first; case SizeFilter::Op::LessEqual: return c.sizeBytes <= filter.first; case SizeFilter::Op::Range: return c.sizeBytes >= filter.first && c.sizeBytes <= filter.second; } return false; };
     }});
+    // allocated-size-search-filter D1/D2/D3: ondisk: is the single canonical
+    // allocated-size key, reusing the SizeFilter numeric grammar and gating
+    // every numeric predicate on allocatedSizeKnown.
+    registry.Register(L"ondisk", {ParseSizeFilter, MakeAllocatedSizePredicate, [](const FilterValue& value) {
+        const auto filter = std::get<SizeFilter>(value);
+        return [filter](const CandidateView& c) {
+            if (!c.allocatedSizeKnown) return false;
+            switch (filter.op) {
+                case SizeFilter::Op::Equal: return c.allocatedSizeBytes == filter.first;
+                case SizeFilter::Op::Greater: return c.allocatedSizeBytes > filter.first;
+                case SizeFilter::Op::GreaterEqual: return c.allocatedSizeBytes >= filter.first;
+                case SizeFilter::Op::Less: return c.allocatedSizeBytes < filter.first;
+                case SizeFilter::Op::LessEqual: return c.allocatedSizeBytes <= filter.first;
+                case SizeFilter::Op::Range: return c.allocatedSizeBytes >= filter.first && c.allocatedSizeBytes <= filter.second;
+            }
+            return false;
+        };
+    }});
     registry.Register(L"modified", {ParseDateFilter, MakeDatePredicate, [](const FilterValue& value) {
         const auto filter = std::get<DateFilter>(value);
         return [filter](const CandidateView& c) { return filter.op == DateFilter::Op::GreaterThan ? c.modifiedTime > filter.first : c.modifiedTime >= filter.first && c.modifiedTime <= filter.second; };
@@ -402,6 +440,7 @@ bool EvaluateViewPredicates(const std::vector<ViewPredicate>& predicates,
                     diagnostics->extensionMatchingMs += elapsed;
                     break;
                 case PredicateKind::Size:
+                case PredicateKind::AllocatedSize:
                 case PredicateKind::Modified:
                 case PredicateKind::Kind:
                     ++diagnostics->metadataPredicates;
@@ -529,6 +568,7 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
                         : normalizedKey == L"folder" ? PredicateKind::FolderName
                         : normalizedKey == L"ext" ? PredicateKind::Extension
                         : normalizedKey == L"size" ? PredicateKind::Size
+                        : normalizedKey == L"ondisk" ? PredicateKind::AllocatedSize
                         : normalizedKey == L"modified" ? PredicateKind::Modified
                         : normalizedKey == L"kind" ? PredicateKind::Kind
                         : PredicateKind::Unknown;

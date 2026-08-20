@@ -76,6 +76,7 @@ enum class PredicateKind {
     FolderName,
     Extension,
     Size,
+    AllocatedSize,
     Modified,
     Kind,
 };
