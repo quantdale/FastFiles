@@ -362,6 +362,84 @@ void TestSynchronousReadReturnsOnBrokenPipe() {
     Check(!afterClose.has_value(), "synchronous reader returns nullopt on a broken pipe");
 }
 
+// close-independent-validation-gaps deferred follow-up (IPC concurrency): two
+// complete frames delivered in a single coalesced write must be read back as two
+// distinct, correctly-delimited frames -- the reader must not stop at the first
+// frame or merge the two payloads.
+void TestBackToBackFramesAreDelimited() {
+    AnonymousPipe pipe = MakePipe();
+    Check(pipe.read != nullptr && pipe.write != nullptr, "back-to-back pipe is created");
+    if (pipe.read == nullptr || pipe.write == nullptr) return;
+
+    std::vector<uint8_t> frame1(1024, 0x11);
+    std::vector<uint8_t> frame2(2048, 0x22);
+    ffprotocol::FrameHeader header1{};
+    header1.totalLength = static_cast<uint32_t>(sizeof(header1) + frame1.size());
+    header1.structVersion = ffprotocol::kCurrentStructVersion;
+    header1.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch);
+    ffprotocol::FrameHeader header2{};
+    header2.totalLength = static_cast<uint32_t>(sizeof(header2) + frame2.size());
+    header2.structVersion = ffprotocol::kCurrentStructVersion;
+    header2.messageType = static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened);
+
+    std::vector<uint8_t> coalesced;
+    coalesced.reserve(header1.totalLength + header2.totalLength);
+    coalesced.insert(coalesced.end(), reinterpret_cast<const uint8_t*>(&header1),
+                     reinterpret_cast<const uint8_t*>(&header1) + sizeof(header1));
+    coalesced.insert(coalesced.end(), frame1.begin(), frame1.end());
+    coalesced.insert(coalesced.end(), reinterpret_cast<const uint8_t*>(&header2),
+                     reinterpret_cast<const uint8_t*>(&header2) + sizeof(header2));
+    coalesced.insert(coalesced.end(), frame2.begin(), frame2.end());
+
+    DWORD written = 0;
+    Check(WriteFile(pipe.write, coalesced.data(), static_cast<DWORD>(coalesced.size()),
+                    &written, nullptr) != FALSE && written == coalesced.size(),
+          "two frames are delivered coalesced in one write");
+
+    const auto first = ffipc::ReadFrame(pipe.read);
+    const auto second = ffipc::ReadFrame(pipe.read);
+    Check(first.has_value(), "first coalesced frame is read");
+    Check(first && first->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
+          "first frame keeps its message type");
+    Check(first && first->payload == frame1, "first frame payload is exactly its own bytes");
+    Check(second.has_value(), "second coalesced frame is read after the first");
+    Check(second && second->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened),
+          "second frame keeps its message type");
+    Check(second && second->payload == frame2, "second frame payload is exactly its own bytes");
+}
+
+// close-independent-validation-gaps deferred follow-up (IPC concurrency): a burst
+// of many distinct frames must all round-trip in order with no loss, duplication,
+// or cross-frame payload bleed.
+void TestManyFramesRoundTripDeterministically() {
+    AnonymousPipe pipe = MakePipe();
+    Check(pipe.read != nullptr && pipe.write != nullptr, "burst pipe is created");
+    if (pipe.read == nullptr || pipe.write == nullptr) return;
+
+    constexpr int kFrameCount = 200;
+    std::vector<std::vector<uint8_t>> payloads(kFrameCount);
+    std::thread writer([&] {
+        for (int i = 0; i < kFrameCount; ++i) {
+            payloads[i].assign(static_cast<size_t>(1 + (i % 64)), static_cast<uint8_t>(i & 0xFF));
+            const bool ok = ffipc::WriteFrame(pipe.write,
+                static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
+                payloads[i].data(), static_cast<uint32_t>(payloads[i].size()));
+            Check(ok, "burst frame is written");
+            if (!ok) break;
+        }
+    });
+
+    int receivedCount = 0;
+    for (int i = 0; i < kFrameCount; ++i) {
+        const auto received = ffipc::ReadFrame(pipe.read);
+        if (!received.has_value()) break;
+        Check(received->payload == payloads[i], "burst frame arrives in order with intact payload");
+        ++receivedCount;
+    }
+    writer.join();
+    Check(receivedCount == kFrameCount, "every burst frame is received exactly once");
+}
+
 } // namespace
 
 int main() {
@@ -376,5 +454,7 @@ int main() {
     TestPartialFrameReadTimesOutWithoutAHelperThread();
     TestSynchronousReadReassemblesAcrossChunkedWrites();
     TestSynchronousReadReturnsOnBrokenPipe();
+    TestBackToBackFramesAreDelimited();
+    TestManyFramesRoundTripDeterministically();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
