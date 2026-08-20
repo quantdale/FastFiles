@@ -2522,4 +2522,31 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
   Those require resources not present in this session and were not fabricated as complete.
 - **NEXT EXACT ACTION:** provide authorized signing material + an elevated clean-host/VM and an
   interactive desktop to close 4.2/4.5–4.8/5.1; otherwise no safe local implementation frontier remains.
-  This session's edits are uncommitted (test-only); commit on request.
+
+## Portable gate sweep + fuzz/IPC hardening continuation (2026-08-20)
+
+- **Continuation after the user authorized commit + further work.** All changes below are committed on `main`.
+- **Closed the remaining IPC deferred follow-up (concurrency):** added `TestBackToBackFramesAreDelimited`
+  (two frames in one coalesced write read as two delimited frames) and
+  `TestManyFramesRoundTripDeterministically` (200-frame burst, in-order, no loss/bleed) to
+  `tests/ipc/test_pipe_framing.cpp`. The `close-independent-validation-gaps` IPC concurrency clause is now
+  delivered.
+- **Extended the untrusted-byte memory-safety fuzz gate:** added `FuzzIndexedSearchResponseLegacy` and
+  `FuzzIndexedSearchRequest` to `tests/protocol/test_fuzz.cpp`, covering the two engine<->UI payload
+  parsers that were not yet fuzzed (legacy message-18 response; UI->engine request). Asserts bounded
+  candidate counts/lengths, allocated-size-unknown for legacy, and validated scope/sort/length/cap enums.
+- **Fuzz seed reproducibility** (prior commit): `main()` accepts an optional `argv[1]` seed.
+- **Full gate sweep this session (all green):** Debug CTest **67/67**; Release-test (`RelWithDebInfo`)
+  CTest **67/67**; `cmake --preset analyze` warning-clean (`/W4 /WX /analyze`); ASan build of
+  `ffprotocol_fuzz_tests` clean across **20,000 iters × 8 fuzzers** (service/UI frame validation,
+  MFT/USN V1–V3 batch, snapshot, V2 + legacy indexed-search response, indexed-search request) with zero
+  ASan findings; `ffdoc_drift_tests` PASS (all added test lines normalized to CRLF).
+- **Commits this session:** `3c29e0e` (IPC partial-read/broken-pipe + fuzz seed), `912e571` (IPC
+  boundary/burst), `0a560e4` (legacy indexed-search request/response fuzz).
+- **Conclusion:** the repository is production-ready on every local/portable gate. The only open OpenSpec
+  items (`close-independent-validation-gaps` 4.2, 4.5–4.8, 5.1) remain `[external]` — authorized
+  production signing, elevated clean-host privileged MFT/USN validation, and interactive GUI/UIA visual
+  acceptance — and were not fabricated as complete.
+- **NEXT EXACT ACTION:** no safe local implementation frontier remains. Provide authorized signing
+  material + an elevated clean-host/VM + an interactive desktop to close the external gates; otherwise
+  deepen a specific component only on explicit request.
