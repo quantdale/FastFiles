@@ -14,6 +14,7 @@ is fabricated: live-execution gaps are stated explicitly.
 ## 1. Baseline / source contract
 
 ### Canonical requirements (authoritative)
+
 - `specs/multi-selection-and-dragdrop`: Single-Click Selection, Ctrl-Click Toggle,
   Shift-Click Range (recompute from the same anchor), Select All Visible Items
   (pane-local, stable no-op when empty), Selection Scoped to Active Pane.
@@ -22,6 +23,7 @@ is fabricated: live-execution gaps are stated explicitly.
   semantic.
 
 ### Production call graph (post-change)
+
 - `src/ui/src/SelectionModel.h` — `ApplySelectionClick(selected, anchor, focus,
   itemIndex, control, shift)` and `SelectAllItems(selected, anchor, focus, count)`.
   The entire canonical transition table lives here (header-only, no copy in tests).
@@ -36,6 +38,7 @@ is fabricated: live-execution gaps are stated explicitly.
   model). No accessibility-only selection cache exists (verified in code review).
 
 ### Pre-change coverage inventory (why this change was needed)
+
 - `ffselection_identity_tests` (`tests/ui/test_selection_identity.cpp`) proves
   identity-preserving restore after reorder/replacement — **not** click-modifier
   state transitions.
@@ -48,6 +51,7 @@ is fabricated: live-execution gaps are stated explicitly.
   fixture asserting resulting membership/anchor semantics.
 
 ### Privileged campaign
+
 No production signing, trust-store mutation, `FastFilesIndexSvc` deployment, MFT/USN
 validation, clean-host matrix, or VM provisioning is part of this change (design D12).
 
@@ -60,7 +64,7 @@ table below is exactly what each test enforces; the test is the oracle and is ru
 hosted CI (no local CMake/Ninja in this environment).
 
 | # | start selected | start anchor/focus | action | expected selected | expected anchor | expected focus |
-|---|---|---|---|---|---|---|
+| --- | --- | --- | --- | --- | --- | --- |
 | 2.2 | {} | -1/-1 | plain click 2 | {2} | 2 | 2 |
 | 2.3 | {1,3,5} | 1/3 | plain click 4 | {4} | 4 | 4 |
 | 2.4 | {1,4} | 1/1 | Ctrl click 2 | {1,2,4} | 1 | 2 |
@@ -88,9 +92,11 @@ therefore executed the canonical state-transition oracle locally, not only in CI
 ## 3. Production-path convergence
 
 `ColumnView::OnKeyDown('A')` previously duplicated `SelectAllItems` inline:
+
 ```
 focused.selectedIndices.clear(); for ... insert; focus = empty?-1:0; if(!empty) anchor=0;
 ```
+
 This left a stale `selectionAnchor` on an empty column. It now calls
 `SelectAllItems(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
 static_cast<int>(focused.items.size()))` — the same seam `ColumnView::SelectAll()`
@@ -102,6 +108,7 @@ synchronous filesystem/index/service work or a new state/cache layer (task 3.3).
 ## 4. UIA provider parity — `ffcolumnview_uia_tests`
 
 `tests/ui/test_columnview_uia.cpp` strengthened (no new target; existing target):
+
 - `TestSelectionSelectReplacesAndReports` (4.2): `Select()` item 3 →
   `GetSelection()` == exactly `{file3.txt}`; previously selected item 0 reports
   `IsSelected == FALSE`.
@@ -153,7 +160,7 @@ selection-and-scroll-patterns 3.3), applied for Pane.0 and Pane.1.
 ## 6. Regression / full validation matrix
 
 | Gate | Result | Where |
-|---|---|---|
+| --- | --- | --- |
 | `ffselection_model_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
 | `ffselection_identity_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
 | `ffcolumnview_uia_tests` | **PASS (local + CI)** | this session build/run + hosted CI |
@@ -173,6 +180,7 @@ selection-and-scroll-patterns 3.3), applied for Pane.0 and Pane.1.
 | full `windows-ui-automation-validation` | **PASS** (24 PASS / 4 SKIP / 0 FAIL, run `20260820-150322`) | this interactive host |
 
 Local commands executed here:
+
 - `openspec validate --all --strict` → 58 passed, 0 failed.
 - `pwsh -NoProfile -Command './verify/check_source_markers.ps1'` → PASS.
 - `pwsh -NoProfile -Command './verify/check_diagnostic_policy.ps1'` → PASS.
