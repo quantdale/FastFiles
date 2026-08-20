@@ -1,7 +1,15 @@
+#include <algorithm>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <limits>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "sqlite3.h"
 
@@ -554,6 +562,330 @@ void TestGetFolderAggregateWithAllocatedSizeAndCompleteness() {
           "a subtree with one unknown descendant reports a partial allocated subtotal");
 }
 
+// harden-index-store-concurrent-access: build a u16string name from an id so
+// each seeded/inserted row carries a distinct, human-readable name.
+std::u16string U16Id(int64_t id) {
+    if (id == 0) return u"0";
+    bool negative = id < 0;
+    uint64_t value = negative ? static_cast<uint64_t>(-id) : static_cast<uint64_t>(id);
+    std::u16string reversed;
+    while (value > 0) {
+        reversed += static_cast<char16_t>(u'0' + static_cast<char16_t>(value % 10));
+        value /= 10;
+    }
+    if (negative) reversed += u'-';
+    std::u16string out;
+    for (auto it = reversed.rbegin(); it != reversed.rend(); ++it) out += *it;
+    return out;
+}
+
+// Shared synchronization state between the reader thread (which holds a live
+// SQLite read statement) and the writer thread (which performs the concurrent
+// mutation/maintenance). Designed so a single Store object is used by only one
+// thread at a time: `reader` is owned by the reader thread, `writer` by the
+// caller/main thread. No fixed sleep establishes the overlap -- the barrier and
+// watchdog are purely condition-variable/timed.
+struct HeldReadState {
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool holding = false;  // reader has started and is holding its read statement
+    bool release = false;  // caller asks the held reader to continue
+    bool finished = false; // reader ForEachEntry has completed
+    // (id, name) of every row the held reader observed, in visit order.
+    std::vector<std::pair<int64_t, std::u16string>> seen;
+};
+
+// Runs ForEachEntry on the (reader-owned) Store, blocking inside the first
+// visitor callback while the SQLite statement is still active, so the caller
+// can perform a concurrent writer action. Records every observed row.
+void HeldReadWorker(HeldReadState& state, Store& reader, VolumeRowId vol) {
+    reader.ForEachEntry(vol, [&](const EntryRecord& entry) {
+        {
+            std::unique_lock<std::mutex> lock(state.mutex);
+            state.seen.emplace_back(static_cast<int64_t>(entry.id.low), entry.name);
+            if (!state.holding) {
+                state.holding = true;
+                state.cv.notify_all();
+                // Keep the read statement live until the writer is done.
+                state.cv.wait(lock, [&]() { return state.release; });
+            }
+        }
+    });
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        state.finished = true;
+        state.cv.notify_all();
+    }
+}
+
+using Steady = std::chrono::steady_clock;
+using Sec = std::chrono::seconds;
+
+int64_t ToMs(Steady::time_point a, Steady::time_point b) {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(b - a).count();
+}
+
+double MedianMs(const std::vector<int64_t>& values) {
+    if (values.empty()) return 0.0;
+    std::vector<int64_t> sorted = values;
+    std::sort(sorted.begin(), sorted.end());
+    const size_t n = sorted.size();
+    if (n % 2 == 1) return static_cast<double>(sorted[n / 2]);
+    return (static_cast<double>(sorted[n / 2 - 1]) + static_cast<double>(sorted[n / 2])) / 2.0;
+}
+
+std::optional<std::u16string> NameOf(const HeldReadState& state, int64_t id) {
+    for (const auto& pair : state.seen) {
+        if (pair.first == id) return pair.second;
+    }
+    return std::nullopt;
+}
+
+// harden-index-store-concurrent-access: drives one held-read scenario. Waits
+// (bounded) for the reader statement to be live, runs `action` on the writer
+// connection while the read is held, releases the reader, and waits (bounded)
+// for it to finish. Either timeout is a deterministic FAIL with diagnostics
+// (the reader is force-released and joined first so CTest never hangs).
+template <class Action>
+bool DriveHeldRead(HeldReadState& state, std::thread& readerThread, Action action,
+                   Sec barrierTimeout, Sec doneTimeout, const char* label) {
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        if (!state.cv.wait_for(lock, barrierTimeout, [&]() { return state.holding; })) {
+            Check(false, (std::string("concurrency: ") + label +
+                          ": held read statement never became live (deadlock/watchdog)").c_str());
+            state.release = true;
+            state.cv.notify_all();
+            state.cv.wait(lock, [&]() { return state.finished; });
+            if (readerThread.joinable()) readerThread.join();
+            return false;
+        }
+    }
+    action();
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        state.release = true;
+        state.cv.notify_all();
+    }
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        if (!state.cv.wait_for(lock, doneTimeout, [&]() { return state.finished; })) {
+            Check(false, (std::string("concurrency: ") + label +
+                          ": held reader never finished after release (deadlock/watchdog)").c_str());
+            if (readerThread.joinable()) readerThread.join();
+            return false;
+        }
+    }
+    if (readerThread.joinable()) readerThread.join();
+    return true;
+}
+
+// harden-index-store-concurrent-access D1-D7: proves and hardens the one-writer
+// + independent-reader WAL contract with deterministic, repeated, two-connection
+// fixtures. A Store object is connection-owned and is NOT claimed thread-safe;
+// each Store is used by exactly one thread while an operation is active.
+void TestConcurrentReaderWriterWalContract() {
+    // D7: repeat the supported held-reader + writer-commit sequence
+    // deterministically; target >= 20 iterations when runtime is reasonable.
+    constexpr int kIterations = 24;
+    constexpr int64_t kSeedCount = 64;
+    constexpr Sec kBarrierTimeout(10);
+    constexpr Sec kDoneTimeout(10);
+
+    std::vector<int64_t> writerDurationsMs;
+    writerDurationsMs.reserve(kIterations * 3);
+    std::vector<int64_t> checkpointDurationsMs;
+    checkpointDurationsMs.reserve(kIterations);
+    int passedIterations = 0;
+    const auto allStart = Steady::now();
+
+    for (int iteration = 0; iteration < kIterations; ++iteration) {
+        const std::string dbPath =
+            FreshDbPath(("ffindexstore_test_concurrent_" + std::to_string(iteration) + ".db").c_str());
+        const std::string label = "iter" + std::to_string(iteration);
+
+        // Authoritative writer connection (owned by this/main thread).
+        Store writer;
+        Check(writer.Open(dbPath), (label + ": writer store opens").c_str());
+        VolumeKey key;
+        key.serialNumber = static_cast<uint32_t>(iteration + 1);
+        const VolumeRowId vol = *writer.GetOrCreateVolume(key);
+
+        // Seed a meaningful set of entries on the writer connection.
+        std::vector<EntryChange> seed;
+        seed.reserve(static_cast<size_t>(kSeedCount));
+        for (int64_t i = 1; i <= kSeedCount; ++i) {
+            EntryRecord r = MakeEntry(static_cast<uint64_t>(i), static_cast<uint64_t>(i),
+                                      u"entry-" + U16Id(i));
+            seed.push_back({EntryChangeKind::Upsert, r});
+        }
+        Check(writer.ApplyBatch(vol, seed), (label + ": seed batch commits").c_str());
+        Check(writer.CheckpointPassive(), (label + ": seed checkpoint").c_str());
+
+        // Independent reader connection to the SAME existing file (owned by the
+        // reader thread). This is the two-independent-connection fixture.
+        Store reader;
+        Check(reader.Open(dbPath), (label + ": independent reader store opens same file").c_str());
+
+        // --- Phase A: held read + concurrent INSERT (snapshot isolation) ---
+        {
+            HeldReadState state;
+            const int64_t newId = 1000 + iteration; // distinct per iteration
+            std::thread readerThread(HeldReadWorker, std::ref(state), std::ref(reader), vol);
+            const bool ok = DriveHeldRead(state, readerThread, [&]() {
+                std::vector<EntryChange> batch = {
+                    {EntryChangeKind::Upsert,
+                     MakeEntry(static_cast<uint64_t>(newId), static_cast<uint64_t>(newId),
+                                u"inserted-" + U16Id(newId))}};
+                const auto t0 = Steady::now();
+                const bool committed = writer.ApplyBatch(vol, batch);
+                const auto t1 = Steady::now();
+                writerDurationsMs.push_back(ToMs(t0, t1));
+                Check(committed, (label + ": INSERT batch commits while reader is held (no busy/block)").c_str());
+                Check(writer.CountEntries(vol) == kSeedCount + 1,
+                      (label + ": writer observes its committed row").c_str());
+            }, kBarrierTimeout, kDoneTimeout, (label + "-insert").c_str());
+            if (ok) {
+                bool heldSawNew = false;
+                for (const auto& pair : state.seen) {
+                    if (pair.first == newId) heldSawNew = true;
+                }
+                Check(state.seen.size() == static_cast<size_t>(kSeedCount),
+                      (label + ": held reader saw exactly the pre-commit snapshot (no new row)").c_str());
+                Check(!heldSawNew,
+                      (label + ": held reader did NOT observe the concurrently-committed row").c_str());
+                // Fresh read on the SAME reader connection sees post-commit state.
+                int freshCount = 0;
+                bool freshSawNew = false;
+                reader.ForEachEntry(vol, [&](const EntryRecord& e) {
+                    ++freshCount;
+                    if (e.id.low == static_cast<uint64_t>(newId)) freshSawNew = true;
+                });
+                Check(freshCount == kSeedCount + 1,
+                      (label + ": fresh read sees the post-commit row count").c_str());
+                Check(freshSawNew, (label + ": fresh read observes the committed row").c_str());
+            }
+        }
+
+        // --- Phase A2: held read + concurrent UPDATE (snapshot isolation is not
+        //     append-only-specific, D3.5) ---
+        {
+            HeldReadState state;
+            const int64_t updateId = 7;
+            std::thread readerThread(HeldReadWorker, std::ref(state), std::ref(reader), vol);
+            const bool ok = DriveHeldRead(state, readerThread, [&]() {
+                EntryRecord r = MakeEntry(static_cast<uint64_t>(updateId),
+                                          static_cast<uint64_t>(updateId), u"updated-" + U16Id(updateId));
+                const auto t0 = Steady::now();
+                const bool committed = writer.ApplyBatch(vol, {{EntryChangeKind::Upsert, r}});
+                const auto t1 = Steady::now();
+                writerDurationsMs.push_back(ToMs(t0, t1));
+                Check(committed, (label + ": UPDATE commits while reader is held").c_str());
+            }, kBarrierTimeout, kDoneTimeout, (label + "-update").c_str());
+            if (ok) {
+                auto heldName = NameOf(state, updateId);
+                Check(heldName.has_value() && *heldName == u"entry-" + U16Id(updateId),
+                      (label + ": held reader saw the pre-update name").c_str());
+                int freshCount = 0;
+                std::optional<std::u16string> freshName;
+                reader.ForEachEntry(vol, [&](const EntryRecord& e) {
+                    ++freshCount;
+                    if (e.id.low == static_cast<uint64_t>(updateId)) freshName = e.name;
+                });
+                Check(freshCount == kSeedCount + 1,
+                      (label + ": UPDATE keeps the row count").c_str());
+                Check(freshName.has_value() && *freshName == u"updated-" + U16Id(updateId),
+                      (label + ": fresh read saw the post-update name").c_str());
+            }
+        }
+
+        // --- Phase A3: held read + concurrent REMOVE (snapshot isolation) ---
+        {
+            HeldReadState state;
+            const int64_t removeId = 13;
+            std::thread readerThread(HeldReadWorker, std::ref(state), std::ref(reader), vol);
+            const bool ok = DriveHeldRead(state, readerThread, [&]() {
+                EntryRecord r;
+                r.id = FileId{static_cast<uint64_t>(removeId), 0};
+                const auto t0 = Steady::now();
+                const bool committed = writer.ApplyBatch(vol, {{EntryChangeKind::Remove, r}});
+                const auto t1 = Steady::now();
+                writerDurationsMs.push_back(ToMs(t0, t1));
+                Check(committed, (label + ": REMOVE commits while reader is held").c_str());
+            }, kBarrierTimeout, kDoneTimeout, (label + "-remove").c_str());
+            if (ok) {
+                Check(NameOf(state, removeId).has_value(),
+                      (label + ": held reader still saw the row before its removal").c_str());
+                Check(state.seen.size() == static_cast<size_t>(kSeedCount + 1),
+                      (label + ": held reader saw the pre-remove snapshot (65 rows)").c_str());
+                int freshCount = 0;
+                bool freshSawRemoved = false;
+                reader.ForEachEntry(vol, [&](const EntryRecord& e) {
+                    ++freshCount;
+                    if (e.id.low == static_cast<uint64_t>(removeId)) freshSawRemoved = true;
+                });
+                Check(!freshSawRemoved, (label + ": fresh read does NOT see the removed row").c_str());
+                Check(freshCount == static_cast<size_t>(kSeedCount),
+                      (label + ": REMOVE reduced the row count to the seed count").c_str());
+            }
+        }
+
+        // --- Phase B: held read + passive checkpoint on an independent
+        //     connection (D6) ---
+        {
+            HeldReadState state;
+            std::thread readerThread(HeldReadWorker, std::ref(state), std::ref(reader), vol);
+            const bool ok = DriveHeldRead(state, readerThread, [&]() {
+                const auto t0 = Steady::now();
+                const bool ckptOk = writer.CheckpointPassive();
+                const auto t1 = Steady::now();
+                checkpointDurationsMs.push_back(ToMs(t0, t1));
+                Check(ckptOk, (label + ": passive checkpoint returns while reader is held").c_str());
+            }, kBarrierTimeout, kDoneTimeout, (label + "-checkpoint").c_str());
+            if (ok) {
+                // The reader must not be invalidated: it completed successfully
+                // against a coherent snapshot.
+                Check(state.seen.size() == static_cast<size_t>(kSeedCount),
+                      (label + ": held reader (during checkpoint) saw a coherent snapshot").c_str());
+                // Subsequent maintenance/read operations must still work.
+                Check(writer.CheckpointPassive(),
+                      (label + ": subsequent checkpoint after release works").c_str());
+                int subsequent = 0;
+                reader.ForEachEntry(vol, [&](const EntryRecord&) { ++subsequent; });
+                Check(subsequent == static_cast<size_t>(kSeedCount),
+                      (label + ": subsequent fresh read after release works").c_str());
+            }
+        }
+
+        // --- Phase C: teardown hygiene (D7) -- close both stores, reopen, and
+        //     confirm no stale lock/busy state survives. ---
+        reader.Close();
+        writer.Close();
+        Store reopened;
+        Check(reopened.Open(dbPath), (label + ": database reopens after both stores closed").c_str());
+        Check(reopened.RunIntegrityCheck(),
+              (label + ": integrity check passes after reopen").c_str());
+        Check(reopened.CountEntries(vol) == static_cast<uint64_t>(kSeedCount),
+              (label + ": durable row set is correct after reopen").c_str());
+
+        ++passedIterations;
+    }
+
+    const auto allEnd = Steady::now();
+    std::printf("concurrency: %d/%d iterations passed deterministically\n", passedIterations, kIterations);
+    std::printf("concurrency: writer commit durations (ms) min=%lld median=%.1f max=%lld\n",
+                static_cast<long long>(writerDurationsMs.empty() ? 0 : *std::min_element(writerDurationsMs.begin(), writerDurationsMs.end())),
+                MedianMs(writerDurationsMs),
+                static_cast<long long>(writerDurationsMs.empty() ? 0 : *std::max_element(writerDurationsMs.begin(), writerDurationsMs.end())));
+    std::printf("concurrency: passive checkpoint durations (ms) min=%lld median=%.1f max=%lld\n",
+                static_cast<long long>(checkpointDurationsMs.empty() ? 0 : *std::min_element(checkpointDurationsMs.begin(), checkpointDurationsMs.end())),
+                MedianMs(checkpointDurationsMs),
+                static_cast<long long>(checkpointDurationsMs.empty() ? 0 : *std::max_element(checkpointDurationsMs.begin(), checkpointDurationsMs.end())));
+    std::printf("concurrency: total deterministic fixture runtime (ms) %lld\n",
+                static_cast<long long>(ToMs(allStart, allEnd)));
+    Check(passedIterations == kIterations, "concurrency: every iteration passed without retry-until-pass");
+}
+
 } // namespace
 
 int main() {
@@ -573,6 +905,7 @@ int main() {
     TestGetFolderAggregateWithAllocatedSizeAndCompleteness();
     TestSchemaV1ToV2MigrationInPlace();
     TestAllocatedSizeUnknownVsZeroAndPreservation();
+    TestConcurrentReaderWriterWalContract();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

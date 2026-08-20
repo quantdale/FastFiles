@@ -60,5 +60,5 @@ Implementation tasks for the confirmed gaps from independent-validation session 
 
 - Query-history/query-input length limit (`LOW-20260804-K7P2VN-001`) — follow-up.
 - Explicit USN journal cleanup during shutdown (`INFO-20260804-K7P2VN-002`) — follow-up.
-- IPC concurrency / partial-read / broken-pipe tests; selection-model test depth; same-SQLite-file concurrency coverage — follow-up test-hardening changes.
+- IPC concurrency / partial-read / broken-pipe tests; selection-model test depth; same-SQLite-file concurrency coverage — follow-up test-hardening changes. **RESOLVED (2026-08-20):** the "same-SQLite-file concurrency coverage" item is now delivered by the `harden-index-store-concurrent-access` change, whose `TestConcurrentReaderWriterWalContract()` proves the one-writer + independent-reader WAL contract with a deterministic, repeated two-connection fixture (insert/update/remove snapshot isolation, held-read passive checkpoint, reopen/integrity after teardown). The other two items (IPC concurrency/partial-read/broken-pipe, selection-model depth) remain genuine follow-ups.
 - `cmake --preset analyze` host toolchain normalization / CI pinning — separate optional follow-up (the link failure was environmental; compile + `/analyze` succeeded).

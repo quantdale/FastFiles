@@ -1,18 +1,17 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-20
-Status: allocated-size-search-filter COMPLETE — prior indexed-search-allocated-size closure reconciled;
-this slice (ondisk:) registered, view+owning semantics proved, degraded live Search validated. Verified
-on this host with `build/debug-diagnostic` (`FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED=ON`, no production
-signing/trust-store/service-install/privileged MFT). Focused `search-allocated-size` (now extended for
-`ondisk:>=0B` degraded-UNKNOWN non-fabrication + restore) isolated 10/10 PASS; full
-`windows-ui-automation-validation` 23 PASS / 4 SKIP / 0 FAIL; Debug CTest 66/66; release-test CTest 66/66;
-analyze warning-clean; `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all --strict` 56/56.
-Prior indexed-search-allocated-size live evidence (Search.Results discoverability, per-row
-`Size on disk unknown` via raw `UIA_FullDescriptionPropertyId`, query-replacement, `Size on Disk` ↔
-`Size` sort toggle) remains proved and is now extended, not re-litigated. WORKSTATE reconciles the
-stale `3ad54ae` top-paragraph claim that final acceptance was pending — that state was resolved when the
-prior evidence was committed; this change closes the follow-up filter.
+Status: harden-index-store-concurrent-access COMPLETE — proven and hardened the existing
+one-writer + independent-reader SQLite/WAL contract with a deterministic, repeated two-connection
+fixture. No Store-layer fix was required; `Store` remains connection-owned and is **not** claimed
+thread-safe. `TestConcurrentReaderWriterWalContract()` (24 deterministic iterations) holds a live read
+statement on one `Store` connection while a second `Store` commits a batch on the same DB file, proving
+snapshot isolation for insert/update/remove, a bounded held-read passive checkpoint, and clean
+reopen+integrity after teardown. Validated green: Debug CTest 66/66; release-test CTest 66/66; analyze
+warning-clean; `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all --strict` 57/57;
+source-marker + diagnostic-policy + doc-drift PASS; `git diff --check` clean. Reconciled the
+`close-independent-validation-gaps` deferred note (same-SQLite-file concurrency coverage) as RESOLVED.
+Prior `allocated-size-search-filter` is COMPLETE and unaffected by this change.
 
 ## allocated-size-search-filter session record (2026-08-20)
 
@@ -2397,3 +2396,43 @@ Status: COMPLETE; implementation committed and pushed to `origin/main` (see git 
   (4.5/4.6/4.7/4.8/5.1/10.1–10.6), provision code-signing + production pins,
   install signed service and validate privileged MFT/USN, provision a
   Windows guest and validate autonomous cross-provider runs.
+
+## harden-index-store-concurrent-access session record (2026-08-20)
+
+- **Change:** `openspec/changes/harden-index-store-concurrent-access/` — prove and harden the
+  existing one-writer + independent-reader SQLite/WAL reader/writer contract. Scope confined to
+  `tests/indexstore/test_store.cpp` + OpenSpec evidence/tasks (D10). No schema/`user_version`,
+  protocol, snapshot-wire, production-signing, trust-store, `FastFilesIndexSvc`, raw MFT/USN, or
+  VM-provisioning change.
+- **Inventory (1.2/1.3):** `Store::Open` sets `journal_mode=WAL`, `synchronous=NORMAL`,
+  `foreign_keys=ON` (`src/indexstore/src/Store.cpp:240-248`). `ApplyBatch` uses `BEGIN IMMEDIATE` +
+  `COMMIT`; `ForEachEntry` streams via a live prepared statement; `CheckpointPassive` uses
+  `SQLITE_CHECKPOINT_PASSIVE`. Pre-change `tests/indexstore` used two connections only **sequentially**
+  (e.g. WAL-replay reopen) — no held-read/write overlap existed.
+- **Fixture (2.x/3.x/4.x):** fresh DB per iteration; 64 seed entries; two independent `Store` instances
+  on the same file (writer owned by test thread, reader owned by a spawned thread). `HeldReadWorker`
+  blocks inside the first visitor callback on a `condition_variable` while the SQLite statement is
+  active — the barrier (not a sleep) proves the read is live before the writer acts. Bounded 10s
+  deadlock watchdog fails deterministically with diagnostics (never hangs).
+- **Proof (D3/D5/D6):** while held, the writer commits insert/update/remove batches (returns true, no
+  `SQLITE_BUSY`); the held reader sees only the coherent pre-commit snapshot (never the new/updated/
+  removed row); a fresh read on the same reader connection sees post-commit state. Passive checkpoint
+  while the reader is held returns true and bounded; the reader is not invalidated; subsequent
+  checkpoint/read succeed. Measured commit/checkpoint durations sub-millisecond (bounded, not a
+  microbenchmark).
+- **Repetition/teardown (D7):** 24 deterministic iterations, zero retry-until-pass; each closes both
+  stores, reopens, runs `RunIntegrityCheck()`, and verifies the durable row count — no stale
+  lock/busy state.
+- **No fix needed:** the supported overlap behaved correctly on first run; D5/D7.4 narrowest-fix path
+  not triggered. `Store` still connection-owned; one-writer/many-reader contract documented, no
+  multi-writer or Store-thread-safety claim introduced.
+- **Validation:** Debug CTest 66/66; release-test CTest 66/66; analyze warning-clean (/W4 /WX
+  /analyze); `verify.ps1 build` PASS; `doctor` PASS; `openspec validate --all --strict` 57/57;
+  check_source_markers / check_diagnostic_policy / ffdoc_drift PASS; `git diff --check` clean.
+  Evidence: `openspec/changes/harden-index-store-concurrent-access/evidence/implementation-evidence.md`.
+- **Deferred-note reconciliation:** `close-independent-validation-gaps/tasks.md` line had listed
+  "same-SQLite-file concurrency coverage" as future follow-up — annotated RESOLVED (historical note
+  preserved, not rewritten).
+- NEXT recommended slice (do NOT start without instruction): nothing code-achievable remains in this
+  change; the global externally-gated follow-ups (privileged signing/MFT-USN/clean-host, interactive
+  GUI/UIA matrix, VM provisioning) are unchanged and require external resources.
