@@ -1,5 +1,7 @@
 #include "QuickActions.h"
 
+#include "UITheme.h"
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -12,12 +14,17 @@
 namespace ffui {
 namespace {
 constexpr wchar_t kNamePromptClass[] = L"FastFilesNamePrompt";
+// ui-v3 secondary surfaces: the name prompt joins the shared theme system —
+// themed background/edit/static colors from GetUiTheme(gUiDarkTheme), product
+// typography, and an immersive dark title bar — instead of raw system chrome.
 struct NamePromptState {
     HWND owner = nullptr;
     HWND edit = nullptr;
     std::wstring initialValue;
     std::optional<std::wstring> result;
     bool done = false;
+    HBRUSH themeBrush = nullptr;
+    HFONT bodyFont = nullptr;
 };
 
 LRESULT CALLBACK NamePromptProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -30,18 +37,27 @@ LRESULT CALLBACK NamePromptProc(HWND window, UINT message, WPARAM wParam, LPARAM
     if (state == nullptr) return DefWindowProcW(window, message, wParam, lParam);
     switch (message) {
         case WM_CREATE: {
-            CreateWindowExW(0, L"STATIC", L"Name:", WS_CHILD | WS_VISIBLE,
-                            12, 14, 60, 22, window, nullptr, nullptr, nullptr);
-            state->edit = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", state->initialValue.c_str(),
+            auto scaled = [](float dip) { return static_cast<int>(ffui::UiScale(dip)); };
+            const HFONT font = state->bodyFont;
+            HWND nameStatic = CreateWindowExW(0, L"STATIC", L"Name:", WS_CHILD | WS_VISIBLE,
+                                              scaled(12), scaled(14), scaled(60), scaled(22),
+                                              window, nullptr, nullptr, nullptr);
+            if (font != nullptr) SendMessageW(nameStatic, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            state->edit = CreateWindowExW(0, L"EDIT", state->initialValue.c_str(),
                                           WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                                          72, 10, 310, 25, window,
+                                          scaled(72), scaled(10), scaled(310), scaled(25), window,
                                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(100)), nullptr, nullptr);
-            CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                            220, 50, 75, 26, window,
-                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), nullptr, nullptr);
-            CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE,
-                            307, 50, 75, 26, window,
-                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), nullptr, nullptr);
+            HWND okButton = CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+                                            scaled(220), scaled(50), scaled(75), scaled(26), window,
+                                            reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDOK)), nullptr, nullptr);
+            HWND cancelButton = CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE,
+                                                scaled(307), scaled(50), scaled(75), scaled(26), window,
+                                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDCANCEL)), nullptr, nullptr);
+            if (font != nullptr) {
+                SendMessageW(state->edit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                SendMessageW(okButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+                SendMessageW(cancelButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+            }
             SendMessageW(state->edit, EM_SETSEL, 0, -1);
             SetFocus(state->edit);
             return 0;
@@ -64,6 +80,35 @@ LRESULT CALLBACK NamePromptProc(HWND window, UINT message, WPARAM wParam, LPARAM
         case WM_CLOSE:
             DestroyWindow(window);
             return 0;
+        // ui-v3 secondary surfaces: themed background and control colors so
+        // the prompt never appears as a raw system-light island in dark mode.
+        case WM_CTLCOLORDLG:
+        case WM_CTLCOLORSTATIC: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            const UiTheme theme = GetUiTheme(gUiDarkTheme);
+            SetTextColor(dc, ToColorRef(theme.text));
+            SetBkColor(dc, ToColorRef(theme.background));
+            return reinterpret_cast<LRESULT>(state->themeBrush);
+        }
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wParam);
+            const UiTheme theme = GetUiTheme(gUiDarkTheme);
+            SetTextColor(dc, ToColorRef(theme.searchText));
+            SetBkColor(dc, ToColorRef(theme.surfaceElevated));
+            // Self-healing one-entry cache: recreated whenever the elevated
+            // surface color changes (theme flip).
+            static HBRUSH cachedEditBrush = nullptr;
+            static COLORREF cachedColor = 0;
+            const COLORREF elevated = ToColorRef(theme.surfaceElevated);
+            if (cachedEditBrush == nullptr || cachedColor != elevated) {
+                if (cachedEditBrush != nullptr) {
+                    DeleteObject(cachedEditBrush);
+                }
+                cachedEditBrush = CreateSolidBrush(elevated);
+                cachedColor = elevated;
+            }
+            return reinterpret_cast<LRESULT>(cachedEditBrush);
+        }
         case WM_DESTROY:
             state->done = true;
             return 0;
@@ -273,14 +318,36 @@ std::optional<std::wstring> PromptForLeafName(HWND owner, const std::wstring& ti
     windowClass.lpszClassName = kNamePromptClass;
     RegisterClassExW(&windowClass);
 
-    NamePromptState state{owner, nullptr, initialValue, std::nullopt, false};
+    NamePromptState state{owner, nullptr, initialValue, std::nullopt, false, nullptr, nullptr};
+    // ui-v3 secondary surfaces: themed resources live for the dialog's
+    // lifetime and are freed after the modal loop.
+    state.themeBrush = CreateSolidBrush(ToColorRef(GetUiTheme(gUiDarkTheme).background));
+    const int bodyHeight = -static_cast<int>(UiScale(UiMetrics::kFontSizeBody));
+    state.bodyFont = CreateFontW(bodyHeight, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                                 DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                                 CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     RECT ownerRect{};
     GetWindowRect(owner, &ownerRect);
+    auto scaled = [](float dip) { return static_cast<int>(UiScale(dip)); };
     HWND prompt = CreateWindowExW(WS_EX_DLGMODALFRAME, kNamePromptClass, title.c_str(),
                                   WS_POPUP | WS_CAPTION | WS_SYSMENU,
-                                  ownerRect.left + 80, ownerRect.top + 80, 410, 120,
+                                  ownerRect.left + scaled(80), ownerRect.top + scaled(80),
+                                  scaled(410), scaled(120),
                                   owner, nullptr, instance, &state);
-    if (prompt == nullptr) return std::nullopt;
+    if (prompt == nullptr) {
+        if (state.themeBrush != nullptr) DeleteObject(state.themeBrush);
+        if (state.bodyFont != nullptr) DeleteObject(state.bodyFont);
+        return std::nullopt;
+    }
+    // ui-v3 secondary surfaces: immersive dark title bar in dark theme.
+    if (HMODULE dwmapi = GetModuleHandleW(L"dwmapi.dll")) {
+        using DwmSetWindowAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+        auto dwmSetAttribute = reinterpret_cast<DwmSetWindowAttributeFn>(GetProcAddress(dwmapi, "DwmSetWindowAttribute"));
+        if (dwmSetAttribute != nullptr) {
+            const BOOL useDark = gUiDarkTheme ? TRUE : FALSE;
+            dwmSetAttribute(prompt, 20, &useDark, sizeof(useDark));  // DWMWA_USE_IMMERSIVE_DARK_MODE (20)
+        }
+    }
     EnableWindow(owner, FALSE);
     ShowWindow(prompt, SW_SHOW);
     MSG message{};
@@ -300,6 +367,8 @@ std::optional<std::wstring> PromptForLeafName(HWND owner, const std::wstring& ti
     }
     EnableWindow(owner, TRUE);
     SetForegroundWindow(owner);
+    if (state.themeBrush != nullptr) DeleteObject(state.themeBrush);
+    if (state.bodyFont != nullptr) DeleteObject(state.bodyFont);
     return state.result;
 }
 

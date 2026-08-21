@@ -48,7 +48,7 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     registry_ = registry;
     shortcuts_ = shortcuts;
     execute_ = std::move(execute);
-    edit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
+    edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteEditId)), nullptr, nullptr);
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
                             WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
@@ -112,10 +112,11 @@ void CommandPalette::RefreshResults() {
     results_ = SearchCommands(*registry_, *shortcuts_, context_, query);
     SendMessageW(list_, LB_RESETCONTENT, 0, 0);
     for (const auto& result : results_) {
-        std::wstring label = result.command->displayName + L"  —  " + result.command->category;
-        if (!result.shortcutText.empty()) label += L"    " + result.shortcutText;
-        if (!result.enabled) label += L"    [Unavailable in current context]";
-        SendMessageW(list_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        // ui-v3 commands: the list stores the bare display name; HandleDrawItem
+        // composes category/shortcut/disabled presentation from results_ so
+        // each column gets its own typography instead of one flat string.
+        SendMessageW(list_, LB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(result.command->displayName.c_str()));
     }
     if (!results_.empty()) SendMessageW(list_, LB_SETCURSEL, 0, 0);
 }
@@ -186,26 +187,85 @@ bool CommandPalette::HandleDrawItem(LPARAM lParam) {
     wchar_t text[1024]{};
     if (SendMessageW(list_, LB_GETTEXT, item->itemID, reinterpret_cast<LPARAM>(text)) == LB_ERR) return true;
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
-    const bool enabled = item->itemID < results_.size() && results_[item->itemID].enabled;
+    // ui-v3 commands: structured result row — command name primary, category
+    // secondary after the name, shortcut right-aligned in tertiary, disabled
+    // commands dimmed with an explicit "(unavailable)" cue.
+    const bool haveResult = item->itemID < results_.size();
+    const bool enabled = !haveResult || results_[item->itemID].enabled;
+    const wchar_t* category = haveResult ? results_[item->itemID].command->category.c_str() : L"";
+    const std::wstring* shortcut = haveResult ? &results_[item->itemID].shortcutText : nullptr;
+    HDC dc = item->hDC;
     if (ffui::UiSystemHighContrast()) {
-        FillRect(item->hDC, &item->rcItem, GetSysColorBrush(selected && enabled ? COLOR_HIGHLIGHT : COLOR_WINDOW));
-        SetTextColor(item->hDC,
+        FillRect(dc, &item->rcItem, GetSysColorBrush(selected && enabled ? COLOR_HIGHLIGHT : COLOR_WINDOW));
+        SetTextColor(dc,
                      GetSysColor(!enabled ? COLOR_GRAYTEXT : selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
     } else {
         const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
         const bool emphasized = selected && enabled;
         const HBRUSH backgroundBrush = LazyThemeBrush(emphasized ? theme.accent : theme.background,
                                                       emphasized ? ctlAccentBrush_ : ctlListBrush_);
-        FillRect(item->hDC, &item->rcItem, backgroundBrush);
-        SetTextColor(item->hDC, ffui::ToColorRef(!enabled ? theme.textSecondary
-                                                          : emphasized ? theme.textOnAccent : theme.text));
+        FillRect(dc, &item->rcItem, backgroundBrush);
+        SetTextColor(dc, ffui::ToColorRef(!enabled ? theme.textDisabled
+                                                    : emphasized ? theme.textOnAccent : theme.text));
     }
-    SetBkMode(item->hDC, TRANSPARENT);
+    SetBkMode(dc, TRANSPARENT);
     RECT textRect = item->rcItem;
-    textRect.left += Scaled(8);
-    textRect.right -= Scaled(8);
-    DrawTextW(item->hDC, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
-    if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(item->hDC, &item->rcItem);
+    textRect.left += Scaled(12);
+    textRect.right -= Scaled(12);
+    DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    // Secondary columns measure against the name so nothing overlaps.
+    int nameWidth = 0;
+    SIZE measured{};
+    const int textLength = static_cast<int>(wcslen(text));
+    if (GetTextExtentPoint32W(dc, text, textLength, &measured)) {
+        nameWidth = measured.cx;
+    }
+    const int rightEdge = item->rcItem.right - Scaled(12);
+    if (!enabled) {
+        // Explicit non-color cue paired with the dimmed name.
+        RECT unavailableRect{textRect.left + nameWidth + Scaled(8), item->rcItem.top,
+                             rightEdge, item->rcItem.bottom};
+        SetTextColor(dc, ffui::UiSystemHighContrast()
+                             ? GetSysColor(COLOR_GRAYTEXT)
+                             : ffui::ToColorRef(ffui::GetUiTheme(ffui::gUiDarkTheme).textTertiary));
+        DrawTextW(dc, L"(unavailable)", -1, &unavailableRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    } else if (!ffui::UiSystemHighContrast()) {
+        const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+        if (category != nullptr && category[0] != L'\0') {
+            RECT categoryRect{item->rcItem.left + Scaled(12) + nameWidth + Scaled(10),
+                              item->rcItem.top, rightEdge, item->rcItem.bottom};
+            SetTextColor(dc, ffui::ToColorRef(selected ? theme.textOnAccent : theme.textSecondary));
+            DrawTextW(dc, category, -1, &categoryRect,
+                      DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        }
+        if (shortcut != nullptr && !shortcut->empty()) {
+            RECT shortcutRect{rightEdge - Scaled(180), item->rcItem.top, rightEdge,
+                              item->rcItem.bottom};
+            SetTextColor(dc, ffui::ToColorRef(selected ? theme.textOnAccent : theme.textTertiary));
+            DrawTextW(dc, shortcut->c_str(), -1, &shortcutRect,
+                      DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX);
+        }
+    }
+    if ((item->itemState & ODS_FOCUS) != 0) {
+        // ui-v3 commands: solid inset focus ring instead of the dotted rect —
+        // same grammar as every other keyboard-focus indicator.
+        const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+        RECT ring{item->rcItem.left + 2, item->rcItem.top + 2, item->rcItem.right - 2,
+                  item->rcItem.bottom - 2};
+        HBRUSH frame = CreateSolidBrush(ffui::UiSystemHighContrast()
+                                            ? GetSysColor(COLOR_WINDOWTEXT)
+                                            : ffui::ToColorRef(theme.focusStroke));
+        if (frame != nullptr) {
+            HRGN region = CreateRoundRectRgn(ring.left, ring.top, ring.right, ring.bottom,
+                                             Scaled(4), Scaled(4));
+            if (region != nullptr) {
+                FrameRgn(dc, region, frame, 2, 2);
+                DeleteObject(region);
+            }
+            DeleteObject(frame);
+        }
+    }
     return true;
 }
 
