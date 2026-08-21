@@ -15,12 +15,27 @@ constexpr int kNewTabId = 8204;
 constexpr int kTabCloseBaseId = 8400;
 constexpr UINT WM_APP_ADDRESS_FOCUS_LOST = WM_APP + 52;
 constexpr int kChromeHeight = 72;
+// ui-v3 shell: shared layout constants for the navigation row so painting and
+// hit-testing never drift apart.
+constexpr int kAddressLeftDip = 78;
 
 // Scale a DIP metric to physical pixels for Win32 control layout. Accepts a
 // float so themed corner radii (UiMetrics::kRadiusMedium) pass without a
 // narrowing conversion.
 int Scaled(float dipValue) {
     return static_cast<int>(ffui::UiScale(dipValue));
+}
+
+// ui-v3 shell: composites a translucent theme token over an opaque base color
+// so GDI (no alpha channel) renders what Direct2D would.
+COLORREF CompositeOver(D2D1_COLOR_F overlay, D2D1_COLOR_F base) {
+    const float alpha = overlay.a;
+    D2D1_COLOR_F blended{};
+    blended.r = base.r * (1.0f - alpha) + overlay.r * alpha;
+    blended.g = base.g * (1.0f - alpha) + overlay.g * alpha;
+    blended.b = base.b * (1.0f - alpha) + overlay.b * alpha;
+    blended.a = 1.0f;
+    return ToColorRef(blended);
 }
 
 void DrawTextSegment(HDC dc, const std::wstring& text, RECT rect, COLORREF color) {
@@ -80,16 +95,21 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     window_ = CreateWindowExW(0, kWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
                               0, 0, 0, Scaled(kChromeHeight), owner, nullptr, windowClass.hInstance, this);
     if (!window_) return false;
-    back_ = CreateWindowExW(0, L"BUTTON", L"◀", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    // ui-v3 shell: Back/Forward/New Tab render through the shared owner-drawn
+    // icon-button family (see DrawIconButton).
+    back_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                             0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
-    forward_ = CreateWindowExW(0, L"BUTTON", L"▶", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    forward_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kForwardId)), nullptr, nullptr);
     drives_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST |
                                  CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
                               0, 0, Scaled(140), Scaled(260), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDriveId)), nullptr, nullptr);
-    newTab_ = CreateWindowExW(0, L"BUTTON", L"+", WS_CHILD | WS_VISIBLE | WS_TABSTOP,
+    newTab_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                               0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNewTabId)), nullptr, nullptr);
-    addressEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
+    // ui-v3 shell: the address edit is borderless — while editing, the
+    // breadcrumb row paints a themed field backdrop so edit mode reads as a
+    // transformation of the breadcrumb, not a different subsystem.
+    addressEdit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
                                    0, 0, Scaled(200), Scaled(28), window_, nullptr, nullptr, nullptr);
     if (!back_ || !forward_ || !drives_ || !newTab_ || !addressEdit_) return false;
     darkTheme_ = gUiDarkTheme;
@@ -97,6 +117,16 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     mdl2Font_ = CreateFontW(-static_cast<int>(UiScale(14.0f)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                             CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe MDL2 Assets");
+    // ui-v3 shell: breadcrumbs and the address field use the product type ramp
+    // instead of the DC default system font.
+    bodyFont_ = CreateFontW(-static_cast<int>(UiScale(UiMetrics::kFontSizeBody)), 0, 0, 0, FW_NORMAL,
+                            FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    // ui-v3 shell: nav buttons join one owner-drawn icon-button family with
+    // shared hover/pressed/focus resolution (no per-button system chrome).
+    SetWindowSubclass(back_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(forward_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(newTab_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(addressEdit_, AddressEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     RebuildDrives();
     Refresh();
@@ -109,11 +139,21 @@ void NavigationChrome::Reposition() {
     GetClientRect(owner_, &client);
     const int width = (std::max)(0L, client.right - client.left);
     SetWindowPos(window_, HWND_TOP, 0, 0, width, Scaled(kChromeHeight), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // ui-v3 shell responsive state: below the narrow breakpoint the drive
+    // combo yields its permanent slot (drives stay reachable via Home/sidebar);
+    // controls degrade gracefully instead of clipping.
+    const bool narrow = width < Scaled(620.0f);
+    ShowWindow(drives_, narrow ? SW_HIDE : SW_SHOW);
+    const int addressWidth = narrow ? (std::max)(Scaled(120), width - Scaled(150))
+                                    : (std::max)(Scaled(120), width - Scaled(250));
     SetWindowPos(back_, HWND_TOP, Scaled(4), Scaled(5), Scaled(32), Scaled(28), SWP_NOACTIVATE);
     SetWindowPos(forward_, HWND_TOP, Scaled(38), Scaled(5), Scaled(32), Scaled(28), SWP_NOACTIVATE);
-    SetWindowPos(addressEdit_, HWND_TOP, Scaled(76), Scaled(5), (std::max)(Scaled(120), width - Scaled(250)), Scaled(28), SWP_NOACTIVATE);
-    SetWindowPos(drives_, HWND_TOP, (std::max)(Scaled(80), width - Scaled(168)), Scaled(5), Scaled(164), Scaled(260), SWP_NOACTIVATE);
-    SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(41), Scaled(28), Scaled(27), SWP_NOACTIVATE);
+    SetWindowPos(addressEdit_, HWND_TOP, Scaled(kAddressLeftDip), Scaled(5), addressWidth, Scaled(28),
+                 SWP_NOACTIVATE);
+    SetWindowPos(drives_, HWND_TOP, (std::max)(Scaled(80), width - Scaled(168)), Scaled(5), Scaled(164),
+                 Scaled(260), SWP_NOACTIVATE);
+    SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(41), Scaled(28),
+                 Scaled(27), SWP_NOACTIVATE);
     RepositionTabs();
     InvalidateRect(window_, nullptr, FALSE);
 }
@@ -218,6 +258,9 @@ void NavigationChrome::RebuildTabs() {
     tabButtons_.clear();
     tabCloseButtons_.clear();
     hoverCloseTab_ = -1;
+    // ui-v3 shell: destroyed tab buttons can no longer be hovered/pressed.
+    if (hoverItemId_ >= kTabBaseId) hoverItemId_ = -1;
+    if (pressedItemId_ >= kTabBaseId) pressedItemId_ = -1;
     for (size_t index = 0; index < workspace_->TabCount(); ++index) {
         // quick-access-home 5.2: read the typed tab location so a Home tab
         // labels as "Home" instead of being collapsed into the "This PC"
@@ -239,6 +282,9 @@ void NavigationChrome::RebuildTabs() {
         if (tab != nullptr && close != nullptr) {
             tabButtons_.push_back(tab);
             tabCloseButtons_.push_back(close);
+            // ui-v3 shell: tab pills track hover so the close affordance can be
+            // revealed from the tab itself and inactive tabs show a hover state.
+            SetWindowSubclass(tab, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
             SetWindowSubclass(close, CloseButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
             // Inactive tabs must remain clickable; the active tab is visually
             // distinguished by DrawTabButton via IsTabDrawItemActive (the real
@@ -255,14 +301,20 @@ void NavigationChrome::RepositionTabs() {
     if (!window_) return;
     RECT client{};
     GetClientRect(window_, &client);
-    const int available = (std::max)(Scaled(80), static_cast<int>(client.right - Scaled(42)));
-    const int tabWidth = tabButtons_.empty() ? 0 : (std::max)(Scaled(100), (available - Scaled(4)) / static_cast<int>(tabButtons_.size()));
+    const int available = (std::max)(Scaled(80), static_cast<int>(client.right) - Scaled(42));
+    // ui-v3 shell tab geometry: the close affordance lives inside the pill's
+    // right edge; tabs shrink to a 64-DIP floor under pressure (excess tabs
+    // clip rather than squeeze into unreadability).
+    const int tabWidth = tabButtons_.empty()
+        ? 0
+        : (std::max)(Scaled(84), available / static_cast<int>(tabButtons_.size()));
     int x = Scaled(4);
     for (size_t index = 0; index < tabButtons_.size(); ++index) {
-        const int width = (std::max)(Scaled(80), (std::min)(Scaled(220), tabWidth - Scaled(24)));
+        const int width = (std::max)(Scaled(64), (std::min)(Scaled(220), tabWidth - Scaled(4)));
         SetWindowPos(tabButtons_[index], HWND_TOP, x, Scaled(41), width, Scaled(27), SWP_NOACTIVATE);
-        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + width, Scaled(41), Scaled(24), Scaled(27), SWP_NOACTIVATE);
-        x += width + Scaled(24) + Scaled(4);
+        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + width - Scaled(24), Scaled(41), Scaled(24),
+                     Scaled(27), SWP_NOACTIVATE);
+        x += width + Scaled(4);
     }
 }
 
@@ -285,56 +337,257 @@ void NavigationChrome::CloseTab(size_t index) {
 
 void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     breadcrumbRects_.clear();
+    breadcrumbIndices_.clear();
+    collapsedTargetPath_.clear();
     if (!workspace_) return;
     const UiTheme theme = GetUiTheme(darkTheme_);
     const bool highContrast = UiSystemHighContrast();
-    RECT navigationRect = client;
-    navigationRect.bottom = (std::min)(navigationRect.bottom, 40L);
-    FillRectColor(dc, navigationRect,
+    HFONT oldFont = bodyFont_ ? static_cast<HFONT>(SelectObject(dc, bodyFont_)) : nullptr;
+    // ui-v3 shell: one quiet surface for the whole chrome bar plus a single
+    // subtle hairline at the bottom edge — no stacked bands/borders.
+    FillRectColor(dc, client,
                   highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background));
+
     const auto breadcrumbs = workspace_->Breadcrumbs();
-    int x = 78;
+    // ui-v3 shell breadcrumb layout: two-pass measure so narrow widths collapse
+    // intermediate segments into one "…" entry instead of clipping. First and
+    // current segments always stay visible.
+    struct SegmentLayout {
+        size_t sourceIndex;  // index into breadcrumbs; SIZE_MAX = collapsed run
+        int width;
+    };
+    const int separatorWidth = Scaled(14);
+    int x = Scaled(kAddressLeftDip);
+    const int rightLimit = static_cast<int>(client.right) - Scaled(8);
+    std::vector<SegmentLayout> layout;
+    layout.reserve(breadcrumbs.size());
+    int totalWidth = 0;
     for (size_t index = 0; index < breadcrumbs.size(); ++index) {
-        const auto& segment = breadcrumbs[index];
-        RECT measured{x, 4, client.right - 8, 34};
-        DrawTextW(dc, segment.label.c_str(), -1, &measured, DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
-        const int width = (std::max)(28L, measured.right - measured.left + 16);
-        RECT segmentRect{x, 4, (std::min)(client.right - 4L, static_cast<LONG>(x + width)), 34};
-        breadcrumbRects_.push_back(segmentRect);
-        if (static_cast<int>(index) == hoverSegment_) {
-            // Composite the translucent hover overlay over the background to get a
-            // solid COLORREF (ToColorRef drops alpha).
-            const D2D1_COLOR_F& overlay = theme.hoverOverlay;
-            const float alpha = overlay.a;
-            D2D1_COLOR_F blended{};
-            blended.r = theme.background.r * (1.0f - alpha) + overlay.r * alpha;
-            blended.g = theme.background.g * (1.0f - alpha) + overlay.g * alpha;
-            blended.b = theme.background.b * (1.0f - alpha) + overlay.b * alpha;
-            blended.a = 1.0f;
-            DrawPill(dc, segmentRect,
-                     highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(blended),
-                     Scaled(UiMetrics::kRadiusMedium));
+        RECT measured{x, 4, rightLimit, 34};
+        DrawTextW(dc, breadcrumbs[index].label.c_str(), -1, &measured,
+                  DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
+        const int width = (std::max)(28L, measured.right - measured.left + Scaled(12));
+        layout.push_back({index, width});
+        totalWidth += width + separatorWidth;
+    }
+    const bool needsCollapse =
+        totalWidth > (rightLimit - x) && breadcrumbs.size() > 2;
+    if (needsCollapse) {
+        // Collapse indices 1..n-2 into a single "…" segment targeting the
+        // deepest hidden ancestor (breadcrumbs[1]).
+        std::vector<SegmentLayout> collapsed;
+        collapsed.reserve(3);
+        collapsed.push_back(layout.front());
+        collapsed.push_back({SIZE_MAX, Scaled(24)});
+        collapsed.push_back(layout.back());
+        int collapsedTotal = 0;
+        for (const auto& segment : collapsed) {
+            collapsedTotal += segment.width + separatorWidth;
         }
-        const bool clickable = !segment.path.empty() || segment.syntheticRoot;
-        const COLORREF textColor = highContrast
-            ? GetSysColor(clickable ? COLOR_HIGHLIGHT : COLOR_WINDOWTEXT)
-            : ToColorRef(clickable ? theme.accent : theme.text);
-        DrawTextSegment(dc, segment.label, segmentRect, textColor);
-        x = segmentRect.right;
-        if (x + 18 < client.right) {
-            RECT separator{x, 4, x + 18, 34};
+        if (collapsedTotal <= rightLimit - x) {
+            collapsedTargetPath_ = breadcrumbs[1].path;
+            layout = std::move(collapsed);
+        } else {
+            // Even the collapsed form does not fit: drop from the front of the
+            // remaining run until it does (current segment is last, never dropped).
+            while (layout.size() > 1 && totalWidth > rightLimit - x) {
+                totalWidth -= layout.front().width + separatorWidth;
+                layout.erase(layout.begin());
+            }
+            if (layout.size() == 2 && !breadcrumbs.empty()) {
+                collapsedTargetPath_ = breadcrumbs[1].path;
+                std::vector<SegmentLayout> minimal;
+                minimal.push_back({SIZE_MAX, Scaled(24)});
+                minimal.push_back(layout.back());
+                layout = std::move(minimal);
+            }
+        }
+    }
+
+    for (size_t position = 0; position < layout.size(); ++position) {
+        const auto& entry = layout[position];
+        if (entry.sourceIndex == SIZE_MAX) {
+            // Collapsed-run placeholder: clickable, navigates to the deepest
+            // hidden ancestor.
+            RECT segmentRect{x, 4, (std::min)(rightLimit, x + entry.width), 34};
+            if (!collapsedTargetPath_.empty()) {
+                breadcrumbRects_.push_back(segmentRect);
+                breadcrumbIndices_.push_back(-1);
+            }
+            const bool hovered = hoverSegment_ >= 0 &&
+                                 static_cast<size_t>(hoverSegment_) == breadcrumbRects_.size() - 1 &&
+                                 !collapsedTargetPath_.empty();
+            if (hovered) {
+                DrawPill(dc, segmentRect,
+                         highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                                      : CompositeOver(theme.hoverOverlay, theme.background),
+                         Scaled(UiMetrics::kRadiusSmall));
+            }
+            DrawTextSegment(dc, L"…", segmentRect,
+                            highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                         : ToColorRef(theme.textSecondary));
+            x = segmentRect.right;
+        } else {
+            const auto& segment = breadcrumbs[entry.sourceIndex];
+            RECT segmentRect{x, 4, (std::min)(rightLimit, x + entry.width), 34};
+            const bool current = entry.sourceIndex + 1 == breadcrumbs.size();
+            const bool clickable = !segment.path.empty() || segment.syntheticRoot;
+            breadcrumbRects_.push_back(segmentRect);
+            breadcrumbIndices_.push_back(static_cast<int>(entry.sourceIndex));
+            // ui-v3 shell: hover feedback only on interactive segments; the
+            // current location is not a button.
+            if (hoverSegment_ == static_cast<int>(breadcrumbRects_.size() - 1) && clickable) {
+                DrawPill(dc, segmentRect,
+                         highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                                      : CompositeOver(theme.hoverOverlay, theme.background),
+                         Scaled(UiMetrics::kRadiusSmall));
+            }
+            const COLORREF textColor = highContrast
+                ? GetSysColor(clickable ? COLOR_HIGHLIGHT : COLOR_WINDOWTEXT)
+                : ToColorRef(current ? theme.text : (clickable ? theme.accent : theme.textSecondary));
+            DrawTextSegment(dc, segment.label, segmentRect, textColor);
+            x = segmentRect.right;
+        }
+        if (position + 1 < layout.size() && x + separatorWidth < rightLimit) {
+            // ui-v3 shell: quiet separators in tertiary text keep the path
+            // readable without competing with segment labels.
+            RECT separator{x, 4, x + separatorWidth, 34};
             DrawTextSegment(dc, L"›", separator,
-                            highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.textSecondary));
-            x += 18;
+                            highContrast ? GetSysColor(COLOR_GRAYTEXT)
+                                         : ToColorRef(theme.textTertiary));
+            x += separatorWidth;
         }
-        if (x >= client.right - 8) break;
+        if (x >= rightLimit) break;
     }
+
+    // ui-v3 shell: while editing, the address field reads as a transformation
+    // of the breadcrumb — a themed field backdrop with focus stroke replaces
+    // the old inset-edge system edit box.
+    if (editing_ && addressEdit_) {
+        RECT editClient{};
+        GetClientRect(addressEdit_, &editClient);
+        MapWindowPoints(addressEdit_, window_, reinterpret_cast<POINT*>(&editClient), 2);
+        RECT field{editClient.left - Scaled(4), Scaled(4), editClient.right + Scaled(4), Scaled(34)};
+        DrawPill(dc, field,
+                 highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceElevated),
+                 Scaled(UiMetrics::kRadiusField));
+        HRGN inside = CreateRoundRectRgn(field.left + 1, field.top + 1, field.right - 1,
+                                         field.bottom - 1, Scaled(UiMetrics::kRadiusField),
+                                         Scaled(UiMetrics::kRadiusField));
+        if (inside) {
+            HBRUSH frame = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                                         : ToColorRef(theme.focusStroke));
+            if (frame) {
+                FrameRgn(dc, inside, frame, 1, 1);
+                DeleteObject(frame);
+            }
+            DeleteObject(inside);
+        }
+    }
+
     if (!workspace_->ActiveContext().addressBarError.empty()) {
-        SetTextColor(dc, highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(theme.error));
-        RECT error{78, 30, client.right - 8, 40};
-        DrawTextW(dc, workspace_->ActiveContext().addressBarError.c_str(), -1, &error,
-                  DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        RECT error{Scaled(kAddressLeftDip), 30, client.right - 8, 40};
+        DrawTextSegment(dc, workspace_->ActiveContext().addressBarError, error,
+                        highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(theme.error));
     }
+    // ui-v3 shell: single subtle divider closing the chrome bar.
+    const RECT hairline{0, client.bottom - 1, client.right, client.bottom};
+    FillRectColor(dc, hairline,
+                  highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                               : CompositeOver(theme.dividerSubtle, theme.background));
+    if (oldFont) SelectObject(dc, oldFont);
+}
+
+void NavigationChrome::DrawIconButton(const DRAWITEMSTRUCT* item, const wchar_t* glyph,
+                                      bool mirrorGlyph) {
+    HDC dc = item->hDC;
+    const RECT& rect = item->rcItem;
+    const UiTheme theme = GetUiTheme(darkTheme_);
+    const bool highContrast = UiSystemHighContrast();
+    const bool enabled = (item->itemState & ODS_DISABLED) == 0;
+    const bool hovered = enabled && static_cast<int>(item->CtlID) == hoverItemId_;
+    const bool pressed = enabled && static_cast<int>(item->CtlID) == pressedItemId_;
+    // ui-v3 shell icon-button family: quiet at rest, overlay feedback on
+    // hover/press, focus ring independent of hover, no persistent border.
+    FillRectColor(dc, rect, highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background));
+    if (pressed) {
+        DrawPill(dc, rect,
+                 highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                              : CompositeOver(theme.pressOverlay, theme.background),
+                 Scaled(UiMetrics::kRadiusSmall));
+    } else if (hovered) {
+        DrawPill(dc, rect,
+                 highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                              : CompositeOver(theme.hoverOverlay, theme.background),
+                 Scaled(UiMetrics::kRadiusSmall));
+    }
+    if ((item->itemState & ODS_FOCUS) != 0) {
+        // ui-v3 shell: keyboard focus indicator inset within the button bounds.
+        RECT ring{rect.left + Scaled(2), rect.top + Scaled(2), rect.right - Scaled(2),
+                  rect.bottom - Scaled(2)};
+        HRGN region = CreateRoundRectRgn(ring.left, ring.top, ring.right, ring.bottom,
+                                         Scaled(UiMetrics::kRadiusSmall), Scaled(UiMetrics::kRadiusSmall));
+        if (region) {
+            HBRUSH frame = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                                         : ToColorRef(theme.focusStroke));
+            if (frame) {
+                FrameRgn(dc, region, frame, 2, 2);
+                DeleteObject(frame);
+            }
+            DeleteObject(region);
+        }
+    }
+    COLORREF fg = highContrast
+        ? GetSysColor(enabled ? COLOR_WINDOWTEXT : COLOR_GRAYTEXT)
+        : ToColorRef(enabled ? theme.text : theme.textDisabled);
+    // MDL2 glyphs (E7xx private-use area) need the icon font; Unicode arrow
+    // fallbacks draw with the default UI font.
+    HFONT oldFont = nullptr;
+    const bool useGlyphFont = mdl2Font_ != nullptr && glyph[0] != L'\0' &&
+                              static_cast<UINT>(glyph[0]) >= 0xE000 &&
+                              static_cast<UINT>(glyph[0]) <= 0xF8FF;
+    if (useGlyphFont) oldFont = static_cast<HFONT>(SelectObject(dc, mdl2Font_));
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, fg);
+    if (mirrorGlyph) {
+        // ui-v3 shell: Forward mirrors the Back glyph via DC layout mirroring,
+        // guaranteeing the pair stays one consistent family.
+        const DWORD oldLayout = GetLayout(dc);
+        SetLayout(dc, oldLayout | LAYOUT_RTL);
+        DrawTextW(dc, glyph, -1, const_cast<LPRECT>(&rect),
+                  DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+        SetLayout(dc, oldLayout);
+    } else {
+        DrawTextW(dc, glyph, -1, const_cast<LPRECT>(&rect),
+                  DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+    }
+    if (oldFont) SelectObject(dc, oldFont);
+}
+
+void NavigationChrome::SetControlHover(HWND control, int controlId, bool hover) {
+    const int newIndex = hover ? controlId : -1;
+    if (newIndex == hoverItemId_) return;
+    const int oldId = hoverItemId_;
+    hoverItemId_ = newIndex;
+    if (control) InvalidateRect(control, nullptr, FALSE);
+    // ui-v3 shell: a close strip inside a hovered tab must reveal itself, so
+    // both the previously and newly hovered tab's strip repaint.
+    auto invalidateCloseFor = [this](int id) {
+        if (id < kTabBaseId) return;
+        const size_t index = static_cast<size_t>(id - kTabBaseId);
+        if (index < tabCloseButtons_.size()) {
+            InvalidateRect(tabCloseButtons_[index], nullptr, FALSE);
+        }
+    };
+    invalidateCloseFor(oldId);
+    invalidateCloseFor(newIndex);
+}
+
+void NavigationChrome::SetControlPressed(HWND control, int controlId, bool pressed) {
+    const int newIndex = pressed ? controlId : -1;
+    if (newIndex == pressedItemId_) return;
+    pressedItemId_ = newIndex;
+    if (control) InvalidateRect(control, nullptr, FALSE);
 }
 
 void NavigationChrome::DrawTabButton(const DRAWITEMSTRUCT* item) {
@@ -344,22 +597,49 @@ void NavigationChrome::DrawTabButton(const DRAWITEMSTRUCT* item) {
     const bool highContrast = UiSystemHighContrast();
     // The real active-tab identity: ODS_DISABLED is never set (all tabs stay
     // enabled for clickability), so it cannot signal the active tab.
-    const bool active = IsTabDrawItemActive(static_cast<int>(item->CtlID),
-                                            workspace_ ? workspace_->ActiveTabIndex() : 0);
+    const int controlId = static_cast<int>(item->CtlID);
+    const bool active = IsTabDrawItemActive(controlId, workspace_ ? workspace_->ActiveTabIndex() : 0);
+    const bool hovered = !active && controlId == hoverItemId_;
+    const bool pressed = controlId == pressedItemId_;
     const COLORREF parentBg = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background);
+    // ui-v3 shell tab hierarchy: the active tab is an elevated pill with a thin
+    // accent underline — clear without a large accent block; inactive tabs are
+    // subdued and only surface on hover/press.
     const COLORREF pill = highContrast
         ? GetSysColor(active ? COLOR_HIGHLIGHT : COLOR_WINDOW)
-        : ToColorRef(active ? theme.surfaceSubtle : theme.background);
-    // Fill the whole rect with the parent background first so the rounded pill's
-    // corners blend into the chrome bar.
+        : (pressed ? CompositeOver(theme.pressOverlay, theme.background)
+                   : hovered ? CompositeOver(theme.hoverOverlay, theme.background)
+                             : active ? ToColorRef(theme.surfaceSubtle)
+                                      : ToColorRef(theme.background));
     FillRectColor(dc, rect, parentBg);
     DrawPill(dc, rect, pill, Scaled(UiMetrics::kRadiusMedium));
+    if (active && !highContrast) {
+        RECT underline{rect.left + Scaled(8), rect.bottom - Scaled(3), rect.right - Scaled(8),
+                       rect.bottom - Scaled(1)};
+        DrawPill(dc, underline, ToColorRef(theme.accent), 1);
+    }
+    if ((item->itemState & ODS_FOCUS) != 0) {
+        RECT ring{rect.left + Scaled(2), rect.top + Scaled(2), rect.right - Scaled(2),
+                  rect.bottom - Scaled(2)};
+        HRGN region = CreateRoundRectRgn(ring.left, ring.top, ring.right, ring.bottom,
+                                         Scaled(UiMetrics::kRadiusSmall), Scaled(UiMetrics::kRadiusSmall));
+        if (region) {
+            HBRUSH frame = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                                         : ToColorRef(theme.focusStroke));
+            if (frame) {
+                FrameRgn(dc, region, frame, 2, 2);
+                DeleteObject(frame);
+            }
+            DeleteObject(region);
+        }
+    }
     const COLORREF fg = highContrast
         ? GetSysColor(active ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT)
-        : ToColorRef(active ? theme.text : theme.textSecondary);
+        : ToColorRef(active ? theme.text : (hovered ? theme.text : theme.textSecondary));
     RECT textRect = rect;
     textRect.left += Scaled(8);
-    textRect.right -= Scaled(8);
+    textRect.right -= Scaled(26);  // keep clear of the in-pill close affordance
+    if (!active && textRect.right <= textRect.left) textRect.right = textRect.left;
     const std::wstring label = GetControlText(item->hwndItem);
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, fg);
@@ -372,10 +652,22 @@ void NavigationChrome::DrawCloseButton(const DRAWITEMSTRUCT* item) {
     const bool highContrast = UiSystemHighContrast();
     HDC dc = item->hDC;
     const RECT& rect = item->rcItem;
-    // Blend the thin close strip into the chrome bar; the × only appears on hover.
-    FillRectColor(dc, rect, highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background));
-    if (index != hoverCloseTab_) return;
-    const COLORREF fg = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.textSecondary);
+    const bool active = IsTabDrawItemActive(kTabBaseId + index,
+                                            workspace_ ? workspace_->ActiveTabIndex() : 0);
+    // ui-v3 shell: the close strip sits inside its tab pill, so it blends with
+    // the pill fill; the × reveals on tab hover/focus or hovering the strip.
+    const bool revealed = index == hoverCloseTab_ ||
+                          kTabBaseId + index == hoverItemId_ ||
+                          (item->itemState & ODS_FOCUS) != 0;
+    const COLORREF backdrop = highContrast
+        ? GetSysColor(active ? COLOR_HIGHLIGHT : COLOR_WINDOW)
+        : ToColorRef(active ? theme.surfaceSubtle : theme.background);
+    FillRectColor(dc, rect, backdrop);
+    if (!revealed) return;
+    const bool stripHovered = index == hoverCloseTab_;
+    const COLORREF fg = highContrast
+        ? GetSysColor(COLOR_WINDOWTEXT)
+        : ToColorRef(stripHovered || active ? theme.text : theme.textSecondary);
     HFONT oldFont = nullptr;
     if (mdl2Font_) oldFont = static_cast<HFONT>(SelectObject(dc, mdl2Font_));
     SetBkMode(dc, TRANSPARENT);
@@ -392,12 +684,15 @@ void NavigationChrome::DrawDriveItem(const DRAWITEMSTRUCT* item) {
     const UiTheme theme = GetUiTheme(darkTheme_);
     const bool highContrast = UiSystemHighContrast();
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    // ui-v3 shell: the closed-combo selection is a soft highlight, not a full
+    // accent fill; High Contrast keeps the system highlight.
     const COLORREF bg = highContrast
         ? GetSysColor(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW)
-        : ToColorRef(selected ? theme.accent : theme.background);
+        : (selected ? CompositeOver(theme.selectionSoft, theme.background)
+                    : ToColorRef(theme.background));
     const COLORREF fg = highContrast
         ? GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT)
-        : ToColorRef(selected ? theme.textOnAccent : theme.text);
+        : ToColorRef(theme.text);
     FillRectColor(dc, item->rcItem, bg);
     std::wstring text(512, L'\0');
     const int length = static_cast<int>(SendMessageW(item->hwndItem, CB_GETLBTEXT, itemId,
@@ -416,7 +711,14 @@ void NavigationChrome::UpdateChromeBrush() {
         DeleteObject(chromeBrush_);
         chromeBrush_ = nullptr;
     }
-    chromeBrush_ = CreateSolidBrush(ToColorRef(GetUiTheme(darkTheme_).background));
+    if (editBrush_) {
+        DeleteObject(editBrush_);
+        editBrush_ = nullptr;
+    }
+    const UiTheme theme = GetUiTheme(darkTheme_);
+    chromeBrush_ = CreateSolidBrush(ToColorRef(theme.background));
+    // ui-v3 shell: the borderless address edit paints on an elevated field.
+    editBrush_ = CreateSolidBrush(ToColorRef(theme.surfaceElevated));
 }
 
 void NavigationChrome::SetDarkTheme(bool dark) {
@@ -457,9 +759,17 @@ void NavigationChrome::Cleanup() {
         DeleteObject(chromeBrush_);
         chromeBrush_ = nullptr;
     }
+    if (editBrush_) {
+        DeleteObject(editBrush_);
+        editBrush_ = nullptr;
+    }
     if (mdl2Font_) {
         DeleteObject(mdl2Font_);
         mdl2Font_ = nullptr;
+    }
+    if (bodyFont_) {
+        DeleteObject(bodyFont_);
+        bodyFont_ = nullptr;
     }
 }
 
@@ -510,6 +820,44 @@ LRESULT CALLBACK NavigationChrome::CloseButtonProc(HWND hwnd, UINT message, WPAR
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
+LRESULT CALLBACK NavigationChrome::HoverButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                   UINT_PTR subclassId, DWORD_PTR referenceData) {
+    UNREFERENCED_PARAMETER(subclassId);
+    auto* self = reinterpret_cast<NavigationChrome*>(referenceData);
+    if (!self) return DefSubclassProc(hwnd, message, wParam, lParam);
+    const int controlId = GetDlgCtrlID(hwnd);
+    switch (message) {
+        case WM_MOUSEMOVE:
+            self->SetControlHover(hwnd, controlId, true);
+            {
+                TRACKMOUSEEVENT tme{};
+                tme.cbSize = sizeof(tme);
+                tme.dwFlags = TME_LEAVE;
+                tme.hwndTrack = hwnd;
+                TrackMouseEvent(&tme);
+            }
+            break;
+        case WM_MOUSELEAVE:
+            if (self->hoverItemId_ == controlId) self->SetControlHover(hwnd, controlId, false);
+            break;
+        case WM_LBUTTONDOWN:
+            self->SetControlPressed(hwnd, controlId, true);
+            break;
+        case WM_LBUTTONUP:
+        case WM_CAPTURECHANGED:
+            if (self->pressedItemId_ == controlId) self->SetControlPressed(hwnd, controlId, false);
+            break;
+        case WM_DESTROY:
+            // ui-v3 shell: a destroyed control can no longer be hovered/pressed.
+            if (self->hoverItemId_ == controlId) self->hoverItemId_ = -1;
+            if (self->pressedItemId_ == controlId) self->pressedItemId_ = -1;
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
 LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
         case WM_SIZE:
@@ -553,14 +901,27 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
         case WM_LBUTTONDOWN: {
             const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             for (size_t index = 0; index < breadcrumbRects_.size(); ++index) {
-                if (PtInRect(&breadcrumbRects_[index], point) && workspace_ && workspace_->NavigateBreadcrumb(index)) {
+                if (!PtInRect(&breadcrumbRects_[index], point)) continue;
+                // ui-v3 shell: the collapsed-run "…" placeholder navigates to
+                // the deepest hidden ancestor; real segments keep their model
+                // indices via breadcrumbIndices_.
+                if (breadcrumbIndices_[index] < 0) {
+                    if (!collapsedTargetPath_.empty()) {
+                        NavigateTo(collapsedTargetPath_);
+                        return 0;
+                    }
+                    continue;
+                }
+                if (workspace_ &&
+                    workspace_->NavigateBreadcrumb(static_cast<size_t>(breadcrumbIndices_[index]))) {
                     NavigateTo(workspace_->ActiveContext().currentPath);
                     return 0;
                 }
             }
             RECT client{};
             GetClientRect(hwnd, &client);
-            if (point.x >= Scaled(78) && point.x < (std::max)(Scaled(78), static_cast<int>(client.right) - Scaled(174))) {
+            if (point.x >= Scaled(kAddressLeftDip) &&
+                point.x < (std::max)(Scaled(kAddressLeftDip), static_cast<int>(client.right) - Scaled(174))) {
                 BeginAddressEdit();
                 return 0;
             }
@@ -623,6 +984,19 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
             if (item->CtlType == ODT_BUTTON) {
                 const int id = static_cast<int>(item->CtlID);
+                // ui-v3 shell: one owner-drawn icon-button family.
+                if (id == kBackId) {
+                    DrawIconButton(item, L"\uE72B", false);
+                    return TRUE;
+                }
+                if (id == kForwardId) {
+                    DrawIconButton(item, L"\uE72B", true);
+                    return TRUE;
+                }
+                if (id == kNewTabId) {
+                    DrawIconButton(item, L"\uE710", false);
+                    return TRUE;
+                }
                 if (id >= kTabBaseId && id < kTabBaseId + static_cast<int>(tabButtons_.size())) {
                     DrawTabButton(item);
                     return TRUE;
@@ -636,6 +1010,17 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 return TRUE;
             }
             break;
+        }
+        case WM_CTLCOLOREDIT: {
+            // ui-v3 shell: theme the borderless address edit onto its elevated
+            // field so edit mode stays continuous with the breadcrumb row.
+            HDC editDc = reinterpret_cast<HDC>(wParam);
+            const bool highContrast = UiSystemHighContrast();
+            const UiTheme theme = GetUiTheme(darkTheme_);
+            SetBkColor(editDc, highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceElevated));
+            SetTextColor(editDc, highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                              : ToColorRef(theme.searchText));
+            return reinterpret_cast<LRESULT>(highContrast ? GetSysColorBrush(COLOR_WINDOW) : editBrush_);
         }
         case WM_CTLCOLORBTN: {
             HDC controlDc = reinterpret_cast<HDC>(wParam);

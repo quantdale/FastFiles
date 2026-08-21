@@ -77,6 +77,10 @@ private:
                                             UINT_PTR subclassId, DWORD_PTR referenceData);
     static LRESULT CALLBACK CloseButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                             UINT_PTR subclassId, DWORD_PTR referenceData);
+    // ui-v3 shell: generic hover/pressed tracking for owner-draw buttons
+    // (nav buttons and tab pills).
+    static LRESULT CALLBACK HoverButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                            UINT_PTR subclassId, DWORD_PTR referenceData);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
 
     void BeginAddressEdit();
@@ -96,6 +100,11 @@ private:
     void RepositionTabs();
     void CloseTab(size_t index);
     void UpdateChromeBrush();
+    // ui-v3 shell: shared icon-button presentation for Back/Forward/New Tab —
+    // one family, hover/pressed/disabled/focus resolved identically.
+    void DrawIconButton(const DRAWITEMSTRUCT* item, const wchar_t* glyph, bool mirrorGlyph);
+    void SetControlHover(HWND control, int controlId, bool hover);
+    void SetControlPressed(HWND control, int controlId, bool pressed);
     void SetCloseHover(HWND hwnd, bool hover);
     int IndexOfCloseButton(HWND hwnd) const;
     void DrawTabButton(const DRAWITEMSTRUCT* item);
@@ -115,14 +124,25 @@ private:
     BeforeTabChangeHandler beforeTabChange_;
     std::vector<std::wstring> drivePaths_;
     std::vector<RECT> breadcrumbRects_;
+    // ui-v3 shell: original breadcrumb index per painted rect; -1 marks the
+    // collapsed-run "…" placeholder (navigates to collapsedTargetPath_).
+    std::vector<int> breadcrumbIndices_;
     std::vector<HWND> tabButtons_;
     std::vector<HWND> tabCloseButtons_;
     bool editing_ = false;
     bool darkTheme_ = false;
     int hoverSegment_ = -1;
     int hoverCloseTab_ = -1;
+    // ui-v3 shell: hover/pressed tracking for the shared icon-button family
+    // and tab pills (control ids, -1 = none).
+    int hoverItemId_ = -1;
+    int pressedItemId_ = -1;
     HBRUSH chromeBrush_ = nullptr;
+    HBRUSH editBrush_ = nullptr;
     HFONT mdl2Font_ = nullptr;
+    HFONT bodyFont_ = nullptr;
+    // ui-v3 shell: target path behind the collapsed-breadcrumb "…" segment.
+    std::wstring collapsedTargetPath_;
 };
 
 } // namespace ffui

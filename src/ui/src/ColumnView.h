@@ -4,6 +4,7 @@
 // ramp (see modernize-ui-appearance foundation).
 #include "UITheme.h"
 #include "UiAnimation.h"
+#include "UiComponents.h" // ui-v3 column-view: canonical row-state/brush-cache painters
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -325,7 +326,9 @@ public:
 #endif
     std::wstring CurrentPath() const;
     // Aliased to the shared UiMetrics ramp (UITheme.h) so the render and any
-    // consumers referencing ColumnView::k* constants cannot drift.
+    // consumers referencing ColumnView::k* constants cannot drift. Runtime row
+    // geometry reads BrowseRowHeight() (density profile, ui-v3); this alias
+    // stays for external consumers of the compile-time default.
     static constexpr float kColumnWidth = UiMetrics::kColumnWidth;
     static constexpr float kRowHeight = UiMetrics::kRowHeight;
     static constexpr float kBadgeHeight = UiMetrics::kBadgeHeight;
@@ -440,7 +443,6 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textSecondaryBrush_;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textOnAccentBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selectionBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> folderGlyphBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> fileGlyphBrush_;
@@ -455,6 +457,16 @@ private:
     // quick-access-home 4.3: first consumer of the previously-unused
     // `focusStroke` theme token -- the 1-DIP focus ring around the focused Home item.
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> focusStrokeBrush_;
+    // ui-v3 column-view: canonical row-state presentation brushes. The two
+    // UiBrushCache slots feed the shared UiComponents painters (DrawUiStateFill,
+    // DrawUiFocusIndicator, DrawUiStatePanel) so steady-state paint creates no
+    // D2D objects; textTertiaryBrush_ quiets the folder continuation chevron;
+    // focusedColumnFillBrush_ is the subtle surface lift of the active pane's
+    // focused column.
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textTertiaryBrush_;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> focusedColumnFillBrush_;
+    UiBrushCache rowBrushes_;
+    UiBrushCache stateBrushes_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> textFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> badgeTextFormat_;
     // Task 3 restyle: hover overlay state (see OnMouseMove/OnMouseLeave/
@@ -529,6 +541,14 @@ struct ColumnHitTestResult {
     int columnIndex = -1;
     int itemIndex = -1;
 };
+
+// ui-v3 column-view: runtime row geometry comes from the shared density
+// profile (UITheme.h) instead of a local constant, so Compact keeps today's
+// UiMetrics::kRowHeight exactly and Comfortable scales the whole surface —
+// render, hit-test seams, and scroll clamps all read this one function.
+inline float BrowseRowHeight() {
+    return GetUiDensity(gUiDensityProfile).rowHeight;
+}
 
 // selection-input-hardening: height (DIPs) of the per-column status banner
 // ("Refreshing…" / "Showing previous results"). The render path shifts rows
@@ -629,7 +649,7 @@ inline ColumnHitTestResult ComputeColumnHitTest(D2D1_POINT_2F clientPoint,
         return {};
     }
     return {static_cast<int>(contentX / UiMetrics::kColumnWidth),
-            static_cast<int>(contentY / UiMetrics::kRowHeight)};
+            static_cast<int>(contentY / BrowseRowHeight())};
 }
 
 // quick-access-home 4.4: pure hit-test over the Home surface. `clientPoint` is

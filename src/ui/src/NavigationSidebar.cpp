@@ -1,60 +1,228 @@
 #include "NavigationSidebar.h"
-#include "UITheme.h"
-#include "UiStyle.h"
+#include "UiComponents.h"
 #include "QuickActions.h"
 
 #include <algorithm>
 #include <commctrl.h>
+#include <cwchar>
 #include <windowsx.h>
 
 namespace ffui {
 namespace {
 constexpr wchar_t kWindowClass[] = L"FastFilesNavigationSidebar";
-constexpr int kExpandedWidth = 220;
-constexpr int kCollapsedWidth = 32;
+constexpr int kExpandedWidth = 220;  // DIP
+constexpr int kCollapsedWidth = 32;  // DIP
+// DIP offset of the sidebar top inside the owner client; equals
+// UiMetrics::kChromeHeight (kept local so the chrome layer owns its token).
 constexpr int kChromeHeight = 72;
-constexpr int kHeaderHeight = 28;
-constexpr int kItemHeight = 26;
 constexpr UINT kBookmarkRename = 1;
 constexpr UINT kBookmarkRemove = 2;
 constexpr UINT kBookmarkMoveUp = 3;
 constexpr UINT kBookmarkMoveDown = 4;
+// ui-v3 sidebar: recovery command for an unavailable known-folder row.
+constexpr UINT kKnownFolderRetry = 5;
+// ui-v3 sidebar: collapsed-rail tooltip ids live outside the row-id space.
+constexpr UINT_PTR kToolRailHome = 0x10000;
+constexpr UINT_PTR kToolRailExpand = 0x10001;
+// ui-v3 sidebar: Segoe MDL2 Assets glyphs -- the same family NavigationChrome
+// and ColumnView already standardize on for command/navigation icons.
+constexpr wchar_t kGlyphHome = L'\uE80F';
+constexpr wchar_t kGlyphFolder = L'\uE8B7';
 
-// Scale a DIP metric to physical pixels for Win32 control layout.
+// Scale a DIP metric to physical pixels for Win32 control layout. Exact
+// int/float overloads so theme-token floats and literal ints never convert
+// implicitly at /W4.
 int Scaled(int dipValue) {
-    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)) + 0.5f);
 }
 
-// App-theme state for the GDI-painted sidebar (module-level, shared by DrawLabel/Draw).
-bool gSidebarDark = false;
-
-// Fills a rounded pill (CreateRoundRectRgn + FillRgn) with the given color,
-// deleting both GDI objects. right/bottom are passed +1 so the region's
-// excluded bottom/right edges do not shave a pixel off the pill.
-void FillPill(HDC dc, const RECT& rect, int radius, COLORREF color) {
-    HRGN region = CreateRoundRectRgn(rect.left, rect.top, rect.right + 1, rect.bottom + 1, radius, radius);
-    if (!region) return;
-    HBRUSH brush = CreateSolidBrush(color);
-    if (brush) {
-        FillRgn(dc, region, brush);
-        DeleteObject(brush);
-    }
-    DeleteObject(region);
+int Scaled(float dipValue) {
+    return static_cast<int>(ffui::UiScale(dipValue) + 0.5f);
 }
 
-void DrawLabel(HDC dc, const std::wstring& text, RECT rect, bool header, bool disabled = false) {
-    const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
-    COLORREF textColor;
-    if (ffui::UiSystemHighContrast()) {
-        textColor = (header || disabled) ? GetSysColor(COLOR_GRAYTEXT) : GetSysColor(COLOR_WINDOWTEXT);
-    } else {
-        textColor = ffui::ToColorRef((header || disabled) ? theme.textSecondary : theme.text);
+// Alpha-composites a translucent theme token over an opaque base color so GDI
+// (which has no alpha channel) renders the result Direct2D would.
+COLORREF CompositeOver(D2D1_COLOR_F overlay, COLORREF base) {
+    const float alpha = overlay.a;
+    const auto blend = [alpha](float foreground, BYTE backgroundByte) -> BYTE {
+        const float background = static_cast<float>(backgroundByte) / 255.0f;
+        const float composited = foreground * alpha + background * (1.0f - alpha);
+        return static_cast<BYTE>(static_cast<UINT>(composited * 255.0f + 0.5f));
+    };
+    return RGB(blend(overlay.r, GetRValue(base)), blend(overlay.g, GetGValue(base)),
+               blend(overlay.b, GetBValue(base)));
+}
+
+// ui-v3 sidebar: GDI mirror of ffui::ResolveUiRowPalette so every nav entry
+// shares one rest/hover/pressed/focused/selected/disabled grammar. High
+// Contrast falls back to system colors; translucent overlays composite over
+// the sidebar background.
+struct NavPaint {
+    COLORREF fill = 0;
+    bool hasFill = false;
+    COLORREF text = 0;
+    COLORREF ring = 0;
+    bool hasRing = false;
+};
+
+NavPaint ResolveNavPaint(const UiTheme& theme, UiVisualState state, bool highContrast, COLORREF background) {
+    NavPaint paint{};
+    paint.text = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.text);
+    if (highContrast) {
+        // Accessibility fallback: system highlight/menu colors, never token
+        // overlays, so the user's contrast scheme always wins.
+        switch (state) {
+            case UiVisualState::SelectedFocused:
+            case UiVisualState::SelectedUnfocused:
+                paint.fill = GetSysColor(COLOR_HIGHLIGHT);
+                paint.hasFill = true;
+                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                break;
+            case UiVisualState::Hover:
+            case UiVisualState::Pressed:
+                paint.fill = GetSysColor(COLOR_MENUHILIGHT);
+                paint.hasFill = true;
+                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                break;
+            case UiVisualState::Disabled:
+                paint.text = GetSysColor(COLOR_GRAYTEXT);
+                break;
+            case UiVisualState::Focused:
+                paint.ring = GetSysColor(COLOR_WINDOWTEXT);
+                paint.hasRing = true;
+                break;
+            default:
+                break;
+        }
+        return paint;
     }
+    switch (state) {
+        case UiVisualState::Hover:
+            paint.fill = CompositeOver(theme.hoverOverlay, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::Pressed:
+            // Pressed is immediately stronger than hover.
+            paint.fill = CompositeOver(theme.pressOverlay, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::SelectedUnfocused:
+            // Active-destination treatment: soft fill + accent leading bar,
+            // quieter than the accent-filled selection used for files.
+            paint.fill = CompositeOver(theme.selectionSoft, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::SelectedFocused:
+            paint.fill = ToColorRef(theme.accent);
+            paint.hasFill = true;
+            paint.text = ToColorRef(theme.textOnAccent);
+            break;
+        case UiVisualState::Disabled:
+            paint.text = ToColorRef(theme.textDisabled);
+            break;
+        case UiVisualState::Focused:
+            paint.ring = ToColorRef(theme.focusStroke);
+            paint.hasRing = true;
+            break;
+        case UiVisualState::DropTarget:
+            paint.fill = CompositeOver(theme.selectionSoft, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::Busy:
+        case UiVisualState::Rest:
+            break;
+    }
+    return paint;
+}
+
+void DrawNavText(HDC dc, const std::wstring& text, RECT rect, HFONT font, COLORREF color) {
     SetBkMode(dc, TRANSPARENT);
-    SetTextColor(dc, textColor);
+    SetTextColor(dc, color);
+    HFONT previous = font != nullptr ? static_cast<HFONT>(SelectObject(dc, font)) : nullptr;
     DrawTextW(dc, text.c_str(), -1, &rect, DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS | DT_NOPREFIX);
+    if (previous != nullptr) SelectObject(dc, previous);
 }
+
+// Quiet disclosure chevron drawn with lines so it never depends on glyph-font
+// availability. expanded=false yields the right-pointing variant.
+void DrawChevron(HDC dc, POINT center, int halfWidth, bool expanded, COLORREF color) {
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    if (pen == nullptr) return;
+    const int halfHeight = (std::max)(1, halfWidth / 2);
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    if (expanded) {
+        MoveToEx(dc, center.x - halfWidth, center.y - halfHeight, nullptr);
+        LineTo(dc, center.x, center.y + halfHeight);
+        LineTo(dc, center.x + halfWidth, center.y - halfHeight);
+    } else {
+        MoveToEx(dc, center.x - halfHeight, center.y - halfWidth, nullptr);
+        LineTo(dc, center.x + halfHeight, center.y);
+        LineTo(dc, center.x - halfHeight, center.y + halfWidth);
+    }
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
 }
+
+// ui-v3 sidebar: non-color "unavailable" cue -- a slashed circle in the icon
+// slot, paired with disabled text so meaning never rides on color alone.
+void DrawUnavailableBadge(HDC dc, const RECT& slot, COLORREF color) {
+    const int cx = (slot.left + slot.right) / 2;
+    const int cy = (slot.top + slot.bottom) / 2;
+    const int radius = (std::max)(3, static_cast<int>((std::min)(slot.right - slot.left,
+                                                                 slot.bottom - slot.top)) / 2 -
+                                       Scaled(UiMetrics::kSpaceXxs));
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    if (pen == nullptr) return;
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    Ellipse(dc, cx - radius, cy - radius, cx + radius, cy + radius);
+    const int diagonal = radius * 7 / 10;
+    MoveToEx(dc, cx - diagonal, cy - diagonal, nullptr);
+    LineTo(dc, cx + diagonal, cy + diagonal);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+// Inset keyboard-focus outline, independent of hover/selection (the GDI twin
+// of ffui::DrawUiFocusIndicator).
+void DrawFocusRing(HDC dc, const RECT& rect, int radius, COLORREF color) {
+    const int inset = Scaled(UiMetrics::kSpaceXxs) + 1;
+    const RECT ring{rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset};
+    const int width = ring.right - ring.left;
+    const int height = ring.bottom - ring.top;
+    if (width <= 0 || height <= 0) return;
+    radius = std::clamp(radius, 0, std::min(width, height) / 2);
+    HPEN pen = CreatePen(PS_SOLID, (std::max)(1, Scaled(2)), color);
+    if (pen == nullptr) return;
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    RoundRect(dc, ring.left, ring.top, ring.right + 1, ring.bottom + 1, radius * 2, radius * 2);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+// ui-v3 sidebar: collapsed-rail hit/paint geometry. Buttons meet the
+// kTargetMinSize pointer-target floor.
+struct RailLayout {
+    RECT home{};
+    RECT expand{};
+};
+
+RailLayout ComputeRailLayout(const RECT& client) {
+    const int side = Scaled(UiMetrics::kTargetMinSize);
+    const int x = (std::max)(0, static_cast<int>(((client.right - client.left) - side) / 2));
+    const int homeTop = Scaled(UiMetrics::kSpaceS);
+    const RailLayout rail{
+        RECT{x, homeTop, x + side, homeTop + side},
+        RECT{x, homeTop + side + Scaled(UiMetrics::kSpaceXs), x + side,
+             homeTop + side * 2 + Scaled(UiMetrics::kSpaceXs)}};
+    return rail;
+}
+} // namespace
 
 bool NavigationSidebar::Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate) {
     owner_ = owner;
@@ -71,6 +239,10 @@ bool NavigationSidebar::Initialize(HWND owner, NavigationWorkspace* workspace, N
                               0, Scaled(kChromeHeight), Scaled(kExpandedWidth), 0, owner_, nullptr,
                               windowClass.hInstance, this);
     if (!window_) return false;
+    // ui-v3 sidebar: name the surface so accessibility hierarchies can label it.
+    SetWindowTextW(window_, L"Navigation");
+    EnsureFonts();
+    EnsureTooltip();
     RebuildRows();
     Reposition();
     return true;
@@ -82,6 +254,8 @@ int NavigationSidebar::Width() const {
 
 void NavigationSidebar::Reposition() {
     if (!window_) return;
+    EnsureFonts();  // no-op unless the DPI scale changed
+    toolsDirty_ = true;
     RECT client{};
     GetClientRect(owner_, &client);
     const int height = (std::max)(0L, client.bottom - Scaled(kChromeHeight));
@@ -98,7 +272,6 @@ void NavigationSidebar::Refresh() {
 
 void NavigationSidebar::SetDarkTheme(bool dark) {
     darkTheme_ = dark;
-    gSidebarDark = dark;
     if (window_) InvalidateRect(window_, nullptr, FALSE);
 }
 
@@ -106,16 +279,80 @@ void NavigationSidebar::SetBookmarksChangedCallback(std::function<void()> cb) {
     bookmarksChanged_ = std::move(cb);
 }
 
+void NavigationSidebar::SetFocusedRow(int row) {
+    if (row >= static_cast<int>(rows_.size())) row = -1;
+    if (!window_ || focusedRow_ == row) return;
+    focusedRow_ = row;
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+int NavigationSidebar::ItemHeightPx() const {
+    return Scaled(GetUiDensity(gUiDensityProfile).rowHeight);
+}
+
+int NavigationSidebar::SectionHeightPx() const {
+    return Scaled(UiMetrics::kControlHeight);
+}
+
+int NavigationSidebar::HitTestRow(const POINT& point) const {
+    for (size_t index = 0; index < rows_.size(); ++index) {
+        if (PtInRect(&rows_[index].bounds, point)) return static_cast<int>(index);
+    }
+    return -1;
+}
+
+bool NavigationSidebar::IsRowCurrent(const Row& row) const {
+    if (!workspace_) return false;
+    // quick-access-home 5.1: the Home row is current whenever the active
+    // context is Home (its path is empty, so the path match below would
+    // otherwise never select it).
+    if (row.home) return workspace_->ActiveContext().isHomeLocation;
+    if (row.path.empty()) return false;
+    const auto normalized = [](const std::wstring& value) -> std::wstring {
+        std::wstring result = value;
+        std::replace(result.begin(), result.end(), L'/', L'\\');
+        while (!result.empty() && result.back() == L'\\') result.pop_back();
+        return result;
+    };
+    const std::wstring current = normalized(workspace_->ActiveContext().currentPath);
+    const std::wstring item = normalized(row.path);
+    if (current == item) return true;
+    return current.size() > item.size() && current.compare(0, item.size(), item) == 0 &&
+           current[item.size()] == L'\\';
+}
+
+void NavigationSidebar::ActivateRow(int index, bool openInNewTab) {
+    if (index < 0 || index >= static_cast<int>(rows_.size())) return;
+    const Row& row = rows_[static_cast<size_t>(index)];
+    if (row.kind != RowKind::Item || !navigate_) return;
+    navigate_({row.path, row.label, openInNewTab, row.home});
+    InvalidateRect(window_, nullptr, FALSE);
+}
+
+int NavigationSidebar::NextItemRow(int current, int direction) const {
+    const int count = static_cast<int>(rows_.size());
+    if (count == 0) return -1;
+    int index = current;
+    for (int step = 0; step < count; ++step) {
+        index += direction;
+        if (index < 0) index = count - 1;
+        if (index >= count) index = 0;
+        if (rows_[static_cast<size_t>(index)].kind == RowKind::Item) return index;
+    }
+    return -1;
+}
+
 void NavigationSidebar::RebuildRows() {
     rows_.clear();
     hoveredRow_ = -1;
+    pressedRow_ = -1;
     if (!workspace_ || workspace_->State().sidebarCollapsed) return;
-    const auto addSection = [this](int section, const wchar_t* label, bool collapsed) {
-        rows_.push_back({RowKind::Section, section, 0, {}, std::wstring(collapsed ? L"▸ " : L"▾ ") + label, {}});
+    const auto addSection = [this](int section, const wchar_t* label) {
+        rows_.push_back({RowKind::Section, section, 0, {}, std::wstring(label), {}});
     };
     const auto addItems = [this](int section, const std::vector<Bookmark>& items) {
         for (size_t index = 0; index < items.size(); ++index) {
-            rows_.push_back({RowKind::Item, section, index, {}, L"  " + items[index].displayName, items[index].path});
+            rows_.push_back({RowKind::Item, section, index, {}, items[index].displayName, items[index].path});
         }
     };
     // quick-access-home 5.1: a single Home entry precedes the Drives section.
@@ -123,89 +360,114 @@ void NavigationSidebar::RebuildRows() {
     // filesystem path -- Home is a distinct navigation kind, not a folder.
     rows_.push_back({RowKind::Item, -1, 0, {}, L"Home", {}, true});
     const auto& state = workspace_->State();
-    addSection(0, L"Drives", state.drivesCollapsed);
+    addSection(0, L"Drives");
     if (!state.drivesCollapsed) {
         std::vector<Bookmark> drives;
         for (const auto& path : NavigationWorkspace::EnumerateDrives()) drives.push_back({path, path});
         addItems(0, drives);
     }
-    addSection(1, L"Known Folders", state.knownFoldersCollapsed);
+    addSection(1, L"Known Folders");
     if (!state.knownFoldersCollapsed) addItems(1, workspace_->EnumerateKnownFolders());
-    addSection(2, L"Bookmarks", state.bookmarksCollapsed);
+    addSection(2, L"Bookmarks");
     if (!state.bookmarksCollapsed) addItems(2, state.bookmarks);
 }
 
-void NavigationSidebar::Draw(HDC dc, const RECT& client) {
-    const ffui::UiTheme theme = ffui::GetUiTheme(gSidebarDark);
-    const bool highContrast = ffui::UiSystemHighContrast();
-    const bool pillsEnabled = !highContrast;
-    const COLORREF bg = highContrast ? GetSysColor(COLOR_WINDOW) : ffui::ToColorRef(theme.background);
-    const COLORREF headerBg = highContrast ? GetSysColor(COLOR_BTNFACE) : ffui::ToColorRef(theme.surfaceSubtle);
-    HBRUSH bgBrush = CreateSolidBrush(bg);
-    FillRect(dc, &client, bgBrush);
-    DeleteObject(bgBrush);
-    if (!workspace_) return;
-    if (workspace_->State().sidebarCollapsed) {
-        RECT text{0, 8, client.right, 32};
-        DrawLabel(dc, L"»", text, true);
-        return;
-    }
-    // True when the row's path is the location currently being browsed (or an
-    // ancestor of it), so the item gets the Fluent selection pill.
-    const auto isCurrentRow = [this](const Row& row) -> bool {
-        // quick-access-home 5.1: the Home row is current whenever the active
-        // context is Home (its path is empty, so the path match below would
-        // otherwise never select it).
-        if (row.home) return workspace_->ActiveContext().isHomeLocation;
-        if (row.path.empty()) return false;
-        const auto normalized = [](const std::wstring& value) -> std::wstring {
-            std::wstring result = value;
-            std::replace(result.begin(), result.end(), L'/', L'\\');
-            while (!result.empty() && result.back() == L'\\') result.pop_back();
-            return result;
-        };
-        const std::wstring current = normalized(workspace_->ActiveContext().currentPath);
-        const std::wstring item = normalized(row.path);
-        if (current == item) return true;
-        return current.size() > item.size() && current.compare(0, item.size(), item) == 0 &&
-               current[item.size()] == L'\\';
-    };
-    const int pillRadius = Scaled(4);
-    const int pillInsetX = Scaled(4);
-    const int pillInsetY = Scaled(2);
-    int y = 0;
-    for (size_t index = 0; index < rows_.size(); ++index) {
-        Row& row = rows_[index];
-        row.bounds = {0, y, client.right, y + (row.kind == RowKind::Section ? kHeaderHeight : kItemHeight)};
-        if (row.kind == RowKind::Section) {
-            HBRUSH hb = CreateSolidBrush(headerBg);
-            FillRect(dc, &row.bounds, hb);
-            DeleteObject(hb);
-            DrawLabel(dc, row.label, {8, y, client.right - 8, y + kHeaderHeight}, true);
-        } else {
-            // quick-access-home 5.1: the Home row has an empty path but is a
-            // real, navigable destination -- never render it unavailable.
-            const bool unavailable = row.path.empty() && !row.home;
-            const bool hovered = pillsEnabled && static_cast<int>(index) == hoveredRow_;
-            const bool selected = pillsEnabled && isCurrentRow(row);
-            if (selected || hovered) {
-                RECT pill = row.bounds;
-                pill.left += pillInsetX;
-                pill.right -= pillInsetX;
-                pill.top += pillInsetY;
-                pill.bottom -= pillInsetY;
-                if (selected) {
-                    FillPill(dc, pill, pillRadius, ffui::ToColorRef(theme.surfaceSubtle));
-                }
-                if (hovered) {
-                    const D2D1_COLOR_F base = selected ? theme.surfaceSubtle : theme.background;
-                    FillPill(dc, pill, pillRadius,
-                             ffui::ToColorRef(ffui::UiLerpColor(base, theme.hoverOverlay, theme.hoverOverlay.a)));
-                }
-            }
-            DrawLabel(dc, row.label, {8, y, client.right - 8, y + kItemHeight}, false, unavailable);
+void NavigationSidebar::EnsureFonts() {
+    const float scale = UiDpiScale();
+    if (bodyFont_ != nullptr && scale == fontScale_) return;
+    ReleaseFonts();
+    fontScale_ = scale;
+    // ui-v3 sidebar: typography from the shared ramp -- Body labels, Caption
+    // section headers (docs/ui-improvement/02 §3).
+    bodyFont_ = CreateFontW(-Scaled(UiTypeSize(UiTypeRole::Body)), 0, 0, 0, FW_NORMAL,
+                            FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                            CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    captionFont_ = CreateFontW(-Scaled(UiTypeSize(UiTypeRole::Caption)), 0, 0, 0, FW_NORMAL,
+                               FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                               CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    glyphFont_ = CreateFontW(-Scaled(UiMetrics::kFontSizeCaption), 0, 0, 0, FW_NORMAL,
+                             FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                             CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe MDL2 Assets");
+    // Verify the glyph font actually mapped (font fallback would render tofu).
+    glyphsAvailable_ = false;
+    if (glyphFont_ != nullptr && window_ != nullptr) {
+        HDC dc = GetDC(window_);
+        if (dc != nullptr) {
+            HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_));
+            wchar_t face[LF_FACESIZE] = {};
+            GetTextFaceW(dc, LF_FACESIZE, face);
+            SelectObject(dc, previous);
+            ReleaseDC(window_, dc);
+            glyphsAvailable_ = wcsncmp(face, L"Segoe MDL2", 10) == 0 || wcsncmp(face, L"Segoe Fluent", 12) == 0;
         }
-        y += row.kind == RowKind::Section ? kHeaderHeight : kItemHeight;
+    }
+    if (tooltip_ != nullptr) SendMessageW(tooltip_, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont_), FALSE);
+}
+
+void NavigationSidebar::ReleaseFonts() {
+    if (bodyFont_ != nullptr) {
+        DeleteObject(bodyFont_);
+        bodyFont_ = nullptr;
+    }
+    if (captionFont_ != nullptr) {
+        DeleteObject(captionFont_);
+        captionFont_ = nullptr;
+    }
+    if (glyphFont_ != nullptr) {
+        DeleteObject(glyphFont_);
+        glyphFont_ = nullptr;
+    }
+    glyphsAvailable_ = false;
+}
+
+void NavigationSidebar::EnsureTooltip() {
+    if (tooltip_ != nullptr || window_ == nullptr) return;
+    INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_BAR_CLASSES};
+    InitCommonControlsEx(&controls);
+    tooltip_ = CreateWindowExW(0, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX,
+                               0, 0, 0, 0, window_, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (tooltip_ == nullptr) return;
+    SendMessageW(tooltip_, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont_), FALSE);
+    // Keep long paths inside a readable column; they wrap instead of running
+    // off-screen. (TTM_SETMAXWIDTH predates some SDK guard sets; provide the
+    // raw message value when the header does not define it.)
+#ifndef TTM_SETMAXWIDTH
+#define TTM_SETMAXWIDTH (WM_USER + 25)
+#endif
+    SendMessageW(tooltip_, TTM_SETMAXWIDTH, 0, Scaled(280));
+}
+
+void NavigationSidebar::RefreshTools(const RECT& client) {
+    if (tooltip_ == nullptr) return;
+    for (const UINT_PTR id : tooltipIds_) {
+        TOOLINFOW tool{};
+        tool.cbSize = sizeof(tool);
+        tool.hwnd = window_;
+        tool.uId = id;
+        SendMessageW(tooltip_, TTM_DELTOOLW, 0, reinterpret_cast<LPARAM>(&tool));
+    }
+    tooltipIds_.clear();
+    const auto addTool = [this](UINT_PTR id, const RECT& rect) {
+        TOOLINFOW tool{};
+        tool.cbSize = sizeof(tool);
+        tool.uFlags = TTF_SUBCLASS;
+        tool.hwnd = window_;
+        tool.uId = id;
+        tool.rect = rect;
+        tool.lpszText = LPSTR_TEXTCALLBACKW;
+        if (SendMessageW(tooltip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&tool)) != 0) {
+            tooltipIds_.push_back(id);
+        }
+    };
+    const bool collapsed = workspace_ != nullptr && workspace_->State().sidebarCollapsed;
+    if (collapsed) {
+        const RailLayout rail = ComputeRailLayout(client);
+        addTool(kToolRailHome, rail.home);
+        addTool(kToolRailExpand, rail.expand);
+    } else {
+        for (size_t index = 0; index < rows_.size(); ++index) {
+            if (rows_[index].kind == RowKind::Item) addTool(index, rows_[index].bounds);
+        }
     }
 }
 
@@ -217,6 +479,153 @@ void NavigationSidebar::ToggleSection(int section) {
     else state.bookmarksCollapsed = !state.bookmarksCollapsed;
     workspace_->MarkStateDirty();
     Refresh();
+}
+
+void NavigationSidebar::DrawRail(HDC dc, const RECT& client, const UiTheme& theme, bool highContrast,
+                                 COLORREF background) {
+    const RailLayout rail = ComputeRailLayout(client);
+    const int radius = Scaled(UiMetrics::kRadiusSmall);
+    const RECT* rects[2] = {&rail.home, &rail.expand};
+    const RailHit hits[2] = {RailHit::Home, RailHit::Expand};
+    for (int button = 0; button < 2; ++button) {
+        UiVisualState state = UiVisualState::Rest;
+        if (pressedRail_ == hits[button]) state = UiVisualState::Pressed;
+        else if (hoveredRail_ == hits[button]) state = UiVisualState::Hover;
+        const NavPaint paint = ResolveNavPaint(theme, state, highContrast, background);
+        if (paint.hasFill) UiGdiRoundedRect(dc, *rects[button], paint.fill, radius);
+        if (hits[button] == RailHit::Home) {
+            if (glyphsAvailable_) {
+                if (HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_))) {
+                    SetBkMode(dc, TRANSPARENT);
+                    SetTextColor(dc, paint.text);
+                    RECT glyphRect = *rects[button];
+                    DrawTextW(dc, &kGlyphHome, 1, &glyphRect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                    SelectObject(dc, previous);
+                }
+            }
+        } else {
+            const POINT center{(rects[button]->left + rects[button]->right) / 2,
+                               (rects[button]->top + rects[button]->bottom) / 2};
+            DrawChevron(dc, center, Scaled(4), /*expanded=*/false, paint.text);
+        }
+    }
+}
+
+void NavigationSidebar::Draw(HDC dc, const RECT& client) {
+    const UiTheme theme = GetUiTheme(darkTheme_);
+    const bool highContrast = UiSystemHighContrast();
+    const COLORREF background = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background);
+    HBRUSH bgBrush = CreateSolidBrush(background);
+    if (bgBrush) {
+        FillRect(dc, &client, bgBrush);
+        DeleteObject(bgBrush);
+    }
+    if (!workspace_) return;
+    if (workspace_->State().sidebarCollapsed) {
+        DrawRail(dc, client, theme, highContrast, background);
+        return;
+    }
+
+    const COLORREF textSecondary =
+        highContrast ? GetSysColor(COLOR_GRAYTEXT) : ToColorRef(theme.textSecondary);
+    const COLORREF accentColor = ToColorRef(theme.accent);
+    const int pillRadius = Scaled(UiMetrics::kRadiusSmall);
+    const int pillInsetX = Scaled(UiMetrics::kSpaceXs);
+    const int pillInsetY = Scaled(UiMetrics::kSpaceXxs);
+    const int iconSlot = Scaled(UiMetrics::kIconSizeLg);
+
+    int y = 0;
+    for (size_t index = 0; index < rows_.size(); ++index) {
+        Row& row = rows_[index];
+        const bool isSection = row.kind == RowKind::Section;
+        // ui-v3 sidebar: sections group through spacing + typography, not
+        // painted bands -- one small gap above each header separates groups.
+        if (isSection && index != 0) y += Scaled(UiMetrics::kSpaceS);
+        row.bounds = {0, y, client.right, y + (isSection ? SectionHeightPx() : ItemHeightPx())};
+        RECT pill = row.bounds;
+        pill.left += pillInsetX;
+        pill.right -= pillInsetX;
+        pill.top += pillInsetY;
+        pill.bottom -= pillInsetY;
+
+        if (isSection) {
+            if (static_cast<int>(index) == hoveredRow_) {
+                const NavPaint hover = ResolveNavPaint(theme, UiVisualState::Hover, highContrast, background);
+                if (hover.hasFill) UiGdiRoundedRect(dc, pill, hover.fill, pillRadius);
+            }
+            const auto& state = workspace_->State();
+            const bool expanded = row.section == 0 ? !state.drivesCollapsed
+                                  : row.section == 1 ? !state.knownFoldersCollapsed
+                                                     : !state.bookmarksCollapsed;
+            const int contentLeft = pill.left + Scaled(UiMetrics::kSpaceS);
+            DrawChevron(dc, {contentLeft + Scaled(4), (row.bounds.top + row.bounds.bottom) / 2}, Scaled(4),
+                        expanded, textSecondary);
+            DrawNavText(dc, row.label,
+                        {contentLeft + Scaled(16), row.bounds.top, row.bounds.right - Scaled(UiMetrics::kSpaceS),
+                         row.bounds.bottom},
+                        captionFont_, textSecondary);
+        } else {
+            // quick-access-home 5.1: the Home row has an empty path but is a
+            // real, navigable destination -- never render it unavailable.
+            const bool unavailable = row.path.empty() && !row.home;
+            const bool pressed = static_cast<int>(index) == pressedRow_;
+            const bool hovered = static_cast<int>(index) == hoveredRow_;
+            const bool selected = IsRowCurrent(row);
+            // Pressed beats hover beats selection for the fill, matching
+            // DrawUiNavItem's fill-state precedence; hover therefore never
+            // looks identical to the selected treatment.
+            UiVisualState fillState = UiVisualState::Rest;
+            if (unavailable) fillState = UiVisualState::Disabled;
+            else if (pressed) fillState = UiVisualState::Pressed;
+            else if (hovered) fillState = UiVisualState::Hover;
+            else if (selected) fillState = UiVisualState::SelectedUnfocused;
+            const NavPaint paint = ResolveNavPaint(theme, fillState, highContrast, background);
+            if (paint.hasFill) UiGdiRoundedRect(dc, pill, paint.fill, pillRadius);
+            if (selected && !highContrast) {
+                // Accent location marker: narrow rounded bar, matching
+                // ffui::DrawUiNavItem's active treatment.
+                const int barLeft = pill.left + Scaled(UiMetrics::kSpaceS);
+                const RECT bar{barLeft, pill.top + Scaled(UiMetrics::kSpaceXs), barLeft + Scaled(3),
+                               pill.bottom - Scaled(UiMetrics::kSpaceXs)};
+                UiGdiRoundedRect(dc, bar, accentColor, Scaled(1));
+            }
+            // Fixed icon slot keeps labels aligned across items whether or not
+            // a glyph is available.
+            const int slotLeft = pill.left + Scaled(UiMetrics::kSpaceS + UiMetrics::kSpaceXs);
+            const RECT slot{slotLeft, row.bounds.top, slotLeft + iconSlot, row.bounds.bottom};
+            if (unavailable) {
+                DrawUnavailableBadge(dc, slot, paint.text);
+            } else if (glyphsAvailable_) {
+                const wchar_t glyph = row.home ? kGlyphHome : kGlyphFolder;
+                const COLORREF glyphColor = selected ? paint.text : textSecondary;
+                if (HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_))) {
+                    SetBkMode(dc, TRANSPARENT);
+                    SetTextColor(dc, glyphColor);
+                    RECT glyphRect = slot;
+                    DrawTextW(dc, &glyph, 1, &glyphRect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                    SelectObject(dc, previous);
+                }
+            }
+            const int labelLeft = slot.right + Scaled(UiMetrics::kSpaceXs);
+            DrawNavText(dc, row.label,
+                        {labelLeft, row.bounds.top, row.bounds.right - Scaled(UiMetrics::kSpaceS),
+                         row.bounds.bottom},
+                        bodyFont_, paint.text);
+            // Keyboard-focus ring is independent of hover and selection.
+            if (static_cast<int>(index) == focusedRow_) {
+                const NavPaint focus = ResolveNavPaint(theme, UiVisualState::Focused, highContrast, background);
+                if (focus.hasRing) DrawFocusRing(dc, pill, pillRadius, focus.ring);
+            }
+        }
+        y += isSection ? SectionHeightPx() : ItemHeightPx();
+    }
+}
+
+NavigationSidebar::RailHit NavigationSidebar::HitTestRail(const POINT& point, const RECT& client) const {
+    const RailLayout rail = ComputeRailLayout(client);
+    if (PtInRect(&rail.home, point)) return RailHit::Home;
+    if (PtInRect(&rail.expand, point)) return RailHit::Expand;
+    return RailHit::None;
 }
 
 LRESULT CALLBACK NavigationSidebar::WindowProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -233,6 +642,10 @@ LRESULT CALLBACK NavigationSidebar::WindowProcThunk(HWND hwnd, UINT message, WPA
 
 LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+        case WM_ERASEBKGND:
+            // The paint path fills the whole client; skipping the class-brush
+            // erase removes hover flicker.
+            return 1;
         case WM_PAINT: {
             PAINTSTRUCT paint{};
             HDC dc = BeginPaint(hwnd, &paint);
@@ -240,32 +653,39 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             GetClientRect(hwnd, &client);
             Draw(dc, client);
             EndPaint(hwnd, &paint);
+            // Tool rects are only known after a layout pass; refresh lazily.
+            if (toolsDirty_) {
+                RefreshTools(client);
+                toolsDirty_ = false;
+            }
             return 0;
         }
         case WM_MOUSEMOVE: {
             if (!workspace_) return 0;
-            int newHoveredRow = -1;
-            if (!workspace_->State().sidebarCollapsed) {
-                const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                for (size_t index = 0; index < rows_.size(); ++index) {
-                    const Row& row = rows_[index];
-                    if (row.kind == RowKind::Item && PtInRect(&row.bounds, point)) {
-                        newHoveredRow = static_cast<int>(index);
-                        break;
-                    }
+            const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+            if (workspace_->State().sidebarCollapsed) {
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                const RailHit hit = HitTestRail(point, client);
+                if (hit != hoveredRail_) {
+                    hoveredRail_ = hit;
+                    InvalidateRect(window_, nullptr, FALSE);
                 }
-            }
-            if (newHoveredRow != hoveredRow_) {
-                hoveredRow_ = newHoveredRow;
-                InvalidateRect(window_, nullptr, FALSE);
+            } else {
+                const int row = HitTestRow(point);
+                if (row != hoveredRow_) {
+                    hoveredRow_ = row;
+                    InvalidateRect(window_, nullptr, FALSE);
+                }
             }
             TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
             TrackMouseEvent(&tme);
             return 0;
         }
         case WM_MOUSELEAVE: {
-            if (hoveredRow_ != -1) {
+            if (hoveredRow_ != -1 || hoveredRail_ != RailHit::None) {
                 hoveredRow_ = -1;
+                hoveredRail_ = RailHit::None;
                 InvalidateRect(window_, nullptr, FALSE);
             }
             return 0;
@@ -275,56 +695,170 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             if (!workspace_) return 0;
             const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (workspace_->State().sidebarCollapsed) {
-                workspace_->State().sidebarCollapsed = false;
-                workspace_->MarkStateDirty();
-                Refresh();
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                const RailHit hit = HitTestRail(point, client);
+                if (hit == RailHit::Home) {
+                    // ui-v3 sidebar: the rail keeps the Home destination
+                    // reachable while collapsed (rows_ is empty here, so this
+                    // navigates directly).
+                    if (navigate_) {
+                        navigate_({{}, L"Home", message == WM_MBUTTONDOWN, true});
+                    }
+                    InvalidateRect(window_, nullptr, FALSE);
+                    return 0;
+                }
+                if (message == WM_MBUTTONDOWN) {
+                    // Middle click keeps the old immediate expand semantic.
+                    workspace_->State().sidebarCollapsed = false;
+                    workspace_->MarkStateDirty();
+                    Refresh();
+                    return 0;
+                }
+                pressedRail_ = hit;
+                SetCapture(hwnd);
+                InvalidateRect(window_, nullptr, FALSE);
                 return 0;
             }
-            for (const auto& row : rows_) {
+            for (size_t index = 0; index < rows_.size(); ++index) {
+                const Row& row = rows_[index];
                 if (!PtInRect(&row.bounds, point)) continue;
                 if (row.kind == RowKind::Section) {
                     ToggleSection(row.section);
-                } else if (navigate_) {
-                    navigate_({row.path, row.label, message == WM_MBUTTONDOWN, row.home});
-                    InvalidateRect(window_, nullptr, FALSE);
+                } else {
+                    // Pressed feedback lives between down and up; navigation
+                    // stays on mouse-down as before.
+                    pressedRow_ = static_cast<int>(index);
+                    SetCapture(hwnd);
+                    ActivateRow(static_cast<int>(index), message == WM_MBUTTONDOWN);
                 }
                 return 0;
             }
             return 0;
         }
+        case WM_LBUTTONUP: {
+            const bool railPressed = pressedRail_ != RailHit::None;
+            if (pressedRow_ != -1 || railPressed) {
+                pressedRow_ = -1;
+                if (railPressed && GetCapture() == hwnd) ReleaseCapture();
+                pressedRail_ = RailHit::None;
+                // ui-v3 sidebar: the expand affordance activates on release so
+                // its pressed state is visible.
+                if (workspace_ != nullptr && workspace_->State().sidebarCollapsed) {
+                    workspace_->State().sidebarCollapsed = false;
+                    workspace_->MarkStateDirty();
+                    Refresh();
+                    return 0;
+                }
+                InvalidateRect(window_, nullptr, FALSE);
+            } else if (GetCapture() == hwnd) {
+                ReleaseCapture();
+            }
+            return 0;
+        }
+        case WM_CAPTURECHANGED: {
+            pressedRow_ = -1;
+            pressedRail_ = RailHit::None;
+            InvalidateRect(window_, nullptr, FALSE);
+            return 0;
+        }
+        case WM_GETDLGCODE:
+            return DLGC_WANTARROWS;
+        case WM_KEYDOWN: {
+            // Keyboard model for when the shell hands the sidebar focus:
+            // arrows walk nav items in visual order, Enter/Space activate.
+            if (!workspace_ || workspace_->State().sidebarCollapsed || rows_.empty()) return 0;
+            switch (wParam) {
+                case VK_DOWN:
+                case VK_UP: {
+                    const int next = NextItemRow(focusedRow_, wParam == VK_DOWN ? 1 : -1);
+                    if (next != focusedRow_) {
+                        focusedRow_ = next;
+                        InvalidateRect(window_, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case VK_HOME:
+                case VK_END: {
+                    int target = -1;
+                    if (wParam == VK_HOME) {
+                        for (size_t index = 0; index < rows_.size() && target == -1; ++index) {
+                            if (rows_[index].kind == RowKind::Item) target = static_cast<int>(index);
+                        }
+                    } else {
+                        for (size_t index = rows_.size(); index > 0 && target == -1; --index) {
+                            if (rows_[index - 1].kind == RowKind::Item) target = static_cast<int>(index - 1);
+                        }
+                    }
+                    if (target != focusedRow_) {
+                        focusedRow_ = target;
+                        InvalidateRect(window_, nullptr, FALSE);
+                    }
+                    return 0;
+                }
+                case VK_RETURN:
+                case VK_SPACE:
+                    ActivateRow(focusedRow_, false);
+                    return 0;
+                default:
+                    break;
+            }
+            // Unhandled keys (Tab, accelerators) fall through to DefWindowProc.
+            break;
+        }
         case WM_CONTEXTMENU: {
             if (!workspace_ || workspace_->State().sidebarCollapsed) return 0;
             POINT screenPoint{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
             if (screenPoint.x == -1 && screenPoint.y == -1) {
-                if (hoveredRow_ < 0 || static_cast<size_t>(hoveredRow_) >= rows_.size()) return 0;
-                const RECT& row = rows_[static_cast<size_t>(hoveredRow_)].bounds;
-                screenPoint = {row.left + 8, row.top + (row.bottom - row.top) / 2};
+                // Keyboard invocation anchors on the focused row, then hover.
+                int anchor = focusedRow_;
+                if (anchor < 0) anchor = hoveredRow_;
+                if (anchor < 0 || anchor >= static_cast<int>(rows_.size())) return 0;
+                const RECT& row = rows_[static_cast<size_t>(anchor)].bounds;
+                screenPoint = {row.left + Scaled(UiMetrics::kSpaceS),
+                               row.top + (row.bottom - row.top) / 2};
                 ClientToScreen(hwnd, &screenPoint);
             }
             POINT clientPoint = screenPoint;
             ScreenToClient(hwnd, &clientPoint);
-            const Row* bookmarkRow = nullptr;
+            const Row* itemRow = nullptr;
             for (const auto& row : rows_) {
-                if (row.kind == RowKind::Item && row.section == 2 && PtInRect(&row.bounds, clientPoint)) {
-                    bookmarkRow = &row;
+                if (row.kind == RowKind::Item && PtInRect(&row.bounds, clientPoint)) {
+                    itemRow = &row;
                     break;
                 }
             }
-            if (bookmarkRow == nullptr || bookmarkRow->item >= workspace_->State().bookmarks.size()) return 0;
+            if (itemRow == nullptr) return 0;
+
+            // ui-v3 sidebar: recovery affordance where the data model supports
+            // one -- an unresolved known folder can re-resolve; bookmarks keep
+            // their existing edit/reorder menu.
+            const bool bookmarkRow = itemRow->section == 2 &&
+                                     itemRow->item < workspace_->State().bookmarks.size();
+            const bool unavailableFolder = itemRow->section == 1 && itemRow->path.empty() && !itemRow->home;
+            if (!bookmarkRow && !unavailableFolder) return 0;
 
             HMENU menu = CreatePopupMenu();
             if (menu == nullptr) return 0;
-            AppendMenuW(menu, MF_STRING, kBookmarkRename, L"Rename");
-            AppendMenuW(menu, MF_STRING, kBookmarkRemove, L"Remove");
-            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, bookmarkRow->item == 0 ? MF_GRAYED : MF_STRING,
-                        kBookmarkMoveUp, L"Move Up");
-            AppendMenuW(menu, bookmarkRow->item + 1 >= workspace_->State().bookmarks.size() ? MF_GRAYED : MF_STRING,
-                        kBookmarkMoveDown, L"Move Down");
+            const size_t index = itemRow->item;
+            if (bookmarkRow) {
+                AppendMenuW(menu, MF_STRING, kBookmarkRename, L"Rename");
+                AppendMenuW(menu, MF_STRING, kBookmarkRemove, L"Remove");
+                AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(menu, index == 0 ? MF_GRAYED : MF_STRING, kBookmarkMoveUp, L"Move Up");
+                AppendMenuW(menu, index + 1 >= workspace_->State().bookmarks.size() ? MF_GRAYED : MF_STRING,
+                            kBookmarkMoveDown, L"Move Down");
+            } else {
+                AppendMenuW(menu, MF_STRING, kKnownFolderRetry, L"Try Again");
+            }
             const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                                                  screenPoint.x, screenPoint.y, 0, hwnd, nullptr);
             DestroyMenu(menu);
-            const size_t index = bookmarkRow->item;
+            if (command == kKnownFolderRetry) {
+                workspace_->ReResolveKnownFolders();
+                Refresh();
+                return 0;
+            }
             if (command == kBookmarkRename) {
                 const auto& bookmark = workspace_->State().bookmarks[index];
                 const auto name = PromptForLeafName(owner_, L"Rename Bookmark", bookmark.displayName);
@@ -344,6 +878,38 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
             // section shows; let the shell refresh the Home surface.
             if (bookmarksChanged_) bookmarksChanged_();
             return 0;
+        }
+        case WM_NOTIFY: {
+            auto* header = reinterpret_cast<NMHDR*>(lParam);
+            if (header != nullptr && header->code == TTN_GETDISPINFOW) {
+                auto* info = reinterpret_cast<NMTTDISPINFOW*>(lParam);
+                tooltipText_.clear();
+                if (info->hdr.idFrom == kToolRailHome) {
+                    tooltipText_ = L"Home";
+                } else if (info->hdr.idFrom == kToolRailExpand) {
+                    tooltipText_ = L"Expand sidebar";
+                } else if (info->hdr.idFrom < rows_.size()) {
+                    const Row& row = rows_[info->hdr.idFrom];
+                    if (row.kind == RowKind::Item) {
+                        // Full value via tooltip: trimmed labels and paths stay
+                        // reachable (docs/ui-improvement/03 §2).
+                        tooltipText_ = row.label;
+                        if (row.path.empty() && !row.home) tooltipText_ += L" (unavailable)";
+                        if (!row.path.empty() && row.path != row.label) {
+                            tooltipText_ += L"\n";
+                            tooltipText_ += row.path;
+                        }
+                    }
+                }
+                info->lpszText = tooltipText_.data();
+                return 0;
+            }
+            break;
+        }
+        case WM_NCDESTROY: {
+            ReleaseFonts();
+            tooltip_ = nullptr;  // owned popup dies with its owner window
+            break;
         }
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
