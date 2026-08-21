@@ -121,6 +121,9 @@ private:
 
     void RunLoop();
     void SetState(ConnectionState state, UnavailableReason reason);
+    // Wakes the lifecycle loop (clearing backoff/park) without touching
+    // idleDropped_ -- used by both DropForIdle and RequestReconnect.
+    void WakeLoop();
 
     // Returns a live, verified, handshaken pipe handle, or nullptr on any
     // failure (having already set state/reason appropriately).

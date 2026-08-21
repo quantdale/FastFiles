@@ -58,6 +58,10 @@ private:
 
     HANDLE CreateInstance(bool isFirstInstance) noexcept;
     void JoinConnectionThreads();
+    // Joins and erases connection threads whose callback has returned. Called
+    // from the accept loop so finished per-connection threads do not
+    // accumulate for the listener's lifetime.
+    void ReapFinishedConnectionThreads();
 
     std::wstring pipeName_;
     const SECURITY_ATTRIBUTES* securityAttributes_ = nullptr;
@@ -73,7 +77,23 @@ private:
     // therefore cannot close/recycle the value until cancellation and the
     // callback teardown have both completed.
     std::vector<OwnedHandlePtr> connectionHandles_;
-    std::vector<std::thread> connectionThreads_;
+    // Each entry pairs a retained joinable thread with a flag its own lambda
+    // sets when the connection callback has returned, so the accept loop can
+    // reap finished entries instead of retaining them until Stop().
+    struct ConnectionThread {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> finished;
+    };
+    std::vector<ConnectionThread> connectionThreads_;
+
+public:
+    // Test-only observation of the retained thread registry size.
+#ifdef FF_PIPE_LISTENER_TESTING
+    size_t ConnectionThreadCountForTesting() {
+        std::lock_guard<std::mutex> lock(connectionMutex_);
+        return connectionThreads_.size();
+    }
+#endif
 };
 
 } // namespace ffipc

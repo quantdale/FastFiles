@@ -97,8 +97,8 @@ void DeleteIndexDatabaseFiles(const std::string& dbPathUtf8) {
     DeleteFileW((dbPathWide + L"-shm").c_str());
 }
 
-// Task 4.10: drop the privileged connection after 10 minutes of no UI
-// window and no significant recent filesystem-change activity.
+// Task 4.10: drop the privileged connection after 10 minutes without
+// significant recent activity (UI requests or filesystem-change volume).
 constexpr std::chrono::milliseconds kIdleTimeout{10 * 60 * 1000};
 
 const wchar_t* ConnectionStateName(ffengine::ConnectionState state) {

@@ -128,6 +128,9 @@ private:
     // HANDLE that the invalidation worker is using.
     void ClosePipe();
     void FailIndexedSearchCallbacks();
+    // Fails every in-flight FolderAggregate callback with NotFound so a UI
+    // folder-size cell never spins forever after the engine disconnects.
+    void FailFolderAggregateCallbacks();
     bool MapSnapshotGeneration(const std::wstring& sectionPrefix, uint64_t generation);
     void UnmapSnapshotSection();
     void LaunchEngineIfNotRunning(const std::wstring& pipeName);

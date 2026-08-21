@@ -103,11 +103,18 @@ void PrivilegedConnection::Stop() {
 void PrivilegedConnection::DropForIdle() {
     idleDropped_ = true;
     SetState(ConnectionState::Disconnected, UnavailableReason::IdleDropped);
-    RequestReconnect(); // wakes the loop, which then observes idleDropped_ and waits
+    // Wake the loop WITHOUT clearing idleDropped_: RunLoop must observe the
+    // flag and park until RequestReconnect. RequestReconnect() would reset
+    // the flag here and instantly undo the idle drop (reconnect churn).
+    WakeLoop();
 }
 
 void PrivilegedConnection::RequestReconnect() {
     idleDropped_ = false;
+    WakeLoop();
+}
+
+void PrivilegedConnection::WakeLoop() {
     {
         std::lock_guard<std::mutex> lock(wakeMutex_);
         wakeRequested_ = true;

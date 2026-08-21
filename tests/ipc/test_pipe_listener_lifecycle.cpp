@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <string>
@@ -100,10 +101,53 @@ void TestImmediateStopDuringPendingAccept() {
     }
 }
 
+// Audit regression (engine.md P3): finished per-connection threads must be
+// reaped by the accept loop instead of accumulating until Stop(). Sequential
+// connect/disconnect churn must keep the retained-thread registry bounded.
+void TestFinishedConnectionThreadsAreReaped() {
+    constexpr uint32_t kIterations = 24;
+    const std::wstring pipeName = L"\\\\.\\pipe\\FastFiles.ListenerReap." + std::to_wstring(GetCurrentProcessId());
+    ffipc::PipeListener listener;
+    const bool started = listener.Start(pipeName, nullptr, [](HANDLE pipe) {
+        if (pipe != INVALID_HANDLE_VALUE && pipe != nullptr) CloseHandle(pipe);
+    });
+    Check(started, "reap listener starts");
+    if (!started) return;
+
+    size_t maxObserved = 0;
+    for (uint32_t iteration = 0; iteration < kIterations; ++iteration) {
+        bool connected = false;
+        for (int attempt = 0; attempt < 50 && !connected; ++attempt) {
+            HANDLE client = CreateFileW(pipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                        OPEN_EXISTING, 0, nullptr);
+            if (client != INVALID_HANDLE_VALUE) {
+                CloseHandle(client);
+                connected = true;
+                break;
+            }
+            Sleep(2);
+        }
+        Check(connected, "reap iteration connects a client");
+        if (!connected) break;
+        // Poll briefly for the connection callback to finish and the accept
+        // loop to reap it; the registry must stay bounded either way.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline) {
+            maxObserved = std::max(maxObserved, listener.ConnectionThreadCountForTesting());
+            if (listener.ConnectionThreadCountForTesting() == 0) break;
+            Sleep(2);
+        }
+    }
+    Check(maxObserved <= 2,
+          "retained connection threads stay bounded under sequential churn");
+    listener.Stop();
+}
+
 } // namespace
 
 int main() {
     TestImmediateStopDuringPendingAccept();
     TestConcurrentListenerLifecycle();
+    TestFinishedConnectionThreadsAreReaped();
     return FailureCount() == 0 ? 0 : 1;
 }

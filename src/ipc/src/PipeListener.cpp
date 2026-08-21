@@ -156,19 +156,32 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
                 continue;
             }
             const OwnedHandlePtr cancellation = std::make_shared<OwnedHandle>(cancellationHandle);
+            // Reap threads whose connection callbacks already returned so the
+            // registry holds only live connections plus at most the new one
+            // (bounded by concurrent clients, not by total history).
+            ReapFinishedConnectionThreads();
             {
                 std::lock_guard<std::mutex> lock(connectionMutex_);
                 connectionHandles_.push_back(cancellation);
-                connectionThreads_.emplace_back([this, acceptedConnection, cancellation] {
-                    onConnect_(acceptedConnection);
-                    std::lock_guard<std::mutex> lock(connectionMutex_);
-                    for (auto it = connectionHandles_.begin(); it != connectionHandles_.end(); ++it) {
-                        if (*it == cancellation) {
-                            connectionHandles_.erase(it);
-                            break;
+                auto finished = std::make_shared<std::atomic<bool>>(false);
+                connectionThreads_.push_back(ConnectionThread{
+                    std::thread([this, acceptedConnection, cancellation, finished] {
+                        onConnect_(acceptedConnection);
+                        {
+                            std::lock_guard<std::mutex> lock(connectionMutex_);
+                            for (auto it = connectionHandles_.begin(); it != connectionHandles_.end(); ++it) {
+                                if (*it == cancellation) {
+                                    connectionHandles_.erase(it);
+                                    break;
+                                }
+                            }
                         }
-                    }
-                });
+                        // Published after the handle deregistration: a reaper
+                        // that observes this flag is guaranteed to join a
+                        // thread whose shared state is quiescent.
+                        finished->store(true, std::memory_order_release);
+                    }),
+                    finished});
             }
 
             const HANDLE replacement = CreateInstance(/*isFirstInstance=*/false);
@@ -182,16 +195,30 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
     return true;
 }
 
+void PipeListener::ReapFinishedConnectionThreads() {
+    std::lock_guard<std::mutex> lock(connectionMutex_);
+    for (auto it = connectionThreads_.begin(); it != connectionThreads_.end();) {
+        if (it->finished->load(std::memory_order_acquire)) {
+            if (it->thread.joinable()) {
+                it->thread.join();
+            }
+            it = connectionThreads_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void PipeListener::JoinConnectionThreads() {
-    std::vector<std::thread> threads;
+    std::vector<ConnectionThread> threads;
     {
         std::lock_guard<std::mutex> lock(connectionMutex_);
         threads = std::move(connectionThreads_);
         connectionThreads_.clear();
     }
     for (auto& thread : threads) {
-        if (thread.joinable()) {
-            thread.join();
+        if (thread.thread.joinable()) {
+            thread.thread.join();
         }
     }
 }

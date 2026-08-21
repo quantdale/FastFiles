@@ -237,12 +237,22 @@ void UiServer::ClientConnection::Close() {
     // owns writeMutex_ is now guaranteed to unwind; a later writer observes
     // closing_ before it can issue I/O.
     if (pipe != nullptr) pipeCanceller_(pipe->handle);
-    std::lock_guard<std::mutex> writeLock(writeMutex_);
+    { // Drain, then release writeMutex_: wait for any writer already past the
+        // closing_ check to finish its frame before the handle below can be
+        // closed by the last PipePtr release.
+        std::lock_guard<std::mutex> writeLock(writeMutex_);
+    }
     {
         std::lock_guard<std::mutex> stateLock(stateMutex_);
         pipe = pipe_;
         pipe_.reset();
     }
+    // Join WITHOUT holding writeMutex_. Ordering proof: closing_ was set
+    // above, so every Write() that acquires writeMutex_ from now on observes
+    // closing_ and returns false without I/O; the drain above guarantees no
+    // writer that passed the check still holds the mutex or the handle. The
+    // search worker itself calls Write(), so joining under writeMutex_ would
+    // deadlock against the worker's own acquisition.
     if (indexedSearchThread_.joinable()) {
         indexedSearchThread_.join();
     }

@@ -50,24 +50,6 @@ void IdleManager::NotifyActivity() {
     }
 }
 
-void IdleManager::NotifyUiWindowOpen(bool anyWindowOpen) {
-    bool shouldReconnect = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        anyWindowOpen_ = anyWindowOpen;
-        if (anyWindowOpen) {
-            lastActivity_ = std::chrono::steady_clock::now();
-            if (droppedForIdle_) {
-                droppedForIdle_ = false;
-                shouldReconnect = true;
-            }
-        }
-    }
-    if (shouldReconnect && onReconnectNeeded_) {
-        onReconnectNeeded_();
-    }
-}
-
 void IdleManager::MonitorLoop() {
     std::unique_lock<std::mutex> lock(mutex_);
     while (running_) {
@@ -77,7 +59,11 @@ void IdleManager::MonitorLoop() {
         }
 
         const auto idleFor = std::chrono::steady_clock::now() - lastActivity_;
-        if (!anyWindowOpen_ && !droppedForIdle_ && idleFor >= idleTimeout_) {
+        // The idle condition is activity-based only. A designed "no UI window
+        // open" conjunct (NotifyUiWindowOpen) was never wired to any
+        // UI->engine signal, so it was removed rather than kept as dead code
+        // that could never be true.
+        if (!droppedForIdle_ && idleFor >= idleTimeout_) {
             droppedForIdle_ = true;
             lock.unlock();
             if (onIdleTimeout_) {

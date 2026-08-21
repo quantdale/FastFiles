@@ -97,6 +97,13 @@ void EngineClient::LaunchEngineIfNotRunning(const std::wstring& pipeName) {
     if (WaitNamedPipeW(pipeName.c_str(), 0)) {
         return; // already reachable
     }
+    // ERROR_PIPE_BUSY means the engine's pipe exists but every instance is
+    // momentarily occupied -- the engine IS running. Treating that as
+    // "not running" launched a duplicate engine (benign only because the
+    // duplicate loses FILE_FLAG_FIRST_PIPE_INSTANCE and exits).
+    if (GetLastError() == ERROR_PIPE_BUSY) {
+        return;
+    }
 
     wchar_t ownPath[MAX_PATH * 4];
     const DWORD length = GetModuleFileNameW(nullptr, ownPath, static_cast<DWORD>(std::size(ownPath)));
@@ -654,6 +661,7 @@ void EngineClient::ManagementLoop() {
 
         ClosePipe();
         FailIndexedSearchCallbacks();
+        FailFolderAggregateCallbacks();
         invalidationCv_.notify_all();
         UnmapSnapshotSection();
         if (!running_) {
@@ -688,6 +696,25 @@ void EngineClient::FailIndexedSearchCallbacks() {
         response.requestId = requestId;
         response.status = ffprotocol::IndexedSearchStatus::Unavailable;
         callback(std::move(response));
+    }
+}
+
+void EngineClient::FailFolderAggregateCallbacks() {
+    std::vector<std::pair<uint64_t, FolderAggregateCallback>> callbacks;
+    {
+        std::lock_guard<std::mutex> lock(aggregateCallbackMutex_);
+        callbacks.reserve(aggregateCallbacks_.size());
+        for (auto& [requestId, callback] : aggregateCallbacks_) {
+            callbacks.emplace_back(requestId, std::move(callback));
+        }
+        aggregateCallbacks_.clear();
+    }
+    for (auto& [requestId, callback] : callbacks) {
+        if (!callback) continue;
+        // NotFound is the aggregate status the engine itself sends when a
+        // request cannot be resolved; on disconnect it is the honest
+        // "no result will ever arrive" signal for the pending cell.
+        callback(requestId, ffprotocol::FolderAggregateStatus::NotFound, 0, 0, 0, 0, 0);
     }
 }
 

@@ -744,6 +744,57 @@ void TestStartupSubscribeStress() {
           "validation, no mapping race, and no named-mapping collision");
 }
 
+// Audit regression (engine.md P1): ClientConnection::Close() must join the
+// indexed-search worker WITHOUT holding writeMutex_. The worker's result
+// path goes through Write() (writeMutex_), so the old join-under-lock
+// ordering could deadlock whenever Close won the race against the worker's
+// stopping-check. This stress hammers exactly that interleaving: every
+// iteration disconnects while a search result is being written, and Stop()
+// must always finish promptly.
+void TestCloseWhileSearchWorkerWrites() {
+    ffengine::UiServer server;
+    server.onRequestIndexedSearch = [](const ffprotocol::IndexedSearchRequest& request,
+                                       const ffengine::UiServer::SearchCancellation&) {
+        ffprotocol::IndexedSearchResponse response;
+        response.requestId = request.requestId;
+        response.status = ffprotocol::IndexedSearchStatus::Completed;
+        return response;
+    };
+
+    constexpr int kIterations = 64;
+    bool started = false;
+    for (int iteration = 0; iteration < kIterations; ++iteration) {
+        // Reuse one server across iterations: each cycle creates and closes a
+        // ClientConnection, which is where the Close()/worker join lives.
+        if (iteration == 0) {
+            const DWORD sessionId = static_cast<DWORD>(GetCurrentProcessId() + 300);
+            started = server.Start(sessionId);
+            Check(started, "search-worker-close server starts");
+        }
+        if (!started) break;
+        const std::wstring pipeName = PipeName(static_cast<DWORD>(GetCurrentProcessId() + 300));
+        HANDLE client = ConnectToServer(pipeName);
+        Check(client != INVALID_HANDLE_VALUE, "search-worker-close client connects");
+        if (client == INVALID_HANDLE_VALUE) break;
+        (void)SendSubscribe(client);
+        (void)SendIndexedSearch(client, static_cast<uint64_t>(iteration + 1));
+        if ((iteration % 3) == 0) Sleep(1); // occasionally let the worker reach its Write
+        CloseHandle(client);
+    }
+
+    std::atomic<bool> stopped{false};
+    const auto start = std::chrono::steady_clock::now();
+    std::thread stopper([&] {
+        server.Stop();
+        stopped = true;
+    });
+    while (!stopped.load() && std::chrono::steady_clock::now() - start < kShutdownDeadline) {
+        Sleep(1);
+    }
+    Check(stopped.load(), "server stop completes under search-result/close churn");
+    stopper.join();
+}
+
 } // namespace
 
 int main() {
@@ -752,6 +803,7 @@ int main() {
     TestDisconnectDuringPublication();
     TestIdleShutdown();
     TestIndexedSearchCancellationIsConnectionScoped();
+    TestCloseWhileSearchWorkerWrites();
     TestFailedStartRollsBackSnapshot();
     TestUiServerStartFailsOnInitialPublicationFailure();
     TestSubscribeBeforeAnyDirectory();

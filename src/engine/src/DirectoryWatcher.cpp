@@ -73,6 +73,13 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
         if (directoryHandle == INVALID_HANDLE_VALUE) {
             // e.g. permission-denied or path gone; the old dead entry (if
             // any) is still stopped below, but no replacement is installed.
+            // Surface the failure through the same metadata-only diagnostic
+            // channel as every other watcher error path -- otherwise the
+            // directory renders once from enumeration and then silently goes
+            // stale with no signal at all.
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_WATCH_FAILED,
+                                          path, {}, L"watch-open-failed", GetLastError(), 0});
         } else {
             if (watches_.size() >= kMaxWatchedRoots) {
             // Evict the least-recently-watched root (recovery-degraded-

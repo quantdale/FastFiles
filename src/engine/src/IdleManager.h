@@ -8,11 +8,10 @@
 
 namespace ffengine {
 
-// Task 4.10: after a configurable idle period with no UI window open and
-// no significant recent activity (UI requests or filesystem-change
-// volume), voluntarily drops the privileged connection; re-establishes on
-// the next UI launch or activity burst (spec Risks: "Standing exposure
-// window").
+// Task 4.10: after a configurable idle period with no significant recent
+// activity (UI requests or filesystem-change volume), voluntarily drops the
+// privileged connection; re-establishes on the next UI launch or activity
+// burst (spec Risks: "Standing exposure window").
 class IdleManager {
 public:
     ~IdleManager();
@@ -27,11 +26,9 @@ public:
                std::function<void()> onReconnectNeeded);
     void Stop();
 
-    // Any of: a UI request arrived, a watched directory changed, or a UI
-    // window opened -- all reset the idle clock.
+    // Any of: a UI request arrived or a watched directory changed -- both
+    // reset the idle clock.
     void NotifyActivity();
-
-    void NotifyUiWindowOpen(bool anyWindowOpen);
 
 private:
     void MonitorLoop();
@@ -43,7 +40,6 @@ private:
     std::mutex mutex_;
     std::condition_variable cv_;
     std::chrono::steady_clock::time_point lastActivity_;
-    bool anyWindowOpen_ = false;
     bool droppedForIdle_ = false;
     bool running_ = false;
     std::thread thread_;
