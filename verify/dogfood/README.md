@@ -15,8 +15,9 @@ pwsh ./verify/dogfood/Reset-DogfoodFixture.ps1 -Root "$env:TEMP/FastFiles-dogfoo
 ```
 
 The generator is deterministic and the reset command requires its marker file.
-Use the independent snapshot/compare commands to verify filesystem truth after
-file-operation scenarios.
+The compare command independently checks paths, type, and size by default; add
+`-HashFiles` for a stronger content check on small fixtures. Use the snapshot/
+compare commands to verify filesystem truth after file-operation scenarios.
 
 ## Performance and resources
 

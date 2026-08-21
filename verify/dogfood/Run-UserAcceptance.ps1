@@ -18,17 +18,10 @@ if (-not (Test-Path -LiteralPath $verify -PathType Leaf)) {
     throw "USER_ACCEPTANCE_VERIFY_MISSING: '$verify'"
 }
 
-$arguments = @(
-    '-NoProfile',
-    '-NonInteractive',
-    '-File', $verify,
-    'run',
-    '-Change', $Change,
-    '-Capability', 'windows-ui-automation-validation',
-    '-CapabilityOption', "UiaScenario=$Scenario",
-    '-CapabilityOption', "UiaExeRel=$UiaExeRel",
-    '-SkipAnalyze',
-    '-Format', $Format
-)
-& (Get-Command pwsh -ErrorAction Stop).Source @arguments
+& $verify run `
+    -Change $Change `
+    -Capability @('windows-ui-automation-validation') `
+    -CapabilityOption @("UiaScenario=$Scenario", "UiaExeRel=$UiaExeRel") `
+    -SkipAnalyze `
+    -Format $Format
 exit $LASTEXITCODE

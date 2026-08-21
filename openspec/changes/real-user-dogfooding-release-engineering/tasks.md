@@ -9,15 +9,15 @@
 
 - [x] 2.1 Create `docs/quality/USER_ACCEPTANCE.md` with scenario IDs, preconditions, steps, expected behavior, automation status, environment requirements, and evidence fields.
 - [x] 2.2 Create the distinct `codebase-audit/sessions/2026-08-21-dogfood/` ledger with severity/reproduction/root-cause/fix/regression/status fields and explicit external-blocker handling.
-- [ ] 2.3 Add stable semantic/UIA acceptance automation for launch, Home/degraded browsing, navigation/tabs/dual-pane, search, settings persistence, preview/storage, and restart/session restore where the current harness can support it.
-- [ ] 2.4 Add disposable-fixture file-operation acceptance for copy, move, rename, conflict, cancellation, delete/restore/undo, and failure injection, comparing results independently.
-- [ ] 2.5 Execute bounded first-run, persistence/corruption, degraded-mode, keyboard, accessibility, and failure-recovery scenarios; record actual evidence and classify only observed findings.
+- [x] 2.3 Add stable semantic/UIA acceptance automation for launch, Home/degraded browsing, navigation/tabs/dual-pane, search, settings persistence, preview/storage, and restart/session restore where the current harness can support it. (`verify/dogfood/Run-UserAcceptance.ps1` delegates to the semantic UIA capability; headless persistence/preview/storage seams cover non-interactive portions.)
+- [x] 2.4 Add disposable-fixture file-operation acceptance for copy, move, rename, conflict, cancellation, delete/restore/undo, and failure injection, comparing results independently. (`fffileoperations_e2e_tests` plus marker-guarded fixture snapshot/compare evidence.)
+- [x] 2.5 Execute bounded first-run, persistence/corruption, degraded-mode, keyboard, accessibility, and failure-recovery scenarios; record actual evidence and classify only observed findings. (First-run/UIA, navigation corruption/version tests, keyboard/UIA, semantic accessibility, owned-process soak, and failure-state runs recorded in `USER_ACCEPTANCE.md`.)
 
 ## 3. Measurement and compatibility evidence
 
-- [ ] 3.1 Add a bounded dogfood measurement command or script for cold/warm launch, folder-open, search, preview/storage, and large-directory profiles with build/environment identity.
-- [ ] 3.2 Add a bounded soak loop with periodic working-set, private-bytes, handle, thread, CPU, and process-state samples for UI and engine.
-- [ ] 3.3 Record baseline figures for feasible small/medium/large workloads and document unavailable 100k+/network/removable/privileged scenarios without inventing results.
+- [x] 3.1 Add a bounded dogfood measurement command or script for cold/warm launch, folder-open, search, preview/storage, and large-directory profiles with build/environment identity. (`Measure-DogfoodPerformance.ps1` records launch/index/search identity; folder-open/preview/storage are explicitly marked UIA-required rather than inferred.)
+- [x] 3.2 Add a bounded soak loop with periodic working-set, private-bytes, handle, thread, CPU, and process-state samples for UI and engine. (`Invoke-DogfoodSoak.ps1`, 30-second committed diagnostic run PASS with exact-PID cleanup.)
+- [x] 3.3 Record baseline figures for feasible small/medium/large workloads and document unavailable 100k+/network/removable/privileged scenarios without inventing results. (`codebase-audit/sessions/2026-08-21-dogfood/performance.md`, physical 100K fixture and indexed benchmark evidence.)
 - [x] 3.4 Add the supported/tested/untested/unsupported Windows, architecture, DPI, theme, High Contrast, network, removable-volume, and clean-host matrix to release documentation. (`docs/quality/SUPPORT_MATRIX.md`)
 
 ## 4. Release-candidate pipeline
@@ -32,7 +32,7 @@
 
 ## 5. Integration and final evidence
 
-- [ ] 5.1 Fix only newly observed P0/P1/P2 dogfood defects, preserving security boundaries, and add a regression test plus runtime evidence for each fix.
+- [x] 5.1 Fix only newly observed P0/P1/P2 dogfood defects, preserving security boundaries, and add a regression test plus runtime evidence for each fix. (No P0/P1/P2 observed; UX-001 P3 and release reproducibility were resolved with regression/runtime evidence, and the benchmark capacity label was corrected.)
 - [ ] 5.2 Run focused tests after each implementation wave, then Debug CTest, release-test CTest, `/analyze`, ASan parser/IPC targets, verifier doctor/build, OpenSpec strict validation, source/policy/doc-drift guards, and `git diff --check`.
 - [ ] 5.3 Run one final uninterrupted end-user acceptance session on final binaries where the host permits, record the exact skipped external prerequisites, and update the campaign ledger/workstate.
 - [ ] 5.4 Reconcile with `origin/main`, commit logical campaign waves, push without force, verify `HEAD == origin/main` and a clean tree, and inspect the hosted run for the pushed SHA.

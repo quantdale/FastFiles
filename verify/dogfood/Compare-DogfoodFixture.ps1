@@ -2,6 +2,7 @@
 param(
     [Parameter(Mandatory)] [string] $ExpectedManifest,
     [Parameter(Mandatory)] [string] $ActualRoot,
+    [switch] $HashFiles,
     [switch] $CompareMetadata,
     [ValidateSet('human', 'json')] [string] $OutputFormat = 'human'
 )
@@ -12,12 +13,13 @@ Import-Module (Join-Path $PSScriptRoot 'DogfoodCommon.psm1') -Force
 
 $actualRootFull = Assert-DogfoodRootSafe -Root $ActualRoot -RequireMarker
 $expected = @(Get-DogfoodManifestEntries -ManifestPath ([IO.Path]::GetFullPath($ExpectedManifest)))
-$actual = @(Get-DogfoodSnapshot -Root $actualRootFull -HashFiles)
+$actual = @(Get-DogfoodSnapshot -Root $actualRootFull -HashFiles:$HashFiles)
 $comparison = Compare-DogfoodEntries -Expected $expected -Actual $actual -CompareMetadata:$CompareMetadata
 $result = [pscustomobject]@{
     status = if ($comparison.passed) { 'PASS' } else { 'FAIL' }
     root = $actualRootFull
     expectedManifest = [IO.Path]::GetFullPath($ExpectedManifest)
+    hashFiles = [bool]$HashFiles
     expectedCount = $comparison.expectedCount
     actualCount = $comparison.actualCount
     missing = $comparison.missing
