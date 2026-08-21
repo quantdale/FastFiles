@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <vector>
 
+#include "ffui/ResponsiveLayout.h" // ui-v3 home: content-width classification
+
 // quick-access-home 3.1: pure, headless layout seam for the Home surface.
 //
 // This header owns no rendering state and pulls in no D2D / DirectWrite /
@@ -31,11 +33,19 @@ namespace ffui {
 // `src/ui/src/UITheme.h`.
 constexpr float kHomeMargin = 16.0f;          // kSpaceM: outer content margin
 constexpr float kHomeSpaceS = 8.0f;           // kSpaceS: inter-item / inter-column gap
-constexpr float kHomeSpaceM = 16.0f;          // kSpaceM: inter-section spacing band
-constexpr float kHomeRadiusMedium = 8.0f;     // kRadiusMedium: item corner radius
-constexpr float kHomeHeaderHeight = 28.0f;    // section header band height
-constexpr float kHomeRowHeight = 40.0f;       // 1-column item row height
-constexpr float kHomeCardHeight = 56.0f;      // 2-column item card height
+constexpr float kHomeSpaceM = 16.0f;          // kSpaceM: legacy inter-section spacing band
+// ui-v3 home 2: sections separate by a generous kSpaceL band so grouping is
+// carried by whitespace and typography instead of boxes.
+constexpr float kHomeSectionGap = 24.0f;      // kSpaceL: inter-section spacing band
+constexpr float kHomeRadiusSmall = 4.0f;      // kRadiusSmall: row corner radius
+constexpr float kHomeRadiusMedium = 8.0f;     // kRadiusMedium: card corner radius
+// ui-v3 home 2: headers stack a Subtitle-size semibold section title over an
+// optional Caption-size count hint; primary destination rows carry two text
+// lines.
+constexpr float kHomeHeaderHeight = 44.0f;    // section header band height
+constexpr float kHomeRowHeight = 52.0f;       // 1-column two-line item row height
+constexpr float kHomeCardHeight = 56.0f;      // 2-column two-line item card height
+constexpr float kHomeSingleRowHeight = 36.0f; // compact single-line utility row height
 constexpr float kHomeMaxContentWidth = 960.0f; // WIDE: content capped + left-aligned
 constexpr float kHomeNarrowMaxWidth = 480.0f;  // viewport < this => single column
 constexpr float kHomeWideMinWidth = 1100.0f;   // viewport >= this => wide content cap
@@ -50,6 +60,21 @@ enum class HomeSectionKind {
     CommonLocations = 3,
     QuickActions = 4,
 };
+
+// ui-v3 home 1/3: primary destinations (Pinned / Recent folders) carry a name
+// plus a secondary path line and get taller two-line rows (or cards in the
+// two-column grid). Everything else -- Recent searches (tertiary weight),
+// Common locations and Quick actions (utility) -- stays a compact single-line
+// link / nav row instead of competing at destination-card weight. Pure + total
+// so the seam, the renderer, and any consumer agree on one geometry source.
+inline float HomeSectionItemHeight(HomeSectionKind kind, int columnCount) noexcept {
+    const bool twoLine = kind == HomeSectionKind::Pinned ||
+                         kind == HomeSectionKind::RecentFolders;
+    if (!twoLine) {
+        return kHomeSingleRowHeight;
+    }
+    return columnCount == 2 ? kHomeCardHeight : kHomeRowHeight;
+}
 
 struct HomeLayoutInput {
     float viewportWidth = 0.0f;
@@ -97,6 +122,11 @@ struct HomeLayoutResult {
     float contentWidth = 0.0f;
     float contentHeight = 0.0f;   // grows to fit all sections; may exceed viewportHeight (scroll)
     int columnCount = 1;          // 1 or 2
+    // ui-v3 home 6: the responsive classification of this layout's content
+    // width (single-pane semantics; the seam already sees per-pane width).
+    // Informational for consumers -- e.g. the renderer drops Caption-size
+    // count hints in Narrow -- and never affects geometry.
+    UiResponsiveState responsiveState = UiResponsiveState::Normal;
     std::vector<HomeSectionLayout> sections;
     std::vector<HomeItemLayout> items;
     int totalItemCount = 0;
@@ -141,6 +171,9 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
     result.contentY = contentY;
     result.contentWidth = contentWidth;
     result.columnCount = columnCount;
+    // ui-v3 home 6: classify once so consumers agree on the responsive state
+    // (single-pane semantics -- the seam already sees the effective width).
+    result.responsiveState = ClassifyContentWidth(contentWidth, false);
 
     // Defensive clamping: negative counts behave like zero; each count is also
     // capped per-section, then a global budget enforces the total cap so the
@@ -174,7 +207,6 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
     const float colWidth = (columnCount == 1)
         ? contentWidth
         : (contentWidth - colGap) / 2.0f;
-    const float itemHeight = (columnCount == 2) ? kHomeCardHeight : kHomeRowHeight;
 
     float currentY = contentY;
     float contentBottom = contentY;
@@ -198,6 +230,10 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
         section.headerHeight = kHomeHeaderHeight;
 
         const float itemsTop = currentY + kHomeHeaderHeight;
+        // ui-v3 home 3: row height follows the section's content model
+        // (two-line destination rows vs compact utility rows), not a single
+        // surface-wide constant.
+        const float itemHeight = HomeSectionItemHeight(static_cast<HomeSectionKind>(def.index), columnCount);
 
         for (int i = 0; i < def.count; ++i) {
             const int col = i % columnCount;
@@ -210,7 +246,8 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
             item.y = itemsTop + static_cast<float>(row) * (itemHeight + kHomeSpaceS);
             item.width = colWidth;
             item.height = itemHeight;
-            item.radius = kHomeRadiusMedium;
+            // ui-v3 corner-radius contract: rows kRadiusSmall, cards kRadiusMedium.
+            item.radius = columnCount == 2 ? kHomeRadiusMedium : kHomeRadiusSmall;
             result.items.push_back(item);
         }
 
@@ -222,7 +259,7 @@ inline HomeLayoutResult ComputeHomeLayout(const HomeLayoutInput& input) noexcept
         section.height = itemsBottom - currentY;
         result.sections.push_back(section);
 
-        currentY = itemsBottom + kHomeSpaceM;
+        currentY = itemsBottom + kHomeSectionGap;
         contentBottom = itemsBottom;
     }
 

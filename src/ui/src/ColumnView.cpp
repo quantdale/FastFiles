@@ -177,6 +177,82 @@ void DrawRowLabel(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, ID
     context->DrawTextW(text, textLength, format, rect, brush);
 }
 
+// ---------------------------------------------------------------------------
+// ui-v3 home: Home-surface helpers (presentation only)
+// ---------------------------------------------------------------------------
+
+// ui-v3 home 3: leaf display name of a folder path ("C:\Work\Reports" ->
+// "Reports"). A trailing separator is ignored; a bare drive/root ("C:\")
+// yields "C:" so the primary label is never blank.
+std::wstring HomeLeafName(const std::wstring& path) {
+    if (path.empty()) return path;
+    size_t end = path.size();
+    if (path[end - 1] == L'\\' || path[end - 1] == L'/') --end;
+    const size_t start = path.find_last_of(L"\\/", end - 1);
+    const size_t nameStart = start == std::wstring::npos ? 0 : start + 1;
+    return path.substr(nameStart, end - nameStart);
+}
+
+// ui-v3 home 5: hover-revealed Clear affordances. The cursor position is not
+// stored between frames, so OnMouseMove encodes "the pointer rests on a
+// Recent-* header band" as one of these sentinels in `hoverItem_` (real items
+// use global indices >= 0; -1 means no hover). Only the home-mode mouse and
+// render paths interpret them; every browse-mode comparison is `== row` and
+// therefore never matches a sentinel.
+constexpr int kHomeHoverClearRecentFolders = -2;
+constexpr int kHomeHoverClearRecentSearches = -3;
+
+// ui-v3 home 5: viewport-space band of a laid-out Home section header, using
+// the same transform the render path applies (status-badge inset minus the
+// vertical scroll offset). `paneX` is the pane's viewport origin; callers
+// working in pane-local coordinates pass 0.
+D2D1_RECT_F HomeHeaderViewportRect(const ffui::HomeSectionLayout& section, float paneX, float vso) {
+    const float left = paneX + section.headerX;
+    const float top = ffui::UiMetrics::kBadgeHeight + section.headerY - vso;
+    return D2D1::RectF(left, top, left + section.headerWidth, top + section.headerHeight);
+}
+
+// ui-v3 home 2: device-independent DirectWrite formats for the Home type ramp
+// (Subtitle-size semibold section titles, Caption-size hints and secondary
+// lines; sizes come from UiTypeSize/UiMetrics). Text formats carry no color
+// and bind to no device, so one lazily created set serves both panes and
+// every theme flip. A failed creation retries on the next frame; callers fall
+// back to the surface's existing formats meanwhile.
+struct HomeTextFormats {
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> sectionTitle;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> caption;
+    IDWriteFactory* factory = nullptr;
+};
+
+HomeTextFormats& HomeFormats() {
+    static HomeTextFormats formats;
+    return formats;
+}
+
+void EnsureHomeFormats(IDWriteFactory* factory) {
+    HomeTextFormats& formats = HomeFormats();
+    if (factory == nullptr || formats.factory == factory) return;
+    if (FAILED(UiCreateTextFormat(factory, ffui::UiTypeSize(ffui::UiTypeRole::Subtitle),
+                                  DWRITE_FONT_WEIGHT_SEMI_BOLD, L"Segoe UI",
+                                  &formats.sectionTitle))) {
+        return;
+    }
+    formats.sectionTitle->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (FAILED(UiCreateTextFormat(factory, ffui::UiTypeSize(ffui::UiTypeRole::Caption),
+                                  DWRITE_FONT_WEIGHT_NORMAL, L"Segoe UI",
+                                  &formats.caption))) {
+        formats.sectionTitle.Reset();
+        return;
+    }
+    formats.caption->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    // ui-v3 home: single-line labels trim with an ellipsis so long names and
+    // paths can never paint outside their item bounds (UX-001 stays fixed).
+    const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+    formats.sectionTitle->SetTrimming(&trimming, nullptr);
+    formats.caption->SetTrimming(&trimming, nullptr);
+    formats.factory = factory;
+}
+
 } // namespace
 
 ColumnView::ColumnView() = default;
@@ -484,8 +560,10 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
     
     const int pane = activePane_;
     if (homePane_[pane]) {
-        // quick-access-home 4.8: the section-header Clear affordances first
-        // (their rects are recorded in viewport coordinates by RenderHomePane).
+        // quick-access-home 4.8: the section-header Clear affordances first.
+        // RenderHomePane records their viewport-space rects only while the
+        // link is revealed (header-band hover or keyboard focus), so a hidden
+        // link is never clickable either.
         const auto& clears = homeClearButtons_[pane];
         const auto inRect = [&clientPoint](const D2D1_RECT_F& rect) {
             return clientPoint.x >= rect.left && clientPoint.x < rect.right &&
@@ -582,10 +660,31 @@ void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         const D2D1_POINT_2F localPoint = D2D1::Point2F(clientPoint.x - paneX, clientPoint.y);
         const HomeLayoutResult layout = ComputeHomeLayoutForPane(pane);
         const float vso = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
-        const int rawHit = ComputeHomeItemHitTest(layout, localPoint, kBadgeHeight - vso);
-        const int hit = (rawHit >= 0 && FindHomeItem(layout, rawHit) != nullptr &&
-                         HomeItemFocusable(homeData_, *FindHomeItem(layout, rawHit)))
-            ? rawHit : -1;
+        // ui-v3 home 5: resting on a Recent-* header band reveals that
+        // section's Clear affordance. The band hover is encoded as a sentinel
+        // hover target so RenderHomePane can show -- and fade out -- the link
+        // without storing the cursor position between frames.
+        int hit = -1;
+        for (const auto& section : layout.sections) {
+            const bool recentHeader =
+                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) ||
+                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches);
+            if (!recentHeader) continue;
+            const D2D1_RECT_F band = HomeHeaderViewportRect(section, 0.0f, vso);
+            if (localPoint.x >= band.left && localPoint.x < band.right &&
+                localPoint.y >= band.top && localPoint.y < band.bottom) {
+                hit = section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)
+                          ? kHomeHoverClearRecentFolders
+                          : kHomeHoverClearRecentSearches;
+                break;
+            }
+        }
+        if (hit == -1) {
+            const int rawHit = ComputeHomeItemHitTest(layout, localPoint, kBadgeHeight - vso);
+            hit = (rawHit >= 0 && FindHomeItem(layout, rawHit) != nullptr &&
+                   HomeItemFocusable(homeData_, *FindHomeItem(layout, rawHit)))
+                      ? rawHit : -1;
+        }
         if (hit != hoverItem_ || hoverColumn_ != -1 || !hoverActive_) {
             hoverItem_ = hit;
             hoverColumn_ = -1;
@@ -1071,9 +1170,9 @@ void ColumnView::HomeActivateFocused() {
 }
 
 // quick-access-home 4.2: rebuild the Home layout for a pane from the current
-// `homeData_` and the last known viewport. Pure + cheap; the empty-pinned
-// placeholder keeps the Pinned section present (header + hint) so the laid-out
-// sections flow below it without colliding and hit-testing stays consistent.
+// `homeData_` and the last known viewport. Pure + cheap; ui-v3 home 4: empty
+// sections (including an empty Pinned list) emit no items and no header at
+// all -- the renderer draws the first-run explanation when nothing remains.
 HomeLayoutResult ColumnView::ComputeHomeLayoutForPane(int paneIndex) const {
     // Both panes share identical half-width geometry in dual-pane mode and the
     // full width in single-pane mode, so the layout depends only on the last
@@ -1083,7 +1182,7 @@ HomeLayoutResult ColumnView::ComputeHomeLayoutForPane(int paneIndex) const {
     const float paneWidth = dualPane_ ? (lastViewportWidth_ / 2.0f) : lastViewportWidth_;
     input.viewportWidth = (std::max)(0.0f, paneWidth);
     input.viewportHeight = lastViewportHeight_;
-    input.pinnedCount = homeData_.pinned.empty() ? 1 : static_cast<int>(homeData_.pinned.size());
+    input.pinnedCount = static_cast<int>(homeData_.pinned.size());
     input.recentFolderCount = static_cast<int>(homeData_.recentFolders.size());
     input.recentSearchCount = static_cast<int>(homeData_.recentSearches.size());
     input.knownFolderCount = static_cast<int>(homeData_.knownFolders.size());
@@ -1830,35 +1929,18 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         }
     };
 
-    // real-user-dogfooding-release-engineering 5.1: Home cards contain user
-    // paths, which are commonly much longer than a two-column card. Draw them
-    // through a bounded text layout so a long recent-folder/search label cannot
-    // paint across its neighboring card. The UIA name remains the full value.
-    auto DrawHomeText = [&](const std::wstring& value, const D2D1_RECT_F& rect, ID2D1Brush* brush) {
-        if (value.empty() || rect.right <= rect.left || rect.bottom <= rect.top) return;
-        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
-        const HRESULT layoutResult = dwriteFactory->CreateTextLayout(
-            value.c_str(), static_cast<UINT32>(value.size()), textFormat_.Get(),
-            rect.right - rect.left, rect.bottom - rect.top, &layout);
-        if (SUCCEEDED(layoutResult) && layout != nullptr) {
-            const DWRITE_TRIMMING trimming{
-                DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
-            if (SUCCEEDED(layout->SetTrimming(&trimming, nullptr))) {
-                context->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), layout.Get(), brush,
-                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
-                return;
-            }
-        }
-        context->DrawText(value.c_str(), static_cast<UINT32>(value.size()), textFormat_.Get(), rect, brush,
-                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
-    };
+    // ui-v3 home: Home rows reuse `DrawRowLabel` above -- the bounded painter
+    // browse rows already use (strict layout-rect clipping plus character
+    // ellipsis), so long user paths can never paint across a neighboring card
+    // or row (the UX-001 contract). The UIA Name/Value surface keeps every
+    // full value untruncated.
 
     // quick-access-home 4.3: render the Home surface for one pane. Drawn in the
     // pane's rect (pane-local origin already removed via `paneX`), starting
     // below the status badge like the column surface. The vertical scroll offset
     // is applied so long lists scroll; a clip rect keeps content out of the
     // badge band and off the dual-pane divider. High Contrast suppresses the
-    // token hover overlay and the focus ring and uses the system highlight.
+    // token hover overlay and resolves fills through the shared row palette.
     auto RenderHomePane = [&](int paneIndex, float paneX, float paneWidth, float viewportHeight) {
         if (!homePane_[paneIndex]) return;
         const float vso = paneIndex == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
@@ -1867,76 +1949,142 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         // target (item or a section-header Clear stop), never a bare index.
         const HomeFocusEntry focusEntry = paneIndex == 0 ? homeFocus_[0] : homeFocus_[1];
 
-        HomeLayoutInput input{};
-        input.viewportWidth = (std::max)(0.0f, paneWidth);
-        input.viewportHeight = viewportHeight;
-        // Empty `pinned` is surfaced as one placeholder item so the Pinned
-        // section (header + "Pin folders to see them here." hint) still renders
-        // before the real sections, keeping hit-testing consistent.
-        input.pinnedCount = homeData_.pinned.empty() ? 1 : static_cast<int>(homeData_.pinned.size());
-        input.recentFolderCount = static_cast<int>(homeData_.recentFolders.size());
-        input.recentSearchCount = static_cast<int>(homeData_.recentSearches.size());
-        input.knownFolderCount = static_cast<int>(homeData_.knownFolders.size());
-        input.showActions = homeData_.showActions;
-        const HomeLayoutResult layout = ComputeHomeLayout(input);
+        // ui-v3 home: the layout comes from the exact seam hit-testing,
+        // keyboard focus, scroll clamping, and UIA use
+        // (`ComputeHomeLayoutForPane`), so painted geometry can never drift
+        // from what input handling sees.
+        EnsureHomeFormats(dwriteFactory);
+        const HomeTextFormats& homeFormats = HomeFormats();
+        IDWriteTextFormat* const titleFormat =
+            homeFormats.sectionTitle ? homeFormats.sectionTitle.Get() : badgeTextFormat_.Get();
+        IDWriteTextFormat* const captionFormat =
+            homeFormats.caption ? homeFormats.caption.Get() : badgeTextFormat_.Get();
+        const HomeLayoutResult layout = ComputeHomeLayoutForPane(paneIndex);
 
         static const wchar_t* kSectionTitles[] = {
             L"Pinned", L"Recent folders", L"Recent searches", L"Common locations", L"Quick actions"};
 
         // Clip to the pane minus the badge band.
-        D2D1_RECT_F clip = D2D1::RectF(paneX, kBadgeHeight, paneX + paneWidth, viewportSize.height);
+        D2D1_RECT_F clip = D2D1::RectF(paneX, kBadgeHeight, paneX + paneWidth, viewportHeight);
         context->PushAxisAlignedClip(clip, D2D1_ANTIALIAS_MODE_ALIASED);
 
-        // Section headers (drawn above each section's items). Recent folders /
-        // Recent searches additionally expose a right-aligned "Clear"
-        // affordance whose hit rect is recorded for OnMouseDown.
+        // ui-v3 home 4: no dead surface. Empty sections disappear entirely
+        // (the seam emits neither items nor a header for them); when there is
+        // nothing at all -- no pinned folders, recents, searches, known
+        // locations, or actions -- one lightweight centered explanation
+        // replaces the blank pane.
+        if (layout.totalItemCount == 0) {
+            const D2D1_RECT_F panelRect = D2D1::RectF(paneX + kHomeMargin, kBadgeHeight + kHomeMargin,
+                                                      paneX + paneWidth - kHomeMargin,
+                                                      viewportHeight - kHomeMargin);
+            ffui::DrawUiStatePanel(context, panelRect, titleFormat, L"Nothing here yet",
+                                   captionFormat,
+                                   L"Pinned folders, recent locations, and recent searches will appear here as you work.",
+                                   theme, highContrast, &stateBrushes_);
+            context->PopAxisAlignedClip();
+            return;
+        }
+
+        // ui-v3 home 6: Narrow drops the Caption-size count hints; geometry
+        // (column count, wide content cap) is already reflowed by the seam
+        // through ffui::ClassifyContentWidth.
+        const bool narrowLayout = layout.responsiveState == UiResponsiveState::Narrow;
+
+        // ui-v3 home 2: section headers carry the hierarchy -- Subtitle-size
+        // semibold titles with a Caption-size count hint for the
+        // variable-content sections (ui-v3 home 1), generous kSpaceL-sized
+        // bands between sections coming from the seam itself. Recent folders /
+        // Recent searches additionally expose a right-aligned "Clear" link,
+        // revealed only while the pointer rests on the header band or while
+        // the Clear stop owns keyboard focus (ui-v3 home 5: contextual action
+        // without permanent icon clutter); its hit rect is recorded for
+        // OnMouseDown only while revealed, so a hidden link is never clickable.
         homeClearButtons_[paneIndex] = {};
         for (const auto& section : layout.sections) {
             const float hx = paneX + section.headerX;
             const float hy = kBadgeHeight + section.headerY - vso;
             const wchar_t* title = (section.sectionIndex >= 0 && section.sectionIndex <= 4)
                 ? kSectionTitles[section.sectionIndex] : L"";
-            D2D1_RECT_F hdrRect = D2D1::RectF(hx, hy, hx + section.headerWidth, hy + section.headerHeight);
-            context->DrawText(title, static_cast<UINT32>(wcslen(title)), badgeTextFormat_.Get(), hdrRect,
-                              textSecondaryBrush_.Get());
-            if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) ||
-                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches)) {
-                const float clearWidth = 44.0f;
-                const D2D1_RECT_F clearRect = D2D1::RectF(hx + section.headerWidth - clearWidth, hy,
-                                                          hx + section.headerWidth, hy + section.headerHeight);
-                // quick-access-home hardening (HOME-POST-03): a focused Clear
-                // stop gets the same treatment as a focused item -- the system
-                // highlight fill in High Contrast, the focusStroke ring and
-                // primary text otherwise.
-                const bool isClearFocused = isActivePane && (
-                    (focusEntry.target == HomeFocusTarget::ClearRecentFolders &&
-                     section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) ||
-                    (focusEntry.target == HomeFocusTarget::ClearRecentSearches &&
-                     section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches)));
-                if (isClearFocused) {
-                    if (highContrast) {
-                        context->FillRoundedRectangle(
-                            D2D1::RoundedRect(D2D1::RectF(clearRect.left - 1.0f, clearRect.top + 1.0f,
-                                                          clearRect.right + 1.0f, clearRect.bottom - 1.0f),
-                                              kHomeRadiusMedium, kHomeRadiusMedium),
-                            selectionBrush_.Get());
-                    } else if (focusStrokeBrush_ != nullptr) {
-                        D2D1_ROUNDED_RECT fr{D2D1::RectF(clearRect.left - 1.5f, clearRect.top + 1.5f,
-                                                         clearRect.right + 1.5f, clearRect.bottom - 1.5f),
-                                             kHomeRadiusMedium, kHomeRadiusMedium};
-                        context->DrawRoundedRectangle(&fr, focusStrokeBrush_.Get(), 1.0f);
-                    }
-                }
-                context->DrawText(L"Clear", 5, badgeTextFormat_.Get(), clearRect,
-                                  isClearFocused ? textBrush_.Get() : textSecondaryBrush_.Get());
-                if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) {
-                    homeClearButtons_[paneIndex].recentFolders = clearRect;
-                } else {
-                    homeClearButtons_[paneIndex].recentSearches = clearRect;
-                }
+            context->DrawText(title, static_cast<UINT32>(wcslen(title)), titleFormat,
+                              D2D1::RectF(hx, hy - 2.0f, hx + section.headerWidth, hy + 24.0f),
+                              textBrush_.Get());
+            const bool hasClear =
+                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) ||
+                section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches);
+            const bool counted =
+                section.sectionIndex == static_cast<int>(HomeSectionKind::Pinned) || hasClear;
+            if (!narrowLayout && counted) {
+                wchar_t hintBuffer[32];
+                swprintf(hintBuffer, 32, L"%d items", section.itemCount);
+                const float hintRight = hasClear ? hx + section.headerWidth - 56.0f
+                                                 : hx + section.headerWidth;
+                context->DrawText(hintBuffer, static_cast<UINT32>(wcslen(hintBuffer)), captionFormat,
+                                  D2D1::RectF(hx, hy + 22.0f, hintRight, hy + section.headerHeight),
+                                  textSecondaryBrush_.Get());
             }
+            if (!hasClear) continue;
+
+            const float clearWidth = 44.0f;
+            const D2D1_RECT_F clearRect = D2D1::RectF(hx + section.headerWidth - clearWidth, hy,
+                                                      hx + section.headerWidth, hy + section.headerHeight);
+            // quick-access-home hardening (HOME-POST-03): a focused Clear stop
+            // keeps its focus treatment even when the pointer is elsewhere --
+            // keyboard access never depends on the hover reveal.
+            const bool isClearFocused = isActivePane && (
+                (focusEntry.target == HomeFocusTarget::ClearRecentFolders &&
+                 section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) ||
+                (focusEntry.target == HomeFocusTarget::ClearRecentSearches &&
+                 section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches)));
+            const bool clearHovered = isActivePane && hoverColumn_ == -1 &&
+                                      (hoverActive_ || lingerFade) &&
+                                      ((section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders) &&
+                                        hoverItem_ == kHomeHoverClearRecentFolders) ||
+                                       (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentSearches) &&
+                                        hoverItem_ == kHomeHoverClearRecentSearches));
+            if (!isClearFocused && !clearHovered) continue;
+            if (isClearFocused) {
+                if (highContrast) {
+                    // High Contrast: system highlight fill behind the label
+                    // (the label flips to highlight text below).
+                    context->FillRoundedRectangle(
+                        D2D1::RoundedRect(D2D1::RectF(clearRect.left - 1.0f, clearRect.top + 1.0f,
+                                                      clearRect.right + 1.0f, clearRect.bottom - 1.0f),
+                                          kHomeRadiusMedium, kHomeRadiusMedium),
+                        selectionBrush_.Get());
+                }
+                // Shared keyboard-focus grammar (inset focusStroke ring).
+                ffui::DrawUiFocusIndicator(context, clearRect, theme, highContrast,
+                                           ffui::UiMetrics::kRadiusSmall, &rowBrushes_);
+            }
+            ID2D1Brush* clearLabelBrush = textBrush_.Get();
+            if (isClearFocused && highContrast) {
+                if (SUCCEEDED(ffui::UiEnsureSolidBrush(
+                        context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHTTEXT)), &rowBrushes_.text))) {
+                    clearLabelBrush = rowBrushes_.text.Get();
+                }
+            } else if (!isClearFocused && !highContrast) {
+                // Revealed link: the accent token reads as an action rather
+                // than a heading; High Contrast keeps the theme text brush.
+                clearLabelBrush = selectionBrush_.Get();
+            }
+            if (section.sectionIndex == static_cast<int>(HomeSectionKind::RecentFolders)) {
+                homeClearButtons_[paneIndex].recentFolders = clearRect;
+            } else {
+                homeClearButtons_[paneIndex].recentSearches = clearRect;
+            }
+            ffui::UiDrawTextCentered(context, captionFormat, L"Clear", clearRect, clearLabelBrush);
         }
 
+        // ui-v3 home: single-line item text through one helper — the caller
+        // picks the format (Body for primary names, Caption for secondary
+        // paths); both home formats trim with ellipsis and never wrap.
+        const auto DrawHomeText = [&](const std::wstring& text, const D2D1_RECT_F& rect,
+                                      ID2D1Brush* brush, IDWriteTextFormat* format) {
+            if (text.empty() || brush == nullptr || format == nullptr) {
+                return;
+            }
+            context->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format, rect, brush);
+        };
         for (const auto& item : layout.items) {
             const float x = paneX + item.x;
             const float y = kBadgeHeight + item.y - vso;
@@ -2051,11 +2199,13 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 const float halfH = y + h / 2.0f;
                 D2D1_RECT_F primaryRect = D2D1::RectF(textX, y + 2.0f, x + w - 8.0f,
                                                       secondary.empty() ? y + h - 2.0f : halfH);
-                DrawHomeText(primary, primaryRect, itemDisabled ? textSecondaryBrush_.Get() : textBrush_.Get());
+                DrawHomeText(primary, primaryRect,
+                             itemDisabled ? textSecondaryBrush_.Get() : textBrush_.Get(),
+                             textFormat_.Get());
             }
             if (!secondary.empty()) {
                 D2D1_RECT_F secondaryRect = D2D1::RectF(textX, y + h / 2.0f, x + w - 8.0f, y + h - 2.0f);
-                DrawHomeText(secondary, secondaryRect, textSecondaryBrush_.Get());
+                DrawHomeText(secondary, secondaryRect, textSecondaryBrush_.Get(), captionFormat);
             }
         }
 
@@ -2340,21 +2490,27 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
     info.height = found->height;
     info.enabled = HomeItemFocusable(homeData_, *found);
     switch (static_cast<HomeSectionKind>(found->sectionIndex)) {
-        case HomeSectionKind::Pinned:
-            if (homeData_.pinned.empty()) {
-                info.primary = L"Pin folders to see them here."; // hint placeholder
-                info.enabled = false;
-            } else {
-                const auto& b = homeData_.pinned[static_cast<size_t>(found->indexInSection)];
-                info.primary = b.displayName.empty() ? b.path : b.displayName;
-                info.secondary = b.path;
-                info.value = b.path;
-            }
+        case HomeSectionKind::Pinned: {
+            // ui-v3 home 4: an empty Pinned list emits no items at all (no
+            // dead hint box), so an emitted item always maps to a bookmark.
+            const auto& b = homeData_.pinned[static_cast<size_t>(found->indexInSection)];
+            info.primary = b.displayName.empty() ? b.path : b.displayName;
+            info.secondary = b.path;
+            info.value = b.path;
             break;
-        case HomeSectionKind::RecentFolders:
-            info.primary = homeData_.recentFolders[static_cast<size_t>(found->indexInSection)];
-            info.value = info.primary;
+        }
+        case HomeSectionKind::RecentFolders: {
+            // ui-v3 home 3: Name mirrors the painted leaf-name label while the
+            // full path rides the secondary line and stays the Value, so
+            // activation and identity are unchanged.
+            const std::wstring& path =
+                homeData_.recentFolders[static_cast<size_t>(found->indexInSection)];
+            info.primary = HomeLeafName(path);
+            if (info.primary.empty()) info.primary = path;
+            info.secondary = path;
+            info.value = path;
             break;
+        }
         case HomeSectionKind::RecentSearches:
             info.primary = homeData_.recentSearches[static_cast<size_t>(found->indexInSection)];
             info.value = info.primary;

@@ -86,6 +86,11 @@ struct CommandDescriptor {
     ShortcutScope scope = ShortcutScope::ActiveView;
     EnabledPredicate enabledPredicate;
     CommandHandler handler;
+    // ui-v3 command-palette: presentation-only reason shown when the command is
+    // unavailable in the current context (palette rows, disabled feedback).
+    // Never consulted by Invoke(); the applicability mask and enabledPredicate
+    // remain the sole semantic gates.
+    std::wstring disabledReason;
 };
 
 class CommandRegistry {
@@ -155,5 +160,11 @@ std::vector<PaletteResult> SearchCommands(const CommandRegistry& registry,
                                           const CommandContext& context,
                                           const std::wstring& query);
 std::wstring FormatKeyChord(KeyChord chord);
+
+// ui-v3 command-palette: canonical Segoe MDL2 glyph for a command id, so the
+// palette (and future command surfaces) render the same glyph for the same
+// command everywhere. Presentation metadata only — returns L"" when no glyph
+// is defined and never influences registration or execution.
+const wchar_t* CommandDisplayGlyph(const std::wstring& commandId);
 
 } // namespace ffui

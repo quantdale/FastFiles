@@ -30,9 +30,10 @@ CommandHandler Resolve(const BaselineHandlers& handlers, const wchar_t* id) {
 bool RegisterOne(CommandRegistry& registry, const BaselineHandlers& handlers, const wchar_t* id,
                  const wchar_t* name, const wchar_t* category, SelectionApplicability applicability,
                  ShortcutScope scope, std::optional<KeyChord> shortcut = std::nullopt,
-                 EnabledPredicate predicate = {}) {
+                 EnabledPredicate predicate = {}, const wchar_t* disabledReason = nullptr) {
     return registry.Register({id, name, category, shortcut, applicability, scope,
-                              std::move(predicate), Resolve(handlers, id)});
+                              std::move(predicate), Resolve(handlers, id),
+                              disabledReason != nullptr ? disabledReason : L""});
 }
 
 std::wstring Lower(std::wstring value) {
@@ -215,14 +216,16 @@ std::vector<std::wstring> SelectionPaths(std::span<const SelectionItem> selectio
 
 bool RegisterFileOperationCommands(CommandRegistry& registry, const BaselineHandlers& handlers) {
     bool ok = true;
-    ok = RegisterOne(registry, handlers, L"file.new-folder", L"New Folder", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView, KeyChord{'N', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.new-file", L"New File", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"file.copy", L"Copy", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{'C', ModifierControl}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.cut", L"Cut", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{'X', ModifierControl}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.paste", L"Paste", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView, KeyChord{'V', ModifierControl}, [](const CommandContext& c) { return c.clipboardCompatible; }) && ok;
-    ok = RegisterOne(registry, handlers, L"file.rename", L"Rename", L"File", kSingleItem, ShortcutScope::ActiveView, KeyChord{VK_F2, ModifierNone}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.delete", L"Delete", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierNone}) && ok;
-    ok = RegisterOne(registry, handlers, L"file.delete-permanently", L"Delete Permanently", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierShift}) && ok;
+    // ui-v3 command-palette: the trailing strings are presentation-only
+    // disabled reasons surfaced by the palette; semantics are unchanged.
+    ok = RegisterOne(registry, handlers, L"file.new-folder", L"New Folder", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView, KeyChord{'N', static_cast<uint8_t>(ModifierControl | ModifierShift)}, {}, L"Available when nothing is selected") && ok;
+    ok = RegisterOne(registry, handlers, L"file.new-file", L"New File", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView, std::nullopt, {}, L"Available when nothing is selected") && ok;
+    ok = RegisterOne(registry, handlers, L"file.copy", L"Copy", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{'C', ModifierControl}, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"file.cut", L"Cut", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{'X', ModifierControl}, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"file.paste", L"Paste", L"File", AppliesTo(SelectionKind::Empty), ShortcutScope::ActiveView, KeyChord{'V', ModifierControl}, [](const CommandContext& c) { return c.clipboardCompatible; }, L"No compatible files on the Clipboard") && ok;
+    ok = RegisterOne(registry, handlers, L"file.rename", L"Rename", L"File", kSingleItem, ShortcutScope::ActiveView, KeyChord{VK_F2, ModifierNone}, {}, L"Requires a single selected item") && ok;
+    ok = RegisterOne(registry, handlers, L"file.delete", L"Delete", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierNone}, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"file.delete-permanently", L"Delete Permanently", L"File", kAnyItem, ShortcutScope::ActiveView, KeyChord{VK_DELETE, ModifierShift}, {}, L"Requires a selection") && ok;
     ok = RegisterOne(registry, handlers, L"file.undo", L"Undo Last File Operation", L"File", kAnySelection, ShortcutScope::ActiveView, KeyChord{'Z', ModifierControl}) && ok;
     return ok;
 }
@@ -262,17 +265,17 @@ bool RegisterStorageCommands(CommandRegistry& registry, const BaselineHandlers& 
 
 bool RegisterPropertiesCommands(CommandRegistry& registry, const BaselineHandlers& handlers) {
     return RegisterOne(registry, handlers, L"item.properties", L"Properties", L"Item", kAnyItem,
-                       ShortcutScope::ActiveView);
+                       ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a selection");
 }
 
 bool RegisterShellCommands(CommandRegistry& registry, const BaselineHandlers& handlers) {
     bool ok = true;
-    ok = RegisterOne(registry, handlers, L"item.open", L"Open", L"Item", kSingleItem, ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"item.open-with", L"Open With", L"Item", AppliesTo(SelectionKind::SingleFile), ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"item.copy-path", L"Copy Path", L"Item", kAnyItem, ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"item.copy-relative-path", L"Copy Relative Path", L"Item", kAnyItem, ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"item.open-containing-folder", L"Open Containing Folder", L"Item", AppliesTo(SelectionKind::SingleFile), ShortcutScope::ActiveView) && ok;
-    ok = RegisterOne(registry, handlers, L"item.open-terminal", L"Open Terminal Here", L"Item", SelectionKind::Empty | SelectionKind::SingleFolder, ShortcutScope::ActiveView) && ok;
+    ok = RegisterOne(registry, handlers, L"item.open", L"Open", L"Item", kSingleItem, ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a single selected item") && ok;
+    ok = RegisterOne(registry, handlers, L"item.open-with", L"Open With", L"Item", AppliesTo(SelectionKind::SingleFile), ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a single selected file") && ok;
+    ok = RegisterOne(registry, handlers, L"item.copy-path", L"Copy Path", L"Item", kAnyItem, ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"item.copy-relative-path", L"Copy Relative Path", L"Item", kAnyItem, ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a selection") && ok;
+    ok = RegisterOne(registry, handlers, L"item.open-containing-folder", L"Open Containing Folder", L"Item", AppliesTo(SelectionKind::SingleFile), ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a single selected file") && ok;
+    ok = RegisterOne(registry, handlers, L"item.open-terminal", L"Open Terminal Here", L"Item", SelectionKind::Empty | SelectionKind::SingleFolder, ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a folder or an empty location") && ok;
     ok = RegisterOne(registry, handlers, L"app.settings", L"Settings", L"Application", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"app.command-palette", L"Open Command Palette", L"Application", kAnySelection, ShortcutScope::Global, KeyChord{'P', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     return ok;
@@ -557,9 +560,53 @@ std::vector<PaletteResult> SearchCommands(const CommandRegistry& registry, const
     }
     std::stable_sort(result.begin(), result.end(), [](const PaletteResult& left, const PaletteResult& right) {
         if (left.score != right.score) return left.score > right.score;
+        // ui-v3 command-palette: among equally relevant commands, available
+        // ones rank above unavailable ones; ordering only — no filtering.
+        if (left.enabled != right.enabled) return left.enabled;
         return left.command->displayName < right.command->displayName;
     });
     return result;
+}
+
+// ui-v3 command-palette: one canonical glyph per command id so every command
+// surface renders the same icon for the same command. Only well-established
+// Segoe MDL2 Assets codepoints are used; commands without a confident glyph
+// intentionally map to L"" (the palette reserves an empty gutter instead of
+// guessing a look-alike symbol). Mirrors the glyphs already shipped on the
+// Home quick-actions strip (new tab / search / open path / settings).
+const wchar_t* CommandDisplayGlyph(const std::wstring& commandId) {
+    struct GlyphEntry {
+        const wchar_t* id;
+        const wchar_t* glyph;
+    };
+    static constexpr GlyphEntry kGlyphs[] = {
+        {L"navigation.back", L"\uE76B"},             // ChevronLeft
+        {L"navigation.forward", L"\uE76C"},          // ChevronRight
+        {L"navigation.home", L"\uE80F"},             // Home
+        {L"navigation.up", L"\uE70E"},               // ChevronUp
+        {L"navigation.refresh", L"\uE72C"},          // Refresh
+        {L"navigation.new-tab", L"\uE8A7"},          // Add
+        {L"navigation.close-tab", L"\uE8BB"},        // ChromeClose
+        {L"navigation.add-bookmark", L"\uE734"},     // FavoriteStar
+        {L"selection.select-all", L"\uE73E"},        // CheckMark
+        {L"search.focus", L"\uE721"},                // Search
+        {L"app.settings", L"\uE713"},                // Setting
+        {L"file.copy", L"\uE8C8"},                   // Copy
+        {L"file.cut", L"\uE8C6"},                    // Cut
+        {L"file.paste", L"\uE77F"},                  // Paste
+        {L"file.rename", L"\uE70F"},                 // Edit
+        {L"file.delete", L"\uE74D"},                 // Delete
+        {L"file.delete-permanently", L"\uE74D"},     // Delete
+        {L"file.undo", L"\uE7A7"},                   // Undo
+        {L"item.open", L"\uE8E5"},                   // OpenFile
+        {L"item.open-containing-folder", L"\uE8B7"}, // FolderOpen
+        {L"item.open-terminal", L"\uE756"},          // CommandPrompt
+        {L"item.properties", L"\uE946"},             // Info
+    };
+    for (const auto& entry : kGlyphs) {
+        if (commandId == entry.id) return entry.glyph;
+    }
+    return L"";
 }
 
 std::wstring FormatKeyChord(KeyChord chord) {
