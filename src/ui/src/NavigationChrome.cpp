@@ -221,18 +221,11 @@ void NavigationChrome::RebuildTabs() {
     for (size_t index = 0; index < workspace_->TabCount(); ++index) {
         // quick-access-home 5.2: read the typed tab location so a Home tab
         // labels as "Home" instead of being collapsed into the "This PC"
-        // (empty-path) case.
+        // (empty-path) case. The label seam also strips extended-length
+        // prefixes — the model keeps them for long-path navigation, but no
+        // user-visible label prints "\\?\".
         const NavigationLocation location = workspace_->TabLocation(index);
-        std::wstring label = std::to_wstring(index + 1) + L": ";
-        if (location.IsHome()) {
-            label += L"Home";
-        } else if (location.path.empty()) {
-            label += L"This PC";
-        } else {
-            const size_t slash = location.path.find_last_of(L"\\/");
-            label += slash == std::wstring::npos || slash + 1 >= location.path.size()
-                ? location.path : location.path.substr(slash + 1);
-        }
+        const std::wstring label = TabLabelForLocation(index + 1, location);
         HWND tab = CreateWindowExW(0, L"BUTTON", label.c_str(),
                                    WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                    0, 0, Scaled(120), Scaled(27), window_,

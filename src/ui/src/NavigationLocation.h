@@ -18,6 +18,9 @@ struct NavigationLocation {
 
     // quick-access-home 1.1: always produces a FileSystem location. An empty
     // path stays empty (meaning "This PC"); the kind is never Home.
+    // NOTE: the Win32 extended-length prefix is deliberately PRESERVED here —
+    // long-path navigation depends on it. Display surfaces strip it via
+    // TabLabelForLocation / DisplayPathLeaf; never normalize in the model.
     static NavigationLocation FromPath(std::wstring path) {
         return NavigationLocation{Kind::FileSystem, std::move(path)};
     }

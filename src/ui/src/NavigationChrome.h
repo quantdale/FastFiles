@@ -19,6 +19,39 @@ inline bool IsTabDrawItemActive(int controlId, size_t activeTabIndex) {
     return controlId >= kTabBaseId && static_cast<size_t>(controlId - kTabBaseId) == activeTabIndex;
 }
 
+// Display-only path hygiene for user-visible text (tab labels): the Win32
+// extended-length prefix is an API detail that navigation semantics rely on
+// (long paths), so the model keeps it — but no label should ever print it.
+inline std::wstring StripExtendedLengthPrefix(std::wstring path) {
+    if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) {
+        return L"\\\\" + path.substr(8);
+    }
+    if (path.rfind(L"\\\\?\\", 0) == 0) {
+        return path.substr(4);
+    }
+    return path;
+}
+
+// Pure tab-label derivation: "N: " + leaf, with Home/This-PC special cases and
+// extended-length prefixes stripped from display. Headless-testable seam used
+// by RebuildTabs.
+inline std::wstring TabLabelForLocation(size_t oneBasedIndex, const NavigationLocation& location) {
+    std::wstring label = std::to_wstring(oneBasedIndex) + L": ";
+    if (location.IsHome()) {
+        label += L"Home";
+        return label;
+    }
+    if (location.path.empty()) {
+        label += L"This PC";
+        return label;
+    }
+    const std::wstring display = StripExtendedLengthPrefix(location.path);
+    const size_t slash = display.find_last_of(L"\\/");
+    label += slash == std::wstring::npos || slash + 1 >= display.size()
+        ? display : display.substr(slash + 1);
+    return label;
+}
+
 class NavigationChrome {
 public:
     // The second argument is true only when a tab transition should restore

@@ -384,6 +384,26 @@ void TestTabActiveIdentitySeam() {
     Check(!IsTabDrawItemActive(kTabBaseId - 1, 0), "non-tab control ids never map to active draw state");
 }
 
+void TestExtendedPrefixNormalizedInLocations() {
+    using namespace ffui;
+    // Display hygiene at the UI boundary: the model keeps extended-length
+    // prefixes (long-path navigation depends on them), but tab labels never
+    // print "\\?\".
+    Check(NavigationLocation::FromPath(L"\\\\?\\C:\\Users\\Me\\Documents").path ==
+              L"\\\\?\\C:\\Users\\Me\\Documents",
+          "the model preserves extended-length paths for navigation");
+    Check(TabLabelForLocation(1, NavigationLocation::FromPath(L"\\\\?\\C:\\Users\\Me\\Documents")) == L"1: Documents",
+          "tab labels strip the extended prefix and show the leaf");
+    Check(TabLabelForLocation(2, NavigationLocation::FromPath(L"\\\\?\\UNC\\server\\share\\docs")) == L"2: docs",
+          "extended UNC labels convert to plain UNC and show the leaf");
+    Check(TabLabelForLocation(3, NavigationLocation::FromPath(L"C:\\plain")) == L"3: plain",
+          "ordinary labels are unchanged");
+    Check(TabLabelForLocation(4, NavigationLocation::Home()) == L"4: Home",
+          "Home tabs label as Home");
+    Check(TabLabelForLocation(5, NavigationLocation::FromPath(L"")) == L"5: This PC",
+          "empty-path tabs label as This PC");
+}
+
 void TestHomeSessionRestoreRoundTrip() {
     using namespace ffui;
     // P3 regression: ending a session on Home must restore Home, not silently
@@ -528,6 +548,7 @@ int main() {
     TestThisPcBreadcrumbNavigable();
     TestDriveRootBookmarkName();
     TestTabActiveIdentitySeam();
+    TestExtendedPrefixNormalizedInLocations();
     TestHomeSessionRestoreRoundTrip();
     RunHomeLocationTests();
     RunRecentFoldersTests();
