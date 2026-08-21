@@ -23,7 +23,11 @@ This ledger is a new campaign record. The 2026-08-20 production-readiness audit 
 | Prior closure hosted CI | PASS | GitHub Actions run `32467948824` for `0d47bd5…` |
 | Fixture generator small profile | PASS | 120 bulk items; 168 manifest entries; independent comparison and hashed snapshot comparison |
 | Medium/large physical fixture | NOT RUN | Run only with explicit host budget |
-| Interactive product dogfood | PENDING | Requires current executable and available desktop automation |
+| Interactive product dogfood | PARTIAL-PASS | Real diagnostic executable drove through repository UIA; Computer Use native channel unavailable |
+| First-run profile and Home | PASS-DEGRADED | State backup + clean profile; UIA run `20260821-115745`; Home overflow fixed and verified in `20260821-120225` |
+| Search/selection/error UIA | PASS-DEGRADED | Runs `20260821-115103`, `20260821-115432`, `20260821-115534` |
+| File-operation independent truth | PASS-E2E | `fffileoperations_e2e_tests` passed in 17.59s |
+| Large-directory/performance soak | NOT RUN | Requires bounded measurement wave |
 | Production signing / privileged install | BLOCKED-EXTERNAL | No authorized certificate/pins; fail-closed path preserved |
 | Clean-host/VM/network/removable matrix | BLOCKED-EXTERNAL | No provisioned external environment claimed |
 
