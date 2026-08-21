@@ -133,6 +133,36 @@ void TestDpiMatrixAndResizeIdempotence() {
           "narrow Search uses a bounded fallback without negative geometry");
 }
 
+void TestFullClientCoverageInvariant() {
+    // Closure-pass regression: the shell layout must tile the entire client
+    // with no vertical or horizontal remainder. Any gap would expose the
+    // premultiplied-alpha composition surface (desktop bleed-through). The
+    // live "bottom strip" report was traced to DWM invisible resize borders
+    // included by GetWindowRect-based captures, not to layout; this invariant
+    // pins the layout side so a real gap cannot return unnoticed.
+    const float scales[] = {1.0f, 1.25f, 1.5f, 2.0f};
+    for (const float scale : scales) {
+        for (const bool detailsPane : {false, true}) {
+            for (const bool dualPane : {false, true}) {
+                const float clientW = 1289.0f * scale; // deliberately non-round
+                const float clientH = 733.0f * scale;
+                const auto layout = ffui::ComputeMainShellLayout(clientW, clientH, 220.0f, 72.0f,
+                                                                 detailsPane, scale, dualPane);
+                Check(NearlyEqual(layout.navigationChromeRect.bottom + layout.details.viewportHeightDip,
+                                  clientH / scale),
+                      "chrome plus scene height covers the full client height exactly");
+                Check(NearlyEqual(layout.contentRect.bottom, clientH / scale),
+                      "content rect bottom sits on the client bottom edge");
+                Check(NearlyEqual(layout.navigationSidebarRect.Width() +
+                                      layout.details.availableColumnWidthDip +
+                                      (layout.detailsRect.Empty() ? 0.0f : layout.detailsRect.Width()),
+                                  clientW / scale),
+                      "sidebar plus scene surfaces tile the full client width exactly");
+            }
+        }
+    }
+}
+
 } // namespace
 
 int main() {
@@ -140,5 +170,6 @@ int main() {
     TestHiddenDetailsAndAlternateSurface();
     TestNarrowAndShortWindows();
     TestDpiMatrixAndResizeIdempotence();
+    TestFullClientCoverageInvariant();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

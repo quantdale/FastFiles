@@ -1748,7 +1748,17 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
             SetWindowPos(hwnd, nullptr, suggested->left, suggested->top, suggested->right - suggested->left,
                          suggested->bottom - suggested->top, SWP_NOZORDER | SWP_NOACTIVATE);
-            renderer_.Resize(static_cast<UINT>(suggested->right - suggested->left), static_cast<UINT>(suggested->bottom - suggested->top));
+            // Size the swap chain from the new CLIENT rect, never from the
+            // suggested window rect: the window rect includes non-client
+            // chrome, so a composition swap chain sized from it overflows the
+            // client area after a DPI change and clips the bottom of the
+            // scene (status bar) off the visible surface. SetWindowPos above
+            // raises WM_SIZE with this same client size; the explicit read
+            // keeps the resize correct regardless of message coalescing.
+            RECT clientAfterDpi{};
+            GetClientRect(hwnd, &clientAfterDpi);
+            renderer_.Resize(static_cast<UINT>((std::max)(0L, clientAfterDpi.right - clientAfterDpi.left)),
+                             static_cast<UINT>((std::max)(0L, clientAfterDpi.bottom - clientAfterDpi.top)));
             navigationChrome_.Reposition();
             navigationSidebar_.Reposition();
             commandPalette_.Reposition();

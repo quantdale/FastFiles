@@ -1019,7 +1019,19 @@ function Get-UiaComboSelectionName {
         $sel = Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Selection' -Method 'GetSelection'
         if ($sel -and $sel.Count -gt 0) { return $sel[0].Current.Name }
     } catch { }
-    try { return Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Value' -Method 'GetValue' } catch { }
+    try {
+        $value = Invoke-UiaPattern -Driver $Driver -Element $Combo -PatternName 'Value' -Method 'GetValue'
+        if ($value) { return [string]$value }
+    } catch { }
+    # The owner-drawn Win32 combo is exposed by the host provider as a Pane on
+    # this live UIA stack, so neither SelectionPattern nor ValuePattern is
+    # available. Its UIA Name is still the native control's live displayed
+    # selection (and changes after the CB_SETCURSEL fallback); use that semantic
+    # property for verification instead of treating a valid selection as stale.
+    try {
+        $name = Get-UiaElementProperty -Driver $Driver -Element $Combo -Name 'Name'
+        if ($name) { return [string]$name }
+    } catch { }
     return ''
 }
 
@@ -1039,7 +1051,15 @@ function Set-UiaSearchSort {
     try {
         $ec = $null
         try { $ec = $Combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) } catch { }
-        if ($ec) { $ec.Expand() } else { Invoke-UiaElementAction -Driver $Driver -Element $Combo | Out-Null }
+        if ($ec) {
+            $ec.Expand()
+        } else {
+            # A host-provider Pane wrapper may expose neither
+            # ExpandCollapsePattern nor an actionable Invoke/Click pattern.
+            # Let the geometry/native fallbacks below handle that case instead
+            # of aborting the whole sort operation here.
+            try { Invoke-UiaElementAction -Driver $Driver -Element $Combo | Out-Null } catch { }
+        }
         Start-Sleep -Milliseconds 600
         $item = $null
         try { $item = Find-UiaElement -Driver $Driver -Name $ItemName -FromElement $Combo -TimeoutMs 2000 } catch { }
@@ -1098,6 +1118,10 @@ function Set-UiaSearchSort {
         if ($sel -and $sel.Count -gt 0) {
             foreach ($s in $sel) { if ($s.Current.Name -eq $ItemName) { try { if ($ec) { $ec.Collapse() } } catch { }; return $true } }
         }
+        if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) {
+            try { if ($ec) { $ec.Collapse() } } catch { }
+            return $true
+        }
         # Toggle once more if the palette ate the click.
         try { if ($ec) { $ec.Collapse() } catch { } } catch { }
         Start-Sleep -Milliseconds 400
@@ -1106,6 +1130,20 @@ function Set-UiaSearchSort {
         if ($sel2 -and $sel2.Count -gt 0) {
             foreach ($s in $sel2) { if ($s.Current.Name -eq $ItemName) { return $true } }
         }
+        if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) { return $true }
+        # The popup item can be discoverable yet still fail to notify an
+        # owner-drawn combo through the managed UIA path. Finish with the same
+        # native control operation used when the popup is not discoverable, and
+        # verify the live displayed label after the message has been processed.
+        try {
+            $comboHwnd = [IntPtr]$Combo.Current.NativeWindowHandle
+            if ($comboHwnd -ne [IntPtr]::Zero -and $sortIndex.ContainsKey($ItemName)) {
+                if (Set-UiaComboSelectionElement -ComboHandle $comboHwnd -Index $sortIndex[$ItemName]) {
+                    Start-Sleep -Milliseconds 700
+                    if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) { return $true }
+                }
+            }
+        } catch { }
         return $false
     } catch { return $false }
 }
