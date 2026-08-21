@@ -123,6 +123,9 @@ private:
     // boxes are never blinding-white in dark mode. Freed in ~SettingsDialog.
     bool darkTheme_ = false;
     HBRUSH themeBrush_ = nullptr;
+    // ui-v3 settings: product typography for every child control (created once
+    // in Initialize, DPI-scaled, freed with the dialog).
+    HFONT bodyFont_ = nullptr;
 
     // Search page controls
     HWND searchScopeCombo_ = nullptr;

@@ -54,6 +54,13 @@ void InsertColumn(HWND list, int index, int width, const wchar_t* text) {
     ListView_InsertColumn(list, index, &column);
 }
 
+// ui-v3 settings: applies the product body font to every child control so
+// labels and values stop rendering in the raw system GUI font.
+BOOL CALLBACK SetChildBodyFont(HWND child, LPARAM lParam) {
+    SendMessageW(child, WM_SETFONT, lParam, TRUE);
+    return TRUE;
+}
+
 } // namespace
 
 SettingsDialog::~SettingsDialog() {
@@ -61,6 +68,10 @@ SettingsDialog::~SettingsDialog() {
     if (themeBrush_) {
         DeleteObject(themeBrush_);
         themeBrush_ = nullptr;
+    }
+    if (bodyFont_) {
+        DeleteObject(bodyFont_);
+        bodyFont_ = nullptr;
     }
 }
 
@@ -121,6 +132,16 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
     PopulateIndexingPage();
     PopulateStoragePage();
     PopulateShortcutsPage();
+
+    // ui-v3 settings: one DPI-scaled Segoe UI body format for all children —
+    // labels, edits, combos, buttons, lists — replacing the system default.
+    bodyFont_ = CreateFontW(-static_cast<int>(UiScale(ffui::UiMetrics::kFontSizeBody)), 0, 0, 0,
+                            FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                            CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    if (bodyFont_ != nullptr) {
+        EnumChildWindows(dialog_, SetChildBodyFont,
+                         reinterpret_cast<LPARAM>(bodyFont_));
+    }
 
     SwitchPage(0);
     // The dialog is created hidden and shown on demand (Settings menu /
