@@ -81,6 +81,11 @@ private:
     void FinishShortcutEdit(bool accept);
     static LRESULT CALLBACK ShortcutEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                              UINT_PTR subclassId, DWORD_PTR referenceData);
+    // Storage page inline editor (category name / extensions cells).
+    void BeginCategoryEdit(int row, int column);
+    void FinishCategoryEdit(bool accept);
+    static LRESULT CALLBACK CategoryEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                             UINT_PTR subclassId, DWORD_PTR referenceData);
     void CenterWindow(HWND child, HWND parent);
     // §7.3: requests the engine's per-volume condition report and
     // re-renders the Indexing page's status column + explanation text.
@@ -100,6 +105,10 @@ private:
     HWND dialog_ = nullptr;
     HWND tabControl_ = nullptr;
     ffprotocol::Settings* settings_ = nullptr;
+    // Draft copy of the settings edited by the dialog. All edits (rules,
+    // categories, page controls) land here and are committed to *settings_
+    // only on OK, so Cancel / close discards them.
+    ffprotocol::Settings settingsDraft_;
     const CommandRegistry* commandRegistry_ = nullptr;
     ShortcutMap* shortcuts_ = nullptr;
     ShortcutMap shortcutDraft_;
@@ -108,7 +117,6 @@ private:
     std::function<void()> onChanged_;
     bool visible_ = false;
     bool engineActive_ = false;
-    int currentPage_ = 0;
     // §5.4: active theme flag (mirrors gUiDarkTheme, which WindowShell owns)
     // and the dialog background brush created from GetUiTheme(darkTheme_).back-
     // ground; returned from WM_CTLCOLORDLG/WM_CTLCOLOR* so statics/edits/list-
@@ -139,14 +147,23 @@ private:
     std::vector<VolumeToggle> volumes_;
     // drive letter ('C', ...) -> engine-reported condition flags
     std::map<uint8_t, uint8_t> volumeStatusFlags_;
-    // §9.1: last global pause request sent to the engine (transient, not
-    // persisted); drives the checkbox state across page re-population.
-    bool globalPaused_ = false;
+    // true once a status report has arrived since the last refresh request;
+    // gates the "Checking…" placeholder so pre-report volumes never render
+    // as stale/unhealthy.
+    bool volumeStatusReceived_ = false;
+
+    // General page controls
+    HWND themeCombo_ = nullptr;
+    HWND previewCheck_ = nullptr;
+    HWND previewSizeEdit_ = nullptr;
 
     // Storage page controls
     HWND categoryList_ = nullptr;
     HWND addCategoryButton_ = nullptr;
     HWND removeCategoryButton_ = nullptr;
+    HWND categoryEdit_ = nullptr;
+    int categoryEditRow_ = -1;
+    int categoryEditColumn_ = -1;
 
     // Shortcuts page controls
     HWND shortcutList_ = nullptr;

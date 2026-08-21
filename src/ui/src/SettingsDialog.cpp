@@ -15,7 +15,6 @@
 namespace ffui {
 namespace {
 
-constexpr UINT WM_APP_SETTINGS_CHANGED = WM_APP + 20;
 constexpr UINT WM_APP_VOLUME_STATUS = WM_APP + 21;
 constexpr int kDialogWidth = 620;
 constexpr int kDialogHeight = 520;
@@ -71,6 +70,7 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
                                 std::function<void()> onChanged) {
     owner_ = owner;
     settings_ = settings;
+    if (settings_) settingsDraft_ = *settings_;
     commandRegistry_ = commandRegistry;
     shortcuts_ = shortcuts;
     if (shortcuts_) shortcutDraft_ = *shortcuts_;
@@ -133,6 +133,12 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
 void SettingsDialog::Show() {
     if (dialog_) {
         if (shortcuts_) shortcutDraft_ = *shortcuts_;
+        if (settings_) settingsDraft_ = *settings_;
+        // Re-populate the simple pages from the fresh draft so a previous
+        // session's Cancelled edits don't linger in the controls.
+        PopulateGeneralPage();
+        PopulateSearchPage();
+        PopulateNavigationPage();
         ShowWindow(dialog_, SW_SHOW);
         SetForegroundWindow(dialog_);
         visible_ = true;
@@ -219,12 +225,17 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             switch (LOWORD(wParam)) {
                 case IDOK:
                     FinishShortcutEdit(true);
+                    FinishCategoryEdit(true);
                     SaveCurrentPage();
+                    if (settings_) *settings_ = settingsDraft_;
                     if (onChanged_) onChanged_();
                     Hide();
                     return 0;
                 case IDCANCEL:
+                    // Cancel discards: the draft (and any in-place editor) is
+                    // thrown away; *settings_ is only written on OK.
                     FinishShortcutEdit(false);
+                    FinishCategoryEdit(false);
                     Hide();
                     return 0;
                 case 40001: // Reset shortcuts button
@@ -265,21 +276,21 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
                     return 0;
                 }
                 if (lParam == reinterpret_cast<LPARAM>(addCategoryButton_)) {
-                    // Add category placeholder
+                    // Add an empty category row into the draft and start
+                    // editing its name immediately; committed on OK.
                     if (settings_) {
-                        settings_->storageCategories.emplace_back(L"New Category", L"");
+                        settingsDraft_.storageCategories.emplace_back(L"New Category", L"");
                         PopulateStoragePage();
-                        if (onChanged_) onChanged_();
+                        BeginCategoryEdit(static_cast<int>(settingsDraft_.storageCategories.size()) - 1, 0);
                     }
                     return 0;
                 }
                 if (lParam == reinterpret_cast<LPARAM>(removeCategoryButton_)) {
                     if (!categoryList_ || !settings_) return 0;
                     const int selected = ListView_GetNextItem(categoryList_, -1, LVNI_SELECTED);
-                    if (selected >= 0 && selected < static_cast<int>(settings_->storageCategories.size())) {
-                        settings_->storageCategories.erase(settings_->storageCategories.begin() + selected);
+                    if (selected >= 0 && selected < static_cast<int>(settingsDraft_.storageCategories.size())) {
+                        settingsDraft_.storageCategories.erase(settingsDraft_.storageCategories.begin() + selected);
                         PopulateStoragePage();
-                        if (onChanged_) onChanged_();
                     }
                     return 0;
                 }
@@ -287,6 +298,7 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             break;
         case WM_CLOSE:
             FinishShortcutEdit(false);
+            FinishCategoryEdit(false);
             Hide();
             return 0;
         case WM_APP_VOLUME_STATUS: {
@@ -302,6 +314,13 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             if (hdr->hwndFrom == shortcutList_ && hdr->code == NM_DBLCLK) {
                 const auto* info = reinterpret_cast<NMITEMACTIVATE*>(lParam);
                 if (info->iItem >= 0 && info->iSubItem == 1) BeginShortcutEdit(info->iItem);
+                return 0;
+            }
+            if (hdr->hwndFrom == categoryList_ && hdr->code == NM_DBLCLK) {
+                const auto* info = reinterpret_cast<NMITEMACTIVATE*>(lParam);
+                if (info->iItem >= 0 && (info->iSubItem == 0 || info->iSubItem == 1)) {
+                    BeginCategoryEdit(info->iItem, info->iSubItem);
+                }
                 return 0;
             }
             if (hdr->hwndFrom == tabControl_ && hdr->code == TCN_SELCHANGE) {
@@ -355,6 +374,40 @@ void SettingsDialog::CreateControls(HWND hwnd) {
 }
 
 void SettingsDialog::PopulateGeneralPage() {
+    if (!themeCombo_) {
+        CreateWindowExW(0, L"STATIC", L"Theme:", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(34), Scaled(90), Scaled(20),
+                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        themeCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
+                                      WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                      Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(200), Scaled(200),
+                                      dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
+        SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
+        SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Follow System"));
+        CreateWindowExW(0, L"STATIC", L"Automatic preview size limit (bytes):", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(94), Scaled(240), Scaled(20),
+                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        previewSizeEdit_ = CreateWindowExW(0, L"EDIT", L"",
+                                           WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(120), Scaled(200), Scaled(24),
+                                           dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+    }
+    if (!previewCheck_) {
+        previewCheck_ = CreateWindowExW(0, L"BUTTON", L"Enable automatic preview",
+                                        WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(60), Scaled(220), Scaled(20),
+                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+    }
+
+    if (settings_) {
+        int themeIndex = 2; // FollowSystem
+        if (settingsDraft_.theme == ffprotocol::ThemePreference::Light) themeIndex = 0;
+        else if (settingsDraft_.theme == ffprotocol::ThemePreference::Dark) themeIndex = 1;
+        SendMessageW(themeCombo_, CB_SETCURSEL, themeIndex, 0);
+        SendMessageW(previewCheck_, BM_SETCHECK, settingsDraft_.previewEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+        SetWindowTextW(previewSizeEdit_, std::to_wstring(settingsDraft_.maxAutoPreviewBytes).c_str());
+    }
 }
 
 void SettingsDialog::PopulateSearchPage() {
@@ -367,6 +420,7 @@ void SettingsDialog::PopulateSearchPage() {
         SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Current Folder + Subfolders"));
         SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Current Drive"));
         SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All Indexed Locations"));
+        SendMessageW(searchScopeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Everywhere"));
     }
     if (!retainHistoryCheck_) {
         retainHistoryCheck_ = CreateWindowExW(0, L"BUTTON", L"Retain search history",
@@ -375,13 +429,16 @@ void SettingsDialog::PopulateSearchPage() {
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
 
-    int scopeIndex = 0;
+    // Map the persisted scope explicitly; unknown values fall back to the
+    // persisted default "Everywhere" (index 4), never silently to index 0.
+    int scopeIndex = 4;
     if (settings_) {
         const std::wstring& scope = settings_->defaultSearchScope;
         if (scope == L"Current Folder") scopeIndex = 0;
         else if (scope == L"Current Folder + Subfolders") scopeIndex = 1;
         else if (scope == L"Current Drive") scopeIndex = 2;
         else if (scope == L"All Indexed Locations") scopeIndex = 3;
+        else if (scope == L"Everywhere") scopeIndex = 4;
     }
     SendMessageW(searchScopeCombo_, CB_SETCURSEL, scopeIndex, 0);
     SendMessageW(retainHistoryCheck_, BM_SETCHECK, settings_ && settings_->retainSearchHistory ? BST_CHECKED : BST_UNCHECKED, 0);
@@ -411,9 +468,9 @@ void SettingsDialog::PopulateNavigationPage() {
 }
 
 void SettingsDialog::SwitchPage(int pageIndex) {
-    currentPage_ = pageIndex;
     // Hide all page-specific controls
-    for (HWND c : {searchScopeCombo_, retainHistoryCheck_, startupPathEdit_, restoreSessionCheck_,
+    for (HWND c : {themeCombo_, previewCheck_, previewSizeEdit_,
+                   searchScopeCombo_, retainHistoryCheck_, startupPathEdit_, restoreSessionCheck_,
                    volumeList_, ruleList_, statusDetail_, addRuleButton_, excludeRuleCheck_, removeRuleButton_, moveUpButton_, moveDownButton_,
                    pauseAllCheck_, pauseResumeButton_, addToIndexingButton_,
                    categoryList_, addCategoryButton_, removeCategoryButton_,
@@ -423,6 +480,11 @@ void SettingsDialog::SwitchPage(int pageIndex) {
     
     // Show current page controls
     switch (pageIndex) {
+        case 0: // General
+            if (themeCombo_) ShowWindow(themeCombo_, SW_SHOW);
+            if (previewCheck_) ShowWindow(previewCheck_, SW_SHOW);
+            if (previewSizeEdit_) ShowWindow(previewSizeEdit_, SW_SHOW);
+            break;
         case 1: // Search
             if (searchScopeCombo_) ShowWindow(searchScopeCombo_, SW_SHOW);
             if (retainHistoryCheck_) ShowWindow(retainHistoryCheck_, SW_SHOW);
@@ -482,7 +544,7 @@ void SettingsDialog::UpdateVolumeList() {
         vol.displayName = rootPath;
         
         // Check if this volume is in settings
-        for (const auto& vs : settings_->indexing) {
+        for (const auto& vs : settingsDraft_.indexing) {
             if (vs.key == rootPath) {
                 vol.indexed = vs.enabled;
                 vol.inSelection = true;
@@ -527,11 +589,11 @@ void SettingsDialog::UpdateRuleList() {
     if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size())) {
         return;
     }
-    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+    const auto setting = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
                                       [this, selectedVolume](const ffprotocol::VolumeSetting& value) {
                                           return value.key == volumes_[static_cast<size_t>(selectedVolume)].path;
                                       });
-    if (setting == settings_->indexing.end()) {
+    if (setting == settingsDraft_.indexing.end()) {
         return;
     }
 
@@ -557,14 +619,17 @@ void SettingsDialog::SetEngineActive(bool active) {
 }
 
 void SettingsDialog::ToggleGlobalPause(bool paused) {
-    globalPaused_ = paused;
     if (engineClient_) {
         engineClient_->SetIndexingPaused(0, paused);
+        // Read the new state back through the §7.3 status report so the
+        // checkbox and the per-volume column reflect the engine's actual
+        // state (D9: status flows back through the derivation, not a
+        // separate outcome field).
+        RefreshVolumeStatuses();
+    } else {
+        // The command cannot reach the engine; do not flip local state.
+        SendMessageW(pauseAllCheck_, BM_SETCHECK, BST_UNCHECKED, 0);
     }
-    // Read the new state back through the §7.3 status report so the
-    // per-volume column flips to "Paused" (D9: status flows back through
-    // the derivation, not a separate outcome field).
-    RefreshVolumeStatuses();
 }
 
 void SettingsDialog::ToggleSelectedVolumePause() {
@@ -587,17 +652,17 @@ void SettingsDialog::AddPendingVolumeToIndexing() {
     VolumeToggle& volume = volumes_[selected];
     if (volume.inSelection) return; // already decided; not pending
 
-    // Persist inclusion and notify the engine (onChanged_ -> atomic
-    // settings write + ReloadIndexingConfig), which then starts scanning
-    // the volume through its normal session path -- no restart anywhere.
+    // Record the inclusion in the draft; it is persisted and pushed to the
+    // engine on OK (onChanged_ -> atomic settings write +
+    // ReloadIndexingConfig), which then starts scanning the volume through
+    // its normal session path -- no restart anywhere.
     ffprotocol::VolumeSetting vs;
     vs.key = volume.path;
     vs.enabled = true;
-    settings_->indexing.push_back(std::move(vs));
+    settingsDraft_.indexing.push_back(std::move(vs));
     volume.inSelection = true;
     volume.indexed = true;
     ListView_SetCheckState(volumeList_, selected, TRUE);
-    if (onChanged_) onChanged_();
     UpdateVolumeList();
 }
 
@@ -608,6 +673,8 @@ void SettingsDialog::RefreshVolumeStatuses() {
         UpdateVolumeList();
         return;
     }
+    volumeStatusReceived_ = false;
+    UpdateVolumeList();
     engineClient_->RequestVolumeStatus([this](std::vector<ffprotocol::VolumeStatusRecord> records) {
         auto owned = std::make_unique<std::vector<ffprotocol::VolumeStatusRecord>>(std::move(records));
         const HWND target = dialog_;
@@ -622,6 +689,17 @@ void SettingsDialog::ApplyVolumeStatuses(const std::vector<ffprotocol::VolumeSta
     volumeStatusFlags_.clear();
     for (const auto& record : records) {
         volumeStatusFlags_[record.driveLetter] = record.flags;
+    }
+    volumeStatusReceived_ = true;
+    // §9.1: the global-pause checkbox mirrors the engine-reported state, not
+    // the last local click (a failed/lost request must not look applied).
+    if (pauseAllCheck_) {
+        const bool allPaused = !records.empty() && std::all_of(
+            records.begin(), records.end(),
+            [](const ffprotocol::VolumeStatusRecord& record) {
+                return (record.flags & ffprotocol::VolumeStatusPaused) != 0;
+            });
+        SendMessageW(pauseAllCheck_, BM_SETCHECK, allPaused ? BST_CHECKED : BST_UNCHECKED, 0);
     }
     UpdateVolumeList();
 }
@@ -650,6 +728,11 @@ std::wstring SettingsDialog::StatusTextForVolume(size_t volumeIndex) const {
     // §9.1: paused state is read back through the engine's status flags.
     if ((flags & ffprotocol::VolumeStatusPaused) != 0) {
         return L"Paused";
+    }
+    // Before the first status report arrives, flags are unknown — never
+    // render a healthy volume as stale/unhealthy in that window.
+    if (engineClient_ && !volumeStatusReceived_) {
+        return L"Checking…";
     }
 
     ffprotocol::VolumeIndexConditions conditions;
@@ -680,6 +763,10 @@ void SettingsDialog::UpdateStatusExplanation(size_t volumeIndex) {
     }
     if (status == L"Paused") {
         SetWindowTextW(statusDetail_, L"Indexing is paused for this volume. Resume continues from where it left off, without restarting from zero.");
+        return;
+    }
+    if (status == L"Checking…") {
+        SetWindowTextW(statusDetail_, L"Checking index status for this volume…");
         return;
     }
 
@@ -727,16 +814,16 @@ void SettingsDialog::AddVolumeRule() {
     }
     if (volumeKey.empty()) return;
 
-    auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+    auto setting = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
                                 [&volumeKey](const ffprotocol::VolumeSetting& value) {
                                     return value.key == volumeKey;
                                 });
-    if (setting == settings_->indexing.end()) {
+    if (setting == settingsDraft_.indexing.end()) {
         ffprotocol::VolumeSetting value;
         value.key = volumeKey;
         value.enabled = true;
-        settings_->indexing.push_back(std::move(value));
-        setting = std::prev(settings_->indexing.end());
+        settingsDraft_.indexing.push_back(std::move(value));
+        setting = std::prev(settingsDraft_.indexing.end());
     }
 
     const bool include = !excludeRuleCheck_ || SendMessageW(excludeRuleCheck_, BM_GETCHECK, 0, 0) != BST_CHECKED;
@@ -753,8 +840,7 @@ void SettingsDialog::AddVolumeRule() {
     rule.path = path;
     rule.include = include;
     setting->rules.push_back(std::move(rule));
-    
-    if (onChanged_) onChanged_();
+
     UpdateRuleList();
 }
 
@@ -764,13 +850,12 @@ void SettingsDialog::RemoveVolumeRule() {
     const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
     if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule < 0) return;
     const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
-    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+    const auto setting = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
                                       [&volumeKey](const ffprotocol::VolumeSetting& value) {
                                           return value.key == volumeKey;
                                       });
-    if (setting == settings_->indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
+    if (setting == settingsDraft_.indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
     setting->rules.erase(setting->rules.begin() + selectedRule);
-    if (onChanged_) onChanged_();
     UpdateRuleList();
 }
 
@@ -780,13 +865,12 @@ void SettingsDialog::MoveVolumeRuleUp() {
     const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
     if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule <= 0) return;
     const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
-    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+    const auto setting = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
                                       [&volumeKey](const ffprotocol::VolumeSetting& value) {
                                           return value.key == volumeKey;
                                       });
-    if (setting == settings_->indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
+    if (setting == settingsDraft_.indexing.end() || selectedRule >= static_cast<int>(setting->rules.size())) return;
     std::iter_swap(setting->rules.begin() + selectedRule, setting->rules.begin() + selectedRule - 1);
-    if (onChanged_) onChanged_();
     UpdateRuleList();
     ListView_SetItemState(ruleList_, selectedRule - 1, LVIS_SELECTED | LVIS_FOCUSED,
                           LVIS_SELECTED | LVIS_FOCUSED);
@@ -798,13 +882,12 @@ void SettingsDialog::MoveVolumeRuleDown() {
     const int selectedRule = ListView_GetNextItem(ruleList_, -1, LVNI_SELECTED);
     if (selectedVolume < 0 || selectedVolume >= static_cast<int>(volumes_.size()) || selectedRule < 0) return;
     const std::wstring& volumeKey = volumes_[static_cast<size_t>(selectedVolume)].path;
-    const auto setting = std::find_if(settings_->indexing.begin(), settings_->indexing.end(),
+    const auto setting = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
                                       [&volumeKey](const ffprotocol::VolumeSetting& value) {
                                           return value.key == volumeKey;
                                       });
-    if (setting == settings_->indexing.end() || selectedRule + 1 >= static_cast<int>(setting->rules.size())) return;
+    if (setting == settingsDraft_.indexing.end() || selectedRule + 1 >= static_cast<int>(setting->rules.size())) return;
     std::iter_swap(setting->rules.begin() + selectedRule, setting->rules.begin() + selectedRule + 1);
-    if (onChanged_) onChanged_();
     UpdateRuleList();
     ListView_SetItemState(ruleList_, selectedRule + 1, LVIS_SELECTED | LVIS_FOCUSED,
                           LVIS_SELECTED | LVIS_FOCUSED);
@@ -890,16 +973,16 @@ void SettingsDialog::PopulateStoragePage() {
     
     ListView_DeleteAllItems(categoryList_);
     if (settings_) {
-        for (size_t i = 0; i < settings_->storageCategories.size(); ++i) {
+        for (size_t i = 0; i < settingsDraft_.storageCategories.size(); ++i) {
             LVITEMW item{};
             item.iItem = static_cast<int>(i);
             item.iSubItem = 0;
             item.mask = LVIF_TEXT;
-            item.pszText = const_cast<wchar_t*>(settings_->storageCategories[i].first.c_str());
+            item.pszText = const_cast<wchar_t*>(settingsDraft_.storageCategories[i].first.c_str());
             ListView_InsertItem(categoryList_, &item);
-            
+
             ListView_SetItemText(categoryList_, static_cast<int>(i), 1,
-                                 const_cast<wchar_t*>(settings_->storageCategories[i].second.c_str()));
+                                 const_cast<wchar_t*>(settingsDraft_.storageCategories[i].second.c_str()));
         }
     }
 }
@@ -1027,52 +1110,73 @@ LRESULT CALLBACK SettingsDialog::ShortcutEditProc(HWND hwnd, UINT message, WPARA
 void SettingsDialog::SaveCurrentPage() {
     if (!settings_) return;
 
-    if (currentPage_ == 1 && searchScopeCombo_ && retainHistoryCheck_) {
+    // Save-all-on-OK: every page's controls persist for the dialog lifetime,
+    // so all of them are read regardless of the visible tab. Everything is
+    // written into the draft; IDOK commits it to *settings_.
+    if (themeCombo_ && previewCheck_ && previewSizeEdit_) {
+        switch (SendMessageW(themeCombo_, CB_GETCURSEL, 0, 0)) {
+            case 0: settingsDraft_.theme = ffprotocol::ThemePreference::Light; break;
+            case 1: settingsDraft_.theme = ffprotocol::ThemePreference::Dark; break;
+            case 2: settingsDraft_.theme = ffprotocol::ThemePreference::FollowSystem; break;
+            default: break;
+        }
+        settingsDraft_.previewEnabled = SendMessageW(previewCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        const std::wstring sizeText = GetWindowText(previewSizeEdit_);
+        if (!sizeText.empty()) {
+            unsigned long long parsed = settingsDraft_.maxAutoPreviewBytes;
+            try { parsed = std::stoull(sizeText); } catch (const std::exception&) {}
+            if (parsed > 0) settingsDraft_.maxAutoPreviewBytes = parsed;
+        }
+    }
+
+    if (searchScopeCombo_ && retainHistoryCheck_) {
         const int scopeIndex = static_cast<int>(SendMessageW(searchScopeCombo_, CB_GETCURSEL, 0, 0));
         switch (scopeIndex) {
-            case 0: settings_->defaultSearchScope = L"Current Folder"; break;
-            case 1: settings_->defaultSearchScope = L"Current Folder + Subfolders"; break;
-            case 2: settings_->defaultSearchScope = L"Current Drive"; break;
-            case 3: settings_->defaultSearchScope = L"All Indexed Locations"; break;
-            default: settings_->defaultSearchScope = L"Everywhere"; break;
+            case 0: settingsDraft_.defaultSearchScope = L"Current Folder"; break;
+            case 1: settingsDraft_.defaultSearchScope = L"Current Folder + Subfolders"; break;
+            case 2: settingsDraft_.defaultSearchScope = L"Current Drive"; break;
+            case 3: settingsDraft_.defaultSearchScope = L"All Indexed Locations"; break;
+            default: settingsDraft_.defaultSearchScope = L"Everywhere"; break;
         }
-        settings_->retainSearchHistory = SendMessageW(retainHistoryCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        settingsDraft_.retainSearchHistory = SendMessageW(retainHistoryCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
 
-    if (currentPage_ == 2 && startupPathEdit_ && restoreSessionCheck_) {
-        settings_->startupLocation = GetWindowText(startupPathEdit_);
-        settings_->restorePreviousSession = SendMessageW(restoreSessionCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    if (startupPathEdit_ && restoreSessionCheck_) {
+        settingsDraft_.startupLocation = GetWindowText(startupPathEdit_);
+        settingsDraft_.restorePreviousSession = SendMessageW(restoreSessionCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
     }
 
-    if (currentPage_ == 3 && volumeList_) {
-        // Preserve existing directory rules while rebuilding the selection
-        // from the checkbox list -- rules are owned per-volume in the
-        // persisted settings and must survive an unrelated enable/disable.
-        const std::vector<ffprotocol::VolumeSetting> previous = settings_->indexing;
-        settings_->indexing.clear();
+    if (volumeList_) {
+        // Merge rather than rebuild: volumes currently attached are updated
+        // from the checkbox list, while entries for configured-but-unattached
+        // drives survive untouched -- only an explicit user action removes a
+        // volume's configuration.
         for (size_t i = 0; i < volumes_.size(); ++i) {
-            ffprotocol::VolumeSetting vs;
-            vs.key = volumes_[i].path;
-            vs.enabled = ListView_GetCheckState(volumeList_, static_cast<int>(i)) != FALSE;
-            for (const auto& existing : previous) {
-                if (existing.key == vs.key) {
-                    vs.rules = existing.rules;
-                    break;
-                }
+            const bool enabled = ListView_GetCheckState(volumeList_, static_cast<int>(i)) != FALSE;
+            const auto existing = std::find_if(settingsDraft_.indexing.begin(), settingsDraft_.indexing.end(),
+                                               [this, i](const ffprotocol::VolumeSetting& value) {
+                                                   return value.key == volumes_[i].path;
+                                               });
+            if (existing != settingsDraft_.indexing.end()) {
+                existing->enabled = enabled;
+            } else {
+                ffprotocol::VolumeSetting vs;
+                vs.key = volumes_[i].path;
+                vs.enabled = enabled;
+                settingsDraft_.indexing.push_back(std::move(vs));
             }
-            settings_->indexing.push_back(vs);
         }
     }
 
-    if (currentPage_ == 4 && categoryList_) {
-        settings_->storageCategories.clear();
+    if (categoryList_) {
+        settingsDraft_.storageCategories.clear();
         const int count = ListView_GetItemCount(categoryList_);
         for (int i = 0; i < count; ++i) {
             wchar_t name[256]{};
             wchar_t exts[1024]{};
             ListView_GetItemText(categoryList_, i, 0, name, std::size(name));
             ListView_GetItemText(categoryList_, i, 1, exts, std::size(exts));
-            settings_->storageCategories.emplace_back(name, exts);
+            settingsDraft_.storageCategories.emplace_back(name, exts);
         }
     }
 
@@ -1080,6 +1184,62 @@ void SettingsDialog::SaveCurrentPage() {
         FinishShortcutEdit(true);
         *shortcuts_ = shortcutDraft_;
     }
+}
+
+void SettingsDialog::BeginCategoryEdit(int row, int column) {
+    if (!categoryList_ || categoryEdit_ != nullptr ||
+        row < 0 || row >= ListView_GetItemCount(categoryList_) ||
+        (column != 0 && column != 1)) return;
+    RECT bounds{};
+    if (!ListView_GetSubItemRect(categoryList_, row, column, LVIR_BOUNDS, &bounds)) return;
+    MapWindowPoints(categoryList_, dialog_, reinterpret_cast<POINT*>(&bounds), 2);
+    wchar_t text[1024]{};
+    ListView_GetItemText(categoryList_, row, column, text, std::size(text));
+    categoryEdit_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", text,
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
+                                    bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top,
+                                    dialog_, reinterpret_cast<HMENU>(40003), GetModuleHandleW(nullptr), nullptr);
+    if (!categoryEdit_) return;
+    categoryEditRow_ = row;
+    categoryEditColumn_ = column;
+    SetWindowSubclass(categoryEdit_, CategoryEditProc, 2, reinterpret_cast<DWORD_PTR>(this));
+    SendMessageW(categoryEdit_, EM_SETSEL, 0, -1);
+    SetFocus(categoryEdit_);
+}
+
+void SettingsDialog::FinishCategoryEdit(bool accept) {
+    if (!categoryEdit_) return;
+    const HWND editor = categoryEdit_;
+    const int row = categoryEditRow_;
+    const int column = categoryEditColumn_;
+    categoryEdit_ = nullptr;
+    categoryEditRow_ = -1;
+    categoryEditColumn_ = -1;
+    const std::wstring text = GetWindowText(editor);
+    RemoveWindowSubclass(editor, CategoryEditProc, 2);
+    DestroyWindow(editor);
+    if (!accept || !categoryList_ || row < 0 || row >= ListView_GetItemCount(categoryList_)) return;
+    ListView_SetItemText(categoryList_, row, column, const_cast<wchar_t*>(text.c_str()));
+}
+
+LRESULT CALLBACK SettingsDialog::CategoryEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                  UINT_PTR, DWORD_PTR referenceData) {
+    auto* self = reinterpret_cast<SettingsDialog*>(referenceData);
+    if (self != nullptr && message == WM_KEYDOWN) {
+        if (wParam == VK_RETURN) {
+            self->FinishCategoryEdit(true);
+            return 0;
+        }
+        if (wParam == VK_ESCAPE) {
+            self->FinishCategoryEdit(false);
+            return 0;
+        }
+    }
+    if (self != nullptr && message == WM_KILLFOCUS && self->categoryEdit_ == hwnd) {
+        self->FinishCategoryEdit(true);
+        return 0;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 void SettingsDialog::ResetShortcuts() {
