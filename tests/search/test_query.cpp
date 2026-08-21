@@ -7,11 +7,13 @@
 
 using namespace fftest;
 
+static int TestDateBoundariesAndDiagnostics(const ffsearch::FilterRegistry& registry);
+
 
 int main() {
     const auto registry = ffsearch::FilterRegistry::WithDefaults();
-    const ffsearch::Candidate report{L"quarterly report.pdf", L"C:\\Program Files\\Reports", 2 * 1024 * 1024, 0, false};
-    const ffsearch::CandidateView reportView{u"quarterly report.pdf", report.folder, report.sizeBytes,
+    static const ffsearch::Candidate report{L"quarterly report.pdf", L"C:\\Program Files\\Reports", 2 * 1024 * 1024, 0, false};
+    static const ffsearch::CandidateView reportView{u"quarterly report.pdf", report.folder, report.sizeBytes,
                                              report.modifiedTime, report.isDirectory, report.createdTime,
                                              report.volumeId, report.id, report.parentId, report.persistentIndexed};
 
@@ -54,8 +56,8 @@ int main() {
     emojiName.push_back(static_cast<wchar_t>(0xD83D));
     emojiName.push_back(static_cast<wchar_t>(0xDE00));
     emojiName += L".txt";
-    const ffsearch::Candidate emoji{emojiName, L"C:\\emoji", 1, 0, false};
-    const ffsearch::CandidateView emojiView{u"file_\U0001F600.txt", emoji.folder, emoji.sizeBytes,
+    static const ffsearch::Candidate emoji{emojiName, L"C:\\emoji", 1, 0, false};
+    static const ffsearch::CandidateView emojiView{u"file_\U0001F600.txt", emoji.folder, emoji.sizeBytes,
                                             emoji.modifiedTime, emoji.isDirectory, emoji.createdTime,
                                             emoji.volumeId, emoji.id, emoji.parentId, emoji.persistentIndexed};
     const auto emojiQuery = ffsearch::ParseQuery(L"file_?.txt", registry);
@@ -68,16 +70,16 @@ int main() {
     const auto bmhLiteral = ffsearch::ParseQuery(L"phot", registry);
     Check(!shortLiteral.simpleLiteralUseBmh && bmhLiteral.simpleLiteralUseBmh,
           "ASCII matcher selects BMH only beyond the short-needle boundary");
-    const ffsearch::Candidate upperAscii{L"Report.TXT", L"C:\\ascii", 1, 0, false};
-    const ffsearch::CandidateView upperAsciiView{u"Report.TXT", upperAscii.folder, upperAscii.sizeBytes,
+    static const ffsearch::Candidate upperAscii{L"Report.TXT", L"C:\\ascii", 1, 0, false};
+    static const ffsearch::CandidateView upperAsciiView{u"Report.TXT", upperAscii.folder, upperAscii.sizeBytes,
                                                  upperAscii.modifiedTime, upperAscii.isDirectory,
                                                  upperAscii.createdTime, upperAscii.volumeId, upperAscii.id,
                                                  upperAscii.parentId, upperAscii.persistentIndexed};
     Check(simpleLiteral.Matches(upperAscii) == simpleLiteral.MatchesView(upperAsciiView) &&
               simpleLiteral.MatchesView(upperAsciiView),
           "uppercase ASCII names use the ordinal fallback without false negatives");
-    const ffsearch::Candidate unicode{L"\u00C5ngstr\u00F6m-report.txt", L"C:\\unicode", 1, 0, false};
-    const ffsearch::CandidateView unicodeView{u"\u00C5ngstr\u00F6m-report.txt", unicode.folder, unicode.sizeBytes,
+    static const ffsearch::Candidate unicode{L"\u00C5ngstr\u00F6m-report.txt", L"C:\\unicode", 1, 0, false};
+    static const ffsearch::CandidateView unicodeView{u"\u00C5ngstr\u00F6m-report.txt", unicode.folder, unicode.sizeBytes,
                                               unicode.modifiedTime, unicode.isDirectory, unicode.createdTime,
                                               unicode.volumeId, unicode.id, unicode.parentId, unicode.persistentIndexed};
     const auto unicodeQuery = ffsearch::ParseQuery(L"\u00E5NGSTR\u00D6M", registry);
@@ -86,7 +88,11 @@ int main() {
     auto extended = ffsearch::FilterRegistry::WithDefaults();
     extended.Register(L"owner", {[](std::wstring_view value) -> std::optional<ffsearch::FilterValue> { return std::wstring(value); }, [](const ffsearch::FilterValue&) { return [](const ffsearch::Candidate&) { return true; }; }});
     Check(ffsearch::ParseQuery(L"ext:pdf", extended).Matches(report), "registering a new key leaves existing filters unchanged");
+    return TestDateBoundariesAndDiagnostics(registry);
+}
 
+// Split from main so neither frame trips /analyze C6262 (16 KiB stack budget).
+static int TestDateBoundariesAndDiagnostics(const ffsearch::FilterRegistry& registry) {
     // Date filters use LOCAL day boundaries (matching Explorer timestamps),
     // never UTC-day arithmetic.
     FILETIME nowFt{};
@@ -111,13 +117,13 @@ int main() {
     midnightTicks.LowPart = midnightFt.dwLowDateTime;
     midnightTicks.HighPart = midnightFt.dwHighDateTime;
     constexpr uint64_t kDay = 24ULL * 60 * 60 * 10'000'000;
-    const ffsearch::Candidate noonToday{L"today.txt", L"C:\\dates", 1,
+    static const ffsearch::Candidate noonToday{L"today.txt", L"C:\\dates", 1,
                                         midnightTicks.QuadPart + kDay / 2, false};
-    const ffsearch::Candidate lastTickYesterday{L"yesterday.txt", L"C:\\dates", 1,
+    static const ffsearch::Candidate lastTickYesterday{L"yesterday.txt", L"C:\\dates", 1,
                                                 midnightTicks.QuadPart - 1, false};
-    const ffsearch::Candidate sixDaysAgo{L"six.txt", L"C:\\dates", 1,
+    static const ffsearch::Candidate sixDaysAgo{L"six.txt", L"C:\\dates", 1,
                                          midnightTicks.QuadPart - 6 * kDay, false};
-    const ffsearch::Candidate eightDaysAgo{L"eight.txt", L"C:\\dates", 1,
+    static const ffsearch::Candidate eightDaysAgo{L"eight.txt", L"C:\\dates", 1,
                                            midnightTicks.QuadPart - 8 * kDay, false};
     const auto today = ffsearch::ParseQuery(L"modified:today", registry);
     Check(today.Matches(noonToday), "modified:today matches a file stamped this local afternoon");
@@ -134,7 +140,7 @@ int main() {
     auto mixedInvalid = ffsearch::ParseQuery(L"size:abc report", registry);
     Check(mixedInvalid.invalidFilters.size() == 1 && mixedInvalid.invalidFilters.front() == L"size",
           "an invalid size value is surfaced as an invalid filter key");
-    const ffsearch::Candidate plainReport{L"report.pdf", L"C:\\docs", 1, 0, false};
+    static const ffsearch::Candidate plainReport{L"report.pdf", L"C:\\docs", 1, 0, false};
     Check(mixedInvalid.Matches(plainReport), "the valid remainder of a query with an invalid filter still executes");
     auto mixedUnknown = ffsearch::ParseQuery(L"owner:alice budget", registry);
     Check(mixedUnknown.unrecognizedKeys.size() == 1 && mixedUnknown.unrecognizedKeys.front() == L"owner",

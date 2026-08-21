@@ -300,7 +300,9 @@ void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActiv
     if (snapshotRefreshPending_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
         Dispatch(false);
     }
-    SetFocus(GetWindow(query_, GW_CHILD));
+    if (query_ != nullptr) {
+        SetFocus(GetWindow(query_, GW_CHILD));
+    }
 }
 
 void SearchPanel::Hide() {

@@ -202,6 +202,11 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
     OVERLAPPED connectOverlapped{};
     connectOverlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     Check(connectOverlapped.hEvent != nullptr, "fake-engine connect event is created");
+    if (connectOverlapped.hEvent == nullptr) {
+        // Check() already recorded the failure; /analyze cannot prove the
+        // handle non-null below without this explicit guard.
+        return;
+    }
     const BOOL connected = ConnectNamedPipe(serverPipe, &connectOverlapped);
     const bool pending = !connected && GetLastError() == ERROR_IO_PENDING;
 
