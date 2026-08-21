@@ -1,6 +1,7 @@
 #include "WindowShell.h"
 #include "IconCache.h"
 #include "UITheme.h"
+#include "UiComponents.h" // ui-v3: shared state-panel presentation for details
 
 #include "ConflictDialog.h"
 #include "Util.h"
@@ -1222,6 +1223,10 @@ void WindowShell::MarkDeviceDirty() {
     detailsTextBrush_.Reset();
     detailsTextFormat_.Reset();
     previewTextFormat_.Reset();
+    // ui-v3 details: the caption format and state-panel brush cache follow the
+    // same device/theme reset ladder as the other details resources.
+    detailsCaptionFormat_.Reset();
+    detailsStateBrushes_.Reset();
     dividerBrush_.Reset();
     progressBrush_.Reset();
     // Preview bitmaps are device-dependent: a bitmap created on the old
@@ -1487,6 +1492,9 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         renderer_.DWriteFactory()->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-us", &previewTextFormat_);
         previewTextFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        // ui-v3 details: caption-size format for preview-state explanations.
+        renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+            DWRITE_FONT_STRETCH_NORMAL, ffui::UiMetrics::kFontSizeCaption, L"en-us", &detailsCaptionFormat_);
     }
     if (highContrast) {
         // High contrast: suppress the rounded-token styling and fall back to
@@ -1617,10 +1625,26 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     std::shared_ptr<const PreviewResult> preview;
     { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
     const float previewBottom = cardBottom - pad;
+    // ui-v3 details: non-Ready previews render through the shared state panel
+    // (centered title + one-line explanation) instead of flat corner text —
+    // deliberate states, never unexplained empty boxes.
+    const auto drawPreviewStatePanel = [&](ffui::PreviewState state) {
+        if (previewTop >= previewBottom || !detailsTextFormat_ || !detailsCaptionFormat_) {
+            return;
+        }
+        const ffui::PreviewStatePresentation presentation =
+            ffui::ResolvePreviewStatePresentation(state);
+        if (presentation.title == nullptr) {
+            return;
+        }
+        ffui::DrawUiStatePanel(context,
+                               D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
+                               detailsTextFormat_.Get(), presentation.title,
+                               detailsCaptionFormat_.Get(), presentation.message, theme,
+                               highContrast, &detailsStateBrushes_);
+    };
     if (previewTop < previewBottom && !settings_.previewEnabled) {
-        const std::wstring text = L"Preview disabled";
-        context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+        drawPreviewStatePanel(ffui::PreviewState::Disabled);
     } else if (previewTop < previewBottom && preview && preview->kind == PreviewKind::Image) {
         if (!previewBitmap_ && !preview->pixels.empty()) {
             const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
@@ -1634,13 +1658,27 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                 static_cast<float>(preview->width), static_cast<float>(preview->height));
             context->DrawBitmap(previewBitmap_.Get(), dest);
         }
-    } else if (previewTop < previewBottom) {
-        std::wstring text = preview && preview->kind == PreviewKind::Text
-            ? preview->text
-            : (selection && !selection->isDirectory ? L"No preview available" : L"");
-        if (preview && preview->truncated) text += L"\n\n[Preview truncated]";
+    } else if (previewTop < previewBottom && preview && preview->kind == PreviewKind::Text) {
+        std::wstring text = preview->text;
+        if (preview->truncated) text += L"\n\n[Preview truncated]";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
             D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+    } else if (previewTop < previewBottom) {
+        // No content: resolve the sharpest known cause. A provider-supplied
+        // failure wins; a pending request shows Loading; folders/no-selection
+        // legitimately have no preview and stay silent rather than nagging.
+        bool haveState = true;
+        ffui::PreviewState state = ffui::PreviewState::Unsupported;
+        if (preview) {
+            state = preview->state;
+        } else if (selection && !selection->isDirectory) {
+            state = ffui::PreviewState::Loading;
+        } else {
+            haveState = false;
+        }
+        if (haveState) {
+            drawPreviewStatePanel(state);
+        }
     }
     }
     const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +

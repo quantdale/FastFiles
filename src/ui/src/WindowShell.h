@@ -146,6 +146,11 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
+    // ui-v3 details: caption format + shared brush cache for the deliberate
+    // preview-state panel (DrawUiStatePanel) so non-Ready previews never paint
+    // as flat top-left text or empty boxes.
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsCaptionFormat_;
+    ffui::UiBrushCache detailsStateBrushes_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> progressBrush_;
     bool darkTheme_ = false;
