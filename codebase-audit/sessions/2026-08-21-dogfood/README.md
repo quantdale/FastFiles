@@ -28,6 +28,7 @@ This ledger is a new campaign record. The 2026-08-20 production-readiness audit 
 | First-run profile and Home | PASS-DEGRADED | State backup + clean profile; UIA run `20260821-115745`; Home overflow fixed and verified in `20260821-120225` |
 | Search/selection/error UIA | PASS-DEGRADED | Runs `20260821-115103`, `20260821-115432`, `20260821-115534` |
 | File-operation independent truth | PASS-E2E | `fffileoperations_e2e_tests` passed in 17.59s |
+| Unsigned release candidate | PASS-NONPRODUCTION | Final candidate from `83e668c3`: archive, checksums, VERSIONINFO, dependency inventory, and provenance manifest validated; production mode failed closed for missing manifest signature |
 | Large-directory/performance soak | PASS-DEGRADED | 100K physical fixture comparison, indexed benchmark, committed 30s UI/engine resource soak; interactive large-folder latency remains unmeasured |
 | Production signing / privileged install | BLOCKED-EXTERNAL | No authorized certificate/pins; fail-closed path preserved |
 | Clean-host/VM/network/removable matrix | BLOCKED-EXTERNAL | No provisioned external environment claimed |
