@@ -65,6 +65,17 @@ try {
         Test-PackageManifest -Path $packageManifestPath -ArtifactManifest $manifest -PackageRoot $packageRoot -AllowUnsignedPreparation
     }
     if (-not $packageCheck.valid) { throw "PACKAGE_MANIFEST_INVALID_AFTER_WRITE: $($packageCheck.reason)" }
+    # The detailed version-check object is also useful in the human result, but
+    # absolute source paths would make a portable kit and its archive hash depend
+    # on the operator's temporary/output directory. Keep the evidence fields and
+    # replace only the path display with the kit-relative payload location.
+    foreach ($versionRecord in @($versionCheck.artifacts)) {
+        $versionRecord.path = if ($versionRecord.filename -eq 'fftest.exe') {
+            'validation/fftest.exe'
+        } else {
+            "package/$($versionRecord.filename)"
+        }
+    }
     $pinStates = Get-ConfiguredPinStates -RepoRoot $repoRoot -BuildRoot $BuildRoot
     $engineArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesEngine.exe' | Select-Object -First 1
     $serviceArtifact = $manifest.artifacts | Where-Object filename -eq 'FastFilesIndexSvc.exe' | Select-Object -First 1
