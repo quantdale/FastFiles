@@ -52,6 +52,15 @@ struct UiTheme {
     D2D1_COLOR_F selectionSoft;    // soft/unfocused selection fill (translucent accent)
     D2D1_COLOR_F dividerSubtle;    // subtle hairline divider
     D2D1_COLOR_F focusStroke;      // focus ring stroke
+    // UI-v3 semantic extensions (additive; ui-v3 foundation wave). Status
+    // colors must always be paired with a non-color cue (icon/text/shape) at
+    // their call sites — never the sole carrier of meaning.
+    D2D1_COLOR_F textTertiary;     // tertiary metadata (timestamps, counts)
+    D2D1_COLOR_F textDisabled;     // disabled control labels (still readable)
+    D2D1_COLOR_F success;          // completed/healthy status
+    D2D1_COLOR_F warning;          // degraded/partial status
+    D2D1_COLOR_F info;             // informational status
+    D2D1_COLOR_F dropTargetStroke; // unambiguous drop-destination affordance
 };
 
 // The app's two themes. Values follow the existing FastFiles palette where one
@@ -86,6 +95,12 @@ inline UiTheme GetUiTheme(bool dark) {
         t.selectionSoft      = D2D1::ColorF(0x2B6CDA, 0.12f);
         t.dividerSubtle      = D2D1::ColorF(0xF1F3F4, 0.10f);
         t.focusStroke        = D2D1::ColorF(0x4C8DFF);
+        t.textTertiary       = D2D1::ColorF(0x80868B);
+        t.textDisabled       = D2D1::ColorF(0x5F6368);
+        t.success            = D2D1::ColorF(0x81C995);
+        t.warning            = D2D1::ColorF(0xF9AB00);
+        t.info               = D2D1::ColorF(0x8AB4F8);
+        t.dropTargetStroke   = D2D1::ColorF(0x6BA1FF);
     } else {
         t.background         = D2D1::ColorF(0xFFFFFF);
         t.surface            = D2D1::ColorF(0xF1F3F5);
@@ -113,6 +128,12 @@ inline UiTheme GetUiTheme(bool dark) {
         t.selectionSoft      = D2D1::ColorF(0x2B6CDA, 0.12f);
         t.dividerSubtle      = D2D1::ColorF(0x000000, 0.08f);
         t.focusStroke        = D2D1::ColorF(0x0067C0);
+        t.textTertiary       = D2D1::ColorF(0x80868B);
+        t.textDisabled       = D2D1::ColorF(0x9AA0A6);
+        t.success            = D2D1::ColorF(0x188038);
+        t.warning            = D2D1::ColorF(0xE37400);
+        t.info               = D2D1::ColorF(0x1A73E8);
+        t.dropTargetStroke   = D2D1::ColorF(0x2B6CDA);
     }
     return t;
 }
@@ -132,16 +153,94 @@ constexpr float kRadiusMedium = 8.0f;
 constexpr float kSpaceXxs = 2.0f;
 constexpr float kSpaceXs = 4.0f;
 constexpr float kSpaceS = 8.0f;
+constexpr float kSpaceSm = 12.0f;  // ui-v3: label/control intermediate gap
 constexpr float kSpaceM = 16.0f;
 constexpr float kSpaceL = 24.0f;
+constexpr float kSpaceXl = 32.0f;  // ui-v3: major page-level separation (sparing)
 // Content (DIPs)
 constexpr float kIconSize = 16.0f;
+constexpr float kIconSizeLg = 20.0f;   // ui-v3: shell command glyphs
+constexpr float kTargetMinSize = 24.0f; // ui-v3: pointer-target floor (WCAG 2.2-informed)
+// Corner radii contract (ui-v3): rows/buttons kRadiusSmall, text fields
+// kRadiusField, cards/panels/flyouts kRadiusMedium. Chips use half-height pills.
+constexpr float kRadiusField = 6.0f;
 // Typography ramp (DIPs)
 constexpr float kFontSizeCaption = 12.0f;
 constexpr float kFontSizeBody = 14.0f;
 constexpr float kFontSizeSubtitle = 16.0f;
 constexpr float kFontSizeTitle = 20.0f;
+constexpr float kFontSizeLargeTitle = 28.0f; // ui-v3: rare page titles only
 }  // namespace UiMetrics
+
+// UI-v3 typography roles (docs/ui-improvement/02 §3). Size comes from the
+// ramp above; weight is regular except BodyStrong/Subtitle/PageTitle/
+// LargeTitle which render semibold — hierarchy via weight, not heavy bold.
+enum class UiTypeRole { Caption, Body, BodyStrong, Subtitle, PageTitle, LargeTitle };
+
+inline float UiTypeSize(UiTypeRole role) {
+    switch (role) {
+        case UiTypeRole::Caption: return UiMetrics::kFontSizeCaption;
+        case UiTypeRole::BodyStrong:
+        case UiTypeRole::Body: return UiMetrics::kFontSizeBody;
+        case UiTypeRole::Subtitle: return UiMetrics::kFontSizeSubtitle;
+        case UiTypeRole::PageTitle: return UiMetrics::kFontSizeTitle;
+        case UiTypeRole::LargeTitle: return UiMetrics::kFontSizeLargeTitle;
+    }
+    return UiMetrics::kFontSizeBody;
+}
+
+inline bool UiTypeSemibold(UiTypeRole role) {
+    switch (role) {
+        case UiTypeRole::BodyStrong:
+        case UiTypeRole::Subtitle:
+        case UiTypeRole::PageTitle:
+        case UiTypeRole::LargeTitle: return true;
+        default: return false;
+    }
+}
+
+// UI-v3 density contract (docs/ui-improvement/02 §4). One coherent structure
+// so row height, command targets, icon size, and list rhythm never drift back
+// into unrelated per-file constants. Compact matches the shipped geometry.
+// The profile is not yet a user setting; surfaces consume GetUiDensity().
+enum class UiDensityProfile { Compact, Comfortable };
+
+struct UiDensity {
+    float rowHeight;      // file/search/nav result rows
+    float controlHeight;  // buttons, chips, inputs
+    float iconSize;       // list-row glyph size
+    float rowGap;         // vertical gap between grouped rows/cards
+    float commandGap;     // horizontal gap between adjacent commands
+};
+
+inline UiDensity GetUiDensity(UiDensityProfile profile) {
+    if (profile == UiDensityProfile::Comfortable) {
+        return {/*rowHeight=*/34.0f, /*controlHeight=*/28.0f, /*iconSize=*/20.0f,
+                /*rowGap=*/8.0f, /*commandGap=*/8.0f};
+    }
+    return {/*rowHeight=*/UiMetrics::kRowHeight, /*controlHeight=*/UiMetrics::kControlHeight,
+            /*iconSize=*/UiMetrics::kIconSize, /*rowGap=*/UiMetrics::kSpaceXs,
+            /*commandGap=*/UiMetrics::kSpaceXs};
+}
+
+// Active density profile, published like gUiDarkTheme; defaults to Compact so
+// existing geometry is unchanged until a surface opts into Comfortable.
+inline UiDensityProfile gUiDensityProfile = UiDensityProfile::Compact;
+
+// UI-v3 canonical visual states (docs/ui-improvement/02 §8). Surfaces resolve
+// interaction state through this enum (see UiComponents.h resolvers) instead of
+// inventing per-surface hover/selected/focus combinations.
+enum class UiVisualState {
+    Rest,
+    Hover,
+    Pressed,
+    Focused,           // keyboard focus, not selected
+    SelectedFocused,   // selection in the active pane/window
+    SelectedUnfocused, // selection outside the active pane/window
+    Disabled,
+    Busy,
+    DropTarget,
+};
 
 // Returns the current DPI scale factor (1.0 at 96 DPI). Uses the system DPI so
 // it works before any window exists; WM_DPICHANGED-driven updates re-read it.

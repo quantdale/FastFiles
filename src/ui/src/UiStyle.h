@@ -126,4 +126,35 @@ inline D2D1_COLOR_F UiLerpColor(D2D1_COLOR_F a, D2D1_COLOR_F b, float t) {
     return result;
 }
 
+// UI-v3 text primitives: single-line draws used by the shared component
+// helpers. The caller supplies the brush (typically from a UiBrushCache) so
+// paint paths stay allocation-free in steady state.
+
+// Draws single-line text vertically centered within [top,bottom], left-aligned
+// at x. Layout extends right without wrapping; callers clip.
+inline void UiDrawTextAt(ID2D1DeviceContext* ctx, IDWriteTextFormat* format, const wchar_t* text,
+                         float x, float top, float bottom, ID2D1Brush* brush) {
+    if (ctx == nullptr || format == nullptr || text == nullptr || brush == nullptr || text[0] == L'\0') {
+        return;
+    }
+    const float lineHeight = bottom - top;
+    const float fontSize = format->GetFontSize();
+    const float textHeight = fontSize * 1.4f;
+    const float textTop = top + (std::max)(0.0f, (lineHeight - textHeight) * 0.5f);
+    const D2D1_RECT_F layout{x, textTop, x + 65536.0f, textTop + textHeight};
+    ctx->DrawTextW(text, static_cast<UINT32>(wcslen(text)), format, layout, brush);
+}
+
+// Draws single-line text centered on both axes within rect.
+inline void UiDrawTextCentered(ID2D1DeviceContext* ctx, IDWriteTextFormat* format, const wchar_t* text,
+                               D2D1_RECT_F rect, ID2D1Brush* brush) {
+    if (ctx == nullptr || format == nullptr || text == nullptr || brush == nullptr || text[0] == L'\0') {
+        return;
+    }
+    const float textHeight = format->GetFontSize() * 1.4f;
+    const float centerY = (rect.top + rect.bottom) * 0.5f;
+    const D2D1_RECT_F layout{rect.left, centerY - textHeight * 0.5f, rect.right, centerY + textHeight * 0.5f};
+    ctx->DrawTextW(text, static_cast<UINT32>(wcslen(text)), format, layout, brush);
+}
+
 }  // namespace ffui

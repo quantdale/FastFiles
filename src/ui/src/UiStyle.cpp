@@ -1,5 +1,11 @@
 #include "UiStyle.h"
 
+// UI-v3 foundation headers are validated in this translation unit: the style
+// TU is the natural compile-time home for the shared token/component seams
+// until their consumer surfaces land.
+#include "UiComponents.h"
+#include "ffui/ResponsiveLayout.h"
+
 #include <cwchar>
 
 namespace ffui {
