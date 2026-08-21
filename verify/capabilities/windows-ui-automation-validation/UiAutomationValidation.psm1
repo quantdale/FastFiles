@@ -1068,6 +1068,20 @@ function Set-UiaSearchSort {
             }
             Start-Sleep -Milliseconds 400
             if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) { try { if ($ec) { $ec.Collapse() } } catch { }; return $true }
+            # Final fallback: drive the native COMBOBOX through its own HWND
+            # (CB_SETCURSEL + CBN_SELCHANGE). The owner-drawn dropdown popup is
+            # a separate HWND that UIA never exposes, so keyboard selection
+            # without an open dropdown can be unreliable; the native message
+            # path is exactly what a real selection delivers to the app.
+            try {
+                $comboHwnd = [IntPtr]$Combo.Current.NativeWindowHandle
+                if ($comboHwnd -ne [IntPtr]::Zero -and $sortIndex.ContainsKey($ItemName)) {
+                    if (Set-UiaComboSelectionElement -ComboHandle $comboHwnd -Index $sortIndex[$ItemName]) {
+                        Start-Sleep -Milliseconds 700
+                        if ((Get-UiaComboSelectionName -Driver $Driver -Combo $Combo) -eq $ItemName) { return $true }
+                    }
+                }
+            } catch { }
             try { if ($ec) { $ec.Collapse() } } catch { }
             return $false
         }
