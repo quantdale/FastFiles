@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cwctype>
 #include <deque>
 #include <filesystem>
 #include <memory>
@@ -154,6 +155,47 @@ std::wstring ParentPath(const std::wstring& path) {
     return separator == std::wstring::npos ? std::wstring{} : path.substr(0, separator + 1);
 }
 
+std::wstring NormalizedDirectory(const std::wstring& path) {
+    std::wstring value = std::filesystem::path(path).lexically_normal().wstring();
+    while (value.size() > 1 && (value.back() == L'\\' || value.back() == L'/')) value.pop_back();
+    return value;
+}
+
+bool OrdinalEquals(const std::wstring& left, const std::wstring& right) {
+    return CompareStringOrdinal(left.c_str(), static_cast<int>(left.size()),
+                                right.c_str(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
+// A transfer whose source already lives in the destination folder, or whose
+// source folder contains the destination, would copy a folder onto itself or
+// into its own subtree. The shell answers such requests with a misleading
+// conflict prompt whose Replace can destroy the only copy, so callers must
+// reject them up front.
+bool IsSelfTargetTransfer(const std::wstring& source, const std::wstring& destinationFolder) {
+    if (source.empty() || destinationFolder.empty()) return false;
+    const std::wstring sourceParent = NormalizedDirectory(ParentPath(source));
+    const std::wstring destination = NormalizedDirectory(destinationFolder);
+    if (OrdinalEquals(sourceParent, destination)) return true;
+    const std::wstring sourcePrefix = NormalizedDirectory(source) + L"\\";
+    if (destination.size() <= sourcePrefix.size()) return false;
+    return OrdinalEquals(destination.substr(0, sourcePrefix.size()), sourcePrefix);
+}
+
+// Win32 file APIs without the extended-length prefix silently fail past
+// MAX_PATH; shell items keep their unprefixed form.
+std::wstring ExtendedLengthPath(const std::wstring& path) {
+    if (path.size() >= 4 && path.compare(0, 4, L"\\\\?\\") == 0) return path;
+    if (path.size() >= 2 && path[0] == L'\\' && path[1] == L'\\') return L"\\\\?\\UNC\\" + path.substr(2);
+    if (path.size() >= 2 && std::iswalpha(path[0]) != 0 && path[1] == L':') return L"\\\\?\\" + path;
+    return path;
+}
+
+bool PathExistsWin32(const std::wstring& path) {
+    // GetFileAttributesW honours the \\?\ extended-length prefix;
+    // GetFileAttributesExW does not.
+    return GetFileAttributesW(ExtendedLengthPath(path).c_str()) != INVALID_FILE_ATTRIBUTES;
+}
+
 } // namespace
 
 FileOperations::~FileOperations() { Stop(); }
@@ -162,6 +204,9 @@ bool FileOperations::Start(HWND eventWindow) {
     if (worker_.joinable() || eventWindow == nullptr) return false;
     eventWindow_ = eventWindow;
     stopping_ = false;
+    // A previous Stop() latched the cancel flag; a fresh worker must not
+    // inherit it or every operation would complete as instantly cancelled.
+    cancelRequested_ = false;
     worker_ = std::thread(&FileOperations::WorkerMain, this);
     return true;
 }
@@ -208,7 +253,26 @@ void FileOperations::PostEvent(FileOperationEvent event) const {
 }
 
 void FileOperations::WorkerMain() {
-    if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return;
+    const HRESULT coInitResult = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(coInitResult)) {
+        // Without COM no request can ever run; fail everything still queued
+        // with a clear error instead of leaving items stuck as Queued.
+        for (;;) {
+            FileOperationRequest request;
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                if (queue_.empty()) break;
+                request = std::move(queue_.front());
+                queue_.pop_front();
+            }
+            std::vector<FileOperationFailure> failures;
+            if (request.sources.empty()) failures.push_back({request.destination, coInitResult});
+            else for (const auto& source : request.sources) failures.push_back({source, coInitResult});
+            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0,
+                       static_cast<unsigned int>(request.sources.size()), 0, std::move(failures)});
+        }
+        return;
+    }
     workerThreadId_ = GetCurrentThreadId();
     MSG message{};
     PeekMessageW(&message, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
@@ -219,11 +283,16 @@ void FileOperations::WorkerMain() {
             FileOperationRequest request;
             {
                 std::lock_guard<std::mutex> lock(queueMutex_);
-                if (queue_.empty()) break;
+                // The cancel flag is checked before dequeuing and only reset
+                // once the queue is observed empty, so one cancellation
+                // stops the running operation and every queued sibling.
+                if (queue_.empty()) {
+                    cancelRequested_ = false;
+                    break;
+                }
                 request = std::move(queue_.front());
                 queue_.pop_front();
             }
-            cancelRequested_ = false;
             Execute(request);
         }
     }
@@ -247,13 +316,32 @@ ConflictDecision FileOperations::RequestConflictDecision(const std::wstring& sou
 
 void FileOperations::Execute(const FileOperationRequest& input) {
     FileOperationRequest request = input;
-    if ((request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) &&
-        request.transferPlan.empty()) {
+    std::vector<FileOperationFailure> rejectedSources;
+    if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
+        // Self-target rejection covers every caller (drop, paste, undo):
+        // copying a folder onto itself or into its own subtree must never
+        // reach the shell, whose Replace answer can destroy the source.
+        std::vector<std::wstring> validSources;
+        for (const auto& source : request.sources) {
+            if (IsSelfTargetTransfer(source, request.destination)) {
+                rejectedSources.push_back({source, HRESULT_FROM_WIN32(ERROR_INVALID_PARAMETER)});
+            } else {
+                validSources.push_back(source);
+            }
+        }
+        if (validSources.empty()) {
+            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0,
+                       static_cast<unsigned int>(rejectedSources.size()), 0, std::move(rejectedSources)});
+            return;
+        }
+        request.sources = std::move(validSources);
+    }
+    // Copy/Move always go through conflict planning — including undo-shaped
+    // requests that arrive with a pre-baked plan — so an occupied target is
+    // never silently overwritten under FOF_NOCONFIRMATION.
+    if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
         const auto plan = BuildTransferPlan(request.sources, request.destination,
-            [](const std::wstring& path) {
-                WIN32_FILE_ATTRIBUTE_DATA data{};
-                return GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) != FALSE;
-            },
+            [](const std::wstring& path) { return PathExistsWin32(path); },
             [this](const std::wstring& source, const std::wstring& destination) {
                 return RequestConflictDecision(source, destination);
             });
@@ -278,7 +366,7 @@ void FileOperations::Execute(const FileOperationRequest& input) {
             return;
         }
         const std::wstring sibling = ParentPath(request.sources.front()) + request.newName;
-        const DWORD attributes = GetFileAttributesW(sibling.c_str());
+        const DWORD attributes = GetFileAttributesW(ExtendedLengthPath(sibling).c_str());
         if (attributes != INVALID_FILE_ATTRIBUTES && _wcsicmp(sibling.c_str(), request.sources.front().c_str()) != 0) {
             PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 1, 0,
                        {{sibling, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)}}});
@@ -330,6 +418,15 @@ void FileOperations::Execute(const FileOperationRequest& input) {
     HRESULT submitResult = adviseResult;
     std::vector<FileOperationFailure> submissionFailures;
     Microsoft::WRL::ComPtr<IShellItem> destination = MakeItem(request.destination);
+    if (SUCCEEDED(submitResult) && !destination &&
+        (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move ||
+         request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile)) {
+        // An unparsable destination (e.g. an unsupported long path) must not
+        // reach the shell with a null target item.
+        submitResult = HRESULT_FROM_WIN32(ERROR_INVALID_NAME);
+        if (request.sources.empty()) submissionFailures.push_back({request.destination, submitResult});
+        else for (const auto& source : request.sources) submissionFailures.push_back({source, submitResult});
+    }
     if (SUCCEEDED(submitResult) && (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move || request.kind == FileOperationKind::Delete)) {
         for (size_t sourceIndex = 0; sourceIndex < request.sources.size(); ++sourceIndex) {
             const auto& sourcePath = request.sources[sourceIndex];
@@ -360,17 +457,40 @@ void FileOperations::Execute(const FileOperationRequest& input) {
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::CreateFile) {
         submitResult = operation->NewItem(destination.Get(), FILE_ATTRIBUTE_NORMAL, request.newName.c_str(), nullptr, nullptr);
     } else if (SUCCEEDED(submitResult) && request.kind == FileOperationKind::Restore) {
+        bool restoreCancelled = false;
         for (const auto& restore : request.restorePaths) {
             auto recycled = MakeItem(restore.shellItemId);
+            const std::wstring originalName = std::filesystem::path(restore.originalPath).filename().wstring();
             auto restoreFolder = MakeItem(std::filesystem::path(restore.originalPath).parent_path().wstring());
             if (!recycled || !restoreFolder) {
                 submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)});
                 continue;
             }
-            const std::wstring name = std::filesystem::path(restore.originalPath).filename().wstring();
+            // Restores go through the same conflict policy as ordinary
+            // moves: FOF_NOCONFIRMATION must never silently overwrite a
+            // file that appeared in the original location.
+            std::wstring name = originalName;
+            if (PathExistsWin32((std::filesystem::path(restore.originalPath).parent_path() / originalName).wstring())) {
+                const ConflictDecision decision = RequestConflictDecision(restore.originalPath, restore.originalPath);
+                if (decision.choice == ConflictChoice::Cancel) { restoreCancelled = true; break; }
+                if (decision.choice == ConflictChoice::Skip) {
+                    submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_CANCELLED)});
+                    continue;
+                }
+                if (decision.choice == ConflictChoice::KeepBoth) {
+                    name = GenerateKeepBothName(std::filesystem::path(restore.originalPath).parent_path().wstring(),
+                                                originalName,
+                                                [](const std::wstring& path) { return PathExistsWin32(path); });
+                    if (name.empty()) {
+                        submissionFailures.push_back({restore.originalPath, HRESULT_FROM_WIN32(ERROR_FILE_EXISTS)});
+                        continue;
+                    }
+                }
+            }
             const HRESULT itemResult = operation->MoveItem(recycled.Get(), restoreFolder.Get(), name.c_str(), nullptr);
             if (FAILED(itemResult)) submissionFailures.push_back({restore.originalPath, itemResult});
         }
+        if (restoreCancelled) submitResult = HRESULT_FROM_WIN32(ERROR_CANCELLED);
     }
     if (SUCCEEDED(submitResult)) submitResult = operation->PerformOperations();
     if (cookie != 0) operation->Unadvise(cookie);
@@ -386,9 +506,15 @@ void FileOperations::Execute(const FileOperationRequest& input) {
             for (const auto& source : request.sources) failures.push_back({source, submitResult});
         }
     }
-    const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size()));
+    failures.insert(failures.end(), rejectedSources.begin(), rejectedSources.end());
+    const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + rejectedSources.size()));
     const unsigned int completed = sink->Completed();
-    const unsigned int percent = total == 0 ? 0 : static_cast<unsigned int>((100ull * completed) / total);
+    // Live progress is byte-based; keep the terminal event consistent with
+    // it (full success = 100%) instead of recomputing from item counts.
+    const unsigned int percent =
+        (!cancelled && failures.empty() && completed >= request.sources.size())
+            ? 100u
+            : static_cast<unsigned int>((100ull * completed) / total);
     std::vector<std::wstring> affected = request.sources;
     if (!request.destination.empty()) affected.push_back(request.destination);
     FileOperationEvent completion{cancelled ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
@@ -404,7 +530,7 @@ void FileOperations::Execute(const FileOperationRequest& input) {
         // the requested item exists so inline rename never loses the new row.
         if (completion.failures.empty()) {
             const auto expectedPath = (std::filesystem::path(request.destination) / request.newName).wstring();
-            if (GetFileAttributesW(expectedPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            if (GetFileAttributesW(ExtendedLengthPath(expectedPath).c_str()) != INVALID_FILE_ATTRIBUTES) {
                 completion.createdPaths.clear();
                 completion.createdPaths.push_back(expectedPath);
             }

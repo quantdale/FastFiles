@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@ namespace {
 std::unique_ptr<ffui::FileOperationEvent> lastEvent;
 ffui::ConflictDecision conflictDecision{ffui::ConflictChoice::KeepBoth, true};
 int conflictQuestionCount = 0;
+int terminalEventCount = 0;
 ffui::FileOperations* cancelOnProgress = nullptr;
 
 LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -40,6 +42,7 @@ LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lPar
         }
         if (event->kind == ffui::FileOperationEventKind::Completed || event->kind == ffui::FileOperationEventKind::Cancelled) {
             lastEvent = std::move(event);
+            ++terminalEventCount;
         }
         return 0;
     }
@@ -166,15 +169,58 @@ int main() {
 
     WriteText(source / L"replace.txt", "incoming");
     WriteText(destination / L"replace.txt", "existing");
+    conflictQuestionCount = 0;
+    conflictDecision = {ffui::ConflictChoice::Replace, true};
     ffui::FileOperationRequest replace{};
     replace.kind = ffui::FileOperationKind::Move;
     replace.sources = {(source / L"replace.txt").wstring()};
     replace.destination = destination.wstring();
     replace.transferPlan = {{replace.sources.front(), {}, true}};
+    replace.recordHistory = false;
     event = Run(operations, std::move(replace));
-    Check(event->failures.empty() && ReadText(destination / L"replace.txt") == "incoming",
-          "Replace did not overwrite the destination");
+    Check(event->failures.empty() && conflictQuestionCount == 1 &&
+              ReadText(destination / L"replace.txt") == "incoming",
+          "pre-baked plan bypassed the conflict policy instead of overwriting via Replace");
     Check(!event->reversibleOperation, "overwrite was incorrectly recorded as undoable");
+
+    // Undo-shaped requests (pre-baked plan, recordHistory=false) must honor
+    // the conflict policy instead of silently overwriting an occupied target.
+    WriteText(source / L"undo-move.txt", "moved away");
+    event = Run(operations, {ffui::FileOperationKind::Move, {(source / L"undo-move.txt").wstring()},
+                             destination.wstring(), {}, true});
+    Check(event->reversibleOperation && event->reversibleOperation->kind == ffui::ReversibleOperationKind::Move,
+          "undo fixture move failed");
+    const auto undoPaths = event->reversibleOperation->paths;
+    WriteText(source / L"undo-move.txt", "created after the move");
+    conflictQuestionCount = 0;
+    conflictDecision = {ffui::ConflictChoice::KeepBoth, true};
+    ffui::FileOperationRequest undoMoveConflict{};
+    undoMoveConflict.kind = ffui::FileOperationKind::Move;
+    undoMoveConflict.sources = {undoPaths.front().resultingPath};
+    undoMoveConflict.destination = source.wstring();
+    undoMoveConflict.transferPlan = {{undoPaths.front().resultingPath,
+                                      std::filesystem::path(undoPaths.front().originalPath).filename().wstring(), false}};
+    undoMoveConflict.recordHistory = false;
+    event = Run(operations, std::move(undoMoveConflict));
+    Check(event->failures.empty() && conflictQuestionCount == 1 &&
+              ReadText(source / L"undo-move.txt") == "created after the move" &&
+              ReadText(source / L"undo-move (2).txt") == "moved away",
+          "undo move silently overwrote an occupied target instead of applying conflict policy");
+
+    // Self-target transfers must be rejected without prompting the user.
+    WriteText(source / L"self.txt", "self");
+    conflictQuestionCount = 0;
+    conflictDecision = {ffui::ConflictChoice::Replace, true};
+    event = Run(operations, {ffui::FileOperationKind::Copy, {(source / L"self.txt").wstring()}, source.wstring(), {}, true});
+    Check(event->failures.size() == 1 && event->failures.front().path == (source / L"self.txt").wstring() &&
+              conflictQuestionCount == 0 && ReadText(source / L"self.txt") == "self",
+          "copy onto itself was not rejected as a self-target transfer");
+    const auto nested = source / L"nested";
+    std::filesystem::create_directories(nested);
+    WriteText(nested / L"inner.txt", "inner");
+    event = Run(operations, {ffui::FileOperationKind::Copy, {source.wstring()}, nested.wstring(), {}, true});
+    Check(event->failures.size() == 1 && conflictQuestionCount == 0 && std::filesystem::exists(nested / L"inner.txt"),
+          "copy of a folder into its own subtree was not rejected");
 
     const auto duplicateSourceA = root / L"duplicate-source-a";
     const auto duplicateSourceB = root / L"duplicate-source-b";
@@ -298,9 +344,100 @@ int main() {
     Check(skipPlan && skipPlan->empty() && ReadText(destination / L"conflict-a.txt") == "existing-a",
           "Skip modified the existing destination");
 
+    // One cancellation must stop the running operation AND every queued
+    // sibling, not just the item currently executing.
+    {
+        const auto queuedSource = root / L"queued-source";
+        const auto queuedDestination = root / L"queued-destination";
+        std::filesystem::create_directories(queuedSource);
+        std::filesystem::create_directories(queuedDestination);
+        CreateSparseFile(queuedSource / L"big.bin", 2ull * 1024ull * 1024ull * 1024ull);
+        WriteText(queuedSource / L"small.txt", "queued");
+        ffui::FileOperationRequest big{};
+        big.kind = ffui::FileOperationKind::Copy;
+        big.destination = queuedDestination.wstring();
+        big.sources = {(queuedSource / L"big.bin").wstring()};
+        ffui::FileOperationRequest queuedSmall = big;
+        queuedSmall.sources = {(queuedSource / L"small.txt").wstring()};
+        operations.Enqueue(std::move(big));
+        operations.Enqueue(std::move(queuedSmall));
+        cancelOnProgress = &operations;
+        const int terminalBefore = terminalEventCount;
+        const ULONGLONG deadline = GetTickCount64() + 60000;
+        MSG message{};
+        while (terminalEventCount < terminalBefore + 2 && GetTickCount64() < deadline) {
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+            MsgWaitForMultipleObjects(0, nullptr, FALSE, 25, QS_ALLINPUT);
+        }
+        cancelOnProgress = nullptr;
+        Check(terminalEventCount >= terminalBefore + 2, "queued batch did not drain after cancellation");
+        Check(!std::filesystem::exists(queuedDestination / L"small.txt"),
+              "cancellation did not stop a queued-not-yet-started operation");
+    }
+
+    // Long paths (>260 chars) must still be seen by the existence preflight,
+    // so the conflict policy engages instead of the shell failing silently.
+    // std::filesystem cannot delete paths past MAX_PATH, so cleanup walks the
+    // tree with extended-length prefixes via Win32 directly.
+    std::function<void(const std::wstring&)> removeTree = [&removeTree](const std::wstring& dir) {
+        WIN32_FIND_DATAW data{};
+        HANDLE find = FindFirstFileW((dir + L"\\*").c_str(), &data);
+        if (find != INVALID_HANDLE_VALUE) {
+            do {
+                const std::wstring name = data.cFileName;
+                if (name == L"." || name == L"..") continue;
+                const std::wstring child = dir + L"\\" + name;
+                if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) removeTree(child);
+                else DeleteFileW(child.c_str());
+            } while (FindNextFileW(find, &data));
+            FindClose(find);
+        }
+        RemoveDirectoryW(dir.c_str());
+    };
+    std::wstring longPathFixture;
+    {
+        std::wstring deepDirectory = L"\\\\?\\" + root.wstring();
+        for (int index = 0; index < 10; ++index) {
+            deepDirectory += L"\\long-path-component-" + std::to_wstring(index);
+        }
+        longPathFixture = deepDirectory;
+        Check(std::filesystem::create_directories(deepDirectory), "long-path fixture directory not created");
+        const std::wstring deepFile = deepDirectory + L"\\self.txt";
+        HANDLE deepHandle = CreateFileW(deepFile.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                        FILE_ATTRIBUTE_NORMAL, nullptr);
+        Check(deepHandle != INVALID_HANDLE_VALUE, "long-path fixture file not created");
+        CloseHandle(deepHandle);
+        conflictQuestionCount = 0;
+        conflictDecision = {ffui::ConflictChoice::Skip, false};
+        ffui::FileOperationRequest longPathCopy{};
+        longPathCopy.kind = ffui::FileOperationKind::Copy;
+        longPathCopy.destination = deepDirectory.substr(4); // unprefixed form, past MAX_PATH
+        longPathCopy.sources = {(source / L"self.txt").wstring()};
+        event = Run(operations, std::move(longPathCopy));
+        Check(conflictQuestionCount == 1 && ReadText(source / L"self.txt") == "self",
+              "existence preflight missed an occupied destination past MAX_PATH");
+        // std::filesystem cannot delete paths past MAX_PATH; walk the tree
+        // with extended-length prefixes instead.
+        removeTree(longPathFixture);
+        Check(!std::filesystem::exists(longPathFixture.substr(4)), "long-path fixture cleanup failed");
+    }
+
+    // Stop() latches the cancel flag; a fresh Start() must clear it so later
+    // operations are not instantly cancelled.
+    operations.Stop();
+    Check(operations.Start(window), "worker did not restart after Stop");
+    event = Run(operations, {ffui::FileOperationKind::CreateFolder, {}, root.wstring(), L"after-restart", true});
+    Check(event->kind == ffui::FileOperationEventKind::Completed && event->failures.empty() &&
+              std::filesystem::is_directory(root / L"after-restart"),
+          "operation was cancelled after Start following Stop");
+
     operations.Stop();
     DestroyWindow(window);
     CoUninitialize();
+    removeTree(L"\\\\?\\" + root.wstring());
     std::error_code cleanupError;
     std::filesystem::remove_all(root, cleanupError);
     Check(!cleanupError, "temporary test directory cleanup failed");
