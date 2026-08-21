@@ -1,4 +1,5 @@
 #include "ColumnView.h"
+#include "UiaGeometry.h"
 
 #include <cstdio>
 
@@ -101,6 +102,61 @@ int main() {
     const auto extendedUncChain = ffui::BuildNavigationPathChain(L"\\\\?\\UNC\\server\\share\\folder");
     Check(extendedUncChain == std::vector<std::wstring>{L"\\\\?\\UNC\\server\\share", L"\\\\?\\UNC\\server\\share\\folder"},
           "extended UNC navigation keeps the server/share root visible");
+
+    // selection-model-interactions click fix: dual-pane pane-1 round trip.
+    // Mirrors the live failing geometry: viewport 1000 DIPs wide (pane width
+    // 500), a deep address-bar navigation leaves the terminal column (index 3)
+    // past the pane's right edge, the UIA Scroll pattern scrolls pane 1 to the
+    // max offset, then a native click lands at the row's reported center. The
+    // provider rect (UiaItemRectDip) and the hit-test (ComputeColumnHitTest)
+    // must agree on the SAME horizontal offset or the click misses.
+    {
+        const float paneWidth = width / 2.0f;
+        const int terminalColumn = 3;
+        const int targetRow = 5; // selF.txt
+        const float maxScroll =
+            ffui::UiaMaxHorizontalScrollDip(terminalColumn + 1, paneWidth);
+        Check(maxScroll > 0.0f,
+              "the mirrored fixture geometry actually requires horizontal scroll");
+        const D2D1_RECT_F syncedRect = ffui::UiaItemRectDip(
+            terminalColumn, targetRow, paneWidth, paneWidth, maxScroll, 0.0f,
+            false, 600.0f);
+        const D2D1_POINT_2F syncedCenter{
+            (syncedRect.left + syncedRect.right) / 2.0f,
+            (syncedRect.top + syncedRect.bottom) / 2.0f};
+        const auto syncedHit = ComputeColumnHitTest(
+            syncedCenter, maxScroll, 0.0f, 0.0f, width, true, 1);
+        Check(syncedHit.columnIndex == terminalColumn && syncedHit.itemIndex == targetRow,
+              "a pane-1 row center computed with the scrolled offset hit-tests back to that row");
+
+        // The defect: the Scroll-pattern write moved scrollOffset2_ (what
+        // render/hit-test use) but not the cached UIA geometry the provider
+        // reports from, so the click landed at the pre-scroll position.
+        const D2D1_RECT_F staleRect = ffui::UiaItemRectDip(
+            terminalColumn, targetRow, paneWidth, paneWidth, 0.0f, 0.0f,
+            false, 600.0f);
+        const D2D1_POINT_2F staleCenter{
+            (staleRect.left + staleRect.right) / 2.0f,
+            (staleRect.top + staleRect.bottom) / 2.0f};
+        const auto staleHit = ComputeColumnHitTest(
+            staleCenter, maxScroll, 0.0f, 0.0f, width, true, 1);
+        Check(staleHit.columnIndex != terminalColumn || staleHit.itemIndex != targetRow,
+              "a center computed from the stale pre-scroll geometry misses the row (the old defect)");
+
+        // Banner inset states must stay part of the shared computation for
+        // pane 1 too: a Loading terminal column shifts rows by the inset in
+        // both the provider rect and the hit-test.
+        const float inset = ffui::ColumnContentTopInset(ffui::SnapshotViewState::Loading);
+        const D2D1_RECT_F bannerRect = ffui::UiaItemRectDip(
+            terminalColumn, targetRow, paneWidth, paneWidth, maxScroll, 0.0f,
+            true, 600.0f);
+        const auto bannerHit = ComputeColumnHitTest(
+            D2D1::Point2F((bannerRect.left + bannerRect.right) / 2.0f,
+                          (bannerRect.top + bannerRect.bottom) / 2.0f),
+            maxScroll, 0.0f, inset, width, true, 1);
+        Check(bannerHit.columnIndex == terminalColumn && bannerHit.itemIndex == targetRow,
+              "pane-1 centers stay consistent while the status banner is visible");
+    }
 
     return failures == 0 ? 0 : 1;
 }

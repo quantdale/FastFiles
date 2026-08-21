@@ -857,6 +857,11 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         HandleAnimationTimer(true);
         RequestRepaint();
     });
+    // selection-model-interactions click fix: pane-1 UIA Scroll-pattern writes
+    // mutate ColumnView state directly (no animation bridge), so ColumnView
+    // needs this repaint bridge to keep the painted frame, the pushed UIA
+    // geometry, and the hit-test offsets in the same generation.
+    columnView_.SetRepaintCallback([this] { RequestRepaint(); });
     if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
         columnView_.NavigateToPath(initialLocation.path);
     }

@@ -2407,6 +2407,14 @@ void ColumnView::UiaSetHorizontalScroll(int pane, float offsetDip) {
         clamped = std::clamp(offsetDip, 0.0f, maxScroll);
         if (pane == 1) {
             scrollOffset2_ = clamped;
+            // selection-model-interactions click fix: the UIA providers derive
+            // pane-1 BoundingRectangles from uiaGeometry_.hScroll1Dip, which is
+            // otherwise only re-pushed by WindowShell::Render. A direct
+            // Scroll-pattern write must move the cached geometry together with
+            // scrollOffset2_, or the reported row rects (and native clicks at
+            // their centers) stay at the pre-scroll position while the render
+            // and hit-test paths already use the new offset.
+            uiaGeometry_.hScroll1Dip = clamped;
         }
     }
     // Pane 0's horizontal offset is shell-animated (Shift+wheel path); the
@@ -2414,27 +2422,42 @@ void ColumnView::UiaSetHorizontalScroll(int pane, float offsetDip) {
     if (pane == 0 && uiaHorizontalScrollWriter_) {
         uiaHorizontalScrollWriter_(clamped);
     }
+    // Pane 1 has no animation bridge: request a frame directly so the painted
+    // rows catch up with the offset the providers now report.
+    if (pane == 1 && repaint_) {
+        repaint_();
+    }
 }
 
 void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
-    std::lock_guard<std::mutex> lock(columnsMutex_);
-    if (pane != 0 && pane != 1) return;
-    auto& columns = pane == 0 ? columns_ : columns2_;
-    if (col < 0 || col >= static_cast<int>(columns.size())) return;
-    Column& column = columns[static_cast<size_t>(col)];
-    if (row < 0 || row >= static_cast<int>(column.items.size())) return;
-    // Same clamp math as EnsureFocusedItemVisible, without touching focus
-    // (including the same status-banner inset).
-    const float visibleHeight =
-        (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
-    const float top = static_cast<float>(row) * kRowHeight;
-    const float bottom = top + kRowHeight;
-    float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
-    if (top < offset) offset = top;
-    else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
-    const float maximum = (std::max)(0.0f,
-        static_cast<float>(column.items.size()) * kRowHeight - visibleHeight);
-    offset = std::clamp(offset, 0.0f, maximum);
+    bool scrolled = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        if (pane != 0 && pane != 1) return;
+        auto& columns = pane == 0 ? columns_ : columns2_;
+        if (col < 0 || col >= static_cast<int>(columns.size())) return;
+        Column& column = columns[static_cast<size_t>(col)];
+        if (row < 0 || row >= static_cast<int>(column.items.size())) return;
+        // Same clamp math as EnsureFocusedItemVisible, without touching focus
+        // (including the same status-banner inset).
+        const float visibleHeight =
+            (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
+        const float top = static_cast<float>(row) * kRowHeight;
+        const float bottom = top + kRowHeight;
+        float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+        if (top < offset) offset = top;
+        else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
+        const float maximum = (std::max)(0.0f,
+            static_cast<float>(column.items.size()) * kRowHeight - visibleHeight);
+        offset = std::clamp(offset, 0.0f, maximum);
+        scrolled = true;
+    }
+    // Providers query the vertical offset live (UiaVerticalScroll), but the
+    // painted rows lag until the next frame; request one post-lock so a click
+    // at the freshly reported bounds lands on the moved row.
+    if (scrolled && repaint_) {
+        repaint_();
+    }
 }
 
 void ColumnView::UiaActivateHomeItem(int pane, int globalIndex, bool openInNewTab) {
