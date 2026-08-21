@@ -27,6 +27,7 @@ Fixed, non-interactive verb set:
 | `list` | Enumerate discovered capabilities (incl. rejected ones) | no |
 | `doctor` | Probe environment readiness; never provisions anything | no |
 | `release-readiness` | Validate the Release artifact set, signatures, pins, clean-host preflight, and privileged-path prerequisites | report: no; privileged: only after all gates are ready |
+| `release-candidate` | Build and package a labelled unsigned-validation candidate, or validate an externally signed production candidate with checksums/provenance | no; writes ignored `out/` artifacts |
 
 Exit codes: `0` PASS, `1` FAIL, `2` SKIPPED, `3` HARNESS ERROR, `10` NOT-YET-IMPLEMENTED
 (reserved; no verb currently scaffolds).
@@ -135,6 +136,7 @@ pwsh ./verify/verify.ps1 gate -Change <change-id>
 pwsh ./verify/verify.ps1 release-readiness -Mode report
 pwsh ./verify/verify.ps1 release-readiness -Mode gate
 pwsh ./verify/verify.ps1 release-readiness -Mode privileged -Elevate
+pwsh ./verify/verify.ps1 release-candidate -ReleaseMode unsigned-validation
 ```
 
 `release-readiness` returns `2` (`BLOCKED_EXTERNAL`) when the current artifact set
@@ -152,6 +154,16 @@ The repository `VERSION` file is the single product-version source. CMake
 embeds it in VERSIONINFO resources and the generated installer header; release
 tooling validates product/file versions, product/company names, descriptions,
 and original filenames on the final executables before a kit can be used.
+
+`release-candidate` is the deterministic release handoff. It requires a clean
+checkout, runs the build gate unless `-SkipVerification` is explicitly supplied,
+and emits a versioned archive, machine-readable candidate manifest, provenance,
+SHA-256 list, release notes, and dependency inventory under ignored `out/`
+storage. `-ReleaseMode unsigned-validation` uses the explicit `release-test`
+configuration and is never a production artifact. `-ReleaseMode production`
+requires externally signed x64 artifacts, matching non-placeholder pins, an
+expected signer thumbprint, and a detached package-manifest signature; it fails
+closed when any prerequisite is absent.
 
 The CMake `release` preset is the production-signed configuration and fails closed
 without authorized pins. CI and the default `verify.ps1 build` use the explicitly

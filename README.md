@@ -71,7 +71,7 @@ Public headers live in each component's `include/ff*` directory; implementation 
 ## Prerequisites
 
 - Windows 10 1809+ or Windows 11, **x64** (the project is Windows-only by design; CMake `FATAL_ERROR`s on any other platform).
-- Visual Studio 2022 (or Build Tools) with the **MSVC** toolchain and CMake >= 3.24.
+- Visual Studio 2022 (or Build Tools) with the **MSVC** toolchain and CMake >= 3.25.
 - A Visual Studio developer environment with CMake and Ninja available on
   `PATH` (the repository verification harness discovers this dynamically).
 

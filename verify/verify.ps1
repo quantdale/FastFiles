@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Exposes the fixed verb set (build, install, run, diagnose, report, repair, gate,
-    release-readiness).
+    release-readiness, release-candidate).
     Every verb is non-interactive and returns one of the documented exit codes below.
     See verify/README.md for the full extensibility/usage guide.
 
@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor', 'release-readiness')]
+    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor', 'release-readiness', 'release-candidate')]
     [string] $Verb,
 
     [string] $Change = 'ad-hoc',
@@ -45,8 +45,14 @@ param(
     [ValidateSet('report', 'gate', 'privileged')]
     [string] $Mode = 'report',
     [string] $ArtifactRoot,
+    [string] $BuildRoot,
     [string] $PackageDirectory,
     [string] $OutputDirectory,
+    [ValidateSet('unsigned-validation', 'production')]
+    [string] $ReleaseMode = 'unsigned-validation',
+    [string] $ManifestSignaturePath,
+    [switch] $Force,
+    [switch] $SkipVerification,
     [string] $ExpectedSignerThumbprint
 )
 
@@ -87,9 +93,14 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     if ($RunTimestamp) { $childArgs += @('-RunTimestamp', $RunTimestamp) }
     if ($Format -ne 'human') { $childArgs += @('-Format', $Format) }
     if ($Mode -ne 'report') { $childArgs += @('-Mode', $Mode) }
-    if ($ArtifactRoot) { $childArgs += @('-ArtifactRoot', $ArtifactRoot) }
-    if ($PackageDirectory) { $childArgs += @('-PackageDirectory', $PackageDirectory) }
-    if ($OutputDirectory) { $childArgs += @('-OutputDirectory', $OutputDirectory) }
+        if ($ArtifactRoot) { $childArgs += @('-ArtifactRoot', $ArtifactRoot) }
+        if ($BuildRoot) { $childArgs += @('-BuildRoot', $BuildRoot) }
+        if ($PackageDirectory) { $childArgs += @('-PackageDirectory', $PackageDirectory) }
+        if ($OutputDirectory) { $childArgs += @('-OutputDirectory', $OutputDirectory) }
+        if ($ReleaseMode -ne 'unsigned-validation') { $childArgs += @('-ReleaseMode', $ReleaseMode) }
+        if ($ManifestSignaturePath) { $childArgs += @('-ManifestSignaturePath', $ManifestSignaturePath) }
+        if ($Force) { $childArgs += '-Force' }
+        if ($SkipVerification) { $childArgs += '-SkipVerification' }
     if ($ExpectedSignerThumbprint) { $childArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
     $quotedArgs = ($childArgs | ForEach-Object { ConvertTo-ProcessArgument -Value $_ }) -join ' '
     $child = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList $quotedArgs -Verb RunAs -Wait -PassThru
@@ -254,6 +265,18 @@ function Write-RunReports {
 }
 
 switch ($Verb) {
+    'release-candidate' {
+        $candidateScript = Join-Path $VerifyRoot 'release\Build-ReleaseCandidate.ps1'
+        $candidateArgs = @('-NoProfile', '-File', $candidateScript, '-Mode', $ReleaseMode, '-OutputFormat', $Format)
+        if ($BuildRoot) { $candidateArgs += @('-BuildRoot', $BuildRoot) }
+        if ($OutputDirectory) { $candidateArgs += @('-OutputDirectory', $OutputDirectory) }
+        if ($ManifestSignaturePath) { $candidateArgs += @('-ManifestSignaturePath', $ManifestSignaturePath) }
+        if ($ExpectedSignerThumbprint) { $candidateArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
+        if ($Force) { $candidateArgs += '-Force' }
+        if ($SkipVerification) { $candidateArgs += '-SkipVerification' }
+        & (Get-Command pwsh).Source @candidateArgs
+        exit $LASTEXITCODE
+    }
     'release-readiness' {
         $releaseScript = Join-Path $VerifyRoot 'release\ReleaseReadiness.ps1'
         $releaseArgs = @('-NoProfile', '-File', $releaseScript, '-Mode', $Mode, '-OutputFormat', $Format)
