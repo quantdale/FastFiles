@@ -18,6 +18,11 @@ using FileDropHandler = std::function<void(std::vector<std::wstring>, DWORD, std
 // point (screen POINTL) so pane-to-pane drags land in the DROPPED-ON pane,
 // not the active pane (whose activation the drag's own mouse-down changed).
 using DropDestinationProvider = std::function<std::wstring(POINTL)>;
+// ui-v3 drag/drop: presentation-only feedback hook invoked while a drag is
+// over the window (active=true with the last known point/effect) and once
+// when it leaves or drops (active=false). Never consulted for operation
+// decisions; clearing state here must not outlive the drag.
+using DropFeedbackSink = std::function<void(bool active, POINTL point, DWORD effect)>;
 
 // stabilize-live-uia-e2e: the pane a drop point falls into, for dual-pane
 // layouts (content split by half width). Points outside the content region
@@ -44,5 +49,10 @@ DWORD BeginFileDrag(const std::vector<std::wstring>& paths);
 DWORD DetermineDropEffect(DWORD keyState, DWORD allowedEffects, const std::vector<std::wstring>& sourcePaths,
                           const std::wstring& destination);
 HRESULT CreateFileDropTarget(DropDestinationProvider destination, FileDropHandler handler, IDropTarget** target);
+// ui-v3 drag/drop: overload with the presentation-only feedback sink. The
+// three-argument form above forwards with an empty sink so existing callers
+// and tests stay source-compatible.
+HRESULT CreateFileDropTarget(DropDestinationProvider destination, FileDropHandler handler,
+                             DropFeedbackSink feedback, IDropTarget** target);
 
 } // namespace ffui

@@ -163,8 +163,8 @@ private:
 
 class FileDropTarget final : public IDropTarget {
 public:
-    FileDropTarget(DropDestinationProvider destination, FileDropHandler handler)
-        : destination_(std::move(destination)), handler_(std::move(handler)) {}
+    FileDropTarget(DropDestinationProvider destination, FileDropHandler handler, DropFeedbackSink feedback)
+        : destination_(std::move(destination)), handler_(std::move(handler)), feedback_(std::move(feedback)) {}
     IFACEMETHODIMP QueryInterface(REFIID iid, void** value) override {
         if (value == nullptr) return E_POINTER;
         if (iid == IID_IUnknown || iid == IID_IDropTarget) {
@@ -185,15 +185,18 @@ public:
         if (effect == nullptr) return E_POINTER;
         paths_ = ExtractPaths(object);
         *effect = DetermineDropEffect(keys, *effect, paths_, destination_(point));
+        NotifyFeedback(true, point, *effect);
         return S_OK;
     }
     IFACEMETHODIMP DragOver(DWORD keys, POINTL point, DWORD* effect) override {
         if (effect == nullptr) return E_POINTER;
         *effect = DetermineDropEffect(keys, *effect, paths_, destination_(point));
+        NotifyFeedback(true, point, *effect);
         return S_OK;
     }
     IFACEMETHODIMP DragLeave() override {
         paths_.clear();
+        NotifyFeedback(false, POINTL{0, 0}, DROPEFFECT_NONE);
         return S_OK;
     }
     IFACEMETHODIMP Drop(IDataObject* object, DWORD keys, POINTL point, DWORD* effect) override {
@@ -206,14 +209,21 @@ public:
         const std::wstring destination = destination_(point);
         const DWORD chosen = DetermineDropEffect(keys, *effect, paths, destination);
         *effect = chosen;
+        NotifyFeedback(false, point, chosen);
         if (chosen != DROPEFFECT_NONE && !paths.empty()) handler_(std::move(paths), chosen, destination);
         paths_.clear();
         return S_OK;
     }
 private:
+    void NotifyFeedback(bool active, POINTL point, DWORD effect) {
+        if (feedback_) {
+            feedback_(active, point, effect);
+        }
+    }
     std::atomic<ULONG> references_{1};
     DropDestinationProvider destination_;
     FileDropHandler handler_;
+    DropFeedbackSink feedback_;
     std::vector<std::wstring> paths_;
 };
 
@@ -253,8 +263,13 @@ DWORD DetermineDropEffect(DWORD keyState, DWORD allowedEffects, const std::vecto
 }
 
 HRESULT CreateFileDropTarget(DropDestinationProvider destination, FileDropHandler handler, IDropTarget** target) {
+    return CreateFileDropTarget(std::move(destination), std::move(handler), DropFeedbackSink{}, target);
+}
+
+HRESULT CreateFileDropTarget(DropDestinationProvider destination, FileDropHandler handler,
+                             DropFeedbackSink feedback, IDropTarget** target) {
     if (target == nullptr) return E_POINTER;
-    *target = new FileDropTarget(std::move(destination), std::move(handler));
+    *target = new FileDropTarget(std::move(destination), std::move(handler), std::move(feedback));
     return S_OK;
 }
 

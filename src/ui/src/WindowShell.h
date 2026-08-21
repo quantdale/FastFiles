@@ -151,6 +151,14 @@ private:
     // as flat top-left text or empty boxes.
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsCaptionFormat_;
     ffui::UiBrushCache detailsStateBrushes_;
+    // ui-v3 drag/drop: presentation-only drop-destination emphasis state,
+    // driven by the IDropTarget feedback sink and cleared on leave/drop.
+    bool dropFeedbackActive_ = false;
+    bool dropFeedbackValid_ = false;
+    float dropFeedbackXDip = 0.0f;
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dropStrokeBrush_;
+    void SetDropFeedback(bool active, POINTL point);
+    void DrawDropTargetFeedback(ID2D1DeviceContext* context, const ffui::MainShellLayout& shellLayout);
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> progressBrush_;
     bool darkTheme_ = false;
