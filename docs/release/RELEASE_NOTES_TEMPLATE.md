@@ -1,6 +1,6 @@
 # FastFiles [VERSION]
 
-Classification: `[CLASSIFICATION]`  
+Classification: `[CLASSIFICATION]`
 Source commit: `[COMMIT]`
 
 ## Highlights

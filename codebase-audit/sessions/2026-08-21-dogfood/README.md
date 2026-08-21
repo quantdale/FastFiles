@@ -1,9 +1,9 @@
 # FastFiles real-user dogfooding campaign ledger
 
-Date started: 2026-08-21  
-Repository: `quantdale/FastFiles`  
-Baseline: `main` / `4ded78a02efe4d0bcfa67b1c32836227bf61b7c6`  
-Hosted baseline CI: run `32468067892` (`CI`, current baseline SHA), reported success by the release audit worker; re-query before final handoff.  
+Date started: 2026-08-21
+Repository: `quantdale/FastFiles`
+Baseline: `main` / `4ded78a02efe4d0bcfa67b1c32836227bf61b7c6`
+Hosted baseline CI: run `32468067892` (`CI`, current baseline SHA), reported success by the release audit worker; re-query before final handoff.
 Campaign OpenSpec: `openspec/changes/real-user-dogfooding-release-engineering/`
 
 This ledger is a new campaign record. The 2026-08-20 production-readiness audit remains historical evidence and is not a backlog here. An old item is reopened only when a current run produces a new reproducible regression.
