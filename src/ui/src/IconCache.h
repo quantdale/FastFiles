@@ -93,6 +93,7 @@ private:
     static constexpr std::size_t kMaxCachedBitmaps = 512;
 
     void WorkerMain();
+    void WorkerLoop();
     static HICON ResolveIcon(const std::wstring& key);
     HRESULT EnsureWicFactory();
     bool ConvertPendingIcon(ID2D1DeviceContext* context, const std::wstring& key, HICON icon);

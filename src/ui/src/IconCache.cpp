@@ -47,6 +47,20 @@ void IconCache::Prefetch(const std::wstring& key) {
 }
 
 void IconCache::WorkerMain() {
+    // Shell icon resolution can reach COM-based IExtractIcon handlers inside
+    // SHGetFileInfoW; this raw std::thread has no apartment of its own, so
+    // initialize COM here (the UI thread's OleInitialize does not carry over)
+    // and uninitialize on the way out. If initialization fails the worker
+    // still runs -- SHGFI_USEFILEATTRIBUTES resolution mostly works without
+    // COM -- but COM-based icon handlers may then fall back to generic icons.
+    const bool comInitialized = SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+    WorkerLoop();
+    if (comInitialized) {
+        CoUninitialize();
+    }
+}
+
+void IconCache::WorkerLoop() {
     for (;;) {
         std::wstring key;
         {

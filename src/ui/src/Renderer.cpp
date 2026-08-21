@@ -18,6 +18,25 @@ bool Renderer::Initialize(HWND hwnd) {
     width_ = static_cast<UINT>(clientRect.right - clientRect.left);
     height_ = static_cast<UINT>(clientRect.bottom - clientRect.top);
 
+    return CreateDeviceChain();
+}
+
+// Builds the full D3D11/DXGI/D2D/DirectComposition chain from scratch. Used
+// both by Initialize() and by device-loss recovery (RecreateDeviceChain), so
+// a TDR or adapter change rebuilds everything the init path builds.
+bool Renderer::CreateDeviceChain() {
+    // Release the previous chain first: the DirectComposition target is bound
+    // to hwnd_, and a new target for the same HWND requires the old one gone.
+    d2dContext_.Reset();
+    d2dDevice_.Reset();
+    dxgiDevice_.Reset();
+    d3dDevice_.Reset();
+    swapChain_.Reset();
+    dcompVisual_.Reset();
+    dcompTarget_.Reset();
+    dcompDevice_.Reset();
+    dxgiFactory_.Reset();
+
     UINT deviceFlags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     if (FAILED(D3D11CreateDevice(
             nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, deviceFlags, nullptr, 0,
@@ -28,9 +47,13 @@ bool Renderer::Initialize(HWND hwnd) {
         return false;
     }
 
-    D2D1_FACTORY_OPTIONS factoryOptions{};
-    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factoryOptions, d2dFactory_.GetAddressOf()))) {
-        return false;
+    // The D2D factory is device-independent and survives device loss; only
+    // the factory-created device/context below must be rebuilt.
+    if (d2dFactory_ == nullptr) {
+        D2D1_FACTORY_OPTIONS factoryOptions{};
+        if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, factoryOptions, d2dFactory_.GetAddressOf()))) {
+            return false;
+        }
     }
     if (FAILED(d2dFactory_->CreateDevice(dxgiDevice_.Get(), &d2dDevice_))) {
         return false;
@@ -39,9 +62,12 @@ bool Renderer::Initialize(HWND hwnd) {
         return false;
     }
     ApplyDpi();
-    if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                                    reinterpret_cast<IUnknown**>(dwriteFactory_.GetAddressOf())))) {
-        return false;
+    // DirectWrite factories are device-independent too; create once.
+    if (dwriteFactory_ == nullptr) {
+        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                        reinterpret_cast<IUnknown**>(dwriteFactory_.GetAddressOf())))) {
+            return false;
+        }
     }
 
     ComPtr<IDXGIAdapter> adapter;
@@ -115,8 +141,11 @@ void Renderer::Resize(UINT width, UINT height) {
     if (FAILED(hrResize)) {
         // The swap chain is broken (device removed/reset or render target
         // recreated); rebuild it from scratch in the new size rather than
-        // presenting stale buffers.
-        RecreateSwapChainAndTarget();
+        // presenting stale buffers. A failure here usually means the device
+        // itself is gone -- fall back to the full recreation ladder.
+        if (!RecreateSwapChainAndTarget()) {
+            RecreateDeviceChain();
+        }
         return;
     }
     ApplyDpi();
@@ -188,20 +217,46 @@ ID2D1DeviceContext* Renderer::BeginFrame() {
 }
 
 void Renderer::EndFrame() {
-    // Device-loss hardening: a failed EndDraw (e.g. D2DERR_RECREATE_TARGET
-    // after a mode change) or a failed Present (target recreated, or the
-    // device was removed/reset) invalidates the swap chain. Rebuild it and
-    // the target bitmap so the next frame can render again. When EndDraw
-    // failed, skip Present -- there is nothing ready to show, and Present on
-    // a stale/broken chain would only produce a second spurious failure.
+    // Device-loss hardening: a failed EndDraw or a failed Present invalidates
+    // the render path. D2DERR_RECREATE_TARGET (and DXGI device-removed
+    // errors) mean the *D2D device* is lost -- a new swap chain against the
+    // dead context would keep failing, so run the full recreation ladder
+    // (d3dDevice -> dxgi -> d2d device/context -> swap chain -> target).
+    // Other EndDraw failures are treated as target-level loss first, with the
+    // full ladder as fallback. When EndDraw failed, skip Present -- there is
+    // nothing ready to show, and Present on a stale/broken chain would only
+    // produce a second spurious failure.
     const HRESULT hrEnd = d2dContext_->EndDraw();
+    if (hrEnd == D2DERR_RECREATE_TARGET || hrEnd == DXGI_ERROR_DEVICE_REMOVED || hrEnd == DXGI_ERROR_DEVICE_RESET) {
+        RecreateDeviceChain();
+        return;
+    }
     if (FAILED(hrEnd)) {
-        RecreateSwapChainAndTarget();
+        if (!RecreateSwapChainAndTarget()) {
+            RecreateDeviceChain();
+        }
         return;
     }
     if (FAILED(swapChain_->Present(1, 0))) {
-        RecreateSwapChainAndTarget();
+        if (!RecreateSwapChainAndTarget()) {
+            RecreateDeviceChain();
+        }
     }
+}
+
+// Full recovery from D2D/D3D device removal: rebuild every device-bound
+// object exactly as Initialize() does. Device-independent resources (the D2D
+// and DirectWrite factories) survive. On success, deviceRecreated_ fans out
+// to consumers (WindowShell's ConsumeDeviceRecreated polling) so brushes and
+// other device-dependent resources are recreated against the new context.
+bool Renderer::RecreateDeviceChain() {
+    if (!CreateDeviceChain()) {
+        // Leave the broken state visible rather than pretending recovery
+        // succeeded; the next frame will fail again and retry.
+        return false;
+    }
+    deviceRecreated_ = true;
+    return true;
 }
 
 bool Renderer::ConsumeDeviceRecreated() {

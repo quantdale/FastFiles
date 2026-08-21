@@ -27,18 +27,22 @@ public:
     ID2D1DeviceContext* BeginFrame();
     void EndFrame();
 
-    // Device-loss hardening: returns true exactly once if the swap chain and
-    // render target were recreated since the last call (EndDraw/Present
-    // failure, or a failed ResizeBuffers). WindowShell calls this right after
-    // EndFrame() to fan out dirty marks so the next frame repaints everything.
+    // Device-loss hardening: returns true exactly once if the render path was
+    // recreated since the last call (EndDraw/Present failure, or a failed
+    // ResizeBuffers) -- either the swap chain + target bitmap, or the full
+    // D3D/D2D device chain after real device removal. WindowShell calls this
+    // right after EndFrame() to fan out dirty marks so the next frame
+    // repaints everything.
     bool ConsumeDeviceRecreated();
 
     ID2D1Factory1* D2DFactory() const noexcept { return d2dFactory_.Get(); }
     IDWriteFactory* DWriteFactory() const noexcept { return dwriteFactory_.Get(); }
 
 private:
+    bool CreateDeviceChain();
     bool CreateTargetBitmap();
     bool RecreateSwapChainAndTarget();
+    bool RecreateDeviceChain();
 
     Microsoft::WRL::ComPtr<ID3D11Device> d3dDevice_;
     Microsoft::WRL::ComPtr<IDXGIDevice> dxgiDevice_;
