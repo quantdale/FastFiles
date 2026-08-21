@@ -55,8 +55,27 @@ enum class PreviewKind {
     Image,
 };
 
+// ui-v3 preview: deliberate pane states (docs/ui-improvement/03 §7). A preview
+// that is not Ready must never render as a large empty box — the shell renders
+// each state as a centered title + one-line explanation via
+// ResolvePreviewStatePresentation below. The states are produced by the model
+// (providers/registry) wherever the cause is knowable; Disabled and Loading are
+// shell-side conditions resolved through the same presentation seam.
+enum class PreviewState {
+    Ready,            // content available (kind != None)
+    Unsupported,      // no provider matched the item / data undecodable
+    TooLarge,         // item exceeds the preview dimension or byte budget
+    PermissionDenied, // access to the item was denied
+    Unavailable,      // missing, moved, network-unreachable, or locked
+    Loading,          // a request is in flight (shell-resolved)
+    Disabled,         // previews turned off in settings (shell-resolved)
+};
+
 struct PreviewResult {
     PreviewKind kind = PreviewKind::None;
+    // ui-v3 preview: meaningful whenever kind == None; providers set the most
+    // specific failure they can identify instead of returning bare no-content.
+    PreviewState state = PreviewState::Unsupported;
     std::wstring text;
     std::vector<uint8_t> pixels;
     uint32_t width = 0;
@@ -82,6 +101,37 @@ private:
 
 std::unique_ptr<IPreviewProvider> CreateImagePreviewProvider();
 std::unique_ptr<IPreviewProvider> CreateTextPreviewProvider();
+
+// ui-v3 preview: headless presentation seam for the deliberate states. The
+// Direct2D details pane feeds title/message straight into the shared state
+// panel (DrawUiStatePanel) so every non-Ready preview is a centered
+// title + one-line explanation, never an empty box. Static literals only —
+// no allocation per paint. Ready returns null strings (content is rendered).
+struct PreviewStatePresentation {
+    const wchar_t* title;
+    const wchar_t* message;
+};
+
+inline PreviewStatePresentation ResolvePreviewStatePresentation(PreviewState state) {
+    switch (state) {
+        case PreviewState::Loading:
+            return {L"Loading preview…", L"Reading the selected item."};
+        case PreviewState::TooLarge:
+            return {L"Preview too large", L"This item exceeds the configured preview size limit."};
+        case PreviewState::PermissionDenied:
+            return {L"Cannot open this item", L"Access to this item was denied."};
+        case PreviewState::Unavailable:
+            return {L"Item unavailable",
+                    L"The file may have been moved, deleted, or locked by another app."};
+        case PreviewState::Disabled:
+            return {L"Preview disabled", L"Enable previews in settings to see them here."};
+        case PreviewState::Unsupported:
+            return {L"No preview available", L"FastFiles cannot display a preview of this file type."};
+        case PreviewState::Ready:
+            break;
+    }
+    return {nullptr, nullptr};
+}
 
 // Fits an image of `width` x `height` into `dest` with a uniform scale,
 // centered (letterbox/pillarbox). Never upscales beyond the destination and

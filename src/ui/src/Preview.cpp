@@ -33,6 +33,16 @@ bool HasExtension(const std::wstring& path, std::initializer_list<const wchar_t*
     });
 }
 
+// ui-v3 preview: map a Win32 open/read error onto a deliberate preview state.
+// Access denied is its own state so the pane can explain the difference
+// between "not allowed" and "not there anymore".
+PreviewState StateForFileError(DWORD error) {
+    if (error == ERROR_ACCESS_DENIED) {
+        return PreviewState::PermissionDenied;
+    }
+    return PreviewState::Unavailable;
+}
+
 class ImagePreviewProvider final : public IPreviewProvider {
 public:
     MatchResult GetPriority(const FileDescriptor& descriptor) const override {
@@ -49,9 +59,16 @@ public:
             return {};
         }
         Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-        if (FAILED(factory->CreateDecoderFromFilename(descriptor.path.c_str(), nullptr, GENERIC_READ,
-                                                       WICDecodeMetadataCacheOnDemand, &decoder))) {
-            return {};
+        const HRESULT openResult = factory->CreateDecoderFromFilename(descriptor.path.c_str(), nullptr, GENERIC_READ,
+                                                                      WICDecodeMetadataCacheOnDemand, &decoder);
+        if (FAILED(openResult)) {
+            // ui-v3 preview: denied opens are a distinct pane state; every
+            // other decode-open failure is unsupported/corrupt image data.
+            PreviewResult failure;
+            failure.state =
+                HRESULT_FACILITY(openResult) == FACILITY_WIN32 && HRESULT_CODE(openResult) == ERROR_ACCESS_DENIED
+                    ? PreviewState::PermissionDenied : PreviewState::Unsupported;
+            return failure;
         }
         Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
         if (FAILED(decoder->GetFrame(0, &frame))) {
@@ -59,7 +76,18 @@ public:
         }
         UINT width = 0;
         UINT height = 0;
-        if (FAILED(frame->GetSize(&width, &height)) || width == 0 || height == 0 || width > 16384 || height > 16384) {
+        if (FAILED(frame->GetSize(&width, &height))) {
+            width = 0;
+            height = 0;
+        }
+        if (width > 16384 || height > 16384) {
+            // ui-v3 preview: oversized frames get the deliberate too-large
+            // state instead of a bare no-content result.
+            PreviewResult tooLarge;
+            tooLarge.state = PreviewState::TooLarge;
+            return tooLarge;
+        }
+        if (width == 0 || height == 0) {
             return {};
         }
         Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
@@ -69,8 +97,13 @@ public:
             return {};
         }
         const uint64_t byteCount = static_cast<uint64_t>(width) * height * 4;
-        if (byteCount > 64ull * 1024 * 1024 || cancellation.IsCancelled()) {
+        if (cancellation.IsCancelled()) {
             return {};
+        }
+        if (byteCount > 64ull * 1024 * 1024) {
+            PreviewResult tooLarge;
+            tooLarge.state = PreviewState::TooLarge;
+            return tooLarge;
         }
         PreviewResult result;
         result.kind = PreviewKind::Image;
@@ -103,7 +136,11 @@ public:
         HANDLE file = CreateFileW(descriptor.path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                   nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (file == INVALID_HANDLE_VALUE) {
-            return {};
+            // ui-v3 preview: denied/missing/locked opens resolve to distinct
+            // deliberate states instead of an unexplained empty pane.
+            PreviewResult failure;
+            failure.state = StateForFileError(GetLastError());
+            return failure;
         }
         LARGE_INTEGER size{};
         const bool gotSize = GetFileSizeEx(file, &size) != FALSE;
@@ -114,6 +151,11 @@ public:
         const BOOL ok = ReadFile(file, bytes.data(), bytesToRead, &read, nullptr);
         CloseHandle(file);
         if (!ok || cancellation.IsCancelled()) {
+            if (!ok) {
+                PreviewResult failure;
+                failure.state = StateForFileError(GetLastError());
+                return failure;
+            }
             return {};
         }
         size_t offset = 0;
@@ -199,11 +241,20 @@ PreviewResult PreviewProviderRegistry::CreatePreview(const FileDescriptor& descr
                 if (result.kind != PreviewKind::None || cancellation.IsCancelled()) {
                     return result;
                 }
+                // ui-v3 preview: an identified failure (denied, too large,
+                // unavailable) is terminal — no other provider can do better
+                // with the same file. Only the generic unsupported fallthrough
+                // keeps trying remaining candidates.
+                if (result.state != PreviewState::Unsupported) {
+                    return result;
+                }
             } catch (...) {
                 // A malformed file must not take down the preview pane.
             }
         }
     }
+    // Nothing produced content and no provider identified a sharper cause:
+    // the deliberate pane state is "unsupported type".
     return {};
 }
 

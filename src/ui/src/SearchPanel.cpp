@@ -3,9 +3,9 @@
 #include "ffsearch/Path.h"
 #include "IconCache.h"
 #include "UITheme.h"
+#include "UiComponents.h" // ui-v3 search: shared chip/pill/focus GDI grammar
 #include "Util.h"
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D7: shared Size-on-Disk wording
-#include "ffui/SearchLayout.h"
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 
 #include <array>
@@ -20,6 +20,7 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <unordered_map>
+#include <windowsx.h>
 #include <wrl/client.h>
 #include <wrl/implements.h> // Microsoft::WRL::Make
 
@@ -42,9 +43,215 @@ constexpr UINT kHistorySaveCoalesceMilliseconds = 1500;
 constexpr UINT kSnapshotRefreshIntervalMs = 2000;
 constexpr size_t kMaxUiSearchResults = 10000;
 
-// Scale a DIP metric to physical pixels for Win32 control layout.
+// ui-v3 search: indeterminate progress cue while a query runs. The timer is
+// armed only for the duration of the search (UpdateStatus) and killed on
+// completion/hide — no idle animation ever runs.
+constexpr UINT_PTR kProgressTimer = 7109;
+constexpr UINT kProgressTimerMilliseconds = 33;
+constexpr float kProgressSweepSeconds = 1.4f;
+// ui-v3 search: query-first surface geometry (DIP). Collapsed rows reclaim
+// the old permanent-filter band for results; expanding adds one combo row.
+constexpr float kSurfaceInsetDip = 12.0f;
+constexpr float kQueryRowHeightDip = 26.0f;
+constexpr float kFilterBarHeightDip = 24.0f;
+constexpr float kFilterRowHeightDip = 26.0f;   // expanded scope/sort/direction row
+constexpr float kRowGapDip = 4.0f;             // UiMetrics::kSpaceXs
+constexpr float kListBottomMarginDip = 12.0f;
+constexpr float kCompactBreakWidthDip = 698.0f; // same break as the previous layout
+constexpr float kScopeWidthDip = 210.0f;
+constexpr float kSortWidthDip = 126.0f;
+constexpr float kDirectionWidthDip = 146.0f;
+constexpr float kClearHistoryWidthDip = 126.0f;
+constexpr float kComboDropdownHeightPx = 300.0f; // closed height is font-driven
+constexpr float kSpaceClearArrowMarginDip = 20.0f; // keeps the affordance clear of the combo arrow
+// ui-v3 search: two-line result rows (name primary, location/metadata caption).
+constexpr float kResultRowHeightDip = 38.0f;
+// ui-v3 search: filter-bar hit regions.
+constexpr int kChipNone = -1;
+constexpr int kChipDisclosure = 0;
+constexpr int kChipScope = 1;
+constexpr int kChipSort = 2;
+
+// Scale a DIP metric to physical pixels for Win32 control layout. Exact
+// int/float overloads so theme-token floats never narrow implicitly at /W4.
 int Scaled(int dipValue) {
-    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+    return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)) + 0.5f);
+}
+
+int Scaled(float dipValue) {
+    return static_cast<int>(ffui::UiScale(dipValue) + 0.5f);
+}
+
+// Alpha-composites a translucent theme token over an opaque base color so GDI
+// (which has no alpha channel) renders the result Direct2D would.
+COLORREF CompositeOver(D2D1_COLOR_F overlay, COLORREF base) {
+    const float alpha = overlay.a;
+    const auto blend = [alpha](float foreground, BYTE backgroundByte) -> BYTE {
+        const float background = static_cast<float>(backgroundByte) / 255.0f;
+        const float composited = foreground * alpha + background * (1.0f - alpha);
+        return static_cast<BYTE>(static_cast<UINT>(composited * 255.0f + 0.5f));
+    };
+    return RGB(blend(overlay.r, GetRValue(base)), blend(overlay.g, GetGValue(base)),
+               blend(overlay.b, GetBValue(base)));
+}
+
+// Quiet disclosure chevron drawn with lines so it never depends on glyph-font
+// availability (same grammar as NavigationSidebar).
+void DrawChevron(HDC dc, POINT center, int halfWidth, bool expanded, COLORREF color) {
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    if (pen == nullptr) return;
+    const int halfHeight = (std::max)(1, halfWidth / 2);
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    if (expanded) {
+        MoveToEx(dc, center.x - halfWidth, center.y - halfHeight, nullptr);
+        LineTo(dc, center.x, center.y + halfHeight);
+        LineTo(dc, center.x + halfWidth, center.y - halfHeight);
+    } else {
+        MoveToEx(dc, center.x - halfHeight, center.y - halfWidth, nullptr);
+        LineTo(dc, center.x + halfHeight, center.y);
+        LineTo(dc, center.x - halfHeight, center.y + halfWidth);
+    }
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+// ui-v3 search: close/clear affordance drawn with two strokes so it never
+// depends on a glyph font being installed.
+void DrawCloseGlyph(HDC dc, POINT center, int halfExtent, COLORREF color, int penWidth) {
+    HPEN pen = CreatePen(PS_SOLID, penWidth, color);
+    if (pen == nullptr) return;
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    MoveToEx(dc, center.x - halfExtent, center.y - halfExtent, nullptr);
+    LineTo(dc, center.x + halfExtent, center.y + halfExtent);
+    MoveToEx(dc, center.x + halfExtent, center.y - halfExtent, nullptr);
+    LineTo(dc, center.x - halfExtent, center.y + halfExtent);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+// Inset keyboard-focus outline, independent of hover/selection (the GDI twin
+// of ffui::DrawUiFocusIndicator, matching NavigationSidebar's ring grammar).
+void DrawGdiFocusRing(HDC dc, const RECT& rect, int radius, COLORREF color) {
+    const int inset = Scaled(UiMetrics::kSpaceXxs) + 1;
+    const RECT ring{rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset};
+    const int width = ring.right - ring.left;
+    const int height = ring.bottom - ring.top;
+    if (width <= 0 || height <= 0) return;
+    radius = std::clamp(radius, 0, std::min(width, height) / 2);
+    HPEN pen = CreatePen(PS_SOLID, (std::max)(1, Scaled(UiMetrics::kSpaceXxs)), color);
+    if (pen == nullptr) return;
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    RoundRect(dc, ring.left, ring.top, ring.right + 1, ring.bottom + 1, radius * 2, radius * 2);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+// ui-v3 search: GDI mirror of ffui::ResolveUiRowPalette so result rows share
+// the browse-row state grammar (rest/hover/selected-focused/selected-unfocused
+// identical in spirit). High Contrast falls back to system colors; translucent
+// overlays composite over the list background.
+struct SearchRowPaint {
+    COLORREF fill = 0;
+    bool hasFill = false;
+    COLORREF text = 0;
+    COLORREF secondary = 0;   // location/path
+    COLORREF tertiary = 0;    // metadata block
+};
+
+SearchRowPaint ResolveSearchRowPaint(const UiTheme& theme, UiVisualState state, bool highContrast,
+                                     COLORREF background) {
+    SearchRowPaint paint{};
+    if (highContrast) {
+        // Accessibility fallback: system highlight colors, never token overlays.
+        switch (state) {
+            case UiVisualState::SelectedFocused:
+            case UiVisualState::SelectedUnfocused:
+                paint.fill = GetSysColor(COLOR_HIGHLIGHT);
+                paint.hasFill = true;
+                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                break;
+            case UiVisualState::Hover:
+            case UiVisualState::Pressed:
+                paint.fill = GetSysColor(COLOR_MENUHILIGHT);
+                paint.hasFill = true;
+                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
+                break;
+            default:
+                paint.text = GetSysColor(COLOR_WINDOWTEXT);
+                break;
+        }
+        paint.secondary = paint.text;
+        paint.tertiary = paint.text;
+        return paint;
+    }
+    paint.text = ToColorRef(theme.text);
+    paint.secondary = ToColorRef(theme.textSecondary);
+    paint.tertiary = ToColorRef(theme.textTertiary);
+    switch (state) {
+        case UiVisualState::Hover:
+            paint.fill = CompositeOver(theme.hoverOverlay, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::Pressed:
+            paint.fill = CompositeOver(theme.pressOverlay, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::SelectedUnfocused:
+            paint.fill = CompositeOver(theme.selectionSoft, background);
+            paint.hasFill = true;
+            break;
+        case UiVisualState::SelectedFocused:
+            paint.fill = ToColorRef(theme.accent);
+            paint.hasFill = true;
+            paint.text = ToColorRef(theme.textOnAccent);
+            // Secondary text on the accent fill stays readable by leaning back
+            // toward textOnAccent instead of dropping to muted grays.
+            paint.secondary = ToColorRef(UiLerpColor(theme.textOnAccent, theme.accent, 0.22f));
+            paint.tertiary = ToColorRef(UiLerpColor(theme.textOnAccent, theme.accent, 0.38f));
+            break;
+        case UiVisualState::Disabled:
+            paint.text = ToColorRef(theme.textDisabled);
+            paint.secondary = paint.text;
+            paint.tertiary = paint.text;
+            break;
+        case UiVisualState::Busy:
+        case UiVisualState::Focused:
+        case UiVisualState::DropTarget:
+        case UiVisualState::Rest:
+            break;
+    }
+    return paint;
+}
+
+// Short scope/sort names shared by the chips and the empty-state panel so the
+// summary can never drift from what the combos offer.
+const wchar_t* ScopeShortName(int index) {
+    switch (index) {
+        case 0: return L"Current Folder";
+        case 1: return L"Current Folder + Subfolders";
+        case 2: return L"Current Drive";
+        case 3: return L"All Locations";
+        default: return L"All Locations";
+    }
+}
+
+const wchar_t* SortFieldName(int index) {
+    switch (index) {
+        case 0: return L"Relevance";
+        case 1: return L"Filename";
+        case 2: return L"Path";
+        case 3: return L"Size";
+        case 4: return L"Modified";
+        case 5: return L"Created";
+        case 6: return L"Size on Disk";
+        default: return L"Relevance";
+    }
 }
 
 using Microsoft::WRL::ComPtr;
@@ -132,19 +339,92 @@ LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
-// Small subclassed STATIC that paints its text with the themed status color
-// (searching = accent, no-results = textSecondary, otherwise primary text) so
-// the status line is visually distinct regardless of the shell theme.
-LRESULT CALLBACK StatusProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
-                            UINT_PTR subclassId, DWORD_PTR refData) {
+// ui-v3 search: the filter/disclosure bar replaces the old status STATIC. It
+// custom-paints the Filters disclosure pill, active-filter chips, and the live
+// status line; hover/click stay inside the subclass so no owner WM_COMMAND
+// routing changes.
+LRESULT CALLBACK FilterBarProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                               UINT_PTR subclassId, DWORD_PTR refData) {
     auto* self = reinterpret_cast<SearchPanel*>(refData);
-    if (message == WM_ERASEBKGND) return 1;
-    if (message == WM_PAINT) {
-        if (self != nullptr) self->PaintStatus(hwnd);
-        return 0;
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT:
+            self->PaintFilterBar(hwnd);
+            return 0;
+        case WM_MOUSEMOVE:
+            self->HandleFilterBarMouseMove(lParam);
+            {
+                TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+                TrackMouseEvent(&track);
+            }
+            break;
+        case WM_MOUSELEAVE:
+            self->HandleFilterBarMouseLeave();
+            break;
+        case WM_LBUTTONUP:
+            self->HandleFilterBarClick(lParam);
+            break;
+        default:
+            break;
     }
-    UNREFERENCED_PARAMETER(wParam);
-    UNREFERENCED_PARAMETER(lParam);
+    UNREFERENCED_PARAMETER(subclassId);
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+// ui-v3 search: in-field clear-query affordance. A small STATIC floating over
+// the right edge of the query combo; visible only while the edit has text.
+LRESULT CALLBACK ClearQueryProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<SearchPanel*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT:
+            self->PaintClearQueryButton(hwnd);
+            return 0;
+        case WM_MOUSEMOVE: {
+            if (!self->ClearQueryHot()) {
+                self->SetClearQueryHot(true);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&track);
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+            self->SetClearQueryHot(false);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_LBUTTONUP:
+            self->ClearQueryText();
+            return 0;
+        case WM_SETCURSOR:
+            SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+            return TRUE;
+        default:
+            break;
+    }
+    UNREFERENCED_PARAMETER(subclassId);
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
+// ui-v3 search: hover tracking for the owner-draw push buttons. Native buttons
+// report pressed/focus via DRAWITEMSTRUCT but not hover, so the shared proc
+// keeps a per-button hot flag keyed by HWND.
+LRESULT CALLBACK ButtonHoverProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                 UINT_PTR subclassId, DWORD_PTR refData) {
+    auto* self = reinterpret_cast<SearchPanel*>(refData);
+    if (self != nullptr && message == WM_MOUSEMOVE) {
+        self->SetButtonHot(hwnd, true);
+        TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+        TrackMouseEvent(&track);
+    }
+    if (self != nullptr && message == WM_MOUSELEAVE) {
+        self->SetButtonHot(hwnd, false);
+    }
     UNREFERENCED_PARAMETER(subclassId);
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
@@ -166,6 +446,9 @@ std::wstring FormatFileTime(uint64_t ticks) {
 // root; every other message -- including OBJID_CLIENT MSAA queries -- falls
 // through to the native ListView, so input, painting, and virtualization
 // are untouched.
+// ui-v3 search additions (presentation only): a deliberate no-results /
+// searching panel replaces the blank list while the result set is empty, and
+// row hover is tracked for the shared row-state grammar.
 LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                 UINT_PTR subclassId, DWORD_PTR refData) {
     auto* self = reinterpret_cast<SearchPanel*>(refData);
@@ -180,6 +463,28 @@ LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
         // Provider unavailable: fall through to DefSubclassProc so the native
         // MSAA/UIA fallback answers instead of swallowing the query.
     }
+    if (self != nullptr) {
+        // ui-v3 search: deliberate state surface while there is nothing to
+        // list; the provider reports the same (zero) count, so automation and
+        // pixels stay consistent.
+        if (message == WM_PAINT && self->ShouldPaintListEmptyState()) {
+            self->PaintListEmptyState(hwnd);
+            return 0;
+        }
+        if (message == WM_MOUSEMOVE) {
+            self->HandleListMouseMove(lParam);
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&track);
+        }
+        if (message == WM_MOUSELEAVE) {
+            self->HandleListMouseLeave();
+        }
+        if (message == WM_NCDESTROY) {
+            // The row-height image list is owned by the panel; release it while
+            // the list can no longer reference it.
+            self->ReleaseListImageList();
+        }
+    }
     UNREFERENCED_PARAMETER(subclassId);
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
@@ -188,6 +493,7 @@ LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 SearchPanel::~SearchPanel() {
     KillTimer(owner_, kDebounceTimer);
     KillTimer(owner_, kHistorySaveTimer);
+    KillTimer(owner_, kProgressTimer);
     // Flush a coalesced history save that never fired; teardown is the one
     // place a synchronous write is acceptable (the UI thread is going away).
     if (historyDirty_) {
@@ -200,7 +506,16 @@ SearchPanel::~SearchPanel() {
     if (list_) RemoveWindowSubclass(list_, SearchListProc, 3);
     ReleaseUiaProvider();
     if (queryEdit_) RemoveWindowSubclass(queryEdit_, SearchEditProc, 1);
-    if (status_) RemoveWindowSubclass(status_, StatusProc, 2);
+    // ui-v3 search: drop the presentation subclasses before the windows die.
+    if (filterBar_) RemoveWindowSubclass(filterBar_, FilterBarProc, 4);
+    if (clearQuery_) RemoveWindowSubclass(clearQuery_, ClearQueryProc, 5);
+    if (sortDirection_) RemoveWindowSubclass(sortDirection_, ButtonHoverProc, 6);
+    if (clearHistory_) RemoveWindowSubclass(clearHistory_, ButtonHoverProc, 7);
+    ReleaseListImageList();
+    // ui-v3 search: DPI-aware row/bar fonts are panel-owned GDI objects.
+    if (resultNameFont_) DeleteObject(resultNameFont_);
+    if (resultMatchFont_) DeleteObject(resultMatchFont_);
+    if (resultCaptionFont_) DeleteObject(resultCaptionFont_);
     stopping_.store(true, std::memory_order_release);
     {
         std::lock_guard callbackLock(indexedCallbackState_->mutex);
@@ -234,14 +549,20 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_OWNERDRAWFIXED | LVS_SINGLESEL | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
-    status_ = CreateWindowExW(0, L"STATIC", L"Ready", WS_CHILD, 0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
+    // ui-v3 search: one custom-painted bar replaces the old status STATIC —
+    // Filters disclosure, active-filter chips, and the live status line share
+    // a single quiet row so permanent chrome stays minimal.
+    filterBar_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
+    // ui-v3 search: in-field clear affordance; created after query_ so it sits
+    // above the combo and receives the clicks inside its small rect.
+    clearQuery_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD, 0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
     // BS_OWNERDRAW keeps the button inside the themed token set instead of
     // native light chrome breaking the dark panel.
     clearHistory_ = CreateWindowExW(0, L"BUTTON", L"Clear history", WS_CHILD | BS_OWNERDRAW,
                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearHistoryId)), nullptr, nullptr);
-    sortDirection_ = CreateWindowExW(0, L"BUTTON", L"Ascending", WS_CHILD | BS_OWNERDRAW,
+    sortDirection_ = CreateWindowExW(0, L"BUTTON", L"\u2191 Ascending", WS_CHILD | BS_OWNERDRAW,
                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortDirectionId)), nullptr, nullptr);
-    if (!query_ || !scope_ || !sort_ || !list_ || !status_ || !clearHistory_ || !sortDirection_) return false;
+    if (!query_ || !scope_ || !sort_ || !list_ || !filterBar_ || !clearQuery_ || !clearHistory_ || !sortDirection_) return false;
     COMBOBOXINFO comboInfo{sizeof(comboInfo)};
     if (GetComboBoxInfo(query_, &comboInfo) && comboInfo.hwndItem) {
         queryEdit_ = comboInfo.hwndItem;
@@ -249,7 +570,10 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
                      static_cast<WPARAM>(ffprotocol::kMaxIndexedSearchQueryLengthChars), 0);
         SetWindowSubclass(queryEdit_, SearchEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     }
-    SetWindowSubclass(status_, StatusProc, 2, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(filterBar_, FilterBarProc, 4, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(clearQuery_, ClearQueryProc, 5, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(sortDirection_, ButtonHoverProc, 6, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(clearHistory_, ButtonHoverProc, 7, reinterpret_cast<DWORD_PTR>(this));
     // semantic-uia-core-surfaces 4.2: subclass the result list so WM_GETOBJECT
     // returns the search fragment root (native virtual lists have no UIA item
     // provider; see the change design D1/D15).
@@ -272,8 +596,14 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     // the column headers are meaningless and would render as a system-light strip
     // in dark mode. Hide the header (column widths still drive scroll extent).
     if (HWND header = ListView_GetHeader(list_)) ShowWindow(header, SW_HIDE);
+    // ui-v3 search: two-line result rows. A report-mode ListView derives its
+    // row height from the small image list, so a one-entry list at the row
+    // height sets the metrics; the panel owns and releases it.
+    EnsureRowMetrics();
     SetDarkTheme(ffui::gUiDarkTheme);
     LoadHistory();
+    UpdateFilterSummary();
+    UpdateClearAffordance();
     worker_ = std::thread(&SearchPanel::WorkerMain, this);
     return true;
 }
@@ -286,6 +616,7 @@ void SearchPanel::SetDefaultScope(const std::wstring& scopeName) {
     else if (scopeName == L"Current Drive") index = 2;
     else if (scopeName == L"All Indexed Locations" || scopeName == L"Everywhere") index = 3;
     SendMessageW(scope_, CB_SETCURSEL, index, 0);
+    UpdateFilterSummary(); // ui-v3 search: chips must reflect the restored scope
 }
 
 void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActive,
@@ -293,7 +624,7 @@ void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActiv
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
-    for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_SHOW);
+    for (HWND control : {query_, filterBar_, list_}) ShowWindow(control, SW_SHOW);
     UpdateScopeAvailability(false);
     Reposition(surfaceRect);
     // Consume a coalesced snapshot refresh that was deferred while hidden.
@@ -316,9 +647,12 @@ void SearchPanel::Hide() {
     }
     visible_ = false;
     KillTimer(owner_, kDebounceTimer);
+    // ui-v3 search: no progress animation while hidden.
+    KillTimer(owner_, kProgressTimer);
     // The coalesced history-save timer keeps running so a recorded query is
     // flushed even after the panel hides.
-    for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_HIDE);
+    for (HWND control : {query_, filterBar_, clearQuery_, list_, clearHistory_}) ShowWindow(control, SW_HIDE);
+    for (HWND control : {scope_, sort_, sortDirection_}) ShowWindow(control, SW_HIDE);
 }
 
 void SearchPanel::SetDarkTheme(bool dark) {
@@ -334,7 +668,9 @@ void SearchPanel::SetDarkTheme(bool dark) {
     if (sort_) InvalidateRect(sort_, nullptr, TRUE);
     if (sortDirection_) InvalidateRect(sortDirection_, nullptr, TRUE);
     if (clearHistory_) InvalidateRect(clearHistory_, nullptr, TRUE);
-    if (status_) InvalidateRect(status_, nullptr, TRUE);
+    // ui-v3 search: repaint the custom-painted bar and clear affordance.
+    if (filterBar_) InvalidateRect(filterBar_, nullptr, TRUE);
+    if (clearQuery_) InvalidateRect(clearQuery_, nullptr, TRUE);
     // Force the query-edit paint resources to rebuild on the next paint so a
     // theme change cannot leave stale colors cached in the DC render target.
     searchResourcesReady_ = false;
@@ -343,33 +679,101 @@ void SearchPanel::SetDarkTheme(bool dark) {
 
 void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
     if (!visible_) return;
+    lastSurfaceRect_ = surfaceRect;
+    EnsureRowMetrics(); // ui-v3 search: follow DPI changes without a rebuild
+
+    // ui-v3 search: query-first geometry. Row 1 is the prominent full-width
+    // query field; row 2 is the compact filter/status bar; the scope/sort/
+    // direction combos only occupy a row while the disclosure is expanded.
+    // Collapsed, results start exactly where the old permanent-chrome layout
+    // placed them, so collapsing never costs result space.
+    const float left = surfaceRect.left + kSurfaceInsetDip;
+    const float right = (std::max)(left, surfaceRect.right - kSurfaceInsetDip);
+    const float width = surfaceRect.Width();
+    const bool wide = width >= kCompactBreakWidthDip;
+
+    const float queryTop = surfaceRect.top;
+    const float queryBottom = queryTop + kQueryRowHeightDip;
+    const float barTop = queryBottom + kRowGapDip;
+    const float barBottom = barTop + kFilterBarHeightDip;
+    const float filterTop = barBottom + kRowGapDip;
+    const float filterBottom = filterTop + kFilterRowHeightDip;
+    const float compactSecondTop = filterBottom + kRowGapDip;
+    const float compactSecondBottom = compactSecondTop + kFilterRowHeightDip;
+
+    const float listTop = filtersExpanded_ ? (wide ? filterBottom : compactSecondBottom) + kRowGapDip
+                                           : barBottom + kRowGapDip + UiMetrics::kSpaceXxs;
+    const ShellLayoutRect queryRect{left, queryTop, right, queryBottom};
+    const ShellLayoutRect barRect{left, barTop, right, barBottom};
+    const ShellLayoutRect listRect{left, listTop, right,
+                                   (std::max)(listTop, surfaceRect.bottom - kListBottomMarginDip)};
+
     const auto scaledDip = [](float dip) {
         return static_cast<int>(std::lround(ffui::UiScale(dip)));
     };
-    const auto layout = ffui::ComputeSearchSurfaceLayout(surfaceRect);
-    const auto place = [scaledDip](HWND control, const ShellLayoutRect& rect, int heightDip) {
-        const int left = scaledDip(rect.left);
-        const int top = scaledDip(rect.top);
-        const int right = scaledDip(rect.right);
-        SetWindowPos(control, HWND_TOP, left, top, (std::max)(0, right - left),
-                     Scaled(heightDip), SWP_SHOWWINDOW);
+    // Moves a control into DIP-space rect; visibility is applied after the
+    // move so a shown control never flashes at its stale position.
+    const auto place = [scaledDip](HWND control, const ShellLayoutRect& rect, float heightDip,
+                                   bool show) {
+        const int pxLeft = scaledDip(rect.left);
+        const int pxTop = scaledDip(rect.top);
+        const int pxRight = scaledDip(rect.right);
+        const int pxHeight = Scaled(heightDip);
+        SetWindowPos(control, HWND_TOP, pxLeft, pxTop, (std::max)(0, pxRight - pxLeft), pxHeight,
+                     show ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOACTIVATE);
+        if (!show) ShowWindow(control, SW_HIDE);
     };
-    // Combo-box parents keep their existing 300-DIP dropdown height; the
-    // closed control rectangle in SearchSurfaceLayout supplies the shared
-    // horizontal/vertical placement.
-    place(query_, layout.query, 300);
-    place(scope_, layout.scope, 300);
-    place(sort_, layout.sort, 300);
-    place(sortDirection_, layout.direction, 26);
-    place(status_, layout.status, 24);
-    place(clearHistory_, layout.clearHistory, 26);
-    place(list_, layout.list, static_cast<int>(layout.list.Height()));
+
+    // Combo parents keep their historical 300-DIP dropdown height; the closed
+    // control height is font-driven, so the row geometry above governs layout.
+    place(query_, queryRect, kComboDropdownHeightPx, true);
+    place(filterBar_, barRect, kFilterBarHeightDip, true);
+    // The clear affordance floats inside the query field's right edge, clear of
+    // the combo's dropdown arrow.
+    if (clearQuery_ != nullptr) {
+        const int buttonPx = Scaled(UiMetrics::kTargetMinSize - UiMetrics::kSpaceXxs);
+        const int fieldRight = scaledDip(queryRect.right);
+        const int fieldTop = scaledDip(queryRect.top);
+        const int fieldBottom = scaledDip(queryRect.bottom);
+        SetWindowPos(clearQuery_, HWND_TOP,
+                     (std::max)(scaledDip(queryRect.left), fieldRight - buttonPx - Scaled(kSpaceClearArrowMarginDip)),
+                     fieldTop + (std::max)(0, (fieldBottom - fieldTop) - buttonPx) / 2,
+                     buttonPx, buttonPx, SWP_NOACTIVATE);
+    }
+
+    // Expanded filter row(s). Wide packs one row; the narrow fallback keeps a
+    // two-row stack so no control gets a negative width.
+    if (wide) {
+        const float clearLeft = (std::max)(left, right - kClearHistoryWidthDip);
+        const float directionLeft = (std::max)(left, clearLeft - kRowGapDip - kDirectionWidthDip);
+        const float sortLeft = (std::max)(left, directionLeft - kRowGapDip - kSortWidthDip);
+        const float scopeLeft = (std::max)(left, sortLeft - kRowGapDip - kScopeWidthDip);
+        place(scope_, {scopeLeft, filterTop, (std::min)(scopeLeft + kScopeWidthDip, sortLeft - kRowGapDip), filterBottom},
+              kComboDropdownHeightPx, filtersExpanded_);
+        place(sort_, {sortLeft, filterTop, directionLeft - kRowGapDip, filterBottom},
+              kComboDropdownHeightPx, filtersExpanded_);
+        place(sortDirection_, {directionLeft, filterTop, clearLeft - kRowGapDip, filterBottom},
+              kFilterRowHeightDip, filtersExpanded_);
+        place(clearHistory_, {clearLeft, filterTop, right, filterBottom}, kFilterRowHeightDip, filtersExpanded_);
+    } else {
+        const float mid = left + (right - left) / 2.0f;
+        place(scope_, {left, filterTop, mid - kRowGapDip / 2.0f, filterBottom}, kComboDropdownHeightPx, filtersExpanded_);
+        place(sort_, {mid + kRowGapDip / 2.0f, filterTop, right, filterBottom}, kComboDropdownHeightPx, filtersExpanded_);
+        place(sortDirection_, {left, compactSecondTop, mid - kRowGapDip / 2.0f, compactSecondBottom},
+              kFilterRowHeightDip, filtersExpanded_);
+        place(clearHistory_, {mid + kRowGapDip / 2.0f, compactSecondTop, right, compactSecondBottom},
+              kFilterRowHeightDip, filtersExpanded_);
+    }
+    place(list_, listRect, listRect.Height(), true);
+
+    UpdateClearAffordance(); // visibility follows the freshly placed geometry
 }
 
 bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam), notification = HIWORD(wParam);
     if (id == kQueryId && notification == CBN_EDITCHANGE) {
+        UpdateClearAffordance(); // ui-v3 search: clear affordance follows text
         if (updatingHistory_) return true;
         ++generation_;
         currentGeneration_ = generation_;
@@ -379,16 +783,19 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
         return true;
     }
     if (id == kScopeId && notification == CBN_SELCHANGE) {
+        UpdateFilterSummary(); // ui-v3 search: scope chip tracks non-default state
         Dispatch(false);
         return true;
     }
     if (id == kSortId && notification == CBN_SELCHANGE) {
+        UpdateFilterSummary();
         Dispatch(false);
         return true;
     }
     if (id == kSortDirectionId && notification == BN_CLICKED) {
         descending_ = !descending_;
-        SetWindowTextW(sortDirection_, descending_ ? L"Descending" : L"Ascending");
+        SetWindowTextW(sortDirection_, descending_ ? L"\u2193 Descending" : L"\u2191 Ascending");
+        UpdateFilterSummary();
         Dispatch(false);
         return true;
     }
@@ -410,6 +817,18 @@ bool SearchPanel::HandleTimer(UINT_PTR timerId) {
         }
         return true;
     }
+    // ui-v3 search: indeterminate progress band phase, advanced only while a
+    // query is actually running and the panel is visible.
+    if (timerId == kProgressTimer) {
+        if (statusKind_ != StatusKind::Searching || !visible_) {
+            KillTimer(owner_, kProgressTimer);
+            return true;
+        }
+        progressPhase_ += static_cast<float>(kProgressTimerMilliseconds) / 1000.0f / kProgressSweepSeconds;
+        if (progressPhase_ >= 1.0f) progressPhase_ -= 1.0f;
+        if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+        return true;
+    }
     if (!visible_ || timerId != kDebounceTimer) return false;
     KillTimer(owner_, kDebounceTimer);
     // A debounced keystroke is not a committed search: history is recorded
@@ -421,6 +840,7 @@ bool SearchPanel::HandleTimer(UINT_PTR timerId) {
 void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     std::array<wchar_t, static_cast<size_t>(ffprotocol::kMaxIndexedSearchQueryLengthChars) + 1> queryText{};
     GetWindowTextW(query_, queryText.data(), static_cast<int>(queryText.size()));
+    UpdateClearAffordance(); // ui-v3 search: covers programmatic text changes too
     ++generation_;
     currentGeneration_ = generation_;
     if (queryText[0] == L'\0') {
@@ -700,41 +1120,58 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
     HDC dc = item->hDC;
     const RECT row = item->rcItem;
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    const bool focused = (item->itemState & ODS_FOCUS) != 0;
     const bool highContrast = ffui::UiSystemHighContrast();
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+    EnsureResultFonts();
 
-    COLORREF background = selected ? ffui::ToColorRef(theme.accent) : ffui::ToColorRef(theme.background);
-    COLORREF nameColor = selected ? ffui::ToColorRef(theme.textOnAccent) : ffui::ToColorRef(theme.text);
-    COLORREF matchColor = selected ? ffui::ToColorRef(theme.textSecondary) : ffui::ToColorRef(theme.accent);
-    COLORREF locationColor = ffui::ToColorRef(theme.textSecondary);
-    if (highContrast) {
-        background = GetSysColor(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW);
-        nameColor = GetSysColor(selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT);
-        matchColor = nameColor;
-        locationColor = nameColor;
+    // ui-v3 search: canonical row states through the shared grammar, mirroring
+    // ResolveUiRowPalette/ResolveNavPaint. Selection/focus identity stays with
+    // the native ListView; only the presentation is resolved here.
+    const COLORREF baseBackground = highContrast ? GetSysColor(COLOR_WINDOW)
+                                                 : ffui::ToColorRef(theme.background);
+    UiVisualState state = UiVisualState::Rest;
+    if (selected) {
+        state = focused ? UiVisualState::SelectedFocused : UiVisualState::SelectedUnfocused;
+    } else if (static_cast<int>(item->itemID) == hoveredResultRow_) {
+        state = UiVisualState::Hover;
     }
+    const SearchRowPaint paint = ResolveSearchRowPaint(theme, state, highContrast, baseBackground);
 
-    HBRUSH backgroundBrush = CreateSolidBrush(background);
+    HBRUSH backgroundBrush = CreateSolidBrush(baseBackground);
     FillRect(dc, &row, backgroundBrush);
     DeleteObject(backgroundBrush);
+    if (paint.hasFill) {
+        UiGdiRoundedRect(dc, row, paint.fill, Scaled(UiMetrics::kRadiusSmall));
+    }
 
     if (static_cast<size_t>(item->itemID) >= results_.size()) {
-        if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(dc, &row);
+        if (focused) DrawGdiFocusRing(dc, row, Scaled(UiMetrics::kRadiusSmall),
+                                      highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                                   : ffui::ToColorRef(theme.focusStroke));
         return;
     }
     const auto& candidate = results_[static_cast<size_t>(item->itemID)].candidate;
 
-    HFONT font = reinterpret_cast<HFONT>(SendMessageW(list_, WM_GETFONT, 0, 0));
-    if (font == nullptr) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT fallbackFont = reinterpret_cast<HFONT>(SendMessageW(list_, WM_GETFONT, 0, 0));
+    if (fallbackFont == nullptr) fallbackFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT nameFont = resultNameFont_ != nullptr ? resultNameFont_ : fallbackFont;
+    HFONT matchFont = resultMatchFont_ != nullptr ? resultMatchFont_ : nameFont;
+    HFONT captionFont = resultCaptionFont_ != nullptr ? resultCaptionFont_ : fallbackFont;
 
-    // Icon (system SHIL_SMALL image list), vertically centered in the row.
+    // ui-v3 search: two-line hierarchy — the file name is primary (Body), the
+    // location path and metadata secondary (Caption, muted tokens).
+    const RECT line1{row.left, row.top + Scaled(3.0f), row.right, row.top + Scaled(21.0f)};
+    const RECT line2{row.left, row.bottom - Scaled(17.0f), row.right, row.bottom - Scaled(2.0f)};
+
+    // Icon (system SHIL_SMALL image list), vertically centered on the name line.
     IImageList* imageList = nullptr;
     if (SUCCEEDED(SHGetImageList(SHIL_SMALL, IID_PPV_ARGS(&imageList)))) {
         int iconWidth = 0;
         int iconHeight = 0;
         if (ImageList_GetIconSize(IImageListToHIMAGELIST(imageList), &iconWidth, &iconHeight) && iconWidth > 0 && iconHeight > 0) {
-            const int iconLeft = row.left + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceS));
-            const int iconTop = row.top + (static_cast<int>(row.bottom - row.top) - iconHeight) / 2;
+            const int iconLeft = row.left + Scaled(UiMetrics::kSpaceS);
+            const int iconTop = line1.top + ((line1.bottom - line1.top) - iconHeight) / 2;
             const int iconIndex = SystemIconIndex(candidate.isDirectory ? ffui::FolderKey()
                                                                         : ffui::IconKeyForExtension(FileExtension(candidate.name)));
             if (iconIndex >= 0) {
@@ -743,8 +1180,8 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
         }
     }
 
-    const int textLeft = row.left + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceS)) +
-                         Scaled(static_cast<int>(ffui::UiMetrics::kIconSize)) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceXs));
+    const int textLeft = row.left + Scaled(UiMetrics::kSpaceS) +
+                         Scaled(UiMetrics::kIconSize) + Scaled(UiMetrics::kSpaceXs);
 
     // indexed-search-allocated-size D7: a right-aligned metadata block renders
     // "logical • Size on Disk • modified" so the two sizes stay visibly distinct
@@ -756,65 +1193,53 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
                                                                   candidate.allocatedSizeKnown, ffui::FormatSize);
     const std::wstring metaModified = FormatFileTime(candidate.modifiedTime);
     const std::wstring metaText = metaLogical + L" • " + metaOnDisk + L" • " + metaModified;
-    int metaWidth = 0;
-    {
-        HGDIOBJ previous = SelectObject(dc, font);
-        SIZE metaSize{};
-        GetTextExtentPoint32W(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaSize);
-        SelectObject(dc, previous);
-        metaWidth = static_cast<int>(metaSize.cx) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceM));
-    }
-    const int contentRight = (std::max)(textLeft, static_cast<int>(row.right) - metaWidth);
 
-    // Reserve the left-of-metadata band for the location path (folder), capped
-    // at 50% of the remaining row so a long name still has room.
-    int locationWidth = 0;
-    if (!candidate.folder.empty()) {
-        SetTextColor(dc, locationColor);
-        HGDIOBJ previous = SelectObject(dc, font);
-        SIZE locationSize{};
-        GetTextExtentPoint32W(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &locationSize);
-        SelectObject(dc, previous);
-        locationWidth = (std::min)(static_cast<int>(locationSize.cx) + Scaled(static_cast<int>(ffui::UiMetrics::kSpaceM)),
-                                   (std::max)(0, contentRight - textLeft) / 2);
-    }
-    const int nameRight = contentRight - locationWidth;
-
-    // Draw the name with the matched span highlighted; the span is expanded to
-    // never split a surrogate pair.
+    // Name line: matched span emphasized in an accent-derived color that keeps
+    // contrast under every row state (accent on rest/hover/soft-selection,
+    // textOnAccent over the filled SelectedFocused state; semibold carries a
+    // non-color cue so emphasis never rides on hue alone).
+    const COLORREF matchColor =
+        (state == UiVisualState::SelectedFocused || highContrast) ? paint.text : ffui::ToColorRef(theme.accent);
     const MatchSpan span = FindMatchSpan(candidate.name, currentPrimaryTerm_);
     int x = textLeft;
     if (span.count == 0 || span.start >= candidate.name.size()) {
-        x += DrawRowText(dc, font, x, row, candidate.name, nameColor);
+        x += DrawRowText(dc, nameFont, x, line1, candidate.name, paint.text);
     } else {
-        x += DrawRowText(dc, font, x, row, candidate.name.substr(0, span.start), nameColor);
-        x += DrawRowText(dc, font, x, row, candidate.name.substr(span.start, span.count), matchColor);
-        DrawRowText(dc, font, x, row, candidate.name.substr(span.start + span.count), nameColor);
+        x += DrawRowText(dc, nameFont, x, line1, candidate.name.substr(0, span.start), paint.text);
+        x += DrawRowText(dc, matchFont, x, line1, candidate.name.substr(span.start, span.count), matchColor);
+        DrawRowText(dc, nameFont, x, line1, candidate.name.substr(span.start + span.count), paint.text);
     }
 
-    // Location path, right-aligned and ellipsized, in the band left of the
-    // metadata block.
-    if (!candidate.folder.empty() && locationWidth > 0) {
-        SetTextColor(dc, locationColor);
-        HGDIOBJ previous = SelectObject(dc, font);
-        RECT locationRect{nameRight, row.top, contentRight, row.bottom};
-        DrawTextW(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &locationRect,
-                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_RIGHT | DT_END_ELLIPSIS);
+    // Second line: location path on the left (capped so long names keep room),
+    // metadata block right-aligned; both ellipsized independently.
+    if (!candidate.folder.empty()) {
+        const int folderMaxRight = row.left + Scaled(0.55f * static_cast<float>(row.right - row.left));
+        SetTextColor(dc, paint.secondary);
+        HGDIOBJ previous = SelectObject(dc, captionFont);
+        RECT folderRect{textLeft, line2.top, (std::max)(textLeft, folderMaxRight), line2.bottom};
+        DrawTextW(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &folderRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(dc, previous);
     }
-
-    // Metadata block (logical • Size on Disk • modified), right-aligned in the
-    // reserved band on the far right.
     {
-        SetTextColor(dc, locationColor);
-        HGDIOBJ previous = SelectObject(dc, font);
-        RECT metaRect{contentRight, row.top, row.right, row.bottom};
+        SetTextColor(dc, paint.tertiary);
+        HGDIOBJ previous = SelectObject(dc, captionFont);
+        SIZE metaSize{};
+        GetTextExtentPoint32W(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaSize);
+        const int metaLeft = (std::max)(textLeft, static_cast<int>(row.right) - static_cast<int>(metaSize.cx) -
+                                                           Scaled(UiMetrics::kSpaceS));
+        RECT metaRect{metaLeft, line2.top, row.right - Scaled(UiMetrics::kSpaceXs), line2.bottom};
         DrawTextW(dc, metaText.c_str(), static_cast<int>(metaText.size()), &metaRect,
-                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_RIGHT | DT_END_ELLIPSIS);
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(dc, previous);
     }
 
-    if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(dc, &row);
+    // Keyboard-focus indicator, independent of hover/selection.
+    if (focused) {
+        DrawGdiFocusRing(dc, row, Scaled(UiMetrics::kRadiusSmall),
+                         highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                      : ffui::ToColorRef(theme.focusStroke));
+    }
 }
 
 int SearchPanel::SystemIconIndex(const std::wstring& key) {
@@ -855,7 +1280,10 @@ void SearchPanel::DrawComboItem(const DRAWITEMSTRUCT* item) {
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
 
-    COLORREF background = selected ? ffui::ToColorRef(theme.accent) : ffui::ToColorRef(theme.background);
+    // ui-v3 search: dropdown rows share the row-state grammar — a rounded
+    // selection pill instead of a full-square accent band.
+    COLORREF background = ffui::ToColorRef(theme.background);
+    if (selected) background = ffui::ToColorRef(theme.accent);
     COLORREF text = selected ? ffui::ToColorRef(theme.textOnAccent) : ffui::ToColorRef(theme.text);
     if (highContrast) {
         background = GetSysColor(selected ? COLOR_HIGHLIGHT : COLOR_WINDOW);
@@ -865,6 +1293,14 @@ void SearchPanel::DrawComboItem(const DRAWITEMSTRUCT* item) {
     HBRUSH backgroundBrush = CreateSolidBrush(background);
     FillRect(dc, &rect, backgroundBrush);
     DeleteObject(backgroundBrush);
+    if (selected) {
+        RECT pill = rect;
+        pill.left += 1;
+        pill.right -= 1;
+        pill.top += 1;
+        pill.bottom -= 1;
+        UiGdiRoundedRect(dc, pill, background, Scaled(UiMetrics::kRadiusSmall));
+    }
 
     // Size the buffer from CB_GETLBTEXTLEN so any future longer label cannot
     // overflow the fixed read (native UIA proxies read these same strings).
@@ -877,9 +1313,13 @@ void SearchPanel::DrawComboItem(const DRAWITEMSTRUCT* item) {
     SetTextColor(dc, text);
     SetBkMode(dc, TRANSPARENT);
     RECT textRect = rect;
-    textRect.left += Scaled(static_cast<int>(ffui::UiMetrics::kSpaceXs));
+    textRect.left += Scaled(UiMetrics::kSpaceXs);
     DrawTextW(dc, itemText.c_str(), -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
-    if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(dc, &rect);
+    if ((item->itemState & ODS_FOCUS) != 0) {
+        DrawGdiFocusRing(dc, rect, Scaled(UiMetrics::kRadiusSmall),
+                         highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                      : ffui::ToColorRef(theme.focusStroke));
+    }
 }
 
 void SearchPanel::DrawTextButton(HWND source, const DRAWITEMSTRUCT* item) {
@@ -889,28 +1329,44 @@ void SearchPanel::DrawTextButton(HWND source, const DRAWITEMSTRUCT* item) {
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
     const bool pressed = (item->itemState & ODS_SELECTED) != 0;
     const bool hasFocus = (item->itemState & ODS_FOCUS) != 0;
+    // ui-v3 search: quiet secondary buttons with tracked hover (native buttons
+    // report pressed/focus but never hover).
+    const bool hot = source == sortDirection_ ? directionHot_
+                                              : clearHistoryHot_;
+    const int radius = Scaled(UiMetrics::kRadiusSmall);
 
-    COLORREF background = pressed ? ffui::ToColorRef(theme.surfaceSubtle) : ffui::ToColorRef(theme.surface);
+    COLORREF background = pressed ? CompositeOver(theme.pressOverlay, ToColorRef(theme.surfaceElevated))
+                     : hot       ? CompositeOver(theme.hoverOverlay, ToColorRef(theme.surfaceElevated))
+                                 : ToColorRef(theme.surfaceElevated);
     COLORREF text = ffui::ToColorRef(theme.text);
+    COLORREF border = ffui::ToColorRef(theme.border);
     if (highContrast) {
         background = GetSysColor(pressed ? COLOR_BTNSHADOW : COLOR_BTNFACE);
         text = GetSysColor(COLOR_BTNTEXT);
+        border = GetSysColor(COLOR_WINDOWTEXT);
     }
 
-    HBRUSH backgroundBrush = CreateSolidBrush(background);
-    FillRect(dc, &rect, backgroundBrush);
-    DeleteObject(backgroundBrush);
-
-    HBRUSH borderBrush = CreateSolidBrush(ffui::ToColorRef(theme.border));
-    FrameRect(dc, &rect, borderBrush);
-    DeleteObject(borderBrush);
+    UiGdiRoundedRect(dc, rect, background, radius);
+    HPEN borderPen = CreatePen(PS_SOLID, 1, border);
+    if (borderPen != nullptr) {
+        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, borderPen));
+        RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, radius * 2, radius * 2);
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
+        DeleteObject(borderPen);
+    }
 
     wchar_t textBuffer[128]{};
     GetWindowTextW(source, textBuffer, static_cast<int>(std::size(textBuffer)));
     SetTextColor(dc, text);
     SetBkMode(dc, TRANSPARENT);
     DrawTextW(dc, textBuffer, -1, &rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-    if (hasFocus) DrawFocusRect(dc, &rect);
+    if (hasFocus) {
+        DrawGdiFocusRing(dc, rect, radius,
+                         highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                      : ffui::ToColorRef(theme.focusStroke));
+    }
 }
 
 void SearchPanel::PaintSearchEdit(HWND hwnd) {
@@ -934,9 +1390,16 @@ void SearchPanel::PaintSearchEdit(HWND hwnd) {
             if (SUCCEEDED(searchFactory_->CreateDCRenderTarget(&properties, &searchTarget_)) &&
                 SUCCEEDED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                               reinterpret_cast<IUnknown**>(searchWriteFactory_.GetAddressOf()))) &&
-                SUCCEEDED(searchWriteFactory_->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-                                                                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                                                                14.0f, L"en-us", &searchFormat_))) {
+                SUCCEEDED(UiCreateTextFormat(searchWriteFactory_.Get(), UiTypeSize(UiTypeRole::Body),
+                                             DWRITE_FONT_WEIGHT_NORMAL, L"Segoe UI", &searchFormat_))) {
+                // ui-v3 search: optional leading search glyph; if the glyph font
+                // is unavailable the field simply renders without it.
+                Microsoft::WRL::ComPtr<IDWriteTextFormat> glyphFormat;
+                if (SUCCEEDED(UiCreateTextFormat(searchWriteFactory_.Get(), UiTypeSize(UiTypeRole::Body),
+                                                 DWRITE_FONT_WEIGHT_NORMAL, L"Segoe MDL2 Assets",
+                                                 &glyphFormat))) {
+                    searchGlyphFormat_ = std::move(glyphFormat);
+                }
                 searchResourcesReady_ = true;
             }
         }
@@ -958,18 +1421,23 @@ void SearchPanel::PaintSearchEdit(HWND hwnd) {
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
     searchTarget_->BeginDraw();
     searchTarget_->Clear(theme.background);
+    // ui-v3 search: obvious focus treatment — the border flips to the shared
+    // focusStroke token and thickens slightly while the field has focus.
+    const D2D1_COLOR_F borderColor = searchEditFocused_ ? theme.focusStroke : theme.searchBorder;
     ComPtr<ID2D1SolidColorBrush> border;
     ComPtr<ID2D1SolidColorBrush> textBrush;
-    searchTarget_->CreateSolidColorBrush(searchEditFocused_ ? theme.accent : theme.searchBorder, &border);
+    searchTarget_->CreateSolidColorBrush(borderColor, &border);
     searchTarget_->CreateSolidColorBrush(theme.searchText, &textBrush);
     const auto bounds = D2D1::RectF(0.5f, 0.5f,
                                     static_cast<float>(client.right) - 0.5f,
                                     static_cast<float>(client.bottom) - 0.5f);
-    if (border) searchTarget_->DrawRoundedRectangle(D2D1::RoundedRect(bounds, 4.0f, 4.0f), border.Get(), 1.0f);
+    if (border) {
+        searchTarget_->DrawRoundedRectangle(D2D1::RoundedRect(bounds, UiMetrics::kRadiusField, UiMetrics::kRadiusField),
+                                            border.Get(), searchEditFocused_ ? 1.5f : 1.0f);
+    }
 
-    // Fluent focus accent: a 2-DIP accent underline along the bottom edge (and
-    // the border color flips to accent above, so the focused edit reads as a
-    // contained field with an accent baseline).
+    // Fluent focus accent: a restrained accent baseline along the bottom edge
+    // so the focused field reads as contained and active.
     if (searchEditFocused_ && border) {
         const auto accentLine = D2D1::RectF(0.5f, static_cast<float>(client.bottom) - 2.0f,
                                             static_cast<float>(client.right) - 0.5f,
@@ -988,8 +1456,22 @@ void SearchPanel::PaintSearchEdit(HWND hwnd) {
         textBrush.Reset();
         searchTarget_->CreateSolidColorBrush(theme.searchPlaceholder, &textBrush);
     }
-    const auto textRect = D2D1::RectF(10.0f, 3.0f,
-                                      static_cast<float>(client.right) - 10.0f,
+    // ui-v3 search: leading magnifier glyph anchors the field's purpose; the
+    // text block yields on the right to the clear affordance when present.
+    float textLeftDip = 10.0f;
+    float rightPadDip = length > 0 ? kSpaceClearArrowMarginDip + 18.0f : 10.0f;
+    if (searchGlyphFormat_) {
+        const auto glyphRect = D2D1::RectF(8.0f, 0.0f, 8.0f + UiMetrics::kIconSizeLg,
+                                           static_cast<float>(client.bottom));
+        if (textBrush) {
+            searchTarget_->DrawText(L"\uE721", 1, searchGlyphFormat_.Get(), glyphRect,
+                                    textBrush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        textLeftDip = 8.0f + UiMetrics::kIconSizeLg + UiMetrics::kSpaceS;
+    }
+    const auto textRect = D2D1::RectF(textLeftDip, 3.0f,
+                                      (std::max)(textLeftDip + 20.0f,
+                                                 static_cast<float>(client.right) - rightPadDip),
                                       static_cast<float>(client.bottom) - 3.0f);
     if (textBrush) {
         searchTarget_->DrawText(text.c_str(), static_cast<UINT32>(text.size()), searchFormat_.Get(), textRect,
@@ -1002,30 +1484,480 @@ void SearchPanel::PaintSearchEdit(HWND hwnd) {
     EndPaint(hwnd, &paint);
 }
 
-void SearchPanel::PaintStatus(HWND hwnd) {
+// ---------------------------------------------------------------------------
+// ui-v3 search: custom-painted surfaces. The filter/disclosure bar carries the
+// Filters disclosure pill, active-filter chips, the live status line, and the
+// searching progress band; the query field hosts an in-field clear affordance;
+// an empty result list renders a deliberate explanatory state instead of blank
+// canvas. All colors come from GetUiTheme tokens (High Contrast falls back to
+// system colors); no filesystem access happens on any of these paths.
+// ---------------------------------------------------------------------------
+
+void SearchPanel::PaintFilterBar(HWND hwnd) {
     PAINTSTRUCT paint{};
     HDC dc = BeginPaint(hwnd, &paint);
     if (!dc) return;
 
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
-    COLORREF color = ffui::ToColorRef(theme.text);
-    if (statusKind_ == StatusKind::Searching) color = ffui::ToColorRef(theme.accent);
-    else if (statusKind_ == StatusKind::NoResults) color = ffui::ToColorRef(theme.textSecondary);
-
+    const bool highContrast = ffui::UiSystemHighContrast();
     RECT client{};
     GetClientRect(hwnd, &client);
-    HBRUSH backgroundBrush = CreateSolidBrush(ffui::ToColorRef(theme.background));
+    const COLORREF background = highContrast ? GetSysColor(COLOR_WINDOW) : ffui::ToColorRef(theme.background);
+    HBRUSH backgroundBrush = CreateSolidBrush(background);
     FillRect(dc, &client, backgroundBrush);
     DeleteObject(backgroundBrush);
-    SetTextColor(dc, color);
-    SetBkMode(dc, TRANSPARENT);
-    int length = GetWindowTextLengthW(hwnd);
-    std::wstring text(static_cast<size_t>(length) + 1, L'\0');
-    GetWindowTextW(hwnd, text.data(), length + 1);
-    text.resize(static_cast<size_t>(length));
-    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &client,
-              DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+
+    EnsureResultFonts();
+    HFONT fallbackFont = reinterpret_cast<HFONT>(SendMessageW(list_, WM_GETFONT, 0, 0));
+    if (fallbackFont == nullptr) fallbackFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT captionFont = resultCaptionFont_ != nullptr ? resultCaptionFont_ : fallbackFont;
+    const COLORREF textMuted = highContrast ? GetSysColor(COLOR_GRAYTEXT) : ffui::ToColorRef(theme.textSecondary);
+
+    const int barHeight = client.bottom - client.top;
+    const int chipHeight = (std::min)((std::max)(2, barHeight - 2), Scaled(18));
+    const int chipTop = client.top + (std::max)(0, barHeight - chipHeight) / 2;
+    const int chipBottom = chipTop + chipHeight;
+    const int chipRadius = chipHeight / 2;
+    int x = client.left + Scaled(UiMetrics::kSpaceXs);
+
+    // --- Disclosure pill -------------------------------------------------
+    {
+        const wchar_t* label = L"Filters";
+        SIZE labelSize{};
+        SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, label, static_cast<int>(wcslen(label)), &labelSize);
+        const int chevronWidth = Scaled(8);
+        const int pillWidth = Scaled(UiMetrics::kSpaceS) + chevronWidth + Scaled(UiMetrics::kSpaceXxs) +
+                              static_cast<int>(labelSize.cx) + Scaled(UiMetrics::kSpaceS);
+        disclosureRect_ = RECT{x, chipTop, (std::min)(static_cast<int>(client.right), x + pillWidth), chipBottom};
+        if (hoveredChip_ == kChipDisclosure) {
+            UiGdiRoundedRect(dc, disclosureRect_, CompositeOver(theme.hoverOverlay, background),
+                             Scaled(UiMetrics::kRadiusSmall));
+        }
+        const int contentLeft = disclosureRect_.left + Scaled(UiMetrics::kSpaceS);
+        const POINT chevronCenter{contentLeft + chevronWidth / 2,
+                                  (disclosureRect_.top + disclosureRect_.bottom) / 2};
+        DrawChevron(dc, chevronCenter, chevronWidth / 2, /*expanded=*/filtersExpanded_, textMuted);
+        SetTextColor(dc, textMuted);
+        SetBkMode(dc, TRANSPARENT);
+        RECT labelRect{contentLeft + chevronWidth + Scaled(UiMetrics::kSpaceXxs), chipTop,
+                       disclosureRect_.right, chipBottom};
+        DrawTextW(dc, label, -1, &labelRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        x = disclosureRect_.right + Scaled(UiMetrics::kSpaceS);
+    }
+
+    // --- Active-filter chips (Info pills; click clears the filter) -------
+    const auto drawChip = [&](RECT rect, const std::wstring& label, bool dismissible, bool hovered,
+                              COLORREF fill, COLORREF fg) {
+        if (rect.right <= rect.left) return;
+        UiGdiRoundedRect(dc, rect, hovered ? CompositeOver(theme.hoverOverlay, fill) : fill, chipRadius);
+        SIZE labelSize{};
+        SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &labelSize);
+        SetTextColor(dc, fg);
+        SetBkMode(dc, TRANSPARENT);
+        const int closeSlot = dismissible ? Scaled(14) : 0;
+        RECT labelRect{rect.left + Scaled(UiMetrics::kSpaceS), rect.top,
+                       (std::max)(rect.left, rect.right - closeSlot - Scaled(UiMetrics::kSpaceXxs)),
+                       rect.bottom};
+        DrawTextW(dc, label.c_str(), static_cast<int>(label.size()), &labelRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        if (dismissible) {
+            const POINT center{rect.right - Scaled(7), (rect.top + rect.bottom) / 2};
+            DrawCloseGlyph(dc, center, Scaled(2.5f), fg, 1);
+        }
+    };
+    const COLORREF chipFill = highContrast ? GetSysColor(COLOR_BTNFACE)
+                                           : CompositeOver(theme.selectionSoft, background);
+    const COLORREF chipFg = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.info);
+    if (scopeChipActive_ && !scopeChipText_.empty()) {
+        SIZE labelSize{};
+        SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, scopeChipText_.c_str(), static_cast<int>(scopeChipText_.size()), &labelSize);
+        const int width = Scaled(UiMetrics::kSpaceS) * 2 + Scaled(14) + static_cast<int>(labelSize.cx);
+        scopeChipRect_ = RECT{x, chipTop, (std::min)(static_cast<int>(client.right), x + width), chipBottom};
+        drawChip(scopeChipRect_, scopeChipText_, /*dismissible=*/true, hoveredChip_ == kChipScope,
+                 chipFill, chipFg);
+        x = scopeChipRect_.right + Scaled(UiMetrics::kSpaceXs);
+    } else {
+        scopeChipRect_ = RECT{};
+    }
+    if (sortChipActive_ && !sortChipText_.empty()) {
+        SIZE labelSize{};
+        SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, sortChipText_.c_str(), static_cast<int>(sortChipText_.size()), &labelSize);
+        const int width = Scaled(UiMetrics::kSpaceS) * 2 + Scaled(14) + static_cast<int>(labelSize.cx);
+        sortChipRect_ = RECT{x, chipTop, (std::min)(static_cast<int>(client.right), x + width), chipBottom};
+        drawChip(sortChipRect_, sortChipText_, /*dismissible=*/true, hoveredChip_ == kChipSort,
+                 chipFill, chipFg);
+        x = sortChipRect_.right + Scaled(UiMetrics::kSpaceXs);
+    } else {
+        sortChipRect_ = RECT{};
+    }
+    if (!engineActive_) {
+        // ui-v3 search: degraded engine gets its own distinct chip (paired with
+        // the status wording so meaning never rides on color alone).
+        const wchar_t* label = L"Browsed snapshot";
+        SIZE labelSize{};
+        SelectObject(dc, captionFont);
+        GetTextExtentPoint32W(dc, label, static_cast<int>(wcslen(label)), &labelSize);
+        const int width = Scaled(UiMetrics::kSpaceS) * 2 + static_cast<int>(labelSize.cx);
+        RECT degradedRect{x, chipTop, (std::min)(static_cast<int>(client.right), x + width), chipBottom};
+        drawChip(degradedRect, label, false, false,
+                 highContrast ? GetSysColor(COLOR_BTNFACE) : ffui::ToColorRef(theme.badgeDegradedBg),
+                 highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.badgeDegradedText));
+        x = degradedRect.right + Scaled(UiMetrics::kSpaceXs);
+    }
+
+    // --- Live status line (right-aligned in the remaining space) ---------
+    if (x < client.right - Scaled(UiMetrics::kSpaceS)) {
+        COLORREF statusColor = textMuted;
+        if (!statusWarning_.empty()) {
+            statusColor = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.warning);
+        } else if (statusKind_ == StatusKind::Searching) {
+            statusColor = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.accent);
+        } else if (statusKind_ == StatusKind::NoResults) {
+            statusColor = textMuted;
+        }
+        SetTextColor(dc, statusColor);
+        SetBkMode(dc, TRANSPARENT);
+        RECT statusRect{x + Scaled(UiMetrics::kSpaceXs), client.top,
+                        client.right - Scaled(UiMetrics::kSpaceXs), client.bottom - Scaled(3)};
+        DrawTextW(dc, statusText_.c_str(), static_cast<int>(statusText_.size()), &statusRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
+
+    // --- Searching progress cue ------------------------------------------
+    if (statusKind_ == StatusKind::Searching && client.right > client.left) {
+        const RECT bandRect{client.left, (std::max)(client.top, client.bottom - Scaled(3)),
+                            client.right, client.bottom};
+        UiGdiRoundedRect(dc, bandRect,
+                         highContrast ? GetSysColor(COLOR_BTNFACE) : CompositeOver(theme.dividerSubtle, background),
+                         Scaled(1.5f));
+        const float travel = static_cast<float>(bandRect.right - bandRect.left) * 0.75f;
+        const int bandLeft = bandRect.left + static_cast<int>(travel * progressPhase_);
+        RECT indicator{bandLeft, bandRect.top,
+                       (std::min)(static_cast<int>(bandRect.right), bandLeft + Scaled(36)), bandRect.bottom};
+        if (indicator.right > indicator.left) {
+            UiGdiRoundedRect(dc, indicator,
+                             highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ffui::ToColorRef(theme.accent),
+                             Scaled(1.5f));
+        }
+    }
     EndPaint(hwnd, &paint);
+}
+
+void SearchPanel::PaintClearQueryButton(HWND hwnd) {
+    PAINTSTRUCT paint{};
+    HDC dc = BeginPaint(hwnd, &paint);
+    if (!dc) return;
+
+    // ui-v3 search: circular clear affordance matching the field's token set;
+    // hover lifts the ring to focusStroke so the target reads as interactive.
+    const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+    const bool highContrast = ffui::UiSystemHighContrast();
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    HBRUSH backgroundBrush = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOW)
+                                                           : ffui::ToColorRef(theme.background));
+    FillRect(dc, &client, backgroundBrush);
+    DeleteObject(backgroundBrush);
+
+    const COLORREF ringColor = clearQueryHot_
+        ? (highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.focusStroke))
+        : (highContrast ? GetSysColor(COLOR_GRAYTEXT) : ffui::ToColorRef(theme.searchBorder));
+    HPEN pen = CreatePen(PS_SOLID, 1, ringColor);
+    if (pen != nullptr) {
+        const RECT ellipse{client.left + 1, client.top + 1, client.right - 1, client.bottom - 1};
+        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+        Ellipse(dc, ellipse.left, ellipse.top, ellipse.right, ellipse.bottom);
+        SelectObject(dc, oldBrush);
+        SelectObject(dc, oldPen);
+        DeleteObject(pen);
+    }
+    const POINT center{(client.left + client.right) / 2, (client.top + client.bottom) / 2};
+    DrawCloseGlyph(dc, center, Scaled(4),
+                   highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.searchText),
+                   clearQueryHot_ ? 2 : 1);
+    EndPaint(hwnd, &paint);
+}
+
+bool SearchPanel::ShouldPaintListEmptyState() const {
+    return visible_ && list_ != nullptr && results_.empty() && query_ != nullptr &&
+           GetWindowTextLengthW(query_) > 0;
+}
+
+void SearchPanel::PaintListEmptyState(HWND hwnd) {
+    PAINTSTRUCT paint{};
+    HDC dc = BeginPaint(hwnd, &paint);
+    if (!dc) return;
+
+    const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+    const bool highContrast = ffui::UiSystemHighContrast();
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    HBRUSH backgroundBrush = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOW)
+                                                           : ffui::ToColorRef(theme.background));
+    FillRect(dc, &client, backgroundBrush);
+    DeleteObject(backgroundBrush);
+    EnsureResultFonts();
+
+    // ui-v3 search: deliberate states, never blank — searching shows what is
+    // being searched; no-results explains scope/filters and offers recovery.
+    const wchar_t* title = statusKind_ == StatusKind::Searching ? L"Searching\u2026" : L"No matches";
+    std::wstring body;
+    if (statusKind_ == StatusKind::Searching) {
+        body = L"Looking in ";
+        body += ScopeDisplayName();
+        body += L"\u2026";
+    } else {
+        body = L"No files match";
+        if (!currentPrimaryTerm_.empty()) {
+            body += L" \u201C";
+            body += currentPrimaryTerm_;
+            body += L"\u201D";
+        }
+        body += L" in ";
+        body += ScopeDisplayName();
+        body += L".";
+    }
+    if (!engineActive_) {
+        body += L" The index service is offline \u2014 results come from browsed folders.";
+    } else if (!persistentCoverage_) {
+        body += L" Only browsed folders are available.";
+    }
+    if (!statusWarning_.empty()) {
+        body += L" ";
+        body += statusWarning_;
+    }
+    body += L" Try a shorter name or widen the scope under Filters.";
+
+    HFONT fallbackFont = reinterpret_cast<HFONT>(SendMessageW(list_, WM_GETFONT, 0, 0));
+    if (fallbackFont == nullptr) fallbackFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT titleFont = resultMatchFont_ != nullptr ? resultMatchFont_ : fallbackFont;
+    HFONT bodyFont = resultCaptionFont_ != nullptr ? resultCaptionFont_ : fallbackFont;
+
+    const COLORREF titleColor = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ffui::ToColorRef(theme.text);
+    const COLORREF bodyColor = highContrast ? GetSysColor(COLOR_GRAYTEXT) : ffui::ToColorRef(theme.textSecondary);
+    const int blockWidth = (std::min)(static_cast<int>(client.right - client.left) - Scaled(UiMetrics::kSpaceL),
+                                      Scaled(520));
+
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, titleColor);
+    RECT titleRect{0, 0, blockWidth, Scaled(56)};
+    SelectObject(dc, titleFont);
+    DrawTextW(dc, title, -1, &titleRect, DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+    SetTextColor(dc, bodyColor);
+    RECT bodyRect{0, 0, blockWidth, 0};
+    SelectObject(dc, bodyFont);
+    DrawTextW(dc, body.c_str(), static_cast<int>(body.size()), &bodyRect,
+              DT_CALCRECT | DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+
+    const int blockHeight = (titleRect.bottom - titleRect.top) + Scaled(UiMetrics::kSpaceS) +
+                            (bodyRect.bottom - bodyRect.top);
+    int y = client.top + (std::max)(0, static_cast<int>(client.bottom - client.top) - blockHeight) / 2;
+    const int x = client.left + (std::max)(0, static_cast<int>(client.right - client.left) - blockWidth) / 2;
+
+    RECT titleOut{x, y, x + blockWidth, y + (titleRect.bottom - titleRect.top)};
+    SelectObject(dc, titleFont);
+    SetTextColor(dc, titleColor);
+    DrawTextW(dc, title, -1, &titleOut, DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+    y += (titleRect.bottom - titleRect.top) + Scaled(UiMetrics::kSpaceS);
+    RECT bodyOut{x, y, x + blockWidth, y + (bodyRect.bottom - bodyRect.top)};
+    SelectObject(dc, bodyFont);
+    SetTextColor(dc, bodyColor);
+    DrawTextW(dc, body.c_str(), static_cast<int>(body.size()), &bodyOut,
+              DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
+    EndPaint(hwnd, &paint);
+}
+
+// --- Filter-bar interaction (presentation-level hover/click routing) -------
+
+void SearchPanel::HandleFilterBarMouseMove(LPARAM lParam) {
+    const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    int chip = kChipNone;
+    if (PtInRect(&disclosureRect_, point)) chip = kChipDisclosure;
+    else if (scopeChipActive_ && PtInRect(&scopeChipRect_, point)) chip = kChipScope;
+    else if (sortChipActive_ && PtInRect(&sortChipRect_, point)) chip = kChipSort;
+    if (chip != hoveredChip_) {
+        hoveredChip_ = chip;
+        if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+    }
+}
+
+void SearchPanel::HandleFilterBarMouseLeave() {
+    if (hoveredChip_ != kChipNone) {
+        hoveredChip_ = kChipNone;
+        if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+    }
+}
+
+void SearchPanel::HandleFilterBarClick(LPARAM lParam) {
+    const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (PtInRect(&disclosureRect_, point)) {
+        ToggleFiltersExpanded();
+        return;
+    }
+    // ui-v3 search: clicking a chip clears that filter through the exact same
+    // control/model path the combo itself uses, then re-runs the query.
+    if (scopeChipActive_ && PtInRect(&scopeChipRect_, point)) {
+        if (scope_ != nullptr) {
+            SendMessageW(scope_, CB_SETCURSEL, 3, 0);
+            UpdateFilterSummary();
+            Dispatch(false);
+        }
+        return;
+    }
+    if (sortChipActive_ && PtInRect(&sortChipRect_, point)) {
+        if (sort_ != nullptr) {
+            SendMessageW(sort_, CB_SETCURSEL, 0, 0);
+            descending_ = false;
+            if (sortDirection_ != nullptr) SetWindowTextW(sortDirection_, L"\u2191 Ascending");
+            UpdateFilterSummary();
+            Dispatch(false);
+        }
+        return;
+    }
+}
+
+void SearchPanel::ToggleFiltersExpanded() {
+    filtersExpanded_ = !filtersExpanded_;
+    if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+    if (visible_) Reposition(lastSurfaceRect_);
+}
+
+void SearchPanel::SetButtonHot(HWND source, bool hot) {
+    bool* flag = source == sortDirection_ ? &directionHot_
+               : source == clearHistory_ ? &clearHistoryHot_
+                                         : nullptr;
+    if (flag != nullptr && *flag != hot) {
+        *flag = hot;
+        InvalidateRect(source, nullptr, FALSE);
+    }
+}
+
+// ui-v3 search: clears the query through the edit control (so selection,
+// undo state, and the history combo stay consistent), cancels any pending
+// debounce tick, and re-dispatches the now-empty query.
+void SearchPanel::ClearQueryText() {
+    if (queryEdit_ == nullptr) return;
+    updatingHistory_ = true;
+    SetWindowTextW(queryEdit_, L"");
+    updatingHistory_ = false;
+    KillTimer(owner_, kDebounceTimer);
+    clearQueryHot_ = false;
+    UpdateClearAffordance();
+    InvalidateRect(query_, nullptr, FALSE);
+    SetFocus(queryEdit_);
+    Dispatch(false);
+}
+
+// ui-v3 search: row hover tracking on the native list. Presentation only —
+// the ListView keeps sole ownership of selection and keyboard focus.
+void SearchPanel::HandleListMouseMove(LPARAM lParam) {
+    if (list_ == nullptr || results_.empty()) return;
+    LVHITTESTINFO hit{};
+    hit.pt = POINT{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    const int item = ListView_HitTest(list_, &hit);
+    if (item != hoveredResultRow_) {
+        RECT previous{};
+        if (hoveredResultRow_ >= 0 &&
+            ListView_GetItemRect(list_, hoveredResultRow_, &previous, LVIR_BOUNDS)) {
+            InvalidateRect(list_, &previous, FALSE);
+        }
+        hoveredResultRow_ = item >= 0 && static_cast<size_t>(item) < results_.size() ? item : -1;
+        RECT current{};
+        if (hoveredResultRow_ >= 0 &&
+            ListView_GetItemRect(list_, hoveredResultRow_, &current, LVIR_BOUNDS)) {
+            InvalidateRect(list_, &current, FALSE);
+        }
+    }
+}
+
+void SearchPanel::HandleListMouseLeave() {
+    if (hoveredResultRow_ < 0) return;
+    RECT previous{};
+    if (list_ != nullptr && ListView_GetItemRect(list_, hoveredResultRow_, &previous, LVIR_BOUNDS)) {
+        InvalidateRect(list_, &previous, FALSE);
+    }
+    hoveredResultRow_ = -1;
+}
+
+// ui-v3 search: DPI-aware fonts for result rows and the filter bar; recreated
+// only when the system DPI scale changes.
+void SearchPanel::EnsureResultFonts() {
+    const float scale = ffui::UiDpiScale();
+    if (resultNameFont_ != nullptr && scale == resultFontScale_) return;
+    if (resultNameFont_) DeleteObject(resultNameFont_);
+    if (resultMatchFont_) DeleteObject(resultMatchFont_);
+    if (resultCaptionFont_) DeleteObject(resultCaptionFont_);
+    resultFontScale_ = scale;
+    resultNameFont_ = CreateFontW(-Scaled(UiTypeSize(UiTypeRole::Body)), 0, 0, 0, FW_NORMAL,
+                                  FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                  CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    resultMatchFont_ = CreateFontW(-Scaled(UiTypeSize(UiTypeRole::Body)), 0, 0, 0, FW_SEMIBOLD,
+                                   FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                   CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+    resultCaptionFont_ = CreateFontW(-Scaled(UiTypeSize(UiTypeRole::Caption)), 0, 0, 0, FW_NORMAL,
+                                     FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
+                                     CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
+}
+
+// ui-v3 search: two-line rows need explicit metrics; a report-mode ListView
+// derives its row height from the small image list, so a one-entry image list
+// at the row height sets it without touching virtualization.
+void SearchPanel::EnsureRowMetrics() {
+    const int desired = Scaled(kResultRowHeightDip);
+    if (resultListImages_ != nullptr && desired == resultListRowHeightPx_) return;
+    ReleaseListImageList();
+    if (desired <= 0) return;
+    resultListImages_ = ImageList_Create((std::max)(1, Scaled(static_cast<int>(UiMetrics::kIconSize))),
+                                         desired, ILC_COLOR32, 1, 1);
+    if (resultListImages_ != nullptr && list_ != nullptr) {
+        ListView_SetImageList(list_, resultListImages_, LVSIL_SMALL);
+        resultListRowHeightPx_ = desired;
+    } else {
+        ReleaseListImageList();
+    }
+}
+
+void SearchPanel::ReleaseListImageList() {
+    if (resultListImages_ != nullptr) {
+        HIMAGELIST images = resultListImages_;
+        resultListImages_ = nullptr; // detach before destroy (list may still be alive)
+        ImageList_Destroy(images);
+    }
+    resultListRowHeightPx_ = 0;
+}
+
+// ui-v3 search: cached chip model — rebuilt only when a scope/sort/direction/
+// engine input changes, never per paint.
+void SearchPanel::UpdateFilterSummary() {
+    const int scopeSel = scope_ != nullptr ? static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0)) : -1;
+    const int sortSel = sort_ != nullptr ? static_cast<int>(SendMessageW(sort_, CB_GETCURSEL, 0, 0)) : 0;
+    scopeChipActive_ = scopeSel >= 0 && scopeSel != 3; // 3 = All Locations (default)
+    scopeChipText_ = scopeChipActive_ ? std::wstring(L"Scope: ") + ScopeShortName(scopeSel) : std::wstring();
+    sortChipActive_ = sortSel > 0 || descending_; // Relevance ascending is the default
+    if (sortChipActive_) {
+        sortChipText_ = std::wstring(L"Sort: ") + SortFieldName(sortSel);
+        sortChipText_ += descending_ ? L" \u2193" : L" \u2191";
+    } else {
+        sortChipText_.clear();
+    }
+    if (filterBar_ != nullptr) InvalidateRect(filterBar_, nullptr, FALSE);
+}
+
+void SearchPanel::UpdateClearAffordance() {
+    if (clearQuery_ == nullptr || query_ == nullptr) return;
+    const bool show = visible_ && GetWindowTextLengthW(query_) > 0;
+    ShowWindow(clearQuery_, show ? SW_SHOWNOACTIVATE : SW_HIDE);
+}
+
+std::wstring SearchPanel::ScopeDisplayName() const {
+    if (scope_ == nullptr) return L"All Locations";
+    const int selection = static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0));
+    return ScopeShortName(selection);
 }
 
 void SearchPanel::OnSnapshotUpdated() {
@@ -1090,6 +2022,7 @@ void SearchPanel::RefreshScopeLabels() {
     const int next = selected >= 0 && selected < count ? selected : 3;
     SendMessageW(scope_, CB_SETCURSEL, next, 0);
     InvalidateRect(scope_, nullptr, TRUE);
+    UpdateFilterSummary(); // ui-v3 search: chip labels follow the relabelled scope set
 }
 
 void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidates) {
@@ -1173,6 +2106,7 @@ void SearchPanel::PopulateCandidates(std::vector<ffsearch::Candidate>& candidate
 void SearchPanel::SetEngineActive(bool active) {
     const bool lostBroadScope = engineActive_ && !active && SendMessageW(scope_, CB_GETCURSEL, 0, 0) >= 2;
     engineActive_ = active;
+    UpdateFilterSummary(); // ui-v3 search: the degraded chip tracks engine state
     if (visible_) UpdateScopeAvailability(lostBroadScope);
 }
 
@@ -1192,8 +2126,17 @@ void SearchPanel::UpdateScopeAvailability(bool showFallbackNotice) {
 
 void SearchPanel::UpdateStatus(const std::wstring& text, StatusKind kind) {
     statusKind_ = kind;
-    SetWindowTextW(status_, text.c_str());
-    if (status_) InvalidateRect(status_, nullptr, TRUE);
+    // ui-v3 search: the live status line lives in the filter bar now; a
+    // searching state also arms the bounded progress-cue timer, which is
+    // killed on every terminal state so no idle animation ever runs.
+    statusText_ = text;
+    if (kind == StatusKind::Searching) {
+        progressPhase_ = 0.0f;
+        if (owner_) SetTimer(owner_, kProgressTimer, kProgressTimerMilliseconds, nullptr);
+    } else {
+        KillTimer(owner_, kProgressTimer);
+    }
+    if (filterBar_) InvalidateRect(filterBar_, nullptr, TRUE);
 }
 
 std::filesystem::path SearchPanel::HistoryPath() {

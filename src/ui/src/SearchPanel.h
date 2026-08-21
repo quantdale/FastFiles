@@ -14,6 +14,7 @@
 #include <thread>
 #include <vector>
 #include <windows.h>
+#include <commctrl.h> // ui-v3 search: HIMAGELIST drives the two-line result row height
 #include <wrl/client.h>
 
 #include "EngineClient.h"
@@ -72,14 +73,41 @@ public:
     // cleared so the shell can refresh the Home Recent searches section.
     void SetHistoryChangedCallback(std::function<void()> cb);
 
-    // Task 5: custom-painted query edit and status line. The subclassed controls
-    // (SearchEditProc / StatusProc, free functions in the anonymous namespace of
-    // SearchPanel.cpp) call back into the panel through these methods.
+    // Task 5: custom-painted query edit. The subclassed edit control
+    // (SearchEditProc, a free function in the anonymous namespace of
+    // SearchPanel.cpp) calls back into the panel through this method.
     void PaintSearchEdit(HWND hwnd);
-    void PaintStatus(HWND hwnd);
+    // ui-v3 search: custom-painted filter/disclosure bar (disclosure pill,
+    // active-filter chips, live status line, searching progress band), the
+    // in-field clear-query affordance, and the no-results state panel. All are
+    // called from free subclass procs in the .cpp, hence public.
+    void PaintFilterBar(HWND hwnd);
+    void PaintClearQueryButton(HWND hwnd);
+    // ui-v3 search: hover flag for the in-field clear affordance — touched by
+    // the file-scope subclass proc, exposed as a tiny seam to keep the member
+    // private.
+    bool ClearQueryHot() const { return clearQueryHot_; }
+    void SetClearQueryHot(bool hot) { clearQueryHot_ = hot; }
+    bool ShouldPaintListEmptyState() const;
+    void PaintListEmptyState(HWND hwnd);
+    // ui-v3 search: hover/click plumbing for the surfaces above plus result-row
+    // hover tracking on the native list (presentation only; selection identity
+    // stays with the ListView).
+    void HandleFilterBarMouseMove(LPARAM lParam);
+    void HandleFilterBarMouseLeave();
+    void HandleFilterBarClick(LPARAM lParam);
+    void HandleListMouseMove(LPARAM lParam);
+    void HandleListMouseLeave();
+    void SetButtonHot(HWND source, bool hot);
+    void ToggleFiltersExpanded();
+    void ClearQueryText();
+    // ui-v3 search: the row-height image list is owned by the panel, not the
+    // ListView; released on WM_NCDESTROY of the list or panel teardown,
+    // whichever comes first. Idempotent.
+    void ReleaseListImageList();
     // Focus state for the Fluent query edit, set by SearchEditProc on
-    // WM_SETFOCUS/WM_KILLFOCUS and read by PaintSearchEdit to draw the accent
-    // underline. Public because the subclass proc is a free function.
+    // WM_SETFOCUS/WM_KILLFOCUS and read by PaintSearchEdit to draw the focus
+    // treatment. Public because the subclass proc is a free function.
     bool searchEditFocused_ = false;
 
 private:
@@ -126,13 +154,25 @@ private:
     void DrawTextButton(HWND source, const DRAWITEMSTRUCT* item);
     int SystemIconIndex(const std::wstring& key);
 
+    // ui-v3 search: presentation-state helpers for the query-first layout.
+    void EnsureResultFonts();
+    void EnsureRowMetrics();
+    void UpdateFilterSummary();
+    void UpdateClearAffordance();
+    std::wstring ScopeDisplayName() const;
+
     HWND owner_ = nullptr;
     HWND query_ = nullptr;
     HWND queryEdit_ = nullptr;
     HWND scope_ = nullptr;
     HWND sort_ = nullptr;
     HWND list_ = nullptr;
-    HWND status_ = nullptr;
+    // ui-v3 search: the old status STATIC was folded into this bar; it hosts
+    // the Filters disclosure, active-filter chips, and the live status line.
+    HWND filterBar_ = nullptr;
+    // ui-v3 search: in-field clear-query affordance (visible while text is
+    // present); a subclassed STATIC so no owner WM_COMMAND routing changes.
+    HWND clearQuery_ = nullptr;
     HWND clearHistory_ = nullptr;
     HWND sortDirection_ = nullptr;
     EngineClient* engine_ = nullptr;
@@ -151,6 +191,43 @@ private:
     bool updatingHistory_ = false;
     bool descending_ = false;
     bool snapshotFallback_ = false;
+    // ui-v3 search: filters/sort live behind a compact disclosure row so the
+    // permanent chrome stays quiet; chips surface only non-default state.
+    bool filtersExpanded_ = false;
+    bool clearQueryHot_ = false;      // hover on the in-field clear affordance
+    bool directionHot_ = false;       // hover tracking for owner-draw buttons
+    bool clearHistoryHot_ = false;
+    int hoveredResultRow_ = -1;       // presentation-only row hover on the list
+    int hoveredChip_ = -1;            // filter-bar hit: 0 disclosure, 1 scope, 2 sort
+    float progressPhase_ = 0.0f;      // indeterminate band phase while searching
+    ShellLayoutRect lastSurfaceRect_{};
+
+    // ui-v3 search: cached chip model, rebuilt only when an input changes
+    // (scope/sort selection, direction, engine state) — never per paint.
+    bool scopeChipActive_ = false;
+    bool sortChipActive_ = false;
+    std::wstring scopeChipText_;
+    std::wstring sortChipText_;
+    // Chip/disclosure geometry from the last filter-bar paint; used for
+    // hit-testing (same paint-driven pattern as the sidebar rows).
+    RECT disclosureRect_{};
+    RECT scopeChipRect_{};
+    RECT sortChipRect_{};
+
+    // ui-v3 search: DPI-aware fonts for the two-line result rows and the
+    // filter bar; recreated when the system DPI scale changes.
+    HFONT resultNameFont_ = nullptr;
+    HFONT resultMatchFont_ = nullptr;
+    HFONT resultCaptionFont_ = nullptr;
+    float resultFontScale_ = -1.0f;
+    // Row-height driver: a ListView sizes report rows to its small image list,
+    // so a one-entry image list at the two-line height sets the row metrics.
+    HIMAGELIST resultListImages_ = nullptr;
+    int resultListRowHeightPx_ = 0;
+
+    // ui-v3 search: the live status line text (the old STATIC is gone);
+    // rendered by PaintFilterBar together with the chips.
+    std::wstring statusText_;
     // Coalesces snapshot-generation refreshes: when generations publish faster
     // than the refresh interval, only a dirty flag is set and the re-dispatch
     // happens on the next debounce/visibility change.
@@ -183,6 +260,9 @@ private:
     Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> searchTarget_;
     Microsoft::WRL::ComPtr<IDWriteFactory> searchWriteFactory_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> searchFormat_;
+    // ui-v3 search: optional leading search glyph format ("Segoe MDL2 Assets");
+    // the field renders without the glyph when the family is unavailable.
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> searchGlyphFormat_;
     bool searchResourcesReady_ = false;
     float lastSearchDpi_ = -1.0f;
 
