@@ -104,15 +104,46 @@ std::wstring UiaSizeText(uint64_t sizeBytes) {
     return std::to_wstring(sizeBytes) + L" bytes";
 }
 
+// Reads the leading (namespace, kind) discriminants of a provider's runtime
+// ID without casting. False when the element exposes no usable custom ID
+// (HWND-backed roots) or fails resolution (stale elements).
+bool RuntimeIdKind(IRawElementProviderSimple* element, int* ns, int* kind) {
+    *ns = -1;
+    *kind = -1;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
+    if (FAILED(element->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return false;
+    SAFEARRAY* ids = nullptr;
+    if (FAILED(fragment->GetRuntimeId(&ids)) || ids == nullptr) return false;
+    bool ok = false;
+    LONG lower = 0;
+    LONG upper = -1;
+    if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+        SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper)) && upper - lower + 1 >= 2) {
+        LONG i0 = lower;
+        LONG i1 = lower + 1;
+        if (SUCCEEDED(SafeArrayGetElement(ids, &i0, ns)) &&
+            SUCCEEDED(SafeArrayGetElement(ids, &i1, kind))) {
+            ok = true;
+        }
+    }
+    SafeArrayDestroy(ids);
+    return ok;
+}
+
 // Resolve the item's row from a startAfter element for FindItemByProperty
-// (unknown startAfter = start at the beginning).
+// (unknown startAfter = start at the beginning). The cast is guarded by the
+// runtime-ID discriminants: a sibling from a foreign surface is legal input
+// and must degrade to "start from the beginning", never reinterpret fields.
 int RowOfItemProvider(ColumnViewUiaProvider* owner, int pane, int column,
                       IRawElementProviderSimple* startAfter) {
     (void)owner;
     if (startAfter == nullptr) return -1;
-    Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
-    if (FAILED(startAfter->QueryInterface(IID_ISelectionItemProvider, &selection))) return -1;
-    auto* item = static_cast<ColumnItemUiaProvider*>(selection.Get());
+    int ns = -1;
+    int kind = -1;
+    if (!RuntimeIdKind(startAfter, &ns, &kind) || ns != kUiaNsColumnView || kind != 3) return -1;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
+    if (FAILED(startAfter->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return -1;
+    auto* item = static_cast<ColumnItemUiaProvider*>(fragment.Get());
     if (item->Pane() != pane || item->Column() != column) return -1;
     return item->Row();
 }
@@ -208,6 +239,20 @@ STDMETHODIMP ColumnViewUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARI
     // the host provider so they stay live with the window.
     if (hostProvider_ != nullptr) {
         return hostProvider_->GetPropertyValue(propertyId, retVal);
+    }
+    return S_OK;
+}
+
+STDMETHODIMP ColumnViewUiaProvider::get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept {
+    if (retVal == nullptr) return E_POINTER;
+    *retVal = nullptr;
+    if (!Alive()) return S_OK;
+    // Fragment root: expose the HWND host provider so UIA merges this custom
+    // element with the window's default provider instead of replacing it
+    // (keeps native child controls and window properties reachable).
+    if (hostProvider_ != nullptr) {
+        *retVal = hostProvider_.Get();
+        (*retVal)->AddRef();
     }
     return S_OK;
 }
@@ -949,9 +994,12 @@ STDMETHODIMP ColumnViewGroupUiaProvider::Navigate(NavigateDirection direction, I
         }
         case NavigateDirection_FirstChild:
         case NavigateDirection_LastChild: {
-            auto pane = owner_->PaneElement(0);
-            if (pane != nullptr) {
-                *retVal = pane.Detach();
+            const int paneCount = owner_->Surface()->UiaPaneCount();
+            if (paneCount <= 0) return S_OK;
+            const int pane = direction == NavigateDirection_LastChild ? paneCount - 1 : 0;
+            auto paneElement = owner_->PaneElement(pane);
+            if (paneElement != nullptr) {
+                *retVal = paneElement.Detach();
             }
             return S_OK;
         }
@@ -1043,9 +1091,17 @@ STDMETHODIMP PaneUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* r
         case UIA_IsKeyboardFocusablePropertyId:
             SetVariantBool(retVal, true);
             return S_OK;
-        case UIA_HasKeyboardFocusPropertyId:
-            SetVariantBool(retVal, false);
+        case UIA_HasKeyboardFocusPropertyId: {
+            // The pane owns keyboard focus only when it is the active pane,
+            // the window really has focus, and no row carries the focus.
+            const UiaViewGeometry geometry = owner_->Geometry();
+            UiaSurface* paneSurface = owner_->Surface();
+            const int focusedRow =
+                paneSurface->UiaFocusedRow(pane_, paneSurface->UiaFocusedColumn(pane_));
+            SetVariantBool(retVal, paneSurface->UiaActivePane() == pane_ &&
+                                       geometry.keyboardFocus && focusedRow < 0);
             return S_OK;
+        }
         case UIA_IsEnabledPropertyId:
             SetVariantBool(retVal, true);
             return S_OK;
@@ -1973,8 +2029,6 @@ STDMETHODIMP ColumnStatusUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
             SetVariantBool(retVal, true);
             return S_OK;
         case UIA_IsOffscreenPropertyId:
-            SetVariantBool(retVal, false);
-            return S_OK;
         case UIA_BoundingRectanglePropertyId: {
             const UiaViewGeometry geometry = owner_->Geometry();
             const float paneWidth = geometry.widthDip / static_cast<float>(surface->UiaPaneCount());
@@ -1984,7 +2038,12 @@ STDMETHODIMP ColumnStatusUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
                 ? UiMetrics::kBadgeHeight + 4.0f : UiMetrics::kBadgeHeight + 8.0f;
             const float height = info.status == UiaColumnStatus::Loading ? 24.0f : 40.0f;
             const D2D1_RECT_F rectDip = D2D1::RectF(x + 8.0f, top, x + UiMetrics::kColumnWidth - 8.0f, top + height);
-            SetVariantRect(retVal, UiaRectToScreen(rectDip, geometry));
+            if (propertyId == UIA_IsOffscreenPropertyId) {
+                SetVariantBool(retVal, UiaRectOffscreen(rectDip, static_cast<float>(pane_) * paneWidth,
+                                                        paneWidth, geometry.heightDip));
+            } else {
+                SetVariantRect(retVal, UiaRectToScreen(rectDip, geometry));
+            }
             return S_OK;
         }
         case UIA_RuntimeIdPropertyId: {

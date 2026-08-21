@@ -106,6 +106,7 @@ public:
     // IRawElementProviderSimple
     STDMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept override;
     STDMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept override;
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override;
 
     // IRawElementProviderFragment
     STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept override;
@@ -152,5 +153,12 @@ private:
 };
 
 // One search result row.
+
+// Row height from the native list's LVM_GETITEMSPACING metric: HIWORD is the
+// vertical spacing (LOWORD is horizontal), with the established 28px
+// fallback for degenerate values. Exposed pure for headless tests.
+inline int SearchRowHeightFromSpacing(LONG spacing) {
+    return spacing > 0 ? static_cast<int>(HIWORD(static_cast<DWORD>(spacing))) : 28;
+}
 
 } // namespace ffui

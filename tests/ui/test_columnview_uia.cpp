@@ -5,6 +5,7 @@
 // exercised through the real COM interfaces.
 
 #include "ColumnViewUiaProvider.h"
+#include "SearchUiaProvider.h"
 #include "UiaTestSurface.h"
 
 #include <algorithm>
@@ -819,6 +820,154 @@ void TestSelectionDualPaneIsolation() {
     Check(isSelected == TRUE, "pane-0 item 0 still reports IsSelected==TRUE");
 }
 
+// P1: the fragment root must expose the HWND host provider so UIA merges the
+// custom element with the window's default provider (native child controls
+// stay reachable). Headless (null hwnd) it degrades to S_OK with null.
+void TestHostRawElementProvider() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    {
+        ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+        IRawElementProviderSimple* host = nullptr;
+        Check(SUCCEEDED(root.get_HostRawElementProvider(&host)) && host == nullptr,
+              "headless root returns S_OK with a null host provider");
+    }
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"fftest_uia_host";
+        RegisterClassW(&wc);
+        registered = true;
+    }
+    HWND hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"fftest_uia_host", L"fftest", WS_POPUP,
+                                0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(hwnd != nullptr, "host-provider test window created");
+    if (hwnd != nullptr) {
+        ffui::ColumnViewUiaProvider root(state, &surface, hwnd);
+        IRawElementProviderSimple* host = nullptr;
+        Check(SUCCEEDED(root.get_HostRawElementProvider(&host)) && host != nullptr,
+              "HWND-backed root returns its host provider");
+        if (host != nullptr) host->Release();
+        DestroyWindow(hwnd);
+    }
+}
+
+// LastChild from the Column View group must follow the pane count instead of
+// always landing on Pane 1.
+void TestGroupLastChildFollowsPaneCount() {
+    auto dual = MakeDualPaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &dual, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto first = FirstChild(group.Get());
+    auto last = NavigateTo(group.Get(), NavigateDirection_LastChild);
+    Check(first != nullptr && GetName(first.Get()) == L"Pane 1", "dual-pane FirstChild is Pane 1");
+    Check(last != nullptr && GetName(last.Get()) == L"Pane 2", "dual-pane LastChild is Pane 2");
+
+    auto single = MakeSinglePaneSurface();
+    ffui::ColumnViewUiaProvider singleRoot(state, &single, nullptr);
+    auto singleGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&singleRoot));
+    auto singleLast = NavigateTo(singleGroup.Get(), NavigateDirection_LastChild);
+    Check(singleLast != nullptr && GetName(singleLast.Get()) == L"Pane 1",
+          "single-pane LastChild stays Pane 1");
+}
+
+// A startAfter element from a foreign surface is legal ItemContainer input:
+// it must degrade to "start from the beginning", never reinterpret fields.
+void TestFindItemByPropertyForeignStartAfter() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto column = FirstChild(pane.Get());
+    Microsoft::WRL::ComPtr<IItemContainerProvider> container;
+    Check(SUCCEEDED(column->QueryInterface(IID_IItemContainerProvider, &container)),
+          "column exposes IItemContainerProvider");
+
+    // Foreign element: a search result provider from a different surface.
+    fftest::FakeUiaSurface searchSurface;
+    searchSurface.searchVisible = true;
+    ffui::UiaSearchResultInfo foreignInfo;
+    foreignInfo.name = L"foreign.txt";
+    foreignInfo.folder = L"C:\\Elsewhere";
+    foreignInfo.fullPath = L"C:\\Elsewhere\\foreign.txt";
+    searchSurface.searchResults.push_back(foreignInfo);
+    ffui::SearchUiaProvider searchRoot(state, &searchSurface, nullptr);
+    auto foreign = FirstChild(static_cast<IRawElementProviderFragment*>(&searchRoot));
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> foreignSimple;
+    Check(SUCCEEDED(foreign.As(&foreignSimple)) && foreignSimple != nullptr,
+          "foreign element resolves");
+
+    VARIANT name{};
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(L"file3.txt");
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> found;
+    Check(SUCCEEDED(container->FindItemByProperty(foreignSimple.Get(), UIA_NamePropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"file3.txt",
+          "foreign startAfter degrades to a full scan and still finds the item");
+    VariantClear(&name);
+
+    // Same-container startAfter keeps working: starting after item 0 still
+    // finds file3.txt at row 3.
+    auto item0 = FirstChild(column.Get());
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> item0Simple;
+    Check(SUCCEEDED(item0.As(&item0Simple)), "own item resolves as startAfter");
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(L"file3.txt");
+    found.Reset();
+    Check(SUCCEEDED(container->FindItemByProperty(item0Simple.Get(), UIA_NamePropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"file3.txt",
+          "own startAfter still finds later items");
+    VariantClear(&name);
+}
+
+// The pane projects real keyboard-focus state: active pane + window focus +
+// no focused row. The fixture has keyboardFocus=true.
+void TestPaneHasKeyboardFocusProjection() {
+    auto surface = MakeSinglePaneSurface(); // focusIndex = 0 -> row owns focus
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    Check(!GetBoolProperty(pane.Get(), UIA_HasKeyboardFocusPropertyId),
+          "pane does not claim focus while a row owns it");
+
+    surface.panes[0].columns[0].focusIndex = -1; // no focused row
+    Check(GetBoolProperty(pane.Get(), UIA_HasKeyboardFocusPropertyId),
+          "active pane with no focused row reports HasKeyboardFocus");
+
+    surface.geometry.keyboardFocus = false;
+    Check(!GetBoolProperty(pane.Get(), UIA_HasKeyboardFocusPropertyId),
+          "pane reports no focus when the window lacks keyboard focus");
+}
+
+// The status text's IsOffscreen must agree with its scrolled bounds.
+void TestStatusOffscreenTracksScroll() {
+    auto surface = MakeSinglePaneSurface();
+    surface.panes[0].columns[0].status = ffui::UiaColumnStatus::Unavailable;
+    surface.panes[0].columns[0].statusText = L"This folder is unavailable.";
+    surface.panes[0].columns[0].items.clear();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto pane = FirstChild(group.Get());
+    auto column = FirstChild(pane.Get());
+    auto status = FirstChild(column.Get());
+    Check(status != nullptr, "status element resolves for the offscreen check");
+    Check(!GetBoolProperty(status.Get(), UIA_IsOffscreenPropertyId),
+          "on-screen status text is not offscreen");
+
+    // Scroll the column far out of the pane clip: offscreen flips true.
+    surface.geometry.hScroll0Dip = 5000.0f;
+    Check(GetBoolProperty(status.Get(), UIA_IsOffscreenPropertyId),
+          "scrolled-out status text reports IsOffscreen=true");
+}
+
 } // namespace
 
 int main() {
@@ -839,6 +988,11 @@ int main() {
     TestElementProviderFromPointAndFocus();
     TestFindItemByProperty();
     TestStatusTextElement();
+    TestHostRawElementProvider();
+    TestGroupLastChildFollowsPaneCount();
+    TestFindItemByPropertyForeignStartAfter();
+    TestPaneHasKeyboardFocusProjection();
+    TestStatusOffscreenTracksScroll();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffcolumnview_uia_tests: %d check(s) failed\n", FailureCount());

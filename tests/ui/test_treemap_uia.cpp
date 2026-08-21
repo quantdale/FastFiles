@@ -631,6 +631,72 @@ void TestItemContainerFindByName() {
     VariantClear(&name);
 }
 
+// A startAfter element from a foreign surface must degrade to "start from
+// the beginning", and a non-BSTR AutomationId value must not be read as a
+// string (std::wstring(nullptr, 0) UB).
+void TestItemContainerForeignStartAfterAndNonString() {
+    FakeTreemapUiaSurface treemap;
+    treemap.scopeHash = ffui::UiaHashWide(L"C:\\TestScope");
+    treemap.scopePath = L"C:\\TestScope";
+    treemap.active = true;
+    treemap.tiles.push_back(MakeTile(0x100, L"alpha.txt", L"C:\\alpha.txt", false, true, 0.0f, 0.0f, 50.0f, 50.0f));
+    treemap.tiles.push_back(MakeTile(0x200, L"beta.txt", L"C:\\beta.txt", false, true, 50.0f, 0.0f, 50.0f, 50.0f));
+
+    auto surface = MakeBaseSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr, &treemap);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    Microsoft::WRL::ComPtr<IItemContainerProvider> container;
+    Check(SUCCEEDED(group->QueryInterface(IID_IItemContainerProvider, &container)),
+          "treemap group exposes IItemContainerProvider");
+
+    // Foreign element: a column item provider from a plain (non-treemap) tree.
+    auto plainSurface = MakeBaseSurface();
+    ffui::ColumnViewUiaProvider plainRoot(state, &plainSurface, nullptr);
+    auto pGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&plainRoot));
+    auto pPane = FirstChild(pGroup.Get());
+    auto pColumn = FirstChild(pPane.Get());
+    auto foreignItem = FirstChild(pColumn.Get());
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> foreignSimple;
+    Check(SUCCEEDED(foreignItem.As(&foreignSimple)) && foreignSimple != nullptr,
+          "foreign column item resolves");
+
+    VARIANT name{};
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(L"beta.txt");
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> found;
+    Check(SUCCEEDED(container->FindItemByProperty(foreignSimple.Get(), UIA_NamePropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"beta.txt",
+          "foreign startAfter degrades to a full scan and still finds the tile");
+    VariantClear(&name);
+
+    // Non-BSTR value for the AutomationId branch: must return null cleanly.
+    VARIANT bad{};
+    VariantInit(&bad);
+    bad.vt = VT_I4;
+    bad.lVal = 42;
+    found.Reset();
+    Check(SUCCEEDED(container->FindItemByProperty(nullptr, UIA_AutomationIdPropertyId, bad, &found)) &&
+              found == nullptr,
+          "non-BSTR AutomationId value matches nothing without UB");
+    VariantClear(&bad);
+
+    // A real AutomationId still matches through the same branch.
+    auto betaTile = NextSibling(FirstChild(group.Get()).Get());
+    Check(betaTile != nullptr, "beta tile resolves");
+    const std::wstring betaId = GetStringProperty(betaTile.Get(), UIA_AutomationIdPropertyId);
+    Check(!betaId.empty(), "tile exposes an AutomationId");
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(betaId.c_str());
+    found.Reset();
+    Check(SUCCEEDED(container->FindItemByProperty(nullptr, UIA_AutomationIdPropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"beta.txt",
+          "AutomationId match finds the tile");
+    VariantClear(&name);
+}
+
 void TestTileParentNavigate() {
     FakeTreemapUiaSurface treemap;
     treemap.scopeHash = ffui::UiaHashWide(L"C:\\TestScope");
@@ -667,6 +733,7 @@ int main() {
     TestThreadSafetyPropertyReads();
     TestItemContainerFindByName();
     TestTileParentNavigate();
+    TestItemContainerForeignStartAfterAndNonString();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "fftreemap_uia_tests: %d check(s) failed\n", FailureCount());

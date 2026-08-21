@@ -418,6 +418,7 @@ public:
     // IRawElementProviderSimple
     STDMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept override;
     STDMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept override;
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override;
 
     // IRawElementProviderFragment
     STDMETHODIMP Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept override;

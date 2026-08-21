@@ -97,14 +97,46 @@ std::wstring UiaSearchTimeText(uint64_t modifiedTime) {
     return buffer;
 }
 
+// Reads the leading (namespace, kind) discriminants of a provider's runtime
+// ID without casting. False when the element exposes no usable custom ID
+// (HWND-backed roots) or fails resolution (stale elements).
+bool RuntimeIdKind(IRawElementProviderSimple* element, int* ns, int* kind) {
+    *ns = -1;
+    *kind = -1;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
+    if (FAILED(element->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return false;
+    SAFEARRAY* ids = nullptr;
+    if (FAILED(fragment->GetRuntimeId(&ids)) || ids == nullptr) return false;
+    bool ok = false;
+    LONG lower = 0;
+    LONG upper = -1;
+    if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+        SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper)) && upper - lower + 1 >= 2) {
+        LONG i0 = lower;
+        LONG i1 = lower + 1;
+        if (SUCCEEDED(SafeArrayGetElement(ids, &i0, ns)) &&
+            SUCCEEDED(SafeArrayGetElement(ids, &i1, kind))) {
+            ok = true;
+        }
+    }
+    SafeArrayDestroy(ids);
+    return ok;
+}
+
 size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
                              IRawElementProviderSimple* startAfter) {
     (void)owner;
     (void)column;
     if (startAfter == nullptr) return SIZE_MAX;
-    Microsoft::WRL::ComPtr<ISelectionItemProvider> selection;
-    if (FAILED(startAfter->QueryInterface(IID_ISelectionItemProvider, &selection))) return SIZE_MAX;
-    auto* result = static_cast<SearchResultUiaProvider*>(selection.Get());
+    // Only cast when the runtime ID proves the foreign element is one of this
+    // tree's own results; a sibling from another surface is legal input and
+    // must degrade to "start from the beginning", never reinterpret fields.
+    int ns = -1;
+    int kind = -1;
+    if (!RuntimeIdKind(startAfter, &ns, &kind) || ns != kUiaNsSearch || kind != 1) return SIZE_MAX;
+    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
+    if (FAILED(startAfter->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return SIZE_MAX;
+    auto* result = static_cast<SearchResultUiaProvider*>(fragment.Get());
     return result->Index();
 }
 
@@ -122,6 +154,19 @@ SearchUiaProvider::SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface
 }
 
 SearchUiaProvider::~SearchUiaProvider() = default;
+
+STDMETHODIMP SearchUiaProvider::get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept {
+    if (retVal == nullptr) return E_POINTER;
+    *retVal = nullptr;
+    if (!Alive()) return S_OK;
+    // Fragment root: expose the HWND host provider so UIA merges this custom
+    // element with the list's default provider instead of replacing it.
+    if (hostProvider_ != nullptr) {
+        *retVal = hostProvider_.Get();
+        (*retVal)->AddRef();
+    }
+    return S_OK;
+}
 
 STDMETHODIMP SearchUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
@@ -246,9 +291,10 @@ STDMETHODIMP SearchUiaProvider::ElementProviderFromPoint(double x, double y,
     }
     const size_t count = surface_->UiaSearchResultCount();
     if (count == 0) return S_OK;
-    // Row height from the native list's own spacing metric.
+    // Row height from the native list's own spacing metric (HIWORD is the
+    // vertical spacing; LOWORD is horizontal).
     const LONG spacing = ListView_GetItemSpacing(hwnd, TRUE);
-    const LONG rowHeight = spacing > 0 ? LOWORD(static_cast<DWORD>(spacing)) : 28;
+    const LONG rowHeight = SearchRowHeightFromSpacing(spacing);
     if (rowHeight <= 0) return S_OK;
     const size_t row = static_cast<size_t>((pt.y - client.top) / rowHeight);
     if (row >= count) return S_OK;

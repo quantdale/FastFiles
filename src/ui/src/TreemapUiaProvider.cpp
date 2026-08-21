@@ -221,11 +221,33 @@ STDMETHODIMP TreemapGroupUiaProvider::FindItemByProperty(IRawElementProviderSimp
 
     int startIndex = -1;
     if (startAfter != nullptr) {
+        // Only cast when the runtime ID proves the foreign element is one of
+        // this tree's own tiles; a sibling from another surface is legal
+        // input and must degrade to "start from the beginning".
         Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
         if (SUCCEEDED(startAfter->QueryInterface(IID_IRawElementProviderFragment, &fragment))) {
-            auto* tile = static_cast<TreemapTileUiaProvider*>(fragment.Get());
-            if (tile != nullptr && tile->ScopeHash() == surface->TreemapScopeHash()) {
-                startIndex = surface->TreemapTileIndex(tile->IdHash());
+            SAFEARRAY* ids = nullptr;
+            bool ours = false;
+            if (SUCCEEDED(fragment->GetRuntimeId(&ids)) && ids != nullptr) {
+                LONG lower = 0;
+                LONG upper = -1;
+                if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+                    SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper)) && upper - lower + 1 >= 2) {
+                    int ns = -1;
+                    int kind = -1;
+                    LONG i0 = lower;
+                    LONG i1 = lower + 1;
+                    ours = SUCCEEDED(SafeArrayGetElement(ids, &i0, &ns)) &&
+                           SUCCEEDED(SafeArrayGetElement(ids, &i1, &kind)) &&
+                           ns == kUiaNsTreemap && kind == 1;
+                }
+                SafeArrayDestroy(ids);
+            }
+            if (ours) {
+                auto* tile = static_cast<TreemapTileUiaProvider*>(fragment.Get());
+                if (tile != nullptr && tile->ScopeHash() == surface->TreemapScopeHash()) {
+                    startIndex = surface->TreemapTileIndex(tile->IdHash());
+                }
             }
         }
     }
@@ -236,9 +258,9 @@ STDMETHODIMP TreemapGroupUiaProvider::FindItemByProperty(IRawElementProviderSimp
         bool matches = false;
         if (propertyId == UIA_NamePropertyId) {
             matches = NameMatches(info.name, value);
-        } else {
+        } else if (value.vt == VT_BSTR && value.bstrVal != nullptr) {
             matches = TileAutomationId(info.identityHash) ==
-                      std::wstring(value.bstrVal, value.vt == VT_BSTR ? SysStringLen(value.bstrVal) : 0);
+                      std::wstring(value.bstrVal, SysStringLen(value.bstrVal));
         }
         if (matches) {
             auto tile = owner_->TreemapTileElement(info.scopeHash, info.identityHash);

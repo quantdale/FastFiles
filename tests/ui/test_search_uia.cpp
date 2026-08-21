@@ -4,6 +4,7 @@
 // behavior).
 
 #include "SearchUiaProvider.h"
+#include "ColumnViewUiaProvider.h"
 #include "SearchPanel.h" // stabilize-live-uia-e2e: activation marshal predicate
 #include "UiaTestSurface.h"
 
@@ -272,6 +273,89 @@ void TestSearchAllocatedStaleAndReplacement() {
     Check(freshDesc.find(L"160 MB on disk") != std::wstring::npos, "fresh result projects the replacement allocated state");
 }
 
+// P2: the hit-test row height must use HIWORD of LVM_GETITEMSPACING (the
+// vertical spacing), and the fragment root must expose its host provider on
+// a real HWND.
+void TestSearchSpacingWordAndHostProvider() {
+    Check(ffui::SearchRowHeightFromSpacing(MAKELONG(7, 28)) == 28,
+          "row height uses HIWORD (vertical spacing), not LOWORD");
+    Check(ffui::SearchRowHeightFromSpacing(MAKELONG(240, 16)) == 16,
+          "HIWORD is honored even when smaller than LOWORD");
+    Check(ffui::SearchRowHeightFromSpacing(0) == 28 && ffui::SearchRowHeightFromSpacing(-1) == 28,
+          "degenerate spacing falls back to 28");
+
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSW wc{};
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.lpszClassName = L"fftest_uia_search_host";
+        RegisterClassW(&wc);
+        registered = true;
+    }
+    HWND hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"fftest_uia_search_host", L"fftest", WS_POPUP,
+                                0, 0, 100, 100, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    Check(hwnd != nullptr, "search host-provider test window created");
+    if (hwnd != nullptr) {
+        auto surface = MakeSearchSurface(1);
+        auto state = std::make_shared<ffui::UiaOwnerState>();
+        ffui::SearchUiaProvider root(state, &surface, hwnd);
+        IRawElementProviderSimple* host = nullptr;
+        Check(SUCCEEDED(root.get_HostRawElementProvider(&host)) && host != nullptr,
+              "HWND-backed search root returns its host provider");
+        if (host != nullptr) host->Release();
+        DestroyWindow(hwnd);
+    }
+}
+
+// A startAfter element from a foreign surface (a column item) must degrade
+// to "start from the beginning" instead of being blindly cast.
+void TestSearchFindItemForeignStartAfter() {
+    auto surface = MakeSearchSurface(50);
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::SearchUiaProvider root(state, &surface, nullptr);
+    Microsoft::WRL::ComPtr<IItemContainerProvider> container;
+    Check(SUCCEEDED(root.QueryInterface(IID_IItemContainerProvider, &container)),
+          "search list exposes IItemContainerProvider");
+
+    // Foreign element: a column item provider from a different surface.
+    fftest::FakeUiaSurface columnSurface;
+    columnSurface.geometry.widthDip = 800.0f;
+    columnSurface.geometry.heightDip = 600.0f;
+    columnSurface.geometry.dpiScale = 1.0f;
+    fftest::FakeUiaSurface::FakePane pane;
+    fftest::FakeUiaSurface::FakeColumn column;
+    column.path = L"C:\\Users\\Test";
+    for (int i = 0; i < 3; ++i) {
+        fftest::FakeUiaSurface::FakeItem item;
+        item.name = L"Folder" + std::to_wstring(i);
+        item.isDirectory = true;
+        item.fileIdLow = 1000 + static_cast<uint64_t>(i);
+        item.volumeRowId = 1;
+        column.items.push_back(item);
+    }
+    pane.columns.push_back(column);
+    columnSurface.panes.push_back(pane);
+    ffui::ColumnViewUiaProvider columnRoot(state, &columnSurface, nullptr);
+    auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&columnRoot));
+    auto cpane = FirstChild(group.Get());
+    auto ccolumn = FirstChild(cpane.Get());
+    auto foreignItem = FirstChild(ccolumn.Get());
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> foreignSimple;
+    Check(SUCCEEDED(foreignItem.As(&foreignSimple)) && foreignSimple != nullptr,
+          "foreign column item resolves");
+
+    VARIANT name{};
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(L"file42.txt");
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> found;
+    Check(SUCCEEDED(container->FindItemByProperty(foreignSimple.Get(), UIA_NamePropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"file42.txt",
+          "foreign startAfter degrades to a full scan and still finds the result");
+    VariantClear(&name);
+}
+
 } // namespace
 
 int main() {
@@ -292,6 +376,8 @@ int main() {
     TestSearchFindItem();
     TestSearchAllocatedSizeMetadata();
     TestSearchAllocatedStaleAndReplacement();
+    TestSearchSpacingWordAndHostProvider();
+    TestSearchFindItemForeignStartAfter();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffsearch_uia_tests: %d check(s) failed\n", FailureCount());
