@@ -6,6 +6,7 @@
 
 #include "ffsetup/Identifiers.h"
 #include "ffsetup/SecurityDescriptors.h"
+#include "ffsetup/ServiceStopPolicy.h"
 
 namespace ffsetup {
 
@@ -203,16 +204,33 @@ SetupResult RegisterIndexService(const std::wstring& binaryPath, PSID clientGrou
     // unconditionally so the standard Program Files install path cannot be
     // split at its first space (for example, into C:\Program.exe).
     const std::wstring quotedBinaryPath = L"\"" + binaryPath + L"\"";
-    SC_HANDLE service = CreateServiceW(
-        scm, kServiceName, kServiceDisplayName,
-        SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
-        quotedBinaryPath.c_str(), nullptr, nullptr, nullptr,
-        scmStartName, nullptr);
+
+    // An upgrade re-registers milliseconds after DeleteService; SCM only
+    // completes the deletion once the old process exits and all handles
+    // close, so a delete-pending name fails here with
+    // ERROR_SERVICE_MARKED_FOR_DELETE. Retry briefly before giving up.
+    SC_HANDLE service = nullptr;
+    DWORD createError = ERROR_SUCCESS;
+    const ULONGLONG createDeadline = GetTickCount64() + kMarkedForDeleteRetryMs;
+    for (;;) {
+        service = CreateServiceW(
+            scm, kServiceName, kServiceDisplayName,
+            SERVICE_ALL_ACCESS, SERVICE_WIN32_OWN_PROCESS, SERVICE_AUTO_START, SERVICE_ERROR_NORMAL,
+            quotedBinaryPath.c_str(), nullptr, nullptr, nullptr,
+            scmStartName, nullptr);
+        if (service != nullptr) {
+            break;
+        }
+        createError = GetLastError();
+        if (!IsRetryableCreateError(createError) || GetTickCount64() >= createDeadline) {
+            break;
+        }
+        Sleep(kMarkedForDeleteRetryIntervalMs);
+    }
 
     if (service == nullptr) {
-        const DWORD error = GetLastError();
         CloseServiceHandle(scm);
-        return SetupResult::Failure(error);
+        return SetupResult::Failure(createError);
     }
 
     // Task 2.2 / spec "Grant failure prevents an invalid service start":
@@ -317,6 +335,23 @@ SetupResult UnregisterIndexService() noexcept {
 
     SERVICE_STATUS status{};
     ControlService(service, SERVICE_CONTROL_STOP, &status);
+
+    // Wait (bounded) for the service to reach STOPPED before deleting.
+    // DeleteService on a still-stopping service marks it pending-delete and
+    // SCM finalizes only after the process exits and all handles close --
+    // an immediate re-register then fails with ERROR_SERVICE_MARKED_FOR_DELETE.
+    const ULONGLONG stopDeadline = GetTickCount64() + kServiceStopTimeoutMs;
+    while (ShouldKeepWaitingForServiceStop(status.dwCurrentState,
+                                           kServiceStopTimeoutMs - (stopDeadline - GetTickCount64()))) {
+        Sleep(kServiceStopPollIntervalMs);
+        SERVICE_STATUS_PROCESS polled{};
+        DWORD bytesNeeded = 0;
+        if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
+                                  reinterpret_cast<LPBYTE>(&polled), sizeof(polled), &bytesNeeded)) {
+            break;
+        }
+        status.dwCurrentState = polled.dwCurrentState;
+    }
 
     const BOOL deleted = DeleteService(service);
     const DWORD deleteError = GetLastError();

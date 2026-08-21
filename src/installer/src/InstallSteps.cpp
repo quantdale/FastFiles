@@ -5,6 +5,7 @@
 #define SECURITY_WIN32
 #include <security.h>
 #include <shlobj.h>
+#include <tlhelp32.h>
 #include <werapi.h>
 
 #include <algorithm>
@@ -27,6 +28,8 @@
 #include "ffsetup/ServiceRegistration.h"
 
 #include "ScratchPath.h"
+
+#include "ffinstaller/InstallLifecycle.h"
 
 #pragma comment(lib, "secur32.lib")
 #pragma comment(lib, "shell32.lib")
@@ -225,6 +228,13 @@ bool StageAndInstallBinary(const std::wstring& scratchDir, const std::wstring& s
     const std::wstring scratchFilePath = scratchDir + L"\\" + exeName;
     const std::wstring installFilePath = installDir + L"\\" + exeName;
 
+    // Self-upgrade: when the payload being staged IS the destination file
+    // (the installed FastFilesSetup.exe replacing itself, or any stage run
+    // from the install directory), MOVEFILE_REPLACE_EXISTING onto the
+    // running/mapped image fails with a sharing violation. The verified
+    // copy into scratch happens first (the source must stay intact), then
+    // the old image is renamed aside -- renaming a mapped image is allowed
+    // -- so promotion has a free destination.
     const auto* expected = ffsetup::FindPackageManifestEntry(manifest, exeName);
     if (expected == nullptr) {
         return false;
@@ -234,7 +244,29 @@ bool StageAndInstallBinary(const std::wstring& scratchDir, const std::wstring& s
     if (!trusted || !ffsetup::CopyTrustedPackageFile(*trusted, scratchFilePath)) {
         return false;
     }
-    return ffsetup::PromoteVerifiedPackageFile(scratchFilePath, installFilePath, *expected, approvedSigners);
+
+    std::wstring asidePath;
+    if (SameFileLocation(sourceDir + L"\\" + exeName, installFilePath)) {
+        asidePath = installFilePath + L".old";
+        if (!MoveFileExW(installFilePath.c_str(), asidePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+            DeleteFileW(scratchFilePath.c_str());
+            return false;
+        }
+    }
+    if (!ffsetup::PromoteVerifiedPackageFile(scratchFilePath, installFilePath, *expected, approvedSigners)) {
+        if (!asidePath.empty()) {
+            MoveFileExW(asidePath.c_str(), installFilePath.c_str(), MOVEFILE_REPLACE_EXISTING);
+        }
+        DeleteFileW(scratchFilePath.c_str());
+        return false;
+    }
+    // Best-effort cleanup of the renamed-aside old image; while it is still
+    // executing the delete fails harmlessly and the next self-upgrade's
+    // rename overwrites it.
+    if (!asidePath.empty()) {
+        DeleteFileW(asidePath.c_str());
+    }
+    return true;
 }
 
 bool ServiceIsRegistered() {
@@ -309,13 +341,116 @@ bool StopIndexService() {
     return stopped;
 }
 
+// --- Client-process quiescence ------------------------------------------------
+//
+// The UI (FastFiles.exe) and engine (FastFilesEngine.exe) are per-user
+// processes invisible to the SCM. Their images cannot be replaced while
+// running, so both upgrade and uninstall must close them first: graceful
+// WM_CLOSE for the windowed UI, a bounded wait, then termination of
+// whatever remains. Returns true when no client process is left running.
+
+bool ProcessIsAlive(DWORD pid) {
+    HANDLE process = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (process == nullptr) {
+        return false;
+    }
+    const bool alive = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+    CloseHandle(process);
+    return alive;
+}
+
+std::vector<DWORD> FindRunningClientProcessIds() {
+    std::vector<DWORD> pids;
+    const auto imageNames = ClientProcessImageNames();
+    HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return pids;
+    }
+    PROCESSENTRY32W entry{};
+    entry.dwSize = sizeof(entry);
+    if (Process32FirstW(snapshot, &entry)) {
+        do {
+            for (const auto& name : imageNames) {
+                if (_wcsicmp(entry.szExeFile, name.c_str()) == 0 && entry.th32ProcessID != GetCurrentProcessId()) {
+                    pids.push_back(entry.th32ProcessID);
+                    break;
+                }
+            }
+        } while (Process32NextW(snapshot, &entry));
+    }
+    CloseHandle(snapshot);
+    return pids;
+}
+
+BOOL CALLBACK CloseUiWindowForProcess(HWND window, LPARAM lParam) {
+    DWORD windowPid = 0;
+    GetWindowThreadProcessId(window, &windowPid);
+    if (windowPid == static_cast<DWORD>(lParam) && GetWindow(window, GW_OWNER) == nullptr) {
+        PostMessageW(window, WM_CLOSE, 0, 0);
+    }
+    return TRUE;
+}
+
+bool WaitForProcessesToExit(const std::vector<DWORD>& pids, DWORD timeoutMs) {
+    const ULONGLONG deadline = GetTickCount64() + timeoutMs;
+    for (;;) {
+        bool anyAlive = false;
+        for (const DWORD pid : pids) {
+            if (ProcessIsAlive(pid)) {
+                anyAlive = true;
+                break;
+            }
+        }
+        if (!anyAlive) {
+            return true;
+        }
+        if (GetTickCount64() >= deadline) {
+            return false;
+        }
+        Sleep(200);
+    }
+}
+
+bool StopRunningClientProcesses() {
+    std::vector<DWORD> pids = FindRunningClientProcessIds();
+    if (pids.empty()) {
+        return true;
+    }
+
+    // Graceful phase: ask the windowed UI to close itself.
+    for (const DWORD pid : pids) {
+        EnumWindows(CloseUiWindowForProcess, static_cast<LPARAM>(pid));
+    }
+    if (WaitForProcessesToExit(pids, kClientCloseWindowTimeoutMs)) {
+        return true;
+    }
+
+    // Bounded terminate phase for whatever ignored the close request (and
+    // for the windowless engine).
+    for (const DWORD pid : pids) {
+        HANDLE process = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, pid);
+        if (process != nullptr) {
+            TerminateProcess(process, 1);
+            WaitForSingleObject(process, kClientTerminateTimeoutMs);
+            CloseHandle(process);
+        }
+    }
+    const bool allExited = WaitForProcessesToExit(pids, kClientTerminateTimeoutMs);
+    if (!allExited) {
+        std::fwprintf(stderr,
+                      L"FastFilesSetup: FastFiles UI/engine processes are still running -- close FastFiles and retry\n");
+    }
+    return allExited;
+}
+
 bool SetRegistryString(HKEY key, const wchar_t* name, const std::wstring& value) {
     return RegSetValueExW(key, name, 0, REG_SZ,
         reinterpret_cast<const BYTE*>(value.c_str()),
         static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
 }
 
-bool RegisterUninstallMetadata(const std::wstring& installerPath, const std::wstring& installDir) {
+bool RegisterUninstallMetadata(const std::wstring& installerPath, const std::wstring& installDir,
+                               const std::wstring& displayVersion = ffsetup::kProductVersion) {
     HKEY key = nullptr;
     constexpr wchar_t kPath[] = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\FastFiles";
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, kPath, 0, nullptr, 0, KEY_SET_VALUE,
@@ -324,7 +459,7 @@ bool RegisterUninstallMetadata(const std::wstring& installerPath, const std::wst
     }
     const std::wstring uninstallCommand = L"\"" + installerPath + L"\" /uninstall";
     const bool ok = SetRegistryString(key, L"DisplayName", ffsetup::kProductName)
-        && SetRegistryString(key, L"DisplayVersion", ffsetup::kProductVersion)
+        && SetRegistryString(key, L"DisplayVersion", displayVersion)
         && SetRegistryString(key, L"Publisher", ffsetup::kPublisherName)
         && SetRegistryString(key, L"InstallLocation", installDir)
         && SetRegistryString(key, L"UninstallString", uninstallCommand)
@@ -539,6 +674,18 @@ bool RestoreServiceState(const std::wstring& installDir, const std::wstring& scr
         return false;
     }
     StartIndexService();
+
+    // Roll back the registration artifacts the failed upgrade rewrote:
+    // uninstall metadata must show the PRIOR version again, and the engine
+    // scheduled task must point at the restored engine image. Best-effort:
+    // a failure here is reported but does not undo the binary restore.
+    if (!RegisterUninstallMetadata(installDir + L"\\" + kInstallerExeName, installDir,
+                                   priorManifest->release.productVersion)) {
+        std::fwprintf(stderr, L"FastFilesSetup: rollback could not restore the prior uninstall metadata\n");
+    }
+    if (!ffsetup::RegisterEngineScheduledTask(installDir + L"\\" + ffsetup::kEngineExeName).success) {
+        std::fwprintf(stderr, L"FastFilesSetup: rollback could not re-register the engine scheduled task\n");
+    }
     return true;
 }
 
@@ -576,9 +723,11 @@ bool WaitForServiceRunning(DWORD timeoutMs) {
 // diagnostic -- written after the fresh token is in place (task 2.3) -- must
 // not report a missing/disabled backup privilege. The token line is read from
 // the byte offset recorded before the start, so a fresh install (offset 0)
-// is verified from the beginning of the log rather than skipped. A missing
-// diagnostic line is tolerated (the log can be unavailable), but an explicit
-// privilege failure is not.
+// is verified from the beginning of the log rather than skipped. An
+// unreadable/absent log file proceeds (nothing to check), but a readable log
+// with no startup-token line for this start FAILS: silently degrading to
+// "it stayed up" would let a privilege-broken install pass verification and
+// delete its rollback backup.
 bool VerifyServiceStartedFresh() {
     const std::wstring diagPath = ffprotocol::DiagnosticLogPath();
     std::error_code fileError;
@@ -603,19 +752,28 @@ bool VerifyServiceStartedFresh() {
 
     if (!diagPath.empty()) {
         std::wifstream log(diagPath, std::ios::binary);
+        if (!log) {
+            std::fwprintf(stderr, L"FastFilesSetup: startup-token diagnostic log unavailable -- proceeding\n");
+            return true;
+        }
         log.seekg(static_cast<std::streamoff>(logBytesBefore));
+        std::vector<std::wstring> lines;
         std::wstring line;
         while (std::getline(log, line)) {
-            if (line.find(L"state=startup-token") != std::wstring::npos) {
-                if (line.find(L"privilegeEnabled=0") != std::wstring::npos) {
-                    std::fwprintf(stderr, L"FastFilesSetup: verification failed -- fresh token lacks SeBackupPrivilege\n");
-                    return false;
-                }
+            lines.push_back(line);
+        }
+        switch (EvaluateStartupTokenLines(lines)) {
+            case StartupTokenVerdict::Passed:
                 std::fwprintf(stderr, L"FastFilesSetup: verification passed -- fresh token has the raw-volume privilege\n");
                 return true;
-            }
+            case StartupTokenVerdict::PrivilegeMissing:
+                std::fwprintf(stderr, L"FastFilesSetup: verification failed -- fresh token lacks SeBackupPrivilege\n");
+                return false;
+            case StartupTokenVerdict::DiagnosticAbsent:
+                std::fwprintf(stderr,
+                              L"FastFilesSetup: verification failed -- diagnostic log has no startup-token line for this start\n");
+                return false;
         }
-        std::fwprintf(stderr, L"FastFilesSetup: startup-token diagnostic not found -- proceeding (log unavailable)\n");
     }
     return true;
 }
@@ -653,6 +811,12 @@ void DeleteInstalledBinaries(const std::wstring& installDir) {
 } // namespace
 
 int RunInstall() {
+    InstallMutexGuard installMutex(kInstallMutexName);
+    if (installMutex.AlreadyRunning()) {
+        std::fwprintf(stderr, L"FastFilesSetup: another FastFiles install/uninstall is already in progress -- aborting\n");
+        return 1;
+    }
+
     const std::wstring sourceDir = GetSourceDirectory();
     const std::wstring installDir = GetInstallDirectory();
     if (sourceDir.empty() || installDir.empty()) {
@@ -675,7 +839,11 @@ int RunInstall() {
     }
     ScratchDirectoryGuard scratchGuard(*scratchDir);
 
-    CreateDirectoryW(installDir.c_str(), nullptr);
+    // Track what this run created so a fresh-install failure can compensate
+    // exactly (a pre-existing group or directory belongs to the prior state
+    // and must survive a rollback).
+    FreshInstallArtifacts artifacts;
+    artifacts.installDirCreatedThisRun = CreateDirectoryW(installDir.c_str(), nullptr) != FALSE;
     const DWORD installAttributes = GetFileAttributesW(installDir.c_str());
     if (installAttributes == INVALID_FILE_ATTRIBUTES ||
         (installAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0 ||
@@ -729,6 +897,7 @@ int RunInstall() {
     }
 
     const std::wstring userName = GetCurrentUserSamName();
+    artifacts.groupCreatedThisRun = !ffsetup::LookupAccountSid(ffsetup::kAuthorizedClientGroupName).has_value();
     if (userName.empty() || !ffsetup::CreateAuthorizedClientGroupAndAddUser(userName).success) {
         std::fwprintf(stderr, L"FastFilesSetup: failed to create/populate the authorized client group\n");
         return 1;
@@ -740,20 +909,28 @@ int RunInstall() {
         return 1;
     }
 
+    // The UI/engine images cannot be replaced while running; close them
+    // before staging. This is the last point that can fail without any
+    // registration artifact having been touched.
+    if (!StopRunningClientProcesses()) {
+        return 1;
+    }
+
     auto rollback = [&]() {
         if (isUpgrade) {
             RestoreServiceState(installDir, *scratchDir, clientGroupSid->Get());
         } else {
             // Fresh install: undo every step that may have run so far, not
-            // just the service registration. A later step failing at the
-            // scheduled task (536), uninstall metadata (543), or startup
-            // verification (551) would otherwise leave the scheduled task,
-            // uninstall metadata, restrictive ACL, and staged binaries behind.
-            ffsetup::UnregisterIndexService();
-            ffsetup::UnregisterEngineScheduledTask();
-            UnregisterUninstallMetadata();
-            ResetInstallDirectoryAcl(installDir);
-            DeleteInstalledBinaries(installDir);
+            // just the service registration, and compensate exactly the
+            // artifacts this run created (group, empty install directory).
+            const FreshInstallRollbackPlan plan = DecideFreshInstallRollback(artifacts);
+            if (plan.unregisterService) ffsetup::UnregisterIndexService();
+            if (plan.unregisterTask) ffsetup::UnregisterEngineScheduledTask();
+            if (plan.unregisterMetadata) UnregisterUninstallMetadata();
+            if (plan.resetAcl) ResetInstallDirectoryAcl(installDir);
+            if (plan.deleteBinaries) DeleteInstalledBinaries(installDir);
+            if (plan.deleteGroup) ffsetup::DeleteAuthorizedClientGroup();
+            if (plan.removeInstallDir) RemoveDirectoryW(installDir.c_str());
         }
     };
 
@@ -816,12 +993,21 @@ int RunInstall() {
 }
 
 int RunUninstall(const std::wstring& runningInstallerPath) {
+    InstallMutexGuard installMutex(kInstallMutexName);
+    if (installMutex.AlreadyRunning()) {
+        std::fwprintf(stderr, L"FastFilesSetup: another FastFiles install/uninstall is already in progress -- aborting\n");
+        return 1;
+    }
+
     UnregisterUninstallMetadata();
     ffsetup::UnregisterEngineScheduledTask();
     ffsetup::UnregisterIndexService();
     ffsetup::DeleteAuthorizedClientGroup();
 
-    bool clean = true;
+    // The task and service are gone; the engine/UI would otherwise keep
+    // running with their images locked, leaving binaries behind and a
+    // non-clean exit. Close them before the file sweep.
+    bool clean = StopRunningClientProcesses();
     const std::wstring expectedSelfPath = GetInstallDirectory() + L"\\" + kInstallerExeName;
     const bool selfIsInstalledImage = !runningInstallerPath.empty() &&
                                       _wcsicmp(runningInstallerPath.c_str(), expectedSelfPath.c_str()) == 0;

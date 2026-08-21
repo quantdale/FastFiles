@@ -50,3 +50,14 @@ endif()
 add_executable(ffsetup_installer_source_policy_tests test_installer_source_policy.cpp)
 add_test(NAME ffsetup_installer_source_policy_tests COMMAND ffsetup_installer_source_policy_tests)
 set_tests_properties(ffsetup_installer_source_policy_tests PROPERTIES TIMEOUT 120)
+
+# Installer lifecycle decision logic (audit campaign, installer area):
+# startup-token verdicts, self-replacement detection, fresh-install rollback
+# bookkeeping, service-stop wait policy, and the single-instance mutex --
+# all pure seams, no elevation and no SCM/process side effects.
+add_executable(ffsetup_install_lifecycle_tests test_install_lifecycle.cpp)
+target_link_libraries(ffsetup_install_lifecycle_tests PRIVATE ffsetup)
+target_include_directories(ffsetup_install_lifecycle_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/src/installer/include)
+add_test(NAME ffsetup_install_lifecycle_tests COMMAND ffsetup_install_lifecycle_tests)
+set_tests_properties(ffsetup_install_lifecycle_tests PROPERTIES TIMEOUT 120)
