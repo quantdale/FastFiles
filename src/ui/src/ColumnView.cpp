@@ -1684,6 +1684,29 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         }
     };
 
+    // real-user-dogfooding-release-engineering 5.1: Home cards contain user
+    // paths, which are commonly much longer than a two-column card. Draw them
+    // through a bounded text layout so a long recent-folder/search label cannot
+    // paint across its neighboring card. The UIA name remains the full value.
+    auto DrawHomeText = [&](const std::wstring& value, const D2D1_RECT_F& rect, ID2D1Brush* brush) {
+        if (value.empty() || rect.right <= rect.left || rect.bottom <= rect.top) return;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> layout;
+        const HRESULT layoutResult = dwriteFactory->CreateTextLayout(
+            value.c_str(), static_cast<UINT32>(value.size()), textFormat_.Get(),
+            rect.right - rect.left, rect.bottom - rect.top, &layout);
+        if (SUCCEEDED(layoutResult) && layout != nullptr) {
+            const DWRITE_TRIMMING trimming{
+                DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
+            if (SUCCEEDED(layout->SetTrimming(&trimming, nullptr))) {
+                context->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), layout.Get(), brush,
+                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                return;
+            }
+        }
+        context->DrawText(value.c_str(), static_cast<UINT32>(value.size()), textFormat_.Get(), rect, brush,
+                          D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    };
+
     // quick-access-home 4.3: render the Home surface for one pane. Drawn in the
     // pane's rect (pane-local origin already removed via `paneX`), starting
     // below the status badge like the column surface. The vertical scroll offset
@@ -1882,13 +1905,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 const float halfH = y + h / 2.0f;
                 D2D1_RECT_F primaryRect = D2D1::RectF(textX, y + 2.0f, x + w - 8.0f,
                                                       secondary.empty() ? y + h - 2.0f : halfH);
-                context->DrawText(primary.c_str(), static_cast<UINT32>(primary.size()), textFormat_.Get(),
-                                  primaryRect, itemDisabled ? textSecondaryBrush_.Get() : textBrush_.Get());
+                DrawHomeText(primary, primaryRect, itemDisabled ? textSecondaryBrush_.Get() : textBrush_.Get());
             }
             if (!secondary.empty()) {
                 D2D1_RECT_F secondaryRect = D2D1::RectF(textX, y + h / 2.0f, x + w - 8.0f, y + h - 2.0f);
-                context->DrawText(secondary.c_str(), static_cast<UINT32>(secondary.size()), textFormat_.Get(),
-                                  secondaryRect, textSecondaryBrush_.Get());
+                DrawHomeText(secondary, secondaryRect, textSecondaryBrush_.Get());
             }
         }
 
