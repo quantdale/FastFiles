@@ -56,7 +56,6 @@ bool CategoryEngine::LoadFromSettings(const std::vector<std::pair<std::wstring, 
                                [](wchar_t ch) { return static_cast<wchar_t>(std::towlower(ch)); });
                 if (lower.empty() || lower[0] != L'.') lower = L"." + lower;
                 def.extensions.push_back(lower);
-                extensionToCategory_[lower] = name;
             }
         }
         if (!def.extensions.empty()) {
@@ -64,10 +63,25 @@ bool CategoryEngine::LoadFromSettings(const std::vector<std::pair<std::wstring, 
         }
     }
 
+    RebuildExtensionIndex();
     if (categories_.empty()) {
         LoadDefaults();
     }
     return true;
+}
+
+void CategoryEngine::SetCategories(const std::vector<CategoryDefinition>& categories) {
+    categories_ = categories;
+    RebuildExtensionIndex();
+}
+
+void CategoryEngine::RebuildExtensionIndex() {
+    extensionToCategory_.clear();
+    for (const auto& category : categories_) {
+        for (const auto& ext : category.extensions) {
+            extensionToCategory_[ext] = category.id;
+        }
+    }
 }
 
 std::vector<std::pair<std::wstring, std::wstring>> CategoryEngine::SaveToSettings() const {

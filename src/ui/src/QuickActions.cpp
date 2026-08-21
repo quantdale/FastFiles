@@ -72,8 +72,19 @@ LRESULT CALLBACK NamePromptProc(HWND window, UINT message, WPARAM wParam, LPARAM
 }
 } // namespace
 
+// OpenClipboard fails transiently whenever another window (clipboard manager,
+// Office, RDP client) holds the clipboard open. Retry briefly before giving up
+// so routine contention does not silently drop a copy.
+bool TryOpenClipboard(HWND owner) {
+    for (int attempt = 0; attempt < 5; ++attempt) {
+        if (OpenClipboard(owner)) return true;
+        Sleep(10);
+    }
+    return false;
+}
+
 bool CopyTextToClipboard(HWND owner, const std::wstring& text) {
-    if (!OpenClipboard(owner)) return false;
+    if (!TryOpenClipboard(owner)) return false;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
     if (!EmptyClipboard()) return false;
     const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
@@ -116,7 +127,7 @@ bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bo
         return false;
     }
     const size_t bytes = sizeof(DROPFILES) + characterCount * sizeof(wchar_t);
-    if (!OpenClipboard(owner)) return false;
+    if (!TryOpenClipboard(owner)) return false;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
     if (!EmptyClipboard()) return false;
     HGLOBAL memory = GlobalAlloc(GHND, bytes);
@@ -163,7 +174,7 @@ bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bo
 std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
     cut = false;
     std::vector<std::wstring> paths;
-    if (!OpenClipboard(owner)) return paths;
+    if (!TryOpenClipboard(owner)) return paths;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
     auto* drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
     if (drop == nullptr) return paths;
@@ -188,7 +199,7 @@ std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
 }
 
 bool HasFilesOnClipboard(HWND owner) {
-    if (!OpenClipboard(owner)) return false;
+    if (!TryOpenClipboard(owner)) return false;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
     return GetClipboardData(CF_HDROP) != nullptr;
 }

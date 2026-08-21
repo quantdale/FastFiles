@@ -33,9 +33,13 @@ public:
     // matches files that have no configured category.
     bool Matches(const std::wstring& fileName, const std::wstring& categoryId) const;
     std::vector<CategoryDefinition> GetCategories() const { return categories_; }
-    void SetCategories(const std::vector<CategoryDefinition>& categories) { categories_ = categories; }
+    // Replaces the category set and rebuilds the extension lookup so Match()
+    // never consults a stale index.
+    void SetCategories(const std::vector<CategoryDefinition>& categories);
 
 private:
+    void RebuildExtensionIndex();
+
     std::vector<CategoryDefinition> categories_;
     std::map<std::wstring, std::wstring> extensionToCategory_; // lowercase ext -> category id
 };

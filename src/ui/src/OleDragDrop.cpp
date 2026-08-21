@@ -26,10 +26,12 @@ std::vector<std::wstring> ExtractPaths(IDataObject* object) {
             const UINT count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
             for (UINT index = 0; index < count; ++index) {
                 const UINT length = DragQueryFileW(drop, index, nullptr, 0);
+                if (length == 0) continue;
                 std::wstring path(length + 1, L'\0');
-                DragQueryFileW(drop, index, path.data(), length + 1);
-                path.resize(length);
-                paths.push_back(std::move(path));
+                if (DragQueryFileW(drop, index, path.data(), length + 1) != 0) {
+                    path.resize(length);
+                    paths.push_back(std::move(path));
+                }
             }
             GlobalUnlock(medium.hGlobal);
         }
