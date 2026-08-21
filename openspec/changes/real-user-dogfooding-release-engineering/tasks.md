@@ -33,6 +33,6 @@
 ## 5. Integration and final evidence
 
 - [x] 5.1 Fix only newly observed P0/P1/P2 dogfood defects, preserving security boundaries, and add a regression test plus runtime evidence for each fix. (No P0/P1/P2 observed; UX-001 P3 and release reproducibility were resolved with regression/runtime evidence, and the benchmark capacity label was corrected.)
-- [ ] 5.2 Run focused tests after each implementation wave, then Debug CTest, release-test CTest, `/analyze`, ASan parser/IPC targets, verifier doctor/build, OpenSpec strict validation, source/policy/doc-drift guards, and `git diff --check`.
-- [ ] 5.3 Run one final uninterrupted end-user acceptance session on final binaries where the host permits, record the exact skipped external prerequisites, and update the campaign ledger/workstate.
+- [x] 5.2 Run focused tests after each implementation wave, then Debug CTest, release-test CTest, `/analyze`, ASan parser/IPC targets, verifier doctor/build, OpenSpec strict validation, source/policy/doc-drift guards, and `git diff --check`. (All final local gates passed on 2026-08-21.)
+- [x] 5.3 Run one final uninterrupted end-user acceptance session on final binaries where the host permits, record the exact skipped external prerequisites, and update the campaign ledger/workstate. (Final all-scenario semantic UIA run `20260821-131427` passed with documented prerequisite skips; Computer Use remained unavailable.)
 - [ ] 5.4 Reconcile with `origin/main`, commit logical campaign waves, push without force, verify `HEAD == origin/main` and a clean tree, and inspect the hosted run for the pushed SHA.

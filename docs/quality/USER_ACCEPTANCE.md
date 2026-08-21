@@ -25,9 +25,9 @@ Mutating scenarios MUST use a marked disposable root. After the session, reset i
 
 | ID | Scenario | Preconditions | Automation status | Evidence | Status |
 | --- | --- | --- | --- | --- | --- |
-| UA-001 | First launch → degraded state → Home → disposable folder | Fresh user state or backed-up profile; fixture available | UIA capability + manual | First-run run `20260821-115745`; committed core run `20260821-122919`; Home screenshot; state files created | PASS-DEGRADED (manual Computer Use blocked) |
+| UA-001 | First launch → degraded state → Home → disposable folder | Fresh user state or backed-up profile; fixture available | UIA capability + manual | First-run run `20260821-115745`; final all-scenario UIA run `20260821-131427`; Home screenshot; state files created | PASS-DEGRADED (manual Computer Use blocked) |
 | UA-002 | This PC, drive/folder navigation, deep path, Back/Forward, breadcrumb, address entry | Fixture and a browsable NTFS path | UIA/headless navigation tests + manual | Core run `20260821-115745`; address/tab/column PASS | PASS-DEGRADED |
-| UA-003 | Tabs, multiple tabs, dual pane, active-pane switching, session restore | Fixture; two safe locations | UIA capability + headless persistence + manual | Core run `20260821-122919`; navigation workspace persistence tests PASS; owned UI/engine lifecycle soak PASS | PARTIAL (manual session-restore confirmation pending) |
+| UA-003 | Tabs, multiple tabs, dual pane, active-pane switching, session restore | Fixture; two safe locations | UIA capability + headless persistence + manual | Final all-scenario UIA run `20260821-131427`; navigation workspace persistence tests PASS; owned UI/engine lifecycle soak PASS | PARTIAL (manual session-restore confirmation pending) |
 | UA-004 | Filename search, filters, Unicode, rapid replacement, sort, mutation while searching | Medium fixture for load case | UIA + search tests + indexed benchmark | Search run `20260821-115103`; allocated-size/deep navigation PASS; Medium/Large fixtures compared; 100K repeat p90 recorded | PASS-DEGRADED (manual large-folder mutation pending) |
 | UA-005 | Preview, details, storage analysis, treemap semantic navigation | Fixture with content types; degraded limitations recorded | UIA/headless + manual | Core run `20260821-115745`; storage and degraded-state PASS; preview/treemap manual pending | PARTIAL |
 | UA-006 | Copy, move, rename, delete, restore, undo, drag/drop | Small fixture; independent expected manifests | File-operation E2E + dogfood truth scripts | `fffileoperations_e2e_tests` PASS, 17.59s; independent Win32 filesystem assertions | PASS-E2E (manual drag/drop pending) |
@@ -62,7 +62,7 @@ Mutating scenarios MUST use a marked disposable root. After the session, reset i
 - [ ] Back up only the disposable profile state; corrupt copies of non-critical JSON and confirm safe fallback.
 - [ ] Restart normally and after terminating only disposable FastFiles/engine processes; verify no permanent stale state or orphaned campaign process.
 - [ ] Exercise keyboard-only navigation and core commands with visible focus.
-- [x] Run semantic UIA scenarios and retain exact PASS/SKIP/FAIL counts; do not replace missing UIA with pixel assertions. Core wrapper run `20260821-122919` passed; prior isolated search/selection/error runs passed with documented skips.
+- [x] Run semantic UIA scenarios and retain exact PASS/SKIP/FAIL counts; do not replace missing UIA with pixel assertions. Final all-scenario wrapper run `20260821-131427` passed with only its documented prerequisite skips; prior isolated search/selection/error runs also passed.
 
 ### UA-011–UA-014: environment and scale
 
@@ -93,10 +93,10 @@ The portable baseline is degraded/unprivileged browsing. Production signing, sig
 The Computer Use native channel was unavailable after its prescribed retry/reset
 sequence, so no pixel-coordinate interactive session is claimed. The repository's
 real Windows UIA capability still drove the diagnostic FastFiles executable through
-the desktop window and persisted screenshots/tree evidence. Core UIA passed with
-12 PASS / 2 documented privileged skips; the search group passed with its allocated
-size and deep-result scenarios; selection-model and late error-state isolated runs
-passed. `fffileoperations_e2e_tests` independently verified copy, move, rename,
+the desktop window and persisted screenshots/tree evidence. The final all-scenario
+run `20260821-131427` passed with only its documented prerequisite skips; earlier
+core, search, selection-model, and late error-state runs also passed.
+`fffileoperations_e2e_tests` independently verified copy, move, rename,
 Recycle Bin restore/undo, conflict, cancellation, lock, vanished-path, and long-path
 filesystem outcomes. The first-run profile was backed up rather than deleted and
 recreated successfully.
