@@ -28,7 +28,7 @@
 - [x] 4.4 Ensure production mode fails closed for missing, placeholder, malformed, or mismatched certificate/pin inputs while unsigned local preparation remains explicitly non-production. (`Build-ReleaseCandidate.ps1`; existing `ReleaseCommon.psm1`/`sign-release.ps1`)
 - [x] 4.5 Evaluate and, if valuable without heavyweight infrastructure, emit a structured dependency inventory/SBOM; otherwise document the measured decision. (`dependency-inventory.json`, explicitly not represented as a complete SPDX/CycloneDX SBOM)
 - [x] 4.6 Add maintainable release-notes template and clean-host validation/cleanup handoff with known limitations and external prerequisites. (`docs/release/README.md`, `docs/release/RELEASE_NOTES_TEMPLATE.md`, existing `verify/release/CleanHostKit.README.md`)
-- [ ] 4.7 Add focused PowerShell tests for release-candidate classification, manifest/checksum reproducibility, version mismatch, and fail-closed signing prerequisites.
+- [x] 4.7 Add focused PowerShell tests for release-candidate classification, manifest/checksum reproducibility, version mismatch, and fail-closed signing prerequisites. (`verify/release/tests/Test-ReleaseCandidate.ps1`, PASS under `VsDevCmd.bat`; existing `Test-ReleaseTooling.ps1` covers strict version/pin mismatch seams.)
 
 ## 5. Integration and final evidence
 
