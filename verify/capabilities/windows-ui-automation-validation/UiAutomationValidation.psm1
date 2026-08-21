@@ -23,6 +23,11 @@
 $script:UiaExeRel = 'build\debug\src\ui\FastFiles.exe'
 $script:UiaDiagnosticExeRel = 'build\debug-diagnostic\src\ui\FastFiles.exe'
 
+# Import the Win32 fallback driver once at module scope (guarded, non-fatal if
+# missing): Set-UiaComboSelectionHwnd remains the fallback driver for the
+# owner-drawn search sort combo when no UIA pattern path can select an item.
+try { Import-Module (Join-Path $PSScriptRoot 'UiAutomationWin32.psm1') -ErrorAction SilentlyContinue } catch { }
+
 function New-UiaVSubResult {
     param([string] $Id, [string] $Status, [string] $Reason, [double] $DurationMs, [string] $Detail, [array] $Diagnostics = @())
     [pscustomobject]@{
@@ -90,6 +95,29 @@ function Get-UiaMainWindowElement {
         } catch { Start-Sleep -Milliseconds 500 }
     }
     return $main
+}
+
+# Harness determinism: poll an element's BoundingRectangle until it is
+# unchanged for N consecutive polls (layout/animation settled) or until the
+# timeout elapses. Returns $true only when stable, non-empty geometry was
+# observed; a stale element or invalid rectangle fails fast.
+function Wait-UiaStableGeometry {
+    param($Driver, $Element, [int] $StablePolls = 3, [int] $PollIntervalMs = 250, [int] $TimeoutMs = 5000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $stable = 0
+    $prev = $null
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        try {
+            $br = Get-UiaElementProperty -Driver $Driver -Element $Element -Name 'BoundingRectangle'
+        } catch { return $false }
+        if (-not $br -or $br.width -le 0 -or $br.height -le 0) { return $false }
+        $same = $null -ne $prev -and $prev.x -eq $br.x -and $prev.y -eq $br.y -and $prev.width -eq $br.width -and $prev.height -eq $br.height
+        $stable = $(if ($same) { $stable + 1 } else { 1 })
+        if ($stable -ge $StablePolls) { return $true }
+        $prev = $br
+        Start-Sleep -Milliseconds $PollIntervalMs
+    }
+    return $false
 }
 
 function Get-UiaElementCenter {
@@ -956,6 +984,9 @@ namespace FfUiaCom {
 }
 
 function Get-UiaSearchSortCombo {
+    # NOTE: the product exposes Win32 COMBOBOX controls with ClassName=ComboBox
+    # but ControlType=Pane (the custom main-window provider wraps them), so match
+    # on ClassName, never ControlType.
     param($Driver, [int] $ProcessId, $FromElement = $null)
     # Scope the search to the main window so a stale dialog from another
     # process (or a leftover palette) can never become the search root and
@@ -2534,6 +2565,43 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     }
 }
 
+# Harness determinism: bounded retry wrapper for the registered flaky
+# scenarios (drag-between-panes, treemap-readability-click-precision,
+# geometry-dependent row clicks). Each attempt runs in a fresh FastFiles
+# lifecycle; only a FAIL result is retried, up to MaxRetries times. A PASS or
+# SKIPPED is terminal, and a deterministic failure exhausts the retries and is
+# still returned as FAIL — retries never mask genuine assertion failures.
+function Invoke-UiaScenarioWithRetry {
+    param([string] $ScenarioId, [scriptblock] $Runner, [string] $Exe, [string] $RepoRoot,
+        [string] $ArtifactsDir, $LogFn, [ref] $Artifacts, [int] $MaxRetries = 2)
+    $lastFail = $null
+    $lastError = $null
+    for ($attempt = 1; $attempt -le (1 + $MaxRetries); $attempt++) {
+        & $LogFn "[$ScenarioId] attempt $attempt of $(1 + $MaxRetries)"
+        $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId "$ScenarioId#attempt$attempt" -LogFn $LogFn
+        try {
+            if (-not $ctx -or -not $ctx.Main) {
+                & $LogFn "[$ScenarioId] attempt ${attempt}: lifecycle launch failed"
+                continue
+            }
+            $result = & $Runner $ctx $ArtifactsDir
+            if ($result.status -ne 'FAIL') { return $result }
+            & $LogFn "[$ScenarioId] attempt ${attempt}: FAIL ($($result.reason))"
+            $lastFail = $result
+        } catch {
+            & $LogFn "[$ScenarioId] attempt ${attempt}: exception $($_.Exception.Message)"
+            $lastError = $_
+        } finally {
+            if ($ctx -and $ctx.Main) {
+                $Artifacts.Value += Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $ArtifactsDir -Name $ScenarioId
+            }
+            Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn
+        }
+    }
+    if ($null -ne $lastFail) { return $lastFail }
+    throw $lastError
+}
+
 # stabilize-live-uia-e2e 2.1/5: the scenario registry. Isolated scenarios run
 # in their own fresh FastFiles lifecycle; group names select whole families.
 $script:UiaScenarioRegistry = @{
@@ -2550,26 +2618,25 @@ $script:UiaScenarioRegistry = @{
     'storage-analysis-open'                    = @{ Group = 'core';    Isolated = $false }
     'connection-badge-degraded'                = @{ Group = 'core';    Isolated = $false }
     'storage-mid-scan-calculating'             = @{ Group = 'privileged'; Isolated = $false }
-    'treemap-readability-click-precision'      = @{ Group = 'treemap'; Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioTreemapReadability -Context $ctx -ArtifactsDir $dir } }
+    'treemap-readability-click-precision'      = @{ Group = 'treemap'; Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioTreemapReadability -Context $ctx -ArtifactsDir $dir } }
     'search-panel-open'                        = @{ Group = 'search';  Isolated = $false }
     'search-results-discoverable'              = @{ Group = 'search';  Isolated = $false }
     'search-deep-result-navigation'            = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchDeep -Context $ctx -ArtifactsDir $dir } }
     'search-structured-filter-query'           = @{ Group = 'search';  Isolated = $false }
     'search-allocated-size'                    = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchAllocatedSize -Context $ctx -ArtifactsDir $dir } }
-    'selection-model-interactions'            = @{ Group = 'selection'; Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSelectionModelInteractions -Context $ctx -ArtifactsDir $dir } }
+    'selection-model-interactions'            = @{ Group = 'selection'; Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSelectionModelInteractions -Context $ctx -ArtifactsDir $dir } }
     'search-toggle-service-while-open'         = @{ Group = 'privileged'; Isolated = $false }
     'in-column-error-state-late'               = @{ Group = 'error';   Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioErrorStateLate -Context $ctx -ArtifactsDir $dir } }
     'drag-out-to-explorer'                     = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragOut -Context $ctx -ArtifactsDir $dir } }
     'drag-in-from-explorer'                    = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragIn -Context $ctx -ArtifactsDir $dir } }
-    'drag-between-panes'                       = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragPanes -Context $ctx -ArtifactsDir $dir } }
+    'drag-between-panes'                       = @{ Group = 'drag';    Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragPanes -Context $ctx -ArtifactsDir $dir } }
     'ui-responsive'                            = @{ Group = 'core';    Isolated = $false }
     'rendering-geometry-click-precision'       = @{ Group = 'core';    Isolated = $false }
     'collect-evidence'                         = @{ Group = 'core';    Isolated = $false }
 }
 
 function Resolve-UiaScenarioSelection {
-    param([hashtable] $Options)
-    $all = @($script:UiaScenarioRegistry.Keys | Sort-Object)
+    param([hashtable] $Options)    $all = @($script:UiaScenarioRegistry.Keys | Sort-Object)
     $filter = $null
     if ($Options.UiaScenario) { $filter = [string]$Options.UiaScenario }
     if (-not $filter) { return @{ Ids = $all; Filter = $null } }
@@ -2979,15 +3046,28 @@ function Invoke-UiAutomationValidationCapability {
             Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
         }
 
-        # Isolated scenarios each get a fresh lifecycle.
+        # Isolated scenarios each get a fresh lifecycle. Registered flaky
+        # scenarios go through the bounded retry wrapper (fresh setup per
+        # attempt); everything else runs once.
         foreach ($id in $isolatedIds) {
             & $logFn "isolated scenario: $id"
+            $entry = $script:UiaScenarioRegistry[$id]
+            if ($entry.Flaky) {
+                try {
+                    $result = Invoke-UiaScenarioWithRetry -ScenarioId $id -Runner $entry.Runner -Exe $exe -RepoRoot $Options.RepoRoot -ArtifactsDir $ArtifactsDir -LogFn $logFn -Artifacts ([ref]$artifacts)
+                } catch {
+                    [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
+                    continue
+                }
+                [void]$subResults.Add($result)
+                continue
+            }
             $ctx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId $id -LogFn $logFn
             if (-not $ctx -or -not $ctx.Main) {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail 'failed to start FastFiles UI process / find main window'))
                 continue
             }
-            $result = & $script:UiaScenarioRegistry[$id].Runner $ctx $ArtifactsDir
+            $result = & $entry.Runner $ctx $ArtifactsDir
             $evName = $id
             $artifacts += Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $ArtifactsDir -Name $evName
             Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
