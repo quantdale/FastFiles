@@ -1108,9 +1108,17 @@ int wmain(int argc, wchar_t** argv) {
         return 1;
     }
     const MachineInfo machine = ReadMachineInfo();
+    size_t largestPublishedSnapshotRows = 0;
+    for (const SnapshotRun& run : snapshotRuns) {
+        if (run.publishSucceeded) {
+            largestPublishedSnapshotRows = std::max(largestPublishedSnapshotRows, run.rows);
+        }
+    }
     output << "{\n  \"schema\":\"fastfiles-large-index-scalability-v2\",\n  \"machine\":";
     WriteMachine(output, machine);
     output << ",\n  \"snapshot_maximum_payload_bytes\":" << ffprotocol::kSnapshotMaximumPayloadBytes
+           << ",\n  \"snapshot_capacity_estimate_rows\":" << largestRows
+           << ",\n  \"snapshot_largest_published_probe_rows\":" << largestPublishedSnapshotRows
            << ",\n  \"indexed_search_result_cap\":" << ffprotocol::kMaxIndexedSearchResultCount
            << ",\n  \"database_cleanup\":true,\n  \"datasets\":[\n";
     for (size_t index = 0; index < datasets.size(); ++index) {
@@ -1141,7 +1149,7 @@ int wmain(int argc, wchar_t** argv) {
     output.close();
 
     std::printf("Wrote %s\n", PathToUtf8(options.outputPath).c_str());
-    std::printf("Largest successful snapshot probe: %zu rows (maximum payload %zu bytes)\n",
-                largestRows, ffprotocol::kSnapshotMaximumPayloadBytes);
+    std::printf("Largest published snapshot probe: %zu rows (theoretical capacity estimate %zu rows, maximum payload %zu bytes)\n",
+                largestPublishedSnapshotRows, largestRows, ffprotocol::kSnapshotMaximumPayloadBytes);
     return 0;
 }
