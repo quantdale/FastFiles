@@ -115,9 +115,13 @@ inline TreemapNode* BuildSyntheticCatchAll(const std::vector<TreemapNode*>& tiny
     }
     synthetic->totalSizeBytes = total;
     synthetic->sizeBytes = total;
-    synthetic->calculating = incomplete;
-    synthetic->aggregateFailed = !incomplete && std::any_of(tiny.begin(), tiny.end(),
-                                                            [](const TreemapNode* n) { return n->aggregateFailed; });
+    // Pending vs known-partial are mutually exclusive: a catch-all is only
+    // still "Calculating…" when some member genuinely awaits its aggregate;
+    // otherwise any member failure makes it known-partial.
+    const bool anyCalculating = std::any_of(tiny.begin(), tiny.end(),
+                                            [](const TreemapNode* n) { return n->calculating; });
+    synthetic->calculating = anyCalculating;
+    synthetic->aggregateFailed = !anyCalculating && incomplete;
     synthetic->totalAllocatedSizeBytes =
         std::min(synthetic->totalAllocatedSizeBytes, static_cast<uint64_t>(UINT64_MAX));
     synthetic->allocatedSizeKnown =

@@ -357,6 +357,51 @@ void TestBuildMetadataAggregateFailed() {
           "hover size line says Partial");
 }
 
+void TestBuildMetadataResolvedEmptyFolder() {
+    // A resolved empty folder has a KNOWN exact 0% share: zero is zero.
+    ffui::TreemapNode node;
+    node.name = L"EmptyDir";
+    node.path = L"C:\\EmptyDir";
+    node.isDirectory = true;
+    node.totalSizeBytes = 0;
+    node.totalAllocatedSizeBytes = 0;
+
+    ffui::TreemapVolumeInfo vol;
+    vol.usedBytes = 100000;
+    vol.known = true;
+
+    auto info = ffui::BuildTreemapItemMetadata(node, 50000, true, vol, L"C:\\",
+                                               1, ffui::UiaHashWide(L"C:\\"),
+                                               0.0f, 0.0f, 30.0f, 60.0f, false);
+    Check(!info.calculating && !info.aggregateFailed, "resolved empty folder is neither pending nor failed");
+    Check(info.percentOfParent == 0.0, "resolved empty folder percent of parent is exactly 0");
+    Check(info.hoverLines[3].find(L"0.0%") != std::wstring::npos,
+          "percent line shows 0.0% for a known-zero folder");
+}
+
+void TestBuildMetadataFailedWhileSiblingPending() {
+    // Pending and failed are mutually exclusive states in the projection.
+    ffui::TreemapNode pending;
+    pending.name = L"PendingDir";
+    pending.path = L"C:\\PendingDir";
+    pending.isDirectory = true;
+    pending.calculating = true;
+    Check(ffui::BuildTreemapItemMetadata(pending, 100, true, {}, L"C:", 1, 1,
+                                         0.0f, 0.0f, 10.0f, 10.0f, false)
+                  .itemStatus == L"Calculating\u2026",
+          "pending node projects Calculating status");
+
+    ffui::TreemapNode failed;
+    failed.name = L"FailedDir";
+    failed.path = L"C:\\FailedDir";
+    failed.isDirectory = true;
+    failed.aggregateFailed = true;
+    const auto failedInfo = ffui::BuildTreemapItemMetadata(failed, 100, true, {}, L"C:", 1, 1,
+                                                           0.0f, 0.0f, 10.0f, 10.0f, false);
+    Check(failedInfo.itemStatus == L"Partial", "failed node projects Partial status");
+    Check(!failedInfo.calculating, "failed node is never projected as Calculating");
+}
+
 } // namespace
 
 int main() {
@@ -372,6 +417,8 @@ int main() {
     TestBuildMetadataZeroDenominators();
     TestBuildMetadataSyntheticCatchAll();
     TestBuildMetadataAggregateFailed();
+    TestBuildMetadataResolvedEmptyFolder();
+    TestBuildMetadataFailedWhileSiblingPending();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "fftreemap_metadata_tests: %d check(s) failed\n", FailureCount());

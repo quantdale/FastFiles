@@ -55,7 +55,6 @@ public:
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);
-    bool HandleTimer(UINT_PTR timerId);
     bool HandleCompletion(LPARAM lParam);
     bool HandleTreemapCompletion(LPARAM lParam);
     bool HandleTreemapUiaNavigate(LPARAM lParam);

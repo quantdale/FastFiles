@@ -43,14 +43,18 @@ void TestParentCompositionAndRounding() {
 }
 
 void TestUnknownAndZeroValues() {
-    Check(!ffui::ComputeStoragePercentage(0, 100).known &&
-              ffui::ComputeStoragePercentage(0, 100).display == L"—",
-          "zero-size child displays an em dash");
+    // Known-zero rows have a known exact 0% share -- zero is zero, not "—".
+    const auto zeroRow = ffui::ComputeStoragePercentage(0, 100);
+    Check(zeroRow.known && zeroRow.display == L"0.0%" && zeroRow.sortKey == 0.0,
+          "known zero-size child displays an exact 0.0%");
     Check(!ffui::ComputeStoragePercentage(10, 0).known &&
               ffui::ComputeStoragePercentage(10, 0).display == L"—",
           "zero-size parent displays an em dash");
     Check(!ffui::ComputeStoragePercentage(10, 100, false).known,
           "pending child aggregate stays unknown");
+    Check(!ffui::ComputeStoragePercentage(0, 100, false).known &&
+              ffui::ComputeStoragePercentage(0, 100, false).display == L"—",
+          "an unknown zero-size row stays unknown");
     Check(!ffui::ComputeStoragePercentage(100, 100, false).known &&
               ffui::ComputeStoragePercentage(100, 100, false).display == L"—",
           "a root or no-parent row displays an em dash");

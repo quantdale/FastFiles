@@ -31,7 +31,11 @@ inline bool FilterTreemapNode(TreemapNode& node, const CategoryEngine& categoryE
     if (node.children.empty()) return false;
 
     uint64_t total = 0;
-    bool incomplete = false;
+    // A directory whose own aggregate was still in flight when the filter
+    // landed can no longer learn its true total (filtered trees never
+    // re-request aggregates), so pending state converts to known-partial.
+    const bool wasPending = node.calculating;
+    bool incomplete = wasPending;
     for (const auto& child : node.children) {
         if (std::numeric_limits<uint64_t>::max() - total < child->totalSizeBytes) {
             total = std::numeric_limits<uint64_t>::max();
@@ -42,7 +46,10 @@ inline bool FilterTreemapNode(TreemapNode& node, const CategoryEngine& categoryE
         incomplete = incomplete || child->calculating || child->aggregateFailed;
     }
     node.totalSizeBytes = total;
-    node.calculating = incomplete;
+    // A filtered tree's aggregates are never re-requested (requestAggregate
+    // bails while a category filter is active), so an incomplete rollup is
+    // known-partial, not pending "Calculating…".
+    node.calculating = false;
     node.aggregateResolved = false;
     node.aggregateFailed = incomplete;
     return true;
@@ -65,7 +72,9 @@ inline void FilterTreemapTree(TreemapNode& root, const CategoryEngine& categoryE
     root.children.erase(retainedEnd, root.children.end());
 
     uint64_t total = 0;
-    bool incomplete = false;
+    // Same pending-to-partial conversion as FilterTreemapNode.
+    const bool rootWasPending = root.calculating;
+    bool incomplete = rootWasPending;
     for (const auto& child : root.children) {
         if (std::numeric_limits<uint64_t>::max() - total < child->totalSizeBytes) {
             total = std::numeric_limits<uint64_t>::max();
@@ -76,7 +85,9 @@ inline void FilterTreemapTree(TreemapNode& root, const CategoryEngine& categoryE
         incomplete = incomplete || child->calculating || child->aggregateFailed;
     }
     root.totalSizeBytes = total;
-    root.calculating = incomplete;
+    // Same known-partial rule as FilterTreemapNode: filtered roots never
+    // re-request aggregates, so incomplete means Partial, not Calculating.
+    root.calculating = false;
     root.aggregateResolved = false;
     root.aggregateFailed = incomplete;
 }

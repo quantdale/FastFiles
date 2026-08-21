@@ -141,7 +141,9 @@ inline TreemapUiaItemInfo BuildTreemapItemMetadata(const TreemapNode& node,
     info.aggregateItemCount = node.aggregateItemCount;
     info.invokable = !node.synthetic && !node.path.empty();
     info.calculating = node.calculating;
-    info.aggregateFailed = node.aggregateFailed && !node.calculating;
+    // calculating (pending) and aggregateFailed (known-partial) are mutually
+    // exclusive states by construction.
+    info.aggregateFailed = node.aggregateFailed;
     info.itemType = node.synthetic ? std::wstring(kOtherSmallItemsName)
                                    : (node.isDirectory ? L"Folder" : L"File");
     info.rectX = rectX;

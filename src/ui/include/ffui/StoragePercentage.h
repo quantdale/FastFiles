@@ -20,7 +20,9 @@ struct StoragePercentage {
 inline StoragePercentage ComputeStoragePercentage(uint64_t rowSizeBytes,
                                                   uint64_t parentTotalBytes,
                                                   bool rowKnown = true) {
-    if (!rowKnown || rowSizeBytes == 0 || parentTotalBytes == 0) {
+    // A known zero-size row has a known exact 0% share -- only an unknown
+    // size or an unknown/zero denominator is unknown ("—").
+    if (!rowKnown || parentTotalBytes == 0) {
         return {};
     }
 

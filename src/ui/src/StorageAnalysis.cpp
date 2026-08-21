@@ -27,8 +27,6 @@ constexpr int kByCategoryId = 7209;
 constexpr int kTreemapId = 7210;
 constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
-constexpr UINT_PTR kRefreshTimer = 7220;
-constexpr int kRefreshDelayMs = 50;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -36,8 +34,11 @@ int Scaled(int dipValue) {
 }
 
 // storage-analysis 2.4: a volume that disappeared keeps its last-known
-// capacity figures (labeled stale) instead of being silently dropped.
+// capacity figures (labeled stale) instead of being silently dropped. A
+// volume with no prior figures was never readable -- "stale" would imply
+// data that no longer exists, so it is labeled unavailable instead.
 constexpr wchar_t kStaleSuffix[] = L" (stale)";
+constexpr wchar_t kUnavailableSuffix[] = L" (unavailable)";
 
 void SetSortIndicator(HWND list, int column, bool ascending) {
     HWND header = ListView_GetHeader(list);
@@ -154,8 +155,11 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
 // semantic-treemap-uia 11/28: the one real navigation mutation shared by the
 // treemap mouse-click callback and the UI-thread side of a UIA Invoke.
 void StorageAnalysis::NavigateFromTreemap(const std::wstring& path, bool isDirectory) {
-    currentPath_ = path;
+    // Files are leaves: they are selected/inspected (the shell's navigate
+    // handler opens them) but must never become the panel's scope anchor --
+    // a file path in currentPath_ breaks Drill Down/Up/refresh lookups.
     if (isDirectory) {
+        currentPath_ = path;
         treemapView_.ShowAndFocus(path);
     }
     if (navigate_) navigate_(path, isDirectory);
@@ -279,7 +283,6 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
 void StorageAnalysis::Hide() {
     if (!visible_) return;
     visible_ = false;
-    KillTimer(owner_, kRefreshTimer);
     ApplyModeVisibility();
     items_.clear();
     volumes_.clear();
@@ -421,7 +424,9 @@ void StorageAnalysis::RefreshOverview() {
         item.iItem = static_cast<int>(i);
         item.mask = LVIF_TEXT;
         std::wstring name = vol.rootPath;
-        if (vol.unavailable) name += kStaleSuffix;
+        // "Stale" implies prior figures exist; a volume that was never
+        // readable is unavailable, not stale.
+        if (vol.unavailable) name += vol.totalBytes > 0 ? kStaleSuffix : kUnavailableSuffix;
         item.pszText = const_cast<wchar_t*>(name.c_str());
         ListView_InsertItem(overview_, &item);
 
@@ -571,6 +576,7 @@ void StorageAnalysis::RefreshData() {
             auto& catItem = categoryMap[catName];
             catItem.name = catName;
             catItem.isDirectory = false;
+            catItem.sizeBytes += item.sizeBytes;
             catItem.totalSizeBytes += item.sizeBytes;
             catItem.calculating = false;
         }
@@ -653,6 +659,26 @@ void StorageAnalysis::RequestAggregateForItem(size_t index) {
 }
 
 std::pair<uint64_t, bool> StorageAnalysis::CurrentParentTotals() const {
+    // storage-analysis 5.4: with a category filter active, "% of Parent" is
+    // recalculated relative to the FILTERED scope (matching the treemap's
+    // filtered root total), so the denominator comes from the retained rows
+    // instead of the engine's unfiltered aggregate.
+    if (!activeCategoryId_.empty()) {
+        uint64_t total = 0;
+        bool known = true;
+        for (const auto& item : items_) {
+            if (item.isDirectory && (item.calculating || item.aggregateFailed)) {
+                known = false;
+            }
+            if (UINT64_MAX - total < item.totalSizeBytes) {
+                // A representationally impossible parent total must not wrap
+                // and produce a plausible-looking percentage.
+                return {0, false};
+            }
+            total += item.totalSizeBytes;
+        }
+        return {total, known};
+    }
     if (parentAggregateKnown_) {
         return {parentAggregateTotal_, true};
     }
@@ -1040,13 +1066,6 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
     return false;
 }
 
-bool StorageAnalysis::HandleTimer(UINT_PTR timerId) {
-    if (!visible_ || timerId != kRefreshTimer) return false;
-    KillTimer(owner_, kRefreshTimer);
-    RefreshData();
-    return true;
-}
-
 bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
     // allocated-size-storage-accuracy 6.3: the posted payload is the
     // additive V2 shape (logical + allocated + completeness pair).
@@ -1092,8 +1111,21 @@ bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {
         AppendMenuW(menu, MF_STRING, 3, L"Delete");
     }
 
+    // Keyboard invocation (Shift+F10 / menu key) passes lParam == -1: anchor
+    // the menu at the selected item's on-screen rect instead of (-1,-1).
+    POINT menuPos{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (lParam == static_cast<LPARAM>(-1)) {
+        RECT itemRect{};
+        if (ListView_GetItemRect(list_, selected, &itemRect, LVIR_BOUNDS)) {
+            menuPos = POINT{itemRect.left, itemRect.bottom};
+            ClientToScreen(list_, &menuPos);
+        } else {
+            GetCursorPos(&menuPos);
+        }
+    }
+
     const int cmd = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
-                                      GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), owner_, nullptr);
+                                      menuPos.x, menuPos.y, owner_, nullptr);
     DestroyMenu(menu);
 
     switch (cmd) {

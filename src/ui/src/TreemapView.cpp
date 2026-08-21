@@ -96,19 +96,24 @@ uint64_t TreemapView::RecomputeTotals(TreemapNode& node) {
     if (!node.isDirectory || node.aggregateResolved) return node.totalSizeBytes;
 
     uint64_t total = 0;
-    bool incomplete = false;
+    bool pending = false;
+    bool failed = false;
     for (auto& child : node.children) {
         const uint64_t childTotal = RecomputeTotals(*child);
         if (UINT64_MAX - total < childTotal) {
             total = 0;
-            incomplete = true;
+            failed = true;
             break;
         }
         total += childTotal;
-        incomplete = incomplete || child->calculating || child->aggregateFailed;
+        pending = pending || child->calculating;
+        failed = failed || child->aggregateFailed;
     }
     node.totalSizeBytes = total;
-    node.calculating = incomplete;
+    // "Calculating" is reserved for genuinely pending aggregates; once every
+    // child resolved, a partial subtree is known-partial, never pending.
+    node.calculating = pending && !failed;
+    node.aggregateFailed = !pending && failed;
     return node.totalSizeBytes;
 }
 
@@ -257,54 +262,12 @@ void TreemapView::BuildTree(const std::wstring& path) {
     };
 
     // Directory entries in degraded snapshots do not carry recursive sizes.
-    // Reconstruct the aggregate from any browsed child directories already
-    // present in the same immutable snapshot. Unknown subtrees remain marked
-    // calculating rather than being rendered as misleading zero-byte tiles.
-    const std::function<uint64_t(TreemapNode&)> populate = [&](TreemapNode& parent) -> uint64_t {
-        const auto directoryIt = snapshot->find(parent.path);
-        if (directoryIt == snapshot->end() ||
-            directoryIt->second.status != ffprotocol::DirectoryEnumerationStatus::Success) {
-            parent.calculating = true;
-            return 0;
-        }
-
-        uint64_t total = 0;
-        bool incomplete = false;
-        for (const auto& entry : directoryIt->second.entries) {
-            auto child = std::make_unique<TreemapNode>();
-            child->name = entry.name;
-            child->path = joinPath(parent.path, entry.name);
-            child->isDirectory = entry.isDirectory;
-            child->sizeBytes = entry.sizeBytes;
-            // allocated-size-storage-accuracy 7.2: per-entry size-on-disk
-            // with its explicit known state.
-            child->allocatedSizeBytes = entry.allocatedSizeBytes;
-            child->allocatedSizeKnown = entry.allocatedSizeKnown;
-            child->totalSizeBytes = entry.isDirectory ? 0 : entry.sizeBytes;
-            child->calculating = entry.isDirectory;
-            child->volumeRowId = entry.volumeRowId;
-            child->fileIdLow = entry.fileIdLow;
-            child->fileIdHigh = entry.fileIdHigh;
-            child->depth = parent.depth + 1;
-            child->parent = &parent;
-            if (child->isDirectory) {
-                child->totalSizeBytes = populate(*child);
-                if (child->calculating || child->aggregateFailed) incomplete = true;
-                requestAggregate(*child);
-            }
-            if (UINT64_MAX - total < child->totalSizeBytes) {
-                total = UINT64_MAX;
-                incomplete = true;
-            } else {
-                total += child->totalSizeBytes;
-            }
-            parent.children.push_back(std::move(child));
-        }
-        parent.totalSizeBytes = total;
-        parent.calculating = incomplete;
-        return total;
-    };
-
+    // Only the scope's depth-1 entries become tiles (the layout renders
+    // root_->children exclusively), and only those directories get one
+    // aggregate request each -- the build never walks the whole indexed
+    // subtree, which would flood both the UI thread and the engine on large
+    // volumes. Unknown subtrees remain marked calculating rather than being
+    // rendered as misleading zero-byte tiles until their aggregate resolves.
     for (const auto& entry : directory.entries) {
         auto node = std::make_unique<TreemapNode>();
         node->name = entry.name;
@@ -323,7 +286,6 @@ void TreemapView::BuildTree(const std::wstring& path) {
         node->depth = 1;
         node->parent = root_.get();
         if (node->isDirectory) {
-            node->totalSizeBytes = populate(*node);
             requestAggregate(*node);
         }
         root_->children.push_back(std::move(node));
@@ -463,11 +425,13 @@ bool TreemapView::HandleAggregateCompletion(LPARAM lParam) {
             node->aggregateFailed = false;
             newStatus = L"";
         } else {
+            // Known-partial, not pending: a failed aggregate must transition
+            // out of "Calculating…" into the honest "Partial" state.
             node->totalSizeBytes = 0;
             node->totalAllocatedSizeBytes = 0;
             node->allocatedKnownCount = 0;
             node->allocatedTotalCount = 0;
-            node->calculating = true;
+            node->calculating = false;
             node->aggregateResolved = false;
             node->aggregateFailed = true;
             newStatus = L"Partial";

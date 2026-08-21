@@ -375,6 +375,71 @@ void TestSingleNodeFillsContainer() {
     Check(NearlyEqual(rects[0].height, 80.0f), "single node height matches");
 }
 
+// The catch-all's pending/failed derivation is live, not dead: a failed-only
+// membership is known-partial; any pending member keeps it Calculating.
+void TestSyntheticCatchAllFailureDerivation() {
+    using namespace ffui;
+    std::vector<std::unique_ptr<TreemapNode>> owned;
+
+    // Derivation contract, checked directly on BuildSyntheticCatchAll: a
+    // pending member keeps the catch-all Calculating; with no pending member,
+    // any failure makes it known-partial; the two states are mutually
+    // exclusive. (LayoutTreemap itself only merges KNOWN-size tiny members --
+    // unknown-size nodes take the placeholder path -- so this contract is
+    // exercised at the function level.)
+    auto* pending = MakeNode(1, L"pending", owned);
+    pending->calculating = true;
+    auto* okA = MakeNode(1, L"a", owned);
+    auto* okB = MakeNode(1, L"b", owned);
+    {
+        std::vector<std::unique_ptr<TreemapNode>> storage;
+        std::vector<TreemapNode*> tiny{okA, okB, pending};
+        BuildSyntheticCatchAll(tiny, storage, 0);
+        Check(!storage.empty(), "derivation: catch-all built for pending member");
+        if (!storage.empty()) {
+            Check(storage.back()->calculating && !storage.back()->aggregateFailed,
+                  "pending-member catch-all stays Calculating, not Partial");
+        }
+    }
+    {
+        pending->calculating = false;
+        pending->aggregateFailed = true;
+        std::vector<std::unique_ptr<TreemapNode>> storage;
+        std::vector<TreemapNode*> tiny{okA, okB, pending};
+        BuildSyntheticCatchAll(tiny, storage, 0);
+        Check(!storage.empty(), "derivation: catch-all built for failed member");
+        if (!storage.empty()) {
+            Check(storage.back()->aggregateFailed && !storage.back()->calculating,
+                  "failed-only catch-all is known-partial, never Calculating");
+        }
+    }
+
+    // Layout level: two known tiny members merge into a RESOLVED catch-all
+    // (neither Calculating nor Partial).
+    auto* big = MakeNode(1000000, L"big", owned);
+    auto* t1 = MakeNode(1, L"t1", owned);
+    auto* t2 = MakeNode(1, L"t2", owned);
+    std::vector<TreemapNode*> nodes{big, t1, t2};
+    std::vector<std::unique_ptr<TreemapNode>> synthStorage;
+    std::vector<TreemapRect> rects;
+    LayoutTreemap(rects, 0.0f, 0.0f, 100.0f, 100.0f, nodes, 0, &synthStorage);
+    Check(!synthStorage.empty(), "catch-all created for tiny members");
+    if (!synthStorage.empty()) {
+        Check(!synthStorage.back()->calculating && !synthStorage.back()->aggregateFailed,
+              "resolved tiny merge is neither Calculating nor Partial");
+    }
+
+    // An unknown-size node is laid out via the placeholder path and never
+    // merged into a catch-all.
+    auto* unknown = MakeNode(1, L"unknown", owned);
+    unknown->calculating = true;
+    nodes = {big, t1, unknown};
+    synthStorage.clear();
+    rects.clear();
+    LayoutTreemap(rects, 0.0f, 0.0f, 100.0f, 100.0f, nodes, 0, &synthStorage);
+    Check(synthStorage.empty(), "unknown-size nodes take the placeholder path, not the catch-all");
+}
+
 } // namespace
 
 int main() {
@@ -389,5 +454,6 @@ int main() {
     TestCenterHitTestSelfConsistency();
     TestCalculatingNodePlaceholder();
     TestSingleNodeFillsContainer();
+    TestSyntheticCatchAllFailureDerivation();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

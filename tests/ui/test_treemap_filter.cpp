@@ -155,6 +155,47 @@ void TestRepeatedTransitionsAreDeterministic() {
           "repeated application of one category is deterministic");
 }
 
+void TestSetCategoriesRebuildsTheExtensionIndex() {
+    ffui::CategoryEngine engine;
+    Check(engine.Match(L"clip.mp4").matched, "default engine matches mp4 before replacement");
+
+    ffui::CategoryDefinition media;
+    media.id = L"media";
+    media.displayName = L"Media";
+    media.extensions = {L".mp4", L".mkv"};
+    engine.SetCategories({media});
+
+    const auto match = engine.Match(L"CLIP.MP4");
+    Check(match.matched && match.categoryId == L"media",
+          "SetCategories rebuilds the extension lookup so Match sees the new set");
+    Check(!engine.Match(L"photo.jpg").matched,
+          "extensions from the replaced default set no longer match");
+    Check(engine.Matches(L"clip.mp4", L"media") && !engine.Matches(L"clip.mp4", L"other"),
+          "canonical predicate agrees with the rebuilt index");
+}
+
+void TestFilteredIncompleteNodesArePartialNotCalculating() {
+    // A filtered tree's aggregates are never re-requested, so a directory
+    // whose retained rollup is incomplete must project as known-partial
+    // ("Partial"), never as pending "Calculating…".
+    auto root = BuildFixture();
+    ffui::TreemapNode* pending = AddDirectory(*root, L"PendingChild");
+    pending->calculating = true; // aggregate still in flight when the filter lands
+    AddFile(*pending, L"pic.png", 25);
+
+    Apply(*root, L"image");
+
+    const auto child = std::find_if(root->children.begin(), root->children.end(),
+                                    [](const std::unique_ptr<ffui::TreemapNode>& node) {
+                                        return node->name == L"PendingChild";
+                                    });
+    Check(child != root->children.end(), "pending member directory is retained by the filter");
+    Check(!(*child)->calculating && (*child)->aggregateFailed,
+          "retained pending directory becomes known-partial after filtering");
+    Check(!root->calculating && root->aggregateFailed,
+          "filtered root rollup is known-partial, not Calculating");
+}
+
 } // namespace
 
 int main() {
@@ -164,5 +205,7 @@ int main() {
     TestEmptyCategoryClearsTheModel();
     TestClassifierIsSharedWithTheFilter();
     TestRepeatedTransitionsAreDeterministic();
+    TestFilteredIncompleteNodesArePartialNotCalculating();
+    TestSetCategoriesRebuildsTheExtensionIndex();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
