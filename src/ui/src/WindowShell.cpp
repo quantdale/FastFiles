@@ -8,6 +8,7 @@
 
 #include <commctrl.h>
 #include <commdlg.h>
+#include <io.h>
 #include <utility>
 #include "QuickActions.h"
 
@@ -61,6 +62,9 @@ constexpr UINT WM_APP_ENGINE_STATUS = WM_APP + 7;
 constexpr UINT kContextCommandBase = 20000;
 constexpr UINT_PTR kWorkspaceSaveTimer = 0xF1F1;
 constexpr UINT_PTR kUiScrollAnimTimer = 0xF1F2;
+// Bounds for the per-path type-name cache and its in-flight lookup list.
+constexpr size_t kMaxFileTypeCacheEntries = 4096;
+constexpr size_t kMaxInFlightFileTypeLookups = 32;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -90,6 +94,9 @@ std::wstring ExtensionOf(const std::wstring& path) {
 }
 
 std::wstring FormatTime(const FILETIME& time) {
+    // A zero FILETIME is "no timestamp available" (e.g. a failed attribute
+    // fetch), not the year 1601 -- render it as an em-dash.
+    if (time.dwHighDateTime == 0 && time.dwLowDateTime == 0) return L"\u2014";
     FILETIME localFileTime{};
     SYSTEMTIME local{};
     if (!FileTimeToLocalFileTime(&time, &localFileTime) || !FileTimeToSystemTime(&localFileTime, &local)) return L"Unavailable";
@@ -153,9 +160,12 @@ std::wstring FormatSelectionProbeState(const SelectionDiagnostics& diagnostics) 
 }
 
 WindowShell::WindowShell() : previewController_([this](uint64_t requestId, PreviewResult result) {
+    // Publish immutably: RenderDetails takes only this shared_ptr under the
+    // lock, so a large decoded image is never deep-copied per paint frame.
+    auto payload = std::make_shared<const PreviewResult>(std::move(result));
     std::lock_guard<std::mutex> lock(previewMutex_);
     if (requestId == activePreviewRequest_) {
-        preview_ = std::move(result);
+        preview_ = std::move(payload);
         if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
@@ -300,6 +310,7 @@ bool WindowShell::InitializeCommands() {
             const std::wstring activePath = columnView_.ActivePanePath();
             if (!activePath.empty() && activePath != navigationWorkspace_.ActiveContext().currentPath) {
                 navigationWorkspace_.Navigate(activePath);
+                RefreshHomeData(); // quick-access-home 5.5: navigation records recents
             }
             if (commandId == L"file.copy" || commandId == L"file.cut") {
                 clipboardPaths_ = paths;
@@ -311,15 +322,32 @@ bool WindowShell::InitializeCommands() {
                 CopyFilesToClipboard(hwnd_, paths, clipboardIsCut_);
             } else if (commandId == L"file.paste") {
                 const std::wstring destination = columnView_.ActivePanePath();
+                // The shell clipboard is authoritative: read it fresh at paste
+                // time so content copied elsewhere after our last app-local
+                // copy wins. The app-local vector is only a fallback for a
+                // clipboard another process temporarily owns or has cleared --
+                // it must never shadow fresher clipboard content.
                 bool externalCut = false;
-                std::vector<std::wstring> pathsToPaste = clipboardPaths_;
-                if (pathsToPaste.empty()) pathsToPaste = ReadFilesFromClipboard(hwnd_, externalCut);
-                const bool cut = clipboardPaths_.empty() ? externalCut : clipboardIsCut_;
+                std::vector<std::wstring> pathsToPaste = ReadFilesFromClipboard(hwnd_, externalCut);
+                bool cut = externalCut;
+                if (pathsToPaste.empty() && !clipboardPaths_.empty()) {
+                    pathsToPaste = clipboardPaths_;
+                    cut = clipboardIsCut_;
+                }
                 if (!pathsToPaste.empty() && !destination.empty()) {
                     if (QueueTransfer(pathsToPaste, destination,
-                                      cut ? FileOperationKind::Move : FileOperationKind::Copy) &&
-                        cut && !clipboardPaths_.empty()) {
-                        clipboardPaths_.clear();
+                                      cut ? FileOperationKind::Move : FileOperationKind::Copy)) {
+                        if (cut) {
+                            // A move consumes the source selection: drop both the
+                            // app-local vector and the shell clipboard content so
+                            // a second paste cannot duplicate the operation.
+                            clipboardPaths_.clear();
+                            clipboardIsCut_ = false;
+                            if (OpenClipboard(hwnd_)) {
+                                EmptyClipboard();
+                                CloseClipboard();
+                            }
+                        }
                     }
                 }
             } else if (commandId == L"file.new-folder") {
@@ -384,7 +412,9 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"item.open-with" && paths.size() == 1) {
                 if (!ShowOpenWithPicker(hwnd_, paths.front())) MessageBoxW(hwnd_, L"The application picker could not be opened.", L"Open with", MB_OK | MB_ICONERROR);
             } else if (commandId == L"item.copy-path") {
-                CopyPathsToClipboard(hwnd_, paths);
+                if (!CopyPathsToClipboard(hwnd_, paths)) {
+                    ShowStatusNotice(L"Could not copy the path to the clipboard.");
+                }
             } else if (commandId == L"item.copy-relative-path") {
                 // Base folder: the other pane's current location when dual-pane
                 // mode is active, else the current view's root (leftmost)
@@ -396,7 +426,9 @@ bool WindowShell::InitializeCommands() {
                 const std::wstring base = otherPane ? *otherPane : columnView_.RootPath();
                 bool fallback = false;
                 const auto relative = PathsRelativeTo(paths, base, fallback);
-                CopyPathsToClipboard(hwnd_, relative);
+                if (!CopyPathsToClipboard(hwnd_, relative)) {
+                    ShowStatusNotice(L"Could not copy the path to the clipboard.");
+                }
                 if (fallback) MessageBoxW(hwnd_, L"A relative path was not possible; the absolute path was copied instead.", L"Copy relative path", MB_OK | MB_ICONINFORMATION);
             } else if (commandId == L"item.open-containing-folder" && paths.size() == 1) {
                 const std::filesystem::path selected(paths.front());
@@ -426,6 +458,7 @@ bool WindowShell::InitializeCommands() {
                         RefreshSelectionPresentation();
                         navigationChrome_.Refresh();
                         navigationSidebar_.Refresh();
+                        RefreshHomeData(); // quick-access-home 5.5: navigation records recents
                         RequestRepaint();
                     } else {
                         NavigateWorkspace(*parentPath);
@@ -599,6 +632,7 @@ bool WindowShell::InitializeCommands() {
         else columnView_.NavigateToHierarchy((std::filesystem::path(candidate.folder) / candidate.name).wstring(), candidate.isDirectory);
         RefreshSelectionPresentation();
         navigationChrome_.Refresh();
+        RefreshHomeData(); // quick-access-home 5.5: navigation records recents
         RequestRepaint();
     }, settings_.retainSearchHistory)) return false;
     searchPanel_.SetDefaultScope(settings_.defaultSearchScope);
@@ -635,12 +669,24 @@ void WindowShell::BeginInlineRename(const std::wstring& path) {
     FinishInlineRename(false);
     inlineRenamePath_ = path;
     const auto shellLayout = CurrentShellLayout();
-    const int x = static_cast<int>(ffui::UiScale(shellLayout.contentRect.left +
+    // Position the edit from the same row-rect math the renderer uses
+    // (ColumnView::Render): pane x-offset + column x - horizontal scroll for
+    // the left edge, and the badge strip + row index * row height - the
+    // pane's vertical scroll offset for the top. Ignoring the vertical scroll
+    // used to place the edit over the wrong row once the column was scrolled.
+    const int pane = columnView_.ActivePane();
+    const float viewportWidth = NavigationViewportWidth();
+    const float paneWidth = columnView_.IsDualPane() ? viewportWidth / 2.0f : viewportWidth;
+    const float paneX = columnView_.IsDualPane() ? pane * paneWidth : 0.0f;
+    const float paneScroll = pane == 0 ? scrollAnim_.Value() : columnView_.ScrollOffset2();
+    const float verticalScroll = columnView_.VerticalScrollOffset(pane);
+    const int x = static_cast<int>(ffui::UiScale(shellLayout.contentRect.left + paneX +
                                                  columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth -
-                                                 scrollOffset_ + 28.0f));
+                                                 paneScroll + 24.0f));
     const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
     const int y = static_cast<int>(ffui::UiScale(shellLayout.contentRect.top +
-                                                 ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight));
+                                                 ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight -
+                                                 verticalScroll));
     inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
                                     WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, Scaled(205), Scaled(24), hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
@@ -792,12 +838,13 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         return false;
     }
     settings_ = ffprotocol::LoadSettings();
-    const std::wstring initialNavigationPath = ResolveInitialNavigationPath(
-        settings_.restorePreviousSession, navigationWorkspace_.State().lastLocation,
-        settings_.startupLocation);
-    if (!initialNavigationPath.empty() &&
-        initialNavigationPath != navigationWorkspace_.ActiveContext().currentPath) {
-        navigationWorkspace_.Navigate(initialNavigationPath);
+    // quick-access-home: typed startup resolution -- a session that ended on
+    // Home restores as Home instead of silently falling back to the default.
+    const NavigationLocation initialLocation = ResolveInitialNavigationLocation(
+        settings_.restorePreviousSession, navigationWorkspace_.State(), settings_.startupLocation);
+    if (!initialLocation.IsHome() && !initialLocation.path.empty() &&
+        initialLocation.path != navigationWorkspace_.ActiveContext().currentPath) {
+        navigationWorkspace_.Navigate(initialLocation.path);
     }
     ApplyTheme();
     columnView_.Initialize(&engineClient_);
@@ -810,8 +857,8 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         HandleAnimationTimer(true);
         RequestRepaint();
     });
-    if (!initialNavigationPath.empty()) {
-        columnView_.NavigateToPath(initialNavigationPath);
+    if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
+        columnView_.NavigateToPath(initialLocation.path);
     }
     // The icon cache posts WM_APP_ICON_READY to hwnd_ when a type icon resolves;
     // the shell repaints on that message. The column view draws the cached
@@ -951,6 +998,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
                 navigationSidebar_.Refresh();
+                RefreshHomeData(); // quick-access-home 5.5: navigation records recents
                 RequestRepaint();
             }
         },
@@ -1051,8 +1099,19 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     // the Engine unavailable state.
     columnView_.SetRetryEngineCallback([this] { engineClient_.RetryConnect(); });
 
+    // selection-input-hardening: Enter over a focused non-directory opens the
+    // item through the same command seam as double-click (ColumnView consumes
+    // VK_RETURN before shortcut dispatch, so the shell must supply the open
+    // action explicitly).
+    columnView_.SetOpenFocusedItemCallback([this] {
+        if (ShouldOpenSelectionOnDoubleClick(columnView_.ActiveSelectionItems())) {
+            InvokeCommand(L"item.open");
+        }
+    });
+
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
+    UpdatePreviewLimitMenuChecks();
     SetTimer(hwnd_, kWorkspaceSaveTimer, 500, nullptr);
     return true;
 }
@@ -1069,6 +1128,16 @@ int WindowShell::RunMessageLoop() {
         if (DispatchShortcut(msg, ShortcutScope::Global, nativeEditFocused)) continue;
         if (commandPalette_.HandleMessage(msg)) continue;
         if (settingsDialog_.HandleMessage(msg)) continue;
+        // Escape closes the search panel even while keyboard focus sits in the
+        // query box or the result list (native child controls would otherwise
+        // swallow the key before the main window's WM_KEYDOWN sees it). The
+        // command palette and settings dialog above keep precedence.
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && searchPanel_.Visible()) {
+            searchPanel_.Hide();
+            SetFocus(hwnd_);
+            RequestRepaint();
+            continue;
+        }
         if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
@@ -1150,6 +1219,10 @@ void WindowShell::MarkDeviceDirty() {
     previewTextFormat_.Reset();
     dividerBrush_.Reset();
     progressBrush_.Reset();
+    // Preview bitmaps are device-dependent: a bitmap created on the old
+    // device cannot be drawn by the recreated context, so drop it and let
+    // RenderDetails re-decode from the still-valid pixel snapshot.
+    previewBitmap_.Reset();
     // Any in-flight cross-fade captured buffers on the old device; cancel it so
     // the next paint renders the current theme directly.
     crossFadeActive_ = false;
@@ -1173,10 +1246,33 @@ void WindowShell::SaveAndNotifySettings() {
     const bool settingsSaved = ffprotocol::SaveSettings(settings_);
     const auto shortcutPath = ffprotocol::ShortcutSettingsPath();
     const bool shortcutsSaved = !shortcutPath.empty() && shortcuts_.Save(shortcutPath);
-    if (settingsSaved && shortcutsSaved) {
+    // Index-dependent consumers follow the general settings alone; a shortcut
+    // save failure must not suppress indexing config reloads, and is surfaced
+    // independently instead of silently swallowed.
+    if (settingsSaved) {
         storageAnalysis_.SetCategories(settings_.storageCategories);
         engineClient_.ReloadIndexingConfig();
     }
+    if (!shortcutsSaved) {
+        ShowStatusNotice(L"Settings saved, but keyboard shortcuts could not be persisted.");
+    }
+}
+
+void WindowShell::ShowStatusNotice(const std::wstring& message) {
+    statusNotice_ = message;
+    statusNoticeUntilMs_ = GetTickCount64() + 8000;
+    RequestRepaint();
+}
+
+void WindowShell::UpdatePreviewLimitMenuChecks() {
+    HMENU menu = GetMenu(hwnd_);
+    if (menu == nullptr) return;
+    const auto checked = [](bool on) { return MF_BYCOMMAND | (on ? MF_CHECKED : MF_UNCHECKED); };
+    CheckMenuItem(menu, kMenuPreviewEnabled, checked(settings_.previewEnabled));
+    const unsigned long long limit = settings_.maxAutoPreviewBytes;
+    CheckMenuItem(menu, kMenuPreview1Mb, checked(limit == 1ULL * 1024ULL * 1024ULL));
+    CheckMenuItem(menu, kMenuPreview16Mb, checked(limit == 16ULL * 1024ULL * 1024ULL));
+    CheckMenuItem(menu, kMenuPreview64Mb, checked(limit == 64ULL * 1024ULL * 1024ULL));
 }
 
 void WindowShell::Render() {
@@ -1290,6 +1386,8 @@ void WindowShell::Render() {
 
 void WindowShell::RefreshSelectionPresentation() {
     previewBitmap_.Reset();
+    attributesCachePath_.clear();
+    attributesCacheValid_ = false;
     const auto selection = columnView_.CurrentSelection();
     // Details aggregates are keyed by folder identity, but a cleared/file
     // selection must also invalidate the request so reselecting that folder
@@ -1298,7 +1396,7 @@ void WindowShell::RefreshSelectionPresentation() {
         aggregateRequest_.Invalidate();
     }
     std::lock_guard<std::mutex> lock(previewMutex_);
-    preview_ = {};
+    preview_ = nullptr;
     if (!settings_.previewEnabled || !selection || selection->isDirectory || selection->sizeBytes > settings_.maxAutoPreviewBytes) {
         previewController_.Clear();
         ++activePreviewRequest_;
@@ -1306,18 +1404,33 @@ void WindowShell::RefreshSelectionPresentation() {
     }
     RequestFileType(selection->path);
     ++activePreviewRequest_;
-    previewController_.Request(*selection);
+    // Forward the configured Preview Limit so text truncation follows the
+    // advertised control, not just the auto-preview gate.
+    FileDescriptor descriptor = *selection;
+    descriptor.maxBytes = settings_.maxAutoPreviewBytes;
+    previewController_.Request(descriptor);
 }
 
 void WindowShell::RequestFileType(const std::wstring& path) {
     {
         std::lock_guard<std::mutex> lock(fileTypeMutex_);
         if (fileTypes_.contains(path)) return;
+        // Bound the cache: a long session browsing many unique paths must not
+        // grow it without limit. Entries are cheap to re-resolve, so a plain
+        // clear at the cap is sufficient (no LRU bookkeeping).
+        if (fileTypes_.size() >= kMaxFileTypeCacheEntries) {
+            fileTypes_.clear();
+        }
         fileTypes_.emplace(path, L"");
     }
-    fileTypeWork_.erase(std::remove_if(fileTypeWork_.begin(), fileTypeWork_.end(), [](std::future<void>& work) {
+    fileTypeWork_.erase(std::remove_if(fileTypeWork_.begin(), fileTypeWork_.end(), [](std::shared_future<void>& work) {
         return work.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
     }), fileTypeWork_.end());
+    // Bound the in-flight list too. shared_future destruction never blocks,
+    // so abandoning the oldest lookup cannot stall the UI thread or shutdown.
+    if (fileTypeWork_.size() >= kMaxInFlightFileTypeLookups) {
+        fileTypeWork_.erase(fileTypeWork_.begin());
+    }
     fileTypeWork_.push_back(std::async(std::launch::async, [this, path] {
         SHFILEINFOW info{};
         std::wstring description;
@@ -1329,7 +1442,7 @@ void WindowShell::RequestFileType(const std::wstring& path) {
             fileTypes_[path] = std::move(description);
         }
         if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
-    }));
+    }).share());
 }
 
 std::wstring WindowShell::FileTypeFor(const std::wstring& path) const {
@@ -1400,8 +1513,15 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         info += L"Known total size: " + ffui::FormatSize(summary.knownSizeBytes);
     }
     else {
-        WIN32_FILE_ATTRIBUTE_DATA data{};
-        GetFileAttributesExW(selection->path.c_str(), GetFileExInfoStandard, &data);
+        // Fetch attributes once per selection change, never per paint frame:
+        // a blocking GetFileAttributesExW on an unreachable network share
+        // would otherwise freeze the UI on every repaint.
+        if (!attributesCacheValid_ || attributesCachePath_ != selection->path) {
+            attributesCachePath_ = selection->path;
+            attributesCacheValid_ =
+                GetFileAttributesExW(selection->path.c_str(), GetFileExInfoStandard, &attributesCache_) != FALSE;
+        }
+        const bool haveAttributes = attributesCacheValid_;
         const std::wstring extension = ExtensionOf(selection->path);
         const std::wstring extensionLabel = extension.empty() ? std::wstring(L"(none)") : extension;
         const std::wstring typeLabel = FileTypeFor(selection->path);
@@ -1417,6 +1537,9 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                 pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
                 pendingAggregateItemCount_ = 0;
                 pendingAggregateTotalSize_ = 0;
+                pendingAggregateAllocatedSize_ = 0;
+                pendingAggregateAllocatedKnownCount_ = 0;
+                pendingAggregateAllocatedTotalCount_ = 0;
                 requestId = engineClient_.RequestFolderAggregate(
                     static_cast<int64_t>(selection->volumeRowId),
                     selection->fileIdLow, selection->fileIdHigh,
@@ -1440,6 +1563,12 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
             } else if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Resolved) {
                 info += L"Type: Folder\nItems: " + std::to_wstring(pendingAggregateItemCount_) + L"\n";
                 info += L"Total size: " + ffui::FormatSize(pendingAggregateTotalSize_);
+                // allocated-size-storage-accuracy 6.3: the engine-computed
+                // size-on-disk is displayed when known; unknown stays honestly
+                // absent rather than being fabricated as 0 B.
+                if (pendingAggregateAllocatedKnownCount_ > 0) {
+                    info += L"\nSize on disk: " + ffui::FormatSize(pendingAggregateAllocatedSize_);
+                }
             } else {
                 info += L"Type: Folder\nItems: —\nTotal size: —";
             }
@@ -1451,9 +1580,11 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
             if (selection->allocatedSizeKnown) {
                 info += L"Size on disk: " + ffui::FormatSize(selection->allocatedSizeBytes) + L"\n";
             }
-            info += L"Created: " + FormatTime(data.ftCreationTime) + L"\n";
-            info += L"Modified: " + FormatTime(data.ftLastWriteTime) + L"\n";
-            info += L"Accessed: " + FormatTime(data.ftLastAccessTime) + L"\n";
+            // A failed attribute fetch renders em-dashes (FormatTime maps a
+            // zero FILETIME to "—"), never epoch-zero 1601 timestamps.
+            info += std::wstring(L"Created: ") + (haveAttributes ? FormatTime(attributesCache_.ftCreationTime) : L"—") + L"\n";
+            info += std::wstring(L"Modified: ") + (haveAttributes ? FormatTime(attributesCache_.ftLastWriteTime) : L"—") + L"\n";
+            info += std::wstring(L"Accessed: ") + (haveAttributes ? FormatTime(attributesCache_.ftLastAccessTime) : L"—") + L"\n";
             info += L"Attributes: " + FormatAttributes(selection->attributes);
         }
     }
@@ -1478,22 +1609,31 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     const float infoBottom = (std::min)(previewTop - pad, cardBottom);
     context->DrawText(info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
         D2D1::RectF(cardLeft + pad, infoTop, cardRight - pad, infoBottom), detailsTextBrush_.Get());
-    PreviewResult preview;
+    std::shared_ptr<const PreviewResult> preview;
     { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
     const float previewBottom = cardBottom - pad;
     if (previewTop < previewBottom && !settings_.previewEnabled) {
         const std::wstring text = L"Preview disabled";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
             D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
-    } else if (previewTop < previewBottom && preview.kind == PreviewKind::Image) {
-        if (!previewBitmap_ && !preview.pixels.empty()) {
+    } else if (previewTop < previewBottom && preview && preview->kind == PreviewKind::Image) {
+        if (!previewBitmap_ && !preview->pixels.empty()) {
             const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-            context->CreateBitmap(D2D1::SizeU(preview.width, preview.height), preview.pixels.data(), preview.width * 4, &properties, &previewBitmap_);
+            context->CreateBitmap(D2D1::SizeU(preview->width, preview->height), preview->pixels.data(), preview->width * 4, &properties, &previewBitmap_);
         }
-        if (previewBitmap_) context->DrawBitmap(previewBitmap_.Get(), D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom));
+        if (previewBitmap_) {
+            // Letterbox: uniform scale, centered -- never stretch to the pane
+            // rect (which would distort portraits/panoramas).
+            const D2D1_RECT_F dest = ffui::ComputeLetterboxRect(
+                D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
+                static_cast<float>(preview->width), static_cast<float>(preview->height));
+            context->DrawBitmap(previewBitmap_.Get(), dest);
+        }
     } else if (previewTop < previewBottom) {
-        std::wstring text = preview.kind == PreviewKind::Text ? preview.text : (selection && !selection->isDirectory ? L"No preview available" : L"");
-        if (preview.truncated) text += L"\n\n[Preview truncated]";
+        std::wstring text = preview && preview->kind == PreviewKind::Text
+            ? preview->text
+            : (selection && !selection->isDirectory ? L"No preview available" : L"");
+        if (preview && preview->truncated) text += L"\n\n[Preview truncated]";
         context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
             D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
     }
@@ -1518,7 +1658,13 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
             ffui::UiFillRoundedRect(context, progressRect, progressBrush_.Get(), ffui::UiMetrics::kRadiusSmall);
         }
     }
-    context->DrawText(status.c_str(), static_cast<UINT32>(status.size()), detailsTextFormat_.Get(),
+    // Transient non-modal notice (copy failures, degraded-mode explanation)
+    // rides the status line until it expires.
+    std::wstring statusText = status;
+    if (!statusNotice_.empty() && GetTickCount64() < statusNoticeUntilMs_) {
+        statusText += L"  •  " + statusNotice_;
+    }
+    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()), detailsTextFormat_.Get(),
         D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight), detailsTextBrush_.Get());
 }
 
@@ -1697,6 +1843,14 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             searchPanel_.SetEngineActive(engineActive_);
             settingsDialog_.SetEngineActive(engineActive_);
             storageAnalysis_.SetEngineActive(engineActive_);
+            if (state == EngineConnectionState::Unavailable) {
+                // First-run clarity: a rejected/unlaunchable engine (e.g. the
+                // fail-closed unsigned-engine rejection in default builds) must
+                // not read as a perpetual silent "Refreshing…". Messaging only
+                // -- the fail-closed security boundary is never weakened.
+                ShowStatusNotice(
+                    L"Indexing enhancement unavailable in this configuration — browsing still works.");
+            }
             RequestRepaint();
             return 0;
         }
@@ -1861,6 +2015,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 pendingAggregateStatus_ = payload->status;
                 pendingAggregateItemCount_ = payload->itemCount;
                 pendingAggregateTotalSize_ = payload->totalSizeBytes;
+                pendingAggregateAllocatedSize_ = payload->totalAllocatedSizeBytes;
+                pendingAggregateAllocatedKnownCount_ = payload->allocatedBytesKnownCount;
+                pendingAggregateAllocatedTotalCount_ = payload->allocatedBytesTotalCount;
                 RequestRepaint();
             }
             delete payload;
@@ -1903,6 +2060,8 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 SetWindowTextW(hwnd_, event->kind == FileOperationEventKind::Queued ? L"FastFiles — operation queued" : L"FastFiles — operation in progress");
                 fileOpInProgress_ = true;
                 fileOpProgress_ = 0.0f;
+                // An operation is genuinely outstanding: Escape may cancel it.
+                fileOpOutstanding_ = true;
                 RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Progress) {
                 std::wstring title = L"FastFiles — ";
@@ -1921,6 +2080,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 fileOpProgress_ = std::clamp(static_cast<float>(event->percent) / 100.0f, 0.0f, 1.0f);
                 RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Completed || event->kind == FileOperationEventKind::Cancelled) {
+                // The operation is no longer outstanding; Escape must not claim
+                // a cancellation is in flight when nothing is running.
+                fileOpOutstanding_ = false;
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
                 title += L" — " + std::to_wstring(event->failures.size()) + L" failed";
@@ -1940,8 +2102,19 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     }
                 }
                 if (event->operation == FileOperationKind::Restore && !event->failures.empty()) {
-                    MessageBoxW(hwnd_, L"The deleted item can no longer be restored. It may have been removed from the Recycle Bin.",
-                                L"Undo unavailable", MB_OK | MB_ICONWARNING);
+                    // Reflect partial success accurately: some items restored
+                    // is a different message from "nothing could be restored".
+                    if (event->completed > 0) {
+                        MessageBoxW(hwnd_,
+                                    (L"Restored " + std::to_wstring(event->completed) + L" of " +
+                                     std::to_wstring(event->total) + L" item(s). " +
+                                     std::to_wstring(event->failures.size()) +
+                                     L" item(s) could no longer be restored from the Recycle Bin.").c_str(),
+                                    L"Undo partially completed", MB_OK | MB_ICONWARNING);
+                    } else {
+                        MessageBoxW(hwnd_, L"The deleted item can no longer be restored. It may have been removed from the Recycle Bin.",
+                                    L"Undo unavailable", MB_OK | MB_ICONWARNING);
+                    }
                 }
                 if (!event->createdPaths.empty()) {
                     const std::filesystem::path created(event->createdPaths.front());
@@ -2174,8 +2347,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     SetFocus(hwnd_);
                     return 0;
                 }
-                fileOperations_.CancelCurrent();
-                SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
+                // Only cancel when an operation is actually outstanding; an
+                // idle Escape must not claim "cancelling operation…".
+                if (fileOpOutstanding_) {
+                    fileOperations_.CancelCurrent();
+                    SetWindowTextW(hwnd_, L"FastFiles — cancelling operation…");
+                }
                 return 0;
             }
             columnView_.OnKeyDown(static_cast<int>(wParam));
@@ -2215,8 +2392,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 case kMenuPreviewEnabled: settings_.previewEnabled = !settings_.previewEnabled; break;
                 case kMenuPreview1Mb: settings_.maxAutoPreviewBytes = 1ULL * 1024ULL * 1024ULL; break;
                 case kMenuPreview16Mb: settings_.maxAutoPreviewBytes = 16ULL * 1024ULL * 1024ULL; break;
-                case kMenuPreview64Mb: settings_.maxAutoPreviewBytes = 64ULL * 1024ULL * 1024ULL; break;
-                case kMenuForgetUnavailableDrive:
+                case kMenuPreview64Mb: settings_.maxAutoPreviewBytes = 64ULL * 1024ULL * 1024ULL; break;                case kMenuForgetUnavailableDrive:
                     engineClient_.RequestUnavailableVolumes([this](auto records) {
                         auto owned = std::make_unique<std::vector<ffprotocol::UnavailableVolumeRecord>>(
                             std::move(records));
@@ -2263,7 +2439,21 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
                     if (!GetSaveFileNameW(&ofn)) return 0;
                     const bool ok = ffprotocol::ExportDiagnosticBundle(destination, includeLiteralPaths);
-                    MessageBoxW(hwnd_, ok ? L"Diagnostic bundle exported." : L"Export failed: no diagnostic log found.",
+                    // Distinguish an unwritable destination from a missing
+                    // diagnostic log instead of reporting every failure as
+                    // "no diagnostic log found".
+                    std::wstring failureMessage;
+                    if (!ok) {
+                        if (_waccess(destination, 02) != 0) {
+                            failureMessage = L"Export failed: the destination file could not be written.";
+                        } else if (!ffprotocol::DiagnosticLogPath().empty() &&
+                                   std::filesystem::exists(ffprotocol::DiagnosticLogPath())) {
+                            failureMessage = L"Export failed: the diagnostic bundle could not be written.";
+                        } else {
+                            failureMessage = L"Export failed: no diagnostic log was available to export.";
+                        }
+                    }
+                    MessageBoxW(hwnd_, ok ? L"Diagnostic bundle exported." : failureMessage.c_str(),
                                 L"Export Diagnostics Bundle", MB_OK | (ok ? MB_ICONINFORMATION : MB_ICONERROR));
                     return 0;
                 }
@@ -2275,6 +2465,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 default: return DefWindowProcW(hwnd, message, wParam, lParam);
             }
             SaveAndNotifySettings();
+            UpdatePreviewLimitMenuChecks();
+            // A changed Preview Limit must take effect on the current
+            // selection immediately, not only on the next selection change.
+            RefreshSelectionPresentation();
             ApplyTheme();
             return 0;
 

@@ -94,7 +94,12 @@ public:
     }
 
     PreviewResult CreatePreview(const FileDescriptor& descriptor, const CancellationToken& cancellation) const override {
-        constexpr DWORD kByteCeiling = 256 * 1024;
+        // The shell forwards the user-configured Preview Limit in
+        // descriptor.maxBytes; 0 keeps the historical 256 KB default.
+        constexpr DWORD kDefaultByteCeiling = 256 * 1024;
+        constexpr uint64_t kMaxByteCeiling = 64ull * 1024 * 1024;
+        const DWORD kByteCeiling = descriptor.maxBytes > 0 && descriptor.maxBytes <= kMaxByteCeiling
+            ? static_cast<DWORD>(descriptor.maxBytes) : kDefaultByteCeiling;
         HANDLE file = CreateFileW(descriptor.path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                   nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
         if (file == INVALID_HANDLE_VALUE) {
@@ -111,10 +116,8 @@ public:
         if (!ok || cancellation.IsCancelled()) {
             return {};
         }
-        UINT codePage = GetACP();
         size_t offset = 0;
         if (read >= 3 && static_cast<unsigned char>(bytes[0]) == 0xEF && static_cast<unsigned char>(bytes[1]) == 0xBB && static_cast<unsigned char>(bytes[2]) == 0xBF) {
-            codePage = CP_UTF8;
             offset = 3;
         } else if (read >= 2 && static_cast<unsigned char>(bytes[0]) == 0xFF && static_cast<unsigned char>(bytes[1]) == 0xFE) {
             PreviewResult result;
@@ -138,14 +141,28 @@ public:
             LimitLines(result, gotSize && size.QuadPart > kByteCeiling);
             return result;
         }
-        const int characterCount = MultiByteToWideChar(codePage, 0, bytes.data() + offset, static_cast<int>(read - offset), nullptr, 0);
+        // BOM-less text: prefer UTF-8 when the bytes form valid UTF-8
+        // sequences (the overwhelming default for source/markdown files);
+        // only fall back to the ANSI code page when they do not, so BOM-less
+        // UTF-8 no longer renders as mojibake on Western-locale machines.
+        UINT codePage = CP_UTF8;
+        DWORD conversionFlags = MB_ERR_INVALID_CHARS;
+        int characterCount = MultiByteToWideChar(codePage, conversionFlags, bytes.data() + offset,
+                                                 static_cast<int>(read - offset), nullptr, 0);
+        if (characterCount <= 0) {
+            codePage = GetACP();
+            conversionFlags = 0;
+            characterCount = MultiByteToWideChar(codePage, conversionFlags, bytes.data() + offset,
+                                                 static_cast<int>(read - offset), nullptr, 0);
+        }
         if (characterCount <= 0) {
             return {};
         }
         PreviewResult result;
         result.kind = PreviewKind::Text;
         result.text.resize(characterCount);
-        MultiByteToWideChar(codePage, 0, bytes.data() + offset, static_cast<int>(read - offset), result.text.data(), characterCount);
+        MultiByteToWideChar(codePage, conversionFlags, bytes.data() + offset,
+                            static_cast<int>(read - offset), result.text.data(), characterCount);
         LimitLines(result, gotSize && size.QuadPart > kByteCeiling);
         return result;
     }

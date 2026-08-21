@@ -1,8 +1,10 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <d2d1.h>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -20,6 +22,11 @@ struct FileDescriptor {
     // state, carried for the details pane (never rendered as 0 B).
     uint64_t allocatedSizeBytes = 0;
     bool allocatedSizeKnown = false;
+    // Byte ceiling a provider may read for this preview. 0 means "provider
+    // default" (the historical 256 KB text cap); the shell forwards the
+    // user-configured Preview Limit so the advertised control governs
+    // truncation, not just whether a preview runs.
+    uint64_t maxBytes = 0;
     uint32_t attributes = 0;
     bool isDirectory = false;
     uint64_t fileIdLow = 0;
@@ -75,6 +82,23 @@ private:
 
 std::unique_ptr<IPreviewProvider> CreateImagePreviewProvider();
 std::unique_ptr<IPreviewProvider> CreateTextPreviewProvider();
+
+// Fits an image of `width` x `height` into `dest` with a uniform scale,
+// centered (letterbox/pillarbox). Never upscales beyond the destination and
+// never distorts the aspect ratio. Pure math so it is headless-testable.
+inline D2D1_RECT_F ComputeLetterboxRect(const D2D1_RECT_F& dest, float width, float height) {
+    const float availW = (std::max)(0.0f, dest.right - dest.left);
+    const float availH = (std::max)(0.0f, dest.bottom - dest.top);
+    if (width <= 0.0f || height <= 0.0f || availW <= 0.0f || availH <= 0.0f) {
+        return dest;
+    }
+    const float scale = (std::min)(availW / width, availH / height);
+    const float drawW = width * scale;
+    const float drawH = height * scale;
+    const float left = dest.left + (availW - drawW) * 0.5f;
+    const float top = dest.top + (availH - drawH) * 0.5f;
+    return D2D1::RectF(left, top, left + drawW, top + drawH);
+}
 
 // Runs only the direct, unprivileged disk reads performed by preview
 // providers. A later request invalidates all earlier results before they

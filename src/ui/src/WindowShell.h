@@ -54,6 +54,10 @@ private:
     bool IsSystemDark() const;
     void SaveAndNotifySettings();
     void RefreshSelectionPresentation();
+    // Transient, non-modal status-line message (copy failures, degraded-mode
+    // explanations). Auto-expires; never blocks input.
+    void ShowStatusNotice(const std::wstring& message);
+    void UpdatePreviewLimitMenuChecks();
     void RenderDetails(ID2D1DeviceContext* context, const ffui::DetailsLayout& layout);
     void RequestFileType(const std::wstring& path);
     std::wstring FileTypeFor(const std::wstring& path) const;
@@ -122,12 +126,21 @@ private:
     uint64_t lastAnimTickMs_ = 0;
     ffprotocol::Settings settings_;
     std::mutex previewMutex_;
-    PreviewResult preview_;
+    // Published by the preview worker as an immutable snapshot; RenderDetails
+    // only takes the shared_ptr under the lock (never a deep pixel copy).
+    std::shared_ptr<const PreviewResult> preview_;
     uint64_t activePreviewRequest_ = 0;
     PreviewController previewController_;
     mutable std::mutex fileTypeMutex_;
     std::map<std::wstring, std::wstring> fileTypes_;
-    std::vector<std::future<void>> fileTypeWork_;
+    // shared_future destruction never blocks, so bounding this list cannot
+    // stall shutdown on stragglers stuck behind dead network paths.
+    std::vector<std::shared_future<void>> fileTypeWork_;
+    // Details-pane metadata is fetched once per selection change (not per
+    // paint frame); a failed fetch renders "—" rather than epoch-zero times.
+    std::wstring attributesCachePath_;
+    WIN32_FILE_ATTRIBUTE_DATA attributesCache_{};
+    bool attributesCacheValid_ = false;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> previewBitmap_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
@@ -150,6 +163,18 @@ private:
     ffprotocol::FolderAggregateStatus pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Resolved;
     uint64_t pendingAggregateItemCount_ = 0;
     uint64_t pendingAggregateTotalSize_ = 0;
+    // allocated-size-storage-accuracy 6.3: the V2 aggregate payload's
+    // size-on-disk fields, carried through to the details pane.
+    uint64_t pendingAggregateAllocatedSize_ = 0;
+    uint64_t pendingAggregateAllocatedKnownCount_ = 0;
+    uint64_t pendingAggregateAllocatedTotalCount_ = 0;
+    // Transient status-line notice (message + expiry tick).
+    std::wstring statusNotice_;
+    uint64_t statusNoticeUntilMs_ = 0;
+    // True between a Queued/Started file-operation event and its
+    // Completed/Cancelled event; gates the Escape-to-cancel path so an idle
+    // Escape never claims an operation is being cancelled.
+    bool fileOpOutstanding_ = false;
     // semantic-uia-core-surfaces 2.5: bumped on every geometry push so the
     // provider layer can cheaply validate its cached view.
     uint64_t uiaGeometryRevision_ = 0;

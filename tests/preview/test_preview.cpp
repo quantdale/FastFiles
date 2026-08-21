@@ -3,6 +3,7 @@
 #include <atomic>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdlib>
 #include <cstdio>
@@ -215,6 +216,109 @@ void TestRapidRequestsDropSupersededAndDoNotBlock() {
     Check(!error, "preview rapid-burst fixture cleanup failed");
 }
 
+void TestBomLessUtf8DetectedBeforeAnsiFallback() {
+    using namespace ffui;
+    wchar_t temp[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, temp) != 0, "temporary path unavailable");
+    const auto root = std::filesystem::path(temp) / (L"FastFiles-preview-utf8-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::create_directories(root);
+    // BOM-less UTF-8 "café\n" -- must decode as UTF-8, not ANSI mojibake.
+    const auto utf8 = root / L"bomless.md";
+    {
+        std::ofstream output(utf8, std::ios::binary);
+        const char bytes[] = {'c', 'a', 'f', static_cast<char>(0xC3), static_cast<char>(0xA9), '\n'};
+        output.write(bytes, sizeof(bytes));
+    }
+    // Invalid UTF-8 (lone 0xE9 continuation-less byte) must fall back to the
+    // ANSI code page without failing the preview.
+    const auto ansi = root / L"ansi.txt";
+    {
+        std::ofstream output(ansi, std::ios::binary);
+        const char bytes[] = {static_cast<char>(0xE9), 'a', 'b', '\n'};
+        output.write(bytes, sizeof(bytes));
+    }
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
+    CancellationToken token(cancelled);
+    PreviewProviderRegistry registry;
+    registry.Register(CreateTextPreviewProvider());
+    const auto utf8Result = registry.CreatePreview({utf8.wstring(), 6, 0, false}, token);
+    Check(utf8Result.kind == PreviewKind::Text, "BOM-less UTF-8 must still preview as text");
+    Check(utf8Result.text.find(L"caf\u00e9") != std::wstring::npos,
+          "BOM-less UTF-8 must be decoded as UTF-8 (no mojibake)");
+    const auto ansiResult = registry.CreatePreview({ansi.wstring(), 4, 0, false}, token);
+    Check(ansiResult.kind == PreviewKind::Text && !ansiResult.text.empty(),
+          "invalid UTF-8 must fall back to the ANSI code page");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!error, "utf8 fixture cleanup failed");
+}
+
+void TestLetterboxMath() {
+    using namespace ffui;
+    // Portrait 100x200 into a 300x100 card -> 50x100 centered horizontally.
+    {
+        const D2D1_RECT_F dest = ComputeLetterboxRect(D2D1::RectF(0.0f, 0.0f, 300.0f, 100.0f), 100.0f, 200.0f);
+        Check(std::abs((dest.right - dest.left) - 50.0f) < 0.01f &&
+              std::abs((dest.bottom - dest.top) - 100.0f) < 0.01f,
+              "letterbox must fit a portrait image by height");
+        Check(std::abs(dest.left - 125.0f) < 0.01f && std::abs(dest.top - 0.0f) < 0.01f,
+              "letterbox must center the fitted image");
+    }
+    // Landscape 400x100 into 100x300 -> 100x25 centered vertically.
+    {
+        const D2D1_RECT_F dest = ComputeLetterboxRect(D2D1::RectF(0.0f, 0.0f, 100.0f, 300.0f), 400.0f, 100.0f);
+        Check(std::abs((dest.right - dest.left) - 100.0f) < 0.01f &&
+              std::abs((dest.bottom - dest.top) - 25.0f) < 0.01f,
+              "letterbox must fit a landscape image by width");
+        Check(std::abs(dest.top - 137.5f) < 0.01f, "letterbox must center vertically");
+    }
+    // Degenerate inputs return the destination unchanged rather than NaNs.
+    {
+        const D2D1_RECT_F dest = ComputeLetterboxRect(D2D1::RectF(0.0f, 0.0f, 100.0f, 100.0f), 0.0f, 200.0f);
+        Check(dest.right - dest.left == 100.0f, "zero-sized image must not produce a degenerate rect");
+    }
+}
+
+void TestPreviewLimitControlsTextTruncation() {
+    using namespace ffui;
+    wchar_t temp[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, temp) != 0, "temporary path unavailable");
+    const auto root = std::filesystem::path(temp) / (L"FastFiles-preview-limit-" + std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::create_directories(root);
+    // ~300 KB of ASCII: above the historical 256 KB default cap, below a
+    // user-configured 1 MB limit.
+    const auto big = root / L"big.log";
+    {
+        std::ofstream output(big, std::ios::binary);
+        const std::string line(99, 'x');
+        output << line << '\n';
+        for (int i = 0; i < 3000; ++i) output << line << '\n';
+    }
+    const uint64_t fileSize = static_cast<uint64_t>(std::filesystem::file_size(big));
+    Check(fileSize > 256ull * 1024ull, "fixture must exceed the default byte ceiling");
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
+    CancellationToken token(cancelled);
+    PreviewProviderRegistry registry;
+    registry.Register(CreateTextPreviewProvider());
+    // Default ceiling (maxBytes == 0): truncated at 256 KB.
+    const auto defaultResult = registry.CreatePreview({big.wstring(), fileSize, 0, false}, token);
+    Check(defaultResult.kind == PreviewKind::Text && defaultResult.truncated,
+          "default ceiling must truncate a large text preview");
+    // Configured 1 MB limit carried in the descriptor: no truncation.
+    FileDescriptor raised{};
+    raised.path = big.wstring();
+    raised.sizeBytes = fileSize;
+    raised.maxBytes = 1024ull * 1024ull;
+    const auto raisedResult = registry.CreatePreview(raised, token);
+    Check(raisedResult.kind == PreviewKind::Text && !raisedResult.truncated,
+          "a configured 1 MB limit must raise the text truncation point past 256 KB");
+    Check(raisedResult.text.size() * sizeof(wchar_t) > 256ull * 1024ull,
+          "the raised-limit preview must carry more than the default 256 KB of text");
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!error, "preview-limit fixture cleanup failed");
+}
+
 } // namespace
 
 int main() {
@@ -223,6 +327,9 @@ int main() {
     TestMalformedProvidersDoNotCrash();
     TestLatestControllerRequestWins();
     TestRapidRequestsDropSupersededAndDoNotBlock();
+    TestBomLessUtf8DetectedBeforeAnsiFallback();
+    TestLetterboxMath();
+    TestPreviewLimitControlsTextTruncation();
     CoUninitialize();
     return fftest::FailureCount();
 }
