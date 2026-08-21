@@ -12,7 +12,6 @@ constexpr int kBackId = 8201;
 constexpr int kForwardId = 8202;
 constexpr int kDriveId = 8203;
 constexpr int kNewTabId = 8204;
-constexpr int kTabBaseId = 8300;
 constexpr int kTabCloseBaseId = 8400;
 constexpr UINT WM_APP_ADDRESS_FOCUS_LOST = WM_APP + 52;
 constexpr int kChromeHeight = 72;
@@ -189,14 +188,26 @@ void NavigationChrome::NavigateToLocation(const NavigationLocation& location, bo
 
 void NavigationChrome::RebuildDrives() {
     if (!drives_) return;
+    // Preserve the current selection across the refresh so an open dropdown
+    // does not visibly jump when nothing changed.
+    const int previousIndex = static_cast<int>(SendMessageW(drives_, CB_GETCURSEL, 0, 0));
+    std::wstring previousPath;
+    if (previousIndex >= 0 && static_cast<size_t>(previousIndex) < drivePaths_.size()) {
+        previousPath = drivePaths_[static_cast<size_t>(previousIndex)];
+    }
     drivePaths_ = NavigationWorkspace::EnumerateDrives();
     SendMessageW(drives_, CB_RESETCONTENT, 0, 0);
     SendMessageW(drives_, CB_SETITEMHEIGHT, 0, Scaled(28));
     SendMessageW(drives_, CB_SETITEMHEIGHT, static_cast<WPARAM>(-1), Scaled(24));
+    int restoredSelection = -1;
     for (const auto& path : drivePaths_) {
         const int index = static_cast<int>(SendMessageW(drives_, CB_ADDSTRING, 0,
                                                          reinterpret_cast<LPARAM>(path.c_str())));
         SendMessageW(drives_, CB_SETITEMDATA, index, static_cast<LPARAM>(index));
+        if (path == previousPath) restoredSelection = index;
+    }
+    if (restoredSelection >= 0) {
+        SendMessageW(drives_, CB_SETCURSEL, restoredSelection, 0);
     }
 }
 
@@ -236,9 +247,9 @@ void NavigationChrome::RebuildTabs() {
             tabButtons_.push_back(tab);
             tabCloseButtons_.push_back(close);
             SetWindowSubclass(close, CloseButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
-            // Inactive tabs must remain clickable; the active tab is already
-            // visually distinguished by the owner-draw state and disabling
-            // the others made mouse tab switching impossible.
+            // Inactive tabs must remain clickable; the active tab is visually
+            // distinguished by DrawTabButton via IsTabDrawItemActive (the real
+            // active-tab identity), not by disabling the others.
             EnableWindow(tab, TRUE);
         } else {
             if (tab != nullptr) DestroyWindow(tab);
@@ -311,7 +322,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
                      highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(blended),
                      Scaled(UiMetrics::kRadiusMedium));
         }
-        const bool clickable = !segment.path.empty();
+        const bool clickable = !segment.path.empty() || segment.syntheticRoot;
         const COLORREF textColor = highContrast
             ? GetSysColor(clickable ? COLOR_HIGHLIGHT : COLOR_WINDOWTEXT)
             : ToColorRef(clickable ? theme.accent : theme.text);
@@ -338,7 +349,10 @@ void NavigationChrome::DrawTabButton(const DRAWITEMSTRUCT* item) {
     const RECT& rect = item->rcItem;
     const UiTheme theme = GetUiTheme(darkTheme_);
     const bool highContrast = UiSystemHighContrast();
-    const bool active = (item->itemState & ODS_DISABLED) == 0;
+    // The real active-tab identity: ODS_DISABLED is never set (all tabs stay
+    // enabled for clickability), so it cannot signal the active tab.
+    const bool active = IsTabDrawItemActive(static_cast<int>(item->CtlID),
+                                            workspace_ ? workspace_->ActiveTabIndex() : 0);
     const COLORREF parentBg = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background);
     const COLORREF pill = highContrast
         ? GetSysColor(active ? COLOR_HIGHLIGHT : COLOR_WINDOW)
@@ -571,6 +585,12 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             if (id == kForwardId && HIWORD(wParam) == BN_CLICKED && workspace_ && workspace_->GoForward()) {
                 const auto& context = workspace_->ActiveContext();
                 NavigateToLocation(ffui::LocationOf(context));
+                return 0;
+            }
+            if (id == kDriveId && HIWORD(wParam) == CBN_DROPDOWN) {
+                // Refresh on open so drives attached/ejected after startup are
+                // reflected immediately (RebuildDrives preserves the selection).
+                RebuildDrives();
                 return 0;
             }
             if (id == kDriveId && HIWORD(wParam) == CBN_SELCHANGE) {

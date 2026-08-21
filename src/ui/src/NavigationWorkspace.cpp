@@ -61,7 +61,12 @@ bool IsAbsolutePath(const std::wstring& path) {
 std::wstring DefaultBookmarkName(const std::wstring& path) {
     const size_t end = path.find_last_not_of(L'\\');
     const size_t slash = path.find_last_of(L'\\', end);
-    return slash == std::wstring::npos ? path : path.substr(slash + 1, end - slash);
+    // A root (e.g. "C:\") has no leaf component; use the trimmed path itself
+    // so a drive-root bookmark never gets a blank display name.
+    if (slash == std::wstring::npos || slash + 1 > end) {
+        return end == std::wstring::npos ? path : path.substr(0, end + 1);
+    }
+    return path.substr(slash + 1, end - slash);
 }
 
 std::wstring EscapeJson(const std::wstring& value) {
@@ -241,6 +246,10 @@ bool NavigationWorkspace::GoBack() {
     const NavigationLocation& location = context.history[--context.historyIndex];
     context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
     context.isHomeLocation = location.IsHome();
+    // A history move is a successful navigation: drop any stale address-bar
+    // error so it cannot paint over the new location's breadcrumbs.
+    context.addressBarMode = AddressBarMode::Breadcrumb;
+    context.addressBarError.clear();
     return true;
 }
 
@@ -250,6 +259,8 @@ bool NavigationWorkspace::GoForward() {
     const NavigationLocation& location = context.history[++context.historyIndex];
     context.currentPath = location.IsFileSystem() ? location.path : std::wstring{};
     context.isHomeLocation = location.IsHome();
+    context.addressBarMode = AddressBarMode::Breadcrumb;
+    context.addressBarError.clear();
     return true;
 }
 
@@ -260,7 +271,7 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
         return {{L"Home", L""}};
     }
     const std::wstring& path = ActiveContext().currentPath;
-    std::vector<BreadcrumbSegment> result{{L"This PC", L""}};
+    std::vector<BreadcrumbSegment> result{{L"This PC", L"", true}};
     if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
         std::iswalpha(path[4]) && path[5] == L':' && path[6] == L'\\') {
         std::wstring accumulated = path.substr(0, 7);
@@ -282,12 +293,20 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
     if (path.starts_with(L"\\\\?\\UNC\\")) {
         std::wstring accumulated = L"\\\\?\\UNC\\";
         size_t start = accumulated.size();
+        // The server and share merge into one segment: bare `\\?\UNC\server`
+        // is not an enumerable navigation target, only the share root is.
+        size_t componentsSeen = 0;
         while (start < path.size()) {
             const size_t end = path.find(L'\\', start);
             const std::wstring component = path.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
             if (!component.empty()) {
                 accumulated += component;
-                result.push_back({component, accumulated});
+                ++componentsSeen;
+                // First component is the server, second the share: emit them
+                // together as a single share-root segment.
+                if (componentsSeen >= 2) {
+                    result.push_back({component, accumulated});
+                }
                 accumulated += L'\\';
             }
             if (end == std::wstring::npos) break;
@@ -315,12 +334,20 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
     if (path.rfind(L"\\\\", 0) == 0) {
         std::wstring accumulated = L"\\\\";
         size_t start = 2;
+        // The server and share merge into one segment: bare `\\server` is not
+        // an enumerable navigation target, only the share root is.
+        size_t componentsSeen = 0;
         while (start < path.size()) {
             const size_t end = path.find(L'\\', start);
             const std::wstring component = path.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
             if (!component.empty()) {
                 accumulated += component;
-                result.push_back({component, accumulated});
+                ++componentsSeen;
+                // First component is the server, second the share: emit them
+                // together as a single share-root segment.
+                if (componentsSeen >= 2) {
+                    result.push_back({component, accumulated});
+                }
                 accumulated += L'\\';
             }
             if (end == std::wstring::npos) break;
@@ -346,7 +373,10 @@ void NavigationWorkspace::CancelAddressBarEdit() {
 
 bool NavigationWorkspace::NavigateBreadcrumb(size_t segmentIndex) {
     const auto segments = Breadcrumbs();
-    if (segmentIndex >= segments.size() || segments[segmentIndex].path.empty()) return false;
+    if (segmentIndex >= segments.size()) return false;
+    // The synthetic "This PC" root is a real target even though its path is
+    // empty; everything else must carry a concrete path.
+    if (!segments[segmentIndex].syntheticRoot && segments[segmentIndex].path.empty()) return false;
     Navigate(segments[segmentIndex].path);
     return true;
 }
@@ -524,6 +554,9 @@ bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
     out.bookmarksCollapsed = ReadBoolean(json, L"bookmarksCollapsed");
     size_t lastLocationCursor = 0;
     ExtractJsonString(json, L"lastLocation", 0, out.lastLocation, lastLocationCursor);
+    // quick-access-home: additive typed kind for the persisted last location
+    // (older documents simply load as filesystem).
+    out.lastLocationIsHome = ReadBoolean(json, L"lastLocationIsHome");
 
     size_t cursor = 0;
     std::wstring path;
@@ -613,7 +646,8 @@ bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
 std::wstring SerializeState(const WorkspaceState& state) {
     std::wostringstream document;
     document << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
-            << L"\",\n  \"sidebarCollapsed\": "
+            << L"\",\n  \"lastLocationIsHome\": " << (state.lastLocationIsHome ? L"true" : L"false")
+            << L",\n  \"sidebarCollapsed\": "
             << (state.sidebarCollapsed ? L"true" : L"false") << L",\n  \"drivesCollapsed\": "
             << (state.drivesCollapsed ? L"true" : L"false") << L",\n  \"knownFoldersCollapsed\": "
             << (state.knownFoldersCollapsed ? L"true" : L"false") << L",\n  \"bookmarksCollapsed\": "
@@ -671,8 +705,12 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
 
 bool NavigationWorkspace::FlushState() {
     const std::wstring currentPath = ActiveContext().currentPath;
-    if (state_.lastLocation != currentPath) {
+    const bool isHome = ActiveContext().isHomeLocation;
+    // quick-access-home: a session that ends on Home must restore as Home, so
+    // the typed kind is persisted alongside the (empty) Home path.
+    if (state_.lastLocation != currentPath || state_.lastLocationIsHome != isHome) {
         state_.lastLocation = currentPath;
+        state_.lastLocationIsHome = isHome;
         stateDirty_ = true;
     }
     if (!stateDirty_) return true;
@@ -739,6 +777,18 @@ std::wstring ResolveInitialNavigationPath(bool restorePreviousSession,
         if (parsedStartup.error.empty()) return parsedStartup.path;
     }
     return {};
+}
+
+NavigationLocation ResolveInitialNavigationLocation(bool restorePreviousSession,
+                                                    const WorkspaceState& state,
+                                                    const std::wstring& startupLocation) {
+    // A session that ended on Home restores as Home; Home never reaches any
+    // filesystem API, so no existence check applies.
+    if (restorePreviousSession && state.lastLocationIsHome) {
+        return NavigationLocation::Home();
+    }
+    return NavigationLocation::FromPath(
+        ResolveInitialNavigationPath(restorePreviousSession, state.lastLocation, startupLocation));
 }
 
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input) {

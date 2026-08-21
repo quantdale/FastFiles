@@ -9,6 +9,16 @@
 
 namespace ffui {
 
+// Base control id for tab buttons; tab index = controlId - kTabBaseId.
+constexpr int kTabBaseId = 8300;
+
+// Pure owner-draw active-tab identity: the tab pill for `controlId` renders as
+// active exactly when it is the workspace's current tab. Used by DrawTabButton
+// and kept headless-testable here.
+inline bool IsTabDrawItemActive(int controlId, size_t activeTabIndex) {
+    return controlId >= kTabBaseId && static_cast<size_t>(controlId - kTabBaseId) == activeTabIndex;
+}
+
 class NavigationChrome {
 public:
     // The second argument is true only when a tab transition should restore

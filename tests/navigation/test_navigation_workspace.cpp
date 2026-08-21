@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include "NavigationWorkspace.h"
+#include "NavigationChrome.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -316,6 +317,98 @@ void RunHomeLocationTests();
 void RunRecentFoldersTests();
 
 namespace {
+void TestAddressBarErrorClearedOnHistoryNavigation() {
+    using namespace ffui;
+    // P2 regression: a failed address-bar commit must not keep painting its
+    // error over the breadcrumbs of locations reached via Back/Forward.
+    NavigationWorkspace workspace(L"C:\\");
+    workspace.Navigate(L"C:\\Users");
+    Check(CommitAddressBarPath(workspace, L"C:\\DefinitelyMissing") == PathCommitResult::NotFound,
+          "an invalid address-bar commit reports NotFound");
+    Check(!workspace.ActiveContext().addressBarError.empty(),
+          "a failed commit sets the address-bar error text");
+    Check(workspace.GoBack() && workspace.ActiveContext().addressBarError.empty() &&
+          workspace.ActiveContext().addressBarMode == AddressBarMode::Breadcrumb,
+          "Back clears stale address-bar error text and restores breadcrumb mode");
+    Check(workspace.GoForward() && workspace.ActiveContext().addressBarError.empty(),
+          "Forward clears stale address-bar error text too");
+}
+
+void TestUncBreadcrumbsMergeServerAndShare() {
+    using namespace ffui;
+    // P3 regression: bare \\server is not enumerable, so the server crumb must
+    // never exist; server+share merge into one share-root segment.
+    NavigationWorkspace workspace(L"\\\\server\\share\\a\\b");
+    const auto crumbs = workspace.Breadcrumbs();
+    Check(crumbs.size() == 4, "plain UNC breadcrumbs are This PC, share root, and each subfolder");
+    Check(crumbs[1].path == L"\\\\server\\share", "the first UNC segment targets the share root");
+    for (const auto& crumb : crumbs) {
+        Check(crumb.path != L"\\\\server", "no UNC breadcrumb navigates to the non-enumerable bare server");
+    }
+    NavigationWorkspace extended(L"\\\\?\\UNC\\server\\share\\a");
+    const auto extendedCrumbs = extended.Breadcrumbs();
+    Check(extendedCrumbs.size() == 3, "extended UNC breadcrumbs merge server and share likewise");
+    Check(extendedCrumbs[1].path == L"\\\\?\\UNC\\server\\share",
+          "the first extended-UNC segment targets the share root");
+}
+
+void TestThisPcBreadcrumbNavigable() {
+    using namespace ffui;
+    // P3 regression: the This PC crumb is drawn as a real navigation target.
+    NavigationWorkspace workspace(L"C:\\Users");
+    const auto crumbs = workspace.Breadcrumbs();
+    Check(crumbs.front().label == L"This PC" && crumbs.front().syntheticRoot,
+          "the first breadcrumb is the synthetic This PC root");
+    Check(workspace.NavigateBreadcrumb(0) && workspace.ActiveContext().currentPath.empty() &&
+              !workspace.ActiveContext().isHomeLocation,
+          "clicking This PC navigates to the synthetic root, not Home");
+}
+
+void TestDriveRootBookmarkName() {
+    using namespace ffui;
+    // P3 regression: bookmarking a drive root must not produce a blank label.
+    NavigationWorkspace workspace(L"C:\\");
+    workspace.State().bookmarks.clear();
+    workspace.AddBookmark(L"C:\\");
+    Check(!workspace.State().bookmarks.empty() &&
+              !workspace.State().bookmarks.back().displayName.empty(),
+          "a drive-root bookmark derives a non-empty display name");
+}
+
+void TestTabActiveIdentitySeam() {
+    using namespace ffui;
+    // P2 regression seam: owner-draw active state comes from the real active
+    // tab index, not ODS_DISABLED (which is never set).
+    Check(IsTabDrawItemActive(kTabBaseId + 2, 2), "the active tab's control id maps to active draw state");
+    Check(!IsTabDrawItemActive(kTabBaseId + 1, 2), "inactive tab control ids map to inactive draw state");
+    Check(!IsTabDrawItemActive(kTabBaseId - 1, 0), "non-tab control ids never map to active draw state");
+}
+
+void TestHomeSessionRestoreRoundTrip() {
+    using namespace ffui;
+    // P3 regression: ending a session on Home must restore Home, not silently
+    // fall back to the default location.
+    WorkspaceState state;
+    state.lastLocationIsHome = true;
+    const std::wstring json = SerializeState(state);
+    WorkspaceState loaded{};
+    Check(DeserializeState(json, loaded) && loaded.lastLocationIsHome,
+          "the Home last-location marker round-trips through serialization");
+    const auto location = ResolveInitialNavigationLocation(true, loaded, L"C:\\fallback");
+    Check(location.IsHome(), "a session that ended on Home restores as Home");
+
+    WorkspaceState filesystemState{};
+    filesystemState.lastLocation = L"C:\\Windows";
+    const auto filesystemLocation = ResolveInitialNavigationLocation(true, filesystemState, L"C:\\fallback");
+    Check(!filesystemLocation.IsHome() && filesystemLocation.path == L"C:\\Windows",
+          "filesystem sessions still restore their persisted directory");
+
+    WorkspaceState legacy{};
+    Check(DeserializeState(L"{\"version\": 1, \"lastLocation\": \"C:\\\\Old\"}", legacy) &&
+              !legacy.lastLocationIsHome,
+          "legacy documents without the marker default to filesystem restore");
+}
+
 void TestTypedClosedTabReopen() {
     using namespace ffui;
     // quick-access-home hardening (HOME-POST-01): closing/reopening preserves
@@ -430,6 +523,12 @@ int main() {
     TestTypedClosedTabReopen();
     TestTypedClosedTabStackOrder();
     TestTypedClosedTabPersistence();
+    TestAddressBarErrorClearedOnHistoryNavigation();
+    TestUncBreadcrumbsMergeServerAndShare();
+    TestThisPcBreadcrumbNavigable();
+    TestDriveRootBookmarkName();
+    TestTabActiveIdentitySeam();
+    TestHomeSessionRestoreRoundTrip();
     RunHomeLocationTests();
     RunRecentFoldersTests();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

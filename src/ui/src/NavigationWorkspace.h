@@ -14,7 +14,9 @@ enum class PathCommitResult { Navigated, Invalid, NotFound };
 // so Back/Forward restores Home exactly; isHomeLocation mirrors the active kind.
 struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<NavigationLocation> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; bool isHomeLocation = false; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
-struct BreadcrumbSegment { std::wstring label; std::wstring path; };
+// syntheticRoot marks the always-present "This PC" crumb: its path is empty
+// (the synthetic root), but it is a real navigation target.
+struct BreadcrumbSegment { std::wstring label; std::wstring path; bool syntheticRoot = false; };
 // quick-access-home hardening (HOME-POST-01): the single typed extraction from
 // a context to its NavigationLocation. A Home context always maps to the Home
 // location (never to an empty filesystem path), so every consumer that must
@@ -31,7 +33,7 @@ inline NavigationLocation LocationOf(const NavigationContext& context) {
 // on-disk form stays backward compatible: filesystem entries remain bare path
 // strings; Home entries serialize as {"kind": "home"} objects; legacy string
 // entries deserialize as FileSystem locations.
-struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<NavigationLocation> recentlyClosedTabs; std::deque<std::wstring> recentFolders; std::wstring lastLocation; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
+struct WorkspaceState { std::vector<Bookmark> bookmarks; std::deque<NavigationLocation> recentlyClosedTabs; std::deque<std::wstring> recentFolders; std::wstring lastLocation; bool lastLocationIsHome = false; bool sidebarCollapsed = false; bool drivesCollapsed = false; bool knownFoldersCollapsed = false; bool bookmarksCollapsed = false; };
 // Plain UI state: no IPC/engine handles. All contexts use the shared EngineClient snapshot.
 class NavigationWorkspace {
 public:
@@ -93,6 +95,13 @@ ParsedPath ParseNavigationPath(const std::wstring& input);
 std::wstring ResolveInitialNavigationPath(bool restorePreviousSession,
                                           const std::wstring& lastLocation,
                                           const std::wstring& startupLocation);
+// Typed startup resolution: like ResolveInitialNavigationPath, but a session
+// that ended on Home restores as the Home location (lastLocationIsHome) rather
+// than silently falling back to the default. Filesystem sessions resolve
+// exactly as before.
+NavigationLocation ResolveInitialNavigationLocation(bool restorePreviousSession,
+                                                    const WorkspaceState& state,
+                                                    const std::wstring& startupLocation);
 PathCommitResult CommitAddressBarPath(NavigationWorkspace& workspace, const std::wstring& input);
 // Returns the filesystem parent used by the shell's Up/Backspace command.
 // A value containing an empty string means "This PC" (the synthetic root);
