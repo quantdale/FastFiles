@@ -401,7 +401,36 @@ void NavigationSidebar::EnsureFonts() {
             glyphsAvailable_ = wcsncmp(face, L"Segoe MDL2", 10) == 0 || wcsncmp(face, L"Segoe Fluent", 12) == 0;
         }
     }
+    // ui-v3 hardening: the face-name check alone is not sufficient — some
+    // Windows builds resolve "Segoe MDL2 Assets" yet lack individual
+    // codepoints (observed: E8B7 Folder tofu while E80F Home renders), which
+    // painted raw boxes on every folder/drive row. Verify each glyph we draw
+    // and degrade to icon-less rows instead of tofu.
+    glyphsHome_ = glyphsAvailable_ && GlyphMapped(kGlyphHome);
+    glyphsFolder_ = glyphsAvailable_ && GlyphMapped(kGlyphFolder);
     if (tooltip_ != nullptr) SendMessageW(tooltip_, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont_), FALSE);
+}
+
+bool NavigationSidebar::GlyphMapped(wchar_t glyph) {
+    // Returns false both for unmapped codepoints and for codepoints the font
+    // funnels into its shared .notdef/fallback box: some Windows builds report
+    // legacy MDL2 codepoints as present yet rasterize them as a hollow
+    // rectangle. Comparing against the index of a guaranteed-unassigned
+    // private-use sentinel catches that case.
+    auto indexOf = [this](wchar_t code) -> WORD {
+        if (glyphFont_ == nullptr || window_ == nullptr) return 0xFFFF;
+        HDC dc = GetDC(window_);
+        if (dc == nullptr) return 0xFFFF;
+        HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_));
+        WORD index = 0xFFFF;
+        GetGlyphIndicesW(dc, &code, 1, &index, GGI_MARK_NONEXISTING_GLYPHS);
+        SelectObject(dc, previous);
+        ReleaseDC(window_, dc);
+        return index;
+    };
+    const WORD index = indexOf(glyph);
+    if (index == 0xFFFF || index == 0) return false;
+    return index != indexOf(L'');
 }
 
 void NavigationSidebar::ReleaseFonts() {
@@ -595,10 +624,15 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
             const RECT slot{slotLeft, row.bounds.top, slotLeft + iconSlot, row.bounds.bottom};
             if (unavailable) {
                 DrawUnavailableBadge(dc, slot, paint.text);
-            } else if (glyphsAvailable_) {
+            } else {
+                // ui-v3 hardening: per-glyph coverage guard — draw only glyphs
+                // this font actually maps; never tofu.
                 const wchar_t glyph = row.home ? kGlyphHome : kGlyphFolder;
-                const COLORREF glyphColor = selected ? paint.text : textSecondary;
-                if (HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_))) {
+                const bool mapped = row.home ? glyphsHome_ : glyphsFolder_;
+                HFONT previous =
+                    mapped ? static_cast<HFONT>(SelectObject(dc, glyphFont_)) : nullptr;
+                if (previous != nullptr) {
+                    const COLORREF glyphColor = selected ? paint.text : textSecondary;
                     SetBkMode(dc, TRANSPARENT);
                     SetTextColor(dc, glyphColor);
                     RECT glyphRect = slot;

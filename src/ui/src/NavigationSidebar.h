@@ -27,6 +27,8 @@ public:
     void Refresh();
     int Width() const;
     void SetDarkTheme(bool dark);
+    // ui-v3 hardening: true only when the selected glyph font maps the codepoint.
+    bool GlyphMapped(wchar_t glyph);
     // quick-access-home 5.1: invoked after the context-menu bookmark edits
     // (rename/remove/reorder) commit so the shell can refresh the Home surface.
     void SetBookmarksChangedCallback(std::function<void()> cb);
@@ -82,6 +84,10 @@ private:
     HFONT captionFont_ = nullptr;
     HFONT glyphFont_ = nullptr;
     bool glyphsAvailable_ = false;
+    // ui-v3 hardening: per-glyph coverage (face-name match alone painted
+    // tofu on builds where individual MDL2 codepoints are unmapped).
+    bool glyphsHome_ = false;
+    bool glyphsFolder_ = false;
     float fontScale_ = 0.0f;
     // ui-v3 sidebar: tooltip tools are (re)added after the next paint lays out
     // row rects; tooltipIds_ tracks what must be removed first.
