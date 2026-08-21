@@ -214,6 +214,7 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
     }
     std::wstring childPath;
     bool isDirectory = false;
+    bool clearedEmptyArea = false;
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
         auto& columns = ActiveColumns();
@@ -222,6 +223,16 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         }
         Column& column = columns[columnIndex];
         if (itemIndex < 0 || itemIndex >= static_cast<int>(column.items.size())) {
+            // selection-input-hardening: clicking empty content area below the
+            // rows clears the selection and focus like Explorer (a plain click
+            // only; Ctrl/Shift clicks never destructively clear).
+            if (!control && !shift &&
+                (!column.selectedIndices.empty() || column.focusIndex >= 0)) {
+                column.selectedIndices.clear();
+                column.selectionAnchor = -1;
+                column.focusIndex = -1;
+                clearedEmptyArea = true;
+            }
             return;
         }
         if (shift) {
@@ -233,6 +244,13 @@ void ColumnView::ActivateItem(int columnIndex, int itemIndex, bool control, bool
         }
         isDirectory = column.items[itemIndex].isDirectory;
         childPath = JoinPath(column.path, column.items[itemIndex].name);
+    }
+
+    // selection-input-hardening: empty-area clear fires the same selection
+    // transition diff as a normal click.
+    if (clearedEmptyArea) {
+        NotifyUiaSelectionTransition(before, pane);
+        return;
     }
 
     if (control || shift) {
@@ -272,6 +290,7 @@ void ColumnView::OnKeyDown(int virtualKey) {
     }
     int activateColumnIndex = -1;
     int activateItemIndex = -1;
+    bool enterOpensFile = false;
 
     {
         std::lock_guard<std::mutex> lock(columnsMutex_);
@@ -282,6 +301,14 @@ void ColumnView::OnKeyDown(int virtualKey) {
         }
         focusedIndex = std::clamp(focusedIndex, 0, static_cast<int>(columns.size()) - 1);
         Column& focused = columns[focusedIndex];
+        const bool controlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        // selection-input-hardening: the visible-page row count for
+        // PageUp/PageDown, derived from the viewport remembered by Render and
+        // the same banner inset the render path applies.
+        const float contentTopInset = ColumnContentTopInset(focused.freshness.state);
+        const float visibleHeight = (std::max)(0.0f, lastViewportHeight_ - kBadgeHeight - contentTopInset);
+        const int pageRows = (std::max)(1, static_cast<int>(visibleHeight / kRowHeight));
 
         switch (virtualKey) {
             case VK_UP:
@@ -300,17 +327,52 @@ void ColumnView::OnKeyDown(int virtualKey) {
             case VK_RIGHT:
                 focusedIndex = std::min(static_cast<int>(columns.size()) - 1, focusedIndex + 1);
                 break;
-            case VK_RETURN:
-                activateColumnIndex = focusedIndex;
-                activateItemIndex = focused.focusIndex;
+            case VK_PRIOR:
+                // selection-input-hardening: standard list semantics -- focus
+                // (+selection unless Ctrl) moves a full page; Shift extends
+                // from the anchor.
+                ApplyKeyboardFocusMove(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
+                                       ListFocusTarget(focused.focusIndex,
+                                                       static_cast<int>(focused.items.size()), -pageRows),
+                                       controlHeld, shiftHeld);
                 break;
+            case VK_NEXT:
+                ApplyKeyboardFocusMove(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
+                                       ListFocusTarget(focused.focusIndex,
+                                                       static_cast<int>(focused.items.size()), pageRows),
+                                       controlHeld, shiftHeld);
+                break;
+            case VK_HOME:
+                ApplyKeyboardFocusMove(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
+                                       ListFocusTarget(-1, static_cast<int>(focused.items.size()), INT_MIN),
+                                       controlHeld, shiftHeld);
+                break;
+            case VK_END:
+                ApplyKeyboardFocusMove(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
+                                       ListFocusTarget(-1, static_cast<int>(focused.items.size()), INT_MAX),
+                                       controlHeld, shiftHeld);
+                break;
+            case VK_RETURN: {
+                // selection-input-hardening: Enter over a focused NON-DIRECTORY
+                // opens the item via the shell-wired `item.open` seam (the same
+                // path double-click uses); directories keep navigating here.
+                // No focused item: no-op (never an empty-area clear).
+                const bool focusValid = focused.focusIndex >= 0 &&
+                                        focused.focusIndex < static_cast<int>(focused.items.size());
+                if (focusValid) {
+                    activateColumnIndex = focusedIndex;
+                    activateItemIndex = focused.focusIndex;
+                    enterOpensFile = EnterOpensFile(focusValid, focused.items[focused.focusIndex].isDirectory);
+                }
+                break;
+            }
             case 'A':
                 // harden-selection-model-semantics 3.1: route Ctrl+A through the
                 // same tested Select All seam used by ColumnView::SelectAll so the
                 // real keyboard path cannot drift from the proven select-all
                 // semantic. SelectAllItems also correctly invalidates anchor/focus
                 // on an empty column (canonical: "no valid anchor/focus").
-                if ((GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+                if (controlHeld) {
                     SelectAllItems(focused.selectedIndices, focused.selectionAnchor, focused.focusIndex,
                                    static_cast<int>(focused.items.size()));
                 }
@@ -322,6 +384,9 @@ void ColumnView::OnKeyDown(int virtualKey) {
 
     if (activateColumnIndex >= 0) {
         ActivateItem(activateColumnIndex, activateItemIndex);
+    }
+    if (enterOpensFile && openFocusedItemCallback_) {
+        openFocusedItemCallback_();
     }
     NotifyUiaSelectionTransition(before, pane);
 }
@@ -394,8 +459,21 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
 
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
     const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    // selection-input-hardening: the row lookup must subtract the same status-
+    // banner inset the render path applies for the hit column, or every click
+    // lands one row low while "Refreshing…" / stale banners are visible.
+    float contentTopInset = 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        const int columnIndex = ComputeColumnIndexAtX(clientPoint, effectiveScrollOffset,
+                                                      viewportWidth, dualPane_, activePane_);
+        const auto& columns = ActiveColumns();
+        if (columnIndex >= 0 && columnIndex < static_cast<int>(columns.size())) {
+            contentTopInset = ColumnContentTopInset(columns[static_cast<size_t>(columnIndex)].freshness.state);
+        }
+    }
     const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
-                                          viewportWidth, dualPane_, activePane_);
+                                          contentTopInset, viewportWidth, dualPane_, activePane_);
     ActivateItem(hit.columnIndex, hit.itemIndex, control, shift);
 }
 
@@ -407,17 +485,18 @@ void ColumnView::SetRepaintCallback(std::function<void()> repaint) {
     repaint_ = std::move(repaint);
 }
 
+void ColumnView::SetOpenFocusedItemCallback(std::function<void()> openFocusedItem) {
+    openFocusedItemCallback_ = std::move(openFocusedItem);
+}
+
 void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth) {
     if (clientPoint.y < kBadgeHeight) {
         return; // over the status badge: not hovering any row
     }
-    if (dualPane_) {
-        const float paneWidth = viewportWidth / 2.0f;
-        const int hoveredPane = clientPoint.x < paneWidth ? 0 : 1;
-        if (hoveredPane != activePane_) {
-            ActivatePane(hoveredPane); // keep hover coords in the active pane, as OnMouseDown does
-        }
-    }
+    // selection-input-hardening: hover is paint-only and must never change the
+    // active pane. Switching panes on mere mouse-over stole keyboard focus
+    // (Ctrl+A / Delete / Enter would target the hovered pane); pane activation
+    // happens only on an actual click (OnMouseDown) or keyboard action.
     const int pane = activePane_;
     if (homePane_[pane]) {
         // quick-access-home 4.4: paint-only hover tracking for the Home surface
@@ -451,8 +530,20 @@ void ColumnView::OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, floa
 
     const float effectiveScrollOffset = activePane_ == 0 ? scrollOffset : scrollOffset2_;
     const float verticalScrollOffset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
+    // selection-input-hardening: same banner inset as the mouse-down path so
+    // the hover pill tracks the row the user actually points at.
+    float contentTopInset = 0.0f;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        const int columnIndex = ComputeColumnIndexAtX(clientPoint, effectiveScrollOffset,
+                                                      viewportWidth, dualPane_, activePane_);
+        const auto& columns = ActiveColumns();
+        if (columnIndex >= 0 && columnIndex < static_cast<int>(columns.size())) {
+            contentTopInset = ColumnContentTopInset(columns[static_cast<size_t>(columnIndex)].freshness.state);
+        }
+    }
     const auto hit = ComputeColumnHitTest(clientPoint, effectiveScrollOffset, verticalScrollOffset,
-                                          viewportWidth, dualPane_, activePane_);
+                                          contentTopInset, viewportWidth, dualPane_, activePane_);
     hoverColumn_ = hit.columnIndex;
     hoverItem_ = hit.itemIndex;
     hoverActive_ = true;
@@ -572,9 +663,14 @@ void ColumnView::ClampVerticalScrollForPane(int pane, float delta, float viewpor
     }
     auto& columns = pane == 0 ? columns_ : columns2_;
     const int focusedIndex = pane == 0 ? focusedColumnIndex_ : focusedColumnIndex2_;
-    const size_t itemCount = focusedIndex >= 0 && focusedIndex < static_cast<int>(columns.size())
-        ? columns[focusedIndex].items.size() : 0;
-    const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+    size_t itemCount = 0;
+    float contentTopInset = 0.0f;
+    if (focusedIndex >= 0 && focusedIndex < static_cast<int>(columns.size())) {
+        itemCount = columns[static_cast<size_t>(focusedIndex)].items.size();
+        // selection-input-hardening: same banner inset as render/hit-test.
+        contentTopInset = ColumnContentTopInset(columns[static_cast<size_t>(focusedIndex)].freshness.state);
+    }
+    const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight - contentTopInset);
     const float maximum = (std::max)(0.0f, static_cast<float>(itemCount) * kRowHeight - visibleHeight);
     float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
     offset = std::clamp(offset + delta, 0.0f, maximum);
@@ -628,15 +724,18 @@ void ColumnView::EnsureFocusedItemVisible(float viewportHeight) {
     auto& columns = ActiveColumns();
     const int focusedIndex = ActiveFocusedColumnIndex();
     if (focusedIndex < 0 || focusedIndex >= static_cast<int>(columns.size())) return;
-    const int itemIndex = columns[focusedIndex].focusIndex;
+    const Column& column = columns[focusedIndex];
+    const int itemIndex = column.focusIndex;
     if (itemIndex < 0) return;
-    const float visibleHeight = (std::max)(0.0f, viewportHeight - kBadgeHeight);
+    // selection-input-hardening: same banner inset as render/hit-test.
+    const float visibleHeight =
+        (std::max)(0.0f, viewportHeight - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
     const float top = static_cast<float>(itemIndex) * kRowHeight;
     const float bottom = top + kRowHeight;
     float& offset = activePane_ == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;
     if (top < offset) offset = top;
     else if (bottom > offset + visibleHeight) offset = bottom - visibleHeight;
-    const float maximum = (std::max)(0.0f, static_cast<float>(columns[focusedIndex].items.size()) * kRowHeight - visibleHeight);
+    const float maximum = (std::max)(0.0f, static_cast<float>(column.items.size()) * kRowHeight - visibleHeight);
     offset = std::clamp(offset, 0.0f, maximum);
 }
 
@@ -1077,6 +1176,21 @@ void ColumnView::RefreshColumnFromSnapshot(Column& column,
         pendingSelectionPath_.clear();
     }
 
+    // selection-input-hardening: hover is a raw index; when the refresh
+    // changed the item set, the old index now names a different row. Drop the
+    // hover target for this column so the pill cannot stick to the wrong item
+    // until the next mouse move.
+    if (hoverColumn_ == columnIndex) {
+        bool itemsChanged = previousIdentities.size() != refreshedIdentities.size();
+        for (size_t i = 0; !itemsChanged && i < previousIdentities.size(); ++i) {
+            itemsChanged = !SameSelectionIdentity(previousIdentities[i], refreshedIdentities[i]);
+        }
+        if (itemsChanged) {
+            hoverColumn_ = -1;
+            hoverItem_ = -1;
+        }
+    }
+
     // semantic-uia-core-surfaces 2.6: the column's children were replaced and
     // selection/focus were identity-restored; collect the notifications for
     // the caller to fire after its lock is released.
@@ -1304,6 +1418,7 @@ SelectionSummary ColumnView::CurrentSelectionSummary() const {
         const ColumnItem& item = column.items[index];
         summary.items.push_back({JoinPath(column.path, item.name), item.sizeBytes,
                                   item.allocatedSizeBytes, item.allocatedSizeKnown,
+                                  0, // maxBytes: provider default (Column View carries no preview limit)
                                   item.attributes, item.isDirectory,
                                   item.fileIdLow, item.fileIdHigh, item.volumeRowId});
         if (!item.isDirectory) summary.knownSizeBytes += item.sizeBytes;
@@ -1474,7 +1589,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                                   textFormat_.Get(), statusRect,
                                   column.freshness.state == SnapshotViewState::StaleWithError
                                       ? errorBrush_.Get() : textSecondaryBrush_.Get());
-                contentTop += 24.0f;
+                // selection-input-hardening: the inset comes from the same
+                // ColumnContentTopInset seam the hit-test/scroll paths use.
+                contentTop += ColumnContentTopInset(column.freshness.state);
             }
 
             if (column.items.empty()) {
@@ -1518,6 +1635,16 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     D2D1_RECT_F selectionRect = D2D1::RectF(x + 4, y + 2, x + kColumnWidth - 4, y + kRowHeight - 2);
                     ID2D1SolidColorBrush* selectionBrush = (highContrast || isFocusedColumn) ? selectionBrush_.Get() : selectionSoftBrush_.Get();
                     ffui::UiFillRoundedRect(context, selectionRect, selectionBrush, ffui::UiMetrics::kRadiusSmall);
+                    // selection-input-hardening: the keyboard focus row gets a
+                    // distinct focusStroke ring so it is distinguishable from
+                    // the other selected rows in a multi-selection. High
+                    // Contrast already signals focus via the system highlight
+                    // fill, matching the Home surface's fallback.
+                    if (isFocusedColumn && r == column.focusIndex && !highContrast && focusStrokeBrush_ != nullptr) {
+                        D2D1_ROUNDED_RECT fr{D2D1::RectF(x + 2.5f, y + 0.5f, x + kColumnWidth - 2.5f, y + kRowHeight - 0.5f),
+                                             ffui::UiMetrics::kRadiusSmall, ffui::UiMetrics::kRadiusSmall};
+                        context->DrawRoundedRectangle(&fr, focusStrokeBrush_.Get(), 1.0f);
+                    }
                 }
 
                 // Task 3.2: type icon from the shared cache; the themed glyph
@@ -2246,12 +2373,24 @@ void ColumnView::UiaSetColumnFocus(int pane, int col) {
 
 void ColumnView::UiaScrollPane(int pane, float deltaX, float deltaY) {
     if (pane != 0 && pane != 1) return;
-    if (deltaY != 0.0f) {
-        ClampVerticalScrollForPane(pane, deltaY, uiaGeometry_.heightDip);
+    // selection-input-hardening: snapshot the shared scroll state under the
+    // mutex like every other accessor (a UIA client can race UI-thread
+    // updates); ClampVerticalScrollForPane / UiaSetHorizontalScroll take the
+    // lock themselves, so nothing is held across them.
+    float heightDip = 0.0f;
+    float currentHorizontal = 0.0f;
+    bool home = false;
+    {
+        std::lock_guard<std::mutex> lock(columnsMutex_);
+        heightDip = uiaGeometry_.heightDip;
+        home = homePane_[static_cast<size_t>(pane)];
+        currentHorizontal = pane == 0 ? uiaGeometry_.hScroll0Dip : scrollOffset2_;
     }
-    if (deltaX != 0.0f && !homePane_[static_cast<size_t>(pane)]) {
-        const float current = pane == 0 ? uiaGeometry_.hScroll0Dip : scrollOffset2_;
-        UiaSetHorizontalScroll(pane, current + deltaX);
+    if (deltaY != 0.0f) {
+        ClampVerticalScrollForPane(pane, deltaY, heightDip);
+    }
+    if (deltaX != 0.0f && !home) {
+        UiaSetHorizontalScroll(pane, currentHorizontal + deltaX);
     }
 }
 
@@ -2284,8 +2423,10 @@ void ColumnView::UiaScrollItemIntoView(int pane, int col, int row) {
     if (col < 0 || col >= static_cast<int>(columns.size())) return;
     Column& column = columns[static_cast<size_t>(col)];
     if (row < 0 || row >= static_cast<int>(column.items.size())) return;
-    // Same clamp math as EnsureFocusedItemVisible, without touching focus.
-    const float visibleHeight = (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight);
+    // Same clamp math as EnsureFocusedItemVisible, without touching focus
+    // (including the same status-banner inset).
+    const float visibleHeight =
+        (std::max)(0.0f, uiaGeometry_.heightDip - kBadgeHeight - ColumnContentTopInset(column.freshness.state));
     const float top = static_cast<float>(row) * kRowHeight;
     const float bottom = top + kRowHeight;
     float& offset = pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_;

@@ -38,4 +38,31 @@ inline void SelectAllItems(std::set<int>& selected, int& anchor, int& focus, int
     }
 }
 
+// selection-input-hardening: PageUp/PageDown/Home/End target computation for
+// a flat list. `deltaRows` is +-the visible-page row count (or INT_MIN/INT_MAX
+// style extremes for Home/End); the result always clamps to [0, itemCount-1].
+// An empty list (itemCount <= 0) has no target (-1), and "no focus" (< 0)
+// moves to the nearest endpoint in the movement direction.
+inline int ListFocusTarget(int currentFocus, int itemCount, int deltaRows) {
+    if (itemCount <= 0) return -1;
+    const int last = itemCount - 1;
+    const int base = currentFocus < 0 ? (deltaRows >= 0 ? 0 : last) : currentFocus;
+    const long long target = static_cast<long long>(base) + deltaRows;
+    return static_cast<int>((std::clamp)(target, 0LL, static_cast<long long>(last)));
+}
+
+// selection-input-hardening: apply a keyboard focus move (PageUp/PageDown/
+// Home/End). Ctrl moves the focus WITHOUT changing the selection (standard
+// Windows list semantics); Shift extends the range from the anchor; plain
+// movement makes the target the single selection and re-anchors.
+inline void ApplyKeyboardFocusMove(std::set<int>& selected, int& anchor, int& focus,
+                                   int target, bool control, bool shift) {
+    if (target < 0) return;
+    if (control) {
+        focus = target;
+        return;
+    }
+    ApplySelectionClick(selected, anchor, focus, target, false, shift);
+}
+
 } // namespace ffui

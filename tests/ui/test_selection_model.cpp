@@ -6,6 +6,7 @@
 
 #include "SelectionModel.h"
 
+#include <climits>
 #include <set>
 #include <vector>
 
@@ -200,6 +201,61 @@ void TestNoSentinelRange() {
     Check(s.selected == std::set<int>{0}, "shift-without-anchor is a single item");
 }
 
+// selection-input-hardening: PageUp/PageDown/Home/End target math.
+void TestListFocusTarget() {
+    Check(ListFocusTarget(0, 0, 5) == -1, "no target in an empty list");
+    Check(ListFocusTarget(10, 20, 10) == 19, "page down moves by the page row count");
+    Check(ListFocusTarget(15, 20, 10) == 19, "page down clamps at the last item");
+    Check(ListFocusTarget(15, 20, -10) == 5, "page up moves by the page row count");
+    Check(ListFocusTarget(3, 20, -10) == 0, "page up clamps at the first item");
+    Check(ListFocusTarget(7, 20, INT_MIN) == 0, "home lands on the first item");
+    Check(ListFocusTarget(7, 20, INT_MAX) == 19, "end lands on the last item");
+    Check(ListFocusTarget(-1, 20, INT_MIN) == 0, "home from no focus lands on the first item");
+    Check(ListFocusTarget(-1, 20, INT_MAX) == 19, "end from no focus lands on the last item");
+    Check(ListFocusTarget(-1, 20, 10) == 10, "movement from no focus uses item 0 as base");
+}
+
+// selection-input-hardening: keyboard focus-move application semantics
+// (plain = select+anchor, Ctrl = focus only, Shift = extend from anchor).
+void TestApplyKeyboardFocusMove() {
+    // Plain movement re-selects and re-anchors.
+    {
+        ModelState s;
+        s.selected = {2, 4};
+        s.anchor = 2;
+        s.focus = 4;
+        ApplyKeyboardFocusMove(s.selected, s.anchor, s.focus, 12, false, false);
+        CheckState("kbd-plain", s, {12}, 12, 12);
+    }
+    // Ctrl moves focus without touching the selection or anchor.
+    {
+        ModelState s;
+        s.selected = {2, 4};
+        s.anchor = 2;
+        s.focus = 4;
+        ApplyKeyboardFocusMove(s.selected, s.anchor, s.focus, 14, true, false);
+        CheckState("kbd-ctrl", s, {2, 4}, 2, 14);
+    }
+    // Shift extends the range from the existing anchor.
+    {
+        ModelState s;
+        s.selected = {2};
+        s.anchor = 2;
+        s.focus = 2;
+        ApplyKeyboardFocusMove(s.selected, s.anchor, s.focus, 6, false, true);
+        CheckState("kbd-shift", s, {2, 3, 4, 5, 6}, 2, 6);
+    }
+    // An invalid target (-1, empty list) is a no-op.
+    {
+        ModelState s;
+        s.selected = {1};
+        s.anchor = 1;
+        s.focus = 1;
+        ApplyKeyboardFocusMove(s.selected, s.anchor, s.focus, -1, false, false);
+        CheckState("kbd-invalid-target", s, {1}, 1, 1);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -212,6 +268,8 @@ int main() {
     TestMixedSequences();
     TestSelectAll();
     TestNoSentinelRange();
+    TestListFocusTarget();
+    TestApplyKeyboardFocusMove();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffselection_model_tests: %d check(s) failed\n", FailureCount());

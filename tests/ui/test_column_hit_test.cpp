@@ -22,30 +22,61 @@ int main() {
     const float width = 1000.0f;
 
     const auto single = ComputeColumnHitTest(D2D1::Point2F(12.0f, badge + 2.0f * row + 1.0f),
-                                             0.0f, 0.0f, width, false, 0);
+                                             0.0f, 0.0f, 0.0f, width, false, 0);
     Check(single.columnIndex == 0 && single.itemIndex == 2,
           "single-pane points map to the expected column and row");
 
     const auto rightPane = ComputeColumnHitTest(D2D1::Point2F(width / 2.0f + 12.0f, badge + row + 1.0f),
-                                                0.0f, 0.0f, width, true, 1);
+                                                0.0f, 0.0f, 0.0f, width, true, 1);
     Check(rightPane.columnIndex == 0 && rightPane.itemIndex == 1,
           "right-pane points subtract the pane origin before hit testing");
 
     const auto scrolled = ComputeColumnHitTest(D2D1::Point2F(width / 2.0f + 12.0f, badge + 3.0f),
                                                2.0f * ffui::UiMetrics::kColumnWidth,
-                                               row, width, true, 1);
+                                               row, 0.0f, width, true, 1);
     Check(scrolled.columnIndex == 2 && scrolled.itemIndex == 1,
           "horizontal and vertical offsets are applied in content coordinates");
 
     const auto wrongPane = ComputeColumnHitTest(D2D1::Point2F(12.0f, badge + 1.0f),
-                                                0.0f, 0.0f, width, true, 1);
+                                                0.0f, 0.0f, 0.0f, width, true, 1);
     Check(wrongPane.columnIndex == -1 && wrongPane.itemIndex == -1,
           "a point outside the active pane cannot activate a row");
 
     const auto badgePoint = ComputeColumnHitTest(D2D1::Point2F(12.0f, badge - 1.0f),
-                                                 0.0f, 0.0f, width, false, 0);
+                                                 0.0f, 0.0f, 0.0f, width, false, 0);
     Check(badgePoint.columnIndex == -1 && badgePoint.itemIndex == -1,
           "status badge points are not treated as rows");
+
+    // selection-input-hardening: the status-banner inset must be part of the
+    // hit-test so render and input share one content origin.
+    const float bannerInset = ffui::ColumnContentTopInset(ffui::SnapshotViewState::Loading);
+    Check(bannerInset == ffui::kStatusBannerInsetDips,
+          "a Loading column carries the full status-banner inset");
+    Check(ffui::ColumnContentTopInset(ffui::SnapshotViewState::Current) == 0.0f,
+          "a Current column carries no status-banner inset");
+    const auto withBanner = ComputeColumnHitTest(D2D1::Point2F(12.0f, badge + bannerInset + 3.0f * row + 1.0f),
+                                                 0.0f, 0.0f, bannerInset, width, false, 0);
+    Check(withBanner.columnIndex == 0 && withBanner.itemIndex == 3,
+          "with the banner visible the same visual row still hit-tests to row 3");
+    // A point near the bottom of visual row 0: ignoring the inset resolves to
+    // the next row (the off-by-one the audit observed).
+    const float nearRowBottom = badge + bannerInset + row - 1.0f;
+    const auto hitWithInset = ComputeColumnHitTest(D2D1::Point2F(12.0f, nearRowBottom),
+                                                   0.0f, 0.0f, bannerInset, width, false, 0);
+    const auto hitWithoutInset = ComputeColumnHitTest(D2D1::Point2F(12.0f, nearRowBottom),
+                                                      0.0f, 0.0f, 0.0f, width, false, 0);
+    Check(hitWithInset.itemIndex == 0,
+          "with the shared inset the point lands on visual row 0");
+    Check(hitWithoutInset.itemIndex == 1,
+          "omitting the inset shifts the hit one row down (the old defect)");
+    Check(ffui::ComputeColumnIndexAtX(D2D1::Point2F(12.0f, badge), 0.0f, width, false, 0) == 0 &&
+          ffui::ComputeColumnIndexAtX(D2D1::Point2F(-1.0f, badge), 0.0f, width, false, 0) == -1,
+          "ComputeColumnIndexAtX resolves the column before the inset lookup");
+
+    // selection-input-hardening: Enter opens files, navigates directories.
+    Check(ffui::EnterOpensFile(true, false), "Enter over a focused file requests the open path");
+    Check(!ffui::EnterOpensFile(true, true), "Enter over a directory keeps navigate-into-column");
+    Check(!ffui::EnterOpensFile(false, false), "Enter with no focused item is a no-op");
 
     const std::vector<ffui::SelectionItem> fileSelection{{L"C:\\file.txt", false}};
     const std::vector<ffui::SelectionItem> folderSelection{{L"C:\\Folder", true}};

@@ -224,6 +224,10 @@ public:
     // HoverAnimating() returns true so Render can advance the fade each frame.
     void SetIconCache(IconCache* iconCache);
     void SetRepaintCallback(std::function<void()> repaint);
+    // selection-input-hardening: invoked when Enter is pressed over a focused
+    // NON-DIRECTORY. The shell wires this to the `item.open` command path
+    // (the same seam double-click uses); directories keep navigating in-process.
+    void SetOpenFocusedItemCallback(std::function<void()> openFocusedItem);
     void OnMouseMove(D2D1_POINT_2F clientPoint, float scrollOffset, float viewportWidth);
     void OnMouseLeave();
     bool HoverAnimating() const;
@@ -277,6 +281,10 @@ public:
     void ScrollVertical(float delta, float viewportHeight);
     void EnsureFocusedItemVisible(float viewportHeight);
     float VerticalScrollOffset() const { return verticalScrollOffset_; }
+    // Pane-aware accessor (selection-input-hardening): consumers that must
+    // mirror renderer math for a specific pane (e.g. inline-rename edit
+    // placement in dual-pane mode) read the matching vertical offset.
+    float VerticalScrollOffset(int pane) const { return pane == 0 ? verticalScrollOffset_ : verticalScrollOffset2_; }
 
     // task 1.3: save/restore per-pane column state for multi-context tab switching.
     void SaveActivePaneState(std::vector<std::wstring>& outColumnPaths, int& outFocusedIndex, float& outScrollOffset) const;
@@ -454,6 +462,8 @@ private:
     // shell repaints under the HoverAnimating() contract.
     IconCache* iconCache_ = nullptr;
     std::function<void()> repaint_;
+    // selection-input-hardening: Enter-over-file open request (see setter).
+    std::function<void()> openFocusedItemCallback_;
     int hoverItem_ = -1;
     int hoverColumn_ = -1;
     bool hoverActive_ = false;
@@ -520,6 +530,53 @@ struct ColumnHitTestResult {
     int itemIndex = -1;
 };
 
+// selection-input-hardening: height (DIPs) of the per-column status banner
+// ("Refreshing…" / "Showing previous results"). The render path shifts rows
+// down by this inset and the input/scroll paths must subtract the same value,
+// so both derive it from this single constant via ColumnContentTopInset.
+constexpr float kStatusBannerInsetDips = 24.0f;
+
+// The per-column content-top inset: rows start below the status banner only
+// while that column is Loading or StaleWithError. Used by BOTH the render
+// path and the hit-test/scroll-clamp paths so they can never diverge.
+inline float ColumnContentTopInset(SnapshotViewState state) {
+    return state == SnapshotViewState::Loading || state == SnapshotViewState::StaleWithError
+        ? kStatusBannerInsetDips : 0.0f;
+}
+
+// Column index for a client x coordinate (pane origin and horizontal scroll
+// removed). Hit-testing needs the column BEFORE it can know that column's
+// status-banner inset, so the column lookup is split from the row lookup.
+inline int ComputeColumnIndexAtX(D2D1_POINT_2F clientPoint,
+                                 float horizontalScrollOffset,
+                                 float viewportWidth,
+                                 bool dualPane,
+                                 int activePane) {
+    if (clientPoint.x < 0.0f || viewportWidth <= 0.0f) {
+        return -1;
+    }
+    float localX = clientPoint.x;
+    if (dualPane) {
+        const float paneWidth = viewportWidth / 2.0f;
+        if (paneWidth <= 0.0f || activePane < 0 || activePane > 1) {
+            return -1;
+        }
+        if (activePane == 1) {
+            if (localX < paneWidth || localX >= viewportWidth) {
+                return -1;
+            }
+            localX -= paneWidth;
+        } else if (localX >= paneWidth) {
+            return -1;
+        }
+    }
+    const float contentX = localX + horizontalScrollOffset;
+    if (contentX < 0.0f) {
+        return -1;
+    }
+    return static_cast<int>(contentX / UiMetrics::kColumnWidth);
+}
+
 // A folder is activated by the first click in Finder-style Column View.  The
 // native double-click gesture therefore has one remaining meaning: open the
 // already-selected file with its registered shell association.  Keep this
@@ -529,9 +586,18 @@ inline bool ShouldOpenSelectionOnDoubleClick(std::span<const SelectionItem> sele
     return selection.size() == 1 && !selection.front().isDirectory;
 }
 
+// selection-input-hardening: Enter over a focused NON-DIRECTORY opens the
+// item (the `item.open` command path); Enter over a directory keeps the
+// Finder-style navigate-into-column behavior. Pure seam so the routing
+// decision is regression-tested without a renderer.
+inline bool EnterOpensFile(bool focusValid, bool isDirectory) {
+    return focusValid && !isDirectory;
+}
+
 inline ColumnHitTestResult ComputeColumnHitTest(D2D1_POINT_2F clientPoint,
                                                 float horizontalScrollOffset,
                                                 float verticalScrollOffset,
+                                                float contentTopInset,
                                                 float viewportWidth,
                                                 bool dualPane,
                                                 int activePane) {
@@ -556,7 +622,9 @@ inline ColumnHitTestResult ComputeColumnHitTest(D2D1_POINT_2F clientPoint,
     }
 
     const float contentX = localX + horizontalScrollOffset;
-    const float contentY = clientPoint.y - UiMetrics::kBadgeHeight + verticalScrollOffset;
+    // The same banner inset the render path applies (ColumnContentTopInset);
+    // without it a visible status banner shifts every hit by one row.
+    const float contentY = clientPoint.y - UiMetrics::kBadgeHeight - contentTopInset + verticalScrollOffset;
     if (contentX < 0.0f || contentY < 0.0f) {
         return {};
     }
