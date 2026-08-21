@@ -20,6 +20,21 @@ namespace {
 constexpr size_t kMaxHistoryLineBytes =
     static_cast<size_t>(ffprotocol::kMaxIndexedSearchQueryLengthChars) * 4 + 64;
 
+// Ordinal case-insensitive equality, matching the case-insensitive matching
+// semantics of the search itself and the lexical case-insensitive dedup used
+// by the folder history (RecentFolderHistory).
+bool EqualsCaseInsensitive(const std::wstring& left, const std::wstring& right) {
+    if (left.size() != right.size()) return false;
+    return CompareStringOrdinal(left.c_str(), static_cast<int>(left.size()),
+                                right.c_str(), static_cast<int>(right.size()), TRUE) == CSTR_EQUAL;
+}
+
+template <typename Container>
+auto FindCaseInsensitive(Container& queries, const std::wstring& query) {
+    return std::find_if(queries.begin(), queries.end(),
+                        [&query](const std::wstring& entry) { return EqualsCaseInsensitive(entry, query); });
+}
+
 // UTF-16 <-> UTF-8 conversion for history persistence. The default C locale
 // under which std::wofstream/std::wifstream run truncates non-ASCII wchar_t
 // to a single byte, so the history file is written as explicit UTF-8 bytes
@@ -85,7 +100,7 @@ bool SearchHistory::Load(const std::filesystem::path& path) {
             query = wideLine->substr(tab + 1);
         }
         if (query.size() <= ffprotocol::kMaxIndexedSearchQueryLengthChars && !query.empty() &&
-            std::find(queries_.begin(), queries_.end(), query) == queries_.end()) {
+            FindCaseInsensitive(queries_, query) == queries_.end()) {
             queries_.push_back(std::move(query));
             timestamps_.push_back(timestamp);
         }
@@ -155,9 +170,18 @@ bool SearchHistory::Clear(const std::filesystem::path& path) {
 }
 
 bool SearchHistory::Record(std::wstring query, const std::filesystem::path& path, size_t limit) {
-    if (!recordingEnabled_ || query.empty()) return true;
+    // A query above the protocol maximum is a hard rejection (false), unlike
+    // the benign no-op cases handled inside RecordQuery (recording disabled,
+    // empty query), which keep succeeding without touching the file.
     if (query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars) return false;
-    const auto existing = std::find(queries_.begin(), queries_.end(), query);
+    if (!RecordQuery(std::move(query), limit)) return true;
+    return Save(path);
+}
+
+bool SearchHistory::RecordQuery(std::wstring query, size_t limit) {
+    if (!recordingEnabled_ || query.empty()) return false;
+    if (query.size() > ffprotocol::kMaxIndexedSearchQueryLengthChars) return false;
+    const auto existing = FindCaseInsensitive(queries_, query);
     if (existing != queries_.end()) {
         const size_t index = static_cast<size_t>(existing - queries_.begin());
         queries_.erase(existing);
@@ -171,7 +195,7 @@ bool SearchHistory::Record(std::wstring query, const std::filesystem::path& path
         queries_.resize(limit);
         timestamps_.resize(limit);
     }
-    return Save(path);
+    return true;
 }
 
 } // namespace ffsearch

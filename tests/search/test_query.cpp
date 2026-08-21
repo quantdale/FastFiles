@@ -1,5 +1,7 @@
 #include <cstdio>
 
+#include <windows.h>
+
 #include "ffsearch/Query.h"
 #include "../TestSupport.h"
 
@@ -84,5 +86,58 @@ int main() {
     auto extended = ffsearch::FilterRegistry::WithDefaults();
     extended.Register(L"owner", {[](std::wstring_view value) -> std::optional<ffsearch::FilterValue> { return std::wstring(value); }, [](const ffsearch::FilterValue&) { return [](const ffsearch::Candidate&) { return true; }; }});
     Check(ffsearch::ParseQuery(L"ext:pdf", extended).Matches(report), "registering a new key leaves existing filters unchanged");
+
+    // Date filters use LOCAL day boundaries (matching Explorer timestamps),
+    // never UTC-day arithmetic.
+    FILETIME nowFt{};
+    GetSystemTimeAsFileTime(&nowFt);
+    FILETIME localFt{};
+    SYSTEMTIME localNow{};
+    if (!FileTimeToLocalFileTime(&nowFt, &localFt) || !FileTimeToSystemTime(&localFt, &localNow)) {
+        Check(false, "local-time conversion is available for date-boundary tests");
+        return fftest::FailureCount() == 0 ? 0 : 1;
+    }
+    SYSTEMTIME midnight = localNow;
+    midnight.wHour = 0;
+    midnight.wMinute = 0;
+    midnight.wSecond = 0;
+    midnight.wMilliseconds = 0;
+    FILETIME midnightFt{};
+    if (!SystemTimeToFileTime(&midnight, &midnightFt)) {
+        Check(false, "local midnight conversion is available for date-boundary tests");
+        return fftest::FailureCount() == 0 ? 0 : 1;
+    }
+    ULARGE_INTEGER midnightTicks{};
+    midnightTicks.LowPart = midnightFt.dwLowDateTime;
+    midnightTicks.HighPart = midnightFt.dwHighDateTime;
+    constexpr uint64_t kDay = 24ULL * 60 * 60 * 10'000'000;
+    const ffsearch::Candidate noonToday{L"today.txt", L"C:\\dates", 1,
+                                        midnightTicks.QuadPart + kDay / 2, false};
+    const ffsearch::Candidate lastTickYesterday{L"yesterday.txt", L"C:\\dates", 1,
+                                                midnightTicks.QuadPart - 1, false};
+    const ffsearch::Candidate sixDaysAgo{L"six.txt", L"C:\\dates", 1,
+                                         midnightTicks.QuadPart - 6 * kDay, false};
+    const ffsearch::Candidate eightDaysAgo{L"eight.txt", L"C:\\dates", 1,
+                                           midnightTicks.QuadPart - 8 * kDay, false};
+    const auto today = ffsearch::ParseQuery(L"modified:today", registry);
+    Check(today.Matches(noonToday), "modified:today matches a file stamped this local afternoon");
+    Check(!today.Matches(lastTickYesterday), "modified:today excludes the last tick of yesterday local time");
+    const auto lastTwoDays = ffsearch::ParseQuery(L"modified:>2d", registry);
+    Check(lastTwoDays.Matches(noonToday) && lastTwoDays.Matches(lastTickYesterday),
+          "modified:>2d covers the current and previous local day");
+    const auto lastWeek = ffsearch::ParseQuery(L"modified:>7d", registry);
+    Check(lastWeek.Matches(sixDaysAgo), "modified:>7d includes six local days ago");
+    Check(!lastWeek.Matches(eightDaysAgo), "modified:>7d excludes eight local days ago");
+
+    // Invalid filter tokens are reported (not silently dropped) while the
+    // valid remainder of the query still executes.
+    auto mixedInvalid = ffsearch::ParseQuery(L"size:abc report", registry);
+    Check(mixedInvalid.invalidFilters.size() == 1 && mixedInvalid.invalidFilters.front() == L"size",
+          "an invalid size value is surfaced as an invalid filter key");
+    const ffsearch::Candidate plainReport{L"report.pdf", L"C:\\docs", 1, 0, false};
+    Check(mixedInvalid.Matches(plainReport), "the valid remainder of a query with an invalid filter still executes");
+    auto mixedUnknown = ffsearch::ParseQuery(L"owner:alice budget", registry);
+    Check(mixedUnknown.unrecognizedKeys.size() == 1 && mixedUnknown.unrecognizedKeys.front() == L"owner",
+          "unknown filter keys are surfaced alongside normal execution");
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

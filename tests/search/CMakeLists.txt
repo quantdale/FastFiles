@@ -10,8 +10,12 @@ add_executable(ffsearch_ondisk_filter_tests test_ondisk_filter.cpp)
 target_link_libraries(ffsearch_ondisk_filter_tests PRIVATE ffsearch)
 add_test(NAME ffsearch_ondisk_filter_tests COMMAND ffsearch_ondisk_filter_tests)
 
+add_executable(ffsearch_history_tests test_history.cpp)
+target_link_libraries(ffsearch_history_tests PRIVATE ffsearch)
+add_test(NAME ffsearch_history_tests COMMAND ffsearch_history_tests)
+
 # Informational only: isolated literal matcher evidence, never run by CTest.
 add_executable(ffsearch_bench_literal_matcher bench_literal_matcher.cpp)
 target_link_libraries(ffsearch_bench_literal_matcher PRIVATE ffsearch)
 
-set_tests_properties(ffsearch_tests ffsearch_scan_tests ffsearch_ondisk_filter_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffsearch_tests ffsearch_scan_tests ffsearch_ondisk_filter_tests ffsearch_history_tests PROPERTIES TIMEOUT 120)

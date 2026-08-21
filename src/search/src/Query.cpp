@@ -301,11 +301,36 @@ std::optional<uint64_t> ParseDay(std::wstring_view value) {
     return result.QuadPart;
 }
 
+// All date-filter day boundaries use LOCAL time, matching what Explorer and
+// the user's clock display. SYSTEMTIME <-> FILETIME conversions here interpret
+// SYSTEMTIME as local time (SystemTimeToFileTime), so "today" and relative
+// offsets are anchored to local midnight rather than a UTC day.
+uint64_t LocalDayStart(uint64_t now) {
+    const FILETIME nowFileTime{static_cast<DWORD>(now & 0xFFFFFFFFu), static_cast<DWORD>(now >> 32)};
+    FILETIME localFileTime{};
+    SYSTEMTIME local{};
+    if (!FileTimeToLocalFileTime(&nowFileTime, &localFileTime) || !FileTimeToSystemTime(&localFileTime, &local)) {
+        return now - now % (24ULL * 60 * 60 * 10'000'000); // UTC fallback if conversion fails
+    }
+    local.wHour = 0;
+    local.wMinute = 0;
+    local.wSecond = 0;
+    local.wMilliseconds = 0;
+    FILETIME dayStart{};
+    if (!SystemTimeToFileTime(&local, &dayStart)) {
+        return now - now % (24ULL * 60 * 60 * 10'000'000);
+    }
+    ULARGE_INTEGER value{};
+    value.LowPart = dayStart.dwLowDateTime;
+    value.HighPart = dayStart.dwHighDateTime;
+    return value.QuadPart;
+}
+
 std::optional<FilterValue> ParseDateFilter(std::wstring_view value) {
     constexpr uint64_t kDay = 24ULL * 60 * 60 * 10'000'000;
     if (Lower(value) == L"today") {
-        const auto now = CurrentFileTime();
-        const auto day = now - now % kDay;
+        // Local-day convention: [local midnight, next local midnight).
+        const auto day = LocalDayStart(CurrentFileTime());
         return DateFilter{DateFilter::Op::Range, day, day + kDay - 1};
     }
     const size_t range = value.find(L"..");
@@ -321,9 +346,14 @@ std::optional<FilterValue> ParseDateFilter(std::wstring_view value) {
             return std::nullopt;
         }
         const unsigned long days = std::wcstoul(std::wstring(digits).c_str(), nullptr, 10);
-        const auto now = CurrentFileTime();
-        if (days > now / kDay) return std::nullopt;
-        return DateFilter{DateFilter::Op::GreaterThan, now - static_cast<uint64_t>(days) * kDay};
+        // Local-day convention: the window covers the last N local days,
+        // anchored at today's local midnight (not a rolling UTC window).
+        const auto dayStart = LocalDayStart(CurrentFileTime());
+        const uint64_t back = days == 0 ? 0 : static_cast<uint64_t>(days - 1);
+        if (back > dayStart / kDay + 1) return std::nullopt;
+        // Strictly-greater comparison, offset by one tick so the window
+        // includes the entire earliest local calendar day.
+        return DateFilter{DateFilter::Op::GreaterThan, dayStart - back * kDay - 1};
     }
     const auto day = ParseDay(value);
     if (!day) return std::nullopt;

@@ -33,6 +33,13 @@ constexpr int kClearHistoryId = 7105;
 constexpr int kSortDirectionId = 7107;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
+// Coalesces search-history disk flushes: recording only marks the store dirty
+// and arms this timer, so a burst of recorded queries costs one write.
+constexpr UINT_PTR kHistorySaveTimer = 7108;
+constexpr UINT kHistorySaveCoalesceMilliseconds = 1500;
+// Minimum interval between snapshot-generation-triggered re-dispatches while
+// the panel is open; faster generations only mark a pending refresh.
+constexpr UINT kSnapshotRefreshIntervalMs = 2000;
 constexpr size_t kMaxUiSearchResults = 10000;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
@@ -170,7 +177,8 @@ LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
                 return UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
             }
         }
-        return 0;
+        // Provider unavailable: fall through to DefSubclassProc so the native
+        // MSAA/UIA fallback answers instead of swallowing the query.
     }
     UNREFERENCED_PARAMETER(subclassId);
     return DefSubclassProc(hwnd, message, wParam, lParam);
@@ -178,6 +186,14 @@ LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
 }  // namespace
 
 SearchPanel::~SearchPanel() {
+    KillTimer(owner_, kDebounceTimer);
+    KillTimer(owner_, kHistorySaveTimer);
+    // Flush a coalesced history save that never fired; teardown is the one
+    // place a synchronous write is acceptable (the UI thread is going away).
+    if (historyDirty_) {
+        historyDirty_ = false;
+        SaveHistory();
+    }
     // semantic-uia-core-surfaces 4.x: drop the list subclass and flip the
     // owner-lifetime token before releasing the provider so client-held
     // elements become safe zombies.
@@ -219,7 +235,9 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_OWNERDRAWFIXED | LVS_SINGLESEL | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
     status_ = CreateWindowExW(0, L"STATIC", L"Ready", WS_CHILD, 0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
-    clearHistory_ = CreateWindowExW(0, L"BUTTON", L"Clear history", WS_CHILD,
+    // BS_OWNERDRAW keeps the button inside the themed token set instead of
+    // native light chrome breaking the dark panel.
+    clearHistory_ = CreateWindowExW(0, L"BUTTON", L"Clear history", WS_CHILD | BS_OWNERDRAW,
                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearHistoryId)), nullptr, nullptr);
     sortDirection_ = CreateWindowExW(0, L"BUTTON", L"Ascending", WS_CHILD | BS_OWNERDRAW,
                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortDirectionId)), nullptr, nullptr);
@@ -278,12 +296,26 @@ void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActiv
     for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_SHOW);
     UpdateScopeAvailability(false);
     Reposition(surfaceRect);
+    // Consume a coalesced snapshot refresh that was deferred while hidden.
+    if (snapshotRefreshPending_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
+        Dispatch(false);
+    }
     SetFocus(GetWindow(query_, GW_CHILD));
 }
 
 void SearchPanel::Hide() {
+    // Commitment point for history: a query still present when the panel
+    // closes counts as an executed search. Intermediate debounce ticks never
+    // record, so prefixes like "docu"/"documen" stay out of Recent searches.
+    if (visible_ && query_ != nullptr) {
+        std::array<wchar_t, static_cast<size_t>(ffprotocol::kMaxIndexedSearchQueryLengthChars) + 1> text{};
+        GetWindowTextW(query_, text.data(), static_cast<int>(text.size()));
+        if (text[0] != L'\0') RecordHistory(text.data());
+    }
     visible_ = false;
     KillTimer(owner_, kDebounceTimer);
+    // The coalesced history-save timer keeps running so a recorded query is
+    // flushed even after the panel hides.
     for (HWND control : {query_, scope_, sort_, sortDirection_, list_, status_, clearHistory_}) ShowWindow(control, SW_HIDE);
 }
 
@@ -299,6 +331,7 @@ void SearchPanel::SetDarkTheme(bool dark) {
     if (scope_) InvalidateRect(scope_, nullptr, TRUE);
     if (sort_) InvalidateRect(sort_, nullptr, TRUE);
     if (sortDirection_) InvalidateRect(sortDirection_, nullptr, TRUE);
+    if (clearHistory_) InvalidateRect(clearHistory_, nullptr, TRUE);
     if (status_) InvalidateRect(status_, nullptr, TRUE);
     // Force the query-edit paint resources to rebuild on the next paint so a
     // theme change cannot leave stale colors cached in the DC render target.
@@ -344,17 +377,17 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
         return true;
     }
     if (id == kScopeId && notification == CBN_SELCHANGE) {
-        Dispatch();
+        Dispatch(false);
         return true;
     }
     if (id == kSortId && notification == CBN_SELCHANGE) {
-        Dispatch();
+        Dispatch(false);
         return true;
     }
     if (id == kSortDirectionId && notification == BN_CLICKED) {
         descending_ = !descending_;
         SetWindowTextW(sortDirection_, descending_ ? L"Descending" : L"Ascending");
-        Dispatch();
+        Dispatch(false);
         return true;
     }
     if (id == kClearHistoryId && notification == BN_CLICKED) {
@@ -365,9 +398,21 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
 }
 
 bool SearchPanel::HandleTimer(UINT_PTR timerId) {
+    if (timerId == kHistorySaveTimer) {
+        // The coalesced history flush runs even while the panel is hidden so a
+        // recorded query is never stranded dirty until teardown.
+        KillTimer(owner_, kHistorySaveTimer);
+        if (historyDirty_) {
+            historyDirty_ = false;
+            SaveHistory();
+        }
+        return true;
+    }
     if (!visible_ || timerId != kDebounceTimer) return false;
     KillTimer(owner_, kDebounceTimer);
-    Dispatch();
+    // A debounced keystroke is not a committed search: history is recorded
+    // when the panel closes or the query is explicitly invoked.
+    Dispatch(false);
     return true;
 }
 
@@ -379,13 +424,29 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     if (queryText[0] == L'\0') {
         results_.clear();
         currentPrimaryTerm_.clear();
+        statusWarning_.clear();
         ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         UpdateStatus(history_.empty() ? L"Type to search" : L"Choose a previous query or type to search");
         return;
     }
+    lastSnapshotRefresh_ = std::chrono::steady_clock::now();
+    snapshotRefreshPending_ = false;
     Work work;
     work.generation = generation_;
     work.request.query = ffsearch::ParseQuery(queryText.data(), ffsearch::FilterRegistry::WithDefaults());
+    // Surface parse diagnostics instead of silently degrading the query: the
+    // warning is prefixed to the next status update (searching/results).
+    {
+        std::vector<std::wstring> notices;
+        for (const auto& key : work.request.query.invalidFilters) notices.push_back(L"Ignored invalid filter: " + key + L":");
+        for (const auto& key : work.request.query.unrecognizedKeys) notices.push_back(L"Unknown filter: " + key + L":");
+        std::wstring warning;
+        for (const auto& notice : notices) {
+            if (!warning.empty()) warning += L"  ";
+            warning += notice;
+        }
+        statusWarning_ = std::move(warning);
+    }
     work.request.scope = static_cast<ffsearch::SearchScope>((std::max)(0, static_cast<int>(SendMessageW(scope_, CB_GETCURSEL, 0, 0))));
     work.request.scopePath = currentPath_;
     work.request.sortField = static_cast<ffsearch::SortField>((std::max)(0, static_cast<int>(SendMessageW(sort_, CB_GETCURSEL, 0, 0))));
@@ -480,10 +541,10 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
     if (completion->response.truncated) {
         const std::wstring prefix = snapshotFallback_ ? L"Browsed snapshot: " : L"";
-        UpdateStatus(prefix + L"showing the first " + std::to_wstring(results_.size()) + L" results", StatusKind::Info);
+        UpdateStatus(statusWarning_ + prefix + L"showing the first " + std::to_wstring(results_.size()) + L" results", StatusKind::Info);
     } else {
         const std::wstring prefix = snapshotFallback_ ? L"Browsed snapshot: " : L"";
-        UpdateStatus(results_.empty() ? prefix + L"no results" : prefix + std::to_wstring(results_.size()) + L" results",
+        UpdateStatus(statusWarning_ + (results_.empty() ? prefix + L"no results" : prefix + std::to_wstring(results_.size()) + L" results"),
                      results_.empty() ? StatusKind::NoResults : StatusKind::Info);
     }
     InvalidateRect(list_, nullptr, FALSE);
@@ -530,10 +591,10 @@ bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
     }
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
     if (completion->response.truncated) {
-        UpdateStatus(L"Showing the first " + std::to_wstring(results_.size()) + L" indexed results", StatusKind::Info);
+        UpdateStatus(statusWarning_ + L"Showing the first " + std::to_wstring(results_.size()) + L" indexed results", StatusKind::Info);
     } else {
-        UpdateStatus(results_.empty() ? L"No indexed results" :
-                     std::to_wstring(results_.size()) + L" indexed results",
+        UpdateStatus(statusWarning_ + (results_.empty() ? L"No indexed results" :
+                     std::to_wstring(results_.size()) + L" indexed results"),
                      results_.empty() ? StatusKind::NoResults : StatusKind::Info);
     }
     InvalidateRect(list_, nullptr, FALSE);
@@ -626,8 +687,8 @@ bool SearchPanel::HandleDrawItem(LPARAM lParam) {
         DrawComboItem(item);
         return true;
     }
-    if (item->hwndItem == sortDirection_) {
-        DrawDirectionButton(item);
+    if (item->hwndItem == sortDirection_ || item->hwndItem == clearHistory_) {
+        DrawTextButton(item->hwndItem, item);
         return true;
     }
     return false;
@@ -803,17 +864,23 @@ void SearchPanel::DrawComboItem(const DRAWITEMSTRUCT* item) {
     FillRect(dc, &rect, backgroundBrush);
     DeleteObject(backgroundBrush);
 
-    wchar_t textBuffer[128]{};
-    SendMessageW(item->hwndItem, CB_GETLBTEXT, item->itemID, reinterpret_cast<LPARAM>(textBuffer));
+    // Size the buffer from CB_GETLBTEXTLEN so any future longer label cannot
+    // overflow the fixed read (native UIA proxies read these same strings).
+    const int textLength = static_cast<int>(
+        SendMessageW(item->hwndItem, CB_GETLBTEXTLEN, item->itemID, 0));
+    if (textLength < 0) return;
+    std::wstring itemText(static_cast<size_t>(textLength) + 1, L'\0');
+    SendMessageW(item->hwndItem, CB_GETLBTEXT, item->itemID,
+                 reinterpret_cast<LPARAM>(itemText.data()));
     SetTextColor(dc, text);
     SetBkMode(dc, TRANSPARENT);
     RECT textRect = rect;
     textRect.left += Scaled(static_cast<int>(ffui::UiMetrics::kSpaceXs));
-    DrawTextW(dc, textBuffer, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+    DrawTextW(dc, itemText.c_str(), -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
     if ((item->itemState & ODS_FOCUS) != 0) DrawFocusRect(dc, &rect);
 }
 
-void SearchPanel::DrawDirectionButton(const DRAWITEMSTRUCT* item) {
+void SearchPanel::DrawTextButton(HWND source, const DRAWITEMSTRUCT* item) {
     HDC dc = item->hDC;
     RECT rect = item->rcItem;
     const bool highContrast = ffui::UiSystemHighContrast();
@@ -837,7 +904,7 @@ void SearchPanel::DrawDirectionButton(const DRAWITEMSTRUCT* item) {
     DeleteObject(borderBrush);
 
     wchar_t textBuffer[128]{};
-    GetWindowTextW(sortDirection_, textBuffer, static_cast<int>(std::size(textBuffer)));
+    GetWindowTextW(source, textBuffer, static_cast<int>(std::size(textBuffer)));
     SetTextColor(dc, text);
     SetBkMode(dc, TRANSPARENT);
     DrawTextW(dc, textBuffer, -1, &rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
@@ -913,7 +980,9 @@ void SearchPanel::PaintSearchEdit(HWND hwnd) {
     GetWindowTextW(hwnd, text.data(), length + 1);
     text.resize(static_cast<size_t>(length));
     if (text.empty()) {
-        text = L"Search indexed locations…";
+        // The placeholder must reflect actual capability: degraded mode has no
+        // privileged index, only the browsed-folder snapshot.
+        text = persistentCoverage_ ? L"Search indexed locations…" : L"Search browsed folders…";
         textBrush.Reset();
         searchTarget_->CreateSolidColorBrush(theme.searchPlaceholder, &textBrush);
     }
@@ -985,10 +1054,18 @@ void SearchPanel::OnSnapshotUpdated() {
         RefreshScopeLabels();
     }
     // A visible search should follow the new snapshot generation without
-    // requiring the user to type another character. Suppress history writes:
-    // this is a data refresh, not a new query execution.
+    // requiring the user to type another character — but generations can
+    // publish every few seconds during active indexing, so re-dispatches are
+    // coalesced: within the refresh interval only a pending flag is set and
+    // the refresh happens on the next debounce/visibility change. Suppress
+    // history writes: this is a data refresh, not a new query execution.
     if (visible_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
-        Dispatch(false);
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastSnapshotRefresh_ >= std::chrono::milliseconds(kSnapshotRefreshIntervalMs)) {
+            Dispatch(false);
+        } else {
+            snapshotRefreshPending_ = true;
+        }
     }
 }
 
@@ -1136,13 +1213,17 @@ void SearchPanel::SaveHistory() const {
 
 void SearchPanel::RecordHistory(const std::wstring& query) {
     if (!retainHistory_ || query.empty()) return;
-    historyStore_.Record(query, HistoryPath());
+    // In-memory record only; the disk flush is coalesced onto a timer so the
+    // UI thread never performs a WRITE_THROUGH file write per recorded query.
+    historyStore_.RecordQuery(query);
+    historyDirty_ = true;
     history_ = historyStore_.Queries();
     updatingHistory_ = true;
     SendMessageW(query_, CB_RESETCONTENT, 0, 0);
     for (const auto& item : history_) SendMessageW(query_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
     SetWindowTextW(query_, query.c_str());
     updatingHistory_ = false;
+    SetTimer(owner_, kHistorySaveTimer, kHistorySaveCoalesceMilliseconds, nullptr);
     // quick-access-home 5.6: the recorded query changed the Recent searches set.
     if (historyChanged_) historyChanged_();
 }
@@ -1163,7 +1244,11 @@ std::vector<std::wstring> SearchPanel::RecentQueries(size_t maxCount) const {
 }
 
 void SearchPanel::SetQueryAndDispatch(const std::wstring& query) {
+    // Same guard as RecordHistory: the programmatic set raises CBN_EDITCHANGE,
+    // which would otherwise arm the debounce timer and run the query twice.
+    updatingHistory_ = true;
     SetWindowTextW(query_, query.c_str());
+    updatingHistory_ = false;
     Dispatch(true);
 }
 

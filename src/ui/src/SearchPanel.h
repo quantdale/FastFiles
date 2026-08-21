@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <d2d1.h>
 #include <dwrite.h>
@@ -112,12 +113,17 @@ private:
     void LoadHistory();
     void SaveHistory() const;
     void RecordHistory(const std::wstring& query);
+    // True while the in-memory history has entries not yet flushed to disk;
+    // the flush runs on a coalesced UI timer instead of per keystroke.
+    bool historyDirty_ = false;
     static std::filesystem::path HistoryPath();
 
     // Task 5: owner-draw helpers.
     void DrawSearchResultRow(const DRAWITEMSTRUCT* item);
     void DrawComboItem(const DRAWITEMSTRUCT* item);
-    void DrawDirectionButton(const DRAWITEMSTRUCT* item);
+    // Owner-draws a push button (sort direction, clear history) from the
+    // shared UITheme token set; the label comes from the source window.
+    void DrawTextButton(HWND source, const DRAWITEMSTRUCT* item);
     int SystemIconIndex(const std::wstring& key);
 
     HWND owner_ = nullptr;
@@ -145,6 +151,11 @@ private:
     bool updatingHistory_ = false;
     bool descending_ = false;
     bool snapshotFallback_ = false;
+    // Coalesces snapshot-generation refreshes: when generations publish faster
+    // than the refresh interval, only a dirty flag is set and the re-dispatch
+    // happens on the next debounce/visibility change.
+    bool snapshotRefreshPending_ = false;
+    std::chrono::steady_clock::time_point lastSnapshotRefresh_{};
     uint64_t generation_ = 0;
     std::atomic<uint64_t> indexedRequestId_{0};
 
@@ -179,6 +190,10 @@ private:
     // "folder"), resolved lazily via SHGetFileInfoW / SHGetStockIconInfo.
     std::map<std::wstring, int> iconIndexCache_;
     StatusKind statusKind_ = StatusKind::Info;
+    // Parse diagnostics from the current query (invalid filters / unknown
+    // keys), prefixed to the next status update so the user sees that part of
+    // the query was ignored.
+    std::wstring statusWarning_;
 
     // semantic-uia-core-surfaces 4.x: UIA surface implementation for the
     // search result list. The provider tree queries and mutates ONLY through
