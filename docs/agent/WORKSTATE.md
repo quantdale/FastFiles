@@ -1,7 +1,23 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-20
-Status: PRODUCTION-READINESS CAMPAIGN IN PROGRESS (2026-08-21) — baseline gates GREEN (Debug + release-test CTest 67/67; /W4 /WX analyze clean; app builds and RUNS live with degraded browsing). Live `windows-ui-automation-validation` is FLAKY: 23–24 PASS / 4 SKIP / 2–4 FAIL across runs. Two scenarios (`search-allocated-size`, `selection-model-interactions`) fail with a DETERMINISTIC component rooted in a real product UIA-exposure nuance (Win32 ComboBox/Button controls are reported as `ControlType=Pane`; owner-drawn dropdowns not UIA-discoverable). Mouse UX works — P3 accessibility + live-automation limitation, not data-loss/crash. See new session record below. Prior `harden-selection-model-semantics`, `allocated-size-search-filter`, `harden-index-store-concurrent-access` remain COMPLETE and unaffected.
+Last updated: 2026-08-21 (production-readiness campaign, swarm session — wave complete)
+Status: FULL-PRODUCT COMPLETION CAMPAIGN WAVES LANDED AND COMMITTED (17 commits cbc3333..71936a5): fresh 12-area audit ledger (98 findings) under `codebase-audit/sessions/2026-08-20-product-campaign/`; all P1/P2 defects fixed across engine/ipc, installer/setup, search, file-operations, treemap/storage, settings, navigation, UIA providers, renderer/iconcache, column-view input, window-shell/preview, error-handling; Debug CTest 69/69 at last full run; policy gates green (source markers, diagnostic policy, OpenSpec strict 58/58). All three prior open items CLOSED (UIA host raw element provider; first-run engine-unavailable notice; harness determinism helpers).
+NEXT EXACT ACTION: final gate matrix IN FLIGHT (`build/_session/final_gates.bat`: full debug ctest → release-test build+ctest → analyze build → ASan fuzz targets → verify.ps1 doctor+build). After green: push main per repo policy and deliver the evidence-based handoff. If a gate fails, triage before pushing.
+
+## production-readiness-campaign swarm session record (2026-08-20/21)
+
+- **Fresh audit:** 12 read-only explore agents produced 98 verified findings (16 P1, ~50 P2, rest P3), stored verbatim in `codebase-audit/sessions/2026-08-20-product-campaign/audit/<area>.md` + INDEX.md.
+- **Fix waves:** Wave A = 11 coder agents; Wave A2 = 3 agents (ColumnView input, WindowShell+Preview incl. cross-agent coordination items, SearchPanel combo a11y verification); plus coordinator fixes. Strict file ownership + shared build lock (`build/_session/run_locked.sh` → msvcrt lock) let 14 agents work one tree concurrently.
+- **Integration regressions caught by full-suite runs and fixed:** `SearchHistory::Record` inverted rejection contract; treemap filter dropped pending→partial conversion; new layout test dereferenced empty vector (unreachable fixture) — rewritten to reachable states + direct derivation contract.
+- **Live validation findings (real app, diagnostic build):**
+  - `search-allocated-size` FAIL root cause: harness refactor orphaned the Win32 combo fallback → restored as `Set-UiaComboSelectionElement` (drives combo by its own HWND, CB_SETCURSEL + CBN_SELCHANGE), wired as last fallback in Set-UiaSearchSort. Needs ONE capability rerun to confirm.
+  - `selection-model-interactions` FAIL root cause (product bug, pre-existing): `UiaSetHorizontalScroll` for pane 1 updated `scrollOffset2_` but NOT `uiaGeometry_.hScroll1Dip` and never repainted, so UIA BoundingRectangles went stale after Scroll-pattern scrolls and native clicks landed on wrong rows ({}, not {selF}). Fixed: pane-1 scroll updates refresh provider geometry under the same lock + request repaint; shell wires ColumnView's previously-inert repaint callback; dual-pane round-trip added to `ffcolumn_hit_test_tests`. Pane.0 semantics 5.3–5.8 verified PASS live.
+  - Visual matrix (7 states captured under `codebase-audit/sessions/2026-08-20-product-campaign/visual/`): fresh single instance renders CORRECTLY (08-fresh-single.png: sidebar, breadcrumb, degraded banner, column view, properties, status bar). The black-capture shots were a leaked second instance overlapping the capture region + first-seconds timing — NOT a renderer regression. Theme switching Light/Dark verified working live via menu commands.
+  - Tab strip showed raw `\\?\C:\...` paths from persisted state → fixed at display boundary only (`TabLabelForLocation` seam strips prefixes; model keeps them for long-path navigation; blanket model normalization was tried and REVERTED after it broke deliberate extended-prefix navigation tests).
+  - KNOWN RESIDUAL (accepted P3 debt, evidence in 08-fresh-single.png): ~15px transparent strip at the very bottom edge of the main window bleeds desktop through in all themes; needs a live iteration to root-cause (suspect D2D fill vs swapchain height off-by-status-bar). Not data-loss/crash class.
+- **Commits:** 17 logical commits (cbc3333 engine/ipc … 71936a5 navigation tab labels). Working tree clean except WORKSTATE/docs updates at session end.
+
+
 
 ## production-readiness-campaign session record (2026-08-21)
 
