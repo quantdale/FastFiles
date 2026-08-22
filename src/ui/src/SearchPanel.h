@@ -152,6 +152,9 @@ private:
     // Owner-draws a push button (sort direction, clear history) from the
     // shared UITheme token set; the label comes from the source window.
     void DrawTextButton(HWND source, const DRAWITEMSTRUCT* item);
+    // Owner-draws the Filters disclosure pill (chevron + label) as a real
+    // button surface so UIA/keyboard users can reach the collapsed row.
+    void DrawFiltersButton(const DRAWITEMSTRUCT* item);
     int SystemIconIndex(const std::wstring& key);
 
     // ui-v3 search: presentation-state helpers for the query-first layout.
@@ -172,6 +175,11 @@ private:
     HWND filterBar_ = nullptr;
     // ui-v3 search: in-field clear-query affordance (visible while text is
     // present); a subclassed STATIC so no owner WM_COMMAND routing changes.
+    // ui-v3 search a11y: the Filters disclosure is a real owner-draw BUTTON
+    // (not a painted region of the bar) so it stays UIA-discoverable with an
+    // actionable pattern and keyboard-reachable even while the scope/sort row
+    // it reveals is hidden by the collapsed state.
+    HWND filtersToggle_ = nullptr;
     HWND clearQuery_ = nullptr;
     HWND clearHistory_ = nullptr;
     HWND sortDirection_ = nullptr;
@@ -195,10 +203,11 @@ private:
     // permanent chrome stays quiet; chips surface only non-default state.
     bool filtersExpanded_ = false;
     bool clearQueryHot_ = false;      // hover on the in-field clear affordance
+    bool filtersHot_ = false;         // hover on the Filters disclosure button
     bool directionHot_ = false;       // hover tracking for owner-draw buttons
     bool clearHistoryHot_ = false;
     int hoveredResultRow_ = -1;       // presentation-only row hover on the list
-    int hoveredChip_ = -1;            // filter-bar hit: 0 disclosure, 1 scope, 2 sort
+    int hoveredChip_ = -1;            // filter-bar hit: 1 scope, 2 sort
     float progressPhase_ = 0.0f;      // indeterminate band phase while searching
     ShellLayoutRect lastSurfaceRect_{};
 
@@ -208,9 +217,9 @@ private:
     bool sortChipActive_ = false;
     std::wstring scopeChipText_;
     std::wstring sortChipText_;
-    // Chip/disclosure geometry from the last filter-bar paint; used for
-    // hit-testing (same paint-driven pattern as the sidebar rows).
-    RECT disclosureRect_{};
+    // Chip geometry from the last filter-bar paint; used for hit-testing
+    // (same paint-driven pattern as the sidebar rows). The Filters disclosure
+    // itself is a real child button placed by Reposition, not a painted chip.
     RECT scopeChipRect_{};
     RECT sortChipRect_{};
 

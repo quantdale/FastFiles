@@ -32,6 +32,9 @@ constexpr int kSortId = 7103;
 constexpr int kListId = 7104;
 constexpr int kClearHistoryId = 7105;
 constexpr int kSortDirectionId = 7107;
+// ui-v3 search a11y: the Filters disclosure is a real button so it stays in
+// the UIA tree (and keyboard order) even while the row it reveals is hidden.
+constexpr int kFiltersToggleId = 7110;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
 // Coalesces search-history disk flushes: recording only marks the store dirty
@@ -62,13 +65,21 @@ constexpr float kScopeWidthDip = 210.0f;
 constexpr float kSortWidthDip = 126.0f;
 constexpr float kDirectionWidthDip = 146.0f;
 constexpr float kClearHistoryWidthDip = 126.0f;
+// ui-v3 search a11y: shared geometry for the real Filters disclosure button.
+// Reposition places the child control with these values (owner coordinates)
+// and PaintFilterBar reserves the same span before the first chip (bar-client
+// coordinates), so the painted row and the placed control never drift.
+constexpr float kFiltersToggleInsetDip = UiMetrics::kSpaceXs; // inset from the bar's left edge
+constexpr float kFiltersToggleWidthDip = 64.0f;               // chevron + label at a comfortable target width
+constexpr float kFiltersToggleGapDip = UiMetrics::kSpaceS;    // gap between the toggle and the first chip
 constexpr float kComboDropdownHeightPx = 300.0f; // closed height is font-driven
 constexpr float kSpaceClearArrowMarginDip = 20.0f; // keeps the affordance clear of the combo arrow
 // ui-v3 search: two-line result rows (name primary, location/metadata caption).
 constexpr float kResultRowHeightDip = 38.0f;
 // ui-v3 search: filter-bar hit regions.
 constexpr int kChipNone = -1;
-constexpr int kChipDisclosure = 0;
+// ui-v3 search: the disclosure pill became a real child button; only the
+// scope/sort chips remain filter-bar hit-test regions.
 constexpr int kChipScope = 1;
 constexpr int kChipSort = 2;
 
@@ -511,6 +522,7 @@ SearchPanel::~SearchPanel() {
     if (clearQuery_) RemoveWindowSubclass(clearQuery_, ClearQueryProc, 5);
     if (sortDirection_) RemoveWindowSubclass(sortDirection_, ButtonHoverProc, 6);
     if (clearHistory_) RemoveWindowSubclass(clearHistory_, ButtonHoverProc, 7);
+    if (filtersToggle_) RemoveWindowSubclass(filtersToggle_, ButtonHoverProc, 8);
     ReleaseListImageList();
     // ui-v3 search: DPI-aware row/bar fonts are panel-owned GDI objects.
     if (resultNameFont_) DeleteObject(resultNameFont_);
@@ -560,9 +572,15 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     // native light chrome breaking the dark panel.
     clearHistory_ = CreateWindowExW(0, L"BUTTON", L"Clear history", WS_CHILD | BS_OWNERDRAW,
                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearHistoryId)), nullptr, nullptr);
-    sortDirection_ = CreateWindowExW(0, L"BUTTON", L"\u2191 Ascending", WS_CHILD | BS_OWNERDRAW,
+    // Accessible Name contract: the plain direction word ("Ascending") —
+    // DrawTextButton renders the direction glyph so the visible label keeps
+    // the arrow affordance without leaking it into the UIA Name.
+    sortDirection_ = CreateWindowExW(0, L"BUTTON", L"Ascending", WS_CHILD | BS_OWNERDRAW,
                                      0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortDirectionId)), nullptr, nullptr);
-    if (!query_ || !scope_ || !sort_ || !list_ || !filterBar_ || !clearQuery_ || !clearHistory_ || !sortDirection_) return false;
+    // ui-v3 search a11y: the disclosure pill as a real owner-draw button.
+    filtersToggle_ = CreateWindowExW(0, L"BUTTON", L"Filters", WS_CHILD | BS_OWNERDRAW,
+                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kFiltersToggleId)), nullptr, nullptr);
+    if (!query_ || !scope_ || !sort_ || !list_ || !filterBar_ || !clearQuery_ || !clearHistory_ || !sortDirection_ || !filtersToggle_) return false;
     COMBOBOXINFO comboInfo{sizeof(comboInfo)};
     if (GetComboBoxInfo(query_, &comboInfo) && comboInfo.hwndItem) {
         queryEdit_ = comboInfo.hwndItem;
@@ -574,6 +592,7 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     SetWindowSubclass(clearQuery_, ClearQueryProc, 5, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(sortDirection_, ButtonHoverProc, 6, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(clearHistory_, ButtonHoverProc, 7, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(filtersToggle_, ButtonHoverProc, 8, reinterpret_cast<DWORD_PTR>(this));
     // semantic-uia-core-surfaces 4.2: subclass the result list so WM_GETOBJECT
     // returns the search fragment root (native virtual lists have no UIA item
     // provider; see the change design D1/D15).
@@ -625,6 +644,7 @@ void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActiv
     engineActive_ = engineActive;
     visible_ = true;
     for (HWND control : {query_, filterBar_, list_}) ShowWindow(control, SW_SHOW);
+    if (filtersToggle_ != nullptr) ShowWindow(filtersToggle_, SW_SHOW); // disclosure always reachable while open
     UpdateScopeAvailability(false);
     Reposition(surfaceRect);
     // Consume a coalesced snapshot refresh that was deferred while hidden.
@@ -653,6 +673,7 @@ void SearchPanel::Hide() {
     // flushed even after the panel hides.
     for (HWND control : {query_, filterBar_, clearQuery_, list_, clearHistory_}) ShowWindow(control, SW_HIDE);
     for (HWND control : {scope_, sort_, sortDirection_}) ShowWindow(control, SW_HIDE);
+    if (filtersToggle_ != nullptr) ShowWindow(filtersToggle_, SW_HIDE);
 }
 
 void SearchPanel::SetDarkTheme(bool dark) {
@@ -668,6 +689,7 @@ void SearchPanel::SetDarkTheme(bool dark) {
     if (sort_) InvalidateRect(sort_, nullptr, TRUE);
     if (sortDirection_) InvalidateRect(sortDirection_, nullptr, TRUE);
     if (clearHistory_) InvalidateRect(clearHistory_, nullptr, TRUE);
+    if (filtersToggle_) InvalidateRect(filtersToggle_, nullptr, TRUE);
     // ui-v3 search: repaint the custom-painted bar and clear affordance.
     if (filterBar_) InvalidateRect(filterBar_, nullptr, TRUE);
     if (clearQuery_) InvalidateRect(clearQuery_, nullptr, TRUE);
@@ -728,6 +750,12 @@ void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
     // control height is font-driven, so the row geometry above governs layout.
     place(query_, queryRect, kComboDropdownHeightPx, true);
     place(filterBar_, barRect, kFilterBarHeightDip, true);
+    // ui-v3 search a11y: the Filters disclosure is always visible while the
+    // panel is open (it is the only way to reach the collapsed scope/sort
+    // row), placed over the bar's left inset with the shared toggle geometry.
+    place(filtersToggle_, {left + kFiltersToggleInsetDip, barTop,
+                           left + kFiltersToggleInsetDip + kFiltersToggleWidthDip, barBottom},
+          kFilterBarHeightDip, true);
     // The clear affordance floats inside the query field's right edge, clear of
     // the combo's dropdown arrow.
     if (clearQuery_ != nullptr) {
@@ -794,9 +822,13 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     }
     if (id == kSortDirectionId && notification == BN_CLICKED) {
         descending_ = !descending_;
-        SetWindowTextW(sortDirection_, descending_ ? L"\u2193 Descending" : L"\u2191 Ascending");
+        SetWindowTextW(sortDirection_, descending_ ? L"Descending" : L"Ascending");
         UpdateFilterSummary();
         Dispatch(false);
+        return true;
+    }
+    if (id == kFiltersToggleId && notification == BN_CLICKED) {
+        ToggleFiltersExpanded();
         return true;
     }
     if (id == kClearHistoryId && notification == BN_CLICKED) {
@@ -1113,6 +1145,10 @@ bool SearchPanel::HandleDrawItem(LPARAM lParam) {
         DrawTextButton(item->hwndItem, item);
         return true;
     }
+    if (item->hwndItem == filtersToggle_) {
+        DrawFiltersButton(item);
+        return true;
+    }
     return false;
 }
 
@@ -1361,7 +1397,104 @@ void SearchPanel::DrawTextButton(HWND source, const DRAWITEMSTRUCT* item) {
     GetWindowTextW(source, textBuffer, static_cast<int>(std::size(textBuffer)));
     SetTextColor(dc, text);
     SetBkMode(dc, TRANSPARENT);
-    DrawTextW(dc, textBuffer, -1, &rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    if (source == sortDirection_) {
+        // ui-v3 search: direction glyph beside the label. The window text stays
+        // the plain direction word so the UIA Name contract remains stable;
+        // the arrow affordance is paint-only.
+        HFONT guiFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        HFONT oldFont = static_cast<HFONT>(SelectObject(dc, guiFont));
+        const int length = static_cast<int>(lstrlenW(textBuffer));
+        SIZE textSize{};
+        GetTextExtentPoint32W(dc, textBuffer, length, &textSize);
+        const int arrowWidth = Scaled(9);
+        const int gap = Scaled(4);
+        const int contentWidth = arrowWidth + gap + static_cast<int>(textSize.cx);
+        const int contentLeft = static_cast<int>(rect.left) +
+                                (std::max)(0, (static_cast<int>(rect.right) - static_cast<int>(rect.left) - contentWidth) / 2);
+        const POINT center{contentLeft + arrowWidth / 2, (rect.top + rect.bottom) / 2};
+        const int halfWidth = Scaled(3);
+        const int halfHeight = Scaled(2);
+        HBRUSH fillBrush = CreateSolidBrush(text);
+        HPEN outlinePen = CreatePen(PS_SOLID, 1, text);
+        if (fillBrush != nullptr && outlinePen != nullptr) {
+            HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, fillBrush));
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dc, outlinePen));
+            POINT triangle[3];
+            if (!descending_) {
+                triangle[0] = POINT{center.x, center.y - halfHeight};
+                triangle[1] = POINT{center.x - halfWidth, center.y + halfHeight};
+                triangle[2] = POINT{center.x + halfWidth, center.y + halfHeight};
+            } else {
+                triangle[0] = POINT{center.x, center.y + halfHeight};
+                triangle[1] = POINT{center.x - halfWidth, center.y - halfHeight};
+                triangle[2] = POINT{center.x + halfWidth, center.y - halfHeight};
+            }
+            Polygon(dc, triangle, 3);
+            SelectObject(dc, oldBrush);
+            SelectObject(dc, oldPen);
+            DeleteObject(fillBrush);
+            DeleteObject(outlinePen);
+        }
+        RECT labelRect{contentLeft + arrowWidth + gap, rect.top, rect.right, rect.bottom};
+        DrawTextW(dc, textBuffer, length, &labelRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        SelectObject(dc, oldFont);
+    } else {
+        DrawTextW(dc, textBuffer, -1, &rect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+    }
+    if (hasFocus) {
+        DrawGdiFocusRing(dc, rect, radius,
+                         highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                      : ffui::ToColorRef(theme.focusStroke));
+    }
+}
+
+// ui-v3 search a11y: owner-draw for the Filters disclosure button. Renders as
+// the same quiet pill the bar used to paint (chevron + caption label, muted
+// text, hover/press overlays over the shared background token) while being a
+// real BUTTON so UIA exposes an actionable element and keyboard focus rings
+// work. High Contrast falls back to system colors like every sibling control.
+void SearchPanel::DrawFiltersButton(const DRAWITEMSTRUCT* item) {
+    HDC dc = item->hDC;
+    const RECT rect = item->rcItem;
+    const bool highContrast = ffui::UiSystemHighContrast();
+    const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+    const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+    const bool hasFocus = (item->itemState & ODS_FOCUS) != 0;
+
+    COLORREF fill = pressed ? CompositeOver(theme.pressOverlay, ToColorRef(theme.background))
+                    : filtersHot_
+                        ? CompositeOver(theme.hoverOverlay, ToColorRef(theme.background))
+                        : ToColorRef(theme.background);
+    COLORREF fg = highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                 : ffui::ToColorRef(theme.textSecondary);
+    if (highContrast) {
+        fill = pressed ? GetSysColor(COLOR_BTNSHADOW)
+                       : filtersHot_ ? GetSysColor(COLOR_BTNFACE) : GetSysColor(COLOR_WINDOW);
+    }
+    const int radius = Scaled(UiMetrics::kRadiusSmall);
+    UiGdiRoundedRect(dc, rect, fill, radius);
+
+    EnsureResultFonts();
+    HFONT captionFont = resultCaptionFont_ != nullptr
+                            ? resultCaptionFont_
+                            : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    wchar_t label[32]{};
+    GetWindowTextW(item->hwndItem, label, static_cast<int>(std::size(label)));
+    const int chevronWidth = Scaled(8);
+    SIZE labelSize{};
+    SelectObject(dc, captionFont);
+    GetTextExtentPoint32W(dc, label, static_cast<int>(lstrlenW(label)), &labelSize);
+    // Content block centered in the pill: chevron, small gap, then the label.
+    const int contentWidth = chevronWidth + Scaled(UiMetrics::kSpaceXxs) + static_cast<int>(labelSize.cx);
+    const int contentLeft = static_cast<int>(rect.left) +
+                            (std::max)(0, (static_cast<int>(rect.right) - static_cast<int>(rect.left) - contentWidth) / 2);
+    const POINT chevronCenter{contentLeft + chevronWidth / 2, (rect.top + rect.bottom) / 2};
+    DrawChevron(dc, chevronCenter, chevronWidth / 2, /*expanded=*/filtersExpanded_, fg);
+    SetTextColor(dc, fg);
+    SetBkMode(dc, TRANSPARENT);
+    RECT labelRect{contentLeft + chevronWidth + Scaled(UiMetrics::kSpaceXxs), rect.top,
+                   rect.right, rect.bottom};
+    DrawTextW(dc, label, -1, &labelRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
     if (hasFocus) {
         DrawGdiFocusRing(dc, rect, radius,
                          highContrast ? GetSysColor(COLOR_WINDOWTEXT)
@@ -1520,30 +1653,15 @@ void SearchPanel::PaintFilterBar(HWND hwnd) {
     const int chipRadius = chipHeight / 2;
     int x = client.left + Scaled(UiMetrics::kSpaceXs);
 
-    // --- Disclosure pill -------------------------------------------------
+    // --- Filters disclosure ----------------------------------------------
+    // ui-v3 search a11y: the disclosure is a real owner-draw BUTTON placed by
+    // Reposition over this spot; painting here only reserves its span so the
+    // chips/status flow around the placed control.
     {
-        const wchar_t* label = L"Filters";
-        SIZE labelSize{};
-        SelectObject(dc, captionFont);
-        GetTextExtentPoint32W(dc, label, static_cast<int>(wcslen(label)), &labelSize);
-        const int chevronWidth = Scaled(8);
-        const int pillWidth = Scaled(UiMetrics::kSpaceS) + chevronWidth + Scaled(UiMetrics::kSpaceXxs) +
-                              static_cast<int>(labelSize.cx) + Scaled(UiMetrics::kSpaceS);
-        disclosureRect_ = RECT{x, chipTop, (std::min)(static_cast<int>(client.right), x + pillWidth), chipBottom};
-        if (hoveredChip_ == kChipDisclosure) {
-            UiGdiRoundedRect(dc, disclosureRect_, CompositeOver(theme.hoverOverlay, background),
-                             Scaled(UiMetrics::kRadiusSmall));
-        }
-        const int contentLeft = disclosureRect_.left + Scaled(UiMetrics::kSpaceS);
-        const POINT chevronCenter{contentLeft + chevronWidth / 2,
-                                  (disclosureRect_.top + disclosureRect_.bottom) / 2};
-        DrawChevron(dc, chevronCenter, chevronWidth / 2, /*expanded=*/filtersExpanded_, textMuted);
-        SetTextColor(dc, textMuted);
-        SetBkMode(dc, TRANSPARENT);
-        RECT labelRect{contentLeft + chevronWidth + Scaled(UiMetrics::kSpaceXxs), chipTop,
-                       disclosureRect_.right, chipBottom};
-        DrawTextW(dc, label, -1, &labelRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
-        x = disclosureRect_.right + Scaled(UiMetrics::kSpaceS);
+        const int toggleLeft = client.left + Scaled(kFiltersToggleInsetDip);
+        const int toggleRight =
+            (std::min)(static_cast<int>(client.right), toggleLeft + Scaled(kFiltersToggleWidthDip));
+        x = toggleRight + Scaled(kFiltersToggleGapDip);
     }
 
     // --- Active-filter chips (Info pills; click clears the filter) -------
@@ -1777,8 +1895,7 @@ void SearchPanel::PaintListEmptyState(HWND hwnd) {
 void SearchPanel::HandleFilterBarMouseMove(LPARAM lParam) {
     const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
     int chip = kChipNone;
-    if (PtInRect(&disclosureRect_, point)) chip = kChipDisclosure;
-    else if (scopeChipActive_ && PtInRect(&scopeChipRect_, point)) chip = kChipScope;
+    if (scopeChipActive_ && PtInRect(&scopeChipRect_, point)) chip = kChipScope;
     else if (sortChipActive_ && PtInRect(&sortChipRect_, point)) chip = kChipSort;
     if (chip != hoveredChip_) {
         hoveredChip_ = chip;
@@ -1795,10 +1912,8 @@ void SearchPanel::HandleFilterBarMouseLeave() {
 
 void SearchPanel::HandleFilterBarClick(LPARAM lParam) {
     const POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-    if (PtInRect(&disclosureRect_, point)) {
-        ToggleFiltersExpanded();
-        return;
-    }
+    // The Filters disclosure is a real child button; expansion is driven from
+    // its BN_CLICKED path, not by hit-testing the bar.
     // ui-v3 search: clicking a chip clears that filter through the exact same
     // control/model path the combo itself uses, then re-runs the query.
     if (scopeChipActive_ && PtInRect(&scopeChipRect_, point)) {
@@ -1813,7 +1928,7 @@ void SearchPanel::HandleFilterBarClick(LPARAM lParam) {
         if (sort_ != nullptr) {
             SendMessageW(sort_, CB_SETCURSEL, 0, 0);
             descending_ = false;
-            if (sortDirection_ != nullptr) SetWindowTextW(sortDirection_, L"\u2191 Ascending");
+            if (sortDirection_ != nullptr) SetWindowTextW(sortDirection_, L"Ascending");
             UpdateFilterSummary();
             Dispatch(false);
         }
@@ -1825,10 +1940,15 @@ void SearchPanel::ToggleFiltersExpanded() {
     filtersExpanded_ = !filtersExpanded_;
     if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
     if (visible_) Reposition(lastSurfaceRect_);
+    // ui-v3 search a11y/query-first: after a disclosure toggle (mouse or UIA
+    // invoke), typing continues in the query field -- the panel's primary
+    // surface -- instead of stranding focus on the toggle button.
+    if (visible_ && queryEdit_ != nullptr) SetFocus(queryEdit_);
 }
 
 void SearchPanel::SetButtonHot(HWND source, bool hot) {
-    bool* flag = source == sortDirection_ ? &directionHot_
+    bool* flag = source == filtersToggle_ ? &filtersHot_
+               : source == sortDirection_ ? &directionHot_
                : source == clearHistory_ ? &clearHistoryHot_
                                          : nullptr;
     if (flag != nullptr && *flag != hot) {

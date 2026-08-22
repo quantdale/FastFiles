@@ -420,6 +420,63 @@ function Invoke-UiaPaletteCommand {
     return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' ran but missing: $($missing -join ', ')" }
 }
 
+# ui-v3 search a11y: the scope/sort/direction/clear-history row lives behind
+# the 'Filters' disclosure button (collapsed by default so permanent chrome
+# stays minimal). Expand it through the real button's actionable pattern (UIA
+# Invoke -> BM_CLICK -> BN_CLICKED -> ToggleFiltersExpanded), with a native
+# clickable-point fallback, before scenarios assert or drive those controls.
+function Expand-UiaSearchFilters {
+    param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 6000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $btn = $null
+        try {
+            try { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -FromElement $Main -TimeoutMs 800 } catch { }
+            if (-not $btn) { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -ProcessId $ProcessId -TimeoutMs 800 }
+        } catch { $btn = $null }
+        if ($btn) {
+            try {
+                $null = Invoke-UiaElementAction -Driver $Driver -Element $btn -Action 'Click'
+                Start-Sleep -Milliseconds 500
+                # Confirm the expansion actually revealed the row (Clear history is
+                # hidden exactly when collapsed), then retry through the deadline.
+                try {
+                    $null = Find-UiaElement -Driver $Driver -Name 'Clear history' -FromElement $Main -TimeoutMs 1000
+                    $sw.Stop()
+                    return [pscustomobject]@{ Pass = $true; Detail = "filters row expanded via 'Filters' ($($sw.Elapsed.TotalMilliseconds) ms)" }
+                } catch { }
+            } catch { }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    $sw.Stop()
+    return [pscustomobject]@{ Pass = $false; Detail = "'Filters' disclosure did not reveal the expanded row within $($TimeoutMs) ms" }
+}
+
+# Opens the search panel via the command palette, then expands the Filters
+# disclosure so the scope/sort/direction/clear-history row is present. Returns
+# the Invoke-UiaPaletteCommand result contract (Pass/Detail). $ExpandedNames
+# are asserted only after expansion (they are hidden by design while collapsed).
+function Open-UiaSearchPanel {
+    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpandedNames = @('Clear history', 'Ascending'))
+    $sp = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'search' -ExpectedNames @('Filters')
+    if (-not $sp.Pass) { return $sp }
+    $fx = Expand-UiaSearchFilters -Driver $Driver -Main $Main -ProcessId $ProcessId
+    if (-not $fx.Pass) { return [pscustomobject]@{ Pass = $false; Detail = "search panel opened but $($fx.Detail)" } }
+    $missing = @()
+    foreach ($name in $ExpandedNames) {
+        try {
+            try { $null = Find-UiaElement -Driver $Driver -Name $name -FromElement $Main -TimeoutMs 1500 }
+            catch { $null = Find-UiaElement -Driver $Driver -Name $name -ProcessId $ProcessId -TimeoutMs 1500 }
+        } catch { $missing += $name }
+    }
+    if ($missing.Count -gt 0) {
+        return [pscustomobject]@{ Pass = $false; Detail = "expanded filters row missing: $($missing -join ', ')" }
+    }
+    return [pscustomobject]@{ Pass = $true; Detail = "palette 'search' opened with filters row expanded" }
+}
+
 function Get-UiaTabCount {
     param($Driver, $Main)
     try {
@@ -847,7 +904,7 @@ function Invoke-UiaScenarioSearchDeep {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $fail = { param($detail) New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'FAIL' -Reason 'search-deep-navigation-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); deep search needs engine-served data"
@@ -861,17 +918,17 @@ function Invoke-UiaScenarioSearchDeep {
     [void]$Context.Fixtures.Add($scratch)
 
     try {
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $folder -ExpectedLeaf 'SubFolder'
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $folder -ExpectedLeaf 'SubFolder'
         if (-not $nav.Pass) {
             return & $fail "pre-navigation to the containing folder failed: $($nav.Detail)"
         }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
-        $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
+        $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $appPid
         if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
         $resultsList = $null
         try {
-            $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $pid -TimeoutMs 6000 -PollIntervalMs 250
+            $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 6000 -PollIntervalMs 250
         } catch { }
         if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
 
@@ -889,14 +946,14 @@ function Invoke-UiaScenarioSearchDeep {
         # Activation hides the search panel; await the surface disappearing.
         $closed = $false
         try {
-            $closed = Wait-UiaElementGone -Driver $driver -AutomationId 'Search.Results' -ProcessId $pid -TimeoutMs 8000 -PollIntervalMs 200
+            $closed = Wait-UiaElementGone -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 8000 -PollIntervalMs 200
         } catch { }
         # Re-acquire the main provider: activation replaced a large semantic
         # subtree (navigation), so old providers must not be reused.
-        $main2 = Get-UiaMainWindowElement -Driver $driver -ProcessId $pid
+        $main2 = Get-UiaMainWindowElement -Driver $driver -ProcessId $appPid
         if (-not $main2) { $main2 = $main }
         $item = Find-UiaTerminalColumnItem -Driver $driver -Main $main2 -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 15000 -OnTimeout {
-            $st = Get-UiaInteractiveState -Driver $driver -ProcessId $pid
+            $st = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
             Write-Host "      [diag] alpha.txt not found; fg='$($st.ForegroundTitle)' popups=$(@($st.Popups | ForEach-Object { $_.className }) -join ',') panelClosed=$closed"
         }
         if ($item) {
@@ -1153,7 +1210,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $id = 'search-allocated-size'
     $fail = { param($detail) New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'search-allocated-size-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
 
@@ -1187,7 +1244,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # then retry Set-UiaForeground and minimize the blocker via ShowWindow
         # if needed. No pixel/coordinate fallback.
         try {
-            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 400
+            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 400
             if ($stale) { try { Invoke-UiaElementAction -Driver $driver -Element $stale | Out-Null; Start-Sleep -Milliseconds 400 } catch { } }
         } catch { }
         for ($fgAttempt = 0; $fgAttempt -lt 6; $fgAttempt++) {
@@ -1197,7 +1254,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
             # Transient engine-owned window can steal foreground right after launch;
             # also the settings dialog can own input focus. Give both a chance.
             try {
-                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 300
+                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 300
                 if ($dlg) {
                     $cancel = Find-UiaElement -Driver $driver -AutomationId '2' -FromElement $dlg -TimeoutMs 300
                     Invoke-UiaElementAction -Driver $driver -Element $cancel | Out-Null; Start-Sleep -Milliseconds 400
@@ -1215,18 +1272,19 @@ function Invoke-UiaScenarioSearchAllocatedSize {
                 $null = Set-UiaForeground -Driver $driver -Element $main
                 Start-Sleep -Milliseconds 600
             }
-            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         }
         if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
 
-        # Open the search panel.
-        $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
+        # Open the search panel (and expand the Filters row so the sort combo
+        # this scenario drives is exposed).
+        $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $appPid
         if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
 
         $resultsList = $null
-        try { $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $pid -TimeoutMs 6000 -PollIntervalMs 250 } catch { }
+        try { $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 6000 -PollIntervalMs 250 } catch { }
         if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
 
         # Query that matches all fixture files.
@@ -1316,7 +1374,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # deterministic unknown ordering (alphabetical tie-break); Size must be
         # logical-size ordering. The two must differ, proving the control routes
         # to distinct sort fields, and the displayed selection must agree.
-        $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $pid -FromElement $main
+        $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $appPid -FromElement $main
         if (-not $combo) { return & $fail 'could not locate the Search sort ComboBox' }
 
         $alphaExpected = @('allocA.txt', 'allocB.txt', 'allocC.txt', 'allocD.txt', 'allocE.txt')
@@ -1369,7 +1427,7 @@ function Invoke-UiaScenarioTreemapReadability {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $id = 'treemap-readability-click-precision'
     $fail = { param($detail) New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'treemap-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
@@ -1420,24 +1478,24 @@ function Invoke-UiaScenarioTreemapReadability {
 
     try {
         # Navigate to the fixture folder.
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         if (-not $nav.Pass) { return & $fail "pre-navigation failed: $($nav.Detail)" }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
 
         # Pre-browse subfolders so degraded-mode snapshot knows their contents.
         foreach ($sub in @($subA, $subB)) {
-            $subNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $sub -ExpectedLeaf (Split-Path $sub -Leaf)
+            $subNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $sub -ExpectedLeaf (Split-Path $sub -Leaf)
             if (-not $subNav.Pass) { & $fail "subfolder browse failed for $sub" }
             Start-Sleep -Milliseconds 300
         }
         # Return to the fixture root.
-        $rootNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        $rootNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         if (-not $rootNav.Pass) { & $fail "return to root failed" }
         Start-Sleep -Milliseconds 300
 
         # Open Storage Analysis via palette.
-        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
         if (-not $sa.Pass) { return & $fail "storage analysis did not open: $($sa.Detail)" }
 
         # Select the Treemap view via real mouse click (BM_CLICK may not
@@ -1454,7 +1512,7 @@ function Invoke-UiaScenarioTreemapReadability {
 
         # Wait for the treemap group to appear.
         $treemapGroup = $null
-        try { $treemapGroup = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $pid -TimeoutMs 10000 -PollIntervalMs 300 } catch { }
+        try { $treemapGroup = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $appPid -TimeoutMs 10000 -PollIntervalMs 300 } catch { }
         if (-not $treemapGroup) { return & $fail "Storage.Treemap group not found after selecting treemap view" }
 
         # --- Assert: treemap group properties ---
@@ -1514,7 +1572,7 @@ function Invoke-UiaScenarioTreemapReadability {
         }
 
         # Return to storage analysis treemap if we drilled in or navigated away.
-        $sa2 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa2 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
         if ($sa2.Pass) {
             $tb2 = $null
             try { $tb2 = Wait-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 3000 -PollIntervalMs 200 } catch { }
@@ -1524,7 +1582,7 @@ function Invoke-UiaScenarioTreemapReadability {
 
         # Re-acquire treemap group.
         $treemapGroup2 = $null
-        try { $treemapGroup2 = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $pid -TimeoutMs 8000 -PollIntervalMs 300 } catch { }
+        try { $treemapGroup2 = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $appPid -TimeoutMs 8000 -PollIntervalMs 300 } catch { }
         if (-not $treemapGroup2) {
             # Treemap might have closed after click (file activation). That's OK.
         }
@@ -1558,7 +1616,7 @@ function Invoke-UiaScenarioTreemapReadability {
 
         # --- Assert: folder Invoke drills into the folder ---
         # Navigate back to treemap root if needed.
-        $sa3 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $pid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa3 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
         if ($sa3.Pass) {
             $tb3 = $null
             try { $tb3 = Wait-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 3000 -PollIntervalMs 200 } catch { }
@@ -1566,7 +1624,7 @@ function Invoke-UiaScenarioTreemapReadability {
             Start-Sleep -Milliseconds 500
         }
         $tg3 = $null
-        try { $tg3 = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $pid -TimeoutMs 8000 -PollIntervalMs 300 } catch { }
+        try { $tg3 = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $appPid -TimeoutMs 8000 -PollIntervalMs 300 } catch { }
         if ($tg3) {
             $folderTile = $null
             try { $folderTile = Wait-UiaElement -Driver $driver -Name 'FolderA' -ControlType 'DataItem' -FromElement $tg3 -TimeoutMs 5000 -PollIntervalMs 200 } catch { }
@@ -1575,7 +1633,7 @@ function Invoke-UiaScenarioTreemapReadability {
                 Start-Sleep -Milliseconds 800
                 # After invoking FolderA, the treemap should drill in to show FolderA's children.
                 $tgAfter = $null
-                try { $tgAfter = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $pid -TimeoutMs 5000 -PollIntervalMs 200 } catch { }
+                try { $tgAfter = Wait-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -ProcessId $appPid -TimeoutMs 5000 -PollIntervalMs 200 } catch { }
                 $drilledIn = $false
                 if ($tgAfter) {
                     $childTile = $null
@@ -1630,7 +1688,7 @@ function Invoke-UiaScenarioDragOut {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $fail = { param($detail) New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'FAIL' -Reason 'drag-out-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
@@ -1644,11 +1702,11 @@ function Invoke-UiaScenarioDragOut {
     [void]$Context.Fixtures.Add($dragScratch)
 
     try {
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $dragSource -ExpectedLeaf 'source'
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $dragSource -ExpectedLeaf 'source'
         if (-not $nav.Pass) { return & $fail "navigation to source failed: $($nav.Detail)" }
         # Bring the target column fully into view before deriving coordinates.
         try {
-            $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $pid -TimeoutMs 3000
+            $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $appPid -TimeoutMs 3000
             if ($pane0) {
                 $null = Invoke-UiaPattern -Driver $driver -Element $pane0 -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
                 Start-Sleep -Milliseconds 800
@@ -1831,7 +1889,7 @@ function Invoke-UiaScenarioDragIn {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $fail = { param($detail) New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'FAIL' -Reason 'drag-in-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
@@ -1845,7 +1903,7 @@ function Invoke-UiaScenarioDragIn {
     [void]$Context.Fixtures.Add($dragScratch)
 
     try {
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $dragTarget -ExpectedLeaf 'target'
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $dragTarget -ExpectedLeaf 'target'
         if (-not $nav.Pass) { return & $fail "navigation to the FastFiles target failed: $($nav.Detail)" }
         $explorerPids = Get-UiaExplorerPidSet
         $explorer = Start-Process explorer.exe -ArgumentList $dragSource -PassThru
@@ -1872,7 +1930,7 @@ function Invoke-UiaScenarioDragIn {
             return & $fail 'Explorer source item has no usable BoundingRectangle'
         }
         # FastFiles drop target: the terminal column of the active pane.
-        $mainPane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $pid -TimeoutMs 3000
+        $mainPane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $appPid -TimeoutMs 3000
         if (-not $mainPane) { return & $fail 'FastFiles target pane not found' }
         $dst2 = $null
         try {
@@ -1961,7 +2019,7 @@ function Invoke-UiaScenarioDragPanes {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $fail = { param($detail) New-UiaVSubResult -Id 'drag-between-panes' -Status 'FAIL' -Reason 'drag-panes-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-between-panes' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
@@ -1977,9 +2035,9 @@ function Invoke-UiaScenarioDragPanes {
     try {
         # Navigate Pane.0 to the source BEFORE dual-pane creation (dual pane
         # clones the active pane's model).
-        $nav0 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $left -ExpectedLeaf 'left'
+        $nav0 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $left -ExpectedLeaf 'left'
         if (-not $nav0.Pass) { return & $fail "navigation of Pane.0 to 'left' failed: $($nav0.Detail)" }
-        $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $pid
+        $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $appPid
         if (-not $dp.Pass) { return & $fail "dual-pane setup failed: $($dp.Detail)" }
         $pane0 = $dp.Pane0
         $pane1 = $dp.Pane1
@@ -1991,7 +2049,7 @@ function Invoke-UiaScenarioDragPanes {
         if (-not $p1Center) { return & $fail 'Pane.1 has no usable geometry' }
         $null = Send-UiaMouseInput -Driver $driver -X $p1Center.x -Y $p1Center.y -Button 'Left' -Action 'Click'
         Start-Sleep -Milliseconds 500
-        $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $right -ExpectedLeaf 'right'
+        $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $right -ExpectedLeaf 'right'
         if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to 'right' failed: $($nav1.Detail)" }
         # stabilize-live-uia-e2e: PROVE pane ownership semantically. A global
         # address-bar commit navigates the ACTIVE pane; the tab-label check
@@ -2058,7 +2116,7 @@ function Invoke-UiaScenarioDragPanes {
         }
         if (-not $srcItem) { return & $fail 'source item could not be re-acquired inside Pane.0 bounds after dual-pane setup' }
         # Re-acquire Pane.1 and its terminal column for the drop point.
-        $pane1 = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -ProcessId $pid -TimeoutMs 3000
+        $pane1 = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -ProcessId $appPid -TimeoutMs 3000
         if (-not $pane1) { return & $fail 'Pane.1 lost after setup (reacquisition)' }
         $pane1Br = Get-UiaElementProperty -Driver $driver -Element $pane1 -Name 'BoundingRectangle'
         $pane1Cols = @(Get-UiaChildren -Driver $driver -Element $pane1 | Where-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
@@ -2111,16 +2169,19 @@ function Invoke-UiaScenarioErrorStateLate {
         is required.
 
         Post-fix contract: the ONLY successful missing-state assertion is the
-        exact Column status "This folder is no longer available." with
-        ControlType=Text, valid bounds, absent pre-delete rows, and a stale
-        held provider. The old broad-pattern/error-state-trigger-not-deterministic
-        SKIP escape path has been removed.
+        exact Column status announcement with ControlType=Text, valid bounds,
+        absent pre-delete rows, and a stale held provider. The old
+        broad-pattern/error-state-trigger-not-deterministic SKIP escape path
+        has been removed. modernize-ui-appearance: the announcement is the
+        single-source StatePanel text (canonical title + detailed sentence:
+        "Path not available. This folder is no longer available."), so the
+        assertion pins that full string — still exact, still distinctive.
     #>
     param($Context, [string] $ArtifactsDir)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $leaf = 'ffui-error-' + (Get-Random)
     $missing = Join-Path $env:USERPROFILE $leaf
     $fail = { param($detail) New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'FAIL' -Reason 'error-state-not-observed' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
@@ -2130,7 +2191,7 @@ function Invoke-UiaScenarioErrorStateLate {
     [void]$Context.Fixtures.Add($missing)
     try {
         # --- Phase 1: navigate to the directory and confirm sentinel is visible ---
-        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $missing -ExpectedLeaf $leaf
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $missing -ExpectedLeaf $leaf
         if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
         # deterministic-missing-path-state 6.2: reacquire the terminal Column
         # View semantically (direct-child navigation, never whole-window DFS),
@@ -2153,7 +2214,9 @@ function Invoke-UiaScenarioErrorStateLate {
         # the exact unavailable wording. Broad patterns ("unable to load", "refresh
         # failed", "engine is unavailable", etc.) and "This folder is empty" are
         # explicit failures — they denote states other than the confirmed NotFound.
-        $exactStatus = 'This folder is no longer available.'
+        # modernize-ui-appearance ui-v3: ColumnStateAnnouncement projects the full
+        # painted StatePanel text (title + body) as one string.
+        $exactStatus = 'Path not available. This folder is no longer available.'
         $statusEl = $null
         $statusIdent = $null
         $statusBr = $null
@@ -2187,7 +2250,7 @@ function Invoke-UiaScenarioErrorStateLate {
         $sw.Stop()
         if (-not $statusFound) {
             # collect diagnostics for the FAIL path
-            $st = Get-UiaInteractiveState -Driver $driver -ProcessId $pid
+            $st = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
             $diagInfo = ''
             try {
                 $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
@@ -2250,8 +2313,8 @@ function Invoke-UiaScenarioErrorStateLate {
         # re-entry followed by re-navigation is the supported recovery trigger.
         $parent = Split-Path $missing -Parent
         $parentLeaf = Split-Path $parent -Leaf
-        $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $parent -ExpectedLeaf $parentLeaf
-        $reNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $missing -ExpectedLeaf $leaf
+        $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $parent -ExpectedLeaf $parentLeaf
+        $reNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $missing -ExpectedLeaf $leaf
         if (-not $reNav.Pass) { return & $fail "re-navigation to recreated folder failed: $($reNav.Detail)" }
         $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
         $newSentinel = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'after-recreate.txt' -PaneId 'Pane.0' -TimeoutMs 15000
@@ -2337,7 +2400,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $driver = $Context.Driver
     $main = $Context.Main
-    $pid = $Context.Launched.Id
+    $appPid = $Context.Launched.Id
     $id = 'selection-model-interactions'
     # Every FAIL path dumps the live UIA tree for diagnostics (5.11) and returns
     # a real FAIL — a genuine selection failure is never downgraded to SKIP.
@@ -2456,7 +2519,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     try {
         # --- foreground + navigation (mirrors Invoke-UiaScenarioSearchAllocatedSize) ---
         try {
-            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 400
+            $stale = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 400
             if ($stale) { try { Invoke-UiaElementAction -Driver $driver -Element $stale | Out-Null; Start-Sleep -Milliseconds 400 } catch { } }
         } catch { }
         for ($fgAttempt = 0; $fgAttempt -lt 6; $fgAttempt++) {
@@ -2464,7 +2527,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             Start-Sleep -Milliseconds 700
             if (Test-UiaForegroundWindow -Driver $driver -Element $main) { break }
             try {
-                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $pid -TimeoutMs 300
+                $dlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 300
                 if ($dlg) {
                     $cancel = Find-UiaElement -Driver $driver -AutomationId '2' -FromElement $dlg -TimeoutMs 300
                     Invoke-UiaElementAction -Driver $driver -Element $cancel | Out-Null; Start-Sleep -Milliseconds 400
@@ -2481,7 +2544,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
                 $null = Set-UiaForeground -Driver $driver -Element $main
                 Start-Sleep -Milliseconds 600
             }
-            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+            $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         }
         if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
         $null = Set-UiaForeground -Driver $driver -Element $main
@@ -2555,7 +2618,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         # --- 5.9: dual-pane isolation. Establish a known selection in the
         # INACTIVE pane, then mutate/select-all in the active pane and verify
         # the inactive pane's selection membership is EXACTLY unchanged. ---
-        $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $pid
+        $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $appPid
         if (-not $dp.Pass) { return & $fail "dual-pane setup failed: $($dp.Detail)" }
         $pane0 = $dp.Pane0
         $pane1 = $dp.Pane1
@@ -2565,7 +2628,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         $null = Set-UiaForeground -Driver $driver -Element $main
         $null = Send-UiaMouseInput -Driver $driver -X $p1Center.x -Y $p1Center.y -Button 'Left' -Action 'Click'
         Start-Sleep -Milliseconds 400
-        $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $pid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
+        $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)" }
         & $scrollPaneRight 'Pane.1'
         # Wait for Pane.1's terminal column to expose the fixture rows.
@@ -2881,12 +2944,29 @@ function Invoke-UiaSharedSessionScenarios {
             $null = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'Select'
             Start-Sleep -Milliseconds 400
             $isSel = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'GetSelection'
-            # Multi-select: Ctrl+click beta via modifier-aware pointer input.
-            $betaCenter = Get-UiaElementCenter -Driver $driver -Element $beta
-            $null = Send-UiaMouseInput -Driver $driver -X $betaCenter.x -Y $betaCenter.y -Button 'Left' -Action 'Click' -Modifier 'Ctrl'
-            Start-Sleep -Milliseconds 600
-            $selItems = @(Invoke-UiaPattern -Driver $driver -Element $column -PatternName 'Selection' -Method 'GetSelection')
-            if (-not ($isSel -and $selItems.Count -eq 2)) { throw "selection state unexpected: IsSelected=$isSel count=$($selItems.Count)" }
+            # Re-resolve beta AFTER selecting alpha: Select can scroll the newly
+            # selected item into view and shift sibling rows, so any rectangle
+            # captured earlier is stale and the Ctrl+click lands on the wrong
+            # row (observed as multi-select count=1).
+            $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
+            if (-not $beta) { throw "scratch items missing after select: $patternDetail" }
+            # Multi-select: Ctrl+click beta via modifier-aware pointer input,
+            # with one bounded re-click retry against freshly read geometry.
+            $multiSelectOk = $false
+            for ($selAttempt = 0; $selAttempt -lt 2 -and -not $multiSelectOk; $selAttempt++) {
+                $betaCenter = Get-UiaElementCenter -Driver $driver -Element $beta
+                $null = Send-UiaMouseInput -Driver $driver -X $betaCenter.x -Y $betaCenter.y -Button 'Left' -Action 'Click' -Modifier 'Ctrl'
+                Start-Sleep -Milliseconds 600
+                $selItems = @(Invoke-UiaPattern -Driver $driver -Element $column -PatternName 'Selection' -Method 'GetSelection')
+                if ($selItems.Count -eq 2) { $multiSelectOk = $true }
+                elseif ($selAttempt -eq 0) {
+                    # Geometry may have shifted under the first click; re-read the
+                    # element before retrying so the retry is not a blind repeat.
+                    $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
+                    if (-not $beta) { break }
+                }
+            }
+            if (-not ($isSel -and $multiSelectOk)) { throw "selection state unexpected: IsSelected=$isSel count=$($selItems.Count)" }
             $selStatus = 'PASS'
             $selReason = $null
             $selDetail = "SelectionItem.IsSelected=$isSel; multi-select via Ctrl+click count=$($selItems.Count) ($patternDetail)"
@@ -2938,9 +3018,9 @@ function Invoke-UiaSharedSessionScenarios {
         Start-Sleep -Seconds 1
         $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
         $pane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
-        $home = Find-UiaElement -Driver $driver -AutomationId 'Pane.0.Home' -FromElement $pane -TimeoutMs 3000
-        if (-not $home) { throw 'Home group not found after Alt+Home' }
-        $sections = @(Find-UiaElement -Driver $driver -ControlType 'Group' -FromElement $home -TimeoutMs 3000 -All)
+        $homeEl = Find-UiaElement -Driver $driver -AutomationId 'Pane.0.Home' -FromElement $pane -TimeoutMs 3000
+        if (-not $homeEl) { throw 'Home group not found after Alt+Home' }
+        $sections = @(Find-UiaElement -Driver $driver -ControlType 'Group' -FromElement $homeEl -TimeoutMs 3000 -All)
         $sectionNames = @($sections | ForEach-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).Name })
         if ($sectionNames.Count -eq 0) { throw 'Home exposes no sections' }
         $homeStatus = 'PASS'
@@ -2972,7 +3052,7 @@ function Invoke-UiaSharedSessionScenarios {
     $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
     Start-Sleep -Milliseconds 600
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $sp = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'search' -ExpectedNames @('Clear history', 'Ascending')
+    $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id
     $sw.Stop()
     & $LogFn "3.11 search pass=$($sp.Pass) detail=$($sp.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-search-panel'
@@ -3007,7 +3087,7 @@ function Invoke-UiaSharedSessionScenarios {
     try {
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
         Start-Sleep -Milliseconds 600
-        $null = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'search' -ExpectedNames @('Clear history')
+        $null = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id | Out-Null
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
             $filterStatus = 'SKIPPED'
             $filterReason = 'engine-connect-unavailable'
