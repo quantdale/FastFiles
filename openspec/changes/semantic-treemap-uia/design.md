@@ -354,3 +354,38 @@ but their claims do not match the current code. This change does NOT
 rewrite history: `evidence/` records what each task claimed, what the
 semantic audit exposed (with code references and deterministic probe
 results), and the corrective change + new validation for each.
+
+## 21. Post-completion decision: tile visual states (2026-08-22)
+
+The UI-v3 visual audit flagged "StorageAnalysis/TreemapView
+selection-vs-hover-vs-focus distinction" as an open product question.
+Decision, grounded in the canonical spec and the certified UIA contract:
+
+**The treemap intentionally exposes exactly two visual states — base tile
+and hover lift — and no persistent selection, pressed, or keyboard-focus
+state.** No code change is required; the audit item is closed as by-design.
+
+- Activation is a navigation verb, not a selection verb: a directory click
+  drills in place and a file click closes the storage panel and re-lands
+  selection on the file inside Column View (spec storage-drilldown-and-treemap,
+  "Clicking a file tile opens the browser at the containing folder"). The
+  treemap surface therefore cannot retain a meaningful selected tile after
+  activation; painting one would assert a state that does not exist, which
+  violates the same honesty principle that drove `IsKeyboardFocusable=false`
+  and the deliberate absence of Selection/SelectionItem patterns (sections
+  3-4).
+- Hover already carries the full canonical metadata burden (path, logical
+  size, allocated size with honest unknown/partial qualifiers, both
+  percentages) from the shared builder (section 12), so no information gap
+  remains for a selection affordance to fill.
+- Keyboard tile traversal would be a new capability requiring its own spec
+  delta, tests, and a revision of the certified no-focus UIA contract — not
+  a presentation fix. It stays out of scope.
+- High Contrast correctly suppresses the translucent hover overlays;
+  system colors remain authoritative there.
+
+Current render evidence: `TreemapView::Render` draws base fill + border per
+tile, then a token-driven hover lift (`UiFillHoverOverlay` +
+reduced-alpha accent ring, HC-suppressed) plus hover metadata lines from
+`BuildTileInfoLocked`; `hoveredNode_` is the only transient interaction
+state member involved.

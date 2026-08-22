@@ -6,6 +6,7 @@
 #include "ConflictDialog.h"
 #include "Util.h"
 #include "ffprotocol/Diagnostics.h"
+#include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -1500,10 +1501,22 @@ void WindowShell::SetDropFeedback(bool active, POINTL point) {
 // ui-v3 drag/drop: canonical destination affordance using the shared
 // dropTargetStroke token (shape + stroke redundancy; High Contrast falls back
 // to the system highlight). Dual-pane draws a strip on the pane split at the
-// drop point's x; single-pane outlines the whole column viewport.
+// drop point's x; single-pane outlines the whole column viewport. Shape
+// decisions come from the headless DropFeedbackLayout seam so they stay
+// unit-tested without a renderer.
 void WindowShell::DrawDropTargetFeedback(ID2D1DeviceContext* context,
                                          const ffui::MainShellLayout& shellLayout) {
     if (!dropFeedbackActive_ || !dropFeedbackValid_ || context == nullptr) {
+        return;
+    }
+    ffui::DropFeedbackInput input;
+    input.shellLayout = shellLayout;
+    input.dropXDip = dropFeedbackXDip;
+    input.activePaneCount = navigationWorkspace_.ActivePaneCount();
+    input.active = true;
+    input.valid = true;
+    const ffui::DropFeedbackGeometry shape = ffui::ComputeDropFeedbackGeometry(input);
+    if (shape.kind == ffui::DropFeedbackKind::None) {
         return;
     }
     const ffui::UiTheme theme = GetUiTheme(darkTheme_);
@@ -1513,26 +1526,15 @@ void WindowShell::DrawDropTargetFeedback(ID2D1DeviceContext* context,
     if (FAILED(ffui::UiEnsureSolidBrush(context, strokeColor, &dropStrokeBrush_))) {
         return;
     }
-    const float top = shellLayout.columnViewportRect.top + ffui::UiMetrics::kSpaceXs;
-    const float bottom = shellLayout.columnViewportRect.bottom - ffui::UiMetrics::kSpaceXs;
-    const bool dualPane = navigationWorkspace_.ActivePaneCount() == 2;
-    if (dualPane) {
-        // Strip centered on the internal pane split nearest the drop point.
-        const float viewportWidth = shellLayout.details.availableColumnWidthDip;
-        const float splitX =
-            shellLayout.contentRect.left +
-            (dropFeedbackXDip < viewportWidth / 2.0f ? viewportWidth / 2.0f : viewportWidth);
-        const float halfStrip = 1.5f;
+    if (shape.kind == ffui::DropFeedbackKind::PaneSplitStrip) {
         context->FillRectangle(
-            D2D1::RectF(splitX - halfStrip, top, splitX + halfStrip, bottom),
+            D2D1::RectF(shape.left, shape.top, shape.right, shape.bottom),
             dropStrokeBrush_.Get());
     } else {
-        // Single pane: inset outline around the entire column viewport.
-        const D2D1_RECT_F outline{
-            shellLayout.columnViewportRect.left + 1.0f, top,
-            shellLayout.columnViewportRect.right - 1.0f, bottom};
-        ffui::UiDrawRoundedRect(context, outline, dropStrokeBrush_.Get(),
-                                ffui::UiMetrics::kRadiusMedium, 2.0f);
+        ffui::UiDrawRoundedRect(context,
+                                D2D1::RectF(shape.left, shape.top, shape.right, shape.bottom),
+                                dropStrokeBrush_.Get(), shape.cornerRadius,
+                                shape.strokeWidth);
     }
 }
 
