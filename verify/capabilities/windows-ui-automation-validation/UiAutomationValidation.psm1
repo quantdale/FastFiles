@@ -265,38 +265,44 @@ function Invoke-UiaAddressBarNavigate {
     $null = Reset-UiaModifierKeys -Driver $Driver
     Start-Sleep -Milliseconds 300
     # stabilize-live-uia-e2e: the Ctrl+L chord only reaches the address bar
-    # when FastFiles actually holds the foreground. Verify ownership (one
-    # bounded re-establishment attempt) instead of trusting the sleep; an
-    # overlay/popup that stole foreground would swallow the chord.
-    if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-        $null = Set-UiaForeground -Driver $Driver -Element $Main
-        Start-Sleep -Milliseconds 300
-    }
-    if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-        $st = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
-        return [pscustomobject]@{ Pass = $false; Detail = "FastFiles does not hold the foreground before Ctrl+L (foreground='$($st.ForegroundTitle)')" }
-    }
-    $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
+    # when FastFiles actually holds the foreground. ui-v3 hardening: one
+    # lost foreground race right after a lifecycle launch used to fail the
+    # whole scenario (drag-out / error-state-late run unretried), so the
+    # chord -> address-edit-appearance sequence now retries within this
+    # function. Verification stays semantic and unchanged: the edit must
+    # appear AND the navigation must land on ExpectedLeaf.
     $addr = $null
-    try {
-        $addr = Wait-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -FromElement $Main -TimeoutMs 6000 -PollIntervalMs 250
-    } catch { }
-    if (-not $addr) {
-        # The address edit is a top-level/owned Win32 control in some UIA
-        # providers; retain the process filter rather than assuming it is a
-        # descendant of the DirectComposition main element.
+    for ($chordAttempt = 0; $chordAttempt -lt 3 -and -not $addr; $chordAttempt++) {
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+            $null = Set-UiaForeground -Driver $Driver -Element $Main
+            Start-Sleep -Milliseconds 300
+        }
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+            Start-Sleep -Milliseconds 400
+            continue
+        }
+        $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
         try {
-            $edits = @(Find-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -TimeoutMs 1500 -All)
-            foreach ($e in $edits) {
-                $id = Get-UiaElementIdentity -Driver $Driver -Element $e
-                # The address bar is a plain Win32 EDIT with no explicit child
-                # ID; UIA reports its AutomationId as $null (or '' / '0').
-                if ([string]::IsNullOrEmpty($id.AutomationId) -or $id.AutomationId -eq '0') { $addr = $e; break }
-            }
+            $addr = Wait-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -FromElement $Main -TimeoutMs 6000 -PollIntervalMs 250
         } catch { }
-    } else {
-        $id = Get-UiaElementIdentity -Driver $Driver -Element $addr
-        if ($id.AutomationId -and $id.AutomationId -ne '0') { $addr = $null }
+        if (-not $addr) {
+            # The address edit is a top-level/owned Win32 control in some UIA
+            # providers; retain the process filter rather than assuming it is a
+            # descendant of the DirectComposition main element.
+            try {
+                $edits = @(Find-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -TimeoutMs 1500 -All)
+                foreach ($e in $edits) {
+                    $id = Get-UiaElementIdentity -Driver $Driver -Element $e
+                    # The address bar is a plain Win32 EDIT with no explicit child
+                    # ID; UIA reports its AutomationId as $null (or '' / '0').
+                    if ([string]::IsNullOrEmpty($id.AutomationId) -or $id.AutomationId -eq '0') { $addr = $e; break }
+                }
+            } catch { }
+        } else {
+            $id = Get-UiaElementIdentity -Driver $Driver -Element $addr
+            if ($id.AutomationId -and $id.AutomationId -ne '0') { $addr = $null }
+        }
+        if (-not $addr) { Start-Sleep -Milliseconds 500 }
     }
     if (-not $addr) { return [pscustomobject]@{ Pass = $false; Detail = 'address bar edit did not appear after Ctrl+L' } }
 
