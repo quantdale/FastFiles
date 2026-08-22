@@ -181,6 +181,11 @@ void TreemapView::SetDarkTheme(bool dark) {
     calculatingBrush_.Reset();
 }
 
+void TreemapView::SetEmptyStateText(const std::wstring& text) {
+    std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
+    emptyStateText_ = text;
+}
+
 void TreemapView::SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId) {
     std::wstring scope = currentPath_;
     {
@@ -300,11 +305,30 @@ void TreemapView::BuildTree(const std::wstring& path) {
 
 void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
     std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
-    if (!visible_.load(std::memory_order_acquire) || layout_.empty()) return;
+    if (!visible_.load(std::memory_order_acquire)) return;
 
     EnsureCreated(context, dwriteFactory);
     const ffui::UiTheme theme = ffui::GetUiTheme(darkTheme_);
     context->Clear(theme.background);
+
+    if (layout_.empty()) {
+        // ui-v3 hardening V3-07: a scope load in progress (or a scope with no
+        // sized data) is a deliberate state surface with honest text — never a
+        // silent blank canvas.
+        std::wstring message;
+        {
+            message = emptyStateText_;
+        }
+        if (!message.empty()) {
+            D2D1_RECT_F messageRect = D2D1::RectF(16.0f, 0.0f,
+                                                  (std::max)(16.0f, viewportSize.width - 16.0f),
+                                                  viewportSize.height);
+            context->DrawText(message.c_str(), static_cast<UINT32>(message.size()),
+                              textFormat_.Get(), messageRect, textBrush_.Get(),
+                              D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL);
+        }
+        return;
+    }
 
     // Capture the same offset/scale the shell applies to draw the treemap so
     // HandleMouseMove can convert client coordinates back into normalized

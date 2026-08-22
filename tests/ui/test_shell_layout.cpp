@@ -60,7 +60,13 @@ void TestHiddenDetailsAndAlternateSurface() {
         storage.list.left >= hidden.contentRect.left &&
         storage.list.right <= hidden.contentRect.right;
     Check(controlsFit, "Storage controls remain inside the post-navigation content rect");
-    Check(storage.buttonRows == 1 && storage.categoryFilter.top > hidden.contentRect.top,
+    bool labelsFit = true;
+    for (const auto& button : storage.buttons) {
+        labelsFit = labelsFit && (button.right - button.left) >= 116.0f;
+    }
+    Check(labelsFit && storage.buttonRows == 2,
+          "compact Storage toolbar wraps to label-fitting rows instead of clipping radio labels (V3-06)");
+    Check(storage.categoryFilter.top > storage.buttons.back().bottom,
           "narrow standard Storage surfaces wrap secondary controls below mode buttons");
 
     const auto search = ffui::ComputeSearchSurfaceLayout(hidden.contentRect);

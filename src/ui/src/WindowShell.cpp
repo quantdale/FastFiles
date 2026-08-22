@@ -180,6 +180,10 @@ void WindowShell::NavigateWorkspace(const std::wstring& path, const std::wstring
     NavigateToLocation(NavigationLocation::FromPath(path));
     if (!selectName.empty()) {
         columnView_.NavigateToPath(path, selectName);
+        // ui-v3 hardening V3-03: a rebuilt column chain can leave the new leaf
+        // off-screen; reveal it with the same animated ensure-visible path the
+        // click/keyboard flows use.
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
         RefreshSelectionPresentation();
         RequestRepaint();
     }
@@ -192,6 +196,8 @@ void WindowShell::NavigateColumnViewTo(const std::wstring& path) {
     columnView_.SetPaneHome(static_cast<int>(navigationWorkspace_.ActivePaneIndex()), false);
     if (path.empty()) columnView_.NavigateToComputerRoot();
     else columnView_.NavigateToPath(path);
+    // ui-v3 hardening V3-03: back/forward rebuilds the whole chain too.
+    EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
 }
 
 void WindowShell::NavigateToLocation(const NavigationLocation& location) {
@@ -208,6 +214,11 @@ void WindowShell::NavigateToLocation(const NavigationLocation& location) {
         columnView_.SetPaneHome(activePane, false);
         if (location.path.empty()) columnView_.NavigateToComputerRoot();
         else columnView_.NavigateToPath(location.path);
+        // ui-v3 hardening V3-03: address-bar/breadcrumb/drive/sidebar commits
+        // rebuild the column chain from scratch, which used to keep the
+        // horizontal scroll anchored at the old position and left the new leaf
+        // column off-screen (the viewport kept showing stale root columns).
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
     }
     RefreshSelectionPresentation();
     navigationChrome_.Refresh();
@@ -267,6 +278,8 @@ void WindowShell::RestoreActiveTabViewState() {
             (context.columnPaths.size() == 1 && context.columnPaths.front().empty())) {
             if (context.currentPath.empty()) columnView_.NavigateToComputerRoot();
             else columnView_.NavigateToPath(context.currentPath);
+            // ui-v3 hardening V3-03: same reveal for restored fallback chains.
+            EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
             continue;
         }
         columnView_.RestorePaneState(
@@ -1359,6 +1372,14 @@ void WindowShell::Render() {
         storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize,
                                        shellLayout.contentRect.left,
                                        shellLayout.contentRect.top);
+    } else if (searchPanel_.Visible() || storageAnalysis_.Visible()) {
+        // ui-v3 hardening V3-01: search/storage own the workspace through native
+        // child controls separated by inset gutters. Rendering browse pixels
+        // beneath them leaked stale columns/headings through every gap between
+        // those controls (left gutter, row bands, right sliver, bottom strip).
+        // The alternate workspace surface paints nothing but the theme
+        // background; Clear covers the full target regardless of transform.
+        context->Clear(ffui::GetUiTheme(ffui::gUiDarkTheme).background);
     } else {
         columnView_.Render(context, renderer_.DWriteFactory(), viewportSize, scrollOffset_, columnView_.ScrollOffset2());
     }
@@ -2028,10 +2049,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             if (searchPanel_.HandleTimer(wParam)) return 0;
             return DefWindowProcW(hwnd, message, wParam, lParam);
 
-        case WM_NOTIFY:
+        case WM_NOTIFY: {
+            LRESULT headerCdrf = 0;
+            if (storageAnalysis_.HandleListHeaderCustomDraw(lParam, &headerCdrf)) return headerCdrf;
             if (searchPanel_.HandleNotify(lParam)) return 0;
             if (storageAnalysis_.HandleNotify(lParam)) return 0;
             return DefWindowProcW(hwnd, message, wParam, lParam);
+        }
 
         case WM_DRAWITEM:
             if (commandPalette_.HandleDrawItem(lParam)) return TRUE;

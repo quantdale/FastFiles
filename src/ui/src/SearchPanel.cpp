@@ -1,5 +1,6 @@
 #include "SearchPanel.h"
 
+
 #include "ffsearch/Path.h"
 #include "IconCache.h"
 #include "UITheme.h"
@@ -344,6 +345,15 @@ LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
         return result;
     }
     if (message == WM_SETTEXT || message == WM_CLEAR || message == WM_CUT || message == WM_PASTE) {
+        const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+        InvalidateRect(hwnd, nullptr, FALSE);
+        return result;
+    }
+    // ui-v3 hardening: keyboard-driven text changes repaint the native edit
+    // directly and left stale system-light frames over the custom paint when
+    // the queued WM_PAINT raced the input batch. Force our paint after every
+    // content-affecting key so the field never shows a native flash.
+    if ((message == WM_KEYDOWN || message == WM_CHAR) && self != nullptr) {
         const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
         InvalidateRect(hwnd, nullptr, FALSE);
         return result;
@@ -708,7 +718,15 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     sort_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortId)), nullptr, nullptr);
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
-                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_OWNERDRAWFIXED | LVS_SINGLESEL | WS_TABSTOP,
+                            WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_OWNERDRAWFIXED | LVS_SINGLESEL |
+                            // ui-v3 hardening V3-02: owner-drawn rows carry name +
+                            // location themselves, so the column header strip is
+                            // meaningless — and as a native child it rendered
+                            // system-light in dark mode. NOCOLUMNHEADER keeps column
+                            // widths driving scroll extent without ever creating a
+                            // visible header (a plain SW_HIDE raced with the list's
+                            // own first layout and re-showed it).
+                            LVS_NOCOLUMNHEADER | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
     // ui-v3 search: one custom-painted bar replaces the old status STATIC —
     // Filters disclosure, active-filter chips, and the live status line share
@@ -765,10 +783,6 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
         ListView_InsertColumn(list_, index, &column);
     }
     ListView_SetExtendedListViewStyle(list_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-    // The owner-drawn result rows draw a unified icon + name + location line, so
-    // the column headers are meaningless and would render as a system-light strip
-    // in dark mode. Hide the header (column widths still drive scroll extent).
-    if (HWND header = ListView_GetHeader(list_)) ShowWindow(header, SW_HIDE);
     // ui-v3 search: two-line result rows. A report-mode ListView derives its
     // row height from the small image list, so a one-entry list at the row
     // height sets the metrics; the panel owns and releases it.

@@ -85,7 +85,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
     up_ = CreateWindowExW(0, L"BUTTON", L"Up", WS_CHILD | BS_PUSHBUTTON,
                           0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
-    status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD,
+    status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_ENDELLIPSIS | SS_LEFTNOWORDWRAP,
                               0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
     list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
@@ -135,6 +135,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         ListView_InsertColumn(overview_, i, &column);
     }
     ListView_SetExtendedListViewStyle(overview_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+    // ui-v3 hardening: themed header custom-draw targets (captured after the
+    // column inserts so the SysHeader32 children exist).
+    listHeader_ = ListView_GetHeader(list_);
+    overviewHeader_ = ListView_GetHeader(overview_);
     PopulateCategoryFilter();
 
     // Wire the treemap into the storage panel so it renders the current folder
@@ -149,6 +153,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         uiaEvents_.Notify(notification);
     });
     treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
+    // ui-v3 hardening: the panel initializes lazily on first open, after the
+    // startup ApplyTheme already ran, so apply the live theme here or the two
+    // report lists keep system-white backgrounds in dark mode.
+    SetDarkTheme(ffui::gUiDarkTheme);
     return true;
 }
 
@@ -487,6 +495,8 @@ void StorageAnalysis::RefreshData() {
         return;
     }
     if (!engine_) return;
+    // ui-v3 hardening V3-07: a scope (re)load starts in the calculating state.
+    treemapView_.SetEmptyStateText(L"Calculating folder sizes…");
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) {
         SetWindowTextW(status_, engineActive_ ? L"Waiting for index data…" : L"Degraded mode — browsing via FindFirstFileEx");
@@ -1079,7 +1089,14 @@ bool StorageAnalysis::HandleCompletion(LPARAM lParam) {
 }
 
 bool StorageAnalysis::HandleTreemapCompletion(LPARAM lParam) {
-    return treemapView_.HandleAggregateCompletion(lParam);
+    const bool handled = treemapView_.HandleAggregateCompletion(lParam);
+    // ui-v3 hardening V3-07: a finished aggregate that still leaves the treemap
+    // empty is honest "no data", not an endless calculating state.
+    if (handled && treemapView_.UiaTileCount() == 0) {
+        treemapView_.SetEmptyStateText(L"No sized data for this scope.");
+        InvalidateRect(owner_, nullptr, FALSE);
+    }
+    return handled;
 }
 
 void StorageAnalysis::SetEngineActive(bool active) {
@@ -1089,6 +1106,69 @@ void StorageAnalysis::SetEngineActive(bool active) {
 void StorageAnalysis::SetDarkTheme(bool dark) {
     darkTheme_ = dark;
     treemapView_.SetDarkTheme(dark);
+    // ui-v3 hardening: theme the two report lists (they previously kept
+    // system-white backgrounds in dark mode) and repaint their headers.
+    const ffui::UiTheme theme = ffui::GetUiTheme(dark);
+    for (HWND list : {list_, overview_}) {
+        if (list == nullptr) continue;
+        ListView_SetBkColor(list, ffui::ToColorRef(theme.background));
+        ListView_SetTextColor(list, ffui::ToColorRef(theme.text));
+        ListView_SetTextBkColor(list, ffui::ToColorRef(theme.background));
+        InvalidateRect(list, nullptr, FALSE);
+    }
+    for (HWND header : {listHeader_, overviewHeader_}) {
+        if (header != nullptr) InvalidateRect(header, nullptr, TRUE);
+    }
+}
+
+bool StorageAnalysis::HandleListHeaderCustomDraw(LPARAM lParam, LRESULT* result) {
+    if (result == nullptr) return false;
+    auto* draw = reinterpret_cast<NMCUSTOMDRAW*>(lParam);
+    if (draw == nullptr || draw->hdr.code != NM_CUSTOMDRAW ||
+        (draw->hdr.hwndFrom != listHeader_ && draw->hdr.hwndFrom != overviewHeader_)) {
+        return false;
+    }
+    // High Contrast keeps the native system-colors header.
+    if (ffui::UiSystemHighContrast()) return false;
+    const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
+    switch (draw->dwDrawStage) {
+        case CDDS_PREPAINT:
+            *result = CDRF_NOTIFYITEMDRAW;
+            return true;
+        case CDDS_ITEMPREPAINT: {
+            wchar_t text[160]{};
+            HDITEMW column{};
+            column.mask = HDI_TEXT;
+            column.pszText = text;
+            column.cchTextMax = static_cast<int>(sizeof(text) / sizeof(text[0]));
+            SendMessageW(draw->hdr.hwndFrom, HDM_GETITEMW, draw->dwItemSpec,
+                         reinterpret_cast<LPARAM>(&column));
+            COLORREF background = ffui::ToColorRef(theme.surfaceSubtle);
+            HBRUSH backgroundBrush = CreateSolidBrush(background);
+            if (backgroundBrush != nullptr) {
+                FillRect(draw->hdc, &draw->rc, backgroundBrush);
+                DeleteObject(backgroundBrush);
+            }
+            const int scale = std::max(1, Scaled(1));
+            RECT divider = draw->rc;
+            divider.top = divider.bottom - scale;
+            HBRUSH dividerBrush = CreateSolidBrush(ffui::ToColorRef(theme.border));
+            if (dividerBrush != nullptr) {
+                FillRect(draw->hdc, &divider, dividerBrush);
+                DeleteObject(dividerBrush);
+            }
+            SetBkMode(draw->hdc, TRANSPARENT);
+            SetTextColor(draw->hdc, ffui::ToColorRef(theme.textSecondary));
+            RECT textRect = draw->rc;
+            textRect.left += 8 * scale;
+            DrawTextW(draw->hdc, text, -1, &textRect,
+                      DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+            *result = CDRF_SKIPDEFAULT;
+            return true;
+        }
+        default:
+            return false;
+    }
 }
 
 bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {

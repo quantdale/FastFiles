@@ -8,9 +8,11 @@
 namespace ffui {
 
 // The eight Storage Analysis mode buttons retain their established widths on
-// a normal content surface.  Below the one-row threshold they are packed into
+// a normal content surface. Below the one-row threshold they are packed into
 // deterministic rows so no control can extend back into the sidebar or beyond
-// the client edge.
+// the client edge. ui-v3 hardening V3-06: the compact packing also enforces a
+// label-fitting minimum button width — native radio labels have no ellipsis,
+// so narrower buttons clipped their text mid-word ("Largest Fol…").
 struct StorageSurfaceLayout {
     std::array<ShellLayoutRect, 8> buttons{};
     ShellLayoutRect categoryFilter;
@@ -28,7 +30,9 @@ inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& s
     constexpr float kRightInset = 12.0f;
     constexpr float kGap = 4.0f;
     constexpr float kButtonHeight = 28.0f;
-    constexpr float kMinimumCompactButtonWidth = 44.0f;
+    // Native radio-button labels cannot ellipsize; below this width the longest
+    // label ("Largest Folders") clips mid-word at standard body sizes.
+    constexpr float kLabelFitButtonWidth = 118.0f;
     constexpr float kCategoryStatusGap = 4.0f;
     constexpr float kMinimumStatusWidth = 100.0f;
     constexpr float kFullToolbarWidth = 1104.0f;
@@ -58,7 +62,7 @@ inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& s
         result.status = {statusLeft, top + 4.0f, surfaceRect.right - kRightInset, top + 24.0f};
     } else {
         const int columns = (std::clamp)(static_cast<int>((innerWidth + kGap) /
-                                                           (kMinimumCompactButtonWidth + kGap)),
+                                                           (kLabelFitButtonWidth + kGap)),
                                          1, 8);
         const float buttonWidth = columns > 0
             ? (std::max)(0.0f, (innerWidth - static_cast<float>(columns - 1) * kGap) /

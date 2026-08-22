@@ -64,6 +64,9 @@ public:
     void SetDarkTheme(bool dark);
     void SetCategoryFilter(const CategoryEngine* categoryEngine, const std::wstring& categoryId);
     void OnSnapshotUpdated();
+    // ui-v3 hardening V3-07: honest state text drawn while the layout is empty
+    // (scope load in progress / no sized data), instead of a silent blank canvas.
+    void SetEmptyStateText(const std::wstring& text);
     void EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory);
     void SetVolumeInfo(const TreemapVolumeInfo& volume);
 
@@ -109,6 +112,9 @@ private:
     // every rebuild; survives until then so hover/projection can read it.
     std::vector<std::unique_ptr<TreemapNode>> syntheticNodes_;
     std::wstring currentPath_;
+    // ui-v3 hardening V3-07: drawn centered while layout_ is empty. Guarded by
+    // uiaMutex_; only the UI thread writes it via SetEmptyStateText.
+    std::wstring emptyStateText_ = L"Calculating folder sizes\u2026";
     const CategoryEngine* categoryEngine_ = nullptr;
     std::wstring categoryId_;
     std::atomic<bool> visible_{false};

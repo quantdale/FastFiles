@@ -2077,13 +2077,17 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
 
         // ui-v3 home: single-line item text through one helper — the caller
         // picks the format (Body for primary names, Caption for secondary
-        // paths); both home formats trim with ellipsis and never wrap.
+        // paths). ui-v3 hardening V3-04: both lines go through the same
+        // bounded character-ellipsis trimming DrawRowLabel already provides for
+        // column labels; raw DrawTextW with a NO_WRAP format used to overflow
+        // long recent-folder paths across the neighboring grid column.
         const auto DrawHomeText = [&](const std::wstring& text, const D2D1_RECT_F& rect,
                                       ID2D1Brush* brush, IDWriteTextFormat* format) {
             if (text.empty() || brush == nullptr || format == nullptr) {
                 return;
             }
-            context->DrawTextW(text.c_str(), static_cast<UINT32>(text.size()), format, rect, brush);
+            DrawRowLabel(context, dwriteFactory, format, text.c_str(),
+                         static_cast<UINT32>(text.size()), rect, brush);
         };
         for (const auto& item : layout.items) {
             const float x = paneX + item.x;
