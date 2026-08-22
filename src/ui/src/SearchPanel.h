@@ -326,6 +326,19 @@ public:
 
     void SetUiaEventSink(UiaEventSink sink, void* context);
     Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> UiaRootProvider(HWND listHwnd);
+    // ui-v3 search a11y hardening: property/pattern fixup for the panel's
+    // owner-draw push buttons (Filters disclosure, sort direction, clear
+    // history). Under a custom fragment root these HWNDs fall through to the
+    // default MSAA proxy, which reports ControlType=Pane with no Invoke
+    // pattern and IsKeyboardFocusable=false -- contradicting what they are.
+    // The returned simple provider keeps the default HWND host provider as
+    // its fallback and overrides exactly ControlType/Button semantics,
+    // Invoke, and keyboard-focusability.
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> UiaButtonFixupProvider(HWND button);
+    // ui-v3 search a11y hardening: explicit Tab traversal (the main loop has
+    // no IsDialogMessage, so nothing else moves focus between these controls).
+    // Order comes from the ffui::SearchTabOrder headless seam.
+    void CycleSearchFocus(HWND from, bool forward);
     void ReleaseUiaProvider();
 
 private:

@@ -137,6 +137,14 @@ add_executable(ffdrop_feedback_tests test_drop_feedback.cpp)
 target_include_directories(ffdrop_feedback_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffdrop_feedback_tests COMMAND ffdrop_feedback_tests)
 
+# ui-v3 search a11y hardening: Search panel keyboard focus-order seam.
+# Header-only, renderer-free; pins the collapsed/expanded Tab and Shift+Tab
+# cycles, wrap-around edges, the always-present Filters disclosure, and
+# stale-target clamping after collapse.
+add_executable(ffsearch_tab_order_tests test_search_tab_order.cpp)
+target_include_directories(ffsearch_tab_order_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffsearch_tab_order_tests COMMAND ffsearch_tab_order_tests)
+
 add_executable(ffuia_geometry_tests test_uia_geometry.cpp)
 target_include_directories(ffuia_geometry_tests PRIVATE ../../src/ui/src ../../src/ui/include)
 add_test(NAME ffuia_geometry_tests COMMAND ffuia_geometry_tests)
@@ -175,5 +183,5 @@ add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
 add_executable(ffsearch_metadata_tests test_search_metadata.cpp)
 target_include_directories(ffsearch_metadata_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffsearch_metadata_tests COMMAND ffsearch_metadata_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)
