@@ -136,6 +136,20 @@ target_include_directories(ffengine_subtree_gating_tests PRIVATE ${CMAKE_SOURCE_
 target_link_libraries(ffengine_subtree_gating_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_subtree_gating_tests COMMAND ffengine_subtree_gating_tests)
 
+# memory-bounded-indexed-scale 6.x: deterministic seeded indexed-mode
+# acceptance. Populates the real Store/IndexPipeline with synthetic
+# MFT/USN-equivalent records and drives population, restart, navigation export,
+# search (trigram + canonical + cold), aggregates, mutations, reconciliation,
+# unavailable volumes, cancellation, and snapshot publish/parse round-trips.
+add_executable(ffengine_seeded_indexed_mode_tests
+  test_seeded_indexed_mode.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+)
+target_include_directories(ffengine_seeded_indexed_mode_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_seeded_indexed_mode_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
+add_test(NAME ffengine_seeded_indexed_mode_tests COMMAND ffengine_seeded_indexed_mode_tests)
+
 # Informational only: explicit large-index scalability evidence, never a CTest
 # wall-clock gate and never run by the normal test suite.
 add_executable(ffengine_bench_large_index_scalability
@@ -156,5 +170,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_seeded_indexed_mode_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

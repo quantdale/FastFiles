@@ -795,6 +795,115 @@ void TestCloseWhileSearchWorkerWrites() {
     stopper.join();
 }
 
+// memory-bounded-indexed-scale 5.2/5.3: retained indexed directories form a
+// recency-ordered working set with a hard cap; degraded entries are immune;
+// stale-key cleanup and volume removal still work; every merge republishes a
+// new immutable generation that multiple clients observe.
+void TestIndexedWorkingSetCapAndRecency() {
+    ffengine::UiServer server;
+    const DWORD sessionId = GetCurrentProcessId() + 41;
+    const bool started = server.Start(sessionId);
+    Check(started, "working-set fixture UI server starts");
+    if (!started) {
+        return;
+    }
+
+    HANDLE clientA = ConnectToServer(PipeName(sessionId));
+    HANDLE clientB = INVALID_HANDLE_VALUE;
+    uint64_t generation = 0;
+    std::wstring prefix;
+    bool subscribed = false;
+    if (clientA != INVALID_HANDLE_VALUE && SendSubscribe(clientA)) {
+        auto ack = ReadFrameUntilType(clientA,
+                                      static_cast<uint16_t>(ffprotocol::UiMessageType::SubscribeAck),
+                                      kWaitDeadline);
+        if (ack.has_value() && ack->payload.size() >= sizeof(ffprotocol::SubscribeAckPayload)) {
+            ffprotocol::SubscribeAckPayload ackHeader{};
+            std::memcpy(&ackHeader, ack->payload.data(), sizeof(ackHeader));
+            generation = ackHeader.generationId;
+            prefix.assign(reinterpret_cast<const wchar_t*>(ack->payload.data() + sizeof(ackHeader)),
+                          ackHeader.sectionNameLengthChars);
+            subscribed = generation != 0 && !prefix.empty();
+        }
+    }
+    Check(subscribed, "working-set fixture subscribes a control-pipe client");
+    if (subscribed) {
+        // Cap retained indexed directories at six.
+        server.SetIndexedWorkingSetCap(6);
+
+        // Batch 1: ten indexed directories against a cap of six.
+        std::map<std::wstring, ffprotocol::SnapshotDirectory> incoming1;
+        for (int index = 0; index < 10; ++index) {
+            wchar_t path[32];
+            swprintf(path, 32, L"Z:\\idx-%02d", index);
+            ffprotocol::SnapshotDirectory directory;
+            directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+            directory.volumeRowId = 5;
+            incoming1.emplace(path, directory);
+        }
+        server.MergeIndexDirectories(std::move(incoming1));
+        auto stats = server.GetSnapshotWorkingSetStats();
+        Check(stats.indexedDirectories == 6, "the retained indexed working set respects the cap");
+        Check(stats.workingSetEvictions == 4, "cap enforcement evicts the oldest observations first");
+
+        // A second client subscribes mid-life and observes subsequent merges.
+        clientB = ConnectToServer(PipeName(sessionId));
+        if (clientB != INVALID_HANDLE_VALUE) {
+            Check(SendSubscribe(clientB), "second client subscribes mid-life");
+        }
+
+        // Batch 2: a different volume's merge (fresh epochs). Recency across
+        // volumes decides the evictions: volume 5 keeps only its two newest
+        // observations, and every volume-7 entry survives.
+        std::map<std::wstring, ffprotocol::SnapshotDirectory> incoming2;
+        auto makeDir = [](int64_t volumeRowId) {
+            ffprotocol::SnapshotDirectory directory;
+            directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+            directory.volumeRowId = volumeRowId;
+            return directory;
+        };
+        for (int index = 0; index < 4; ++index) {
+            wchar_t path[32];
+            swprintf(path, 32, L"Z:\\vol7-%02d", index);
+            incoming2.emplace(path, makeDir(7));
+        }
+        incoming2.emplace(L"Z:\\live-degraded", makeDir(0)); // degraded: immune to the cap
+        server.MergeIndexDirectories(std::move(incoming2));
+        stats = server.GetSnapshotWorkingSetStats();
+        Check(stats.indexedDirectories == 6, "a cross-volume merge keeps the indexed count at the cap");
+        Check(stats.totalDirectories == 7, "degraded live entries are never counted against the cap");
+        Check(stats.workingSetEvictions == 8, "recency eviction drops exactly the least-recently-observed entries");
+
+        // Whole-volume replace semantics: a new export for volume 5 replaces
+        // its retained entries entirely (stale keys cannot linger).
+        std::map<std::wstring, ffprotocol::SnapshotDirectory> incoming3;
+        incoming3.emplace(L"Z:\\idx-00", makeDir(5));
+        server.MergeIndexDirectories(std::move(incoming3));
+        stats = server.GetSnapshotWorkingSetStats();
+        Check(stats.indexedDirectories == 5,
+              "a complete per-volume export replaces that volume's retained keys");
+
+        // Volume removal still functions.
+        server.RemoveVolumeDirectories(L'Z');
+        stats = server.GetSnapshotWorkingSetStats();
+        Check(stats.indexedDirectories == 0 && stats.workingSetEvictions >= 8,
+          "volume removal clears its indexed working set monotonically");
+        Check(stats.retainedCap == 6, "stats report the active retention cap");
+
+        // Cap reset restores the production default.
+        server.SetIndexedWorkingSetCap(0);
+        stats = server.GetSnapshotWorkingSetStats();
+        Check(stats.retainedCap > 6,
+              "a zero override restores the production retention cap");
+    } else {
+        Check(false, "working-set fixture subscribes a control-pipe client");
+    }
+
+    if (clientA != INVALID_HANDLE_VALUE) CloseHandle(clientA);
+    if (clientB != INVALID_HANDLE_VALUE) CloseHandle(clientB);
+    server.Stop();
+}
+
 } // namespace
 
 int main() {
@@ -809,5 +918,6 @@ int main() {
     TestSubscribeBeforeAnyDirectory();
     TestMultiClientSubscribeBeforePublication();
     TestStartupSubscribeStress();
+    TestIndexedWorkingSetCapAndRecency();
     return FailureCount() == 0 ? 0 : 1;
 }
