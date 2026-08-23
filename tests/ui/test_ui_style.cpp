@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include "../TestSupport.h"
 
@@ -22,6 +24,87 @@ using namespace fftest;
 namespace {
 
 bool NearlyEqual(float a, float b) { return (a > b ? a - b : b - a) < 0.001f; }
+
+float SrgbToLinear(float channel) {
+    return channel <= 0.03928f ? channel / 12.92f
+                               : std::pow((channel + 0.055f) / 1.055f, 2.4f);
+}
+
+float RelativeLuminance(const D2D1_COLOR_F& color) {
+    return 0.2126f * SrgbToLinear(color.r) + 0.7152f * SrgbToLinear(color.g) +
+           0.0722f * SrgbToLinear(color.b);
+}
+
+float ContrastRatio(const D2D1_COLOR_F& foreground, const D2D1_COLOR_F& background) {
+    const float foregroundLuminance = RelativeLuminance(foreground);
+    const float backgroundLuminance = RelativeLuminance(background);
+    const float lighter = std::max(foregroundLuminance, backgroundLuminance);
+    const float darker = std::min(foregroundLuminance, backgroundLuminance);
+    return (lighter + 0.05f) / (darker + 0.05f);
+}
+
+D2D1_COLOR_F CompositeOver(const D2D1_COLOR_F& foreground, const D2D1_COLOR_F& background) {
+    const float alpha = std::clamp(foreground.a, 0.0f, 1.0f);
+    return D2D1::ColorF(foreground.r * alpha + background.r * (1.0f - alpha),
+                        foreground.g * alpha + background.g * (1.0f - alpha),
+                        foreground.b * alpha + background.b * (1.0f - alpha), 1.0f);
+}
+
+void CheckContrast(const char* name, const D2D1_COLOR_F& foreground,
+                   const D2D1_COLOR_F& background, float minimum) {
+    const float ratio = ContrastRatio(foreground, background);
+    const std::string description = std::string(name) + " contrast meets " +
+                                    std::to_string(minimum) + ":1 (actual " +
+                                    std::to_string(ratio) + ":1)";
+    Check(ratio + 0.0001f >= minimum, description.c_str());
+}
+
+void TestThemeContrast() {
+    using namespace ffui;
+    for (const bool dark : {false, true}) {
+        const UiTheme theme = GetUiTheme(dark);
+        const char* mode = dark ? "dark" : "light";
+        const std::string prefix = std::string(mode) + " ";
+
+        // Primary, secondary, tertiary, search, and glyph text are normal
+        // content and retain the 4.5:1 WCAG AA threshold.
+        CheckContrast((prefix + "primary text").c_str(), theme.text, theme.background, 4.5f);
+        CheckContrast((prefix + "secondary text").c_str(), theme.textSecondary, theme.background, 4.5f);
+        CheckContrast((prefix + "tertiary text").c_str(), theme.textTertiary, theme.background, 4.5f);
+        CheckContrast((prefix + "search placeholder").c_str(), theme.searchPlaceholder,
+                      theme.surfaceElevated, 4.5f);
+        CheckContrast((prefix + "folder glyph").c_str(), theme.folderGlyph, theme.background, 3.0f);
+        CheckContrast((prefix + "file glyph").c_str(), theme.fileGlyph, theme.background, 3.0f);
+
+        // Disabled labels are explicitly exempt from the normal-text WCAG
+        // threshold; keep a two-to-one floor so disabled controls do not vanish.
+        CheckContrast((prefix + "disabled text remains visible").c_str(), theme.textDisabled,
+                      theme.surface, 2.0f);
+
+        // Selected text and keyboard focus are tested against the surfaces
+        // actually painted by UiComponents and owner-drawn chrome.
+        CheckContrast((prefix + "selected text").c_str(), theme.textOnAccent, theme.accent, 4.5f);
+        CheckContrast((prefix + "accent hover text").c_str(), theme.textOnAccent,
+                      theme.accentHover, 4.5f);
+        CheckContrast((prefix + "focus on background").c_str(), theme.focusStroke,
+                      theme.background, 3.0f);
+        CheckContrast((prefix + "focus on surface").c_str(), theme.focusStroke,
+                      theme.surface, 3.0f);
+
+        // Status chips use their own paired foreground/background tokens. The
+        // informational chip is translucent, so test the composited surface.
+        CheckContrast((prefix + "active status").c_str(), theme.badgeActiveText,
+                      theme.badgeActiveBg, 4.5f);
+        CheckContrast((prefix + "degraded status").c_str(), theme.badgeDegradedText,
+                      theme.badgeDegradedBg, 4.5f);
+        CheckContrast((prefix + "error status").c_str(), theme.textOnAccent, theme.error, 4.5f);
+        CheckContrast((prefix + "info status").c_str(), theme.info,
+                      CompositeOver(theme.selectionSoft, theme.background), 3.0f);
+        CheckContrast((prefix + "success status").c_str(), theme.success, theme.background, 4.5f);
+        CheckContrast((prefix + "warning status").c_str(), theme.warning, theme.background, 4.5f);
+        CheckContrast((prefix + "info text").c_str(), theme.info, theme.background, 4.5f);
+    }
+}
 
 void TestIconKeys() {
     using namespace ffui;
@@ -161,5 +244,6 @@ int main() {
     TestFloatAnimationEasing();
     TestFloatAnimationSnap();
     TestIconCacheHeaderApi();
+    TestThemeContrast();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

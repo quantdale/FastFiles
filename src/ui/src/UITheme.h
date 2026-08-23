@@ -23,9 +23,10 @@ struct UiTheme {
     D2D1_COLOR_F textSecondary;  // muted/secondary text
     D2D1_COLOR_F textOnAccent;   // text painted on the accent (selection)
     // Accent / selection
-    // The Win11-blue accent refinement of modernize-ui-appearance (dark
-    // ~#4C8DFF, light ~#0067C0) is intentionally deferred to the consumers of
-    // accent/accentHover; the values below stay stable to avoid churn.
+    // Win11-aligned accent colors are shared by Direct2D and owner-drawn
+    // chrome.  Keep the foreground paired with the accent: dark mode uses a
+    // deep navy foreground rather than white so selected text remains readable
+    // against the brighter blue.
     D2D1_COLOR_F accent;         // selection, focus, links
     D2D1_COLOR_F accentHover;    // hover variant
     // Glyphs
@@ -63,77 +64,78 @@ struct UiTheme {
     D2D1_COLOR_F dropTargetStroke; // unambiguous drop-destination affordance
 };
 
-// The app's two themes. Values follow the existing FastFiles palette where one
-// already existed (dark 0x202124 / light 0xFFFFFF backgrounds, 0x2B6CDA accent)
-// and extend it with the missing dark variants (badges, surface, secondary).
+// The app's two themes. These tokens are deliberately opaque and paired: the
+// palette follows the Windows 11 blue family while retaining a clear surface
+// hierarchy and status colors that remain readable in both modes.  The
+// contrast contract is exercised by tests/ui/test_ui_style.cpp.
 inline UiTheme GetUiTheme(bool dark) {
     UiTheme t{};
     if (dark) {
-        t.background         = D2D1::ColorF(0x202124);
-        t.surface            = D2D1::ColorF(0x292B2F);
-        t.border             = D2D1::ColorF(0x50535A);
-        t.text               = D2D1::ColorF(0xF1F3F4);
-        t.textSecondary      = D2D1::ColorF(0x9AA0A6);
-        t.textOnAccent       = D2D1::ColorF(0xFFFFFF);
-        t.accent             = D2D1::ColorF(0x2B6CDA);
-        t.accentHover        = D2D1::ColorF(0x3B7CE6);
-        t.folderGlyph        = D2D1::ColorF(0x5B8FE0);
-        t.fileGlyph          = D2D1::ColorF(0x9AA0A6);
-        t.error              = D2D1::ColorF(0xF28B82);
-        t.badgeActiveBg      = D2D1::ColorF(0x2E4A36);
-        t.badgeActiveText    = D2D1::ColorF(0x9BE2B0);
-        t.badgeDegradedBg    = D2D1::ColorF(0x4A3E22);
-        t.badgeDegradedText  = D2D1::ColorF(0xFFD97B);
-        t.treemapCalculating = D2D1::ColorF(0xFFF3CD);
-        t.searchBorder       = D2D1::ColorF(0x50535A);
-        t.searchText         = D2D1::ColorF(0xF1F3F4);
-        t.searchPlaceholder  = D2D1::ColorF(0x9AA0A6);
-        t.surfaceElevated    = D2D1::ColorF(0x2A2B2F);
-        t.surfaceSubtle      = D2D1::ColorF(0x26282C);
-        t.hoverOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.08f);
-        t.pressOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f);
-        t.selectionSoft      = D2D1::ColorF(0x2B6CDA, 0.12f);
-        t.dividerSubtle      = D2D1::ColorF(0xF1F3F4, 0.10f);
-        t.focusStroke        = D2D1::ColorF(0x4C8DFF);
-        t.textTertiary       = D2D1::ColorF(0x80868B);
-        t.textDisabled       = D2D1::ColorF(0x5F6368);
+        t.background         = D2D1::ColorF(0x15171A);
+        t.surface            = D2D1::ColorF(0x1C1F24);
+        t.border             = D2D1::ColorF(0x343A46);
+        t.text               = D2D1::ColorF(0xF5F7FA);
+        t.textSecondary      = D2D1::ColorF(0xAAB2BF);
+        t.textOnAccent       = D2D1::ColorF(0x101828);
+        t.accent             = D2D1::ColorF(0x4C8DFF);
+        t.accentHover        = D2D1::ColorF(0x6BA1FF);
+        t.folderGlyph        = D2D1::ColorF(0x6BA1FF);
+        t.fileGlyph          = D2D1::ColorF(0x9EA7B5);
+        t.error              = D2D1::ColorF(0xFF7B72);
+        t.badgeActiveBg      = D2D1::ColorF(0x173826);
+        t.badgeActiveText    = D2D1::ColorF(0x8DDBA8);
+        t.badgeDegradedBg    = D2D1::ColorF(0x433517);
+        t.badgeDegradedText  = D2D1::ColorF(0xFFD36A);
+        t.treemapCalculating = D2D1::ColorF(0x5A4616);
+        t.searchBorder       = D2D1::ColorF(0x47505E);
+        t.searchText         = D2D1::ColorF(0xF5F7FA);
+        t.searchPlaceholder  = D2D1::ColorF(0x8E98A7);
+        t.surfaceElevated    = D2D1::ColorF(0x242830);
+        t.surfaceSubtle      = D2D1::ColorF(0x20242A);
+        t.hoverOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.075f);
+        t.pressOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.13f);
+        t.selectionSoft      = D2D1::ColorF(0x4C8DFF, 0.18f);
+        t.dividerSubtle      = D2D1::ColorF(0xF5F7FA, 0.09f);
+        t.focusStroke        = D2D1::ColorF(0x6BA1FF);
+        t.textTertiary       = D2D1::ColorF(0x7F8998);
+        t.textDisabled       = D2D1::ColorF(0x687180);
         t.success            = D2D1::ColorF(0x81C995);
         t.warning            = D2D1::ColorF(0xF9AB00);
         t.info               = D2D1::ColorF(0x8AB4F8);
-        t.dropTargetStroke   = D2D1::ColorF(0x6BA1FF);
+        t.dropTargetStroke   = D2D1::ColorF(0x82B1FF);
     } else {
-        t.background         = D2D1::ColorF(0xFFFFFF);
-        t.surface            = D2D1::ColorF(0xF1F3F5);
-        t.border             = D2D1::ColorF(0xD8D8D8);
-        t.text               = D2D1::ColorF(0x000000);
-        t.textSecondary      = D2D1::ColorF(0x5F6368);
+        t.background         = D2D1::ColorF(0xF7F9FC);
+        t.surface            = D2D1::ColorF(0xFFFFFF);
+        t.border             = D2D1::ColorF(0xD2D9E4);
+        t.text               = D2D1::ColorF(0x172033);
+        t.textSecondary      = D2D1::ColorF(0x596579);
         t.textOnAccent       = D2D1::ColorF(0xFFFFFF);
-        t.accent             = D2D1::ColorF(0x2B6CDA);
-        t.accentHover        = D2D1::ColorF(0x1E5FC8);
-        t.folderGlyph        = D2D1::ColorF(0x5B8FE0);
-        t.fileGlyph          = D2D1::ColorF(0x5F6368);
-        t.error              = D2D1::ColorF(0xB00020);
-        t.badgeActiveBg      = D2D1::ColorF(0xDDEFDD);
-        t.badgeActiveText    = D2D1::ColorF(0x1B5E20);
-        t.badgeDegradedBg    = D2D1::ColorF(0xFFF3CD);
-        t.badgeDegradedText  = D2D1::ColorF(0x7A5B00);
-        t.treemapCalculating = D2D1::ColorF(0xFFF3CD);
-        t.searchBorder       = D2D1::ColorF(0x7A8AA0);
-        t.searchText         = D2D1::ColorF(0x1B2430);
-        t.searchPlaceholder  = D2D1::ColorF(0x6B7785);
+        t.accent             = D2D1::ColorF(0x0067C0);
+        t.accentHover        = D2D1::ColorF(0x005A9E);
+        t.folderGlyph        = D2D1::ColorF(0x0067C0);
+        t.fileGlyph          = D2D1::ColorF(0x667085);
+        t.error              = D2D1::ColorF(0xB42318);
+        t.badgeActiveBg      = D2D1::ColorF(0xE7F6EC);
+        t.badgeActiveText    = D2D1::ColorF(0x176B35);
+        t.badgeDegradedBg    = D2D1::ColorF(0xFFF4D6);
+        t.badgeDegradedText  = D2D1::ColorF(0x785A00);
+        t.treemapCalculating = D2D1::ColorF(0xFFF4D6);
+        t.searchBorder       = D2D1::ColorF(0x8995A6);
+        t.searchText         = D2D1::ColorF(0x172033);
+        t.searchPlaceholder  = D2D1::ColorF(0x667085);
         t.surfaceElevated    = D2D1::ColorF(0xFFFFFF);
-        t.surfaceSubtle      = D2D1::ColorF(0xF7F8F9);
-        t.hoverOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.05f);
-        t.pressOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.08f);
-        t.selectionSoft      = D2D1::ColorF(0x2B6CDA, 0.12f);
-        t.dividerSubtle      = D2D1::ColorF(0x000000, 0.08f);
+        t.surfaceSubtle      = D2D1::ColorF(0xF0F4F9);
+        t.hoverOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.045f);
+        t.pressOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.085f);
+        t.selectionSoft      = D2D1::ColorF(0x0067C0, 0.13f);
+        t.dividerSubtle      = D2D1::ColorF(0x172033, 0.08f);
         t.focusStroke        = D2D1::ColorF(0x0067C0);
-        t.textTertiary       = D2D1::ColorF(0x80868B);
-        t.textDisabled       = D2D1::ColorF(0x9AA0A6);
+        t.textTertiary       = D2D1::ColorF(0x667085);
+        t.textDisabled       = D2D1::ColorF(0x9AA4B2);
         t.success            = D2D1::ColorF(0x188038);
-        t.warning            = D2D1::ColorF(0xE37400);
-        t.info               = D2D1::ColorF(0x1A73E8);
-        t.dropTargetStroke   = D2D1::ColorF(0x2B6CDA);
+        t.warning            = D2D1::ColorF(0xB54708);
+        t.info               = D2D1::ColorF(0x0067C0);
+        t.dropTargetStroke   = D2D1::ColorF(0x0067C0);
     }
     return t;
 }
