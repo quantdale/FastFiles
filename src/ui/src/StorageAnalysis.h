@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 #include <windows.h>
+#include <commctrl.h>
 
 #include "CategoryEngine.h"
 #include "EngineClient.h"
@@ -17,6 +18,7 @@
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
+#include "UiComponents.h"
 #include "Util.h"
 
 namespace ffui {
@@ -34,6 +36,175 @@ struct TreemapNavigatePayload {
     uint64_t identityHash = 0;
     std::wstring fullPath;
     bool isDirectory = false;
+};
+
+namespace storage_chrome_detail {
+
+inline COLORREF Composite(D2D1_COLOR_F overlay, D2D1_COLOR_F base) {
+    const float alpha = std::clamp(overlay.a, 0.0f, 1.0f);
+    D2D1_COLOR_F result{};
+    result.r = base.r * (1.0f - alpha) + overlay.r * alpha;
+    result.g = base.g * (1.0f - alpha) + overlay.g * alpha;
+    result.b = base.b * (1.0f - alpha) + overlay.b * alpha;
+    result.a = 1.0f;
+    return ToColorRef(result);
+}
+
+inline void DrawOutline(HDC dc, RECT rect, COLORREF color, int width, int radius) {
+    if (dc == nullptr || rect.right <= rect.left || rect.bottom <= rect.top) return;
+    HPEN pen = CreatePen(PS_SOLID, (std::max)(1, width), color);
+    if (pen == nullptr) return;
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, radius * 2, radius * 2);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+inline void PaintButton(HWND hwnd, HDC dc) {
+    RECT rect{};
+    if (hwnd == nullptr || dc == nullptr || !GetClientRect(hwnd, &rect)) return;
+
+    const UiTheme theme = GetUiTheme(gUiDarkTheme);
+    const LRESULT state = SendMessageW(hwnd, BM_GETSTATE, 0, 0);
+    const bool enabled = IsWindowEnabled(hwnd) != FALSE;
+    const bool checked = SendMessageW(hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    const bool pressed = (state & BST_PUSHED) != 0;
+    const bool hot = (state & BST_HOT) != 0;
+    const bool focused = GetFocus() == hwnd;
+
+    D2D1_COLOR_F base = theme.surfaceElevated;
+    COLORREF fill = ToColorRef(base);
+    if (checked) {
+        fill = Composite(theme.selectionSoft, base);
+    } else if (pressed) {
+        fill = Composite(theme.pressOverlay, base);
+    } else if (hot) {
+        fill = Composite(theme.hoverOverlay, base);
+    }
+
+    const int radius = (std::max)(1, static_cast<int>(UiScale(UiMetrics::kRadiusSmall) + 0.5f));
+    UiGdiRoundedRect(dc, rect, fill, radius);
+    DrawOutline(dc, rect, checked ? ToColorRef(theme.accent) : ToColorRef(theme.border),
+                1, radius);
+
+    // Selected storage mode gets a shape cue in addition to color so the
+    // current mode remains obvious under reduced color discrimination.
+    if (checked) {
+        RECT marker = rect;
+        marker.left += (std::max)(2, static_cast<int>(UiScale(3.0f)));
+        marker.right = marker.left + (std::max)(2, static_cast<int>(UiScale(3.0f)));
+        marker.top += (std::max)(4, static_cast<int>(UiScale(6.0f)));
+        marker.bottom -= (std::max)(4, static_cast<int>(UiScale(6.0f)));
+        HBRUSH markerBrush = CreateSolidBrush(ToColorRef(theme.accent));
+        if (markerBrush != nullptr) {
+            FillRect(dc, &marker, markerBrush);
+            DeleteObject(markerBrush);
+        }
+    }
+
+    wchar_t label[128]{};
+    GetWindowTextW(hwnd, label, static_cast<int>(std::size(label)));
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    HFONT oldFont = font != nullptr ? static_cast<HFONT>(SelectObject(dc, font)) : nullptr;
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, enabled ? ToColorRef(theme.text) : ToColorRef(theme.textDisabled));
+    RECT textRect = rect;
+    if (checked) textRect.left += (std::max)(6, static_cast<int>(UiScale(8.0f)));
+    DrawTextW(dc, label, -1, &textRect,
+              DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if (oldFont != nullptr) SelectObject(dc, oldFont);
+
+    if (focused) {
+        RECT focus = rect;
+        const int inset = (std::max)(2, static_cast<int>(UiScale(2.0f)));
+        InflateRect(&focus, -inset, -inset);
+        DrawOutline(dc, focus, ToColorRef(theme.focusStroke),
+                    (std::max)(1, static_cast<int>(UiScale(2.0f))), radius);
+    }
+}
+
+inline LRESULT CALLBACK ButtonProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                   UINT_PTR subclassId, DWORD_PTR refData) {
+    UNREFERENCED_PARAMETER(subclassId);
+    UNREFERENCED_PARAMETER(refData);
+
+    // High Contrast always keeps native system rendering. The subclass exists
+    // only to remove mismatched light chrome from normal light/dark themes.
+    if (UiSystemHighContrast()) return DefSubclassProc(hwnd, message, wParam, lParam);
+
+    switch (message) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps{};
+            HDC dc = BeginPaint(hwnd, &ps);
+            PaintButton(hwnd, dc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            PaintButton(hwnd, reinterpret_cast<HDC>(wParam));
+            return 0;
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&track);
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return result;
+        }
+        case WM_MOUSELEAVE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_ENABLE:
+        case BM_SETCHECK:
+        case WM_SETTEXT:
+        case WM_THEMECHANGED: {
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, ButtonProc, 0xF572);
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        default:
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+    }
+}
+
+} // namespace storage_chrome_detail
+
+// HWND-compatible wrapper that automatically applies the Storage chrome
+// subclass at creation time. It keeps the existing StorageAnalysis.cpp control
+// construction/command routing untouched while making the last native-light
+// buttons consume FastFiles theme tokens. The underlying windows remain real
+// BUTTON controls, preserving native radio grouping, keyboard, focus and UIA.
+class ThemedStorageButton {
+public:
+    ThemedStorageButton() = default;
+    ThemedStorageButton(const ThemedStorageButton&) = delete;
+    ThemedStorageButton& operator=(const ThemedStorageButton&) = delete;
+
+    ThemedStorageButton& operator=(HWND hwnd) {
+        if (value_ != nullptr && IsWindow(value_)) {
+            RemoveWindowSubclass(value_, storage_chrome_detail::ButtonProc, 0xF572);
+        }
+        value_ = hwnd;
+        if (value_ != nullptr) {
+            SetWindowSubclass(value_, storage_chrome_detail::ButtonProc, 0xF572, 0);
+        }
+        return *this;
+    }
+
+    operator HWND() const noexcept { return value_; }
+    explicit operator bool() const noexcept { return value_ != nullptr; }
+    bool operator!() const noexcept { return value_ == nullptr; }
+
+private:
+    HWND value_ = nullptr;
 };
 
 class StorageAnalysis : public TreemapUiaSurface {
@@ -125,8 +296,8 @@ private:
 
     // storage-analysis 2.1-2.4: one row of the storage overview.
     struct VolumeItem {
-        std::wstring rootPath;   // "C:\"
-        bool unavailable = false; // volume vanished; figures below are stale
+        std::wstring rootPath;
+        bool unavailable = false;
         bool fullyIndexed = false;
         uint64_t totalBytes = 0;
         uint64_t freeBytes = 0;
@@ -160,20 +331,19 @@ private:
 
     HWND owner_ = nullptr;
     HWND list_ = nullptr;
-    // ui-v3 hardening: themed custom-draw targets for the two report lists.
     HWND listHeader_ = nullptr;
     HWND overviewHeader_ = nullptr;
     HWND overview_ = nullptr;
-    HWND categoryFilter_ = nullptr; // storage-analysis 5.4: category filter combo
+    HWND categoryFilter_ = nullptr;
     HWND status_ = nullptr;
-    HWND back_ = nullptr;
-    HWND up_ = nullptr;
-    HWND overviewButton_ = nullptr;
-    HWND drillDown_ = nullptr;
-    HWND largestFolders_ = nullptr;
-    HWND largestFiles_ = nullptr;
-    HWND byCategory_ = nullptr;
-    HWND treemap_ = nullptr;
+    ThemedStorageButton back_;
+    ThemedStorageButton up_;
+    ThemedStorageButton overviewButton_;
+    ThemedStorageButton drillDown_;
+    ThemedStorageButton largestFolders_;
+    ThemedStorageButton largestFiles_;
+    ThemedStorageButton byCategory_;
+    ThemedStorageButton treemap_;
 
     EngineClient* engine_ = nullptr;
     std::function<void(const std::wstring& path, bool isDirectory)> navigate_;
@@ -182,27 +352,22 @@ private:
     CategoryEngine categoryEngine_;
     TreemapView treemapView_;
     std::vector<std::wstring> categoryFilterIds_;
-    std::wstring activeCategoryId_; // empty means All categories
+    std::wstring activeCategoryId_;
 
     std::vector<DrillItem> items_;
-    std::vector<VolumeItem> volumes_;    // storage-overview rows
+    std::vector<VolumeItem> volumes_;
     std::wstring currentPath_;
     bool visible_ = false;
     bool engineActive_ = false;
     bool darkTheme_ = false;
     ViewMode viewMode_ = ViewMode::Overview;
 
-    // semantic-treemap-uia 22.x: percentage-of-volume denominator -- the
-    // OS-reported used bytes of the volume hosting the current scope, from the
-    // same GetDiskFreeSpaceExW ground truth the storage overview uses.
     uint64_t volumeUsedBytes_ = 0;
     bool volumeUsedKnown_ = false;
 
-    // semantic-treemap-uia 30.x: semantic events pushed after locks are
-    // released; the provider controller registers itself via SetUiaEventSink.
     UiaEventRouter uiaEvents_;
 
-    int sortColumn_ = 3; // default: sort by Subtree Size descending
+    int sortColumn_ = 3;
     bool sortAscending_ = false;
 
     std::vector<PendingRequest> pending_;
