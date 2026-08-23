@@ -33,8 +33,9 @@ inline std::wstring StripExtendedLengthPrefix(std::wstring path) {
 }
 
 // Pure tab-label derivation: "N: " + leaf, with Home/This-PC special cases and
-// extended-length prefixes stripped from display. Headless-testable seam used
-// by RebuildTabs.
+// extended-length prefixes stripped from display. 8.3 local-drive leaves are
+// expanded through the same display-only seam as breadcrumbs; the canonical
+// NavigationLocation remains unchanged.
 inline std::wstring TabLabelForLocation(size_t oneBasedIndex, const NavigationLocation& location) {
     std::wstring label = std::to_wstring(oneBasedIndex) + L": ";
     if (location.IsHome()) {
@@ -46,9 +47,14 @@ inline std::wstring TabLabelForLocation(size_t oneBasedIndex, const NavigationLo
         return label;
     }
     const std::wstring display = StripExtendedLengthPrefix(location.path);
-    const size_t slash = display.find_last_of(L"\\/");
-    label += slash == std::wstring::npos || slash + 1 >= display.size()
-        ? display : display.substr(slash + 1);
+    const size_t end = display.find_last_not_of(L"\\/");
+    const size_t slash = end == std::wstring::npos ? std::wstring::npos
+                                                    : display.find_last_of(L"\\/", end);
+    const std::wstring leaf = end == std::wstring::npos
+        ? display
+        : (slash == std::wstring::npos ? display.substr(0, end + 1)
+                                       : display.substr(slash + 1, end - slash));
+    label += ExpandLocalShortNameForDisplay(leaf.empty() ? display : leaf, location.path);
     return label;
 }
 
