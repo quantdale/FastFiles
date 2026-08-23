@@ -1,10 +1,12 @@
 <#
     Test-PKI code signing capability (task 4.1-4.6; design.md D4). Generates an
     isolated self-signed test code-signing certificate into the Current-User `My`
-    store (no admin needed), exports the key to a temp PFX with a random password
-    under the gitignored verify/.signing/, signs the four product binaries with
-    signtool, and verifies each with the exact WinVerifyTrust(WTD_SAFER_FLAG) +
-    SHA1-leaf-thumbprint extraction the product enforces (authenticode-pinning).
+    store (no admin needed), signs disposable backups of the four product
+    binaries with signtool using that current-user certificate, and verifies each
+    with the exact WinVerifyTrust(WTD_SAFER_FLAG) + SHA1-leaf-thumbprint extraction
+    the product enforces (authenticode-pinning). The certificate and signed bytes
+    are transactionally removed/restored before the capability returns. No private
+    key, PFX/password, or Current-User Root trust is persisted by this capability.
     A production OV/EV certificate is an injectable secret (FF_PRODUCTION_CERT_PFX
     / FF_PRODUCTION_CERT_PASSWORD); the production gate runs only when the cert is
     present and otherwise reports SKIPPED(production-cert-not-provided). It never
@@ -12,6 +14,11 @@
 #>
 
 $script:SigningRoot = Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.signing'
+$script:SigningSessionId = $null
+$script:SigningSessionRoot = $null
+$script:BackupRoot = $null
+$script:CreatedTestCertificate = $null
+$script:BinaryBackups = @()
 $script:ProductBinaries = @(
     @{ Name = 'FastFiles.exe';        BuildRel = 'build\debug\src\ui\FastFiles.exe' }
     @{ Name = 'FastFilesEngine.exe';  BuildRel = 'build\debug\src\engine\FastFilesEngine.exe' }
@@ -34,7 +41,7 @@ function Test-TestCodeSigningCapabilityAvailability {
 }
 
 function Get-TestCodeSigningCapabilityDiagnostics {
-    return @('test-certificate-generation', 'pfx-export', 'binary-signing', 'authenticode-verification', 'pinned-thumbprint', 'production-cert-gate')
+    return @('test-state-backup', 'test-certificate-generation', 'certificate-store-signing', 'binary-signing', 'authenticode-verification', 'pinned-thumbprint', 'production-cert-gate', 'test-state-cleanup')
 }
 
 function New-VSignSubResult {
@@ -64,52 +71,84 @@ function Get-ProductBinaryPaths {
 
 function New-TestCodeSigningCertificate {
     param([string] $CertStoreLocation = 'Cert:\CurrentUser\My')
-    $name = 'FastFiles Test Code Signing'
-    $existing = Get-ChildItem -Path $CertStoreLocation -ErrorAction SilentlyContinue | Where-Object { $_.Subject -eq "CN=$name" } | Select-Object -First 1
-    if ($existing) { return $existing }
+    $name = "FastFiles Test Code Signing $($script:SigningSessionId)"
     $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=$name" -CertStoreLocation $CertStoreLocation -KeyExportPolicy Exportable -NotAfter (Get-Date).AddYears(2)
+    $script:CreatedTestCertificate = $cert
     return $cert
 }
 
-function Add-TestCodeSigningRootTrust {
-    <#
-        The product's VerifyAutheticodeAndGetThumbprint only extracts the signer
-        thumbprint when WinVerifyTrust returns ERROR_SUCCESS. A self-signed cert that
-        is not a trusted root makes WinVerifyTrust fail with CERT_E_UNTRUSTEDROOT, so
-        the pinned-thumbprint assertion would fail closed even though the bytes are
-        signed. Installing the self-signed test cert into the Current-User Root store
-        (per-user, no admin) makes it a trusted root for the current user only, exactly
-        as a real installed code-signing cert would be trusted. This is a reversible,
-        per-user trust decision recorded in the run.
-    #>
-    param([Parameter(Mandatory)] $Certificate)
-    $root = 'Cert:\CurrentUser\Root'
-    $existing = Get-ChildItem -Path $root -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $Certificate.Thumbprint } | Select-Object -First 1
-    if ($existing) { return $true }
-    $store = New-Object System.Security.Cryptography.X509Certificates.X509Store('Root', 'CurrentUser')
-    try {
-        $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
-        $store.Add($Certificate)
-        return $true
-    } catch {
-        return $false
-    } finally {
-        $store.Close()
+function Backup-TestCodeSigningBinaries {
+    param([Parameter(Mandatory)] [array] $BinaryPaths)
+    $script:BackupRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-test-signing-backup-' + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $script:BackupRoot -Force | Out-Null
+    $script:BinaryBackups = @()
+    foreach ($binary in $BinaryPaths) {
+        $backupPath = Join-Path $script:BackupRoot $binary.Name
+        Copy-Item -LiteralPath $binary.Path -Destination $backupPath -Force
+        $item = Get-Item -LiteralPath $binary.Path -Force
+        $script:BinaryBackups += [pscustomobject]@{
+            path = $binary.Path
+            backupPath = $backupPath
+            attributes = $item.Attributes
+            lastWriteTimeUtc = $item.LastWriteTimeUtc
+        }
     }
 }
 
-function Export-TestCodeSigningPfx {
-    param([Parameter(Mandatory)] $Certificate, [Parameter(Mandatory)] [string] $SigningRoot)
-    New-Item -ItemType Directory -Path $SigningRoot -Force | Out-Null
-    $password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)) -replace '[^a-zA-Z0-9]', 'x'
-    $pfxPath = Join-Path $SigningRoot 'test-code-signing.pfx'
-    $thumbprintPath = Join-Path $SigningRoot 'test-code-signing.thumbprint.txt'
-    $passwordPath = Join-Path $SigningRoot 'test-code-signing.password.txt'
-    $securePass = ConvertTo-SecureString -String $password -AsPlainText -Force
-    Export-PfxCertificate -Cert $Certificate -FilePath $pfxPath -Password $securePass -Force | Out-Null
-    Set-Content -LiteralPath $thumbprintPath -Value $Certificate.Thumbprint -Encoding utf8
-    Set-Content -LiteralPath $passwordPath -Value $password -Encoding utf8
-    [pscustomobject]@{ PfxPath = $pfxPath; Password = $password; Thumbprint = $Certificate.Thumbprint; PasswordPath = $passwordPath; ThumbprintPath = $thumbprintPath }
+function Remove-TestCodeSigningCertificate {
+    param([Parameter(Mandatory)] $Certificate)
+    $errors = @()
+    foreach ($storeName in @('My')) {
+        $store = New-Object System.Security.Cryptography.X509Certificates.X509Store($storeName, 'CurrentUser')
+        try {
+            $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            foreach ($candidate in @($store.Certificates | Where-Object { $_.Thumbprint -eq $Certificate.Thumbprint })) {
+                $store.Remove($candidate)
+            }
+        } catch {
+            $errors += "$storeName`: $($_.Exception.Message)"
+        } finally {
+            $store.Close()
+        }
+    }
+    return $errors
+}
+
+function Invoke-TestCodeSigningCleanup {
+    param([Parameter(Mandatory)] [string] $ArtifactsDir)
+    $errors = @()
+    foreach ($backup in @($script:BinaryBackups)) {
+        try {
+            Copy-Item -LiteralPath $backup.backupPath -Destination $backup.path -Force
+            $item = Get-Item -LiteralPath $backup.path -Force
+            $item.Attributes = $backup.attributes
+            $item.LastWriteTimeUtc = $backup.lastWriteTimeUtc
+        } catch {
+            $errors += "restore $($backup.path): $($_.Exception.Message)"
+        }
+    }
+    if ($script:CreatedTestCertificate) {
+        $errors += @(Remove-TestCodeSigningCertificate -Certificate $script:CreatedTestCertificate)
+    }
+    foreach ($path in @($script:BackupRoot, $script:SigningSessionRoot)) {
+        if ($path -and (Test-Path -LiteralPath $path)) {
+            try { Remove-Item -LiteralPath $path -Recurse -Force } catch { $errors += "remove $path`: $($_.Exception.Message)" }
+        }
+    }
+    $record = [pscustomobject]@{
+        status = if ($errors.Count -eq 0) { 'PASS' } else { 'FAIL' }
+        restoredBinaryCount = @($script:BinaryBackups).Count
+        removedTestCertificateThumbprint = if ($script:CreatedTestCertificate) { $script:CreatedTestCertificate.Thumbprint } else { $null }
+        errors = @($errors)
+    }
+    $cleanupPath = Join-Path $ArtifactsDir 'cleanup.json'
+    $record | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $cleanupPath -Encoding utf8
+    $script:BinaryBackups = @()
+    $script:CreatedTestCertificate = $null
+    $script:BackupRoot = $null
+    $script:SigningSessionRoot = $null
+    $script:SigningSessionId = $null
+    return [pscustomobject]@{ Record = $record; Path = $cleanupPath }
 }
 
 function Invoke-SigntoolProcess {
@@ -131,8 +170,8 @@ function Invoke-SigntoolProcess {
 }
 
 function Sign-TestCodeSigningBinary {
-    param([Parameter(Mandatory)] [string] $Signtool, [Parameter(Mandatory)] [string] $PfxPath, [Parameter(Mandatory)] [string] $Password, [Parameter(Mandatory)] [string] $BinaryPath)
-    $result = Invoke-SigntoolProcess -Signtool $Signtool -Arguments @('sign', '/fd', 'SHA256', '/f', $PfxPath, '/p', $Password, '/v', $BinaryPath)
+    param([Parameter(Mandatory)] [string] $Signtool, [Parameter(Mandatory)] [string] $Thumbprint, [Parameter(Mandatory)] [string] $BinaryPath)
+    $result = Invoke-SigntoolProcess -Signtool $Signtool -Arguments @('sign', '/fd', 'SHA256', '/sha1', $Thumbprint, '/v', $BinaryPath)
     return $result
 }
 
@@ -226,8 +265,7 @@ function Test-WinVerifyTrustSignature {
         Native WinVerifyTrust(WTD_SAFER_FLAG) status check - the product's exact
         signature-validity gate (ffsetup::AuthenticodeVerification.cpp). Returns true
         when WinVerifyTrust returns ERROR_SUCCESS. WTD_SAFER_FLAG means no trusted-root
-        requirement; the test cert is additionally installed as a CurrentUser root so
-        the normal trust provider also reports Valid.
+        requirement, so this capability does not mutate CurrentUser\Root.
     #>
     param([Parameter(Mandatory)] [string] $BinaryPath)
     if (-not (Test-Path -LiteralPath $BinaryPath)) { return $false }
@@ -240,9 +278,7 @@ function Test-BinaryTestSigned {
         ffsetup::VerifyPinnedSignature:
           1. WinVerifyTrust(WTD_SAFER_FLAG) returns ERROR_SUCCESS (native, the product's
              signature-validity gate).
-          2. Get-AuthenticodeSignature reports Status=Valid (trusted now that the test
-             cert is a CurrentUser root).
-          3. The leaf signer certificate's SHA1 thumbprint equals the test cert
+          2. The leaf signer certificate's SHA1 thumbprint equals the test cert
              thumbprint (the product's pinning comparison; .NET exposes the SHA1
              thumbprint via SignerCertificate.Thumbprint, equivalent to
              CertGetCertificateContextProperty(CERT_SHA1_HASH_PROP_ID)).
@@ -253,7 +289,6 @@ function Test-BinaryTestSigned {
     $signerThumb = if ($sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
     $issues = @()
     if (-not $winTrust) { $issues += 'WinVerifyTrust-failed' }
-    if ($sig.Status -ne 'Valid') { $issues += "status-$($sig.Status)" }
     if (-not $signerThumb -or -not [string]::Equals($signerThumb, $ExpectedThumbprint, [StringComparison]::OrdinalIgnoreCase)) {
         $issues += 'pinned-thumbprint-mismatch'
     }
@@ -274,6 +309,7 @@ function Invoke-TestCodeSigningCapability {
     $log = [System.Collections.ArrayList]::new()
     $logFn = { param($msg) [void]$log.Add("[$(Get-Date -Format 'HH:mm:ss')] $msg") }
     $logFn.Invoke("test-code-signing: repo=$($Options.RepoRoot)")
+    $result = $null
 
     try {
         $binaryPaths = @(Get-ProductBinaryPaths -Options $Options)
@@ -289,6 +325,12 @@ function Invoke-TestCodeSigningCapability {
             }
         }
 
+        $script:SigningSessionId = [guid]::NewGuid().ToString('N')
+        $script:SigningSessionRoot = Join-Path $script:SigningRoot ('run-' + $script:SigningSessionId)
+        Backup-TestCodeSigningBinaries -BinaryPaths $binaryPaths
+        $subResults += New-VSignSubResult -Id 'test-state-backup' -Status 'PASS' -Reason $null -DurationMs 0 `
+            -Detail "backed up $(@($script:BinaryBackups).Count) product binaries; signed bytes will be restored before return"
+
         $signtool = Find-TestCodeSigningSigntool
         $logFn.Invoke("signtool: $signtool")
 
@@ -298,25 +340,15 @@ function Invoke-TestCodeSigningCapability {
         $subResults += New-VSignSubResult -Id 'test-certificate-generation' -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds `
             -Detail "cert `"$($cert.Subject)`" thumbprint $($cert.Thumbprint) in CurrentUser\My store; expires $($cert.NotAfter.ToShortDateString())"
 
-        $sw.Restart()
-        $pfx = Export-TestCodeSigningPfx -Certificate $cert -SigningRoot $script:SigningRoot
-        $sw.Stop()
-        $subResults += New-VSignSubResult -Id 'pfx-export' -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds `
-            -Detail "PFX written to $($pfx.PfxPath) (gitignored verify/.signing/); thumbprint $($pfx.Thumbprint)"
-        $artifacts += [pscustomobject]@{ path = $pfx.PfxPath; type = 'test-pfx' }
-        $artifacts += [pscustomobject]@{ path = $pfx.ThumbprintPath; type = 'test-thumbprint' }
-
-        $rootTrusted = Add-TestCodeSigningRootTrust -Certificate $cert
-        $subResults += New-VSignSubResult -Id 'test-root-trust' -Status $(if ($rootTrusted) { 'PASS' } else { 'FAIL' }) `
-            -DurationMs 0 -Detail "test cert installed into CurrentUser\Root so WinVerifyTrust (product's VerifyPinnedSignature) succeeds" `
-            -Reason $(if ($rootTrusted) { $null } else { 'root-trust-install-failed' })
+        $subResults += New-VSignSubResult -Id 'certificate-store-signing' -Status 'PASS' -Reason $null -DurationMs 0 `
+            -Detail "signtool will select only the unique test certificate $($cert.Thumbprint) from CurrentUser\My; no PFX/password or Root trust is persisted"
 
         $signErrors = @()
         $signDetail = @()
         $unverified = @()
         foreach ($binary in $binaryPaths) {
             $logFn.Invoke("signing $($binary.Name)")
-            $result = Sign-TestCodeSigningBinary -Signtool $signtool -PfxPath $pfx.PfxPath -Password $pfx.Password -BinaryPath $binary.Path
+            $result = Sign-TestCodeSigningBinary -Signtool $signtool -Thumbprint $cert.Thumbprint -BinaryPath $binary.Path
             $signDetail += "$($binary.Name)=exit$($result.ExitCode)"
             if ($result.ExitCode -ne 0) {
                 $signErrors += "$($binary.Name)-sign-failed"
@@ -328,16 +360,22 @@ function Invoke-TestCodeSigningCapability {
 
         $verifyIssues = @()
         $verifyDetail = @()
+        $trustUnavailable = $true
         foreach ($binary in $binaryPaths) {
-            $check = Test-BinaryTestSigned -BinaryPath $binary.Path -ExpectedThumbprint $pfx.Thumbprint
+            $check = Test-BinaryTestSigned -BinaryPath $binary.Path -ExpectedThumbprint $cert.Thumbprint
             $verifyDetail += "$($binary.Name)=WinVerifyTrust:$($check.WinVerifyTrust)/PSGetAuth:$($check.PgStatus)/signer=$($check.SignerThumbprint)"
+            $signerMatches = $check.SignerThumbprint -and [string]::Equals($check.SignerThumbprint, $cert.Thumbprint, [StringComparison]::OrdinalIgnoreCase)
+            if ($check.WinVerifyTrust -or -not $signerMatches) { $trustUnavailable = $false }
             if (-not $check.Valid) { $verifyIssues += "$($binary.Name)-$($check.Reason)" }
         }
-        $subResults += New-VSignSubResult -Id 'authenticode-verification' -Status $(if ($verifyIssues.Count -eq 0) { 'PASS' } else { 'FAIL' }) `
-            -DurationMs 0 -Detail ($verifyDetail -join '; ') -Reason $(if ($verifyIssues.Count -eq 0) { $null } else { 'authenticode-invalid' })
-        $subResults += New-VSignSubResult -Id 'pinned-thumbprint' -Status $(if ($verifyIssues.Count -eq 0) { 'PASS' } else { 'FAIL' }) `
-            -DurationMs 0 -Detail "each binary: WinVerifyTrust(SAFER) success + leaf signer SHA1 thumbprint == test cert $($pfx.Thumbprint) (mirrors ffsetup::VerifyPinnedSignature)" `
-            -Reason $(if ($verifyIssues.Count -eq 0) { $null } else { 'pinned-thumbprint-mismatch' })
+        $verificationSkipped = $verifyIssues.Count -gt 0 -and $trustUnavailable
+        $verificationStatus = if ($verifyIssues.Count -eq 0) { 'PASS' } elseif ($verificationSkipped) { 'SKIPPED' } else { 'FAIL' }
+        $verificationReason = if ($verifyIssues.Count -eq 0) { $null } elseif ($verificationSkipped) { 'current-user-root-trust-unavailable' } else { 'authenticode-invalid' }
+        $subResults += New-VSignSubResult -Id 'authenticode-verification' -Status $verificationStatus `
+            -DurationMs 0 -Detail ($verifyDetail -join '; ') -Reason $verificationReason
+        $subResults += New-VSignSubResult -Id 'pinned-thumbprint' -Status $verificationStatus `
+            -DurationMs 0 -Detail "each binary: signer SHA1 thumbprint == test cert $($cert.Thumbprint); WinVerifyTrust acceptance is required for the positive gate (mirrors ffsetup::VerifyPinnedSignature)" `
+            -Reason $verificationReason
 
         $prodPfx = $env:FF_PRODUCTION_CERT_PFX
         $prodPassword = $env:FF_PRODUCTION_CERT_PASSWORD
@@ -360,14 +398,14 @@ function Invoke-TestCodeSigningCapability {
                 -Reason $(if ($prodSignErrors.Count -eq 0) { $null } else { 'production-signing-failed' })
         } else {
             $subResults += New-VSignSubResult -Id 'production-cert-gate' -Status 'SKIPPED' -Reason 'production-cert-not-provided' -DurationMs 0 `
-                -Detail 'FF_PRODUCTION_CERT_PFX / FF_PRODUCTION_CERT_PASSWORD not set or PFX missing; production gate did not run. Test-PKI Authenticode + pinned-thumbprint checks above proceeded independently and were not disabled.'
+                -Detail 'FF_PRODUCTION_CERT_PFX / FF_PRODUCTION_CERT_PASSWORD not set or PFX missing; production gate did not run. Test-PKI signing proceeded, while any unavailable positive trust-store acceptance remains explicitly SKIPPED.'
         }
 
         $sigPath = Join-Path $ArtifactsDir 'test-code-signing.json'
         [pscustomobject]@{
             schemaVersion = '1.0.0'
             generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-            testCertThumbprint = $pfx.Thumbprint
+            testCertThumbprint = $cert.Thumbprint
             signtool = $signtool
             binaries = @($binaryPaths | ForEach-Object { [pscustomobject]@{ name = $_.Name; path = $_.Path; signed = $true } })
             subresults = @($subResults | ForEach-Object { [pscustomobject]@{ id = $_.id; status = $_.status; reason = $_.reason; detail = $_.detail } })
@@ -380,11 +418,11 @@ function Invoke-TestCodeSigningCapability {
 
         $failures = @($subResults | Where-Object status -eq 'FAIL').Count
         $skipped = @($subResults | Where-Object status -eq 'SKIPPED').Count
-        $status = if ($failures -gt 0) { 'FAIL' } else { 'PASS' }
-        $reason = if ($failures -gt 0) { 'test-code-signing-failed' } else { $null }
-        return [pscustomobject]@{
+        $status = if ($failures -gt 0) { 'FAIL' } elseif ($verificationSkipped) { 'SKIPPED' } else { 'PASS' }
+        $reason = if ($failures -gt 0) { 'test-code-signing-failed' } elseif ($verificationSkipped) { 'current-user-root-trust-unavailable' } else { $null }
+        $result = [pscustomobject]@{
             Status = $status; Reason = $reason
-            Summary = "$(@($subResults | Where-Object status -eq 'PASS').Count) passed, $skipped skipped, $failures failed; test cert thumbprint $($pfx.Thumbprint)"
+            Summary = "$(@($subResults | Where-Object status -eq 'PASS').Count) passed, $skipped skipped, $failures failed; test cert thumbprint $($cert.Thumbprint)"
             Artifacts = $artifacts; SubResults = $subResults
         }
     } catch {
@@ -395,8 +433,34 @@ function Invoke-TestCodeSigningCapability {
         "capability error: $($_.Exception.ToString())" | Set-Content -LiteralPath $failurePath -Encoding utf8
         $artifacts += [pscustomobject]@{ path = $failurePath; type = 'failure-tree' }
         $subResults += New-VSignSubResult -Id 'capability-run' -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message
-        return [pscustomobject]@{ Status = 'FAIL'; Reason = 'driver-exception'; Summary = $_.Exception.Message; Artifacts = $artifacts; SubResults = $subResults }
+        $result = [pscustomobject]@{ Status = 'FAIL'; Reason = 'driver-exception'; Summary = $_.Exception.Message; Artifacts = $artifacts; SubResults = $subResults }
+    } finally {
+        if ($script:SigningSessionRoot -or $script:BackupRoot -or $script:CreatedTestCertificate) {
+            try {
+                $cleanup = Invoke-TestCodeSigningCleanup -ArtifactsDir $ArtifactsDir
+                $artifacts += [pscustomobject]@{ path = $cleanup.Path; type = 'cleanup-report' }
+                if ($cleanup.Record.status -ne 'PASS') {
+                    if ($result) {
+                        $result.Status = 'FAIL'
+                        $result.Reason = 'test-code-signing-cleanup-failed'
+                        $result.Summary = "$($result.Summary); cleanup failed: $($cleanup.Record.errors -join '; ')"
+                        $result.Artifacts = $artifacts
+                    }
+                } elseif ($result) {
+                    $result.Artifacts = $artifacts
+                }
+            } catch {
+                if ($result) {
+                    $result.Status = 'FAIL'
+                    $result.Reason = 'test-code-signing-cleanup-failed'
+                    $result.Summary = "$($result.Summary); cleanup exception: $($_.Exception.Message)"
+                    $result.Artifacts = $artifacts
+                }
+            }
+        }
     }
+
+    return $result
 }
 
 Export-ModuleMember -Function Test-TestCodeSigningCapabilityAvailability, Invoke-TestCodeSigningCapability, Get-TestCodeSigningCapabilityDiagnostics

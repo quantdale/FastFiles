@@ -3,7 +3,7 @@
   "interfaceVersion": "1.0.0",
   "tier": 0,
   "displayName": "Test-PKI Code Signing",
-  "description": "Generates an isolated self-signed test code-signing certificate in the Current-User store, signs the FastFiles product binaries with signtool, and verifies the Authenticode signature plus the pinned-thumbprint behavior the product enforces. A production OV/EV certificate is an injectable secret; when absent the production gate reports SKIPPED(production-cert-not-provided) and never disables verification.",
+  "description": "Generates an isolated self-signed test code-signing certificate in the Current-User store, signs reversible disposable copies of the FastFiles product binaries with signtool using the certificate store, and verifies the Authenticode signature plus the pinned-thumbprint behavior the product enforces. The binary bytes and test certificate are restored or removed before return; no PFX/password or Current-User Root trust is persisted. A production OV/EV certificate is an injectable secret; when absent the production gate reports SKIPPED(production-cert-not-provided) and never disables verification.",
   "entryModule": "TestCodeSigning.psm1",
   "repairPosture": "repair-unsupported",
   "entryPoints": {
