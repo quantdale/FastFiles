@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-23 (overnight release-closure campaign; readiness and test-PKI waves)
-Status: **Campaign in progress on `overnight/release-closure-20260823`.** Live Git remains authoritative: this branch was created from `origin/main`/`HEAD` `e8b1d9b076cb2e194ca007303689e71dfe44f671`; do not treat this file as a Git database.
-NEXT EXACT ACTION: Push the campaign branch and reconcile the exact final SHA with hosted CI, then re-audit open task checkboxes and record the remaining external blockers; keep production, root-store, service, and guest prerequisites explicit.
+Last updated: 2026-08-23 (overnight release-closure campaign; final handoff checkpoint)
+Status: **Campaign handoff ready on `overnight/release-closure-20260823`.** Live Git remains authoritative: this branch was created from `origin/main`/`HEAD` `e8b1d9b076cb2e194ca007303689e71dfe44f671`; do not treat this file as a Git database.
+NEXT EXACT ACTION: Create or update a draft PR after GitHub authentication is available; otherwise provision authorized production signing material and a clean elevated Windows host for the remaining privileged evidence. Do not modify `main` or close external OpenSpec tasks from this campaign.
 
 ## Current overnight campaign checkpoint (2026-08-23)
 
@@ -24,6 +24,7 @@ NEXT EXACT ACTION: Push the campaign branch and reconcile the exact final SHA wi
 - Direct structured test-PKI result: certificate generation and all four binary signatures PASS; signer thumbprints were present; positive WinVerifyTrust/pinned acceptance was explicitly `SKIPPED(current-user-root-trust-unavailable)` because WinVerifyTrust returned false and PowerShell reported `UnknownError` for the untrusted self-signed chain. Binary hashes matched backups after cleanup. This is non-production evidence and does not satisfy production signer/runtime tasks.
 - The repository's opt-in `verify/run_privileged_trust_tests.ps1` configured and built the dedicated suite successfully, but all three trusted-signer/expiry/timestamp cases failed on this host and its residue check found two pre-existing marker-named roots in CurrentUser\Root. Exact removal attempts via X509Store and `certutil` blocked/hung under the host's ProtectedRoots policy; no unrelated roots were touched. The two remaining thumbprints are recorded in the session evidence, and this is an environment-only blocker requiring a host policy/state change.
 - The composed readiness run at clean implementation SHA `fb8eb7352fccbd892dbc1459a59ea43a969a10c5` completed in 495.7 seconds and produced a valid report: 45 gates = 35 PASS, 8 SKIPPED, 1 REQUIRED-BUT-UNAVAILABLE, 1 FAIL. The only FAIL was the production artifact report: stale `build/release` metadata identity and unsigned binaries, plus a pre-existing installed service/task state; the host was not mutated. Candidate packaging/provenance passed. Final serializer scope bugs were fixed in commits `0030ae9` and `4d87b6e`.
+- Hosted handoff: push-triggered CI run `32648989813` was attached to final code/docs SHA `9b5285a2e5c9eca6f197d742195a39e5d01bc992`; API observation recorded `asan-protocol-fuzz`, `debug`, and `release-test` as successful, and the public branch workflow badge subsequently reported `CI - passing`. The unauthenticated API quota prevented a final per-job Analyze fetch, but no failure was reported and the overall workflow status is passing. `git fetch origin --prune` reconciled `origin/main` at `e8b1d9b076cb2e194ca007303689e71dfe44f671` and the remote campaign branch at the pushed SHA. PR #6 remains open because the local GitHub CLI is unauthenticated; its unique deltas are fully dispositioned in this checkpoint.
 
 ## Current 2026-08-23 Phase-7 certification checkpoint
 
