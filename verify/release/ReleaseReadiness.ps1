@@ -24,7 +24,7 @@ if ($Mode -eq 'compose') {
             -OutputDirectory $OutputDirectory -ArtifactRoot $composeRoot -IncludePrivileged:$IncludePrivileged `
             -IncludeInteractive:$IncludeInteractive
         $jsonPath = Join-Path $OutputDirectory 'release-readiness-composition.json'
-        Write-ReleaseJson -Value $result -Path $jsonPath
+        ReleaseCommon\Write-ReleaseJson -Value $result -Path $jsonPath
         if ($OutputFormat -eq 'json') {
             $result | ConvertTo-Json -Depth 25
         } else {
