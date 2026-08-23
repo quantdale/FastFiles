@@ -90,6 +90,18 @@ add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)
 target_include_directories(ffstorage_visibility_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_visibility_tests COMMAND ffstorage_visibility_tests)
 
+# ui-v3 storage toolbar: the owner-drawn radio presentation keeps checked,
+# pressed, focus, and disabled precedence deterministic and headless-testable.
+add_executable(ffstorage_radio_state_tests test_storage_radio_state.cpp)
+target_include_directories(ffstorage_radio_state_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffstorage_radio_state_tests COMMAND ffstorage_radio_state_tests)
+
+# ui-v3 navigation: display-only 8.3/long-path normalization never changes
+# canonical activation or identity paths.
+add_executable(ffdisplay_path_tests test_display_path.cpp)
+target_include_directories(ffdisplay_path_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffdisplay_path_tests COMMAND ffdisplay_path_tests)
+
 add_executable(ffshortcut_routing_tests test_shortcut_routing.cpp ../../src/ui/src/CommandSystem.cpp)
 target_include_directories(ffshortcut_routing_tests PRIVATE ../../src/ui/src)
 target_link_libraries(ffshortcut_routing_tests PRIVATE shell32)
@@ -183,5 +195,5 @@ add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
 add_executable(ffsearch_metadata_tests test_search_metadata.cpp)
 target_include_directories(ffsearch_metadata_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffsearch_metadata_tests COMMAND ffsearch_metadata_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)

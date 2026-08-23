@@ -2,9 +2,11 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 #include <windows.h>
 
+#include "ffui/DisplayPath.h"
 #include "NavigationWorkspace.h"
 
 namespace ffui {
@@ -23,13 +25,7 @@ inline bool IsTabDrawItemActive(int controlId, size_t activeTabIndex) {
 // extended-length prefix is an API detail that navigation semantics rely on
 // (long paths), so the model keeps it — but no label should ever print it.
 inline std::wstring StripExtendedLengthPrefix(std::wstring path) {
-    if (path.rfind(L"\\\\?\\UNC\\", 0) == 0) {
-        return L"\\\\" + path.substr(8);
-    }
-    if (path.rfind(L"\\\\?\\", 0) == 0) {
-        return path.substr(4);
-    }
-    return path;
+    return StripDisplayPathPrefix(std::move(path));
 }
 
 // Pure tab-label derivation: "N: " + leaf, with Home/This-PC special cases and
@@ -45,7 +41,7 @@ inline std::wstring TabLabelForLocation(size_t oneBasedIndex, const NavigationLo
         label += L"This PC";
         return label;
     }
-    const std::wstring display = StripExtendedLengthPrefix(location.path);
+    const std::wstring display = NormalizeDisplayPath(location.path);
     const size_t slash = display.find_last_of(L"\\/");
     label += slash == std::wstring::npos || slash + 1 >= display.size()
         ? display : display.substr(slash + 1);

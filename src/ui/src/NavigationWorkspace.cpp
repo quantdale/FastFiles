@@ -10,6 +10,7 @@
 #include <windows.h>
 
 #include "RecentFolders.h"
+#include "ffui/DisplayPath.h"
 
 namespace ffui {
 namespace {
@@ -272,6 +273,41 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
     }
     const std::wstring& path = ActiveContext().currentPath;
     std::vector<BreadcrumbSegment> result{{L"This PC", L"", true}};
+    const auto applyDisplayLabels = [&](std::vector<BreadcrumbSegment> segments) {
+        const std::wstring displayPath = ffui::NormalizeDisplayPath(path);
+        if (displayPath.empty() || segments.size() <= 1) return segments;
+
+        std::vector<std::wstring> labels{L"This PC"};
+        if (displayPath.size() >= 3 && displayPath[1] == L':' && displayPath[2] == L'\\') {
+            labels.push_back(displayPath.substr(0, 2));
+            size_t start = 3;
+            while (start < displayPath.size()) {
+                const size_t end = displayPath.find(L'\\', start);
+                const std::wstring component = displayPath.substr(
+                    start, end == std::wstring::npos ? std::wstring::npos : end - start);
+                if (!component.empty()) labels.push_back(component);
+                if (end == std::wstring::npos) break;
+                start = end + 1;
+            }
+        } else if (displayPath.rfind(L"\\\\", 0) == 0) {
+            size_t start = 2;
+            size_t componentsSeen = 0;
+            while (start < displayPath.size()) {
+                const size_t end = displayPath.find(L'\\', start);
+                const std::wstring component = displayPath.substr(
+                    start, end == std::wstring::npos ? std::wstring::npos : end - start);
+                if (!component.empty()) {
+                    ++componentsSeen;
+                    if (componentsSeen >= 2) labels.push_back(component);
+                }
+                if (end == std::wstring::npos) break;
+                start = end + 1;
+            }
+        }
+        const size_t count = (std::min)(segments.size(), labels.size());
+        for (size_t index = 1; index < count; ++index) segments[index].label = labels[index];
+        return segments;
+    };
     if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
         std::iswalpha(path[4]) && path[5] == L':' && path[6] == L'\\') {
         std::wstring accumulated = path.substr(0, 7);
@@ -288,7 +324,7 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
             if (end == std::wstring::npos) break;
             start = end + 1;
         }
-        return result;
+        return applyDisplayLabels(std::move(result));
     }
     if (path.starts_with(L"\\\\?\\UNC\\")) {
         std::wstring accumulated = L"\\\\?\\UNC\\";
@@ -312,7 +348,7 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
             if (end == std::wstring::npos) break;
             start = end + 1;
         }
-        return result;
+        return applyDisplayLabels(std::move(result));
     }
     if (path.size() >= 3 && path[1] == L':' && path[2] == L'\\') {
         std::wstring accumulated = path.substr(0, 3);
@@ -329,7 +365,7 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
             if (end == std::wstring::npos) break;
             start = end + 1;
         }
-        return result;
+        return applyDisplayLabels(std::move(result));
     }
     if (path.rfind(L"\\\\", 0) == 0) {
         std::wstring accumulated = L"\\\\";
@@ -354,13 +390,13 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
             start = end + 1;
         }
     }
-    return result;
+    return applyDisplayLabels(std::move(result));
 }
 
 void NavigationWorkspace::BeginAddressBarEdit() {
     auto& context = ActiveContext();
     context.addressBarMode = AddressBarMode::EditableText;
-    context.addressBarText = context.currentPath.empty() ? L"This PC" : context.currentPath;
+    context.addressBarText = context.currentPath.empty() ? L"This PC" : ffui::NormalizeDisplayPath(context.currentPath);
     context.addressBarError.clear();
 }
 

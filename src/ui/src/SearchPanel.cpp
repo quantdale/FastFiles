@@ -7,6 +7,7 @@
 #include "UiComponents.h" // ui-v3 search: shared chip/pill/focus GDI grammar
 #include "Util.h"
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D7: shared Size-on-Disk wording
+#include "ffui/DisplayPath.h"
 #include "ffui/SearchTabOrder.h" // ui-v3 search a11y hardening: headless Tab-order seam
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 #include "UiaProviderBase.h" // ui-v3 search a11y hardening: shared COM provider foundation
@@ -1239,7 +1240,7 @@ bool SearchPanel::HandleNotify(LPARAM lParam) {
         switch (info->item.iSubItem) {
             case 0: text = candidate.name; break;
             case 1: text = candidate.isDirectory ? L"Folder" : L"File"; break;
-            case 2: text = candidate.folder; break;
+            case 2: text = ffui::NormalizeDisplayPath(candidate.folder); break;
             case 3: text = candidate.isDirectory ? L"—" : ffui::FormatSize(candidate.sizeBytes); break;
             case 4: text = FormatFileTime(candidate.modifiedTime); break;
             // indexed-search-allocated-size D7: Size on Disk column mirrors the
@@ -1421,7 +1422,8 @@ void SearchPanel::DrawSearchResultRow(const DRAWITEMSTRUCT* item) {
         SetTextColor(dc, paint.secondary);
         HGDIOBJ previous = SelectObject(dc, captionFont);
         RECT folderRect{textLeft, line2.top, (std::max)(textLeft, folderMaxRight), line2.bottom};
-        DrawTextW(dc, candidate.folder.c_str(), static_cast<int>(candidate.folder.size()), &folderRect,
+        const std::wstring displayFolder = ffui::NormalizeDisplayPath(candidate.folder);
+        DrawTextW(dc, displayFolder.c_str(), static_cast<int>(displayFolder.size()), &folderRect,
                   DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
         SelectObject(dc, previous);
     }
@@ -2506,6 +2508,7 @@ UiaSearchResultInfo SearchPanel::UiaSearchResultInfoOf(size_t index) const {
     const ffsearch::Candidate& candidate = results_[index].candidate;
     info.name = candidate.name;
     info.folder = candidate.folder;
+    info.displayFolder = ffui::NormalizeDisplayPath(candidate.folder);
     info.sizeBytes = candidate.sizeBytes;
     info.modifiedTime = candidate.modifiedTime;
     info.isDirectory = candidate.isDirectory;

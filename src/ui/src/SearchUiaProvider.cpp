@@ -518,7 +518,7 @@ STDMETHODIMP SearchResultUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
             UiaProviderBase::SetVariantString(retVal, info.name);
             return S_OK;
         case UIA_HelpTextPropertyId:
-            UiaProviderBase::SetVariantString(retVal, info.folder);
+            UiaProviderBase::SetVariantString(retVal, info.displayFolder.empty() ? info.folder : info.displayFolder);
             return S_OK;
         case UIA_FullDescriptionPropertyId: {
             std::wstring description = info.isDirectory ? L"Folder" : L"File";

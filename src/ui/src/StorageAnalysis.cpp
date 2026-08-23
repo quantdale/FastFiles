@@ -1,9 +1,11 @@
 #include "StorageAnalysis.h"
 
 #include "TreemapView.h"
+#include "UiComponents.h"
 #include "UITheme.h"
 #include "Util.h"
 #include "ffui/StorageLayout.h"
+#include "ffui/StorageRadioState.h"
 #include "ffui/SnapshotAggregate.h"
 #include "ffsearch/Path.h"
 
@@ -27,10 +29,104 @@ constexpr int kByCategoryId = 7209;
 constexpr int kTreemapId = 7210;
 constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
+constexpr UINT_PTR kRadioSubclassBase = 0x5346;
+constexpr size_t kStorageRadioCount = 6;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
     return static_cast<int>(ffui::UiScale(static_cast<float>(dipValue)));
+}
+
+void DrawStorageFocusRing(HDC dc, const RECT& rect, COLORREF color) {
+    const int inset = (std::max)(1, Scaled(2));
+    const RECT ring{rect.left + inset, rect.top + inset, rect.right - inset, rect.bottom - inset};
+    if (ring.right <= ring.left || ring.bottom <= ring.top) return;
+    HPEN pen = CreatePen(PS_SOLID, (std::max)(1, Scaled(1)), color);
+    if (pen == nullptr) return;
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(dc, pen));
+    const int radius = (std::max)(1, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
+    RoundRect(dc, ring.left, ring.top, ring.right, ring.bottom, radius * 2, radius * 2);
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+}
+
+void DrawStorageRadioButton(const DRAWITEMSTRUCT* item, bool darkTheme) {
+    if (item == nullptr || item->hDC == nullptr) return;
+    const bool checked = SendMessageW(item->hwndItem, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+    const bool focused = (item->itemState & ODS_FOCUS) != 0;
+    const bool disabled = (item->itemState & ODS_DISABLED) != 0;
+    const bool hot = (item->itemState & ODS_HOTLIGHT) != 0;
+    const auto state = ResolveStorageRadioVisualState(checked, pressed, focused, disabled);
+    const bool interactionFill = state == StorageRadioVisualState::Pressed ||
+                                 state == StorageRadioVisualState::CheckedPressed || hot;
+    const bool highContrast = UiSystemHighContrast();
+    const UiTheme theme = GetUiTheme(darkTheme);
+    COLORREF background = highContrast ? GetSysColor(COLOR_BTNFACE) : ToColorRef(theme.background);
+    if (highContrast && interactionFill) background = GetSysColor(COLOR_BTNSHADOW);
+    if (!highContrast && interactionFill) background = ToColorRef(theme.surfaceSubtle);
+    UiGdiRoundedRect(item->hDC, item->rcItem, background, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
+
+    const COLORREF border = highContrast
+                                ? GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_WINDOWTEXT)
+                                : ToColorRef(disabled ? theme.textDisabled : theme.border);
+    const COLORREF text = highContrast
+                              ? GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_BTNTEXT)
+                              : ToColorRef(disabled ? theme.textDisabled : theme.text);
+    const COLORREF accent = highContrast
+                                ? GetSysColor(COLOR_HIGHLIGHT)
+                                : ToColorRef(disabled ? theme.textDisabled : theme.accent);
+    const int glyphSize = (std::max)(Scaled(16), 12);
+    const int glyphLeft = item->rcItem.left + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+    const int glyphTop = (item->rcItem.top + item->rcItem.bottom - glyphSize) / 2;
+    const RECT glyph{glyphLeft, glyphTop, glyphLeft + glyphSize, glyphTop + glyphSize};
+
+    HBRUSH glyphBrush = CreateSolidBrush(background);
+    HPEN glyphPen = CreatePen(PS_SOLID, (std::max)(1, Scaled(1)), border);
+    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(
+        item->hDC, glyphBrush != nullptr ? glyphBrush : GetStockObject(NULL_BRUSH)));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(
+        item->hDC, glyphPen != nullptr ? glyphPen : GetStockObject(NULL_PEN)));
+    Ellipse(item->hDC, glyph.left, glyph.top, glyph.right, glyph.bottom);
+    SelectObject(item->hDC, oldBrush);
+    SelectObject(item->hDC, oldPen);
+    if (glyphBrush != nullptr) DeleteObject(glyphBrush);
+    if (glyphPen != nullptr) DeleteObject(glyphPen);
+
+    if (checked) {
+        const int inset = (std::max)(2, glyphSize / 4);
+        const RECT dot{glyph.left + inset, glyph.top + inset,
+                       glyph.right - inset, glyph.bottom - inset};
+        HBRUSH dotBrush = CreateSolidBrush(accent);
+        if (dotBrush != nullptr) {
+            HBRUSH previous = static_cast<HBRUSH>(SelectObject(item->hDC, dotBrush));
+            HPEN previousPen = static_cast<HPEN>(SelectObject(item->hDC, GetStockObject(NULL_PEN)));
+            Ellipse(item->hDC, dot.left, dot.top, dot.right, dot.bottom);
+            SelectObject(item->hDC, previous);
+            SelectObject(item->hDC, previousPen);
+            DeleteObject(dotBrush);
+        }
+    }
+
+    wchar_t label[256]{};
+    GetWindowTextW(item->hwndItem, label, static_cast<int>(std::size(label)));
+    RECT textRect = item->rcItem;
+    textRect.left = glyph.right + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+    SetBkMode(item->hDC, TRANSPARENT);
+    SetTextColor(item->hDC, text);
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(item->hwndItem, WM_GETFONT, 0, 0));
+    if (font == nullptr) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT oldFont = static_cast<HFONT>(SelectObject(item->hDC, font));
+    DrawTextW(item->hDC, label, -1, &textRect,
+              DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    SelectObject(item->hDC, oldFont);
+
+    if (focused) {
+        DrawStorageFocusRing(item->hDC, item->rcItem,
+                             highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.focusStroke));
+    }
 }
 
 // storage-analysis 2.4: a volume that disappeared keeps its last-known
@@ -62,10 +158,219 @@ void SetSortIndicator(HWND list, int column, bool ascending) {
 
 } // namespace
 
+// ui-v3 storage radio polish: the WindowShell uses a custom fragment root, so
+// the default HWND bridge exposes native child buttons as Pane elements. Keep
+// the host provider for geometry/runtime identity, but override the radio
+// control type and SelectionItem pattern so owner-draw presentation never
+// removes keyboard or assistive-technology semantics.
+class StorageRadioProvider final : public UiaProviderBase, public ISelectionItemProvider {
+public:
+    StorageRadioProvider(UiaOwnerStatePtr state, StorageAnalysis* owner, HWND radio)
+        : UiaProviderBase(std::move(state)), owner_(owner), radio_(radio) {}
+
+    FFUIA_QI_BEGIN()
+        FFUIA_QI_ENTRY(IID_ISelectionItemProvider, ISelectionItemProvider)
+    FFUIA_QI_END()
+    FFUIA_REFCOUNT()
+
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        if (!Alive() || radio_ == nullptr || !IsWindow(radio_)) return UIA_E_ELEMENTNOTAVAILABLE;
+        return UiaHostProviderFromHwnd(radio_, retVal);
+    }
+
+    STDMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        VariantInit(retVal);
+        if (!Alive() || radio_ == nullptr || !IsWindow(radio_)) return UIA_E_ELEMENTNOTAVAILABLE;
+        switch (propertyId) {
+            case UIA_ControlTypePropertyId:
+                SetVariantInt(retVal, UIA_RadioButtonControlTypeId);
+                return S_OK;
+            case UIA_NamePropertyId: {
+                wchar_t text[128]{};
+                GetWindowTextW(radio_, text, static_cast<int>(std::size(text)));
+                SetVariantString(retVal, text);
+                return S_OK;
+            }
+            case UIA_IsKeyboardFocusablePropertyId:
+                SetVariantBool(retVal, IsWindowEnabled(radio_) != FALSE);
+                return S_OK;
+            case UIA_IsEnabledPropertyId:
+                SetVariantBool(retVal, IsWindowEnabled(radio_) != FALSE);
+                return S_OK;
+            case UIA_HasKeyboardFocusPropertyId:
+                SetVariantBool(retVal, GetFocus() == radio_);
+                return S_OK;
+            case UIA_IsOffscreenPropertyId:
+                SetVariantBool(retVal, IsWindowVisible(radio_) == FALSE);
+                return S_OK;
+            case UIA_SelectionItemIsSelectedPropertyId:
+                SetVariantBool(retVal, SendMessageW(radio_, BM_GETCHECK, 0, 0) == BST_CHECKED);
+                return S_OK;
+            default:
+                SetVariantEmpty(retVal);
+                return S_OK;
+        }
+    }
+
+    STDMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        if (!Alive()) return UIA_E_ELEMENTNOTAVAILABLE;
+        if (patternId == UIA_SelectionItemPatternId) {
+            *retVal = static_cast<ISelectionItemProvider*>(this);
+            static_cast<IRawElementProviderSimple*>(this)->AddRef();
+            return S_OK;
+        }
+        return UiaProviderBase::GetPatternProvider(patternId, retVal);
+    }
+
+    STDMETHODIMP Select() noexcept override {
+        return SelectOnUiThread();
+    }
+
+    STDMETHODIMP AddToSelection() noexcept override {
+        return SelectOnUiThread();
+    }
+
+    STDMETHODIMP RemoveFromSelection() noexcept override {
+        // A radio group cannot have an unselected active member through the
+        // SelectionItem contract; changing mode is the only valid mutation.
+        return UIA_E_INVALIDOPERATION;
+    }
+
+    STDMETHODIMP get_IsSelected(BOOL* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        if (!Alive() || radio_ == nullptr || !IsWindow(radio_)) return UIA_E_ELEMENTNOTAVAILABLE;
+        *retVal = SendMessageW(radio_, BM_GETCHECK, 0, 0) == BST_CHECKED ? TRUE : FALSE;
+        return S_OK;
+    }
+
+    STDMETHODIMP get_SelectionContainer(IRawElementProviderSimple** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        if (!Alive() || owner_ == nullptr || owner_->owner_ == nullptr) return UIA_E_ELEMENTNOTAVAILABLE;
+        return UiaHostProviderFromHwnd(owner_->owner_, retVal);
+    }
+
+private:
+    HRESULT SelectOnUiThread() noexcept {
+        if (!Alive() || owner_ == nullptr || radio_ == nullptr || !IsWindow(radio_)) {
+            return UIA_E_ELEMENTNOTAVAILABLE;
+        }
+        return owner_->SelectRadioFromUia(radio_) ? S_OK : UIA_E_INVALIDOPERATION;
+    }
+
+    StorageAnalysis* owner_ = nullptr;
+    HWND radio_ = nullptr;
+};
+
 StorageAnalysis::~StorageAnalysis() {
+    const HWND radios[] = {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_};
+    for (size_t i = 0; i < kStorageRadioCount; ++i) {
+        if (radios[i] != nullptr) {
+            RemoveWindowSubclass(radios[i], RadioSubclassProc,
+                                 kRadioSubclassBase + static_cast<UINT_PTR>(i));
+        }
+    }
     uiaEvents_.Clear();
+    if (uiaState_) uiaState_->alive = false;
+    uiaState_.reset();
     treemapView_.SetUiaEventHandler(nullptr);
     Hide();
+}
+
+LRESULT CALLBACK StorageAnalysis::RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
+                                                    LPARAM lParam, UINT_PTR subclassId,
+                                                    DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId) {
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> fixup = self->UiaRadioFixupProvider(hwnd);
+        if (fixup != nullptr) {
+            return UiaReturnRawElementProvider(hwnd, wParam, lParam, fixup.Get());
+        }
+    }
+
+    const auto invalidate = [hwnd]() { InvalidateRect(hwnd, nullptr, FALSE); };
+    switch (message) {
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            const HDC dc = BeginPaint(hwnd, &paint);
+            if (dc != nullptr) {
+                DRAWITEMSTRUCT item{};
+                item.CtlType = ODT_BUTTON;
+                item.CtlID = static_cast<UINT>(GetDlgCtrlID(hwnd));
+                item.itemID = item.CtlID;
+                item.hwndItem = hwnd;
+                item.hDC = dc;
+                GetClientRect(hwnd, &item.rcItem);
+                if ((static_cast<UINT>(SendMessageW(hwnd, BM_GETSTATE, 0, 0)) & BST_PUSHED) != 0) {
+                    item.itemState |= ODS_SELECTED;
+                }
+                if (GetFocus() == hwnd) item.itemState |= ODS_FOCUS;
+                if (!IsWindowEnabled(hwnd)) item.itemState |= ODS_DISABLED;
+                POINT cursor{};
+                RECT client{};
+                GetClientRect(hwnd, &client);
+                GetCursorPos(&cursor);
+                ScreenToClient(hwnd, &cursor);
+                if (PtInRect(&client, cursor)) item.itemState |= ODS_HOTLIGHT;
+                DrawStorageRadioButton(&item, self->darkTheme_);
+                EndPaint(hwnd, &paint);
+            }
+            return 0;
+        }
+        case WM_PRINTCLIENT: {
+            const HDC dc = reinterpret_cast<HDC>(wParam);
+            if (dc == nullptr) return 0;
+            DRAWITEMSTRUCT item{};
+            item.CtlType = ODT_BUTTON;
+            item.CtlID = static_cast<UINT>(GetDlgCtrlID(hwnd));
+            item.itemID = item.CtlID;
+            item.hwndItem = hwnd;
+            item.hDC = dc;
+            GetClientRect(hwnd, &item.rcItem);
+            if ((static_cast<UINT>(SendMessageW(hwnd, BM_GETSTATE, 0, 0)) & BST_PUSHED) != 0) {
+                item.itemState |= ODS_SELECTED;
+            }
+            if (GetFocus() == hwnd) item.itemState |= ODS_FOCUS;
+            if (!IsWindowEnabled(hwnd)) item.itemState |= ODS_DISABLED;
+            DrawStorageRadioButton(&item, self->darkTheme_);
+            return 0;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&track);
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            invalidate();
+            return result;
+        }
+        case WM_MOUSELEAVE:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_ENABLE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case BM_SETCHECK: {
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            invalidate();
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, RadioSubclassProc, subclassId);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
@@ -93,24 +398,30 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     overview_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                 WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
-    overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", WS_CHILD | BS_AUTORADIOBUTTON | WS_GROUP,
+    overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewId)), nullptr, nullptr);
     categoryFilter_ = CreateWindowExW(0, WC_COMBOBOXW, L"",
                                       WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCategoryFilterId)), nullptr, nullptr);
-    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | BS_AUTORADIOBUTTON,
+    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
                                  0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDrillDownId)), nullptr, nullptr);
-    largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", WS_CHILD | BS_AUTORADIOBUTTON,
+    largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFoldersId)), nullptr, nullptr);
-    largestFiles_ = CreateWindowExW(0, L"BUTTON", L"Largest Files", WS_CHILD | BS_AUTORADIOBUTTON,
+    largestFiles_ = CreateWindowExW(0, L"BUTTON", L"Largest Files", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFilesId)), nullptr, nullptr);
-    byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", WS_CHILD | BS_AUTORADIOBUTTON,
+    byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
                                   0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kByCategoryId)), nullptr, nullptr);
-    treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", WS_CHILD | BS_AUTORADIOBUTTON,
+    treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
 
     if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
         !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
+
+    const HWND radios[] = {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_};
+    for (size_t i = 0; i < kStorageRadioCount; ++i) {
+        SetWindowSubclass(radios[i], RadioSubclassProc, kRadioSubclassBase + static_cast<UINT_PTR>(i),
+                          reinterpret_cast<DWORD_PTR>(this));
+    }
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
     const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
@@ -912,6 +1223,18 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     return false;
 }
 
+bool StorageAnalysis::HandleDrawItem(LPARAM lParam) {
+    const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+    if (item == nullptr) return false;
+    if (item->hwndItem != overviewButton_ && item->hwndItem != drillDown_ &&
+        item->hwndItem != largestFolders_ && item->hwndItem != largestFiles_ &&
+        item->hwndItem != byCategory_ && item->hwndItem != treemap_) {
+        return false;
+    }
+    DrawStorageRadioButton(item, darkTheme_);
+    return true;
+}
+
 void StorageAnalysis::SetViewMode(ViewMode mode) {
     if (viewMode_ == mode) {
         ApplyModeVisibility();
@@ -924,6 +1247,9 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
                      mode == ViewMode::LargestFolders ? kLargestFoldersId :
                      mode == ViewMode::LargestFiles ? kLargestFilesId :
                      mode == ViewMode::ByCategory ? kByCategoryId : kTreemapId);
+    for (HWND control : {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
+    }
     ApplyModeVisibility();
     RefreshData();
 }
@@ -1103,6 +1429,20 @@ void StorageAnalysis::SetEngineActive(bool active) {
     engineActive_ = active;
 }
 
+bool StorageAnalysis::SelectRadioFromUia(HWND radio) {
+    if (!visible_ || owner_ == nullptr || radio == nullptr || !IsWindow(radio)) return false;
+    const int id = GetDlgCtrlID(radio);
+    if (id < kOverviewId || id > kTreemapId) return false;
+    return PostMessageW(owner_, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(radio)) != FALSE;
+}
+
+Microsoft::WRL::ComPtr<IRawElementProviderSimple> StorageAnalysis::UiaRadioFixupProvider(HWND radio) {
+    if (radio == nullptr || !IsWindow(radio)) return nullptr;
+    if (!uiaState_) uiaState_ = std::make_shared<UiaOwnerState>();
+    return Microsoft::WRL::ComPtr<IRawElementProviderSimple>(
+        new StorageRadioProvider(uiaState_, this, radio));
+}
+
 void StorageAnalysis::SetDarkTheme(bool dark) {
     darkTheme_ = dark;
     treemapView_.SetDarkTheme(dark);
@@ -1118,6 +1458,9 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     }
     for (HWND header : {listHeader_, overviewHeader_}) {
         if (header != nullptr) InvalidateRect(header, nullptr, TRUE);
+    }
+    for (HWND control : {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
     }
 }
 

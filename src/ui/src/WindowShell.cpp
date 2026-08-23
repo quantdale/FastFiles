@@ -7,6 +7,7 @@
 #include "Util.h"
 #include "ffprotocol/Diagnostics.h"
 #include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
+#include "ffui/DisplayPath.h"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -1636,7 +1637,7 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         const std::wstring typeLabel = FileTypeFor(selection->path);
         info += L"Name: " + FileNameOf(selection->path) + L"\n";
         info += L"Extension: " + extensionLabel + L"\n";
-        info += L"Path: " + selection->path + L"\n";
+        info += L"Path: " + ffui::NormalizeDisplayPath(selection->path) + L"\n";
         if (selection->isDirectory) {
             const ffui::FolderAggregateKey aggregateKey{
                 static_cast<int64_t>(selection->volumeRowId), selection->fileIdLow, selection->fileIdHigh};
@@ -2058,6 +2059,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_DRAWITEM:
+            if (storageAnalysis_.HandleDrawItem(lParam)) return TRUE;
             if (commandPalette_.HandleDrawItem(lParam)) return TRUE;
             if (searchPanel_.HandleDrawItem(lParam)) return TRUE;
             return DefWindowProcW(hwnd, message, wParam, lParam);

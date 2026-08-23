@@ -1450,7 +1450,9 @@ STDMETHODIMP ColumnUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT*
             SetVariantIntProperty(retVal, UIA_ListControlTypeId);
             return S_OK;
         case UIA_NamePropertyId:
-            SetVariantString(retVal, info.path.empty() ? std::wstring(L"This PC") : info.path);
+            SetVariantString(retVal, info.displayPath.empty()
+                                         ? (info.path.empty() ? std::wstring(L"This PC") : info.path)
+                                         : info.displayPath);
             return S_OK;
         case UIA_AutomationIdPropertyId:
             SetVariantString(retVal, L"Pane." + std::to_wstring(pane_) + L".Column." + std::to_wstring(column_));
@@ -1754,7 +1756,7 @@ STDMETHODIMP ColumnItemUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARI
             SetVariantString(retVal, item.name);
             return S_OK;
         case UIA_HelpTextPropertyId:
-            SetVariantString(retVal, item.fullPath);
+            SetVariantString(retVal, item.displayFullPath.empty() ? item.fullPath : item.displayFullPath);
             return S_OK;
         case UIA_FullDescriptionPropertyId:
             SetVariantString(retVal, item.isDirectory ? std::wstring(L"Folder")

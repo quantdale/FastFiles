@@ -17,6 +17,7 @@
 #include "ffprotocol/SnapshotFormat.h"
 #include "ffprotocol/UiProtocol.h"
 #include "TreemapView.h"
+#include "UiaProviderBase.h"
 #include "Util.h"
 
 namespace ffui {
@@ -53,6 +54,7 @@ public:
     bool Visible() const { return visible_; }
     void Reposition(const ShellLayoutRect& surfaceRect);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
+    bool HandleDrawItem(LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
     // ui-v3 hardening: NM_CUSTOMDRAW for the overview/drill-down list headers
     // so dark mode never shows system-white SysHeader32 bands. Writes the
@@ -97,6 +99,13 @@ public:
     UiaEventRouter* TreemapEvents() override { return &uiaEvents_; }
 
 private:
+    friend class StorageRadioProvider;
+
+    static LRESULT CALLBACK RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                              UINT_PTR subclassId, DWORD_PTR refData);
+    bool SelectRadioFromUia(HWND radio);
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> UiaRadioFixupProvider(HWND radio);
+
     struct DrillItem {
         std::wstring name;
         bool isDirectory = false;
@@ -201,6 +210,7 @@ private:
     // semantic-treemap-uia 30.x: semantic events pushed after locks are
     // released; the provider controller registers itself via SetUiaEventSink.
     UiaEventRouter uiaEvents_;
+    UiaOwnerStatePtr uiaState_;
 
     int sortColumn_ = 3; // default: sort by Subtree Size descending
     bool sortAscending_ = false;

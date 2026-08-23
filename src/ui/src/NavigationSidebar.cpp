@@ -1,6 +1,7 @@
 #include "NavigationSidebar.h"
 #include "UiComponents.h"
 #include "QuickActions.h"
+#include "ffui/DisplayPath.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -641,7 +642,10 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
                 }
             }
             const int labelLeft = slot.right + Scaled(UiMetrics::kSpaceXs);
-            DrawNavText(dc, row.label,
+            const std::wstring displayLabel =
+                (!row.path.empty() && (row.label.empty() || row.label == row.path))
+                    ? ffui::NormalizeDisplayPath(row.path) : row.label;
+            DrawNavText(dc, displayLabel,
                         {labelLeft, row.bounds.top, row.bounds.right - Scaled(UiMetrics::kSpaceS),
                          row.bounds.bottom},
                         bodyFont_, paint.text);
@@ -931,7 +935,7 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                         if (row.path.empty() && !row.home) tooltipText_ += L" (unavailable)";
                         if (!row.path.empty() && row.path != row.label) {
                             tooltipText_ += L"\n";
-                            tooltipText_ += row.path;
+                            tooltipText_ += ffui::NormalizeDisplayPath(row.path);
                         }
                     }
                 }

@@ -75,6 +75,7 @@ struct UiaViewGeometry {
 // One rendered column.
 struct UiaColumnInfo {
     std::wstring path;           // full path; empty = "This PC" synthetic root
+    std::wstring displayPath;    // display-only path; identity remains `path`
     int itemCount = 0;
     UiaColumnStatus status = UiaColumnStatus::Current;
     std::wstring statusText;     // error / refreshing / empty message
@@ -91,6 +92,7 @@ struct UiaItemInfo {
     uint64_t fileIdLow = 0;
     uint64_t fileIdHigh = 0;
     std::wstring fullPath;       // column path + name (identity fallback)
+    std::wstring displayFullPath; // display-only path; identity remains `fullPath`
     bool selected = false;
     bool focused = false;        // row == the column's focusIndex
 };
@@ -127,6 +129,7 @@ struct UiaHomeScrollInfo {
 struct UiaSearchResultInfo {
     std::wstring name;
     std::wstring folder;
+    std::wstring displayFolder;  // display-only path; identity remains `folder`
     uint64_t sizeBytes = 0;
     uint64_t modifiedTime = 0;   // FILETIME ticks
     bool isDirectory = false;

@@ -8,6 +8,7 @@
 #include "IconCache.h"
 #include "ffui/SelectionIdentity.h"
 #include "ffui/SnapshotPathLookup.h"
+#include "ffui/DisplayPath.h"
 #include "ffprotocol/Diagnostics.h"
 #include "ColumnViewUiaProvider.h" // semantic-uia-core-surfaces 2.4
 
@@ -191,6 +192,13 @@ std::wstring HomeLeafName(const std::wstring& path) {
     const size_t start = path.find_last_of(L"\\/", end - 1);
     const size_t nameStart = start == std::wstring::npos ? 0 : start + 1;
     return path.substr(nameStart, end - nameStart);
+}
+
+std::wstring HomeBookmarkDisplayName(const Bookmark& bookmark) {
+    if (bookmark.displayName.empty() || bookmark.displayName == bookmark.path) {
+        return ffui::NormalizeDisplayPath(bookmark.path);
+    }
+    return bookmark.displayName;
 }
 
 // ui-v3 home 5: hover-revealed Clear affordances. The cursor position is not
@@ -2111,13 +2119,13 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                         primary = L"Pin folders to see them here."; // hint placeholder
                     } else {
                         const auto& b = homeData_.pinned[item.indexInSection];
-                        primary = b.displayName.empty() ? b.path : b.displayName;
-                        secondary = b.path;
+                        primary = HomeBookmarkDisplayName(b);
+                        secondary = ffui::NormalizeDisplayPath(b.path);
                         isFolderIcon = true;
                     }
                     break;
                 case HomeSectionKind::RecentFolders:
-                    primary = homeData_.recentFolders[item.indexInSection];
+                    primary = ffui::NormalizeDisplayPath(homeData_.recentFolders[item.indexInSection]);
                     isFolderIcon = true;
                     break;
                 case HomeSectionKind::RecentSearches:
@@ -2126,8 +2134,8 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     break;
                 case HomeSectionKind::CommonLocations: {
                     const auto& b = homeData_.knownFolders[item.indexInSection];
-                    primary = b.displayName.empty() ? b.path : b.displayName;
-                    secondary = b.path;
+                    primary = HomeBookmarkDisplayName(b);
+                    secondary = ffui::NormalizeDisplayPath(b.path);
                     isFolderIcon = true;
                     break;
                 }
@@ -2407,6 +2415,7 @@ UiaColumnInfo ColumnView::UiaColumnInfoOf(int pane, int col) const {
     if (col < 0 || col >= static_cast<int>(columns.size())) return info;
     const Column& column = columns[static_cast<size_t>(col)];
     info.path = column.path;
+    info.displayPath = ffui::NormalizeDisplayPath(column.path);
     info.itemCount = static_cast<int>(column.items.size());
     switch (column.freshness.state) {
         case SnapshotViewState::Unavailable:
@@ -2447,6 +2456,7 @@ UiaItemInfo ColumnView::UiaItemInfoOf(int pane, int col, int row) const {
     info.fileIdLow = item.fileIdLow;
     info.fileIdHigh = item.fileIdHigh;
     info.fullPath = JoinPath(column.path, item.name);
+    info.displayFullPath = ffui::NormalizeDisplayPath(info.fullPath);
     info.selected = column.selectedIndices.contains(row);
     info.focused = column.focusIndex == row;
     return info;
@@ -2498,8 +2508,8 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
             // ui-v3 home 4: an empty Pinned list emits no items at all (no
             // dead hint box), so an emitted item always maps to a bookmark.
             const auto& b = homeData_.pinned[static_cast<size_t>(found->indexInSection)];
-            info.primary = b.displayName.empty() ? b.path : b.displayName;
-            info.secondary = b.path;
+            info.primary = HomeBookmarkDisplayName(b);
+            info.secondary = ffui::NormalizeDisplayPath(b.path);
             info.value = b.path;
             break;
         }
@@ -2509,9 +2519,10 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
             // activation and identity are unchanged.
             const std::wstring& path =
                 homeData_.recentFolders[static_cast<size_t>(found->indexInSection)];
-            info.primary = HomeLeafName(path);
-            if (info.primary.empty()) info.primary = path;
-            info.secondary = path;
+            const std::wstring displayPath = ffui::NormalizeDisplayPath(path);
+            info.primary = HomeLeafName(displayPath);
+            if (info.primary.empty()) info.primary = displayPath;
+            info.secondary = displayPath;
             info.value = path;
             break;
         }
@@ -2521,8 +2532,8 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
             break;
         case HomeSectionKind::CommonLocations: {
             const auto& b = homeData_.knownFolders[static_cast<size_t>(found->indexInSection)];
-            info.primary = b.displayName.empty() ? b.path : b.displayName;
-            info.secondary = b.path;
+            info.primary = HomeBookmarkDisplayName(b);
+            info.secondary = ffui::NormalizeDisplayPath(b.path);
             info.value = b.path;
             break;
         }
