@@ -126,6 +126,9 @@ void TestThemeContrast() {
         Check(ContrastRatio(theme.textSecondary, theme.background) >= kNormalTextContrast,
               dark ? "dark secondary text meets 4.5:1 contrast on canvas"
                    : "light secondary text meets 4.5:1 contrast on canvas");
+        Check(ContrastRatio(theme.textTertiary, theme.background) >= kNormalTextContrast,
+              dark ? "dark tertiary metadata meets 4.5:1 contrast on canvas"
+                   : "light tertiary metadata meets 4.5:1 contrast on canvas");
         Check(ContrastRatio(theme.textOnAccent, theme.accent) >= kNormalTextContrast,
               dark ? "dark selected text meets 4.5:1 contrast on accent"
                    : "light selected text meets 4.5:1 contrast on accent");
