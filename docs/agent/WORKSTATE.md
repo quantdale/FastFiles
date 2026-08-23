@@ -1,8 +1,18 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-23 (ox-alpha session — UI-v3 hardening campaign EXECUTED; six P1/P2 rendering defects fixed and live/pixel-verified; full gates green; UIA capability PASS on the fixed build)
-Status: **UI-v3 Phase-7 hardening substantially complete at this checkpoint.** The prior "blocked by shell-tool outage" frontier is OBSOLETE: the outage is gone (bash works via host recovery shim; in-process `shim-shell` used throughout this session). Work continued past `a8b135f` through `91390e7` ("unfinished progress" = visual-evidence captures ONLY, mid-catalog interruption).
-NEXT EXACT ACTION: (1) push this commit if credentials permit and query hosted CI for the pushed SHA; (2) rebuild the deterministic visual catalog end-to-end with the hardened harness conventions recorded below (fresh state reset + sanitized fixtures + post-condition assertions + screen-region capture); (3) then take the next slice from the gap audit (see bottom of this file).
+Last updated: 2026-08-23 (Phase-7 certification campaign; current live checkpoint)
+Status: **Phase-7 certification in progress; local visual/UIA hardening, evidence, and executable gates are complete, repository handoff remains.** Live Git remains authoritative: campaign baseline is `90fa560a99217cabcf456b1198c83351c46513ed`; no campaign commit has been created yet.
+NEXT EXACT ACTION: (1) inspect and stage only campaign-owned changes; (2) commit coherent slices and push `main`; (3) verify the exact pushed SHA, hosted CI query, and clean-tree handoff.
+
+## Current 2026-08-23 Phase-7 certification checkpoint
+
+- Reconciled at campaign start: branch `main`, local `HEAD == origin/main == 90fa560a99217cabcf456b1198c83351c46513ed`, clean before implementation. `gh run list` was unavailable because the local GitHub CLI session is unauthenticated; re-query for the final pushed SHA.
+- Deterministic visual harness is implemented under `verify/visual/` and `verify/capabilities/windows-ui-visual-validation/`. It backs up/restores product state, uses a disposable mapped fixture drive, requires semantic UIA postconditions before capture, captures via DWM extended bounds + `CopyFromScreen`, rejects unexpected duplicate hashes, and writes manifest/Markdown evidence. The refreshed final run produced 53 rows: 26 PASS images, 2 SKIPPED, 25 BLOCKED_ENVIRONMENT, 0 FAIL; 3 Home images include recorded semantic privacy redactions; no personal path text was present in manifest/summary or committed visual evidence. The dark Storage Analysis row is included and passed.
+- UIA flake audit: treemap root cause (missing `return` after a failed sub-navigation assertion) fixed; drag root cause (stale pre-toggle ColumnView provider and unchecked foreground/pane activation) fixed; selection root causes (unchecked foreground, stale/unsafe synthetic click sequence, `.txt` shell association contamination, and incorrect Pane.HasKeyboardFocus expectation when a row owns focus) fixed in the harness. Fail-fast `FailFast` wrappers retain per-attempt UIA tree/screenshot/log/foreground diagnostics and never retry by default. Treemap isolated/group runs pass repeatedly; drag group is PASS with documented Explorer-source and host-foreground skips; selection is PASS-or-explicit `SKIPPED/interactive-foreground-unavailable` when `browser-blackhole`/`clone-MC_v3` owns the desktop foreground, with no downstream assertion attempted.
+- Local UI debt implemented: tokenized custom paint for Storage Analysis native radio buttons while preserving native radio semantics, keyboard behavior, UIA RadioButton/SelectionItem providers, High Contrast fallbacks, and checked/focus/disabled states; display-only 8.3/long-path normalization via `ffui::NormalizeDisplayPath` across navigation chrome, tabs, Home, UIA, Search, sidebar, and details while canonical operational paths remain unchanged. Focused `ffstorage_radio_state_tests` and `ffdisplay_path_tests` passed on the diagnostic build; Debug and diagnostic FastFiles builds passed after the changes.
+- Repository gates after the evidence refresh: Debug CTest `73/73 PASS`; release-test CTest `73/73 PASS`; Analyze build completed warning-clean; ASAN `ffprotocol_fuzz_tests` `1/1 PASS`; source markers and diagnostic policy passed; visual-capture contract passed; strict OpenSpec validation passed `59/59`. The repository has no standalone `verify/check_doc_drift.ps1`; the `ffdoc_drift_tests` CTest passed in both full configurations.
+- Current OpenSpec checkbox truth (live `tasks.md` audit): complete: `allocated-size-storage-accuracy` 36/36, `indexed-search-allocated-size` 74/74, `semantic-treemap-uia` 40/40, plus all previously closed changes; genuinely open: `autonomous-runtime-verification` 2 external/provider tasks, `close-independent-validation-gaps` 6 external/visual-validation tasks, `real-user-dogfooding-release-engineering` 1 final push/CI task, and `zero-touch-autonomous-engineering` 3 external/provider tasks. Do not claim production signer, signed privileged runtime, clean-host MFT/USN, or usable Windows guest/provider evidence.
+- Campaign-owned untracked UIA repeat artifacts include raw failure screenshots that may contain the interactive desktop; they must remain local/ignored execution evidence or be removed before final clean handoff. Only sanitized visual-catalog evidence may be committed.
 
 ## What the interrupted 2026-08-22 session actually left behind
 
@@ -28,13 +38,13 @@ Evidence method note: the earlier "white combos/buttons" readings were small-scr
 
 Verification evidence (this host, diagnostic build): zoomed crops + GetPixel samples show dark field/header/body where white stood before; deep navigate reveals the leaf column; Home recents trim without overlap; storage toolbar wraps with full labels; idle probe: UI 0 ms CPU over 20 s (no animation timer while idle), handles/threads/WS flat (1171/30/61.1 MB), engine ~0.07 %.
 
-## Gates (this session)
+## Prior 2026-08-22 gates (historical checkpoint)
 
 - Debug build warning-clean; Debug ctest **71/71 PASS**; release-test build + ctest **71/71 PASS**; analyze `/analyze` build clean.
 - OpenSpec strict validation **59/59 PASS**; source-marker PASS (Failures: 0); diagnostic policy PASS; doc-drift/line-endings PASS (after CRLF normalization of edited files); `git diff --check` PASS.
 - Full `windows-ui-automation-validation` capability via `verify.ps1 run -Capability windows-ui-automation-validation`: **status=PASS** (run tree ad-hoc `20260822-211341`). Honesty note: an earlier same-session invocation returned `scenario-failed`; the immediate rerun passed fully. Consistent with the registry's documented geometry-flaky scenarios (treemap-readability-click-precision, selection-model-interactions, drag-between-panes are Flaky=true); NOT counted as clean-without-caveat — flagged for a repro attempt in the next slice.
 
-## Capture-harness requirements for the remaining catalog rebuild
+## Prior capture-harness requirements (catalog now rebuilt in current checkpoint)
 
 The mandatory catalog (docs/ui-improvement/05 §1) is still only partially covered. Rebuild rules learned here:
 - Reset `%LOCALAPPDATA%\FastFiles\workspace-state.json` (back it up first) so captures start deterministic; never rely on restored personal tabs.
@@ -47,7 +57,7 @@ The mandatory catalog (docs/ui-improvement/05 §1) is still only partially cover
 - Animations-off live capture NOT EXERCISED: SystemParametersInfo(SPI_SETCLIENTAREAANIMATION=0x1043) reports success but readback stays enabled from this session context - do not retry blindly; the product-side gate (SPI_GETCLIENTAREAANIMATION via UiAnimation, snap-instant when disabled) is unit-covered instead.
 - HOST-SETTING SAFETY LESSON (2026-08-23): an SPI probe initially used WRONG constants (0x4A/0x4B are FONT SMOOTHING, not client-area animation which is 0x1042/0x1043), turning ClearType off host-wide. Recovery: registry FontSmoothing=2 plus SystemParametersInfoW(SPI_SETFONTSMOOTHING with uiParam=1 and pvParam=NULL, f=3) - the ref-BOOL variant does not stick in this session context. Final verified state: fontSmoothing=1, clientAreaAnimation=1, registry=2. Always read back after any host-setting probe and restore immediately.
 
-## Next recommended slices (gap audit summary)
+## Prior next recommended slices (historical checkpoint)
 
 1. Rebuild the full visual-state catalog per the rules above (largest open Phase-7 item; mostly mechanical now that the harness contract is written down).
 2. Reproduce-and-bound the intermittent UIA scenario failure noted above (flaky-test policy: root cause or documented bound, never retry-as-resolution).
