@@ -1,0 +1,14 @@
+{
+  "id": "windows-ui-visual-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 2,
+  "displayName": "Windows deterministic visual validation",
+  "description": "Semantic UIA postconditions followed by DWM-bounds screen-region captures with manifest and duplicate-image enforcement.",
+  "entryModule": "VisualValidation.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-UiVisualValidationAvailability",
+    "run": "Invoke-UiVisualValidationCapability",
+    "diagnostics": "Get-UiVisualValidationDiagnostics"
+  }
+}

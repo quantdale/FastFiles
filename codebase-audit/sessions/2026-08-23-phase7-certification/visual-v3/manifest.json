@@ -1,0 +1,2441 @@
+{
+  "schema": "fastfiles.visual-capture.v1",
+  "hostId": "local-interactive-windows",
+  "startedUtc": "2026-08-23T12:15:56.4117795Z",
+  "finishedUtc": "2026-08-23T12:20:16.7392300Z",
+  "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+  "captures": [
+    {
+      "scenarioId": "shell-first-launch",
+      "expectedState": "first-launch shell",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-first-launch.png",
+      "imageHash": "da14f91efb93ae9bb357dac5ad2a3db8bda0709aec1463125734eeb864c2093c",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "FastFiles",
+            "automationId": "MainWindow",
+            "controlType": "Window",
+            "className": "FastFilesMainWindow",
+            "processId": 41028,
+            "bounds": {
+              "x": 40,
+              "y": 40,
+              "width": 1294,
+              "height": 800
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 2886770
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 2886770
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:05.4727160Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-home-light",
+      "expectedState": "Home active",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-home-light.png",
+      "imageHash": "25503bdf966d66924060b55b6a5eca26f3b219acddf46c369455941e8b1f2d10",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "home": {
+              "name": "Home",
+              "automationId": "Pane.0.Home",
+              "controlType": "Group",
+              "className": "",
+              "processId": 44480,
+              "bounds": {
+                "x": 268,
+                "y": 163,
+                "width": 758,
+                "height": 669
+              }
+            },
+            "sectionCount": 3,
+            "privacyRedactionCount": 6
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 5637704
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 5637704
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:13.8024232Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-home-dark",
+      "expectedState": "Home active",
+      "fixtureId": "none",
+      "theme": "Dark",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-home-dark.png",
+      "imageHash": "b5e9c19146b3a55fc7725de1a4ff410efa32225c533d16d6c4df8c6c565c6edd",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "home": {
+              "name": "Home",
+              "automationId": "Pane.0.Home",
+              "controlType": "Group",
+              "className": "",
+              "processId": 43180,
+              "bounds": {
+                "x": 268,
+                "y": 163,
+                "width": 758,
+                "height": 669
+              }
+            },
+            "sectionCount": 3,
+            "privacyRedactionCount": 6
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 8587124
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 8587124
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:23.2345069Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-home-follow-system",
+      "expectedState": "Home active",
+      "fixtureId": "none",
+      "theme": "Follow System",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-home-follow-system.png",
+      "imageHash": "85272d583f1656596a3f3adc771e73111eff3469a31fd9cafdd685bafd6ed319",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [
+        {
+          "x": 237,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 211,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 255,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 237,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        },
+        {
+          "x": 604,
+          "y": 299,
+          "width": 359,
+          "height": 36,
+          "reason": "host-user path redacted from committed visual evidence"
+        }
+      ],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "home": {
+              "name": "Home",
+              "automationId": "Pane.0.Home",
+              "controlType": "Group",
+              "className": "",
+              "processId": 41920,
+              "bounds": {
+                "x": 268,
+                "y": 163,
+                "width": 758,
+                "height": 669
+              }
+            },
+            "sectionCount": 3,
+            "privacyRedactionCount": 6
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 12913414
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 12913414
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:30.6429118Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-this-pc",
+      "expectedState": "This PC active",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-this-pc.png",
+      "imageHash": "32fc4723a9029b133e88b5002122a8310a6c29604e64dfbeaf22e8e83a75e8fb",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "This PC",
+            "automationId": "Pane.0.Column.0",
+            "controlType": "List",
+            "className": "",
+            "processId": 42636,
+            "bounds": {
+              "x": 268,
+              "y": 191,
+              "width": 240,
+              "height": 641
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 18612828
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 18612828
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:39.6382131Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "controlled fresh default renders the same This PC surface as first-launch"
+    },
+    {
+      "scenarioId": "shell-standard-folder",
+      "expectedState": "standard fixture folder",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-standard-folder.png",
+      "imageHash": "23d8b4585800d8cef64d126115d03c5953dce2a063a5016e8b0a21f76bea629a",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "address": {
+              "name": "<sanitized-fixture-path>",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "Edit",
+              "processId": 42872,
+              "bounds": {
+                "x": 126,
+                "y": 96,
+                "width": 1028,
+                "height": 28
+              }
+            },
+            "tab": {
+              "name": "1: standard",
+              "automationId": "8300",
+              "controlType": "Pane",
+              "className": "Button",
+              "processId": 42872,
+              "bounds": {
+                "x": 52,
+                "y": 132,
+                "width": 220,
+                "height": 27
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 5899848
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 5899848
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:46.7851863Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-deep-path",
+      "expectedState": "deep fixture path",
+      "fixtureId": "deep",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-deep-path.png",
+      "imageHash": "5e0f8307f85573a2d6757e76eff6c5ebc9ebbc168ab6574a06069ed757ed2a22",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "address": {
+              "name": "<sanitized-fixture-path>",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "Edit",
+              "processId": 41080,
+              "bounds": {
+                "x": 126,
+                "y": 96,
+                "width": 1028,
+                "height": 28
+              }
+            },
+            "tab": {
+              "name": "1: level-three",
+              "automationId": "8300",
+              "controlType": "Pane",
+              "className": "Button",
+              "processId": 41080,
+              "bounds": {
+                "x": 52,
+                "y": 132,
+                "width": 220,
+                "height": 27
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 13372166
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 13372166
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:16:54.0204478Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-editable-address",
+      "expectedState": "editable address mode",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-editable-address.png",
+      "imageHash": "feb41f7feb18243ac6c9dfa2f0b31424f3883c28b6c7c385c35202c529659153",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "This PC",
+            "automationId": "",
+            "controlType": "Pane",
+            "className": "Edit",
+            "processId": 42812,
+            "bounds": {
+              "x": 126,
+              "y": 96,
+              "width": 1028,
+              "height": 28
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 4721228
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 4721228
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:00.9647702Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-command-palette",
+      "expectedState": "command palette visible",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-command-palette.png",
+      "imageHash": "475c208344ec3502030f6d302b8ef4b57e858854b20e2c4287d56ed22fb714b5",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "query": "",
+            "edit": {
+              "name": "",
+              "automationId": "6301",
+              "controlType": "Pane",
+              "className": "Edit",
+              "processId": 18312,
+              "bounds": {
+                "x": 407,
+                "y": 186,
+                "width": 560,
+                "height": 30
+              }
+            },
+            "expected": [],
+            "keptOpen": true
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 8914964
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 8914964
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:09.5920522Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-settings",
+      "expectedState": "settings dialog",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-settings.png",
+      "imageHash": "989ab2965f212bff890f8b428ab4da54b06b829ba0234dcc8e2261cfd52c496f",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "dialog": {
+              "name": "FastFiles Settings",
+              "automationId": "",
+              "controlType": "Window",
+              "className": "FastFilesSettingsDialog",
+              "processId": 43252,
+              "bounds": {
+                "x": 410,
+                "y": 268,
+                "width": 620,
+                "height": 520
+              }
+            },
+            "tab": {
+              "name": "",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "SysTabControl32",
+              "processId": 43252,
+              "bounds": {
+                "x": 430,
+                "y": 311,
+                "width": 596,
+                "height": 28
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 28641080
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 28641080
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:17.5878794Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-multiple-tabs",
+      "expectedState": "multiple tabs",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-multiple-tabs.png",
+      "imageHash": "35f355c6935569d10b562e1290c3859a7dd396e17d1ff5da84c3a6bc4b06b965",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "before": 1,
+            "after": 2
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 11863764
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 11863764
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:24.5686617Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-many-tabs-overflow",
+      "expectedState": "many tabs / overflow",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 720,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-many-tabs-overflow.png",
+      "imageHash": "f8b775ae4c05ecc88b5a91f6ff98570f012495fa74e5d0a8ce517c0e223bb9c5",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "tabCount": 9
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 20383614
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 20383614
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:34.5722955Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-normal-window",
+      "expectedState": "normal window",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-normal-window.png",
+      "imageHash": "35be7754f052e68eb24864acd7e4e9698838e9f0317743cb0835b22af9956283",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "Hwnd": {
+              "value": 5048908
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 5048908
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 5048908
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:42.3138153Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": "normal-width controlled shell intentionally matches first-launch"
+    },
+    {
+      "scenarioId": "shell-narrow-window",
+      "expectedState": "narrow window",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 720,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-narrow-window.png",
+      "imageHash": "79f3c53f8feb8d711ebd8315804d44d90f7cdea7a992e738345873e5b85a8633",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "Hwnd": {
+              "value": 5244566
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 5244566
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 5244566
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:17:52.6136078Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-wide-window",
+      "expectedState": "wide window",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1600,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-wide-window.png",
+      "imageHash": "6dbba0ee7ef75f28646c08305a18019b86ce94c6a0ac68b945bacf6a4da515ab",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "Hwnd": {
+              "value": 7866134
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1600,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 7866134
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1600,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 7866134
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1600,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:18:00.5442860Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-dual-pane-left",
+      "expectedState": "dual pane left active",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "dual-left",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "shell-dual-pane-left.png",
+      "imageHash": "e4704b703e4911de11b9f86ea92c28a91bfffa8bedcbe1ed55cad72791eca4fd",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "left": {
+              "name": "Pane 1",
+              "automationId": "Pane.0",
+              "controlType": "Pane",
+              "className": "",
+              "processId": 47880,
+              "bounds": {
+                "x": 268,
+                "y": 163,
+                "width": 379,
+                "height": 669
+              }
+            },
+            "right": {
+              "name": "Pane 2",
+              "automationId": "Pane.1",
+              "controlType": "Pane",
+              "className": "",
+              "processId": 47880,
+              "bounds": {
+                "x": 647,
+                "y": 163,
+                "width": 379,
+                "height": 669
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 13959474
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 13959474
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:18:08.7083671Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "shell-dual-pane-right",
+      "expectedState": "dual pane right active",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "dual-right",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": null
+      },
+      "timestampUtc": "2026-08-23T12:18:16.5522502Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "right-pane provider has no clickable semantic point",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-empty-directory",
+      "expectedState": "empty directory",
+      "fixtureId": "empty",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "browse-empty-directory.png",
+      "imageHash": "0a28d156f41ca1ee8f1c346e532d59e4235bedf2f1de80f5d8648f369137c9a7",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "1: empty",
+            "automationId": "8300",
+            "controlType": "Pane",
+            "className": "Button",
+            "processId": 43384,
+            "bounds": {
+              "x": 52,
+              "y": 132,
+              "width": 220,
+              "height": 27
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 11930204
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 11930204
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:18:24.4485773Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-unicode-emoji",
+      "expectedState": "Unicode and emoji fixture",
+      "fixtureId": "unicode",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "browse-unicode-emoji.png",
+      "imageHash": "8e831f4ba6bbca3080dca789ec0755770de6df07ecc06d16c6d42b394780d506",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "address": {
+              "name": "<sanitized-fixture-path>",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "Edit",
+              "processId": 37124,
+              "bounds": {
+                "x": 126,
+                "y": 96,
+                "width": 1028,
+                "height": 28
+              }
+            },
+            "tab": {
+              "name": "1: unicode-emoji",
+              "automationId": "8300",
+              "controlType": "Pane",
+              "className": "Button",
+              "processId": 37124,
+              "bounds": {
+                "x": 52,
+                "y": 132,
+                "width": 220,
+                "height": 27
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 26937896
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 26937896
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:18:32.5152832Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-long-names",
+      "expectedState": "long names fixture",
+      "fixtureId": "long",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "browse-long-names.png",
+      "imageHash": "37f13d33d9c3a36fa6b2e6c5e83f5989bee1d13189d1b501b0bc781c62cef493",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "address": {
+              "name": "<sanitized-fixture-path>",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "Edit",
+              "processId": 40616,
+              "bounds": {
+                "x": 126,
+                "y": 96,
+                "width": 1028,
+                "height": 28
+              }
+            },
+            "tab": {
+              "name": "1: long-names",
+              "automationId": "8300",
+              "controlType": "Pane",
+              "className": "Button",
+              "processId": 40616,
+              "bounds": {
+                "x": 52,
+                "y": 132,
+                "width": 220,
+                "height": 27
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 13304292
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 13304292
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:18:41.4939478Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-missing-path",
+      "expectedState": "missing path error",
+      "fixtureId": "missing",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": null
+      },
+      "timestampUtc": "2026-08-23T12:19:00.1313683Z",
+      "status": "SKIPPED",
+      "reason": "the current degraded watcher did not publish an unavailable status after the disposable folder was removed",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-empty-query",
+      "expectedState": "empty search query",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "search-empty-query.png",
+      "imageHash": "41526b3e91c8611ec09fa9bdf40401ca03d8d5e20fd9e26808371158d518dad1",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "",
+            "automationId": "7101",
+            "controlType": "Pane",
+            "className": "ComboBox",
+            "processId": 38704,
+            "bounds": {
+              "x": 280,
+              "y": 163,
+              "width": 1034,
+              "height": 24
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 27134482
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 27134482
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:19:08.1232904Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-query-focused",
+      "expectedState": "query focused and typing",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "search-query-focused.png",
+      "imageHash": "6a36a957f42da69895197bc3ff40a19fab550c7aa7544ed4b8efd0fb74810bff",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "query": {
+              "name": "zzzz-ffviz-no-match",
+              "automationId": "7101",
+              "controlType": "Pane",
+              "className": "ComboBox",
+              "processId": 49304,
+              "bounds": {
+                "x": 280,
+                "y": 163,
+                "width": 1034,
+                "height": 24
+              }
+            },
+            "value": "zzzz-ffviz-no-match"
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 11075838
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 11075838
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:19:18.8331593Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-filters-expanded",
+      "expectedState": "filters expanded",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "search-filters-expanded.png",
+      "imageHash": "04f0e3a9b9982a8c105ccd5012ebdce0157e069980967797a41ca84cf88ef312",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "Clear history",
+            "automationId": "7105",
+            "controlType": "Button",
+            "className": "Button",
+            "processId": 49704,
+            "bounds": {
+              "x": 1188,
+              "y": 221,
+              "width": 126,
+              "height": 26
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 12585550
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 12585550
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:19:28.1722971Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-no-results",
+      "expectedState": "no results",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": null
+      },
+      "timestampUtc": "2026-08-23T12:19:43.1407543Z",
+      "status": "SKIPPED",
+      "reason": "no-results status was not observable while the engine/degraded snapshot was unavailable",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "storage-analysis-base",
+      "expectedState": "Storage Analysis base",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "storage-analysis-base.png",
+      "imageHash": "d29fb47764ccdc6a3b191641b0d0487b4985d00b02354066e457fc869c3988a8",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "Treemap",
+            "automationId": "7210",
+            "controlType": "RadioButton",
+            "className": "Button",
+            "processId": 42564,
+            "bounds": {
+              "x": 1188,
+              "y": 163,
+              "width": 126,
+              "height": 28
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 8062536
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 8062536
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:19:51.2489834Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "storage-analysis-dark",
+      "expectedState": "Storage Analysis base (dark theme)",
+      "fixtureId": "none",
+      "theme": "Dark",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "storage-analysis-dark.png",
+      "imageHash": "00f85461c99883bafcad21c674e2d9702426883f92f57f140c35adfaa42613f9",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "Treemap",
+            "automationId": "7210",
+            "controlType": "RadioButton",
+            "className": "Button",
+            "processId": 50080,
+            "bounds": {
+              "x": 1188,
+              "y": 163,
+              "width": 126,
+              "height": 28
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 13633254
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 13633254
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:19:59.2474511Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "storage-treemap",
+      "expectedState": "Storage treemap",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "storage-treemap.png",
+      "imageHash": "b397f0955583e26adcfdd6f839ed7d783070cd86e5de4ee6e8edc22c5cb027b8",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "name": "Storage Treemap",
+            "automationId": "Storage.Treemap",
+            "controlType": "Group",
+            "className": "",
+            "processId": 47260,
+            "bounds": {
+              "x": 268,
+              "y": 163,
+              "width": 1058,
+              "height": 669
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 27527698
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 27527698
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 1280,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.5366515Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-access-denied",
+      "expectedState": "access denied",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8236328Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "safe access-denied reproduction would require changing ACLs",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-hover",
+      "expectedState": "hover state",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8238912Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "current fixture provider did not expose a safe semantic hover transition",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-selected-focused",
+      "expectedState": "selected focused",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8240674Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served list rows",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-selected-unfocused",
+      "expectedState": "selected unfocused",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8242249Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served list rows",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-multi-selection",
+      "expectedState": "multi-selection",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8243958Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served list rows",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-rtl-content",
+      "expectedState": "RTL stress content",
+      "fixtureId": "rtl",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8245930Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served list rows",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-drag-target",
+      "expectedState": "drag target",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "dual",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8247555Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "drag target needs a populated engine-backed pane",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-inline-rename",
+      "expectedState": "inline rename",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8249264Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "safe inline mutation requires a populated engine-backed row",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-populated-results",
+      "expectedState": "populated search results",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8250930Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served snapshot results",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-selected-result",
+      "expectedState": "selected search result",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8252580Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served snapshot results",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "search-searching",
+      "expectedState": "searching in progress",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8254799Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "minimum observable search timing is not deterministic on this host",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "preview-image",
+      "expectedState": "image preview",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8256488Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served selected file and preview fixture",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "preview-text-metadata",
+      "expectedState": "text metadata preview",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8258140Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served selected file",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "preview-unsupported",
+      "expectedState": "unsupported preview",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8259804Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires engine-served selected file",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "file-operation-queued",
+      "expectedState": "queued operation",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8262338Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "file operation requires engine-backed selection",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "file-operation-conflict",
+      "expectedState": "conflict dialog",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8265014Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "conflict fixture is not reproducible without a populated engine-backed selection",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "file-operation-confirmation",
+      "expectedState": "destructive confirmation",
+      "fixtureId": "standard",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:07.8268023Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "destructive operation is intentionally not run in the real workspace",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "settings-long-page",
+      "expectedState": "long settings page",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 720,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": "settings-long-page.png",
+      "imageHash": "0611f645abb60841a57d6c5a005bcf39998b9afa5bc38606c7e1b767706872ec",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "action": {
+            "dialog": {
+              "name": "FastFiles Settings",
+              "automationId": "",
+              "controlType": "Window",
+              "className": "FastFilesSettingsDialog",
+              "processId": 49528,
+              "bounds": {
+                "x": 384,
+                "y": 242,
+                "width": 620,
+                "height": 520
+              }
+            },
+            "tab": {
+              "name": "",
+              "automationId": "",
+              "controlType": "Pane",
+              "className": "SysTabControl32",
+              "processId": 49528,
+              "bounds": {
+                "x": 404,
+                "y": 285,
+                "width": 596,
+                "height": 28
+              }
+            }
+          },
+          "geometry": {
+            "Hwnd": {
+              "value": 8259144
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          },
+          "capture": {
+            "Hwnd": {
+              "value": 8259144
+            },
+            "X": 47,
+            "Y": 40,
+            "Width": 720,
+            "Height": 793,
+            "Dpi": 96,
+            "Source": "DwmExtendedFrameBounds"
+          }
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.0716413Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "settings-reset-section",
+      "expectedState": "settings reset section",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3583565Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "reset action is never invoked against the user configuration",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "dpi-125-live",
+      "expectedState": "125 percent DPI",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 125,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3586051Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "host exposes only 100 percent DPI; headless geometry tests cover 125 percent",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "dpi-150-live",
+      "expectedState": "150 percent DPI",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 150,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3587916Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "host exposes only 100 percent DPI; headless geometry tests cover 150 percent",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "dpi-200-live",
+      "expectedState": "200 percent DPI",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 200,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3589751Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "host exposes only 100 percent DPI; headless geometry tests cover 200 percent",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "high-contrast-live",
+      "expectedState": "High Contrast",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3591443Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "High Contrast is not changed by this campaign because safe restoration cannot be proven",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "animations-off-live",
+      "expectedState": "animations disabled",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3593353Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "host SPI animation settings are not mutated; headless animation gates cover disabled mode",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "mixed-dpi-transition",
+      "expectedState": "mixed-DPI transition",
+      "fixtureId": "none",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "baa7530dbbebae00f422e2ab5c9e73d9699fa8f801ff5d438d5c951b5594ae48",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "available": false
+        }
+      },
+      "timestampUtc": "2026-08-23T12:20:16.3595086Z",
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "single-monitor host cannot provide a live mixed-DPI transition",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    }
+  ]
+}
