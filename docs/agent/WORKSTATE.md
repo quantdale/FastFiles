@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-23 (Phase-7 certification campaign; current live checkpoint)
-Status: **Phase-7 certification in progress; local visual/UIA hardening, evidence, and executable gates are complete, repository handoff remains.** Live Git remains authoritative: campaign baseline is `90fa560a99217cabcf456b1198c83351c46513ed`; no campaign commit has been created yet.
-NEXT EXACT ACTION: (1) inspect and stage only campaign-owned changes; (2) commit coherent slices and push `main`; (3) verify the exact pushed SHA, hosted CI query, and clean-tree handoff.
+Status: **Phase-7 certification locally complete; the campaign slices are committed and pushed, with hosted Actions still settling.** Live Git remains authoritative: campaign baseline is `90fa560a99217cabcf456b1198c83351c46513ed`; derive the current `main`/`origin/main` state again on resume rather than treating this file as a Git database.
+NEXT EXACT ACTION: On resume, fetch `origin`, derive the exact current `main` SHA, and re-query hosted Actions for that SHA; do not mutate this file merely to embed CI status.
 
 ## Current 2026-08-23 Phase-7 certification checkpoint
 
