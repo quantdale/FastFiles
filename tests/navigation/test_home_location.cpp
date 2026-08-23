@@ -1,6 +1,8 @@
+#include <filesystem>
 #include <vector>
 #include <windows.h>
 
+#include "NavigationChrome.h"
 #include "NavigationWorkspace.h"
 #include "../TestSupport.h"
 
@@ -28,26 +30,22 @@ void TestLocationSemantics() {
 void TestWorkspaceHomeNavigation() {
     using namespace ffui;
     NavigationWorkspace workspace(L"");
-    // quick-access-home 1.3: navigating to Home sets the flag and an empty path.
     workspace.Navigate(NavigationLocation::Home());
     const size_t homeHistorySize = workspace.ActiveContext().history.size();
     Check(workspace.ActiveContext().isHomeLocation &&
           workspace.ActiveContext().currentPath.empty(),
           "Navigate(Home) flags the context as Home with an empty path");
-    // Re-navigating to Home is a kind-aware no-op: history does not grow.
     workspace.Navigate(NavigationLocation::Home());
     Check(workspace.ActiveContext().isHomeLocation &&
           workspace.ActiveContext().currentPath.empty() &&
           workspace.ActiveContext().history.size() == homeHistorySize,
           "re-navigating to Home is a kind-aware no-op (history unchanged)");
 
-    // quick-access-home 1.3: navigating to a filesystem path clears the flag.
     workspace.Navigate(L"C:\\Folder");
     Check(!workspace.ActiveContext().isHomeLocation &&
           workspace.ActiveContext().currentPath == L"C:\\Folder",
           "Navigate(folder) clears the Home flag and sets the path");
 
-    // Back/Forward restore both the kind and the path.
     Check(workspace.GoBack() && workspace.ActiveContext().isHomeLocation &&
           workspace.ActiveContext().currentPath.empty(),
           "GoBack restores the Home location exactly");
@@ -59,13 +57,11 @@ void TestWorkspaceHomeNavigation() {
 void TestKindAwareNoOp() {
     using namespace ffui;
     NavigationWorkspace workspace(L"C:\\Start");
-    // Navigating to a filesystem path while Home is active must NOT no-op.
     workspace.Navigate(NavigationLocation::Home());
     workspace.Navigate(L"C:\\X");
     Check(workspace.ActiveContext().currentPath == L"C:\\X" &&
           !workspace.ActiveContext().isHomeLocation,
           "filesystem navigation while Home is active is not a no-op");
-    // Navigating to Home while a filesystem path is active must NOT no-op.
     workspace.Navigate(L"C:\\Y");
     workspace.Navigate(NavigationLocation::Home());
     Check(workspace.ActiveContext().isHomeLocation &&
@@ -87,7 +83,6 @@ void TestBreadcrumbsAndHomeSegment() {
 void TestOpenTabDefaultsAndKinds() {
     using namespace ffui;
     NavigationWorkspace workspace(L"C:\\Start");
-    // quick-access-home 1.3 / D7: a default new tab opens Home with history {Home}.
     workspace.OpenTab();
     Check(workspace.ActiveTabIndex() == 1, "a new tab becomes active");
     Check(workspace.ActiveContext().isHomeLocation &&
@@ -97,13 +92,11 @@ void TestOpenTabDefaultsAndKinds() {
           workspace.ActiveContext().history.front().IsHome(),
           "a default Home tab seeds history exactly {Home}");
 
-    // OpenTab(filesystem path) opens a filesystem tab.
     workspace.OpenTab(L"C:\\Folder");
     Check(!workspace.ActiveContext().isHomeLocation &&
           workspace.ActiveContext().currentPath == L"C:\\Folder",
           "OpenTab(path) opens a filesystem tab");
 
-    // OpenTab(NavigationLocation::Home()) opens a Home tab.
     workspace.OpenTab(NavigationLocation::Home());
     const NavigationLocation location = workspace.TabLocation(workspace.TabCount() - 1);
     Check(location.IsHome() && location.path.empty(),
@@ -115,7 +108,7 @@ void TestOpenTabDefaultsAndKinds() {
 void TestTabIsolation() {
     using namespace ffui;
     NavigationWorkspace workspace(L"C:\\Start");
-    workspace.OpenTab(); // tab 1 = Home
+    workspace.OpenTab();
     const size_t homeTab = workspace.ActiveTabIndex();
     Check(homeTab == 1 && workspace.ActiveContext().isHomeLocation,
           "the new tab is the Home tab");
@@ -156,9 +149,6 @@ void TestPaneIsolation() {
 
 void TestDualPaneFromHomePreservesKind() {
     using namespace ffui;
-    // quick-access-home hardening (HOME-POST-04): enable dual pane AFTER the
-    // active pane navigated to Home. The new pane must start Home with a fresh
-    // {Home} history, not "This PC" (which an empty-path clone would produce).
     NavigationWorkspace workspace(L"C:\\Start");
     workspace.Navigate(NavigationLocation::Home());
     workspace.EnableDualPane();
@@ -172,7 +162,6 @@ void TestDualPaneFromHomePreservesKind() {
     Check(workspace.PaneContext(1).history.size() == 1 && workspace.PaneContext(1).history.front().IsHome(),
           "pane 1 history is exactly {Home}");
 
-    // Navigate pane 1 to a filesystem folder: pane 0 remains Home.
     workspace.ActivatePane(1);
     workspace.Navigate(L"C:\\Folder");
     Check(workspace.PaneContext(1).currentPath == L"C:\\Folder" && !workspace.PaneContext(1).isHomeLocation,
@@ -189,9 +178,6 @@ void TestDualPaneFromHomePreservesKind() {
 
 void TestDualPaneFromFilesystemAndThisPc() {
     using namespace ffui;
-    // quick-access-home hardening (HOME-POST-04): from a filesystem folder the
-    // new pane clones the typed folder with a fresh {folder} history; from
-    // "This PC" it clones FileSystem(empty), never Home.
     NavigationWorkspace workspace(L"C:\\Start");
     workspace.Navigate(L"C:\\Foo");
     workspace.EnableDualPane();
@@ -209,6 +195,45 @@ void TestDualPaneFromFilesystemAndThisPc() {
           workspace.PaneContext(1).history.front() == NavigationLocation::FromPath(L""),
           "dual pane from This PC clones FileSystem(empty), never Home");
 }
+
+void TestDisplayOnlyShortNameExpansion() {
+    using namespace ffui;
+    Check(ExpandLocalShortNameForDisplay(L"Normal Folder", L"C:\\Normal Folder") == L"Normal Folder",
+          "display helper avoids filesystem resolution when the label has no 8.3 marker");
+    Check(ExpandLocalShortNameForDisplay(L"SHARE~1", L"\\\\server\\share\\SHARE~1") == L"SHARE~1",
+          "display helper never performs UNC/network short-name resolution");
+
+    wchar_t tempPath[MAX_PATH]{};
+    if (GetTempPathW(MAX_PATH, tempPath) == 0) return;
+    const std::filesystem::path root = std::filesystem::path(tempPath) /
+        (L"FastFiles-short-name-display-" + std::to_wstring(GetCurrentProcessId()));
+    const std::filesystem::path longFolder = root / L"Very Long Folder Name For FastFiles Display";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::create_directories(longFolder, error);
+    if (error) return;
+
+    wchar_t shortBuffer[32768]{};
+    const DWORD shortLength = GetShortPathNameW(longFolder.c_str(), shortBuffer,
+                                                static_cast<DWORD>(std::size(shortBuffer)));
+    if (shortLength > 0 && shortLength < std::size(shortBuffer)) {
+        const std::wstring shortPath(shortBuffer, shortLength);
+        const size_t slash = shortPath.find_last_of(L"\\/");
+        const std::wstring shortLeaf = slash == std::wstring::npos ? shortPath : shortPath.substr(slash + 1);
+        if (shortLeaf.find(L'~') != std::wstring::npos) {
+            const std::wstring expected = longFolder.filename().wstring();
+            Check(ExpandLocalShortNameForDisplay(shortLeaf, shortPath) == expected,
+                  "existing local 8.3 leaf expands to its long display name");
+            BreadcrumbSegment segment(shortLeaf, shortPath);
+            Check(segment.label == expected && segment.path == shortPath,
+                  "breadcrumb expands only its label while preserving canonical short navigation path");
+            const std::wstring tabLabel = TabLabelForLocation(2, NavigationLocation::FromPath(shortPath));
+            Check(tabLabel == L"2: " + expected,
+                  "tab label shares breadcrumb 8.3 display normalization");
+        }
+    }
+    std::filesystem::remove_all(root, error);
+}
 }
 
 void RunHomeLocationTests() {
@@ -221,4 +246,5 @@ void RunHomeLocationTests() {
     TestPaneIsolation();
     TestDualPaneFromHomePreservesKind();
     TestDualPaneFromFilesystemAndThisPc();
+    TestDisplayOnlyShortNameExpansion();
 }
