@@ -72,7 +72,9 @@ inline UiTheme GetUiTheme(bool dark) {
         t.border             = D2D1::ColorF(0x343A46);
         t.text               = D2D1::ColorF(0xF5F7FA);
         t.textSecondary      = D2D1::ColorF(0xAAB2BF);
-        t.textOnAccent       = D2D1::ColorF(0xFFFFFF);
+        // #101828 on #4C8DFF is ~5.5:1; white on this accent is only ~3.2:1.
+        // Selection text therefore uses the dark foreground in dark mode.
+        t.textOnAccent       = D2D1::ColorF(0x101828);
         t.accent             = D2D1::ColorF(0x4C8DFF);
         t.accentHover        = D2D1::ColorF(0x6BA1FF);
         t.folderGlyph        = D2D1::ColorF(0x6BA1FF);
