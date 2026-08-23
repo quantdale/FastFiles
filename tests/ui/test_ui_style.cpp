@@ -3,6 +3,7 @@
 //   - IconCache keying (FolderKey / IconKeyForExtension normalization)
 //   - FloatAnimation easing, snap-when-disabled, re-target
 //   - ToColorRef / ToD2DColor / UiLerpColor color conversions
+//   - production palette contrast floors for normal text and selected text
 // All production logic exercised here is header-inline or pure; only
 // UiAnimation.cpp (SystemParametersInfo + easing math) is compiled in.
 
@@ -11,6 +12,7 @@
 #include "UiStyle.h"
 #include "UITheme.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cwchar>
@@ -22,6 +24,25 @@ using namespace fftest;
 namespace {
 
 bool NearlyEqual(float a, float b) { return (a > b ? a - b : b - a) < 0.001f; }
+
+float LinearChannel(float channel) {
+    return channel <= 0.04045f ? channel / 12.92f
+                               : std::pow((channel + 0.055f) / 1.055f, 2.4f);
+}
+
+float RelativeLuminance(D2D1_COLOR_F color) {
+    return 0.2126f * LinearChannel(color.r) +
+           0.7152f * LinearChannel(color.g) +
+           0.0722f * LinearChannel(color.b);
+}
+
+float ContrastRatio(D2D1_COLOR_F a, D2D1_COLOR_F b) {
+    const float la = RelativeLuminance(a);
+    const float lb = RelativeLuminance(b);
+    const float light = (std::max)(la, lb);
+    const float dark = (std::min)(la, lb);
+    return (light + 0.05f) / (dark + 0.05f);
+}
 
 void TestIconKeys() {
     using namespace ffui;
@@ -94,6 +115,23 @@ void TestLerpColor() {
     Check(NearlyEqual(partial.g, 1.0f) && NearlyEqual(partial.a, 0.5f), "each channel interpolates independently");
 }
 
+void TestThemeContrast() {
+    using namespace ffui;
+    constexpr float kNormalTextContrast = 4.5f;
+    for (bool dark : {false, true}) {
+        const UiTheme theme = GetUiTheme(dark);
+        Check(ContrastRatio(theme.text, theme.background) >= kNormalTextContrast,
+              dark ? "dark primary text meets 4.5:1 contrast on canvas"
+                   : "light primary text meets 4.5:1 contrast on canvas");
+        Check(ContrastRatio(theme.textSecondary, theme.background) >= kNormalTextContrast,
+              dark ? "dark secondary text meets 4.5:1 contrast on canvas"
+                   : "light secondary text meets 4.5:1 contrast on canvas");
+        Check(ContrastRatio(theme.textOnAccent, theme.accent) >= kNormalTextContrast,
+              dark ? "dark selected text meets 4.5:1 contrast on accent"
+                   : "light selected text meets 4.5:1 contrast on accent");
+    }
+}
+
 void TestFloatAnimationEasing() {
     using namespace ffui;
     // When system animations are enabled, AnimateTo must ease-toward the target
@@ -158,6 +196,7 @@ int main() {
     TestToColorRef();
     TestToD2DColor();
     TestLerpColor();
+    TestThemeContrast();
     TestFloatAnimationEasing();
     TestFloatAnimationSnap();
     TestIconCacheHeaderApi();
