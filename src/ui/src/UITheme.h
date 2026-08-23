@@ -3,10 +3,11 @@
 // chrome). All UI surfaces should source their palette from GetUiTheme()
 // instead of file-local literals, so dark/light themes stay coherent.
 //
-// Ship-ready stabilization: the palette now uses a modern Windows 11-aligned
-// neutral ramp and one canonical blue accent across selection, focus, links,
-// search, drag/drop and status surfaces. Keeping this in the token layer avoids
-// per-view color churn and fixes the previous visibly mixed blue/gray language.
+// UI polish: centralizes the previously scattered color literals
+// (ColumnView, WindowShell details pane, TreemapView, SearchPanel) and adds
+// dark-theme variants for badges and panels that were light-only. The
+// ship-ready stabilization pass advances the previously deferred Win11-blue
+// accent/surface refinement here so every consumer changes coherently.
 #pragma once
 
 #include <windows.h>
@@ -24,6 +25,8 @@ struct UiTheme {
     D2D1_COLOR_F textSecondary;  // muted/secondary text
     D2D1_COLOR_F textOnAccent;   // text painted on the accent (selection)
     // Accent / selection
+    // The ship-ready palette uses the Win11-blue refinement that was
+    // previously deferred here (dark ~#4C8DFF, light ~#0067C0).
     D2D1_COLOR_F accent;         // selection, focus, links
     D2D1_COLOR_F accentHover;    // hover variant
     // Glyphs
@@ -40,30 +43,30 @@ struct UiTheme {
     D2D1_COLOR_F searchBorder;
     D2D1_COLOR_F searchText;
     D2D1_COLOR_F searchPlaceholder;
-    // Modernized surfaces: elevated and subtle surface levels plus translucent
-    // interaction overlays. The alpha-bearing tokens are consumed as-is by
-    // Direct2D; GDI call sites composite them over their owning surface.
-    D2D1_COLOR_F surfaceElevated;
-    D2D1_COLOR_F surfaceSubtle;
-    D2D1_COLOR_F hoverOverlay;
-    D2D1_COLOR_F pressOverlay;
-    D2D1_COLOR_F selectionSoft;
-    D2D1_COLOR_F dividerSubtle;
-    D2D1_COLOR_F focusStroke;
-    // Semantic status colors. Call sites must pair these with text/icon/shape,
-    // never color alone.
-    D2D1_COLOR_F textTertiary;
-    D2D1_COLOR_F textDisabled;
-    D2D1_COLOR_F success;
-    D2D1_COLOR_F warning;
-    D2D1_COLOR_F info;
-    D2D1_COLOR_F dropTargetStroke;
+    // Modernized surfaces (modernize-ui-appearance foundation): elevated and
+    // subtle surface levels plus translucent interaction overlays. The
+    // alpha-bearing tokens are consumed as-is by Direct2D solid brushes.
+    D2D1_COLOR_F surfaceElevated;  // elevated surface (details cards, elevated panels)
+    D2D1_COLOR_F surfaceSubtle;    // subtle/hover surface (slightly lifted rows, wells)
+    D2D1_COLOR_F hoverOverlay;     // translucent overlay for hover states
+    D2D1_COLOR_F pressOverlay;     // translucent overlay for pressed states
+    D2D1_COLOR_F selectionSoft;    // soft/unfocused selection fill (translucent accent)
+    D2D1_COLOR_F dividerSubtle;    // subtle hairline divider
+    D2D1_COLOR_F focusStroke;      // focus ring stroke
+    // UI-v3 semantic extensions (additive; ui-v3 foundation wave). Status
+    // colors must always be paired with a non-color cue (icon/text/shape) at
+    // their call sites — never the sole carrier of meaning.
+    D2D1_COLOR_F textTertiary;     // tertiary metadata (timestamps, counts)
+    D2D1_COLOR_F textDisabled;     // disabled control labels (still readable)
+    D2D1_COLOR_F success;          // completed/healthy status
+    D2D1_COLOR_F warning;          // degraded/partial status
+    D2D1_COLOR_F info;             // informational status
+    D2D1_COLOR_F dropTargetStroke; // unambiguous drop-destination affordance
 };
 
-// Production palette. Dark mode avoids the old muddy #202124/#292B2F stack by
-// giving canvas, panel and elevated chrome three deliberate luminance levels;
-// light mode uses a quiet cool-neutral canvas instead of pure white everywhere.
-// Accent is the Windows 11 blue family already used by the focus contract.
+// The app's two themes. The ship-ready palette retains the existing token
+// contract but gives canvas/panel/elevated surfaces a deliberate hierarchy and
+// uses one Windows-11-aligned blue accent family across both themes.
 inline UiTheme GetUiTheme(bool dark) {
     UiTheme t{};
     if (dark) {
@@ -128,7 +131,9 @@ inline UiTheme GetUiTheme(bool dark) {
         t.selectionSoft      = D2D1::ColorF(0x0067C0, 0.13f);
         t.dividerSubtle      = D2D1::ColorF(0x172033, 0.08f);
         t.focusStroke        = D2D1::ColorF(0x0067C0);
-        t.textTertiary       = D2D1::ColorF(0x7B8798);
+        // 0x667085 is the same readable neutral used by file/search metadata;
+        // it stays above 4.5:1 on both the light canvas and white surfaces.
+        t.textTertiary       = D2D1::ColorF(0x667085);
         t.textDisabled       = D2D1::ColorF(0x9AA4B2);
         t.success            = D2D1::ColorF(0x188038);
         t.warning            = D2D1::ColorF(0xB54708);
@@ -143,7 +148,7 @@ inline UiTheme GetUiTheme(bool dark) {
 namespace UiMetrics {
 constexpr float kChromeHeight = 72.0f;
 constexpr float kColumnWidth = 240.0f;
-constexpr float kRowHeight = 28.0f;
+constexpr float kRowHeight = 28.0f;   // dense row height (was 24)
 constexpr float kBadgeHeight = 28.0f;
 constexpr float kControlHeight = 24.0f;
 // Corner radii (DIPs)
@@ -153,27 +158,28 @@ constexpr float kRadiusMedium = 8.0f;
 constexpr float kSpaceXxs = 2.0f;
 constexpr float kSpaceXs = 4.0f;
 constexpr float kSpaceS = 8.0f;
-constexpr float kSpaceSm = 12.0f;
+constexpr float kSpaceSm = 12.0f;  // ui-v3: label/control intermediate gap
 constexpr float kSpaceM = 16.0f;
 constexpr float kSpaceL = 24.0f;
-constexpr float kSpaceXl = 32.0f;
+constexpr float kSpaceXl = 32.0f;  // ui-v3: major page-level separation (sparing)
 // Content (DIPs)
 constexpr float kIconSize = 16.0f;
-constexpr float kIconSizeLg = 20.0f;
-constexpr float kTargetMinSize = 24.0f;
-// Corner radii contract: rows/buttons kRadiusSmall, text fields kRadiusField,
-// cards/panels/flyouts kRadiusMedium. Chips use half-height pills.
+constexpr float kIconSizeLg = 20.0f;   // ui-v3: shell command glyphs
+constexpr float kTargetMinSize = 24.0f; // ui-v3: pointer-target floor (WCAG 2.2-informed)
+// Corner radii contract (ui-v3): rows/buttons kRadiusSmall, text fields
+// kRadiusField, cards/panels/flyouts kRadiusMedium. Chips use half-height pills.
 constexpr float kRadiusField = 6.0f;
 // Typography ramp (DIPs)
 constexpr float kFontSizeCaption = 12.0f;
 constexpr float kFontSizeBody = 14.0f;
 constexpr float kFontSizeSubtitle = 16.0f;
 constexpr float kFontSizeTitle = 20.0f;
-constexpr float kFontSizeLargeTitle = 28.0f;
+constexpr float kFontSizeLargeTitle = 28.0f; // ui-v3: rare page titles only
 }  // namespace UiMetrics
 
-// UI-v3 typography roles. Size comes from the ramp above; weight is regular
-// except BodyStrong/Subtitle/PageTitle/LargeTitle which render semibold.
+// UI-v3 typography roles (docs/ui-improvement/02 §3). Size comes from the
+// ramp above; weight is regular except BodyStrong/Subtitle/PageTitle/
+// LargeTitle which render semibold — hierarchy via weight, not heavy bold.
 enum class UiTypeRole { Caption, Body, BodyStrong, Subtitle, PageTitle, LargeTitle };
 
 inline float UiTypeSize(UiTypeRole role) {
@@ -198,16 +204,18 @@ inline bool UiTypeSemibold(UiTypeRole role) {
     }
 }
 
-// UI-v3 density contract. Compact remains the default because it is the
-// validated desktop density; Comfortable is an explicit alternate profile.
+// UI-v3 density contract (docs/ui-improvement/02 §4). One coherent structure
+// so row height, command targets, icon size, and list rhythm never drift back
+// into unrelated per-file constants. Compact matches the shipped geometry.
+// The profile is not yet a user setting; surfaces consume GetUiDensity().
 enum class UiDensityProfile { Compact, Comfortable };
 
 struct UiDensity {
-    float rowHeight;
-    float controlHeight;
-    float iconSize;
-    float rowGap;
-    float commandGap;
+    float rowHeight;      // file/search/nav result rows
+    float controlHeight;  // buttons, chips, inputs
+    float iconSize;       // list-row glyph size
+    float rowGap;         // vertical gap between grouped rows/cards
+    float commandGap;     // horizontal gap between adjacent commands
 };
 
 inline UiDensity GetUiDensity(UiDensityProfile profile) {
@@ -220,17 +228,20 @@ inline UiDensity GetUiDensity(UiDensityProfile profile) {
             /*commandGap=*/UiMetrics::kSpaceXs};
 }
 
+// Active density profile, published like gUiDarkTheme; defaults to Compact so
+// existing geometry is unchanged until a surface opts into Comfortable.
 inline UiDensityProfile gUiDensityProfile = UiDensityProfile::Compact;
 
-// Canonical visual states. Surfaces resolve interaction through this enum
-// instead of inventing per-surface hover/selected/focus combinations.
+// UI-v3 canonical visual states (docs/ui-improvement/02 §8). Surfaces resolve
+// interaction state through this enum (see UiComponents.h resolvers) instead of
+// inventing per-surface hover/selected/focus combinations.
 enum class UiVisualState {
     Rest,
     Hover,
     Pressed,
-    Focused,
-    SelectedFocused,
-    SelectedUnfocused,
+    Focused,           // keyboard focus, not selected
+    SelectedFocused,   // selection in the active pane/window
+    SelectedUnfocused, // selection outside the active pane/window
     Disabled,
     Busy,
     DropTarget,
@@ -272,12 +283,15 @@ inline COLORREF ToColorRef(D2D1_COLOR_F color) {
 }
 
 // The currently active dark-theme flag, published by WindowShell::ApplyTheme so
-// owner-drawn chrome surfaces that do not participate in per-component fan-out
-// can still source the active token set. Defaults to light.
+// owner-drawn chrome surfaces (navigation chrome, command palette, dialogs) that
+// do not participate in the per-component SetDarkTheme fan-out can still source
+// the active token set. Defaults to false (light); updated on every theme change.
 inline bool gUiDarkTheme = false;
 
-// Reports whether Windows High Contrast is active. When true, surfaces must
-// suppress token interaction overlays and fall back to system colors.
+// Reports whether Windows High Contrast (accessibility) is active. When true,
+// surfaces must suppress token interaction overlays (hover/press/selection-soft)
+// and fall back to system colors so the user's accessibility color choices are
+// never overridden.
 inline bool UiSystemHighContrast() {
     HIGHCONTRASTW hc{};
     hc.cbSize = sizeof(hc);
@@ -285,8 +299,9 @@ inline bool UiSystemHighContrast() {
            (hc.dwFlags & HCF_HIGHCONTRASTON) != 0;
 }
 
-// Converts a Win32 COLORREF to an opaque D2D1_COLOR_F for High-Contrast
-// fallbacks.
+// Converts a Win32 COLORREF (0x00bbggrr) to an opaque D2D1_COLOR_F (0..1 RGB).
+// Used for High-Contrast fallbacks so Direct2D surfaces can source system
+// colors (GetSysColor) instead of token overlays when accessibility demands it.
 inline D2D1_COLOR_F ToD2DColor(COLORREF color) {
     return D2D1::ColorF(static_cast<float>(GetRValue(color)) / 255.0f,
                         static_cast<float>(GetGValue(color)) / 255.0f,
