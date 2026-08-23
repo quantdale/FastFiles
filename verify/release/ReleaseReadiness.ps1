@@ -1,18 +1,48 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('report', 'gate', 'privileged')]
+    [ValidateSet('report', 'gate', 'privileged', 'compose')]
     [string] $Mode = 'report',
     [string] $ArtifactRoot,
     [string] $PackageDirectory,
     [string] $OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) 'FastFiles-release-readiness'),
     [string] $ExpectedSignerThumbprint,
     [ValidateSet('human', 'json')]
-    [string] $OutputFormat = 'human'
+    [string] $OutputFormat = 'human',
+    [switch] $IncludePrivileged,
+    [switch] $IncludeInteractive
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 Import-Module (Join-Path $PSScriptRoot 'ReleaseCommon.psm1') -Force -DisableNameChecking
+
+if ($Mode -eq 'compose') {
+    try {
+        Import-Module (Join-Path $PSScriptRoot 'ReleaseReadinessCompose.psm1') -Force -DisableNameChecking
+        $composeRoot = if ($ArtifactRoot) { $ArtifactRoot } else { Join-Path $repoRoot 'build\release-test' }
+        $result = Invoke-ReleaseReadinessComposition -RepoRoot $repoRoot -VerifyRoot (Split-Path $PSScriptRoot -Parent) `
+            -OutputDirectory $OutputDirectory -ArtifactRoot $composeRoot -IncludePrivileged:$IncludePrivileged `
+            -IncludeInteractive:$IncludeInteractive
+        $jsonPath = Join-Path $OutputDirectory 'release-readiness-composition.json'
+        Write-ReleaseJson -Value $result -Path $jsonPath
+        if ($OutputFormat -eq 'json') {
+            $result | ConvertTo-Json -Depth 25
+        } else {
+            Write-Host "Release readiness composition: $($result.overall)"
+            Write-Host "Commit: $($result.commit.sha) ($($result.commit.branch)); dirty=$($result.commit.dirty)"
+            Write-Host "Version: $($result.version); architecture=$($result.architecture)"
+            foreach ($gate in @($result.gates)) {
+                Write-Host ("[{0}] {1}{2}" -f $gate.status, $gate.id, $(if ($gate.reason) { " -> $($gate.reason)" } else { '' }))
+            }
+            Write-Host "Machine-readable report: $jsonPath"
+            Write-Host "Artifacts: $($result.outputDirectory)"
+        }
+        exit $(if ($result.overall -eq 'PASS') { 0 } elseif ($result.overall -eq 'FAIL') { 1 } else { 2 })
+    } catch {
+        if ($OutputFormat -eq 'json') { [pscustomobject]@{ kind = 'fastfiles-release-readiness-composition'; overall = 'FAIL'; error = $_.Exception.Message } | ConvertTo-Json -Depth 8 } else { Write-Error $_.Exception.Message }
+        exit 1
+    }
+}
 
 if ($Mode -eq 'privileged') {
     $driver = Join-Path $PSScriptRoot 'privileged-release.ps1'

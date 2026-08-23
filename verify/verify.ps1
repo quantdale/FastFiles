@@ -42,7 +42,7 @@ param(
     [ValidateSet('human', 'json')]
     [string] $Format = 'human',
     [string] $RunTimestamp,
-    [ValidateSet('report', 'gate', 'privileged')]
+    [ValidateSet('report', 'gate', 'privileged', 'compose')]
     [string] $Mode = 'report',
     [string] $ArtifactRoot,
     [string] $BuildRoot,
@@ -53,7 +53,9 @@ param(
     [string] $ManifestSignaturePath,
     [switch] $Force,
     [switch] $SkipVerification,
-    [string] $ExpectedSignerThumbprint
+    [string] $ExpectedSignerThumbprint,
+    [switch] $IncludePrivileged,
+    [switch] $IncludeInteractive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -102,6 +104,8 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
         if ($Force) { $childArgs += '-Force' }
         if ($SkipVerification) { $childArgs += '-SkipVerification' }
     if ($ExpectedSignerThumbprint) { $childArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
+    if ($IncludePrivileged) { $childArgs += '-IncludePrivileged' }
+    if ($IncludeInteractive) { $childArgs += '-IncludeInteractive' }
     $quotedArgs = ($childArgs | ForEach-Object { ConvertTo-ProcessArgument -Value $_ }) -join ' '
     $child = Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList $quotedArgs -Verb RunAs -Wait -PassThru
     exit $child.ExitCode
@@ -284,6 +288,8 @@ switch ($Verb) {
         if ($PackageDirectory) { $releaseArgs += @('-PackageDirectory', $PackageDirectory) }
         if ($OutputDirectory) { $releaseArgs += @('-OutputDirectory', $OutputDirectory) }
         if ($ExpectedSignerThumbprint) { $releaseArgs += @('-ExpectedSignerThumbprint', $ExpectedSignerThumbprint) }
+        if ($IncludePrivileged) { $releaseArgs += '-IncludePrivileged' }
+        if ($IncludeInteractive) { $releaseArgs += '-IncludeInteractive' }
         & (Get-Command pwsh).Source @releaseArgs
         exit $LASTEXITCODE
     }

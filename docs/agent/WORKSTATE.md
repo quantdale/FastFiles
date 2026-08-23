@@ -1,8 +1,22 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-23 (Phase-7 certification campaign; current live checkpoint)
-Status: **Phase-7 certification locally complete; the campaign slices are committed and pushed, with hosted Actions still settling.** Live Git remains authoritative: campaign baseline is `90fa560a99217cabcf456b1198c83351c46513ed`; derive the current `main`/`origin/main` state again on resume rather than treating this file as a Git database.
-NEXT EXACT ACTION: On resume, fetch `origin`, derive the exact current `main` SHA, and re-query hosted Actions for that SHA; do not mutate this file merely to embed CI status.
+Last updated: 2026-08-23 (overnight release-closure campaign; palette and readiness composition wave)
+Status: **Campaign in progress on `overnight/release-closure-20260823`.** Live Git remains authoritative: this branch was created from `origin/main`/`HEAD` `e8b1d9b076cb2e194ca007303689e71dfe44f671`; do not treat this file as a Git database.
+NEXT EXACT ACTION: Commit the palette/readiness wave, then rerun the composed readiness path on the clean commit and reconcile the exact pushed SHA with hosted CI; keep privileged/test-PKI/guest prerequisites explicit.
+
+## Current overnight campaign checkpoint (2026-08-23)
+
+- Repository reconciliation: fetched/pruned refs, clean `main` at `e8b1d9b076cb2e194ca007303689e71dfe44f671`, created `overnight/release-closure-20260823` from exact `origin/main`; PR #6 head is `9ddf1a3189be32db11c97e7c79bb7404caac1d8f`, merge base `90fa560a99217cabcf456b1198c83351c46513ed`.
+- PR #6 unique changes are seven files: a documentation audit, a palette refinement plus contrast tests, display-only 8.3 navigation handling, and themed Storage button controls. Current main already has the newer `DisplayPath` normalization and `StorageRadioState`/radio implementation; those PR variants are provisionally superseded. The palette and stronger contrast assertions remain candidates for deliberate porting after exact consumer/background review.
+- Existing release readiness is artifact-only: `verify/verify.ps1 release-readiness` delegates to `verify/release/ReleaseReadiness.ps1`, which reports build/tests/OpenSpec as `NOT_RUN`. The main implementation frontier is one structured composition layer that invokes/reports existing gates without weakening production signing or converting external blockers to PASS.
+- Current open task inventory from `tasks.md`: `autonomous-runtime-verification` 2 provider tasks; `close-independent-validation-gaps` 6 external/visual tasks; `real-user-dogfooding-release-engineering` task 5.4; `zero-touch-autonomous-engineering` 3 provider tasks. Test-PKI, production signer, clean-host, guest, DPI, and real privileged MFT/USN claims remain evidence-gated.
+- Hosted CI truth is not yet available from local `gh` because the GitHub CLI is unauthenticated; inspect the workflow and query the pushed SHA through an authenticated mechanism if available, otherwise record the exact external limitation.
+
+## Overnight implementation wave (2026-08-23)
+
+- PR #6 disposition is now behaviorally established: the display-only navigation and themed Storage button deltas are superseded by current-main `DisplayPath` and `StorageRadioState` implementations; the audit document is provenance-only; the unique palette/contrast work was ported deliberately into the current `UITheme` token set. `textOnAccent` is deep navy in dark mode for readable selected text; light/dark primary, secondary, tertiary, disabled, glyph, focus, selected, and status pairings are covered by `ffui_style_tests` with alpha compositing for the informational chip.
+- `verify/release/ReleaseReadinessCompose.psm1` plus `ReleaseReadiness.ps1 -Mode compose` and `verify.ps1` forwarding form one composition path over the existing verifier/release tooling. It records exact SHA/branch/dirty state, version, x64/configuration/toolchain/host fingerprint, per-gate status/reason/duration/artifacts/diagnostics, child run paths, ASAN protocol+IPC tests, strict OpenSpec, source/diagnostic/doc-drift guards, candidate packaging, and production artifact readiness. `-IncludePrivileged` and `-IncludeInteractive` are explicit; test-PKI is never implicit. Two harness issues found during first composition runs were fixed: New-Item parameter misuse, inline PowerShell if expressions, unsuppressed List.Add output, and runtime architecture metadata using a null API.
+- Validation evidence in this wave: focused `ffui_style_tests` PASS; focused `ffdoc_drift_tests` PASS after CRLF normalization; standalone `verify.ps1 build -Change release-readiness` PASS; ASAN protocol+IPC 2/2 PASS; strict OpenSpec 59/59 PASS; source-marker and diagnostic-policy PASS. A first independent Debug CTest reached 72/73 product tests PASS and only failed the mixed-line-ending guard before normalization; the subsequent release-test CTest was 73/73 PASS. The composed run reached ASAN and all child work but needs one final rerun after the last metadata fix to produce its JSON verdict.
 
 ## Current 2026-08-23 Phase-7 certification checkpoint
 

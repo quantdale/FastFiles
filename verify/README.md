@@ -26,7 +26,7 @@ Fixed, non-interactive verb set:
 | `gate` | Resolve the change's gate policy against the latest run | no |
 | `list` | Enumerate discovered capabilities (incl. rejected ones) | no |
 | `doctor` | Probe environment readiness; never provisions anything | no |
-| `release-readiness` | Validate the Release artifact set, signatures, pins, clean-host preflight, and privileged-path prerequisites | report: no; privileged: only after all gates are ready |
+| `release-readiness` | Compose build/test/policy/runtime evidence with Release artifact, signature, pin, and privileged-path prerequisites | report/compose: no; privileged or `-IncludePrivileged`: explicit elevation only |
 | `release-candidate` | Build and package a labelled unsigned-validation candidate, or validate an externally signed production candidate with checksums/provenance | no; writes ignored `out/` artifacts |
 
 Exit codes: `0` PASS, `1` FAIL, `2` SKIPPED, `3` HARNESS ERROR, `10` NOT-YET-IMPLEMENTED
@@ -135,14 +135,25 @@ pwsh ./verify/verify.ps1 repair -Change <change-id>
 pwsh ./verify/verify.ps1 gate -Change <change-id>
 pwsh ./verify/verify.ps1 release-readiness -Mode report
 pwsh ./verify/verify.ps1 release-readiness -Mode gate
+pwsh ./verify/verify.ps1 release-readiness -Mode compose -Format json
+pwsh ./verify/verify.ps1 release-readiness -Mode compose -IncludeInteractive -Format json
+pwsh ./verify/verify.ps1 release-readiness -Mode compose -IncludePrivileged -Elevate -Format json
 pwsh ./verify/verify.ps1 release-readiness -Mode privileged -Elevate
 pwsh ./verify/verify.ps1 release-candidate -ReleaseMode unsigned-validation
 ```
 
-`release-readiness` returns `2` (`BLOCKED_EXTERNAL`) when the current artifact set
-is locally inspectable but authorized signing material, production pins, elevation,
-or a genuinely clean host is unavailable. It returns `1` for a local artifact or
-validation defect. `-Mode report` is read-only; `-Mode privileged` delegates to
+`release-readiness -Mode report` retains the artifact-only schema and returns `2`
+(`BLOCKED_EXTERNAL`) when the current artifact set is locally inspectable but
+authorized signing material, production pins, elevation, or a genuinely clean host
+is unavailable. `-Mode compose` is the single release-facing composition path: it
+invokes the existing build/capability runner, policy guards, strict OpenSpec,
+ASAN protocol/IPC tests, documentation drift, candidate packaging, and the existing
+production artifact report. It writes `release-readiness-composition.json` plus
+per-gate logs and preserves the child verifier run trees. Its final verdict is
+`PASS`, `FAIL`, `SKIPPED`, or `REQUIRED-BUT-UNAVAILABLE`; exit code `2` is used for
+the latter two states. `-Mode report` is read-only; `-Mode privileged` delegates to
+`verify/release/privileged-release.ps1` and refuses to install over a contaminated
+host. The signing wrapper accepts only explicitly supplied external certificate-store
 `verify/release/privileged-release.ps1` and refuses to install over a contaminated
 host. The signing wrapper accepts only explicitly supplied external certificate-store
 or PFX configuration, rejects self-signed development certificates, and never writes

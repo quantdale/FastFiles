@@ -4,6 +4,24 @@
 the executable metadata checks, archive name, manifest, notes, and checksums from
 that file and the clean checkout commit.
 
+## Composed readiness
+
+Use the composed readiness command for one structured local release review:
+
+```powershell
+pwsh ./verify/verify.ps1 release-readiness -Mode compose -Format json
+```
+
+It reuses the existing verifier's build, protocol, filesystem, IPC, engine/service,
+policy, documentation, ASAN, and performance capabilities, then adds the existing
+release-candidate and production-artifact reports. The result records the exact
+commit, version, toolchain, host fingerprint, gate status, duration, diagnostics,
+and artifact paths. `SKIPPED` and `REQUIRED-BUT-UNAVAILABLE` remain explicit and are
+never promoted to `PASS`. Add `-IncludeInteractive` only on an attached desktop,
+and add `-IncludePrivileged -Elevate` only for an explicitly authorized disposable
+install/service run. Test-PKI signing is not implicit in release readiness and
+remains non-production diagnostic evidence.
+
 ## Portable unsigned validation candidate
 
 From a Visual Studio developer PowerShell on a clean checkout:
