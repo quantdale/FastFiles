@@ -24,7 +24,9 @@ if ($Mode -eq 'compose') {
             -OutputDirectory $OutputDirectory -ArtifactRoot $composeRoot -IncludePrivileged:$IncludePrivileged `
             -IncludeInteractive:$IncludeInteractive
         $jsonPath = Join-Path $OutputDirectory 'release-readiness-composition.json'
-        ReleaseCommon\Write-ReleaseJson -Value $result -Path $jsonPath
+        $jsonParent = Split-Path -Parent ([IO.Path]::GetFullPath($jsonPath))
+        if ($jsonParent) { New-Item -ItemType Directory -Path $jsonParent -Force | Out-Null }
+        $result | ConvertTo-Json -Depth 25 | Set-Content -LiteralPath $jsonPath -Encoding utf8NoBOM
         if ($OutputFormat -eq 'json') {
             $result | ConvertTo-Json -Depth 25
         } else {
