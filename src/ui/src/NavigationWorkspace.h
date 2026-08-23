@@ -3,7 +3,9 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
+#include <windows.h>
 
 #include "NavigationLocation.h"
 
@@ -14,9 +16,57 @@ enum class PathCommitResult { Navigated, Invalid, NotFound };
 // so Back/Forward restores Home exactly; isHomeLocation mirrors the active kind.
 struct NavigationContext { std::wstring currentPath; std::vector<std::wstring> columnPaths; std::vector<int> columnSelections; std::vector<float> columnScrollOffsets; std::vector<NavigationLocation> history; size_t historyIndex = 0; AddressBarMode addressBarMode = AddressBarMode::Breadcrumb; std::wstring addressBarText; std::wstring addressBarError; bool isHomeLocation = false; };
 struct Bookmark { std::wstring path; std::wstring displayName; };
+
+// Display-only 8.3 hygiene. FastFiles deliberately preserves the canonical
+// navigation path exactly as supplied by Win32 because that identity feeds
+// history, indexing and file operations. A short-name component such as
+// MICHAEL~1, however, is an implementation detail and should not leak into
+// user-facing breadcrumb/tab labels. Resolve only local drive paths and only
+// when the proposed label actually contains '~'; this avoids network I/O in
+// the paint path and makes the common case allocation/free-I/O free. Failure
+// is deliberately non-fatal: stale, inaccessible, or 8.3-disabled paths keep
+// their original label rather than changing navigation semantics.
+inline std::wstring ExpandLocalShortNameForDisplay(const std::wstring& label,
+                                                    const std::wstring& canonicalPath) {
+    if (label.find(L'~') == std::wstring::npos || canonicalPath.empty()) return label;
+
+    const bool drivePath = canonicalPath.size() >= 3 && canonicalPath[1] == L':' &&
+                           canonicalPath[2] == L'\\';
+    const bool extendedDrivePath = canonicalPath.size() >= 7 &&
+                                   canonicalPath.rfind(L"\\\\?\\", 0) == 0 &&
+                                   canonicalPath[5] == L':' && canonicalPath[6] == L'\\';
+    if (!drivePath && !extendedDrivePath) return label;
+
+    const DWORD required = GetLongPathNameW(canonicalPath.c_str(), nullptr, 0);
+    if (required == 0 || required > 32768) return label;
+    std::wstring expanded(static_cast<size_t>(required), L'\0');
+    const DWORD copied = GetLongPathNameW(canonicalPath.c_str(), expanded.data(), required);
+    if (copied == 0 || copied >= required) return label;
+    expanded.resize(static_cast<size_t>(copied));
+
+    const size_t end = expanded.find_last_not_of(L"\\/");
+    if (end == std::wstring::npos) return label;
+    const size_t slash = expanded.find_last_of(L"\\/", end);
+    const std::wstring leaf = slash == std::wstring::npos
+        ? expanded.substr(0, end + 1)
+        : expanded.substr(slash + 1, end - slash);
+    return leaf.empty() ? label : leaf;
+}
+
 // syntheticRoot marks the always-present "This PC" crumb: its path is empty
-// (the synthetic root), but it is a real navigation target.
-struct BreadcrumbSegment { std::wstring label; std::wstring path; bool syntheticRoot = false; };
+// (the synthetic root), but it is a real navigation target. Construction also
+// performs display-only 8.3 expansion while retaining the exact target path.
+struct BreadcrumbSegment {
+    std::wstring label;
+    std::wstring path;
+    bool syntheticRoot = false;
+
+    BreadcrumbSegment() = default;
+    BreadcrumbSegment(std::wstring displayLabel, std::wstring targetPath,
+                      bool isSyntheticRoot = false)
+        : label(ExpandLocalShortNameForDisplay(displayLabel, targetPath)),
+          path(std::move(targetPath)), syntheticRoot(isSyntheticRoot) {}
+};
 // quick-access-home hardening (HOME-POST-01): the single typed extraction from
 // a context to its NavigationLocation. A Home context always maps to the Home
 // location (never to an empty filesystem path), so every consumer that must
