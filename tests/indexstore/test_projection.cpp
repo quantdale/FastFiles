@@ -446,6 +446,77 @@ void TestProjectionMemoryPressureSignal() {
     Check(proj.IsMemoryPressureHigh(), "projection exposes a high-memory pressure signal near its limit");
 }
 
+// memory-bounded-indexed-scale 3.1: the memory policy is observable --
+// configured ceiling, estimated bytes, eviction byte deltas, and monotonic
+// eviction/reload counters.
+void TestProjectionMemoryDiagnostics() {
+    Store store;
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_diag_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+    Check(store.Open(dbPath.string()), "diagnostics fixture store opens");
+    VolumeKey key;
+    key.serialNumber = 424242;
+    const auto volume = *store.GetOrCreateVolume(key);
+    Check(store.ApplyBatch(volume, {
+        {EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(100, 5, u"a.txt")},
+        {EntryChangeKind::Upsert, MakeEntry(101, 5, u"b.txt")},
+        {EntryChangeKind::Upsert, MakeEntry(102, 5, u"c.txt")},
+    }), "diagnostics fixture rows are durable");
+
+    Projection proj;
+    proj.RebuildVolumeFromStore(store, volume, 4);
+    const size_t loadedBytes = proj.EstimatedMemoryBytes();
+
+    auto diagnostics = proj.GetMemoryDiagnostics();
+    Check(diagnostics.configuredMaximumBytes == Projection::kDefaultMaximumMemoryBytes,
+          "diagnostics report the default configured ceiling");
+    Check(diagnostics.estimatedBytes == loadedBytes,
+          "diagnostics estimated bytes match the projection estimate");
+    Check(diagnostics.subtreeEvictionCount == 0 && diagnostics.coldReloadCount == 0,
+          "counters start at zero with no eviction or reload");
+
+    // Shrink by one byte: enforcement runs until under the new ceiling and
+    // each pass records its before/after effect.
+    proj.SetMaximumMemoryBytes(loadedBytes - 1);
+    diagnostics = proj.GetMemoryDiagnostics();
+    Check(diagnostics.configuredMaximumBytes == loadedBytes - 1,
+          "diagnostics report the overridden ceiling");
+    Check(diagnostics.subtreeEvictionCount >= 1,
+          "the eviction counter increments with enforcement passes");
+    Check(diagnostics.lastEvictionBytesBefore >= diagnostics.lastEvictionBytesAfter,
+          "eviction records bytes before and after reclaiming");
+    Check(diagnostics.estimatedBytes <= diagnostics.configuredMaximumBytes,
+          "estimated memory respects the overridden ceiling");
+
+    // Restoring the ceiling makes the evicted volume reloadable again.
+    proj.SetMaximumMemoryBytes(Projection::kDefaultMaximumMemoryBytes);
+    Check(proj.ReloadEvictedVolume(store, volume), "fixture reload succeeds once the ceiling allows it");
+    diagnostics = proj.GetMemoryDiagnostics();
+    Check(diagnostics.coldReloadCount == 1, "the reload counter increments per cold reload");
+    Check(diagnostics.coldReloadFailedCount == 0, "a successful reload is not counted failed");
+    Check(!proj.NeedsReload(volume), "reload clears residency need");
+
+    // A volume absent from the store fails closed and counts as failed.
+    Check(store.SetVolumeAvailable(volume, false, 1), "fixture volume marked unavailable");
+    Check(store.ForgetVolume(volume), "fixture volume forgotten");
+    proj.EvictVolume(volume);
+    Check(proj.NeedsReload(volume), "evicting a resident volume marks it cold");
+    Check(proj.ReloadEvictedVolume(store, volume) == false,
+          "reloading a forgotten volume fails honestly");
+    diagnostics = proj.GetMemoryDiagnostics();
+    Check(diagnostics.coldReloadFailedCount == 1,
+          "a failed reload increments the failure counter");
+
+    store.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+}
+
 void TestProjectionMemoryLimitRunsAtBatchBoundary() {
     Projection proj;
     proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
@@ -485,6 +556,7 @@ int main() {
     TestFilenameTrigramCandidatesTrackMutations();
     TestProjectionEvictsLruAndReloadsFromStore();
     TestProjectionMemoryPressureSignal();
+    TestProjectionMemoryDiagnostics();
     TestProjectionMemoryLimitRunsAtBatchBoundary();
 
     if (fftest::FailureCount() > 0) {

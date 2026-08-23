@@ -720,6 +720,78 @@ bool Store::ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor) {
     return stepResult == SQLITE_DONE;
 }
 
+bool Store::ForEachEntryUntil(VolumeRowId volumeRowId, const EntryVisitorUntil& visitor) {
+    if (db_ == nullptr) {
+        return false;
+    }
+    Statement stmt(db_,
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=?;");
+    if (!stmt.Valid()) {
+        return false;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+
+    int stepResult;
+    while ((stepResult = sqlite3_step(stmt)) == SQLITE_ROW) {
+        EntryRecord record;
+        record.id = ReadFileId(stmt, 0, 1);
+        record.parentId = ReadFileId(stmt, 2, 3);
+        const unsigned char* nameText = sqlite3_column_text(stmt, 4);
+        const int nameBytes = sqlite3_column_bytes(stmt, 4);
+        record.name = Utf8ToUtf16(reinterpret_cast<const char*>(nameText), nameBytes);
+        record.sizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 5));
+        record.allocatedSizeKnown = sqlite3_column_type(stmt, 6) != SQLITE_NULL;
+        record.allocatedSizeBytes =
+            record.allocatedSizeKnown ? static_cast<uint64_t>(sqlite3_column_int64(stmt, 6)) : 0;
+        record.creationTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 7));
+        record.lastModifiedTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 8));
+        record.lastAccessTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 9));
+        record.attributes = static_cast<uint32_t>(sqlite3_column_int64(stmt, 10));
+        if (!visitor(record)) {
+            return true; // bounded early stop requested by the caller
+        }
+    }
+    return stepResult == SQLITE_DONE;
+}
+
+// memory-bounded-indexed-scale 2.1: durable point lookup backing cold
+// parent-chain walks. Same column order/semantics as ForEachEntry; a missing
+// row is std::nullopt, never a fabricated record.
+std::optional<EntryRecord> Store::FindEntry(VolumeRowId volumeRowId, FileId frn) {
+    if (db_ == nullptr) {
+        return std::nullopt;
+    }
+    Statement stmt(db_,
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes "
+        "FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;");
+    if (!stmt.Valid()) {
+        return std::nullopt;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(frn.low));
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(frn.high));
+    if (sqlite3_step(stmt) != SQLITE_ROW) {
+        return std::nullopt;
+    }
+    EntryRecord record;
+    record.id = ReadFileId(stmt, 0, 1);
+    record.parentId = ReadFileId(stmt, 2, 3);
+    const unsigned char* nameText = sqlite3_column_text(stmt, 4);
+    const int nameBytes = sqlite3_column_bytes(stmt, 4);
+    record.name = Utf8ToUtf16(reinterpret_cast<const char*>(nameText), nameBytes);
+    record.sizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 5));
+    record.allocatedSizeKnown = sqlite3_column_type(stmt, 6) != SQLITE_NULL;
+    record.allocatedSizeBytes =
+        record.allocatedSizeKnown ? static_cast<uint64_t>(sqlite3_column_int64(stmt, 6)) : 0;
+    record.creationTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 7));
+    record.lastModifiedTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 8));
+    record.lastAccessTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 9));
+    record.attributes = static_cast<uint32_t>(sqlite3_column_int64(stmt, 10));
+    return record;
+}
+
 std::vector<FileId> Store::ListEntryIds(VolumeRowId volumeRowId) {
     std::vector<FileId> result;
     if (db_ == nullptr) {

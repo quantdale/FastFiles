@@ -106,6 +106,58 @@ bool MaterializeCandidateFolder(const ffindexstore::Projection& projection,
     return true;
 }
 
+// memory-bounded-indexed-scale 2.4: hybrid candidate folder reconstruction.
+// Hot rows resolve through the projection walk exactly as before; a row whose
+// parent chain is not resident (evicted subtree) resolves through bounded
+// durable point lookups instead of reloading the volume. The walk stops at the
+// volume root WITHOUT including the root's synthetic stored name -- matching
+// StripVolumeRootName's contract for the projection path.
+bool MaterializeCandidateFolderHybrid(const ffindexstore::Projection& projection,
+                                      ffindexstore::Store& store,
+                                      const std::unordered_map<ffindexstore::VolumeRowId, std::wstring>& prefixes,
+                                      ffsearch::Candidate& candidate) {
+    if (MaterializeCandidateFolder(projection, prefixes, candidate)) return true;
+    const auto prefixIt = prefixes.find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId));
+    if (prefixIt == prefixes.end()) return false;
+    const ffindexstore::VolumeRowId volumeId = static_cast<ffindexstore::VolumeRowId>(candidate.volumeId);
+    const auto entry = store.FindEntry(volumeId, ffindexstore::FileId{candidate.id, 0});
+    if (!entry.has_value()) return false;
+    if (entry->parentId == entry->id) {
+        // The root candidate intentionally keeps the same empty folder that
+        // the hot path uses; its user-facing root lives in name.
+        return true;
+    }
+    constexpr size_t kMaxColdWalkDepth = 4096;
+    std::vector<std::u16string> segmentsReversed;
+    ffindexstore::FileId current = entry->parentId;
+    bool reachedRoot = false;
+    for (size_t depth = 0; depth < kMaxColdWalkDepth; ++depth) {
+        const auto parent = store.FindEntry(volumeId, current);
+        if (!parent.has_value()) break;
+        if (parent->parentId == parent->id) {
+            reachedRoot = true;
+            break;
+        }
+        segmentsReversed.push_back(parent->name);
+        current = parent->parentId;
+    }
+    if (!reachedRoot) return false;
+    std::wstring folder = prefixIt->second;
+    for (auto it = segmentsReversed.rbegin(); it != segmentsReversed.rend(); ++it) {
+        folder += L"\\";
+        folder += ToWString(*it);
+    }
+    candidate.folder = std::move(folder);
+    return true;
+}
+
+bool IsAsciiLowerName(std::u16string_view name) {
+    for (const char16_t ch : name) {
+        if (ch > 0x7f || (ch >= u'A' && ch <= u'Z')) return false;
+    }
+    return true;
+}
+
 ffsearch::Candidate MakeOwnedCandidate(const ffsearch::CandidateView& view) {
     ffsearch::Candidate candidate;
     candidate.name = ToWString(view.name);
@@ -699,10 +751,63 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
     return result;
 }
 
+std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshotBounded(
+    ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix, size_t maxDirectories) {
+    auto result = ExportDirectorySnapshot(id, rootPathPrefix);
+    if (result.size() > maxDirectories) {
+        // std::map iterates in case-insensitive path order; keeping the first
+        // N keys retains the lexicographically shallowest/top-of-tree
+        // directories deterministically. Deeper directories stay durable and
+        // re-materialize through the normal request/watch path.
+        auto firstDropped = result.begin();
+        std::advance(firstDropped, static_cast<std::ptrdiff_t>(maxDirectories));
+        result.erase(firstDropped, result.end());
+    }
+    return result;
+}
+
 std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn) {
     std::lock_guard<std::mutex> lock(mutex_);
-    projection_.ReloadEvictedVolume(store_, volumeId);
-    return projection_.GetFolderAggregate(volumeId, parentFrn);
+    if (!projection_.NeedsReload(volumeId)) {
+        return projection_.GetFolderAggregate(volumeId, parentFrn);
+    }
+    // memory-bounded-indexed-scale 4.1: an evicted volume is durable-but-not-
+    // resident -- answer from the store's recursive CTE instead of reloading
+    // the whole volume into RAM just to sum one subtree. The explicit point
+    // lookup distinguishes "folder unknown" (nullopt) from a legitimately
+    // empty folder (zero totals), which the aggregate alone cannot express.
+    if (!store_.FindEntry(volumeId, parentFrn).has_value()) {
+        return std::nullopt;
+    }
+    const auto durable = store_.GetFolderAggregate(volumeId, parentFrn);
+    ffindexstore::Projection::FolderAggregate result;
+    result.itemCount = durable.itemCount;
+    result.totalSizeBytes = durable.totalSizeBytes;
+    result.totalAllocatedSizeBytes = durable.totalAllocatedSizeBytes;
+    result.allocatedBytesKnownCount = durable.allocatedBytesKnownCount;
+    result.allocatedBytesTotalCount = durable.allocatedBytesTotalCount;
+    result.complete = durable.allocatedBytesKnownCount == durable.allocatedBytesTotalCount;
+    return result;
+}
+
+void IndexPipeline::SetProjectionMemoryBudget(const size_t maximumBytes) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    projection_.SetMaximumMemoryBytes(maximumBytes);
+}
+
+ffindexstore::Projection::MemoryDiagnostics IndexPipeline::GetProjectionMemoryDiagnostics() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return projection_.GetMemoryDiagnostics();
+}
+
+bool IndexPipeline::IsVolumeEvicted(const ffindexstore::VolumeRowId volumeId) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return projection_.NeedsReload(volumeId);
+}
+
+void IndexPipeline::UnloadVolumeFromProjection(const ffindexstore::VolumeRowId volumeId) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    projection_.EvictVolume(volumeId);
 }
 
 ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol::IndexedSearchRequest& request,
@@ -772,6 +877,9 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
     const bool collectSearchDiagnostics = detailedDiagnostics || projectionOnly;
     size_t candidateObjectsMaterialized = 0;
     size_t candidateNameCopies = 0;
+    size_t coldRowsExamined = 0;
+    bool storeStreamFailed = false;
+    bool searchedColdVolumes = false;
     ffsearch::SearchResponse search;
     std::chrono::steady_clock::time_point searchStart{};
 
@@ -790,8 +898,12 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
-        projection_.ReloadAllEvictedVolumes(store_);
-
+        // memory-bounded-indexed-scale 2.2: searching never reloads evicted
+        // volumes -- the previous ReloadAllEvictedVolumes call violated the
+        // memory ceiling on every query, thrashed reload/evict cycles across
+        // queries, and ignored its own failure (silently omitting durable rows
+        // from "complete" results). Hot/cold classification happens below,
+        // once the searchable prefix set is final.
         prefixes.reserve(volumeRules_.size() + 4);
         std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
         disabledVolumes.reserve(volumeRules_.size());
@@ -827,6 +939,16 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
+        // memory-bounded-indexed-scale 2.2: classify searchable volumes into
+        // hot (projection-resident) and cold (evicted; enumerated durably).
+        std::unordered_set<ffindexstore::VolumeRowId> coldVolumes;
+        for (const auto& prefixEntry : prefixes) {
+            if (projection_.NeedsReload(prefixEntry.first)) {
+                coldVolumes.insert(prefixEntry.first);
+            }
+        }
+        const bool anyColdVolume = !coldVolumes.empty();
+        searchedColdVolumes = anyColdVolume;
         const auto singlePrefixIt = prefixes.size() == 1 ? prefixes.begin() : prefixes.end();
         const ffindexstore::VolumeRowId singleVolumeId = singlePrefixIt == prefixes.end()
             ? 0 : singlePrefixIt->first;
@@ -841,7 +963,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             ++candidateNameCopies;
             auto candidate = MakeOwnedCandidate(view);
             const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-            const bool pathMaterialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+            const bool pathMaterialized = MaterializeCandidateFolderHybrid(projection_, store_, prefixes, candidate);
             if (timings != nullptr) {
                 const double pathElapsed =
                     std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
@@ -855,7 +977,12 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             return std::optional<ffsearch::Candidate>(std::move(candidate));
         };
         const bool filenameIndexEligible = searchRequest.query.simpleLiteralName &&
-                                           searchRequest.query.simpleLiteralFolded.size() >= 3;
+                                           searchRequest.query.simpleLiteralFolded.size() >= 3 &&
+                                           // The trigram postings cover projection-resident names
+                                           // only. With any searched volume evicted they could
+                                           // produce false negatives against durable rows, so the
+                                           // accelerator is used only for all-hot searchable sets.
+                                           !anyColdVolume;
         const std::optional<std::vector<uint32_t>> filenameCandidates = filenameIndexEligible
             ? projection_.FilenameCandidateIndices(searchRequest.query.simpleLiteralFolded)
             : std::nullopt;
@@ -869,6 +996,9 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                 if (!continueEnumeration || isCancelled()) {
                     continueEnumeration = false;
                     return;
+                }
+                if (coldVolumes.contains(entry.volumeRowId)) {
+                    return; // an evicted volume's rows stream durably below
                 }
                 if (detailedDiagnostics) ++projectionEntriesVisited;
                 const std::wstring* prefix = singlePrefix;
@@ -937,6 +1067,62 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             } else {
                 projection_.ForEachEntryValueUntil(visitEntry, isCancelled);
             }
+            if (anyColdVolume) {
+                // memory-bounded-indexed-scale 2.2/2.6: durable rows of evicted
+                // volumes stream straight from the store under the same visitor
+                // contract -- one reused per-row name scratch, cancellable per
+                // row, never materialized into the projection.
+                std::vector<ffindexstore::VolumeRowId> orderedCold(coldVolumes.begin(), coldVolumes.end());
+                std::sort(orderedCold.begin(), orderedCold.end());
+                for (const ffindexstore::VolumeRowId coldVolumeId : orderedCold) {
+                    if (!continueEnumeration || isCancelled()) break;
+                    const auto coldPrefixIt = prefixes.find(coldVolumeId);
+                    if (coldPrefixIt == prefixes.end()) continue;
+                    if (timings != nullptr) ++timings->coldVolumesSearched;
+                    const std::u16string coldRootName = ToU16String(coldPrefixIt->second + L"\\");
+                    std::u16string coldNameScratch;
+                    const auto streamStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+                    const bool streamed = store_.ForEachEntryUntil(coldVolumeId,
+                        [&](const ffindexstore::EntryRecord& record) -> bool {
+                            if (!continueEnumeration || isCancelled()) {
+                                continueEnumeration = false;
+                                return false;
+                            }
+                            ++coldRowsExamined;
+                            std::u16string_view coldName;
+                            if (record.parentId == record.id) {
+                                // The durable root's user-facing name is the mounted drive root.
+                                coldName = coldRootName;
+                            } else {
+                                if (record.name.empty()) return true;
+                                coldNameScratch = record.name;
+                                coldName = coldNameScratch;
+                            }
+                            const ffsearch::CandidateView view{
+                                coldName,
+                                {},
+                                record.sizeBytes,
+                                record.lastModifiedTime,
+                                (record.attributes & kFileAttributeDirectory) != 0,
+                                record.creationTime,
+                                static_cast<int64_t>(coldVolumeId),
+                                record.id.low,
+                                record.parentId.low,
+                                true,
+                                record.parentId != record.id && IsAsciiLowerName(record.name),
+                                record.allocatedSizeBytes,
+                                record.allocatedSizeKnown,
+                            };
+                            continueEnumeration = visit(view);
+                            return continueEnumeration;
+                        });
+                    if (timings != nullptr) {
+                        timings->storeStreamMs +=
+                            std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
+                    }
+                    if (!streamed && !isCancelled()) storeStreamFailed = true;
+                }
+            }
             if (detailedDiagnostics) {
                 timings->projectionEnumerationMs +=
                     std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();
@@ -945,6 +1131,14 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         search = ffsearch::ExecuteSearchViews(enumerate, searchRequest, materialize, isCancelled,
                                                collectSearchDiagnostics ? &searchDiagnostics : nullptr);
         lock.unlock();
+        if (storeStreamFailed && !isCancelled()) {
+            // memory-bounded-indexed-scale 2.5: a cold stream that failed
+            // mid-volume means the result set could not be proven complete.
+            // Fail closed instead of presenting partial results as complete.
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
     } else {
         std::vector<ffsearch::Candidate> candidates;
         // A future custom FilterRegistry entry without a view predicate uses
@@ -959,8 +1153,9 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             setTotal();
             return result;
         }
-        projection_.ReloadAllEvictedVolumes(store_);
-
+        // memory-bounded-indexed-scale 2.2: searching never reloads evicted
+        // volumes (see the view path for the full rationale). Hot/cold
+        // classification happens below, once prefixes are final.
         prefixes.reserve(volumeRules_.size() + 4);
         std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
         disabledVolumes.reserve(volumeRules_.size());
@@ -997,11 +1192,24 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             return result;
         }
 
+
+        // memory-bounded-indexed-scale 2.2: classify searchable volumes into
+        // hot (projection-resident) and cold (evicted; enumerated durably).
+        std::unordered_set<ffindexstore::VolumeRowId> coldVolumes;
+        for (const auto& prefixEntry : prefixes) {
+            if (projection_.NeedsReload(prefixEntry.first)) {
+                coldVolumes.insert(prefixEntry.first);
+            }
+        }
+        const bool anyColdVolume = !coldVolumes.empty();
+        searchedColdVolumes = anyColdVolume;
+
         candidateStart = timings != nullptr ? Clock::now() : Clock::time_point{};
         candidates.reserve(projection_.EntryCount());
         projection_.ForEachEntryUntil([&](const ffindexstore::EntryKey& key,
                                            const ffindexstore::ProjectionEntry& entry) {
             if (isCancelled()) return;
+            if (coldVolumes.contains(key.volumeRowId)) return; // durable stream below
             const auto prefixIt = prefixes.find(key.volumeRowId);
             if (prefixIt == prefixes.end()) return;
             ++projectionRowsExamined;
@@ -1026,7 +1234,51 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
             }
             candidates.push_back(std::move(candidate));
         }, isCancelled);
+        if (anyColdVolume) {
+            // memory-bounded-indexed-scale 2.2: the owning fallback path gets
+            // the same per-volume partition -- hot rows above, cold rows
+            // streamed from the durable store here.
+            std::vector<ffindexstore::VolumeRowId> orderedCold(coldVolumes.begin(), coldVolumes.end());
+            std::sort(orderedCold.begin(), orderedCold.end());
+            for (const ffindexstore::VolumeRowId coldVolumeId : orderedCold) {
+                if (isCancelled()) break;
+                const auto coldPrefixIt = prefixes.find(coldVolumeId);
+                if (coldPrefixIt == prefixes.end()) continue;
+                const bool streamed = store_.ForEachEntryUntil(coldVolumeId,
+                    [&](const ffindexstore::EntryRecord& record) -> bool {
+                        if (isCancelled()) return false;
+                        ++coldRowsExamined;
+                        ffsearch::Candidate candidate;
+                        candidate.volumeId = static_cast<int64_t>(coldVolumeId);
+                        candidate.id = record.id.low;
+                        candidate.parentId = record.parentId.low;
+                        candidate.sizeBytes = record.sizeBytes;
+                        candidate.modifiedTime = record.lastModifiedTime;
+                        candidate.createdTime = record.creationTime;
+                        candidate.isDirectory = (record.attributes & kFileAttributeDirectory) != 0;
+                        candidate.persistentIndexed = true;
+                        candidate.allocatedSizeBytes = record.allocatedSizeBytes;
+                        candidate.allocatedSizeKnown = record.allocatedSizeKnown;
+                        if (record.parentId == record.id) {
+                            candidate.name = coldPrefixIt->second + L"\\";
+                        } else {
+                            candidate.name = ToWString(record.name);
+                            if (candidate.name.empty()) return true;
+                        }
+                        candidates.push_back(std::move(candidate));
+                        return true;
+                    });
+                if (!streamed && !isCancelled()) storeStreamFailed = true;
+            }
+        }
         lock.unlock();
+        if (storeStreamFailed && !isCancelled()) {
+            // memory-bounded-indexed-scale 2.5: fail closed on an incomplete
+            // cold stream rather than presenting partial results.
+            result.status = ffprotocol::IndexedSearchStatus::Unavailable;
+            setTotal();
+            return result;
+        }
         candidateObjectsMaterialized = candidates.size();
         candidateNameCopies = candidates.size();
         const double lightweightCandidateMaterializationMs = timings != nullptr
@@ -1041,7 +1293,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                 if (isCancelled()) return false;
                 if (!pathLock.has_value()) pathLock.emplace(mutex_);
                 const auto pathStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-                const bool materialized = MaterializeCandidateFolder(projection_, prefixes, candidate);
+                const bool materialized = MaterializeCandidateFolderHybrid(projection_, store_, prefixes, candidate);
                 if (timings != nullptr) {
                     lazyPathMaterializationMs +=
                         std::chrono::duration<double, std::milli>(Clock::now() - pathStart).count();
@@ -1065,9 +1317,13 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
         timings->lightweightCandidateMaterializationMs = candidateNameMaterializationMs;
         timings->lazyPathMaterializationMs = lazyPathMaterializationMs;
         timings->matchFilterSortMs = (std::max)(0.0, searchElapsed - candidateNameMaterializationMs - lazyPathMaterializationMs);
-        timings->candidateCount = projectionRowsExamined;
+        timings->candidateCount = projectionRowsExamined + coldRowsExamined;
         timings->projectionEntriesVisited = projectionEntriesVisited;
         timings->projectionRowsExamined = projectionRowsExamined;
+        // memory-bounded-indexed-scale 3.2: hot/cold attribution.
+        timings->hotRowsExamined = projectionRowsExamined;
+        timings->coldRowsExamined = coldRowsExamined;
+        timings->coldSearchUsed = searchedColdVolumes;
         timings->namePoolLookups = namePoolLookups;
         timings->emptyNamesRejected = emptyNamesRejected;
         timings->nameViewsConstructed = nameViewsConstructed;

@@ -285,7 +285,11 @@ int wmain() {
         std::wstring prefix;
         prefix.push_back(driveLetter);
         prefix.push_back(L':');
-        uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshot(volumeId, prefix));
+        // memory-bounded-indexed-scale 5.1: bounded top-of-tree working-set
+        // export at startup rebuild (see VolumeSessionManager scan-complete
+        // publication for the same contract).
+        uiServer.MergeIndexDirectories(indexPipeline.ExportDirectorySnapshotBounded(
+            volumeId, prefix, ffengine::IndexPipeline::kInitialIndexedExportDirectories));
     });
 
     privilegedConnection.Start(installDir, [&uiServer, &volumeSessions](ffengine::ConnectionState state,

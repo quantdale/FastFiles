@@ -643,7 +643,12 @@ void VolumeSessionManager::RepublishSnapshot(ffindexstore::VolumeRowId durableId
     std::wstring prefix;
     prefix.push_back(driveLetter);
     prefix.push_back(L':');
-    onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshot(durableId, prefix));
+    // memory-bounded-indexed-scale 5.1: bulk scan-complete publication exports
+    // the bounded top-of-tree working set, not the complete volume map --
+    // published bytes scale with active browse contexts; deeper directories
+    // re-materialize through the normal request path.
+    onSnapshotReady_(durableId, pipeline_.ExportDirectorySnapshotBounded(
+                                    durableId, prefix, IndexPipeline::kInitialIndexedExportDirectories));
 }
 
 void VolumeSessionManager::RefreshProjectionScanState() {

@@ -127,6 +127,21 @@ public:
     using EntryVisitor = std::function<void(const EntryRecord&)>;
     bool ForEachEntry(VolumeRowId volumeRowId, const EntryVisitor& visitor);
 
+    // memory-bounded-indexed-scale 2.6: cancellable streaming variant. The
+    // visitor returns false to stop early (true to continue); the call returns
+    // false only on a database error -- an early visitor stop is a normal,
+    // successful bounded read. Backs cold indexed-search enumeration so a
+    // superseded/cancelled query stops SQLite work immediately.
+    using EntryVisitorUntil = std::function<bool(const EntryRecord&)>;
+    bool ForEachEntryUntil(VolumeRowId volumeRowId, const EntryVisitorUntil& visitor);
+
+    // memory-bounded-indexed-scale 2.1: durable point lookup of one entry by
+    // (volume, FileReferenceNumber). std::nullopt when the row is absent or
+    // the store is closed. Backs cold candidate parent-chain reconstruction so
+    // a matched row inside an evicted subtree can resolve its folder with
+    // O(depth) bounded reads instead of reloading the volume.
+    std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);
+
     // task 8.1/8.4: full identity set for a volume, used by reconciliation
     // to anti-join against fresh ground truth without re-streaming every
     // field for entries that haven't changed.

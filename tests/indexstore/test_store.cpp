@@ -888,6 +888,46 @@ void TestConcurrentReaderWriterWalContract() {
 
 } // namespace
 
+// memory-bounded-indexed-scale 2.1: durable point lookup round-trip.
+void TestFindEntryPointLookup() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_find_entry.db");
+    Store store;
+    Check(store.Open(dbPath), "FindEntry fixture opens");
+    VolumeKey key;
+    key.serialNumber = 77;
+    const auto vol = *store.GetOrCreateVolume(key);
+
+    EntryRecord original = MakeEntry(4242, 5, u"point.txt", 0x20);
+    original.sizeBytes = 123;
+    original.allocatedSizeKnown = false; // explicit unknown must survive
+    original.creationTime = 111;
+    original.lastModifiedTime = 222;
+    original.lastAccessTime = 333;
+    Check(store.ApplyBatch(vol, {{EntryChangeKind::Upsert, original}}),
+          "the point-lookup row commits through the normal batch path");
+
+    const auto found = store.FindEntry(vol, FileId{4242, 0});
+    Check(found.has_value(), "a committed row is found by (volume, FRN)");
+    Check(found->id == FileId{4242, 0} && found->parentId == FileId{5, 0},
+          "point lookup restores identity fields exactly");
+    Check(found->name == u"point.txt" && found->sizeBytes == 123,
+          "point lookup restores name and logical size");
+    Check(!found->allocatedSizeKnown && found->allocatedSizeBytes == 0,
+          "allocated-size unknown stays unknown (never fabricated)");
+    Check(found->creationTime == 111 && found->lastModifiedTime == 222 && found->lastAccessTime == 333,
+          "timestamp metadata round-trips");
+    Check(found->attributes == 0x20, "attributes round-trip");
+
+    Check(!store.FindEntry(vol, FileId{999'999, 0}).has_value(),
+          "an absent row is nullopt, never a fabricated record");
+
+    // Removal visibility.
+    Check(store.ApplyBatch(vol, {{EntryChangeKind::Remove, original}}),
+          "the removal commits");
+    Check(!store.FindEntry(vol, FileId{4242, 0}).has_value(),
+          "a removed row is no longer found");
+}
+
 int main() {
     TestOpenCreatesSchemaAndIsReopenable();
     TestVolumeIdentityIsStableAndDeduplicated();
@@ -906,6 +946,7 @@ int main() {
     TestSchemaV1ToV2MigrationInPlace();
     TestAllocatedSizeUnknownVsZeroAndPreservation();
     TestConcurrentReaderWriterWalContract();
+    TestFindEntryPointLookup();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

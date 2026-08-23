@@ -87,6 +87,14 @@ public:
         size_t lazyPathMaterializationCount = 0;
         size_t filenameIndexCandidateCount = 0;
         bool filenameIndexUsed = false;
+        // memory-bounded-indexed-scale 3.2: hot/cold attribution for the
+        // bounded-projection search path. Cold rows stream from the durable
+        // store; they never pass through a projection reload.
+        size_t hotRowsExamined = 0;
+        size_t coldRowsExamined = 0;
+        size_t coldVolumesSearched = 0;
+        double storeStreamMs = 0.0;
+        bool coldSearchUsed = false;
         bool truncated = false;
         bool cancelled = false;
     };
@@ -202,10 +210,34 @@ public:
     std::map<std::wstring, ffprotocol::SnapshotDirectory> ExportDirectorySnapshot(
         ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix);
 
+    // memory-bounded-indexed-scale 5.1: bulk indexed publication (startup
+    // rebuild, scan-complete) exports at most maxDirectories entries in the
+    // map's deterministic path-sorted order -- i.e., the lexicographically
+    // shallowest/top-of-tree directories survive. Deeper directories remain
+    // durable and re-materialize through the normal request path, so published
+    // bytes scale with the browse working set rather than the whole tree.
+    static constexpr size_t kInitialIndexedExportDirectories = 4096;
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> ExportDirectorySnapshotBounded(
+        ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix,
+        size_t maxDirectories);
+
     // file-preview-and-properties §6.2 / storage-analysis §3.1: returns the
     // subtree aggregate for `parentFrn` from the in-memory projection if
     // the folder is known, or std::nullopt if it is not.
     std::optional<ffindexstore::Projection::FolderAggregate> GetFolderAggregate(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId parentFrn);
+
+    // memory-bounded-indexed-scale 3.x: bounded-projection seams. The budget
+    // override applies synchronously and strictly (like
+    // Projection::SetMaximumMemoryBytes), so tests -- and any future settings
+    // surface -- can force deterministic eviction. The diagnostics/volume
+    // residency accessors back observability without exposing the projection.
+    void SetProjectionMemoryBudget(size_t maximumBytes);
+    ffindexstore::Projection::MemoryDiagnostics GetProjectionMemoryDiagnostics() const;
+    bool IsVolumeEvicted(ffindexstore::VolumeRowId volumeId) const;
+    // memory-bounded-indexed-scale 5.x: explicit policy hook dropping one
+    // volume's resident rows (durable data untouched). Also the deterministic
+    // forced-eviction seam for the bounded-scale test suite.
+    void UnloadVolumeFromProjection(ffindexstore::VolumeRowId volumeId);
 
     // Executes a bounded query against the durable in-memory projection. The
     // returned candidates carry reconstructed parent folders so the UI can
@@ -219,7 +251,7 @@ public:
                                                     const SearchCancellation& cancelled = {});
 
 private:
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
 

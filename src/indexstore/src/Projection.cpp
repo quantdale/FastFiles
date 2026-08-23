@@ -112,6 +112,18 @@ bool Projection::NeedsReload(const VolumeRowId volumeRowId) const {
     return evictedVolumes_.contains(volumeRowId);
 }
 
+Projection::MemoryDiagnostics Projection::GetMemoryDiagnostics() const {
+    MemoryDiagnostics diagnostics;
+    diagnostics.configuredMaximumBytes = maximumMemoryBytes_;
+    diagnostics.estimatedBytes = EstimatedMemoryBytes();
+    diagnostics.lastEvictionBytesBefore = lastEvictionBytesBefore_;
+    diagnostics.lastEvictionBytesAfter = lastEvictionBytesAfter_;
+    diagnostics.subtreeEvictionCount = subtreeEvictionCount_;
+    diagnostics.coldReloadCount = coldReloadCount_;
+    diagnostics.coldReloadFailedCount = coldReloadFailedCount_;
+    return diagnostics;
+}
+
 void Projection::Touch(const EntryKey& key) const noexcept {
     try {
         if (accessClock_ == std::numeric_limits<uint64_t>::max()) {
@@ -193,6 +205,26 @@ void Projection::EvictSubtree(const EntryKey& rootKey) {
         Remove(it->volumeRowId, it->frn);
     }
     evictedVolumes_.insert(rootKey.volumeRowId);
+    ++subtreeEvictionCount_;
+}
+
+void Projection::EvictVolume(const VolumeRowId volumeRowId) {
+    // memory-bounded-indexed-scale 5.x: whole-volume unload. A flat key
+    // snapshot first, then individual removals (Remove unlinks each row's
+    // child-index slice), then a single compaction -- never per-row
+    // compaction, matching the batch-boundary policy.
+    std::vector<EntryKey> keys;
+    keys.reserve(idToIndex_.size());
+    idToIndex_.ForEach([&](const EntryKey& key, const uint32_t) {
+        if (key.volumeRowId == volumeRowId) keys.push_back(key);
+    });
+    if (keys.empty()) return;
+    for (const EntryKey& key : keys) {
+        Remove(key.volumeRowId, key.frn);
+    }
+    evictedVolumes_.insert(volumeRowId);
+    ++subtreeEvictionCount_;
+    CompactStorage();
 }
 
 void Projection::CompactStorage() {
@@ -243,6 +275,10 @@ void Projection::EnforceMemoryLimitTo(const size_t targetBytes) {
         const size_t before = EstimatedMemoryBytes();
         EvictSubtree(*victim);
         CompactStorage();
+        // memory-bounded-indexed-scale 3.1: the multi-pass shrink path records
+        // each pass exactly like the single-shot watermark path.
+        lastEvictionBytesBefore_ = before;
+        lastEvictionBytesAfter_ = EstimatedMemoryBytes();
         if (EstimatedMemoryBytes() >= before && idToIndex_.empty()) break;
     }
 }
@@ -251,19 +287,28 @@ void Projection::EnforceMemoryLimitOnceTo(const size_t targetBytes) {
     if (!enforcingMemoryLimit_ || EstimatedMemoryBytes() <= targetBytes) return;
     const auto victim = LeastRecentlyUsedEntry();
     if (!victim.has_value()) return;
+    const size_t bytesBefore = EstimatedMemoryBytes();
     EvictSubtree(*victim);
     CompactStorage();
+    // memory-bounded-indexed-scale 3.1: record the policy's actual effect so
+    // tests can distinguish "eviction ran" from "eviction changed nothing".
+    lastEvictionBytesBefore_ = bytesBefore;
+    lastEvictionBytesAfter_ = EstimatedMemoryBytes();
 }
 
 bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId) {
     if (!NeedsReload(volumeRowId)) return true;
+    ++coldReloadCount_;
     const auto metadata = store.GetVolumeMetadata(volumeRowId);
     if (!metadata.has_value()) {
         evictedVolumes_.erase(volumeRowId);
+        ++coldReloadFailedCount_;
         return false;
     }
     RebuildVolumeFromStore(store, volumeRowId, metadata->entryCount);
-    return !NeedsReload(volumeRowId);
+    const bool reloaded = !NeedsReload(volumeRowId);
+    if (!reloaded) ++coldReloadFailedCount_;
+    return reloaded;
 }
 
 bool Projection::ReloadAllEvictedVolumes(Store& store) {

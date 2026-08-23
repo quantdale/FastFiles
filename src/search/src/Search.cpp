@@ -61,42 +61,63 @@ MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term) {
     return MatchTier::PathOnly;
 }
 
-void SortResults(std::vector<SearchResult>& results, SortField field, bool descending) {
-    const auto compare = [field, descending](const SearchResult& left, const SearchResult& right) {
-        int primary = 0;
-        switch (field) {
-            case SortField::Relevance:
-                primary = static_cast<int>(left.tier) - static_cast<int>(right.tier);
-                if (primary == 0) primary = static_cast<int>(left.candidate.name.size()) - static_cast<int>(right.candidate.name.size());
-                if (primary == 0) primary = static_cast<int>(left.candidate.folder.size()) - static_cast<int>(right.candidate.folder.size());
-                break;
-            case SortField::Filename: primary = CompareOrdinal(left.candidate.name, right.candidate.name); break;
-            case SortField::Path: primary = CompareOrdinal(left.candidate.folder, right.candidate.folder); break;
-            case SortField::Size: primary = left.candidate.sizeBytes < right.candidate.sizeBytes ? -1 : left.candidate.sizeBytes > right.candidate.sizeBytes ? 1 : 0; break;
-            case SortField::Modified: primary = left.candidate.modifiedTime < right.candidate.modifiedTime ? -1 : left.candidate.modifiedTime > right.candidate.modifiedTime ? 1 : 0; break;
-            case SortField::Created: primary = left.candidate.createdTime < right.candidate.createdTime ? -1 : left.candidate.createdTime > right.candidate.createdTime ? 1 : 0; break;
-            case SortField::AllocatedSize: {
-                // indexed-search-allocated-size D6: known values sort numerically;
-                // an UNKNOWN allocated size always sorts AFTER every known value in
-                // BOTH directions (never behaves like zero or UINT64_MAX). When the
-                // two rows differ only in knownness, the direction is decided here
-                // and must not be flipped by `descending`.
-                const bool leftKnown = left.candidate.allocatedSizeKnown;
-                const bool rightKnown = right.candidate.allocatedSizeKnown;
-                if (leftKnown != rightKnown) return leftKnown;
-                if (leftKnown) {
-                    primary = left.candidate.allocatedSizeBytes < right.candidate.allocatedSizeBytes ? -1
-                             : left.candidate.allocatedSizeBytes > right.candidate.allocatedSizeBytes ? 1 : 0;
-                }
-                // Both unknown: no primary ordering from allocated size; the
-                // alphabetical tie-break below applies (deterministic unknowns).
-                break;
+// memory-bounded-indexed-scale: shared strict-weak total order over results
+// (the former SortResults comparator). Truncation and final ordering both use
+// this so capped result sets are the TOP-N by the requested sort -- never an
+// enumeration-order-dependent prefix.
+bool ResultLess(const SearchResult& left, const SearchResult& right,
+                const SortField field, const bool descending) {
+    int primary = 0;
+    switch (field) {
+        case SortField::Relevance:
+            primary = static_cast<int>(left.tier) - static_cast<int>(right.tier);
+            if (primary == 0) primary = static_cast<int>(left.candidate.name.size()) - static_cast<int>(right.candidate.name.size());
+            if (primary == 0) primary = static_cast<int>(left.candidate.folder.size()) - static_cast<int>(right.candidate.folder.size());
+            break;
+        case SortField::Filename: primary = CompareOrdinal(left.candidate.name, right.candidate.name); break;
+        case SortField::Path: primary = CompareOrdinal(left.candidate.folder, right.candidate.folder); break;
+        case SortField::Size: primary = left.candidate.sizeBytes < right.candidate.sizeBytes ? -1 : left.candidate.sizeBytes > right.candidate.sizeBytes ? 1 : 0; break;
+        case SortField::Modified: primary = left.candidate.modifiedTime < right.candidate.modifiedTime ? -1 : left.candidate.modifiedTime > right.candidate.modifiedTime ? 1 : 0; break;
+        case SortField::Created: primary = left.candidate.createdTime < right.candidate.createdTime ? -1 : left.candidate.createdTime > right.candidate.createdTime ? 1 : 0; break;
+        case SortField::AllocatedSize: {
+            // indexed-search-allocated-size D6: known values sort numerically;
+            // an UNKNOWN allocated size always sorts AFTER every known value in
+            // BOTH directions (never behaves like zero or UINT64_MAX). When the
+            // two rows differ only in knownness, the direction is decided here
+            // and must not be flipped by `descending`.
+            const bool leftKnown = left.candidate.allocatedSizeKnown;
+            const bool rightKnown = right.candidate.allocatedSizeKnown;
+            if (leftKnown != rightKnown) return leftKnown;
+            if (leftKnown) {
+                primary = left.candidate.allocatedSizeBytes < right.candidate.allocatedSizeBytes ? -1
+                         : left.candidate.allocatedSizeBytes > right.candidate.allocatedSizeBytes ? 1 : 0;
             }
+            // Both unknown: no primary ordering from allocated size; the
+            // alphabetical tie-break below applies (deterministic unknowns).
+            break;
         }
-        if (primary != 0) return descending ? primary > 0 : primary < 0;
-        return CompareOrdinal(left.candidate.name, right.candidate.name) < 0;
-    };
-    std::stable_sort(results.begin(), results.end(), compare);
+    }
+    if (primary != 0) return descending ? primary > 0 : primary < 0;
+    // memory-bounded-indexed-scale: the tie-break chain must be a TOTAL
+    // order (name -> folder -> volume -> identity) so result ordering is
+    // identical regardless of whether a row was enumerated hot from the
+    // projection or streamed cold from the durable store. Duplicate
+    // basenames across folders previously fell through to stable-sort
+    // input order, which is enumeration-order dependent.
+    if (const int byFolder = CompareOrdinal(left.candidate.folder, right.candidate.folder); byFolder != 0) {
+        return byFolder < 0;
+    }
+    if (left.candidate.volumeId != right.candidate.volumeId) {
+        return left.candidate.volumeId < right.candidate.volumeId;
+    }
+    return left.candidate.id < right.candidate.id;
+}
+
+void SortResults(std::vector<SearchResult>& results, SortField field, bool descending) {
+    std::sort(results.begin(), results.end(),
+              [field, descending](const SearchResult& left, const SearchResult& right) {
+                  return ResultLess(left, right, field, descending);
+              });
 }
 
 SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
@@ -124,9 +145,25 @@ SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
         if (!folderNeededForEvaluation && materialize &&
             (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
         response.results.push_back({candidate, ClassifyMatch(candidate, request.query.primaryTerm)});
-        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
-            response.truncated = true;
-            break;
+        if (request.maxResults != 0) {
+            // memory-bounded-indexed-scale: bounded top-N selection by the
+            // requested total order (heap root = current worst). Truncation
+            // never depends on enumeration order, which differs between hot
+            // projection rows and cold durable-store rows.
+            std::push_heap(response.results.begin(), response.results.end(),
+                           [field = request.sortField, descending = request.descending]
+                           (const SearchResult& a, const SearchResult& b) {
+                               return ResultLess(b, a, field, descending);
+                           });
+            if (response.results.size() > request.maxResults) {
+                std::pop_heap(response.results.begin(), response.results.end(),
+                              [field = request.sortField, descending = request.descending]
+                              (const SearchResult& a, const SearchResult& b) {
+                                  return ResultLess(b, a, field, descending);
+                              });
+                response.results.pop_back();
+                response.truncated = true;
+            }
         }
     }
     SortResults(response.results, request.sortField, request.descending);
@@ -198,10 +235,24 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
             diagnostics->matchedRowHandlingMs +=
                 std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - matchedRowStart).count();
         }
-        if (request.maxResults != 0 && response.results.size() >= request.maxResults) {
-            response.truncated = true;
-            stopped = true;
-            return false;
+        if (request.maxResults != 0) {
+            // memory-bounded-indexed-scale: bounded top-N by the total order
+            // (see ExecuteSearchCore); enumeration continues so a cold/hot
+            // source mix cannot change which rows survive the cap.
+            std::push_heap(response.results.begin(), response.results.end(),
+                           [field = request.sortField, descending = request.descending]
+                           (const SearchResult& a, const SearchResult& b) {
+                               return ResultLess(b, a, field, descending);
+                           });
+            if (response.results.size() > request.maxResults) {
+                std::pop_heap(response.results.begin(), response.results.end(),
+                              [field = request.sortField, descending = request.descending]
+                              (const SearchResult& a, const SearchResult& b) {
+                                  return ResultLess(b, a, field, descending);
+                              });
+                response.results.pop_back();
+                response.truncated = true;
+            }
         }
         return true;
     };

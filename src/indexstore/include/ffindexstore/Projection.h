@@ -82,6 +82,21 @@ public:
     bool ReloadEvictedVolume(Store& store, VolumeRowId volumeRowId);
     bool ReloadAllEvictedVolumes(Store& store);
 
+    // memory-bounded-indexed-scale 3.1: observable memory-policy state so
+    // tests can prove the ceiling is real (estimated bytes stay within the
+    // configured maximum) and that eviction/reload behavior is bounded rather
+    // than thrashing. Counters are monotonic for the projection's lifetime.
+    struct MemoryDiagnostics {
+        size_t configuredMaximumBytes = 0;
+        size_t estimatedBytes = 0;
+        size_t lastEvictionBytesBefore = 0;
+        size_t lastEvictionBytesAfter = 0;
+        uint64_t subtreeEvictionCount = 0;
+        uint64_t coldReloadCount = 0;
+        uint64_t coldReloadFailedCount = 0;
+    };
+    MemoryDiagnostics GetMemoryDiagnostics() const;
+
     // task 2.5: pre-size before a bulk rebuild.
     void Reserve(size_t expectedEntryCount);
 
@@ -117,6 +132,13 @@ public:
     // style access. Returns empty span if the parent has no known children
     // (which is not the same as the parent itself being unknown).
     std::span<const uint32_t> ChildIndices(VolumeRowId volumeRowId, FileId parentFrn) const;
+
+    // memory-bounded-indexed-scale 5.x: drops one volume's resident rows and
+    // marks the volume cold -- an explicit policy hook (e.g. unloading an
+    // offline volume's working set) that also gives tests deterministic
+    // forced-eviction state without depending on LRU victim order. Data stays
+    // durable in Store; a no-op for an unknown/empty volume.
+    void EvictVolume(VolumeRowId volumeRowId);
 
     // file-preview-and-properties §6.2 / storage-analysis §3.1: walks the
     // in-memory subtree rooted at `parentFrn` and returns the aggregate item
@@ -251,6 +273,12 @@ private:
     mutable std::unordered_map<EntryKey, uint64_t, EntryKeyHash> lastAccess_;
     std::unordered_set<VolumeRowId> evictedVolumes_;
     bool enforcingMemoryLimit_ = true;
+    // memory-bounded-indexed-scale 3.1: monotonic policy observability.
+    uint64_t subtreeEvictionCount_ = 0;
+    uint64_t coldReloadCount_ = 0;
+    uint64_t coldReloadFailedCount_ = 0;
+    size_t lastEvictionBytesBefore_ = 0;
+    size_t lastEvictionBytesAfter_ = 0;
 };
 
 } // namespace ffindexstore

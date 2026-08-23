@@ -57,6 +57,18 @@ public:
     void MergeIndexDirectories(std::map<std::wstring, ffprotocol::SnapshotDirectory> indexDirectories);
     void RemoveVolumeDirectories(wchar_t driveLetter);
 
+    // memory-bounded-indexed-scale 5.2: observable bounded working-set state.
+    struct SnapshotWorkingSetStats {
+        size_t totalDirectories = 0;
+        size_t indexedDirectories = 0;
+        size_t retainedCap = 0;
+        uint64_t workingSetEvictions = 0;
+    };
+    SnapshotWorkingSetStats GetSnapshotWorkingSetStats() const;
+    // Test/config seam: overrides the retained indexed-directory cap (0
+    // restores the production default). Must be called before merges.
+    void SetIndexedWorkingSetCap(size_t maxIndexedDirectories);
+
     // Invoked (from an arbitrary internal thread) on every UI request --
     // used by IdleManager (task 4.10) as the "recent activity" signal.
     std::function<void()> onActivity;
@@ -184,7 +196,7 @@ private:
     DirectoryWatcher watcher_;
     SnapshotPublisher snapshot_;
 
-    std::mutex directoriesMutex_;
+    mutable std::mutex directoriesMutex_;
     ffprotocol::CaseInsensitiveSnapshotMap directories_;
 
     // deterministic-missing-path-state D2/D3: per-path observation ordering.
@@ -203,6 +215,16 @@ private:
     };
     std::map<std::wstring, PathObservation, ffprotocol::CaseInsensitivePathLess> pathObservations_;
     uint64_t nextObservationEpoch_ = 1;
+
+    // memory-bounded-indexed-scale 5.2: retained indexed directories are a
+    // bounded working set. When a merge pushes the count past the cap, the
+    // lowest-observation-epoch indexed entries are dropped first; degraded
+    // (actively browsed/watched) entries -- volumeRowId == 0 -- are always
+    // retained and never counted against the cap.
+    static constexpr size_t kDefaultMaxRetainedIndexedDirectories = 16384;
+    size_t indexedWorkingSetCap_ = kDefaultMaxRetainedIndexedDirectories;
+    uint64_t workingSetEvictions_ = 0;
+    void EnforceIndexedWorkingSetCapLocked();
 
     std::mutex clientsMutex_;
     std::vector<ClientConnectionPtr> subscribedClients_;

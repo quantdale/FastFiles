@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cwctype>
 #include <iterator>
+#include <limits>
 #include <thread>
 #include <unordered_set>
 #include <utility>
@@ -493,8 +494,63 @@ void UiServer::MergeIndexDirectories(std::map<std::wstring, ffprotocol::Snapshot
                 ffprotocol::DirectoryEnumerationStatus::Success,
                 nextObservationEpoch_++};
         }
+        // memory-bounded-indexed-scale 5.2: retained indexed directories are
+        // capped by the recency-ordered working set. Stale-key cleanup above
+        // already dropped the previous generation for the incoming volumes;
+        // this bound additionally keeps total retention proportional to the
+        // active browse working set instead of the whole indexed tree.
+        EnforceIndexedWorkingSetCapLocked();
     }
     RepublishAndBroadcastGeneration();
+}
+
+void UiServer::EnforceIndexedWorkingSetCapLocked() {
+    if (indexedWorkingSetCap_ == 0) {
+        return;
+    }
+    // memory-bounded-indexed-scale 5.2: recency-ordered eviction over indexed
+    // entries only. Observation epochs are monotonic across requests, watcher
+    // refreshes, and indexed merges, so this retains the most recently
+    // observed working set deterministically.
+    std::vector<std::pair<uint64_t, const std::wstring*>> indexedEntries;
+    indexedEntries.reserve(directories_.size());
+    for (const auto& [path, directory] : directories_) {
+        if (directory.volumeRowId == 0) continue;
+        const auto obsIt = pathObservations_.find(path);
+        const uint64_t epoch = obsIt != pathObservations_.end() ? obsIt->second.epoch : 0;
+        indexedEntries.emplace_back(epoch, &path);
+    }
+    if (indexedEntries.size() <= indexedWorkingSetCap_) {
+        return;
+    }
+    std::sort(indexedEntries.begin(), indexedEntries.end(),
+              [](const auto& left, const auto& right) { return left.first < right.first; });
+    const size_t toEvict = indexedEntries.size() - indexedWorkingSetCap_;
+    for (size_t index = 0; index < toEvict; ++index) {
+        const std::wstring* victimPath = indexedEntries[index].second;
+        directories_.erase(*victimPath);
+        pathObservations_.erase(*victimPath);
+        ++workingSetEvictions_;
+    }
+}
+
+UiServer::SnapshotWorkingSetStats UiServer::GetSnapshotWorkingSetStats() const {
+    std::lock_guard<std::mutex> lock(directoriesMutex_);
+    SnapshotWorkingSetStats stats;
+    stats.totalDirectories = directories_.size();
+    stats.retainedCap = indexedWorkingSetCap_;
+    stats.workingSetEvictions = workingSetEvictions_;
+    for (const auto& [path, directory] : directories_) {
+        (void)path;
+        if (directory.volumeRowId != 0) ++stats.indexedDirectories;
+    }
+    return stats;
+}
+
+void UiServer::SetIndexedWorkingSetCap(const size_t maxIndexedDirectories) {
+    std::lock_guard<std::mutex> lock(directoriesMutex_);
+    indexedWorkingSetCap_ = maxIndexedDirectories == 0 ? kDefaultMaxRetainedIndexedDirectories
+                                                       : maxIndexedDirectories;
 }
 
 void UiServer::RemoveVolumeDirectories(wchar_t driveLetter) {

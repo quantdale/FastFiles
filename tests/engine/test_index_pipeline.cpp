@@ -1078,6 +1078,432 @@ void TestIndexedSearchOndiskFilter() {
 
 } // namespace
 
+// memory-bounded-indexed-scale 3/4: forced-eviction search equivalence.
+// A deliberately tiny projection budget forces the cold volume's subtrees to
+// evict while the small hot volume stays resident. Every supported query
+// class must return byte-identical result sets (identity, order, truncation)
+// whether rows came from the projection or streamed from the durable store.
+namespace {
+std::u16string U16FromWide(const std::wstring& text) {
+    std::u16string out;
+    out.reserve(text.size());
+    for (const wchar_t ch : text) out.push_back(static_cast<char16_t>(ch));
+    return out;
+}
+} // namespace
+
+void TestForcedEvictionSearchEquivalence() {
+    IndexPipeline pipeline;
+    const std::string dbPath = FreshDbPath("engine_test_eviction_equivalence.db");
+    Check(pipeline.Open(dbPath), "the forced-eviction fixture opens");
+
+    VolumeKey coldKey;
+    coldKey.serialNumber = 41;
+    const auto coldVolume = pipeline.ResolveVolume(coldKey);
+    ffprotocol::VolumeSetting coldSetting;
+    coldSetting.key = L"D:";
+    pipeline.SetVolumeRules(coldVolume, coldSetting);
+    // Ingest the cold volume FIRST so its LRU timestamps are the oldest;
+    // shrinking the budget then deterministically evicts its subtrees.
+    Check(pipeline.ApplyMftBatch(coldVolume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(10, 1, u"ColdRoot", 0x10, 0),
+        MakeMftRecord(11, 10, u"SubA", 0x10, 0),
+        MakeMftRecord(100, 11, u"alpha-report.txt", 0, 120),
+        MakeMftRecord(101, 11, u"photo.jpg", 0, 30),
+        MakeMftRecord(102, 11, u"\u0444\u0430\u0439\u043b-\u03a9.txt", 0, 55),
+        MakeMftRecord(103, 11, u"dup.txt", 0, 9),
+        MakeMftRecord(12, 10, u"SubB", 0x10, 0),
+        MakeMftRecord(110, 12, u"dup.txt", 0, 77),
+        MakeMftRecord(111, 12, u"beta.txt", 0, 500),
+        MakeMftRecord(120, 10, u"top.jpg", 0, 64),
+    }), "the cold volume fixture persists through normal ingestion");
+    const auto diagnosticsColdOnly = pipeline.GetProjectionMemoryDiagnostics();
+    (void)diagnosticsColdOnly;
+
+    VolumeKey hotKey;
+    hotKey.serialNumber = 42;
+    const auto hotVolume = pipeline.ResolveVolume(hotKey);
+    ffprotocol::VolumeSetting hotSetting;
+    hotSetting.key = L"E:";
+    pipeline.SetVolumeRules(hotVolume, hotSetting);
+    Check(pipeline.ApplyMftBatch(hotVolume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(20, 1, u"HotRoot", 0x10, 0),
+        MakeMftRecord(200, 20, u"hot-alpha.txt", 0, 8),
+        MakeMftRecord(201, 20, u"gamma.jpg", 0, 15),
+    }), "the hot volume fixture persists through normal ingestion");
+    auto makeQuery = [&](const std::wstring& queryText, int scope = 3,
+                         const std::wstring& scopePath = L"", int sortField = 0,
+                         size_t maxResults = 4096) {
+        ffprotocol::IndexedSearchRequest request;
+        request.requestId = 700;
+        request.scope = static_cast<uint8_t>(scope);
+        request.scopePath = scopePath;
+        request.sortField = static_cast<uint8_t>(sortField);
+        request.maxResults = static_cast<uint32_t>(maxResults);
+        request.query = queryText;
+        return request;
+    };
+    struct QueryCase {
+        const char* label;
+        ffprotocol::IndexedSearchRequest request;
+        bool trigramExpectedHot;
+    };
+    std::vector<QueryCase> cases = {
+        {"selective literal", makeQuery(L"alpha"), true},
+        {"no-match", makeQuery(L"zzznomatch"), false},
+        {"trigram-eligible prefix", makeQuery(L"alph"), true},
+        {"short canonical fallback", makeQuery(L"al"), false},
+        {"glob filter", makeQuery(L"*.jpg"), false},
+        {"extension predicate", makeQuery(L"ext:txt"), false},
+        {"size predicate", makeQuery(L"size:>60"), false},
+        {"folder predicate", makeQuery(L"FOLDER:SUBA"), false},
+        {"unicode filename", makeQuery(L"\u0444\u0430\u0439\u043b"), false},
+        {"duplicate basenames filename sort", makeQuery(L"dup.txt", 3, L"", 1), false},
+        {"duplicate basenames path sort", makeQuery(L"dup.txt", 3, L"", 2), false},
+        {"path-scoped subtree", makeQuery(L"report", 1, L"D:\\ColdRoot\\SubA"), false},
+        {"broad capped", makeQuery(L"txt", 3, L"", 0, 3), false},
+    };
+
+    // Reference pass: everything fully resident.
+    std::vector<ffprotocol::IndexedSearchResponse> reference;
+    reference.reserve(cases.size());
+    for (auto& testCase : cases) {
+        IndexPipeline::SearchTimings timings;
+        auto response = pipeline.SearchIndexed(testCase.request, &timings);
+        if (testCase.trigramExpectedHot) {
+            Check(timings.filenameIndexUsed,
+                  "fully-resident eligible searches use the trigram accelerator");
+        }
+        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
+              "reference-pass indexed searches complete");
+        reference.push_back(std::move(response));
+    }
+    Check(reference[2].candidates.size() >= reference[0].candidates.size(),
+          "the reference prefix query is at least as broad as the selective literal");
+    Check(!reference[12].candidates.empty() && reference[12].truncated,
+          "the broad capped reference query reports honest truncation");
+    Check(reference[9].candidates.size() == 2 && reference[9].candidates[0].folder != reference[9].candidates[1].folder,
+          "duplicate-basename filename sorting orders deterministically across folders");
+
+    // Force deterministic eviction of exactly the cold volume: an explicit
+    // policy unload drops its resident rows while data stays durable.
+    pipeline.UnloadVolumeFromProjection(coldVolume);
+    Check(pipeline.IsVolumeEvicted(coldVolume), "unloading marks the large volume evicted");
+    Check(!pipeline.IsVolumeEvicted(hotVolume), "the small volume stays projection-resident");
+    const auto afterEviction = pipeline.GetProjectionMemoryDiagnostics();
+    Check(afterEviction.subtreeEvictionCount > 0, "unload performs subtree evictions");
+    Check(afterEviction.coldReloadCount == 0, "no search-driven reloads occurred during setup");
+    Check(afterEviction.lastEvictionBytesBefore >= afterEviction.lastEvictionBytesAfter,
+          "eviction diagnostics record the reclaimed bytes");
+
+    auto signatures = [](const ffprotocol::IndexedSearchResponse& response) {
+        std::vector<std::tuple<std::wstring, std::wstring, uint64_t, uint64_t, uint64_t, bool, bool, int64_t, uint64_t, uint64_t>> out;
+        out.reserve(response.candidates.size());
+        for (const auto& candidate : response.candidates) {
+            out.emplace_back(candidate.name, candidate.folder, candidate.sizeBytes,
+                             candidate.allocatedSizeBytes, candidate.modifiedTime,
+                             candidate.isDirectory, candidate.allocatedSizeKnown,
+                             candidate.volumeId, candidate.id, candidate.parentId);
+        }
+        return out;
+    };
+
+    // Equivalence pass: identical identities AND ordering from mixed sources.
+    bool sawColdAttribution = false;
+    for (size_t index = 0; index < cases.size(); ++index) {
+        IndexPipeline::SearchTimings timings;
+        auto response = pipeline.SearchIndexed(cases[index].request, &timings);
+        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
+              "forced-eviction indexed searches complete");
+        Check(signatures(response) == signatures(reference[index]),
+              cases[index].label);
+        Check(timings.truncated == reference[index].truncated,
+              "truncation flags agree between resident and evicted runs");
+        if (timings.coldSearchUsed) {
+            sawColdAttribution = true;
+            Check(timings.coldVolumesSearched == 1,
+                  "exactly one cold volume streams from the durable store");
+            Check(timings.coldRowsExamined > 0, "cold stream examines durable rows");
+        }
+        if (!cases[index].trigramExpectedHot) continue;
+        Check(!timings.filenameIndexUsed,
+              "an evicted searchable set disables the trigram accelerator (no false negatives)");
+    }
+    Check(sawColdAttribution, "at least one query exercised the cold-store attribution path");
+}
+
+// memory-bounded-indexed-scale 3.3: repeated alternating searches over an
+// evicted index must neither grow the projection nor reload/evict thrash.
+void TestRepeatedColdSearchesDoNotThrashMemory() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_eviction_thrash.db")),
+          "the thrash-regression fixture opens");
+    VolumeKey key;
+    key.serialNumber = 51;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+    std::vector<ffprotocol::MftRecordV1> records;
+    records.push_back(MakeMftRecord(1, 1, u".", 0x10, 0));
+    for (uint64_t dirIndex = 0; dirIndex < 40; ++dirIndex) {
+        records.push_back(MakeMftRecord(100 + dirIndex, 1, U16FromWide(L"dir-" + std::to_wstring(dirIndex)), 0x10, 0));
+        for (uint64_t fileIndex = 0; fileIndex < 25; ++fileIndex) {
+            records.push_back(MakeMftRecord(1000 + dirIndex * 25 + fileIndex, 100 + dirIndex,
+                                            U16FromWide(L"file-" + std::to_wstring(dirIndex) + L"-" +
+                                                        std::to_wstring(fileIndex) + L".dat"),
+                                            0, fileIndex));
+        }
+    }
+    Check(pipeline.ApplyMftBatch(volume, records), "the thrash fixture ingests 1041 entries");
+    const auto beforeBudget = pipeline.GetProjectionMemoryDiagnostics();
+    pipeline.SetProjectionMemoryBudget(beforeBudget.estimatedBytes / 2);
+    Check(pipeline.IsVolumeEvicted(volume), "halving the budget evicts part of the volume");
+    const auto baseline = pipeline.GetProjectionMemoryDiagnostics();
+    Check(baseline.coldReloadCount == 0, "search setup performs no cold reloads");
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 800;
+    request.scope = 3;
+    request.maxResults = 50;
+    for (int iteration = 0; iteration < 25; ++iteration) {
+        request.query = iteration % 2 == 0 ? L"file-1" : L"file-2-1.dat";
+        const auto response = pipeline.SearchIndexed(request);
+        Check(response.status == ffprotocol::IndexedSearchStatus::Completed,
+              "repeated cold searches complete");
+        const auto now = pipeline.GetProjectionMemoryDiagnostics();
+        if (now.estimatedBytes > baseline.configuredMaximumBytes) {
+            Check(false, "repeated cold searches never exceed the configured ceiling");
+            break;
+        }
+        if (now.subtreeEvictionCount != baseline.subtreeEvictionCount
+            || now.coldReloadCount != baseline.coldReloadCount) {
+            Check(false, "searching never triggers eviction or cold-reload churn");
+            break;
+        }
+    }
+    const auto finalDiagnostics = pipeline.GetProjectionMemoryDiagnostics();
+    Check(finalDiagnostics.subtreeEvictionCount == baseline.subtreeEvictionCount,
+          "twenty-five cold searches perform zero additional evictions");
+    Check(finalDiagnostics.coldReloadCount == baseline.coldReloadCount,
+          "twenty-five cold searches perform zero whole-volume reloads");
+}
+
+// memory-bounded-indexed-scale 4.2: mutations committed after eviction are
+// immediately visible to cold searches (they read the durable store), and the
+// restarted-from-SQLite state produces the identical result set.
+void TestColdMutationsAndRestartEquivalence() {
+    IndexPipeline pipeline;
+    const std::string dbPath = FreshDbPath("engine_test_eviction_mutations.db");
+    Check(pipeline.Open(dbPath), "the mutation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 61;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(10, 1, u"Root", 0x10, 0),
+        MakeMftRecord(11, 10, u"Src", 0x10, 0),
+        MakeMftRecord(12, 10, u"Dst", 0x10, 0),
+        MakeMftRecord(500, 11, u"moveme.txt", 0, 33),
+        MakeMftRecord(501, 11, u"renameme.txt", 0, 44),
+        MakeMftRecord(502, 12, u"deleteme.txt", 0, 55),
+    }), "the mutation base fixture persists");
+    const auto beforeBudget = pipeline.GetProjectionMemoryDiagnostics();
+    pipeline.SetProjectionMemoryBudget((beforeBudget.estimatedBytes * 3) / 4);
+    if (!pipeline.IsVolumeEvicted(volume)) {
+        // Guarantee eviction regardless of estimation granularity: shrink
+        // until the volume actually loses a subtree.
+        pipeline.SetProjectionMemoryBudget(beforeBudget.estimatedBytes / 8);
+    }
+    Check(pipeline.IsVolumeEvicted(volume), "the mutation fixture volume is evicted before mutating");
+
+    auto request = [](const wchar_t* queryText) {
+        ffprotocol::IndexedSearchRequest r;
+        r.requestId = 900;
+        r.scope = 3;
+        r.maxResults = 100;
+        r.query = queryText;
+        return r;
+    };
+
+    // Insert after eviction.
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(503, 11, u"inserted-cold.bin", 0, 66)}),
+          "a post-eviction insert commits durably");
+    auto response = pipeline.SearchIndexed(request(L"inserted-cold"));
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed
+              && response.candidates.size() == 1
+              && response.candidates[0].folder == L"C:\\Root\\Src",
+          "a cold search observes a post-eviction insert with its reconstructed folder");
+
+    // Rename after eviction (same FRN, new name).
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(501, 11, u"renamed-cold.txt", 0, 44)}),
+          "a post-eviction rename commits durably");
+    response = pipeline.SearchIndexed(request(L"renameme"));
+    Check(response.candidates.empty(), "the old name disappears from cold search after rename");
+    response = pipeline.SearchIndexed(request(L"renamed-cold"));
+    Check(response.candidates.size() == 1 && response.candidates[0].id == 501,
+          "the new name appears in cold search after rename");
+
+    // Move after eviction (same FRN, new parent).
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(500, 12, u"moveme.txt", 0, 33)}),
+          "a post-eviction move commits durably");
+    response = pipeline.SearchIndexed(request(L"moveme"));
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed
+              && response.candidates.size() == 1
+              && response.candidates[0].folder == L"C:\\Root\\Dst",
+          "a cold search reconstructs a post-eviction move through its new durable parent chain");
+
+    // Delete after eviction (USN delete reason).
+    ffprotocol::UsnDeltaV1 deletion{};
+    deletion.fixed.fileReferenceNumber = 502;
+    deletion.fixed.parentFileReferenceNumber = 12;
+    deletion.fixed.reason = 0x00000200u; // USN_REASON_FILE_DELETE
+    deletion.fixed.fileNameLengthChars = 13;
+    deletion.fileName = u"deleteme.txt";
+    Check(pipeline.ApplyUsnBatch(volume, std::vector{deletion}),
+          "a post-eviction USN delete commits durably");
+    response = pipeline.SearchIndexed(request(L"deleteme"));
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed && response.candidates.empty(),
+          "a deleted row leaves cold search immediately");
+
+    // Restart from SQLite: simulate a real process restart with a fresh
+    // pipeline object (fresh projection, default budget) over the same
+    // database file. The rebuilt state must equal the cold-mutated state.
+    pipeline.Close();
+    IndexPipeline restarted;
+    Check(restarted.Open(dbPath), "the mutation fixture reopens after close");
+    const auto reopenedVolume = restarted.ResolveVolume(key);
+    Check(reopenedVolume == volume, "restart preserves the durable volume row id");
+    restarted.SetVolumeRules(reopenedVolume, setting);
+    int rebuiltVolumes = 0;
+    restarted.RebuildAll([&rebuiltVolumes](ffindexstore::VolumeRowId) { ++rebuiltVolumes; });
+    Check(rebuiltVolumes >= 1, "restart rebuilds persisted volumes");
+    Check(!restarted.IsVolumeEvicted(reopenedVolume), "a fresh process starts with a fully resident rebuild");
+    response = restarted.SearchIndexed(request(L"txt"));
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed
+              && response.candidates.size() == 2,
+          "the restarted-from-SQLite search matches the cold-mutated state exactly");
+    bool sawMovedFolder = false;
+    bool sawRenamed = false;
+    for (const auto& candidate : response.candidates) {
+        sawMovedFolder |= candidate.name == L"moveme.txt" && candidate.folder == L"C:\\Root\\Dst";
+        sawRenamed |= candidate.name == L"renamed-cold.txt";
+    }
+    Check(sawMovedFolder && sawRenamed, "restart keeps every post-eviction mutation observable");
+
+    // Reconciliation deletion: a completed full pass removes rows it never
+    // observed, and the removal is visible to subsequent searches.
+    restarted.BeginReconciliationPass(reopenedVolume);
+    Check(restarted.ApplyMftBatch(reopenedVolume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(10, 1, u"Root", 0x10, 0),
+        MakeMftRecord(11, 10, u"Src", 0x10, 0),
+        MakeMftRecord(12, 10, u"Dst", 0x10, 0),
+        MakeMftRecord(500, 12, u"moveme.txt", 0, 33),
+        MakeMftRecord(501, 11, u"renamed-cold.txt", 0, 44),
+        MakeMftRecord(503, 11, u"inserted-cold.bin", 0, 66),
+    }), "the reconciliation ground-truth pass re-applies every surviving row");
+    restarted.FinishReconciliationPass(reopenedVolume);
+    response = restarted.SearchIndexed(request(L"inserted-cold"));
+    Check(response.status == ffprotocol::IndexedSearchStatus::Completed
+              && response.candidates.size() == 1,
+          "reconciliation keeps observed rows searchable");
+}
+
+// memory-bounded-indexed-scale 4.1: aggregates for an evicted volume come
+// straight from the durable recursive CTE -- never from a whole-volume reload.
+void TestColdFolderAggregateServedFromStore() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_eviction_aggregate.db")),
+          "the cold-aggregate fixture opens");
+    VolumeKey key;
+    key.serialNumber = 71;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(10, 1, u"Big", 0x10, 0),
+        MakeMftRecord(11, 10, u"Inner", 0x10, 0),
+        MakeMftRecord(600, 11, u"a.txt", 0, 10),
+        MakeMftRecord(601, 11, u"b.txt", 0, 20),
+        MakeMftRecord(602, 10, u"c.txt", 0, 40),
+        MakeMftRecord(13, 1, u"EmptyDir", 0x10, 0),
+    }), "the cold-aggregate fixture persists");
+    const FileId innerFrn{11, 0};
+    const auto hotAggregate = pipeline.GetFolderAggregate(volume, innerFrn);
+    Check(hotAggregate.has_value() && hotAggregate->itemCount == 2
+              && hotAggregate->totalSizeBytes == 30,
+          "the hot projection aggregate covers the subtree walk");
+    const auto emptyHot = pipeline.GetFolderAggregate(volume, FileId{13, 0});
+    Check(emptyHot.has_value() && emptyHot->itemCount == 0,
+          "an existing empty folder aggregates to zero items, not nullopt");
+    Check(!pipeline.GetFolderAggregate(volume, FileId{987'654, 0}).has_value(),
+          "an unknown folder stays nullopt while resident");
+
+    pipeline.UnloadVolumeFromProjection(volume);
+    Check(pipeline.IsVolumeEvicted(volume), "the aggregate fixture volume is evicted");
+
+    const auto coldAggregate = pipeline.GetFolderAggregate(volume, innerFrn);
+    Check(coldAggregate.has_value() && coldAggregate->itemCount == hotAggregate->itemCount
+              && coldAggregate->totalSizeBytes == hotAggregate->totalSizeBytes,
+          "the evicted-volume aggregate equals the durable recursive CTE result");
+    Check(pipeline.IsVolumeEvicted(volume),
+          "answering an aggregate does not reload the evicted volume");
+    const auto emptyCold = pipeline.GetFolderAggregate(volume, FileId{13, 0});
+    Check(emptyCold.has_value() && emptyCold->itemCount == 0,
+          "an empty-folder aggregate survives eviction without turning into not-found");
+    Check(!pipeline.GetFolderAggregate(volume, FileId{987'654, 0}).has_value(),
+          "an unknown folder remains nullopt while evicted (never 'empty')");
+}
+
+// memory-bounded-indexed-scale 2.6: cancellation stops durable streaming.
+void TestCancellationDuringColdStream() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_eviction_cancellation.db")),
+          "the cold-cancellation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 81;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+    std::vector<ffprotocol::MftRecordV1> records;
+    records.push_back(MakeMftRecord(1, 1, u".", 0x10, 0));
+    for (uint64_t id = 1; id <= 4000; ++id) {
+        records.push_back(MakeMftRecord(10'000 + id, 1,
+                                        U16FromWide(L"bulk-" + std::to_wstring(id) + L".dat"), 0, id));
+    }
+    Check(pipeline.ApplyMftBatch(volume, records), "the cold-cancellation fixture ingests");
+    pipeline.UnloadVolumeFromProjection(volume);
+    Check(pipeline.IsVolumeEvicted(volume), "the cold-cancellation volume is evicted");
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 950;
+    request.scope = 3;
+    request.maxResults = 4096;
+    request.query = L"bulk";
+    std::atomic<size_t> cancellationChecks{0};
+    IndexPipeline::SearchTimings timings;
+    const auto response = pipeline.SearchIndexed(request, &timings, [&cancellationChecks] {
+        return cancellationChecks.fetch_add(1, std::memory_order_relaxed) >= 4;
+    });
+    Check(response.status == ffprotocol::IndexedSearchStatus::Cancelled,
+          "cancelling during cold streaming reports Cancelled");
+    Check(timings.cancelled && response.candidates.empty(),
+          "a cancelled cold search discards partial results");
+    Check(timings.coldRowsExamined < records.size(),
+          "cold streaming stops before exhausting the volume when superseded");
+    Check(pipeline.IsVolumeEvicted(volume),
+          "a cancelled cold search does not silently hydrate the volume");
+}
+
 int main() {
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
     TestVolumeResolutionIsStable();
@@ -1093,8 +1519,13 @@ int main() {
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();
     TestIndexedSearchCancellationStopsProjectionWork();
-    TestIndexedSearchPropagatesAllocatedSize();
-    TestIndexedSearchOndiskFilter();
+        TestIndexedSearchPropagatesAllocatedSize();
+        TestIndexedSearchOndiskFilter();
+        TestForcedEvictionSearchEquivalence();
+        TestRepeatedColdSearchesDoNotThrashMemory();
+        TestColdMutationsAndRestartEquivalence();
+        TestColdFolderAggregateServedFromStore();
+        TestCancellationDuringColdStream();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
