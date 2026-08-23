@@ -141,6 +141,24 @@ function Invoke-UiaActivateAppWindow {
     }
 }
 
+# phase7-certification: SendInput is only safe after the product window owns
+# the desktop foreground.  SetForegroundWindow can lose to the interactive
+# host's foreground lock, so use the caption-click activation fallback and
+# verify the HWND after every bounded attempt.  Callers must treat false as an
+# unmet precondition and must not send input or claim a product assertion.
+function Ensure-UiaInputForeground {
+    param($Driver, $Main, [int] $Attempts = 3)
+    for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+        if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return $true }
+        $null = Set-UiaForeground -Driver $Driver -Element $Main
+        if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return $true }
+        Invoke-UiaActivateAppWindow -Driver $Driver -Main $Main
+        if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return $true }
+        if ($attempt + 1 -lt $Attempts) { Start-Sleep -Milliseconds 400 }
+    }
+    return $false
+}
+
 function Invoke-UiaCloseSettingsDialog {
     param($Driver, $Main, [int] $ProcessId, [string] $ArtifactsDir)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -308,26 +326,47 @@ function Invoke-UiaAddressBarNavigate {
 
     $used = 'ValuePattern'
     $set = Set-UiaElementValue -Driver $Driver -Element $addr -Value $Path
-    if (-not $set.ok) {
+    $valueSet = [bool]$set.ok
+    if (-not $valueSet) {
         # Fallback: the address EDIT exposes no ValuePattern on this host, so
         # focus it (real click), select-all, and type the path as Unicode text
         # (dots/slashes are safe). Verification is semantic: the edit reports
-        # its text as the UIA Name, read back over a bounded poll.
+        # its text as the UIA Name, read back over a bounded poll. The first
+        # full-capability drag-out failure showed that the edit can remain on
+        # the previous value when the lifecycle is foregrounded through an
+        # Explorer window; re-activate the caption and reacquire the edit once
+        # per bounded input attempt before typing.
         $used = 'SendInput-fallback'
-        $center = Get-UiaElementCenter -Driver $Driver -Element $addr
-        if ($center) { $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click' }
-        Start-Sleep -Milliseconds 300
-        $typed = $false
-        for ($attempt = 0; $attempt -lt 2 -and -not $typed; $attempt++) {
+        for ($attempt = 0; $attempt -lt 3 -and -not $valueSet; $attempt++) {
+            if ($attempt -gt 0) {
+                $null = Invoke-UiaActivateAppWindow -Driver $Driver -Main $Main
+                $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
+                try {
+                    $freshEdits = @(Find-UiaElement -Driver $Driver -ClassName 'Edit' -ProcessId $ProcessId -TimeoutMs 1500 -All)
+                    foreach ($freshEdit in $freshEdits) {
+                        $freshId = Get-UiaElementIdentity -Driver $Driver -Element $freshEdit
+                        if ([string]::IsNullOrEmpty($freshId.AutomationId) -or $freshId.AutomationId -eq '0') {
+                            $addr = $freshEdit
+                            break
+                        }
+                    }
+                } catch { }
+            } else {
+                $null = Invoke-UiaActivateAppWindow -Driver $Driver -Main $Main
+            }
+            $center = Get-UiaElementCenter -Driver $Driver -Element $addr
+            if (-not $center) { continue }
+            $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
+            Start-Sleep -Milliseconds 300
             $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
             Start-Sleep -Milliseconds 200
             $null = Send-UiaText -Driver $Driver -Text $Path
-            $typed = Wait-UiaCondition -Driver $Driver -TimeoutMs 3000 -PollIntervalMs 200 -Description "address edit shows '$Path'" -ScriptBlock {
+            $valueSet = Wait-UiaCondition -Driver $Driver -TimeoutMs 3000 -PollIntervalMs 200 -Description "address edit shows '$Path'" -ScriptBlock {
                 $text = Get-UiaElementTextValue -Driver $Driver -Element $addr
                 return ($null -ne $text -and $text -eq $Path)
             }
         }
-        if (-not $typed) {
+        if (-not $valueSet) {
             $now = Get-UiaElementTextValue -Driver $Driver -Element $addr
             return [pscustomobject]@{ Pass = $false; Detail = "address edit value '$now' != '$Path' (used $used)" }
         }
@@ -381,6 +420,17 @@ function Invoke-UiaPaletteCommand {
         if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
             $null = Set-UiaForeground -Driver $Driver -Element $Main
             Start-Sleep -Milliseconds 400
+        }
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+            Invoke-UiaActivateAppWindow -Driver $Driver -Main $Main
+        }
+        # Do not dispatch the chord into an unrelated foreground window.  The
+        # prior harness sent it regardless of this post-activation check,
+        # which made a terminal/overlay consume the command and produced a
+        # false downstream pane/selection failure.
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+            if ($attempt + 1 -lt 2) { Start-Sleep -Milliseconds 500 }
+            continue
         }
         $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
         try { $edit = Wait-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 4000 -PollIntervalMs 250 } catch { }
@@ -650,8 +700,12 @@ function Ensure-UiaDualPane {
                 return [pscustomobject]@{ Pass = $false; Detail = "dual-pane command failed: $($pal.Detail)" }
             }
             $detail += 'created via palette'
-            $group = Find-UiaElement -Driver $Driver -AutomationId 'ColumnView' -FromElement $Main -TimeoutMs 3000
-            $pane1 = Wait-UiaElement -Driver $Driver -AutomationId 'Pane.1' -FromElement $group -TimeoutMs 8000 -PollIntervalMs 200
+            # The ColumnView fragment is replaced when the second pane is
+            # created. Waiting from the pre-toggle group can therefore poll a
+            # stale provider forever even though the live main window already
+            # exposes Pane.1. Re-root the wait at the main window and only
+            # reacquire ColumnView after the pane post-condition is true.
+            $pane1 = Wait-UiaElement -Driver $Driver -AutomationId 'Pane.1' -FromElement $Main -TimeoutMs 8000 -PollIntervalMs 200
             if (-not $pane1) {
                 $st = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
                 return [pscustomobject]@{ Pass = $false; Detail = "Pane.1 did not appear after 'Toggle Dual Pane'; foreground='$($st.ForegroundTitle)' popups=$(@($st.Popups | ForEach-Object { $_.className }) -join ',')" }
@@ -1492,7 +1546,7 @@ function Invoke-UiaScenarioTreemapReadability {
         # Pre-browse subfolders so degraded-mode snapshot knows their contents.
         foreach ($sub in @($subA, $subB)) {
             $subNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $sub -ExpectedLeaf (Split-Path $sub -Leaf)
-            if (-not $subNav.Pass) { & $fail "subfolder browse failed for $sub" }
+            if (-not $subNav.Pass) { return & $fail "subfolder browse failed for $sub" }
             Start-Sleep -Milliseconds 300
         }
         # Return to the fixture root.
@@ -2044,17 +2098,21 @@ function Invoke-UiaScenarioDragPanes {
         $nav0 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $left -ExpectedLeaf 'left'
         if (-not $nav0.Pass) { return & $fail "navigation of Pane.0 to 'left' failed: $($nav0.Detail)" }
         $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $appPid
-        if (-not $dp.Pass) { return & $fail "dual-pane setup failed: $($dp.Detail)" }
+        if (-not $dp.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $dp.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "dual-pane setup failed: $($dp.Detail)"
+        }
         $pane0 = $dp.Pane0
         $pane1 = $dp.Pane1
         # Explicitly activate Pane.1 before navigating it (a global address-bar
         # operation must never silently target the wrong pane).
-        $null = Set-UiaForeground -Driver $driver -Element $main
-        Start-Sleep -Milliseconds 300
-        $p1Center = Get-UiaElementCenter -Driver $driver -Element $pane1
-        if (-not $p1Center) { return & $fail 'Pane.1 has no usable geometry' }
-        $null = Send-UiaMouseInput -Driver $driver -X $p1Center.x -Y $p1Center.y -Button 'Left' -Action 'Click'
-        Start-Sleep -Milliseconds 500
+        $activatePane = Activate-UiaPane -Driver $driver -Main $main -ProcessId $appPid -PaneId 'Pane.1'
+        if (-not $activatePane.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $activatePane.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $activatePane.Detail
+        }
         $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $right -ExpectedLeaf 'right'
         if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to 'right' failed: $($nav1.Detail)" }
         # stabilize-live-uia-e2e: PROVE pane ownership semantically. A global
@@ -2087,19 +2145,11 @@ function Invoke-UiaScenarioDragPanes {
         if ($pane1Cols.Count -gt 0) { $dst3 = Get-UiaElementCenter -Driver $driver -Element $pane1Cols[$pane1Cols.Count - 1] }
         if (-not $dst3) { $dst3 = Get-UiaElementCenter -Driver $driver -Element $pane1 }
 
-        $null = Set-UiaForeground -Driver $driver -Element $main
+        if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            return & $fail 'foreground could not be established on FastFiles before the cross-pane drag'
+        }
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 400
-        # stabilize-live-uia-e2e: foreground ownership verified before the
-        # drag source mouse-down (an overlay/popup stealing foreground would
-        # make the cross-pane drag never arm).
-        if (-not (Test-UiaForegroundWindow -Driver $driver -Element $main)) {
-            $null = Set-UiaForeground -Driver $driver -Element $main
-            Start-Sleep -Milliseconds 400
-            if (-not (Test-UiaForegroundWindow -Driver $driver -Element $main)) {
-                return & $fail 'foreground could not be established on FastFiles before the cross-pane drag'
-            }
-        }
         # stabilize-live-uia-e2e: after the dual-pane toggle the pane geometry
         # changes; re-acquire the source item and VERIFY it lies inside
         # Pane.0's bounds (stale geometry produced out-of-pane coordinates).
@@ -2420,12 +2470,15 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     }
 
     # --- fixture: test-owned scratch folder with 6 deterministically ordered
-    # rows (selA..selF). No privileged index/service needed: navigation to a
-    # normal folder works in degraded mode. Registered for teardown. ---
+    # rows (selA..selF). Use a deliberately unassociated extension so an
+    # accidental synthetic double-click cannot launch a user's text editor and
+    # steal the foreground from the scenario. No privileged index/service is
+    # needed: navigation to a normal folder works in degraded mode. ---
     $scratch = Join-Path $env:USERPROFILE ('ffui-sel-' + (Get-Random))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
+    $selectionExtension = '.ffsel'
     foreach ($n in @('selA', 'selB', 'selC', 'selD', 'selE', 'selF')) {
-        Set-Content -LiteralPath (Join-Path $scratch ($n + '.txt')) -Value $n -Encoding utf8
+        Set-Content -LiteralPath (Join-Path $scratch ($n + $selectionExtension)) -Value $n -Encoding utf8
     }
     [void]$Context.Fixtures.Add($scratch)
 
@@ -2475,11 +2528,14 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     # modifier (''/Ctrl/Shift) held during the click via Send-UiaMouseInput.
     $invokeRowClick = {
         param([string]$Name, [string]$Modifier = '', [string]$PaneId = 'Pane.0')
+        if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            return [pscustomobject]@{ Pass = $false; Detail = "input foreground precondition failed before clicking '$Name' in $PaneId" }
+        }
         $col = & $getTerminalColumn $PaneId
-        if (-not $col) { return $false }
+        if (-not $col) { return [pscustomobject]@{ Pass = $false; Detail = "terminal column not found for $PaneId" } }
         $row = $null
         try { $row = Find-UiaElement -Driver $driver -Name $Name -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 } catch { }
-        if (-not $row) { return $false }
+        if (-not $row) { return [pscustomobject]@{ Pass = $false; Detail = "row '$Name' not found in $PaneId" } }
         # Reveal the row before computing its click point. In a dual-pane or
         # deep-column layout the target row can sit outside the pane's clipped
         # viewport, so a click at the reported center would miss the window and
@@ -2487,10 +2543,30 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         try { Invoke-UiaPattern -Driver $driver -Element $row -PatternName 'ScrollItem' -Method 'ScrollIntoView' } catch { }
         Start-Sleep -Milliseconds 250
         $center = Get-UiaElementCenter -Driver $driver -Element $row
-        if (-not $center) { return $false }
-        $null = Set-UiaForeground -Driver $driver -Element $main
+        if (-not $center) { return [pscustomobject]@{ Pass = $false; Detail = "row '$Name' has no usable geometry" } }
+        if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            return [pscustomobject]@{ Pass = $false; Detail = "input foreground precondition failed after locating '$Name' in $PaneId (foreground='$($state.ForegroundTitle)')" }
+        }
+        if (-not (Test-UiaPointInWindow -Driver $driver -Element $main -X $center.x -Y $center.y)) {
+            $top = Get-UiaTopmostWindowAt -Driver $driver -X $center.x -Y $center.y
+            $topDetail = if ($top) { "class='$($top.Class)' title='$($top.Title)' pid=$($top.Pid)" } else { 'unavailable' }
+            return [pscustomobject]@{ Pass = $false; Detail = "row '$Name' point ($($center.x),$($center.y)) is not inside FastFiles; topmost=$topDetail" }
+        }
         $null = Send-UiaMouseInput -Driver $driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click' -Modifier $Modifier
-        return $true
+        # Windows recognizes a second click at the same point as a double
+        # click even when automation used a modifier on the first click. The
+        # selection scenario intentionally revisits its anchor; leave the
+        # documented system double-click interval before another synthetic
+        # click so a selection gesture cannot open a file.
+        $doubleClickGuardMs = 650
+        try { $doubleClickGuardMs = [Math]::Max(100, [int][FfNativeInput]::GetDoubleClickTime() + 50) } catch { }
+        Start-Sleep -Milliseconds $doubleClickGuardMs
+        if (-not (Test-UiaForegroundWindow -Driver $driver -Element $main)) {
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            return [pscustomobject]@{ Pass = $false; Detail = "FastFiles lost foreground after clicking '$Name' in $PaneId (foreground='$($state.ForegroundTitle)')" }
+        }
+        return [pscustomobject]@{ Pass = $true; Detail = "clicked '$Name' in $PaneId with modifier '$Modifier'" }
     }
     # harden-selection-model-semantics: after deep address-bar navigation the
     # fixture (terminal) column can sit beyond the pane's right edge, so item
@@ -2569,55 +2645,92 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             $col = & $getTerminalColumn 'Pane.0'
             if ($col) {
                 $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 -All)
-                $discovered = @($rows | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' } | Where-Object { $_ -match '^sel[A-F]\.txt$' })
+                $discovered = @($rows | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' } | Where-Object { $_ -match '^sel[A-F]\.ffsel$' })
                 if ($discovered.Count -ge 6) { $rowsOk = $true }
             }
             if (-not $rowsOk) { Start-Sleep -Milliseconds 500 }
         }
         if (-not $rowsOk) {
-            return & $fail "fixture folder did not expose the expected 6 rows (selA..selF.txt); discovered: $($discovered -join ', ')"
+            return & $fail "fixture folder did not expose the expected 6 rows (selA..selF.ffsel); discovered: $($discovered -join ', ')"
         }
 
         $joinSelected = { param($PaneId) ((& $getSelectionMap $PaneId).Keys | Where-Object { (& $getSelectionMap $PaneId)[$_] } | Sort-Object) -join ', ' }
 
         # --- 5.3: plain click row A -> exactly A selected. ---
-        if (-not (& $invokeRowClick 'selA.txt' '' 'Pane.0')) { return & $fail 'could not click row selA.txt in Pane.0' }
-        if (-not (& $waitSelection @('selA.txt') 'Pane.0')) {
-            return & $fail "plain click selA: expected exactly {selA.txt}; got {$(& $joinSelected 'Pane.0')}"
+        $click = & $invokeRowClick 'selA.ffsel' '' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selA.ffsel') 'Pane.0')) {
+            return & $fail "plain click selA: expected exactly {selA.ffsel}; got {$(& $joinSelected 'Pane.0')}"
         }
 
         # --- 5.4: Ctrl-click row C -> {A, C}, nothing else added. ---
-        & $invokeRowClick 'selC.txt' 'Ctrl' 'Pane.0' | Out-Null
-        if (-not (& $waitSelection @('selA.txt', 'selC.txt') 'Pane.0')) {
-            return & $fail "Ctrl-click selC: expected {selA.txt,selC.txt}; got {$(& $joinSelected 'Pane.0')}"
+        $click = & $invokeRowClick 'selC.ffsel' 'Ctrl' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selA.ffsel', 'selC.ffsel') 'Pane.0')) {
+            return & $fail "Ctrl-click selC: expected {selA.ffsel,selC.ffsel}; got {$(& $joinSelected 'Pane.0')}"
         }
 
         # --- 5.5: Ctrl-click row A again -> only C remains. ---
-        & $invokeRowClick 'selA.txt' 'Ctrl' 'Pane.0' | Out-Null
-        if (-not (& $waitSelection @('selC.txt') 'Pane.0')) {
-            return & $fail "Ctrl-click selA (toggle off): expected {selC.txt}; got {$(& $joinSelected 'Pane.0')}"
+        $click = & $invokeRowClick 'selA.ffsel' 'Ctrl' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selC.ffsel') 'Pane.0')) {
+            return & $fail "Ctrl-click selA (toggle off): expected {selC.ffsel}; got {$(& $joinSelected 'Pane.0')}"
         }
 
         # --- 5.6: re-anchor with plain click A, Shift-click E -> inclusive A..E. ---
-        & $invokeRowClick 'selA.txt' '' 'Pane.0' | Out-Null
-        & $waitSelection @('selA.txt') 'Pane.0' | Out-Null
-        & $invokeRowClick 'selE.txt' 'Shift' 'Pane.0' | Out-Null
-        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt') 'Pane.0')) {
+        $click = & $invokeRowClick 'selA.ffsel' '' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selA.ffsel') 'Pane.0')) {
+            return & $fail "could not establish the Shift-click anchor {selA.ffsel}; got {$(& $joinSelected 'Pane.0')}"
+        }
+        $click = & $invokeRowClick 'selE.ffsel' 'Shift' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel', 'selD.ffsel', 'selE.ffsel') 'Pane.0')) {
             return & $fail "Shift-click selE (forward range): expected {selA..selE}; got {$(& $joinSelected 'Pane.0')}"
         }
 
         # --- 5.7: second Shift-click C (no re-anchor) -> range recomputes from A -> A..C. ---
-        & $invokeRowClick 'selC.txt' 'Shift' 'Pane.0' | Out-Null
-        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt') 'Pane.0')) {
-            return & $fail "Shift-click selC (recompute from original anchor A): expected {selA..selC}; got {$(& $joinSelected 'Pane.0')}"
+        $click = & $invokeRowClick 'selC.ffsel' 'Shift' 'Pane.0'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel') 'Pane.0')) {
+            return & $fail "Shift-click selC (recompute from original anchor A): expected {selA.ffsel,selB.ffsel,selC.ffsel}; got {$(& $joinSelected 'Pane.0')}"
         }
 
         # --- 5.8: Ctrl+A via real keyboard path -> all 6 listed rows selected. ---
-        $null = Set-UiaForeground -Driver $driver -Element $main
+        if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "foreground precondition failed before Ctrl+A (foreground='$($state.ForegroundTitle)')"
+            if ($blocked) { return $blocked }
+            return & $fail 'foreground could not be established before Ctrl+A'
+        }
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 200
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
-        if (-not (& $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt', 'selF.txt') 'Pane.0')) {
+        if (-not (& $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel', 'selD.ffsel', 'selE.ffsel', 'selF.ffsel') 'Pane.0')) {
             return & $fail "Ctrl+A: expected all 6 rows selected; got {$(& $joinSelected 'Pane.0')}"
         }
 
@@ -2625,15 +2738,20 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         # INACTIVE pane, then mutate/select-all in the active pane and verify
         # the inactive pane's selection membership is EXACTLY unchanged. ---
         $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $appPid
-        if (-not $dp.Pass) { return & $fail "dual-pane setup failed: $($dp.Detail)" }
+        if (-not $dp.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $dp.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "dual-pane setup failed: $($dp.Detail)"
+        }
         $pane0 = $dp.Pane0
         $pane1 = $dp.Pane1
         # Activate Pane.1 and navigate it to the same fixture folder.
-        $p1Center = Get-UiaElementCenter -Driver $driver -Element $pane1
-        if (-not $p1Center) { return & $fail 'Pane.1 has no usable geometry' }
-        $null = Set-UiaForeground -Driver $driver -Element $main
-        $null = Send-UiaMouseInput -Driver $driver -X $p1Center.x -Y $p1Center.y -Button 'Left' -Action 'Click'
-        Start-Sleep -Milliseconds 400
+        $activatePane = Activate-UiaPane -Driver $driver -Main $main -ProcessId $appPid -PaneId 'Pane.1'
+        if (-not $activatePane.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $activatePane.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $activatePane.Detail
+        }
         $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)" }
         & $scrollPaneRight 'Pane.1'
@@ -2644,27 +2762,36 @@ function Invoke-UiaScenarioSelectionModelInteractions {
                 if (-not $col) { return $false }
                 $rows = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $col -TimeoutMs 3000 -All)
                 $names = @($rows | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
-                return ($names -contains 'selA.txt' -and $names -contains 'selF.txt')
+                return ($names -contains 'selA.ffsel' -and $names -contains 'selF.ffsel')
             } catch { return $false }
         }
         if (-not $p1Owned) { return & $fail 'Pane.1 did not load the fixture folder rows' }
         # Establish a known selection in the INACTIVE pane (plain click selF).
-        if (-not (& $invokeRowClick 'selF.txt' '' 'Pane.1')) { return & $fail 'could not click row selF.txt in Pane.1' }
-        if (-not (& $waitSelection @('selF.txt') 'Pane.1')) {
-            return & $fail "could not establish known selection {selF.txt} in inactive Pane.1; got {$(& $joinSelected 'Pane.1')}"
+        $click = & $invokeRowClick 'selF.ffsel' '' 'Pane.1'
+        if (-not $click.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $click.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $click.Detail
+        }
+        if (-not (& $waitSelection @('selF.ffsel') 'Pane.1')) {
+            return & $fail "could not establish known selection {selF.ffsel} in inactive Pane.1; got {$(& $joinSelected 'Pane.1')}"
         }
         $beforeMap = & $getSelectionMap 'Pane.1'
         # Re-activate Pane.0 and perform Ctrl+A in the ACTIVE pane.
-        $p0Center = Get-UiaElementCenter -Driver $driver -Element $pane0
-        if (-not $p0Center) { return & $fail 'Pane.0 has no usable geometry' }
-        $null = Set-UiaForeground -Driver $driver -Element $main
-        $null = Send-UiaMouseInput -Driver $driver -X $p0Center.x -Y $p0Center.y -Button 'Left' -Action 'Click'
-        Start-Sleep -Milliseconds 400
+        $activatePane = Activate-UiaPane -Driver $driver -Main $main -ProcessId $appPid -PaneId 'Pane.0'
+        if (-not $activatePane.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $activatePane.Detail
+            if ($blocked) { return $blocked }
+            return & $fail $activatePane.Detail
+        }
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 150
+        if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            return & $fail 'input foreground precondition failed before Ctrl+A in Pane.0'
+        }
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
         # Wait for Pane.0 to select all, then re-read Pane.1.
-        & $waitSelection @('selA.txt', 'selB.txt', 'selC.txt', 'selD.txt', 'selE.txt', 'selF.txt') 'Pane.0' | Out-Null
+        & $waitSelection @('selA.ffsel', 'selB.ffsel', 'selC.ffsel', 'selD.ffsel', 'selE.ffsel', 'selF.ffsel') 'Pane.0' | Out-Null
         Start-Sleep -Milliseconds 400
         $afterMap = & $getSelectionMap 'Pane.1'
         $isolationOk = $true
@@ -2686,41 +2813,144 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     }
 }
 
-# Harness determinism: bounded retry wrapper for the registered flaky
-# scenarios (drag-between-panes, treemap-readability-click-precision,
-# geometry-dependent row clicks). Each attempt runs in a fresh FastFiles
-# lifecycle; only a FAIL result is retried, up to MaxRetries times. A PASS or
-# SKIPPED is terminal, and a deterministic failure exhausts the retries and is
-# still returned as FAIL — retries never mask genuine assertion failures.
+# Harness determinism: fail-fast wrapper for the registered geometry-sensitive
+# scenarios. Each attempt runs in a fresh FastFiles lifecycle and retains its
+# own evidence directory. A transient retry is opt-in and is reserved for a
+# documented primitive under investigation; a normal capability run never
+# retries a failed scenario or overwrites the failed attempt's evidence.
 function Invoke-UiaScenarioWithRetry {
     param([string] $ScenarioId, [scriptblock] $Runner, [string] $Exe, [string] $RepoRoot,
-        [string] $ArtifactsDir, $LogFn, [ref] $Artifacts, [int] $MaxRetries = 2)
+        [string] $ArtifactsDir, $LogFn, [ref] $Artifacts, [int] $MaxRetries = 0)
     $lastFail = $null
     $lastError = $null
+    $lastDetail = $null
     for ($attempt = 1; $attempt -le (1 + $MaxRetries); $attempt++) {
         & $LogFn "[$ScenarioId] attempt $attempt of $(1 + $MaxRetries)"
+        $attemptDir = Join-Path $ArtifactsDir (Join-Path $ScenarioId ("attempt-{0:D2}" -f $attempt))
+        New-Item -ItemType Directory -Path $attemptDir -Force | Out-Null
         $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId "$ScenarioId#attempt$attempt" -LogFn $LogFn
+        $result = $null
         try {
             if (-not $ctx -or -not $ctx.Main) {
-                & $LogFn "[$ScenarioId] attempt ${attempt}: lifecycle launch failed"
+                $lastDetail = 'lifecycle launch failed'
+                & $LogFn "[$ScenarioId] attempt ${attempt}: $lastDetail"
                 continue
             }
-            $result = & $Runner $ctx $ArtifactsDir
+            $result = & $Runner $ctx $attemptDir
             if ($result.status -ne 'FAIL') { return $result }
-            & $LogFn "[$ScenarioId] attempt ${attempt}: FAIL ($($result.reason))"
+            $lastDetail = $result.detail
+            & $LogFn "[$ScenarioId] attempt ${attempt}: FAIL ($($result.reason)) $($result.detail)"
             $lastFail = $result
         } catch {
-            & $LogFn "[$ScenarioId] attempt ${attempt}: exception $($_.Exception.Message)"
+            $lastDetail = $_.Exception.Message
+            & $LogFn "[$ScenarioId] attempt ${attempt}: exception $lastDetail"
             $lastError = $_
         } finally {
-            if ($ctx -and $ctx.Main) {
-                $Artifacts.Value += Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $ArtifactsDir -Name $ScenarioId
+            if ($ctx) {
+                if ($ctx.Main) {
+                    $evidence = Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $attemptDir -Name ("{0}-attempt-{1:D2}" -f $ScenarioId, $attempt)
+                    $Artifacts.Value += $evidence
+                    $state = $null
+                    try { $state = Get-UiaInteractiveState -Driver $ctx.Driver -ProcessId $ctx.Launched.Id } catch { $state = [pscustomobject]@{ ForegroundTitle = ''; ForegroundProcessId = 0; Popups = @() } }
+                    $diagnostic = [ordered]@{
+                        scenarioId = $ScenarioId
+                        attempt = $attempt
+                        status = if ($null -ne $result) { $result.status } else { 'FAIL' }
+                        reason = if ($null -ne $result) { $result.reason } else { 'driver-exception' }
+                        detail = if ($null -ne $result) { $result.detail } else { $lastDetail }
+                        foreground = $state.ForegroundTitle
+                        foregroundProcessId = $state.ForegroundProcessId
+                        popups = @($state.Popups)
+                        evidence = @($evidence)
+                        timestampUtc = [DateTime]::UtcNow.ToString('o')
+                    }
+                    $diagnosticPath = Join-Path $attemptDir 'attempt-diagnostic.json'
+                    $diagnostic | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $diagnosticPath -Encoding utf8
+                    $Artifacts.Value += [pscustomobject]@{ path = $diagnosticPath; type = 'uia-attempt-diagnostic' }
+                }
+                try { Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn } catch { & $LogFn "[$ScenarioId] attempt ${attempt} teardown failed: $($_.Exception.Message)" }
             }
-            Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn
         }
     }
     if ($null -ne $lastFail) { return $lastFail }
-    throw $lastError
+    if ($null -ne $lastError) { throw $lastError }
+    return New-UiaVSubResult -Id $ScenarioId -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail $lastDetail
+}
+
+# phase7-certification: A pane click is an activation request, not proof that
+# the global address bar will target that pane.  Reacquire the live provider,
+# focus/click it, and require the provider's real HasKeyboardFocus state before
+# continuing.  This prevents a stale/foreign foreground window from silently
+# navigating Pane.0 when the scenario intended Pane.1.
+function Activate-UiaPane {
+    param($Driver, $Main, [int] $ProcessId, [string] $PaneId)
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+        if (-not (Ensure-UiaInputForeground -Driver $Driver -Main $Main)) {
+            continue
+        }
+        $pane = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId
+        if (-not $pane) { Start-Sleep -Milliseconds 300; continue }
+        try { $pane.SetFocus() } catch { }
+        # A pane whose terminal column already has rows projects focus from
+        # the row, not from the Pane fragment. Click a live row when one is
+        # available; fall back to the pane interior for empty directories.
+        $focusTarget = $pane
+        try {
+            $columns = @(Get-UiaChildren -Driver $Driver -Element $pane | Where-Object {
+                (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'List' })
+            if ($columns.Count -gt 0) {
+                $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $columns[$columns.Count - 1] -TimeoutMs 800 -All)
+                if ($rows.Count -gt 0) { $focusTarget = $rows[0] }
+            }
+        } catch { }
+        $center = Get-UiaElementCenter -Driver $Driver -Element $focusTarget
+        if ($center) {
+            $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
+        }
+        $focused = Wait-UiaCondition -Driver $Driver -TimeoutMs 2500 -PollIntervalMs 200 -Description "$PaneId keyboard focus" -ScriptBlock {
+            try {
+                $fresh = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId
+                if (-not $fresh) { return $false }
+                # The pane itself reports HasKeyboardFocus only when no row
+                # owns focus. When a real row is focused, prove ownership from
+                # the live pane's column/row focus projection instead.
+                if ([bool](Get-UiaElementProperty -Driver $Driver -Element $fresh -Name 'HasKeyboardFocus')) { return $true }
+                $columns = @(Get-UiaChildren -Driver $Driver -Element $fresh | Where-Object {
+                    (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'List' })
+                foreach ($column in $columns) {
+                    if ([bool](Get-UiaElementProperty -Driver $Driver -Element $column -Name 'HasKeyboardFocus')) { return $true }
+                    $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $column -TimeoutMs 800 -All)
+                    foreach ($row in $rows) {
+                        if ([bool](Get-UiaElementProperty -Driver $Driver -Element $row -Name 'HasKeyboardFocus')) { return $true }
+                    }
+                }
+                return $false
+            } catch { return $false }
+        }
+        if ($focused) {
+            return [pscustomobject]@{ Pass = $true; Detail = "$PaneId semantic focus projection=True (pane, column, or focused row)" }
+        }
+        if ($attempt + 1 -lt 3) { Start-Sleep -Milliseconds 400 }
+    }
+    $state = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
+    return [pscustomobject]@{ Pass = $false; Detail = "$PaneId activation did not establish HasKeyboardFocus; foreground='$($state.ForegroundTitle)'" }
+}
+
+# phase7-certification: A foreground owned by another interactive application
+# is an environment precondition failure, not a product assertion. Convert
+# only that bounded precondition failure to SKIPPED/BLOCKED_ENVIRONMENT; all
+# failures while FastFiles owns the foreground remain real FAIL results.
+function Convert-UiaForegroundFailureToSkip {
+    param([string] $Id, [double] $DurationMs, [string] $Detail)
+    $foreground = ''
+    $match = [regex]::Match($Detail, "foreground='([^']*)'")
+    if ($match.Success) { $foreground = $match.Groups[1].Value }
+    $precondition = $Detail -match 'foreground precondition' -or $Detail -match 'foreground could not be established' -or $Detail -match 'activation did not establish'
+    $foreign = $match.Success -and ($foreground.Length -eq 0 -or $foreground -notmatch 'FastFiles')
+    $pointBlocked = $Detail -match 'point .* is not inside FastFiles; topmost='
+    if (-not (($precondition -and ($foreign -or -not $match.Success)) -or $pointBlocked)) { return $null }
+    return New-UiaVSubResult -Id $Id -Status 'SKIPPED' -Reason 'interactive-foreground-unavailable' -DurationMs $DurationMs `
+        -Detail "BLOCKED_ENVIRONMENT: $Detail; no input or downstream assertion was attempted while another interactive window owned the foreground"
 }
 
 # stabilize-live-uia-e2e 2.1/5: the scenario registry. Isolated scenarios run
@@ -2739,18 +2969,18 @@ $script:UiaScenarioRegistry = @{
     'storage-analysis-open'                    = @{ Group = 'core';    Isolated = $false }
     'connection-badge-degraded'                = @{ Group = 'core';    Isolated = $false }
     'storage-mid-scan-calculating'             = @{ Group = 'privileged'; Isolated = $false }
-    'treemap-readability-click-precision'      = @{ Group = 'treemap'; Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioTreemapReadability -Context $ctx -ArtifactsDir $dir } }
+    'treemap-readability-click-precision'      = @{ Group = 'treemap'; Isolated = $true; FailFast = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioTreemapReadability -Context $ctx -ArtifactsDir $dir } }
     'search-panel-open'                        = @{ Group = 'search';  Isolated = $false }
     'search-results-discoverable'              = @{ Group = 'search';  Isolated = $false }
     'search-deep-result-navigation'            = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchDeep -Context $ctx -ArtifactsDir $dir } }
     'search-structured-filter-query'           = @{ Group = 'search';  Isolated = $false }
     'search-allocated-size'                    = @{ Group = 'search';  Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSearchAllocatedSize -Context $ctx -ArtifactsDir $dir } }
-    'selection-model-interactions'            = @{ Group = 'selection'; Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSelectionModelInteractions -Context $ctx -ArtifactsDir $dir } }
+    'selection-model-interactions'            = @{ Group = 'selection'; Isolated = $true; FailFast = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioSelectionModelInteractions -Context $ctx -ArtifactsDir $dir } }
     'search-toggle-service-while-open'         = @{ Group = 'privileged'; Isolated = $false }
     'in-column-error-state-late'               = @{ Group = 'error';   Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioErrorStateLate -Context $ctx -ArtifactsDir $dir } }
     'drag-out-to-explorer'                     = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragOut -Context $ctx -ArtifactsDir $dir } }
     'drag-in-from-explorer'                    = @{ Group = 'drag';    Isolated = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragIn -Context $ctx -ArtifactsDir $dir } }
-    'drag-between-panes'                       = @{ Group = 'drag';    Isolated = $true; Flaky = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragPanes -Context $ctx -ArtifactsDir $dir } }
+    'drag-between-panes'                       = @{ Group = 'drag';    Isolated = $true; FailFast = $true; Runner = { param($ctx, $dir) Invoke-UiaScenarioDragPanes -Context $ctx -ArtifactsDir $dir } }
     'ui-responsive'                            = @{ Group = 'core';    Isolated = $false }
     'rendering-geometry-click-precision'       = @{ Group = 'core';    Isolated = $false }
     'collect-evidence'                         = @{ Group = 'core';    Isolated = $false }
@@ -3042,7 +3272,35 @@ function Invoke-UiaSharedSessionScenarios {
     $sw.Stop()
     $degradedVisible = $false
     if ($sa.Pass) {
-        try { $null = Find-UiaElement -Driver $driver -NameLike '*Degraded*' -FromElement $main -TimeoutMs 1500; $degradedVisible = $true } catch { $degradedVisible = $false }
+        try {
+            $null = Find-UiaElement -Driver $driver -NameLike '*Degraded*' -FromElement $main -TimeoutMs 1500
+            $degradedVisible = $true
+        } catch { $degradedVisible = $false }
+        # ui-v3 storage radio polish: owner-draw changes only presentation;
+        # each native BS_AUTORADIOBUTTON must remain a UIA RadioButton so
+        # keyboard and assistive-technology state still follows the real mode.
+        $radioNames = @('Overview', 'Drill Down', 'Largest Folders', 'Largest Files', 'By Category', 'Treemap')
+        $radioDetails = [System.Collections.Generic.List[string]]::new()
+        foreach ($radioName in $radioNames) {
+            $radio = Find-UiaElement -Driver $driver -Name $radioName -FromElement $main -TimeoutMs 1500
+            $radioIdentity = Get-UiaElementIdentity -Driver $driver -Element $radio
+            [void]$radioDetails.Add("$radioName=$($radioIdentity.ControlType)")
+            if ($radioIdentity.ControlType -ne 'RadioButton') {
+                throw "storage mode '$radioName' exposes UIA ControlType '$($radioIdentity.ControlType)', expected RadioButton"
+            }
+            if (-not (Test-UiaPatternAvailable -Driver $driver -Element $radio -PatternName 'SelectionItem')) {
+                throw "storage mode '$radioName' does not expose SelectionItem semantics"
+            }
+        }
+        $overviewRadio = Find-UiaElement -Driver $driver -Name 'Overview' -FromElement $main -TimeoutMs 1500
+        $treemapRadio = Find-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 1500
+        $overviewSelected = [bool](Invoke-UiaPattern -Driver $driver -Element $overviewRadio -PatternName 'SelectionItem' -Method 'GetSelection')
+        $treemapSelected = [bool](Invoke-UiaPattern -Driver $driver -Element $treemapRadio -PatternName 'SelectionItem' -Method 'GetSelection')
+        if (-not $overviewSelected -or $treemapSelected) {
+            throw "storage radio selection state unexpected: Overview=$overviewSelected Treemap=$treemapSelected"
+        }
+        [void]$radioDetails.Add("selection=Overview:$overviewSelected/Treemap:$treemapSelected")
+        $sa = [pscustomobject]@{ Pass = $true; Detail = "$($sa.Detail); radio semantics: $($radioDetails -join ', ')" }
     }
     & $LogFn "3.10 storage pass=$($sa.Pass) detail=$($sa.Detail) degraded=$degradedVisible"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.10-storage-analysis'
@@ -3178,21 +3436,31 @@ function Invoke-UiAutomationValidationCapability {
             & $logFn "launching $exe (shared session, $($sharedIds.Count) scenarios)"
             $sharedCtx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId 'shared-session' -LogFn $logFn
             if (-not $sharedCtx -or -not $sharedCtx.Main) {
+                if ($sharedCtx) { Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn }
                 throw 'failed to start FastFiles UI process / find main window'
             }
-            Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts)
-            Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+            try {
+                Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts)
+            } finally {
+                try { Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn } catch { & $logFn "shared-session teardown failed: $($_.Exception.Message)" }
+            }
         }
 
-        # Isolated scenarios each get a fresh lifecycle. Registered flaky
-        # scenarios go through the bounded retry wrapper (fresh setup per
-        # attempt); everything else runs once.
+        # Isolated scenarios each get a fresh lifecycle. Geometry-sensitive
+        # scenarios retain the fail-fast wrapper so their diagnostics are
+        # uniform; retries are explicitly opt-in for a documented transient
+        # primitive and are never the default green-path mechanism.
         foreach ($id in $isolatedIds) {
             & $logFn "isolated scenario: $id"
             $entry = $script:UiaScenarioRegistry[$id]
-            if ($entry.Flaky) {
+            if ($entry.FailFast) {
                 try {
-                    $result = Invoke-UiaScenarioWithRetry -ScenarioId $id -Runner $entry.Runner -Exe $exe -RepoRoot $Options.RepoRoot -ArtifactsDir $ArtifactsDir -LogFn $logFn -Artifacts ([ref]$artifacts)
+                    $maxRetries = 0
+                    if ([string]$Options.UiaAllowTransientRetry -eq 'true') {
+                        $maxRetries = 2
+                        & $logFn "[$id] transient retry override enabled (maxRetries=$maxRetries)"
+                    }
+                    $result = Invoke-UiaScenarioWithRetry -ScenarioId $id -Runner $entry.Runner -Exe $exe -RepoRoot $Options.RepoRoot -ArtifactsDir $ArtifactsDir -LogFn $logFn -Artifacts ([ref]$artifacts) -MaxRetries $maxRetries
                 } catch {
                     [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
                     continue
@@ -3203,13 +3471,19 @@ function Invoke-UiAutomationValidationCapability {
             $ctx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId $id -LogFn $logFn
             if (-not $ctx -or -not $ctx.Main) {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail 'failed to start FastFiles UI process / find main window'))
+                if ($ctx) { Remove-UiaScenarioContext -Context $ctx -LogFn $logFn }
                 continue
             }
-            $result = & $entry.Runner $ctx $ArtifactsDir
-            $evName = $id
-            $artifacts += Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $ArtifactsDir -Name $evName
-            Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
-            [void]$subResults.Add($result)
+            try {
+                $result = & $entry.Runner $ctx $ArtifactsDir
+                $evName = $id
+                $artifacts += Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $ArtifactsDir -Name $evName
+                [void]$subResults.Add($result)
+            } catch {
+                [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
+            } finally {
+                try { Remove-UiaScenarioContext -Context $ctx -LogFn $logFn } catch { & $logFn "[$id] lifecycle teardown failed: $($_.Exception.Message)" }
+            }
         }
 
         # Scenario 3.12 - evidence collection.

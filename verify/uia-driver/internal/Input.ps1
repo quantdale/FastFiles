@@ -28,6 +28,9 @@ public static class FfNativeInput
     public static extern IntPtr GetCapture();
 
     [DllImport("user32.dll")]
+    public static extern uint GetDoubleClickTime();
+
+    [DllImport("user32.dll")]
     public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
     [StructLayout(LayoutKind.Sequential)]
@@ -352,4 +355,3 @@ function Send-UiaMouseDrag {
     }
     return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }
 }
-
