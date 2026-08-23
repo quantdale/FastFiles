@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <iterator>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -86,8 +87,7 @@ inline void PaintButton(HWND hwnd, HDC dc) {
 
     const int radius = (std::max)(1, static_cast<int>(UiScale(UiMetrics::kRadiusSmall) + 0.5f));
     UiGdiRoundedRect(dc, rect, fill, radius);
-    DrawOutline(dc, rect, checked ? ToColorRef(theme.accent) : ToColorRef(theme.border),
-                1, radius);
+    DrawOutline(dc, rect, checked ? ToColorRef(theme.accent) : ToColorRef(theme.border), 1, radius);
 
     // Selected storage mode gets a shape cue in addition to color so the
     // current mode remains obvious under reduced color discrimination.
@@ -194,6 +194,14 @@ public:
         }
         value_ = hwnd;
         if (value_ != nullptr) {
+            // Back/Up are push buttons; the first mode radio carries WS_GROUP.
+            // Make those three entry points Tab-reachable while preserving the
+            // native radio group's arrow-key traversal for the remaining modes.
+            LONG_PTR style = GetWindowLongPtrW(value_, GWL_STYLE);
+            const LONG_PTR buttonType = style & BS_TYPEMASK;
+            if (buttonType == BS_PUSHBUTTON || (style & WS_GROUP) != 0) {
+                SetWindowLongPtrW(value_, GWL_STYLE, style | WS_TABSTOP);
+            }
             SetWindowSubclass(value_, storage_chrome_detail::ButtonProc, 0xF572, 0);
         }
         return *this;
