@@ -13,6 +13,10 @@ Ingestion of scanned or streamed records into the durable store SHALL be perform
 - **WHEN** a reconciliation sweep or diagnostic read is in progress against the durable store on an independent SQLite connection
 - **THEN** an ingestion write transaction committing during that time SHALL NOT be blocked by, and SHALL NOT block, that concurrent read
 
+#### Scenario: An independent read session overlaps a write
+- **WHEN** a reconciliation sweep, indexed search, aggregate, or diagnostic read is active on an independent session
+- **THEN** an ingestion write transaction committing during that time SHALL NOT be blocked by, and SHALL NOT block, that read
+
 #### Scenario: A held reader keeps a coherent pre-commit snapshot
 - **WHEN** a read statement has begun on one connection and remains active while the authoritative writer commits a batch on another connection to the same WAL database
 - **THEN** the already-started read SHALL complete against one coherent pre-commit snapshot and SHALL NOT observe a torn mixture of pre- and post-commit rows

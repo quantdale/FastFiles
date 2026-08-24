@@ -19,11 +19,26 @@
 - **WHEN** a UI client or engine-internal consumer needs an entry's full path (e.g., for display or to open the file)
 - **THEN** the engine SHALL reconstruct it by walking parent references and concatenating interned names on demand, rather than reading a precomputed path field
 
+#### Scenario: Search does not reload a cold volume
+- **Given** a volume whose projection residency has been evicted
+- **When** an indexed search or aggregate reads that volume
+- **Then** durable rows answer the request without reconstructing the complete volume in RAM
+
+#### Scenario: Diagnostics report bounded read policy
+- **Given** any projection and read-plane state
+- **When** diagnostics are requested
+- **THEN** they report projection memory, bounded chunk/reader configuration, active/peak durable readers, generation restarts, and query failures without exposing filenames or paths
+
 #### Scenario: Forced eviction keeps the memory ceiling
 - **Given** a store with more entries than a deliberately small projection budget
 - **When** ingestion and queries run repeatedly against that budget
 - **Then** the projection's estimated memory never persistently exceeds the configured maximum
 - **And** the eviction count is bounded by the number of limit-enforcing mutations, not by query count
+
+#### Scenario: Forced eviction keeps both projection and query memory bounded
+- **Given** a store with more entries than a deliberately small projection budget
+- **When** ingestion and broad searches run repeatedly against that budget
+- **Then** the projection remains within its configured ceiling and transient search memory is limited to the configured chunk and bounded top-N results
 
 #### Scenario: Diagnostics report the memory policy
 - **Given** any projection state

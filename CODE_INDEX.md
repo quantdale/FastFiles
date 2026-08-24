@@ -113,7 +113,10 @@ Public headers in `src/indexstore/include/ffindexstore/`. Namespace
   `FindEntry` (durable point lookup by volume+FRN), volume-metadata CRUD
   (`GetOrCreateVolume`, `SetJournalPosition`, `SetScanCursor`,
   `ForgetVolume` …), `Checkpoint*` (passive + size-triggered forced),
-  `GetFolderAggregate` (recursive CTE subtree size/count). **Not internally
+  `GetFolderAggregate` (recursive CTE subtree size/count). `StoreReadSession`
+  is a move-only, query-only independent SQLite/WAL snapshot for cold search,
+  path reconstruction, and aggregates; it never migrates, writes,
+  checkpoints, or vacuums. **The writer `Store` is not internally
   synchronized beyond SQLite WAL.**
 - `Projection.h` — `class Projection` + `ProjectionEntry`: the RAM-resident,
   memory-bounded view rebuilt from `Store` at startup and kept incrementally
@@ -197,20 +200,27 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
 
 - `IndexPipeline` — owns `Store` + `Projection` and is the *single* point that
   enforces "commit to durable store BEFORE applying to projection" (design
-  D4). Internally synchronized (one mutex). `ApplyMftBatch`/`ApplyUsnBatch`,
+  D4). Mutation and lifecycle state remain serialized by one short-lived
+  mutex; `SearchIndexed` uses bounded hot chunks and generation validation
+  rather than holding that mutex through the query. `ApplyMftBatch`/`ApplyUsnBatch`,
   `RebuildAll`, reconciliation pass (`Begin`/`Finish`/`IsActive` — removes
   entries a full scan never observed), `ExportDirectorySnapshot` (complete)
   and `ExportDirectorySnapshotBounded` (top-of-tree working-set bound used at
   startup rebuild / scan-complete publication), `GetFolderAggregate`
-  (projection walk when resident; durable recursive CTE when evicted),
+  (projection walk when resident; independent durable read-session recursive
+  CTE when evicted),
   `RunStoreMaintenance` (WAL checkpointing), memory seams
   (`SetProjectionMemoryBudget`, `GetProjectionMemoryDiagnostics`,
   `IsVolumeEvicted`, `UnloadVolumeFromProjection`). `SearchIndexed` serves a
-  per-volume hot/cold partition: resident volumes enumerate from the
-  projection, evicted volumes stream durably via `Store::ForEachEntryUntil` —
-  search never reloads evicted volumes; the filename-trigram accelerator is
-  used only for all-hot searchable sets; a failed cold stream fails the query
-  closed.
+  per-volume hot/cold partition: resident volumes are copied in bounded
+  chunks, evicted volumes stream through a move-only query-only
+  `StoreReadSession` on an independent WAL connection, and matching/top-N
+  work runs outside the pipeline mutex. A monotonic generation gives each
+  query a snapshot/restart contract; search never reloads evicted volumes;
+  the filename-trigram accelerator is used only for all-hot searchable sets;
+  a failed cold stream fails the query closed. `ReadPlaneDiagnostics` exposes
+  bounded active/peak searches/readers, cancellations, failures, and
+  generation restarts.
 - `VolumeSessionManager` — the orchestrator: turns "connection Active" into
   real scan/journal/reconcile. Maps ephemeral `ffprotocol::VolumeId` → durable
   `VolumeRowId`, decides Start-vs-Resume-vs-Reconcile per volume (design D6),
@@ -228,7 +238,10 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
 - `UiServer` — same-privilege control-plane server for the UI. Handles
   Subscribe/RequestDirectory, republishes on watched-directory changes, pushes
   NewGeneration/EngineStatus, services unavailable-volume + folder-aggregate
-  requests. Retains indexed directories as a bounded recency-ordered working
+  requests. Indexed search workers use a bounded FIFO engine-global
+  coordinator (two active searches and eight queued by default), with
+  connection-scoped cancellation/supersession and shutdown draining. Retains
+  indexed directories as a bounded recency-ordered working
   set (`kDefaultMaxRetainedIndexedDirectories`, observation-epoch eviction,
   degraded entries immune; `GetSnapshotWorkingSetStats`). Owns a
   `DirectoryWatcher` + `SnapshotPublisher`.

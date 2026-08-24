@@ -487,3 +487,66 @@ The final historical artifact is [large-index-scalability-sql-no-count.json](lar
 At 2M, the eligible selective query still used one trigram candidate and the no-match query used zero; SQLite metadata timing was approximately `0.10 ms`, down from approximately `65–68 ms`. Broad search retained the existing 4,096-result cap and used 590,624 candidates. The result is now below the low-tens-of-milliseconds engineering target for eligible selective/no-match queries through 2M; no further SQL redesign is justified by this measurement.
 
 The benchmark process exited after writing the complete artifact when the external 120-second command deadline expired; post-run checks found no live benchmark process, no leftover disposable benchmark directories, and valid JSON with 4 datasets, 179 runs, and 28 summaries. Focused Store/engine tests passed before the benchmark. Full Debug/Analyze/CTest validation and the bounded product commit remain the next gate for this slice.
+
+## Phase 9 non-blocking read-plane evidence — 2026-08-24
+
+The benchmark now records `search_generation`, generation restarts, state-lock
+wait/maximum hold time, peak searches/readers, cumulative read-plane counters,
+and a deterministic contention probe. The probe uses a real cold query parked
+at the durable-stream boundary. While it is parked, the existing pipeline
+executes an MFT ingestion batch, a durable folder aggregate, a directory
+snapshot export, and a second indexed search; the first query is then
+cancelled and its reader is released. These are evidence fields, not brittle
+latency gates.
+
+The first Phase 9 run used the established 10K fixture on the same host and
+compared the current refactor with the immediately preceding Phase 8 binary:
+
+| 10K case | Phase 8 | Phase 9 | Interpretation |
+| --- | ---: | ---: | --- |
+| warm selective | 0.64 ms | 0.48 ms | same-harness reference; no fast-path regression observed |
+| cold broad | 806.99 ms | 742.34 ms | cold streaming remains expensive but is isolated from writers |
+
+The Phase 9 contention probe recorded: ingestion `2.07 ms`, aggregate
+`81.55 ms`, snapshot export `311.74 ms`, second query `365.62 ms`, all
+completed while the first search was held for `365.98 ms`; cancellation took
+`0.24 ms`. The probe reached the cold stream, reported two peak durable
+readers, ended with zero active readers, and published no partial result.
+The cumulative read-plane counters ended at two peak searches, 99 completed
+searches, one cancellation, zero unavailable searches, and zero reader
+failures. The 10K post-query private bytes were approximately 13.6 MiB, with
+99 handles and four process threads; the WAL measured 20,632 bytes at the
+post-query sample. The forced-eviction projection estimate remained
+`4,297,568 → 196,072` bytes.
+
+The harness still retains the 100K/500K/1M/2M default scales. A complete
+multi-scale Phase 9 rerun is evidence work rather than a CTest gate; the
+mandatory architectural result is already structural: a deterministic
+long-running cold read no longer holds the mutation/lifecycle critical
+section while ingestion, aggregate, snapshot, another search, and
+cancellation make progress.
+
+### Final rerun and regression investigation
+
+Two final 10K runs used the same temporary-database harness and machine. The
+earlier Phase 9 run remains the clean comparison point; the two final runs
+were collected while the host also had several high-CPU agent/VM processes, so
+their wall-clock values are recorded as noisy evidence rather than acceptance
+thresholds:
+
+| Case | Phase 9 reference | Final run A | Final run B |
+| --- | ---: | ---: | ---: |
+| warm selective median | 0.53 ms | 0.95 ms | 0.75 ms |
+| warm broad average | 183.42 ms | 232.69 ms | 229.99 ms |
+| cold selective | 124.78 ms | 150.43 ms | 190.56 ms |
+| cold broad | 742.34 ms | 981.03 ms | 996.03 ms |
+
+The stage counters show the variance is dominated by projection traversal and
+durable stream wall time, not an unbounded synchronization hold: the final
+warm-broad runs reported maximum state-lock holds of `17.12 ms` and
+`15.88 ms`, with zero generation restarts; the cold-broad runs reported
+`0.50 ms` and `0.56 ms` maximum state-lock holds. A process snapshot during
+the rerun confirmed substantial unrelated host CPU contention. No semantic or
+algorithmic regression was identified, and no brittle timing threshold was
+added. The structural contention probe, bounded memory/readers, and exact
+search assertions remain the Phase 9 acceptance evidence.
