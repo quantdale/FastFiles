@@ -1,0 +1,14 @@
+{
+  "id": "windows-active-path-resilience-validation",
+  "interfaceVersion": "1.0.0",
+  "tier": 1,
+  "displayName": "Windows Active-Path Runtime Resilience",
+  "description": "Runs the deterministic degraded-mode filesystem churn harness and samples the owned process for bounded lifecycle/resource behavior. The capability is intentionally headless; interactive UI rows remain explicit SKIPPED results when a desktop is not required.",
+  "entryModule": "ActivePathResilience.psm1",
+  "repairPosture": "repair-unsupported",
+  "entryPoints": {
+    "availability": "Test-ActivePathResilienceAvailability",
+    "run": "Invoke-ActivePathResilienceCapability",
+    "diagnostics": "Get-ActivePathResilienceDiagnostics"
+  }
+}

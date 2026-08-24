@@ -69,6 +69,7 @@
     "windows-build-validation",
     "windows-engine-service-validation",
     "windows-filesystem-validation",
+    "windows-active-path-resilience-validation",
     "windows-install-service-validation",
     "windows-ipc-validation",
     "windows-object-security-validation",
