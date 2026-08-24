@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-24 (Phase 8 — convergence continuation)
-Status: **Phase-8 implementation and audit are complete through `84b909e`; final validation/report generation and remote synchronization remain** on `phase8/indexed-scale-production-readiness-20260824`. The worktree is dirty from the audit/task/workstate evidence commit; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
-NEXT EXACT ACTION: commit the audit ledger and task evidence, run the final Debug/release-test/analyze/ASAN and strict gates, generate the clean final frontier report, then fetch/reconcile/push.
+Status: **Phase-8 implementation and audit are complete through `f5e7812`; final report/task closure and remote synchronization remain** on `phase8/indexed-scale-production-readiness-20260824`. The worktree is dirty from the final audit evidence update; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
+NEXT EXACT ACTION: commit FF-P8-007 evidence, mark only the locally evidenced report/validation tasks, generate the clean final frontier report, then fetch/reconcile/push.
 
 ## Phase-8 convergence checkpoint (2026-08-24)
 
@@ -17,6 +17,7 @@ NEXT EXACT ACTION: commit the audit ledger and task evidence, run the final Debu
 - Clean-tree `Test-ReleaseCandidate.ps1` passed: both unsigned candidates emitted checksums/provenance/release notes/dependency inventory, repeated archives had identical SHA-256, and the production candidate rejected missing detached-manifest signing. The CI/release tasks 3.1–3.4 are now checked with this evidence; the task-ledger update is the next commit.
 - Composed release readiness at clean `628a560` completed in 460.3 seconds: 35 PASS, 8 SKIPPED (expected unelevated/optional gates), 1 REQUIRED-BUT-UNAVAILABLE (disposable guest matrix), and 1 FAIL for the existing unsigned/stale production artifact report on a contaminated non-elevated host. It did not mutate the host or trust stores.
 - Audit ledger `codebase-audit/sessions/2026-08-24-phase8-convergence` records FF-P8-001..006. The report sanitizer was then hardened for slash-normalized absolute paths in `84b909e`; status/frontier tests pass again.
+- Final validation repeated Debug CTest **76/76 PASS**, release-test CTest **76/76 PASS**, Analyze build, ASAN protocol/IPC **2/2 PASS**, source/diagnostic policy, doctor, strict OpenSpec **61/61**, and diagnostic UIA `core` **PASS**. CTest JUnit evidence now drives the status report; stale `LastTestsFailed.log` no longer creates false FAILs. FF-P8-007 is recorded and fixed in `f5e7812`.
 
 ## Phase-8 checkpoint (memory-bounded-indexed-scale)
 
