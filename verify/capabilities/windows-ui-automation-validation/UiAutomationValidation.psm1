@@ -77,8 +77,11 @@ function Stop-UiaSessionProcesses {
 }
 
 function Start-UiaFastFiles {
-    param([string] $Exe)
+    param([string] $Exe, [hashtable] $Environment)
     if (-not (Test-Path -LiteralPath $Exe)) { return $null }
+    if ($Environment) {
+        return Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe -Parent) -Environment $Environment -PassThru
+    }
     return Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe -Parent) -PassThru
 }
 
@@ -602,7 +605,8 @@ function Test-UiaEngineConnected {
 }
 
 function Get-UiaDiagnosticsLogPath {
-    return (Join-Path $env:LOCALAPPDATA 'FastFiles\logs\diagnostics.log')
+    $root = if ($script:UiaActiveLocalAppData) { $script:UiaActiveLocalAppData } else { $env:LOCALAPPDATA }
+    return (Join-Path $root 'FastFiles\logs\diagnostics.log')
 }
 
 function Test-UiaEngineServingData {
@@ -832,31 +836,69 @@ function Position-UiaExplorerBesideFastFiles {
 }
 
 # stabilize-live-uia-e2e 2.3: an isolated scenario lifecycle. Kills stale
-# repo-owned processes, launches a fresh FastFiles, awaits the main window
-# and the engine-connected badge, and returns a context object. Teardown
-# closes session-owned Explorer windows, terminates the app, and removes the
-# fixture.
+# repo-owned processes, launches a fresh FastFiles with a private LOCALAPPDATA /
+# APPDATA tree, awaits the main window and the engine-connected signal, and
+# returns a context object. Teardown closes session-owned Explorer windows,
+# terminates the app, and removes only the marked session tree.
+function New-UiaSessionSandbox {
+    param([Parameter(Mandatory)] [string] $ScenarioId)
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    $safeId = $ScenarioId -replace '[^A-Za-z0-9-]', '-'
+    $sessionRoot = Join-Path $tempRoot ("FastFiles-Uia-$safeId-" + [guid]::NewGuid().ToString('N'))
+    $localAppData = Join-Path $sessionRoot 'LocalAppData'
+    $appData = Join-Path $sessionRoot 'AppData'
+    $fixtureRoot = Join-Path $sessionRoot 'Fixtures'
+    New-Item -ItemType Directory -Path $localAppData, $appData, $fixtureRoot -Force | Out-Null
+    $marker = Join-Path $sessionRoot '.fastfiles-uia-session'
+    Set-Content -LiteralPath $marker -Value 'FastFiles UIA disposable session' -Encoding utf8NoBOM
+    [pscustomobject]@{
+        SessionRoot = $sessionRoot
+        MarkerPath = $marker
+        FixtureRoot = $fixtureRoot
+        Environment = @{
+            LOCALAPPDATA = $localAppData
+            APPDATA = $appData
+            FASTFILES_UIA_FIXTURE_ROOT = $fixtureRoot
+        }
+    }
+}
+
+function Wait-UiaMainWindow {
+    param($Driver, [int] $ProcessId, [int] $TimeoutMs = 15000)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        $main = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+        if ($main) { return $main }
+        Start-Sleep -Milliseconds 250
+    }
+    return $null
+}
+
 function New-UiaScenarioContext {
     param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn)
     Stop-UiaSessionProcesses -RepoRoot $RepoRoot
-    $launched = Start-UiaFastFiles -Exe $Exe
-    if (-not $launched) { return $null }
+    $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId
+    $script:UiaActiveLocalAppData = Join-Path $sandbox.SessionRoot 'LocalAppData'
+    $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
+    if (-not $launched) {
+        Remove-Item -LiteralPath $sandbox.SessionRoot -Recurse -Force -ErrorAction SilentlyContinue
+        $script:UiaActiveLocalAppData = $null
+        return $null
+    }
     & $LogFn "[$ScenarioId] pid=$($launched.Id); waiting for main window"
-    Start-Sleep -Seconds 4
     $driver = New-UiaDriver -TimeoutMs 10000 -MaxTreeWidth 2000 -MaxTreeDepth 30
-    $main = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+    $main = Wait-UiaMainWindow -Driver $driver -ProcessId $launched.Id -TimeoutMs 15000
     if (-not $main) {
         # stabilize-live-uia-e2e: ONE bounded launch retry for the documented
         # transient where the previous lifecycle's processes are still being
         # reaped and the new UI does not surface within the 4s window. The
         # retry is reported in the run log, never silent.
         Stop-UiaSessionProcesses -RepoRoot $RepoRoot
-        $launched = Start-UiaFastFiles -Exe $Exe
+        $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
         if ($launched) {
             & $LogFn "[$ScenarioId] launch retry pid=$($launched.Id)"
-            Start-Sleep -Seconds 4
             $driver = New-UiaDriver -TimeoutMs 10000 -MaxTreeWidth 2000 -MaxTreeDepth 30
-            $main = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+            $main = Wait-UiaMainWindow -Driver $driver -ProcessId $launched.Id -TimeoutMs 15000
         }
     }
     Reset-UiaEngineDataMemo
@@ -880,6 +922,8 @@ function New-UiaScenarioContext {
         ScenarioId = $ScenarioId; Exe = $Exe; RepoRoot = $RepoRoot
         Driver = $driver; Main = $main; Launched = $launched
         Ready = $ready; ReadyReason = $readyReason
+        SessionRoot = $sandbox.SessionRoot; SessionMarker = $sandbox.MarkerPath
+        FixtureRoot = $sandbox.FixtureRoot; Environment = $sandbox.Environment
         ExplorerWindows = [System.Collections.ArrayList]::new()
         Fixtures = [System.Collections.ArrayList]::new()
     }
@@ -914,6 +958,13 @@ function Remove-UiaScenarioContext {
     }
     # Remove the parked engine too so the next isolated lifecycle is fresh.
     Stop-UiaSessionProcesses -RepoRoot $Context.RepoRoot
+    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    $sessionRoot = if ($Context.SessionRoot) { [IO.Path]::GetFullPath($Context.SessionRoot).TrimEnd('\') } else { $null }
+    if ($sessionRoot -and $sessionRoot.StartsWith($tempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
+        (Test-Path -LiteralPath $Context.SessionMarker -PathType Leaf)) {
+        Remove-Item -LiteralPath $sessionRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $script:UiaActiveLocalAppData = $null
     & $LogFn "[$($Context.ScenarioId)] lifecycle teardown complete"
 }
 
@@ -970,7 +1021,7 @@ function Invoke-UiaScenarioSearchDeep {
         return New-UiaVSubResult -Id 'search-deep-result-navigation' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); deep search needs engine-served data"
     }
 
-    $scratch = Join-Path $env:USERPROFILE ('ffui-e2e-' + (Get-Random))
+    $scratch = Join-Path $Context.FixtureRoot ('ffui-e2e-' + (Get-Random))
     $folder = Join-Path $scratch 'SubFolder'
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $folder 'alpha.txt') -Value 'alpha' -Encoding utf8
@@ -1281,7 +1332,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
     # Fixture: distinct names and deliberately different LOGICAL sizes, chosen so
     # alphabetical order differs from logical-size order. In degraded mode every
     # file's allocated/on-disk size is legitimately UNKNOWN.
-    $scratch = Join-Path $env:USERPROFILE ('ffui-alloc-' + (Get-Random))
+    $scratch = Join-Path $Context.FixtureRoot ('ffui-alloc-' + (Get-Random))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
     $files = @(
         @{ name = 'allocA.txt'; size = 5000 },
@@ -1495,7 +1546,7 @@ function Invoke-UiaScenarioTreemapReadability {
     }
 
     # --- fixture: known sizes for proportionality + many tiny files + subfolders ---
-    $scratch = Join-Path $env:USERPROFILE ('ffui-e2e-treemap-' + (Get-Random))
+    $scratch = Join-Path $Context.FixtureRoot ('ffui-e2e-treemap-' + (Get-Random))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
     $subA = Join-Path $scratch 'FolderA'
     $subB = Join-Path $scratch 'FolderB'
@@ -1753,7 +1804,7 @@ function Invoke-UiaScenarioDragOut {
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
     }
-    $dragScratch = Join-Path $env:USERPROFILE ('ffui-drag-' + (Get-Random))
+    $dragScratch = Join-Path $Context.FixtureRoot ('ffui-drag-' + (Get-Random))
     $dragSource = Join-Path $dragScratch 'source'
     $dragTarget = Join-Path $dragScratch 'target'
     New-Item -ItemType Directory -Path $dragSource -Force | Out-Null
@@ -1954,7 +2005,7 @@ function Invoke-UiaScenarioDragIn {
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
     }
-    $dragScratch = Join-Path $env:USERPROFILE ('ffui-drag-' + (Get-Random))
+    $dragScratch = Join-Path $Context.FixtureRoot ('ffui-drag-' + (Get-Random))
     $dragSource = Join-Path $dragScratch 'source'
     $dragTarget = Join-Path $dragScratch 'target'
     New-Item -ItemType Directory -Path $dragSource -Force | Out-Null
@@ -2084,7 +2135,7 @@ function Invoke-UiaScenarioDragPanes {
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-between-panes' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
     }
-    $dragScratch = Join-Path $env:USERPROFILE ('ffui-drag-' + (Get-Random))
+    $dragScratch = Join-Path $Context.FixtureRoot ('ffui-drag-' + (Get-Random))
     $left = Join-Path $dragScratch 'left'
     $right = Join-Path $dragScratch 'right'
     New-Item -ItemType Directory -Path $left -Force | Out-Null
@@ -2239,7 +2290,7 @@ function Invoke-UiaScenarioErrorStateLate {
     $main = $Context.Main
     $appPid = $Context.Launched.Id
     $leaf = 'ffui-error-' + (Get-Random)
-    $missing = Join-Path $env:USERPROFILE $leaf
+    $missing = Join-Path $Context.FixtureRoot $leaf
     $fail = { param($detail) New-UiaVSubResult -Id 'in-column-error-state-late' -Status 'FAIL' -Reason 'error-state-not-observed' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     # --- fixture: disposable directory with a sentinel file ---
     New-Item -ItemType Directory -Path $missing -Force | Out-Null
@@ -2474,7 +2525,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     # accidental synthetic double-click cannot launch a user's text editor and
     # steal the foreground from the scenario. No privileged index/service is
     # needed: navigation to a normal folder works in degraded mode. ---
-    $scratch = Join-Path $env:USERPROFILE ('ffui-sel-' + (Get-Random))
+    $scratch = Join-Path $Context.FixtureRoot ('ffui-sel-' + (Get-Random))
     New-Item -ItemType Directory -Path $scratch -Force | Out-Null
     $selectionExtension = '.ffsel'
     foreach ($n in @('selA', 'selB', 'selC', 'selD', 'selE', 'selF')) {
@@ -3087,9 +3138,9 @@ function Invoke-UiaSharedSessionScenarios {
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'in-column-error-state' -Status $earlyErrorStatus -Reason $earlyErrorReason -DurationMs 0 -Detail $earlyErrorDetail))
 
     # Scenario 3.2 - keyboard address-bar navigation into a scratch folder.
-    # fix-initial-snapshot-handshake: the fixture lives directly under the
-    # user profile, NOT under %TEMP% (the driver's tree walk is bounded).
-    $scratch = Join-Path $env:USERPROFILE ('ffui-e2e-' + (Get-Random))
+    # The fixture lives under the marked per-session sandbox, isolated from the
+    # real user profile and inherited by the child UI/engine only as a test path.
+    $scratch = Join-Path $Context.FixtureRoot ('ffui-e2e-' + (Get-Random))
     $folder = Join-Path $scratch 'SubFolder'
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $folder 'sample.txt') -Value 'hello' -Encoding utf8
@@ -3117,13 +3168,19 @@ function Invoke-UiaSharedSessionScenarios {
         if (-not $pane) { throw 'Pane.0 not found' }
         $columns = @(Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $pane -TimeoutMs 3000 -All)
         if ($columns.Count -eq 0) { throw 'no column elements found' }
-        if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
-            $itemStatus = 'SKIPPED'
-            $itemReason = 'engine-connect-unavailable'
-            $itemDetail = "column structure discoverable ($($columns.Count) columns); item data requires the engine (unavailable in this environment)"
+        # Wait for the actual fixture row, not merely a cached "engine served"
+        # observation. This closes the startup race where degraded enumeration
+        # publishes its first snapshot after the column structure appears.
+        $subItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'SubFolder' -PaneId 'Pane.0' -TimeoutMs 20000
+        if (-not $subItem) {
+            if (-not $Context.Ready) {
+                $itemStatus = 'SKIPPED'
+                $itemReason = 'engine-connect-unavailable'
+                $itemDetail = "column structure discoverable ($($columns.Count) columns); engine handshake was not observed"
+            } else {
+                throw 'SubFolder item not found after degraded snapshot readiness'
+            }
         } else {
-            $subItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'SubFolder' -PaneId 'Pane.0' -TimeoutMs 15000
-            if (-not $subItem) { throw 'SubFolder item not found' }
             $identity = Get-UiaElementIdentity -Driver $driver -Element $subItem
             if ($identity.Name -ne 'SubFolder' -or $identity.ControlType -ne 'ListItem') {
                 throw "item identity unexpected: $($identity.Name) [$($identity.ControlType)]"
@@ -3155,36 +3212,72 @@ function Invoke-UiaSharedSessionScenarios {
         $pane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
         $columns = @(Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $pane -TimeoutMs 3000 -All)
         if ($columns.Count -eq 0) { throw 'no column elements found' }
-        $column = $columns[$columns.Count - 1]
         $hasScroll = Test-UiaElementPattern -Driver $driver -Element $pane -Pattern 'Scroll'
-        $hasSelection = Test-UiaElementPattern -Driver $driver -Element $column -Pattern 'Selection'
+        $hasSelection = $false
+        foreach ($candidate in $columns) {
+            if (Test-UiaElementPattern -Driver $driver -Element $candidate -Pattern 'Selection') {
+                $hasSelection = $true
+                break
+            }
+        }
         $patternDetail = "pane Scroll=$hasScroll column Selection=$hasSelection"
         if (-not ($hasScroll -and $hasSelection)) { throw "pattern surface missing: $patternDetail" }
-        if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
-            $selStatus = 'SKIPPED'
-            $selReason = 'engine-connect-unavailable'
-            $selDetail = "$patternDetail; data-dependent selection assertions require engine-served directory data (unavailable in this environment)"
+        # Re-acquire the terminal column while waiting for the navigation
+        # snapshot. The column list returned immediately after Enter can still
+        # describe the previous location (a stale provider may expose a real
+        # Temp column for the full timeout). Find-UiaTerminalColumnItem polls
+        # the live pane and validates the requested fixture rows instead of
+        # trusting an index from that transitional tree.
+        $alpha = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 12000
+        $beta = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'beta.txt' -PaneId 'Pane.0' -TimeoutMs 12000
+        if (-not ($alpha -and $beta)) {
+            if (-not $Context.Ready) {
+                $selStatus = 'SKIPPED'
+                $selReason = 'engine-connect-unavailable'
+                $selDetail = "$patternDetail; engine handshake was not observed"
+            } else {
+                throw "scratch items missing after degraded snapshot readiness: $patternDetail"
+            }
         } else {
+            $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+            $columns = @(
+                Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                    (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List'
+                }
+            )
+            if ($columns.Count -eq 0) { throw 'no live terminal column after fixture rows appeared' }
+            $column = $columns[$columns.Count - 1]
             $alpha = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $column -TimeoutMs 4000
             $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
-            if (-not ($alpha -and $beta)) { throw "scratch items missing: $patternDetail" }
+            if (-not ($alpha -and $beta)) { throw "fixture rows moved before selection surface was reacquired: $patternDetail" }
             # fix-initial-snapshot-handshake: after deep navigation the
             # target column can sit beyond the pane's right edge, so item
             # clicks at the reported center miss the window. Scroll the
             # column chain fully into view before any pointer interaction.
             $null = Invoke-UiaPattern -Driver $driver -Element $pane -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double]100, [double]-1)
-            Start-Sleep -Milliseconds 800
+            $alpha = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 4000
+            $beta = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'beta.txt' -PaneId 'Pane.0' -TimeoutMs 4000
+            if (-not ($alpha -and $beta)) { throw "scratch items missing after scroll: $patternDetail" }
+            $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+            $columns = @(
+                Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                    (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List'
+                }
+            )
+            if ($columns.Count -eq 0) { throw 'no live terminal column after scroll' }
+            $column = $columns[$columns.Count - 1]
             $alpha = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $column -TimeoutMs 4000
             $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
-            if (-not ($alpha -and $beta)) { throw "scratch items missing after scroll: $patternDetail" }
+            if (-not ($alpha -and $beta)) { throw "fixture rows moved after scroll: $patternDetail" }
             $null = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'Select'
-            Start-Sleep -Milliseconds 400
-            $isSel = Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'GetSelection'
+            $isSel = Wait-UiaCondition -Driver $driver -TimeoutMs 4000 -PollIntervalMs 200 -Description 'alpha selection' -ScriptBlock {
+                try { return [bool](Invoke-UiaPattern -Driver $driver -Element $alpha -PatternName 'SelectionItem' -Method 'GetSelection') } catch { return $false }
+            }
             # Re-resolve beta AFTER selecting alpha: Select can scroll the newly
             # selected item into view and shift sibling rows, so any rectangle
             # captured earlier is stale and the Ctrl+click lands on the wrong
             # row (observed as multi-select count=1).
-            $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
+            $beta = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'beta.txt' -PaneId 'Pane.0' -TimeoutMs 4000
             if (-not $beta) { throw "scratch items missing after select: $patternDetail" }
             # Multi-select: Ctrl+click beta via modifier-aware pointer input,
             # with one bounded re-click retry against freshly read geometry.
@@ -3192,13 +3285,17 @@ function Invoke-UiaSharedSessionScenarios {
             for ($selAttempt = 0; $selAttempt -lt 2 -and -not $multiSelectOk; $selAttempt++) {
                 $betaCenter = Get-UiaElementCenter -Driver $driver -Element $beta
                 $null = Send-UiaMouseInput -Driver $driver -X $betaCenter.x -Y $betaCenter.y -Button 'Left' -Action 'Click' -Modifier 'Ctrl'
-                Start-Sleep -Milliseconds 600
-                $selItems = @(Invoke-UiaPattern -Driver $driver -Element $column -PatternName 'Selection' -Method 'GetSelection')
-                if ($selItems.Count -eq 2) { $multiSelectOk = $true }
+                $multiSelectOk = Wait-UiaCondition -Driver $driver -TimeoutMs 3000 -PollIntervalMs 200 -Description 'two selected fixture rows' -ScriptBlock {
+                    try {
+                        $selItems = @(Invoke-UiaPattern -Driver $driver -Element $column -PatternName 'Selection' -Method 'GetSelection')
+                        return ($selItems.Count -eq 2)
+                    } catch { return $false }
+                }
+                if ($multiSelectOk) { $selItems = @(Invoke-UiaPattern -Driver $driver -Element $column -PatternName 'Selection' -Method 'GetSelection') }
                 elseif ($selAttempt -eq 0) {
                     # Geometry may have shifted under the first click; re-read the
                     # element before retrying so the retry is not a blind repeat.
-                    $beta = Find-UiaElement -Driver $driver -Name 'beta.txt' -FromElement $column -TimeoutMs 4000
+                    $beta = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'beta.txt' -PaneId 'Pane.0' -TimeoutMs 4000
                     if (-not $beta) { break }
                 }
             }

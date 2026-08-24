@@ -281,6 +281,18 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 - `TreemapView` — treemap visualization rendering.
 - `Util` — shared UI utility functions.
 
+## Verification and release-readiness infrastructure
+
+- `verify/core/ProjectStatus.psm1` — derives sanitized Git, CTest, capability,
+  OpenSpec, release, and frontier evidence; `verify/status/Get-ProjectStatus.ps1`
+  writes the JSON source and Markdown projection used by `verify.ps1 status`.
+- `verify/core/Providers.psm1` — versioned provider descriptor validation,
+  reason-coded preflight, lifecycle dispatch, and cleanup-guaranteed contract
+  orchestration. `verify/providers/hyperv/` is a real-provider adapter that stays
+  unavailable until a lawful Windows image and host capability are supplied.
+- `verify/providers/tests/Test-ProviderContract.ps1` — fake-provider lifecycle
+  contract tests; it proves orchestration semantics only and is not guest evidence.
+
 ## `FastFilesSetup` (installer) & `fftest` (probe)
 
 - `src/installer/src/` — `Main.cpp`, `InstallSteps.cpp` (drives `ffsetup`),
@@ -313,7 +325,8 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 Plain C++ executables registered with CTest (`Check(condition, description)`
 helper, non-zero exit on failure — no gtest/catch). Test dirs mirror
 components under `tests/`: `{protocol, ipc, indexstore, search, indexsvc,
-engine, navigation, commands, fileoperations, preview, ui, uia-driver}`.
+engine, navigation, commands, fileoperations, preview, ui, uia-driver, status,
+providers}`.
 Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 
 | Test target (`-R` matches this) | Source |
@@ -332,8 +345,10 @@ Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 | `ffpreview_tests` | `tests/preview/test_preview.cpp` |
 | `fftreemap_layout_tests`, `ffui_style_tests` | `tests/ui/test_treemap_layout.cpp`, `test_ui_style.cpp` |
 | `ffuia_driver_ps_tests`, `ffintake_gate_ps_tests` | PowerShell; registered in `tests/uia-driver/CMakeLists.txt` → `verify/uia-driver/tests/*.ps1` |
+| `ffproject_status_ps_tests` | PowerShell; `verify/status/tests/Test-ProjectStatus.ps1` |
+| `ffprovider_contract_ps_tests` | PowerShell fake-provider lifecycle contract; `verify/providers/tests/Test-ProviderContract.ps1` |
 
-The two PowerShell tests are registered only when `find_program(pwsh)` finds
+The PowerShell tests are registered only when `find_program(pwsh)` finds
 `pwsh`, so the total test count varies by environment.
 
 Notable test pattern: `ffengine_*`, `fffileoperations_*`, `ffnavigation_tests`,

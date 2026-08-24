@@ -108,3 +108,87 @@ jobs:
             Write-Output "::error title=CTest failure::$detail"
             exit $ctestExit
           }
+
+  hygiene:
+    name: repository-hygiene-and-contracts
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Source and diagnostic policy
+        shell: pwsh
+        run: |
+          ./verify/check_source_markers.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/check_diagnostic_policy.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: OpenSpec strict validation
+        shell: pwsh
+        run: npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive
+
+      - name: Status and provider contract tests
+        shell: pwsh
+        run: |
+          $statusRoot = Join-Path $env:GITHUB_WORKSPACE 'ci-status'
+          ./verify/status/Get-ProjectStatus.ps1 -SkipCtest -OutputDirectory $statusRoot -Format human
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/status/New-ReleaseReadinessReport.ps1 -SkipCtest -OutputDirectory $statusRoot -Format human
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/status/tests/Test-ProjectStatus.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/providers/tests/Test-ProviderContract.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload sanitized status evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-status-${{ github.run_id }}
+          path: ci-status/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release-qualification:
+    name: unsigned-release-candidate-qualification
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure and build release-test
+        shell: pwsh
+        run: |
+          Import-Module ./verify/core/Toolchain.psm1 -Force
+          $toolchain = Find-VSToolchain
+          if (-not $toolchain) { throw 'A VC-capable Visual Studio installation plus CMake/Ninja/CTest from PATH or a discovered installation was not found.' }
+          Enter-DevEnvironment -Toolchain $toolchain -Arch x64
+          & $toolchain.CMakeExe --preset release-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $toolchain.CMakeExe --build --preset release-test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Exercise unsigned candidate packaging, checksums, and provenance
+        shell: pwsh
+        run: |
+          Import-Module ./verify/core/Toolchain.psm1 -Force
+          $toolchain = Find-VSToolchain
+          if (-not $toolchain) { throw 'Toolchain discovery failed after release-test build.' }
+          Enter-DevEnvironment -Toolchain $toolchain -Arch x64
+          ./verify/release/tests/Test-ReleaseCandidate.ps1 -RepoRoot $env:GITHUB_WORKSPACE -BuildRoot (Join-Path $env:GITHUB_WORKSPACE 'build\release-test')
+
+      - name: Upload safe release test summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-qualification-${{ github.run_id }}
+          path: |
+            out/release-candidate/**/candidate-manifest.json
+            out/release-candidate/**/provenance.json
+          if-no-files-found: ignore
+          retention-days: 14

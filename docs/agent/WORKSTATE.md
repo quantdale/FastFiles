@@ -1,8 +1,19 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-24 (Phase 8 — memory-bounded indexed scale)
-Status: **Phase-8 campaign implemented on `phase8/indexed-scale-production-readiness-20260824`** (based on `overnight/release-closure-20260823` = pushed remote tip; `git fetch` unavailable offline this session).
-NEXT EXACT ACTION: push the phase-8 branch and open its PR once GitHub is reachable; close PR #6 as superseded (disposition in `docs/pr6-stabilization-reconciliation.md`).
+Last updated: 2026-08-24 (Phase 8 — convergence continuation)
+Status: **Phase-8 status/frontier and provider-contract implementation is committed in `cf54366`; UIA/CI/documentation convergence remains in progress on `phase8/indexed-scale-production-readiness-20260824`**. The worktree is dirty from the remaining session-owned wave; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
+NEXT EXACT ACTION: commit the UIA/CI/documentation wave, run the clean-tree unsigned release-candidate and composed readiness gates, then create the audit ledger and final evidence commit before fetch/reconcile/push.
+
+## Phase-8 convergence checkpoint (2026-08-24)
+
+- Revalidated the existing `memory-bounded-indexed-scale` implementation against its task ledger and focused executables; all 25 tasks are now checked with evidence. Strict OpenSpec validation currently passes **61/61** items.
+- Added new OpenSpec change `phase8-release-readiness-convergence` for machine-generated status/frontier evidence, provider preflight/lifecycle contracts, release/CI qualification, and the audit ledger. Its planning artifacts validate strictly; external guest/signing/clean-host/interactive tasks remain intentionally open.
+- Added `verify/core/ProjectStatus.psm1`, `verify/status/Get-ProjectStatus.ps1`, schema/tests, and `New-ReleaseReadinessReport.ps1`. `progress.md` is now a stable entry point; dynamic counts are generated rather than hand-maintained. Status tests pass and generated status validates against schema.
+- Provider contract now requires reason-coded `preflight`; `Invoke-EnvironmentProviderContract` guarantees lifecycle ordering and cleanup. Hyper-V accepts a runtime-supplied source path without committed machine paths, emits stable unavailability codes, generates a plan-only bootstrap description, and never claims guest execution. Fake provider contract tests pass across success, lifecycle failures, cancellation/resume, malformed/unsupported descriptors, dependency absence, and repeated cleanup.
+- Debug was reconfigured/built successfully and full CTest is **76/76 PASS**, including `ffproject_status_ps_tests` and `ffprovider_contract_ps_tests`; doctor found the VS/CMake/Ninja/CTest toolchain and confirmed Hyper-V/Sandbox unavailable. Release-test/analyze/ASAN gates remain next.
+- CI now has separate hygiene/OpenSpec/status/provider and unsigned release-candidate qualification jobs; no signer material or unsafe interactive artifacts are uploaded.
+- The diagnostic UIA build now uses a marked per-session LocalAppData/AppData/fixture sandbox and semantic main-window/fixture-row waits. A direct diagnostic `core` run passed all selected scenarios with only genuine privileged-service subchecks skipped; the former selection failure was a stale terminal-column provider after navigation and is fixed by live-column reacquisition.
+- `verify/core/Schema.psm1` now accepts ISO timestamp values materialized as `DateTime` by `ConvertFrom-Json`; the frontier schema round-trip test caught and covers this harness defect. First convergence commit: `cf54366` (`phase8: add status and provider readiness contracts`).
 
 ## Phase-8 checkpoint (memory-bounded-indexed-scale)
 

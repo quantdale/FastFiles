@@ -28,6 +28,7 @@ Fixed, non-interactive verb set:
 | `doctor` | Probe environment readiness; never provisions anything | no |
 | `release-readiness` | Compose build/test/policy/runtime evidence with Release artifact, signature, pin, and privileged-path prerequisites | report/compose: no; privileged or `-IncludePrivileged`: explicit elevation only |
 | `release-candidate` | Build and package a labelled unsigned-validation candidate, or validate an externally signed production candidate with checksums/provenance | no; writes ignored `out/` artifacts |
+| `status` | Generate the machine-readable project/frontier JSON and sanitized Markdown projection | Git plus any available CTest/capability/release evidence; unavailable evidence remains classified |
 
 Exit codes: `0` PASS, `1` FAIL, `2` SKIPPED, `3` HARNESS ERROR, `10` NOT-YET-IMPLEMENTED
 (reserved; no verb currently scaffolds).
@@ -52,8 +53,9 @@ lifecycle. The harness never runs elevated by default:
 
 ### Teardown / clean-host guarantee
 
-The active Environment Provider owns lifecycle: `provision → activate → collectLogs →
-cleanup` (+ `snapshotRestore` where declared). The local provider's cleanup is
+The active Environment Provider owns lifecycle: `preflight → provision → activate →
+collectLogs → cleanup` (+ `snapshotRestore` where declared). Preflight returns stable
+reason codes and an unavailable provider never falls back to the local host. The local provider's cleanup is
 **mandatory and idempotent**: it runs even when a capability or provider phase failed, and
 a failed teardown is itself a harness error. Every cleanup result is persisted to
 `<run>/provider-cleanup.json` so a partially-degraded host is a documented, inspectable
@@ -73,9 +75,9 @@ weakens, or bypasses product hardening to make a check pass.** Evidence of a rea
 explanatory diagnostics; masking it is a regression of the harness itself.
 
 Environment Provider selection: `-Provider` defaults to `local` (current machine; Tier-0
-in-session, Tier-1 via on-demand elevation). Disposable/isolated adapters (Hyper-V,
-VMware, VirtualBox, Windows Sandbox, CI runners) are declared behind the same versioned
-interface (tasks 2.3/2.4) and are the recommended context for destructive validation;
+in-session, Tier-1 via on-demand elevation). Disposable/isolated adapters (Hyper-V and
+future providers) are declared behind the same versioned interface and are the
+recommended context for destructive validation;
 the local provider must always remain safe to run on a developer machine.
 
 ## Adding a capability (task 11.3)
@@ -140,6 +142,7 @@ pwsh ./verify/verify.ps1 release-readiness -Mode compose -IncludeInteractive -Fo
 pwsh ./verify/verify.ps1 release-readiness -Mode compose -IncludePrivileged -Elevate -Format json
 pwsh ./verify/verify.ps1 release-readiness -Mode privileged -Elevate
 pwsh ./verify/verify.ps1 release-candidate -ReleaseMode unsigned-validation
+pwsh ./verify/status/New-ReleaseReadinessReport.ps1 -SkipCtest
 ```
 
 `release-readiness -Mode report` retains the artifact-only schema and returns `2`
@@ -154,12 +157,29 @@ per-gate logs and preserves the child verifier run trees. Its final verdict is
 the latter two states. `-Mode report` is read-only; `-Mode privileged` delegates to
 `verify/release/privileged-release.ps1` and refuses to install over a contaminated
 host. The signing wrapper accepts only explicitly supplied external certificate-store
-`verify/release/privileged-release.ps1` and refuses to install over a contaminated
-host. The signing wrapper accepts only explicitly supplied external certificate-store
 or PFX configuration, rejects self-signed development certificates, and never writes
 pins or private material into the repository. Every release kit must also contain
 `FastFiles.package.manifest`, whose exact inventory, sizes, and SHA-256 hashes are
 checked before clean-host or privileged execution.
+
+`status` is the repository-state entry point. It writes `project-status.json` and
+`project-status.md` under `verify/status/generated/` by default (or an explicit
+`-OutputDirectory`) and derives the current Git state, CTest inventory, OpenSpec
+frontier, capability registry, and release-candidate classification at runtime.
+The generated report is the source for dynamic status; do not hand-maintain test
+counts in `progress.md`.
+
+`New-ReleaseReadinessReport.ps1` composes that status with an optional
+`release-readiness-composition.json` into the single sanitized
+`release-readiness-frontier.json` / Markdown pair. It records local evidence and
+separates environment, provider, production-signing, and clean-host/elevated blockers;
+it never promotes an unsigned or unavailable gate to production readiness.
+
+For a future authorized Hyper-V image, pass `-Provider hyperv -ProviderSource
+<absolute-existing-vhdx-or-template>` to the verifier or set
+`FASTFILES_HYPERV_IMAGE`; the provider preflight reports stable reason codes before
+any VM mutation. `bootstrapPlan` is plan-only and does not mount media, start a guest,
+or materialize credentials.
 
 The repository `VERSION` file is the single product-version source. CMake
 embeds it in VERSIONINFO resources and the generated installer header; release

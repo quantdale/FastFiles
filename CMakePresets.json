@@ -19,6 +19,15 @@
       }
     },
     {
+      "name": "debug-diagnostic",
+      "inherits": "debug",
+      "displayName": "Debug diagnostic (local UIA/degraded validation only)",
+      "description": "Debug-only diagnostic build that permits the existing unsigned discovery seam for disposable local UIA/degraded-mode validation; never a release artifact.",
+      "cacheVariables": {
+        "FASTFILES_DIAGNOSTIC_ALLOW_UNSIGNED": "ON"
+      }
+    },
+    {
       "name": "release",
       "inherits": "base",
       "displayName": "Release",
@@ -61,6 +70,7 @@
   ],
   "buildPresets": [
     { "name": "debug", "configurePreset": "debug" },
+    { "name": "debug-diagnostic", "configurePreset": "debug-diagnostic" },
     { "name": "release", "configurePreset": "release" },
     { "name": "release-test", "configurePreset": "release-test" },
     { "name": "analyze", "configurePreset": "analyze" },

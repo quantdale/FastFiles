@@ -55,6 +55,10 @@ can be tested with `ctest --preset release-test`. The `release` preset remains
 the production-signed configuration and requires authorized signing pins before
 it can configure.
 
+`debug-diagnostic` is an explicitly non-shipping Debug preset for disposable UIA/
+degraded-mode process validation. It enables only the existing diagnostic unsigned
+discovery seam; source policy rejects it for release and release-test builds.
+
 Fast single-test loop:
 
 ```powershell
@@ -68,7 +72,11 @@ There is **no `analyze` test preset** — `ctest --preset analyze` fails. Flags 
 
 ## Environment notes
 
-- Full host: 29 tests. `ffuia_driver_ps_tests`, `ffintake_gate_ps_tests`, and `ffdoc_drift_tests` are PowerShell tests registered only when `find_program` locates `pwsh` (`tests/uia-driver/CMakeLists.txt`, `tests/drift/CMakeLists.txt`), so the count varies by environment — 26–29 is not a regression. `tests/uia-driver/` and `tests/drift/` contain no C++ files; the former points at `verify/uia-driver/tests/*.ps1`, the latter at `tests/drift/check_doc_drift.ps1`.
+- Test totals are environment-derived and must not be hand-copied into this
+  document. Run `pwsh ./verify/verify.ps1 status` after configuring a build to
+  record the discovered CTest count; PowerShell-gated tests are registered only
+  when `find_program` locates `pwsh`. The current status generator also records
+  the exact build configuration and last available CTest evidence.
 - `ffindexstore_bench_projection_memory` is built but intentionally **not** registered with `add_test` — it reports a measurement, not pass/fail. Its RSS measurement reads `/proc/self/status`, so it reports nothing useful on Windows; do not rely on its output.
 
 ## Fuzz tests

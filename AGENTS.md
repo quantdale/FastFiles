@@ -57,7 +57,7 @@ ctest --test-dir build/debug -R ffprotocol_fuzz_tests --output-on-failure   # si
 cmake --preset analyze && cmake --build --preset analyze   # + MSVC /analyze
 ```
 
-Presets: `debug`, `release`, `release-test` (RelWithDebInfo unsigned test artifact), `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`), `asan` (Debug + ASan via `/fsanitize:address`). CTest presets exist for `debug`, `release`, and `release-test` only (no `analyze`/`asan` test preset). Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
+Presets: `debug`, `debug-diagnostic` (Debug-only disposable UIA/degraded validation seam), `release`, `release-test` (RelWithDebInfo unsigned test artifact), `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`), `asan` (Debug + ASan via `/fsanitize:address`). CTest presets exist for `debug`, `release`, and `release-test` only (no `debug-diagnostic`/`analyze`/`asan` test preset). Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
 Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus`; link `/DYNAMICBASE /NXCOMPAT /guard:cf`); **warnings are errors** — new code must be warning-clean. The vendored SQLite C amalgamation (`third_party/sqlite/`) keeps its own warning config (compiled as C for the SQLite target only) and must not trip FastFiles analysis; avoid incidental edits there.
 
@@ -123,7 +123,7 @@ privileged path.
 
 ## Runtime verification
 
-`verify/verify.ps1` is the autonomous verification harness entry point. Fixed non-interactive verbs: `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`. Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED. Tier-1 (install/service) verbs need `-Elevate` (opt-in UAC, one-time authorization). Generated `verify/runs/` and `verify/baselines/` are untracked (execution evidence, not source).
+`verify/verify.ps1` is the autonomous verification harness entry point. Fixed non-interactive verbs: `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`, `status`, `release-readiness`, and `release-candidate`. Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED. Tier-1 (install/service) verbs need `-Elevate` (opt-in UAC, one-time authorization). Generated `verify/runs/` and `verify/baselines/` are untracked (execution evidence, not source).
 
 ```powershell
 pwsh ./verify/verify.ps1 build     # windows-build-validation capability
