@@ -117,7 +117,7 @@ public:
     // available=true, no journal/scan state) if this is the first time
     // it's been seen. The returned VolumeRowId is stable for the life of
     // the row (see Identity.h).
-    std::optional<VolumeRowId> GetOrCreateVolume(const VolumeKey& key);
+    std::optional<VolumeRowId> GetOrCreateVolume(const VolumeKey& key, bool* outCreated = nullptr);
     std::optional<VolumeMetadata> GetVolumeMetadata(VolumeRowId volumeRowId);
     std::vector<VolumeMetadata> GetAllVolumes();
     // Indexed search needs volume identity/availability only; this avoids
@@ -125,7 +125,8 @@ public:
     std::vector<VolumeMetadata> GetAllVolumesWithoutEntryCounts();
 
     // tasks.md 7.2/7.3: mark availability without touching entries.
-    bool SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp);
+    bool SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp,
+                            bool* outVisibilityChanged = nullptr);
     // tasks.md 7.5/7.6: persisted journal identity/position, compared
     // against what the service reports on reconnect (design.md D6).
     bool SetJournalPosition(VolumeRowId volumeRowId, uint64_t journalId, uint64_t resumeUsn);

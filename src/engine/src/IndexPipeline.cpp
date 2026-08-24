@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "ffprotocol/Diagnostics.h"
+#include "ffsearch/Path.h"
 #include "VolumeIdentity.h"
 
 namespace ffengine {
@@ -192,6 +193,20 @@ ffsearch::Candidate MakeDurableCandidate(const ffindexstore::EntryRecord& record
     return candidate;
 }
 
+std::wstring CandidateCanonicalPath(const ffsearch::Candidate& candidate) {
+    if (candidate.folder.empty()) return candidate.name;
+    if (candidate.name.empty()) return candidate.folder;
+    if (candidate.folder.back() == L'\\') return candidate.folder + candidate.name;
+    return candidate.folder + L"\\" + candidate.name;
+}
+
+bool CandidateIncludedByRules(
+    const std::unordered_map<ffindexstore::VolumeRowId, ffprotocol::VolumeSetting>& rules,
+    const ffsearch::Candidate& candidate) {
+    const auto it = rules.find(static_cast<ffindexstore::VolumeRowId>(candidate.volumeId));
+    return it == rules.end() || ffprotocol::IsPathIncluded(it->second, CandidateCanonicalPath(candidate));
+}
+
 ffindexstore::EntryRecord ToEntryRecord(const ffprotocol::MftRecordV1& record) {
     ffindexstore::EntryRecord entry;
     entry.id = ffindexstore::FileId{record.fixed.fileReferenceNumber, 0};
@@ -308,6 +323,43 @@ private:
 
 } // namespace
 
+bool IndexPipeline::VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
+                                        const ffprotocol::VolumeSetting& right) {
+    if (left.key != right.key || left.enabled != right.enabled || left.rules.size() != right.rules.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < left.rules.size(); ++index) {
+        if (left.rules[index].path != right.rules[index].path ||
+            left.rules[index].include != right.rules[index].include) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void IndexPipeline::AdvanceQueryVisibleEpochLocked(const ffindexstore::VolumeRowId volumeId,
+                                                    const QueryMutationReason reason,
+                                                    const bool dependencySetChanged) {
+    const uint64_t nextEpoch = queryVisibleEpoch_.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (volumeId != 0) {
+        volumeDataEpochs_[volumeId] = nextEpoch;
+        if (reason == QueryMutationReason::VolumeConfiguration ||
+            reason == QueryMutationReason::VolumeVisibility ||
+            reason == QueryMutationReason::Forget) {
+            volumeConfigurationEpochs_[volumeId] = nextEpoch;
+        }
+    }
+    if (dependencySetChanged || reason == QueryMutationReason::Forget) {
+        dependencySetEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    }
+    queryVisibleInvalidations_.fetch_add(1, std::memory_order_relaxed);
+}
+
+void IndexPipeline::RecordMetadataOnlyUpdateLocked() {
+    metadataOnlyUpdates_.fetch_add(1, std::memory_order_relaxed);
+    metadataOnlyInvalidationsAvoided_.fetch_add(1, std::memory_order_relaxed);
+}
+
 bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     lifecycleEpoch_.fetch_add(1, std::memory_order_acq_rel);
     std::lock_guard<std::mutex> lock(mutex_);
@@ -316,7 +368,9 @@ bool IndexPipeline::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed
     if (!store_.Open(dbPathUtf8, outIntegrityFailed)) {
         return false;
     }
-    ++generation_;
+    volumeDataEpochs_.clear();
+    volumeConfigurationEpochs_.clear();
+    AdvanceQueryVisibleEpochLocked(0, QueryMutationReason::Lifecycle, true);
     return true;
 }
 
@@ -324,7 +378,9 @@ void IndexPipeline::Close() {
     lifecycleEpoch_.fetch_add(1, std::memory_order_acq_rel);
     std::lock_guard<std::mutex> lock(mutex_);
     store_.Close();
-    ++generation_;
+    volumeDataEpochs_.clear();
+    volumeConfigurationEpochs_.clear();
+    AdvanceQueryVisibleEpochLocked(0, QueryMutationReason::Lifecycle, true);
     recordsSinceAnalyze_ = 0;
     projectionMemoryWarningIssued_ = false;
 }
@@ -350,13 +406,22 @@ IndexPipeline::ReadPlaneDiagnostics IndexPipeline::GetReadPlaneDiagnostics() con
     result.unavailableSearches = unavailableSearches_.load(std::memory_order_relaxed);
     result.readerFailures = readerFailures_.load(std::memory_order_relaxed);
     result.generationRestarts = generationRestarts_.load(std::memory_order_relaxed);
+    result.queryVisibleEpoch = queryVisibleEpoch_.load(std::memory_order_acquire);
+    result.dependencySetEpoch = dependencySetEpoch_.load(std::memory_order_acquire);
+    result.queryVisibleInvalidations = queryVisibleInvalidations_.load(std::memory_order_relaxed);
+    result.metadataOnlyUpdates = metadataOnlyUpdates_.load(std::memory_order_relaxed);
+    result.metadataOnlyInvalidationsAvoided = metadataOnlyInvalidationsAvoided_.load(std::memory_order_relaxed);
+    result.durableFallbacks = durableFallbacks_.load(std::memory_order_relaxed);
+    result.successfulDurableFallbacks = successfulDurableFallbacks_.load(std::memory_order_relaxed);
+    result.failedDurableFallbacks = failedDurableFallbacks_.load(std::memory_order_relaxed);
+    result.durableFallbackRowsStreamed = durableFallbackRowsStreamed_.load(std::memory_order_relaxed);
     return result;
 }
 
 void IndexPipeline::SetBulkScanActive(const bool active) {
     std::lock_guard<std::mutex> lock(mutex_);
     projection_.SetBulkScanActive(active);
-    ++generation_;
+    RecordMetadataOnlyUpdateLocked();
 }
 
 void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHours,
@@ -372,6 +437,7 @@ void IndexPipeline::RunStoreMaintenance(bool userIdle, uint64_t vacuumIntervalHo
             std::chrono::system_clock::now().time_since_epoch()).count());
         store_.VacuumIfDue(true, nowEpochSeconds, vacuumIntervalHours, vacuumSizeGrowthPercent);
     }
+    RecordMetadataOnlyUpdateLocked();
 }
 
 void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
@@ -394,6 +460,7 @@ void IndexPipeline::MaybeAnalyzeAfterBulkInsertLocked(size_t recordCount) {
     if (store_.Analyze()) {
         recordsSinceAnalyze_ %= kAnalyzeRecordThreshold;
     }
+    RecordMetadataOnlyUpdateLocked();
 }
 
 void IndexPipeline::MaybeReportProjectionMemoryPressureLocked() {
@@ -438,7 +505,9 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
             volumeIds.push_back(meta.rowId);
         }
         MaybeReportProjectionMemoryPressureLocked();
-        ++generation_;
+        for (const auto volumeId : volumeIds) {
+            AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::Rebuild);
+        }
     }
     // Invoked outside the lock: a rebuild-completion callback typically
     // publishes a snapshot, which may itself call back into
@@ -452,8 +521,11 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
 
 ffindexstore::VolumeRowId IndexPipeline::ResolveVolume(const ffindexstore::VolumeKey& key) {
     std::lock_guard<std::mutex> lock(mutex_);
-    auto id = store_.GetOrCreateVolume(key);
-    if (id.has_value()) ++generation_;
+    bool created = false;
+    auto id = store_.GetOrCreateVolume(key, &created);
+    if (id.has_value() && created) {
+        AdvanceQueryVisibleEpochLocked(*id, QueryMutationReason::VolumeConfiguration, true);
+    }
     return id.value_or(0);
 }
 
@@ -469,8 +541,12 @@ std::vector<ffindexstore::VolumeMetadata> IndexPipeline::GetAllVolumes() {
 
 void IndexPipeline::SetVolumeRules(ffindexstore::VolumeRowId volumeId, const ffprotocol::VolumeSetting& setting) {
     std::lock_guard<std::mutex> lock(mutex_);
+    const auto previous = volumeRules_.find(volumeId);
+    if (previous != volumeRules_.end() && VolumeSettingsEqual(previous->second, setting)) {
+        return;
+    }
     volumeRules_[volumeId] = setting;
-    ++generation_;
+    AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::VolumeConfiguration, true);
 }
 
 bool IndexPipeline::IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ffindexstore::FileId frn) {
@@ -577,7 +653,9 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     // O(N) compaction storm once the bounded memory policy is reached.
     projection_.EnforceMemoryLimitNow();
     MaybeReportProjectionMemoryPressureLocked();
-    ++generation_;
+    if (!changes.empty()) {
+        AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
+    }
     return true;
 }
 
@@ -666,42 +744,51 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
     }
     projection_.EnforceMemoryLimitNow();
     MaybeReportProjectionMemoryPressureLocked();
-    ++generation_;
+    if (!changes.empty()) {
+        AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::EntryMutation);
+    }
     return true;
 }
 
 bool IndexPipeline::SetVolumeAvailable(ffindexstore::VolumeRowId id, bool available, uint64_t nowTimestamp) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const bool result = store_.SetVolumeAvailable(id, available, nowTimestamp);
-    if (result) ++generation_;
+    bool visibilityChanged = false;
+    const bool result = store_.SetVolumeAvailable(id, available, nowTimestamp, &visibilityChanged);
+    if (result) {
+        if (visibilityChanged) {
+            AdvanceQueryVisibleEpochLocked(id, QueryMutationReason::VolumeVisibility, true);
+        } else {
+            RecordMetadataOnlyUpdateLocked();
+        }
+    }
     return result;
 }
 
 bool IndexPipeline::SetScanCursor(ffindexstore::VolumeRowId id, const std::vector<uint8_t>& cursor) {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool result = store_.SetScanCursor(id, cursor);
-    if (result) ++generation_;
+    if (result) RecordMetadataOnlyUpdateLocked();
     return result;
 }
 
 bool IndexPipeline::MarkScanComplete(ffindexstore::VolumeRowId id) {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool result = store_.MarkScanComplete(id);
-    if (result) ++generation_;
+    if (result) RecordMetadataOnlyUpdateLocked();
     return result;
 }
 
 bool IndexPipeline::SetJournalPosition(ffindexstore::VolumeRowId id, uint64_t journalId, uint64_t resumeUsn) {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool result = store_.SetJournalPosition(id, journalId, resumeUsn);
-    if (result) ++generation_;
+    if (result) RecordMetadataOnlyUpdateLocked();
     return result;
 }
 
 bool IndexPipeline::SetLastReconciliationTime(ffindexstore::VolumeRowId id, uint64_t nowTimestamp) {
     std::lock_guard<std::mutex> lock(mutex_);
     const bool result = store_.SetLastReconciliationTime(id, nowTimestamp);
-    if (result) ++generation_;
+    if (result) RecordMetadataOnlyUpdateLocked();
     return result;
 }
 
@@ -716,14 +803,14 @@ bool IndexPipeline::ForgetVolume(ffindexstore::VolumeRowId id) {
     // durable rows are actually gone, so no stale entries keep being
     // exported/published for a forgotten volume.
     projection_.RemoveVolume(id);
-    ++generation_;
+    AdvanceQueryVisibleEpochLocked(id, QueryMutationReason::Forget, true);
     return true;
 }
 
 void IndexPipeline::BeginReconciliationPass(ffindexstore::VolumeRowId id) {
     std::lock_guard<std::mutex> lock(mutex_);
     reconciliationSeen_[id].clear();
-    ++generation_;
+    RecordMetadataOnlyUpdateLocked();
 }
 
 bool IndexPipeline::IsReconciliationPassActive(ffindexstore::VolumeRowId id) {
@@ -756,14 +843,20 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
         }
     }
 
+    bool searchableMutation = false;
     if (!removals.empty() && store_.ApplyBatch(id, removals)) {
         for (const auto& removal : removals) {
             projection_.Remove(id, removal.record.id);
         }
+        searchableMutation = true;
     }
 
     reconciliationSeen_.erase(it);
-    ++generation_;
+    if (searchableMutation) {
+        AdvanceQueryVisibleEpochLocked(id, QueryMutationReason::EntryMutation);
+    } else {
+        RecordMetadataOnlyUpdateLocked();
+    }
 }
 
 std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
@@ -892,8 +985,21 @@ std::optional<ffindexstore::Projection::FolderAggregate> IndexPipeline::GetFolde
 
 void IndexPipeline::SetProjectionMemoryBudget(const size_t maximumBytes) {
     std::lock_guard<std::mutex> lock(mutex_);
+    std::unordered_map<ffindexstore::VolumeRowId, bool> before;
+    for (const auto& metadata : store_.GetAllVolumesWithoutEntryCounts()) {
+        before.emplace(metadata.rowId, projection_.NeedsReload(metadata.rowId));
+    }
     projection_.SetMaximumMemoryBytes(maximumBytes);
-    ++generation_;
+    bool residencyChanged = false;
+    for (const auto& metadata : store_.GetAllVolumesWithoutEntryCounts()) {
+        const bool after = projection_.NeedsReload(metadata.rowId);
+        const auto beforeIt = before.find(metadata.rowId);
+        if (beforeIt == before.end() || beforeIt->second != after) {
+            residencyChanged = true;
+            AdvanceQueryVisibleEpochLocked(metadata.rowId, QueryMutationReason::ProjectionResidency);
+        }
+    }
+    if (!residencyChanged) RecordMetadataOnlyUpdateLocked();
 }
 
 ffindexstore::Projection::MemoryDiagnostics IndexPipeline::GetProjectionMemoryDiagnostics() const {
@@ -908,8 +1014,13 @@ bool IndexPipeline::IsVolumeEvicted(const ffindexstore::VolumeRowId volumeId) co
 
 void IndexPipeline::UnloadVolumeFromProjection(const ffindexstore::VolumeRowId volumeId) {
     std::lock_guard<std::mutex> lock(mutex_);
+    const bool wasEvicted = projection_.NeedsReload(volumeId);
     projection_.EvictVolume(volumeId);
-    ++generation_;
+    if (!wasEvicted && projection_.NeedsReload(volumeId)) {
+        AdvanceQueryVisibleEpochLocked(volumeId, QueryMutationReason::ProjectionResidency);
+    } else {
+        RecordMetadataOnlyUpdateLocked();
+    }
 }
 
 ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
@@ -971,8 +1082,14 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
     }
 
     struct SearchContext {
-        uint64_t generation = 0;
+        uint64_t queryVisibleEpoch = 0;
+        uint64_t dependencySetEpoch = 0;
+        bool allVolumes = false;
+        bool ruleFilterActive = false;
         std::unordered_map<ffindexstore::VolumeRowId, std::wstring> prefixes;
+        std::unordered_map<ffindexstore::VolumeRowId, ffprotocol::VolumeSetting> rules;
+        std::vector<SearchDependency> dependencies;
+        std::vector<ffindexstore::VolumeRowId> searchableVolumes;
         std::unordered_set<ffindexstore::VolumeRowId> coldVolumes;
         std::vector<ffindexstore::VolumeRowId> orderedCold;
         std::unique_ptr<ffindexstore::StoreReadSession> reader;
@@ -980,7 +1097,6 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         std::optional<std::vector<uint32_t>> filenameCandidates;
         std::function<void(SearchPhase)> phaseHook;
     };
-
     ffsearch::SearchResponse search;
     ffsearch::SearchDiagnostics searchDiagnostics;
     size_t generationRestarts = 0;
@@ -1001,77 +1117,106 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
     bool searchedColdVolumes = false;
     bool unavailable = false;
     bool completed = false;
+    bool durableFallbackNeeded = false;
+    bool durableFallbackUsed = false;
+    bool durableFallbackSucceeded = false;
+    size_t durableFallbackAttempts = 0;
+    size_t durableFallbackRowsStreamed = 0;
+    size_t relevantInvalidations = 0;
+    // search-availability-under-index-churn D1/D2/D5: capture only the
+    // searchable volumes relevant to this request, together with their
+    // epochs, rules, residency, and one independent WAL snapshot.
+    const auto captureContext = [&](SearchContext& context, const bool prepareProjection) {
+        const auto waitStart = Clock::now();
+        std::unique_lock<std::mutex> lock(mutex_);
+        lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
+        const auto holdStart = Clock::now();
+        bool ready = false;
+        if (!store_.IsOpen()) {
+            unavailable = true;
+        } else {
+            context.queryVisibleEpoch = queryVisibleEpoch_.load(std::memory_order_acquire);
+            context.dependencySetEpoch = dependencySetEpoch_.load(std::memory_order_acquire);
+            context.allVolumes = searchRequest.scope == ffsearch::SearchScope::AllIndexedLocations;
+            context.phaseHook = searchTestHooks_.onPhase;
 
-    for (size_t restart = 0; restart <= kMaxGenerationRestarts; ++restart) {
-        if (isCancelled()) {
-            finishCancelled();
-            return result;
-        }
+            std::unordered_map<ffindexstore::VolumeRowId, std::wstring> configuredPrefixes;
+            std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
+            configuredPrefixes.reserve(volumeRules_.size() + 4);
+            disabledVolumes.reserve(volumeRules_.size());
+            for (const auto& [volumeId, setting] : volumeRules_) {
+                if (!setting.enabled) {
+                    disabledVolumes.insert(volumeId);
+                    continue;
+                }
+                if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
+                    configuredPrefixes.emplace(volumeId, prefix);
+                }
+            }
 
-        SearchContext context;
-        bool contextReady = false;
-        {
-            const auto waitStart = Clock::now();
-            std::unique_lock<std::mutex> lock(mutex_);
-            lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
-            const auto holdStart = Clock::now();
-            if (!store_.IsOpen()) {
-                unavailable = true;
-            } else {
-                context.generation = generation_;
-                context.phaseHook = searchTestHooks_.onPhase;
-                context.prefixes.reserve(volumeRules_.size() + 4);
-                std::unordered_set<ffindexstore::VolumeRowId> disabledVolumes;
-                disabledVolumes.reserve(volumeRules_.size());
-                for (const auto& [volumeId, setting] : volumeRules_) {
-                    if (!setting.enabled) {
-                        disabledVolumes.insert(volumeId);
-                        continue;
-                    }
-                    if (const std::wstring prefix = NormalizeVolumePrefix(setting.key); !prefix.empty()) {
-                        context.prefixes.emplace(volumeId, prefix);
-                    }
-                }
-                const auto metadataStart = timings != nullptr ? Clock::now() : Clock::time_point{};
-                const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
-                if (timings != nullptr) {
-                    timings->sqliteMetadataMs +=
-                        std::chrono::duration<double, std::milli>(Clock::now() - metadataStart).count();
-                }
-                for (const auto& metadataEntry : metadata) {
-                    if (!metadataEntry.available || disabledVolumes.contains(metadataEntry.rowId) ||
-                        context.prefixes.contains(metadataEntry.rowId)) {
-                        continue;
-                    }
+            const auto metadataStart = timings != nullptr ? Clock::now() : Clock::time_point{};
+            const auto metadata = store_.GetAllVolumesWithoutEntryCounts();
+            if (timings != nullptr) {
+                timings->sqliteMetadataMs +=
+                    std::chrono::duration<double, std::milli>(Clock::now() - metadataStart).count();
+            }
+            context.prefixes.reserve(metadata.size());
+            context.rules.reserve(metadata.size());
+            context.searchableVolumes.reserve(metadata.size());
+            for (const auto& metadataEntry : metadata) {
+                // Availability is operational lifecycle state: indexed rows
+                // remain queryable while a volume is offline so search can
+                // provide retained results. Explicit VolumeSetting.enabled
+                // remains the query-visibility switch.
+                if (disabledVolumes.contains(metadataEntry.rowId)) continue;
+                std::wstring prefix;
+                const auto configuredPrefix = configuredPrefixes.find(metadataEntry.rowId);
+                if (configuredPrefix != configuredPrefixes.end()) {
+                    prefix = configuredPrefix->second;
+                } else {
                     const wchar_t driveLetter = ResolveDriveLetterForVolumeKey(metadataEntry.key);
                     if (driveLetter != L'\0') {
-                        std::wstring prefix;
                         prefix.push_back(static_cast<wchar_t>(towupper(driveLetter)));
                         prefix.push_back(L':');
-                        context.prefixes.emplace(metadataEntry.rowId, std::move(prefix));
                     }
                 }
-                if (context.prefixes.empty()) {
+                if (prefix.empty() || (!context.allVolumes &&
+                                       !ffsearch::SameVolume(searchRequest.scopePath, prefix))) {
+                    continue;
+                }
+                context.prefixes.emplace(metadataEntry.rowId, std::move(prefix));
+                const auto ruleIt = volumeRules_.find(metadataEntry.rowId);
+                if (ruleIt != volumeRules_.end()) {
+                    context.rules.emplace(metadataEntry.rowId, ruleIt->second);
+                    if (!ruleIt->second.rules.empty()) context.ruleFilterActive = true;
+                }
+                context.searchableVolumes.push_back(metadataEntry.rowId);
+            }
+            std::sort(context.searchableVolumes.begin(), context.searchableVolumes.end());
+            if (context.searchableVolumes.empty()) {
+                unavailable = true;
+            } else {
+                context.dependencies.reserve(context.searchableVolumes.size());
+                for (const auto volumeId : context.searchableVolumes) {
+                    const auto dataIt = volumeDataEpochs_.find(volumeId);
+                    const auto configurationIt = volumeConfigurationEpochs_.find(volumeId);
+                    context.dependencies.push_back({
+                        volumeId,
+                        dataIt == volumeDataEpochs_.end() ? 0 : dataIt->second,
+                        configurationIt == volumeConfigurationEpochs_.end() ? 0 : configurationIt->second});
+                    if (prepareProjection && projection_.NeedsReload(volumeId)) {
+                        context.coldVolumes.insert(volumeId);
+                    }
+                }
+                context.orderedCold.assign(context.coldVolumes.begin(), context.coldVolumes.end());
+                std::sort(context.orderedCold.begin(), context.orderedCold.end());
+                searchedColdVolumes = searchedColdVolumes || !context.orderedCold.empty();
+                context.reader = store_.OpenReadSession({readSessionFaultInjector_});
+                if (!context.reader) {
+                    readerFailures_.fetch_add(1, std::memory_order_relaxed);
                     unavailable = true;
                 } else {
-                    for (const auto& prefixEntry : context.prefixes) {
-                        if (projection_.NeedsReload(prefixEntry.first)) {
-                            context.coldVolumes.insert(prefixEntry.first);
-                        }
-                    }
-                    context.orderedCold.assign(context.coldVolumes.begin(), context.coldVolumes.end());
-                    std::sort(context.orderedCold.begin(), context.orderedCold.end());
-                    searchedColdVolumes = !context.orderedCold.empty();
-
-                    // Every query gets one independent snapshot. This keeps
-                    // hot fallback path reads consistent with the bounded
-                    // capture and prevents a cold stream from using the
-                    // writer Store connection.
-                    context.reader = store_.OpenReadSession({readSessionFaultInjector_});
-                    if (!context.reader) {
-                        readerFailures_.fetch_add(1, std::memory_order_relaxed);
-                        unavailable = true;
-                    } else {
+                    if (prepareProjection) {
                         context.cursor = projection_.BeginEntryCursor();
                         const bool filenameEligible = searchRequest.query.simpleLiteralName &&
                             searchRequest.query.simpleLiteralFolded.size() >= 3 && context.coldVolumes.empty();
@@ -1084,15 +1229,56 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                             timings->filenameIndexCandidateCount = context.filenameCandidates.has_value()
                                 ? context.filenameCandidates->size() : 0;
                         }
-                        contextReady = true;
                     }
+                    ready = true;
                 }
             }
-            const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
-            maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
-            lock.unlock();
         }
+        const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
+        maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
+        lock.unlock();
+        return ready;
+    };
+
+    const auto isContextCurrentLocked = [&](const SearchContext& context, const bool includeDataEpochs) {
+        if (!store_.IsOpen()) return false;
+        if (context.allVolumes && dependencySetEpoch_.load(std::memory_order_acquire) !=
+                                     context.dependencySetEpoch) return false;
+        for (const auto& dependency : context.dependencies) {
+            const auto dataIt = volumeDataEpochs_.find(dependency.volumeId);
+            const auto configurationIt = volumeConfigurationEpochs_.find(dependency.volumeId);
+            const uint64_t dataEpoch = dataIt == volumeDataEpochs_.end() ? 0 : dataIt->second;
+            const uint64_t configurationEpoch =
+                configurationIt == volumeConfigurationEpochs_.end() ? 0 : configurationIt->second;
+            if (configurationEpoch != dependency.configurationEpoch ||
+                (includeDataEpochs && dataEpoch != dependency.dataEpoch)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    for (size_t restart = 0; restart <= kMaxGenerationRestarts; ++restart) {
+        if (isCancelled()) {
+            finishCancelled();
+            return result;
+        }
+
+        SearchContext context;
+        bool contextReady = false;
+        contextReady = captureContext(context, true);
         if (unavailable || !contextReady) break;
+
+        if (!context.ruleFilterActive) {
+            searchRequest.candidateFilter = {};
+            searchRequest.candidateFilterRequiresFolder = false;
+        } else {
+            const auto capturedRules = context.rules;
+            searchRequest.candidateFilter = [capturedRules](const ffsearch::Candidate& candidate) {
+                return CandidateIncludedByRules(capturedRules, candidate);
+            };
+            searchRequest.candidateFilterRequiresFolder = true;
+        }
 
         CounterLease durableReaderLease(activeDurableReaders_, peakDurableReaders_);
         (void)durableReaderLease;
@@ -1108,11 +1294,14 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
             std::unique_lock<std::mutex> lock(mutex_);
             lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
             const auto holdStart = Clock::now();
-            const bool changed = generation_ != context.generation;
+            const bool changed = !isContextCurrentLocked(context, true);
             const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
             maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
             lock.unlock();
-            if (changed) stale = true;
+            if (changed) {
+                stale = true;
+                ++relevantInvalidations;
+            }
         };
         const auto materialize = [&](ffsearch::Candidate& candidate) {
             if (isCancelled() || stale) return false;
@@ -1137,7 +1326,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 std::unique_lock<std::mutex> lock(mutex_);
                 lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
                 const auto holdStart = Clock::now();
-                if (generation_ == context.generation) {
+                if (isContextCurrentLocked(context, true)) {
                     materialized = MaterializeCandidateFolder(projection_, context.prefixes, candidate, isCancelled);
                 } else {
                     stale = true;
@@ -1174,7 +1363,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                 std::unique_lock<std::mutex> lock(mutex_);
                 lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
                 const auto holdStart = Clock::now();
-                if (generation_ != context.generation) {
+                if (!isContextCurrentLocked(context, true)) {
                     stale = true;
                 } else {
                     while (chunk.size() < kHotCandidateChunkRows) {
@@ -1272,7 +1461,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
             ++generationRestarts;
             generationRestarts_.fetch_add(1, std::memory_order_relaxed);
             if (restart == kMaxGenerationRestarts) {
-                unavailable = true;
+                durableFallbackNeeded = true;
                 break;
             }
             continue;
@@ -1289,12 +1478,158 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         }
         completed = true;
         if (timings != nullptr) {
-            timings->searchGeneration = context.generation;
+            timings->searchGeneration = context.queryVisibleEpoch;
+            timings->queryVisibleEpoch = context.queryVisibleEpoch;
+            timings->dependencySetEpoch = context.dependencySetEpoch;
+            timings->relevantInvalidations = relevantInvalidations;
             timings->generationRestarts = generationRestarts;
             timings->projectionTraversalMs =
                 std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
         }
         break;
+    }
+
+    if (durableFallbackNeeded && !unavailable && !completed) {
+        durableFallbackUsed = true;
+        durableFallbacks_.fetch_add(1, std::memory_order_relaxed);
+        const auto fallbackStart = Clock::now();
+        const auto recordFallbackTimings = [&](const uint64_t capturedQueryEpoch = 0,
+                                               const uint64_t capturedDependencyEpoch = 0) {
+            if (timings == nullptr) return;
+            timings->searchGeneration = capturedQueryEpoch != 0
+                ? capturedQueryEpoch : queryVisibleEpoch_.load(std::memory_order_acquire);
+            timings->queryVisibleEpoch = timings->searchGeneration;
+            timings->dependencySetEpoch = capturedDependencyEpoch != 0
+                ? capturedDependencyEpoch : dependencySetEpoch_.load(std::memory_order_acquire);
+            timings->relevantInvalidations = relevantInvalidations;
+            timings->generationRestarts = generationRestarts;
+            timings->durableFallbackUsed = durableFallbackUsed;
+            timings->durableFallbackAttempts = durableFallbackAttempts;
+            timings->durableFallbackRowsStreamed = durableFallbackRowsStreamed;
+            timings->durableFallbackSucceeded = durableFallbackSucceeded;
+        };
+        for (size_t attempt = 0; attempt <= kMaxDurableFallbackConfigurationRetries; ++attempt) {
+            if (isCancelled()) {
+                recordFallbackTimings();
+                finishCancelled();
+                return result;
+            }
+            SearchContext context;
+            if (!captureContext(context, false)) break;
+            if (!context.ruleFilterActive) {
+                searchRequest.candidateFilter = {};
+                searchRequest.candidateFilterRequiresFolder = false;
+            } else {
+                const auto capturedRules = context.rules;
+                searchRequest.candidateFilter = [capturedRules](const ffsearch::Candidate& candidate) {
+                    return CandidateIncludedByRules(capturedRules, candidate);
+                };
+                searchRequest.candidateFilterRequiresFolder = true;
+            }
+            ++durableFallbackAttempts;
+            if (context.phaseHook) context.phaseHook(SearchPhase::DurableFallback);
+            CounterLease durableReaderLease(activeDurableReaders_, peakDurableReaders_);
+            (void)durableReaderLease;
+            bool streamFailed = false;
+            size_t attemptRowsStreamed = 0;
+            const auto materializeDurable = [&](ffsearch::Candidate& candidate) {
+                if (isCancelled()) return false;
+                const bool materialized = MaterializeCandidateFolderDurable(
+                    *context.reader, context.prefixes, candidate, isCancelled);
+                if (!materialized && !isCancelled()) streamFailed = true;
+                return materialized;
+            };
+            const auto searchStart = Clock::now();
+            ffsearch::SearchAccumulator accumulator(searchRequest, isCancelled,
+                                                     (detailedDiagnostics || projectionOnly)
+                                                         ? &searchDiagnostics : nullptr);
+            for (const auto volumeId : context.searchableVolumes) {
+                if (isCancelled() || accumulator.Cancelled()) break;
+                const auto prefixIt = context.prefixes.find(volumeId);
+                if (prefixIt == context.prefixes.end() || context.reader == nullptr) {
+                    streamFailed = true;
+                    break;
+                }
+                ++coldVolumesSearched;
+                const auto streamStart = Clock::now();
+                const bool streamed = context.reader->ForEachEntryUntil(volumeId,
+                    [&](const ffindexstore::EntryRecord& record) {
+                        if (isCancelled() || accumulator.Cancelled()) return false;
+                        ++attemptRowsStreamed;
+                        ++coldRowsExamined;
+                        ffsearch::Candidate candidate = MakeDurableCandidate(record, volumeId,
+                                                                               prefixIt->second);
+                        if (candidate.name.empty()) return true;
+                        ++candidateNameCopies;
+                        if (projectionOnly) {
+                            ++search.candidatesVisited;
+                            return true;
+                        }
+                        if (!accumulator.Add(std::move(candidate), materializeDurable)) return false;
+                        ++candidateObjectsMaterialized;
+                        return !isCancelled() && !accumulator.Cancelled() && !streamFailed;
+                    });
+                storeStreamMs += std::chrono::duration<double, std::milli>(Clock::now() - streamStart).count();
+                if (!streamed && !isCancelled() && !accumulator.Cancelled() && !streamFailed) {
+                    streamFailed = true;
+                }
+                if (streamFailed) break;
+            }
+            durableFallbackRowsStreamed += attemptRowsStreamed;
+            durableFallbackRowsStreamed_.fetch_add(attemptRowsStreamed, std::memory_order_relaxed);
+            if (timings != nullptr) {
+                timings->durableFallbackRowsStreamed += attemptRowsStreamed;
+            }
+            if (isCancelled() || accumulator.Cancelled()) {
+                recordFallbackTimings(context.queryVisibleEpoch, context.dependencySetEpoch);
+                finishCancelled();
+                return result;
+            }
+            if (streamFailed || context.reader == nullptr || context.reader->Failed()) {
+                readerFailures_.fetch_add(1, std::memory_order_relaxed);
+                unavailable = true;
+                break;
+            }
+
+            bool configurationCurrent = false;
+            {
+                const auto waitStart = Clock::now();
+                std::unique_lock<std::mutex> lock(mutex_);
+                lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
+                const auto holdStart = Clock::now();
+                configurationCurrent = isContextCurrentLocked(context, false);
+                const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
+                maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
+                lock.unlock();
+            }
+            if (!configurationCurrent) {
+                ++relevantInvalidations;
+                continue;
+            }
+            if (projectionOnly) {
+                search.cancelled = false;
+            } else {
+                search = accumulator.Finish();
+            }
+            completed = true;
+            durableFallbackSucceeded = true;
+            successfulDurableFallbacks_.fetch_add(1, std::memory_order_relaxed);
+            recordFallbackTimings(context.queryVisibleEpoch, context.dependencySetEpoch);
+            if (timings != nullptr) {
+                timings->projectionTraversalMs =
+                    std::chrono::duration<double, std::milli>(Clock::now() - searchStart).count();
+            }
+            break;
+        }
+        if (!durableFallbackSucceeded && !isCancelled()) {
+            failedDurableFallbacks_.fetch_add(1, std::memory_order_relaxed);
+            unavailable = true;
+        }
+        if (timings != nullptr) {
+            recordFallbackTimings();
+            timings->projectionTraversalMs =
+                std::chrono::duration<double, std::milli>(Clock::now() - fallbackStart).count();
+        }
     }
 
     if (unavailable || !completed) {
@@ -1308,6 +1643,11 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         return result;
     }
     if (timings != nullptr) {
+        timings->relevantInvalidations = relevantInvalidations;
+        timings->durableFallbackUsed = durableFallbackUsed;
+        timings->durableFallbackAttempts = durableFallbackAttempts;
+        timings->durableFallbackRowsStreamed = durableFallbackRowsStreamed;
+        timings->durableFallbackSucceeded = durableFallbackSucceeded;
         timings->stateLockWaitMs = lockWaitMs;
         timings->maxStateLockHoldMs = maxLockHoldMs;
         timings->candidateMaterializationMs = candidateNameMaterializationMs + lazyPathMaterializationMs;

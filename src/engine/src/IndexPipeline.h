@@ -42,6 +42,7 @@ public:
         WorkStarted,
         Matching,
         ColdStreaming,
+        DurableFallback,
         GenerationValidation,
     };
     struct SearchTestHooks {
@@ -113,7 +114,14 @@ public:
         bool truncated = false;
         bool cancelled = false;
         uint64_t searchGeneration = 0;
+        uint64_t queryVisibleEpoch = 0;
+        uint64_t dependencySetEpoch = 0;
         size_t generationRestarts = 0;
+        size_t relevantInvalidations = 0;
+        size_t durableFallbackAttempts = 0;
+        size_t durableFallbackRowsStreamed = 0;
+        bool durableFallbackUsed = false;
+        bool durableFallbackSucceeded = false;
         double stateLockWaitMs = 0.0;
         double maxStateLockHoldMs = 0.0;
     };
@@ -128,6 +136,15 @@ public:
         uint64_t unavailableSearches = 0;
         uint64_t readerFailures = 0;
         uint64_t generationRestarts = 0;
+        uint64_t queryVisibleEpoch = 0;
+        uint64_t dependencySetEpoch = 0;
+        uint64_t queryVisibleInvalidations = 0;
+        uint64_t metadataOnlyUpdates = 0;
+        uint64_t metadataOnlyInvalidationsAvoided = 0;
+        uint64_t durableFallbacks = 0;
+        uint64_t successfulDurableFallbacks = 0;
+        uint64_t failedDurableFallbacks = 0;
+        uint64_t durableFallbackRowsStreamed = 0;
     };
 
     // outIntegrityFailed (optional, task 1.7): set to true when the open
@@ -297,16 +314,43 @@ public:
                                                     const SearchCancellation& cancelled = {});
 
 private:
+    enum class QueryMutationReason : uint8_t {
+        EntryMutation,
+        VolumeConfiguration,
+        VolumeVisibility,
+        Rebuild,
+        Forget,
+        ProjectionResidency,
+        Lifecycle,
+    };
+
+    struct SearchDependency {
+        ffindexstore::VolumeRowId volumeId = 0;
+        uint64_t dataEpoch = 0;
+        uint64_t configurationEpoch = 0;
+    };
+
     static constexpr size_t kHotCandidateChunkRows = 256;
     static constexpr size_t kMaxGenerationRestarts = 3;
+    static constexpr size_t kMaxDurableFallbackConfigurationRetries = 2;
     static constexpr size_t kMaximumFilenameIndexCandidates = 16 * 1024;
+
+    void AdvanceQueryVisibleEpochLocked(ffindexstore::VolumeRowId volumeId,
+                                        QueryMutationReason reason,
+                                        bool dependencySetChanged = false);
+    void RecordMetadataOnlyUpdateLocked();
+    static bool VolumeSettingsEqual(const ffprotocol::VolumeSetting& left,
+                                    const ffprotocol::VolumeSetting& right);
 
     mutable std::mutex mutex_;
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
     SearchTestHooks searchTestHooks_;
     ffindexstore::ReadSessionFaultInjector readSessionFaultInjector_;
-    uint64_t generation_ = 1;
+    std::atomic<uint64_t> queryVisibleEpoch_{1};
+    std::atomic<uint64_t> dependencySetEpoch_{1};
+    std::unordered_map<ffindexstore::VolumeRowId, uint64_t> volumeDataEpochs_;
+    std::unordered_map<ffindexstore::VolumeRowId, uint64_t> volumeConfigurationEpochs_;
     std::atomic<size_t> activeSearches_{0};
     std::atomic<size_t> peakSearches_{0};
     std::atomic<size_t> activeDurableReaders_{0};
@@ -316,6 +360,13 @@ private:
     std::atomic<uint64_t> unavailableSearches_{0};
     std::atomic<uint64_t> readerFailures_{0};
     std::atomic<uint64_t> generationRestarts_{0};
+    std::atomic<uint64_t> queryVisibleInvalidations_{0};
+    std::atomic<uint64_t> metadataOnlyUpdates_{0};
+    std::atomic<uint64_t> metadataOnlyInvalidationsAvoided_{0};
+    std::atomic<uint64_t> durableFallbacks_{0};
+    std::atomic<uint64_t> successfulDurableFallbacks_{0};
+    std::atomic<uint64_t> failedDurableFallbacks_{0};
+    std::atomic<uint64_t> durableFallbackRowsStreamed_{0};
     std::atomic<uint64_t> lifecycleEpoch_{1};
 
     // zero-touch-autonomous-engineering (subtree gating): per-volume rules +

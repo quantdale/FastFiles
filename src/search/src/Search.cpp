@@ -137,10 +137,15 @@ bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& ma
     }
     ++response_.candidatesVisited;
     if (!request_.query.MatchesWithoutFolder(candidate)) return true;
-    if (folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
+    bool materialized = false;
+    if ((folderNeededForEvaluation_ || request_.candidateFilterRequiresFolder) && materialize) {
+        if (!materialize(candidate)) return true;
+        materialized = true;
+    }
+    if (request_.candidateFilter && !request_.candidateFilter(candidate)) return true;
     if (!InScope(candidate, request_.scope, request_.scopePath, request_.persistentOnly)) return true;
     if (!request_.query.Matches(candidate)) return true;
-    if (!folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
+    if (!materialized && !folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
 
     const MatchTier tier = ClassifyMatch(candidate, request_.query.primaryTerm);
     response_.results.push_back({std::move(candidate), tier});
@@ -189,11 +194,14 @@ SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
         Candidate* mutableCandidate = mutableCandidates == nullptr ? nullptr : &(*mutableCandidates)[index];
         const Candidate& candidate = mutableCandidate == nullptr ? candidates[index] : *mutableCandidate;
         if (!request.query.MatchesWithoutFolder(candidate)) continue;
-        if (folderNeededForEvaluation && materialize &&
+        bool materialized = false;
+        if ((folderNeededForEvaluation || request.candidateFilterRequiresFolder) && materialize &&
             (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
+        materialized = folderNeededForEvaluation || request.candidateFilterRequiresFolder;
+        if (request.candidateFilter && !request.candidateFilter(candidate)) continue;
         if (!InScope(candidate, request.scope, request.scopePath, request.persistentOnly)) continue;
         if (!request.query.Matches(candidate)) continue;
-        if (!folderNeededForEvaluation && materialize &&
+        if (!materialized && !folderNeededForEvaluation && materialize &&
             (mutableCandidate == nullptr || !materialize(*mutableCandidate))) continue;
         response.results.push_back({candidate, ClassifyMatch(candidate, request.query.primaryTerm)});
         if (request.maxResults != 0) {
@@ -264,8 +272,9 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
             }
             if (diagnostics != nullptr) ++diagnostics->pathLookups;
             ownedCandidate = materialize(candidate);
-            if (!ownedCandidate || !InScope(*ownedCandidate, request.scope, request.scopePath,
-                                            request.persistentOnly) || !request.query.Matches(*ownedCandidate)) {
+            if (!ownedCandidate || (request.candidateFilter && !request.candidateFilter(*ownedCandidate)) ||
+                !InScope(*ownedCandidate, request.scope, request.scopePath, request.persistentOnly) ||
+                !request.query.Matches(*ownedCandidate)) {
                 return true;
             }
         } else {
@@ -273,7 +282,9 @@ SearchResponse ExecuteSearchViews(const CandidateViewEnumerator& enumerate,
                                            diagnostics != nullptr ? &diagnostics->match : nullptr)) return true;
             if (diagnostics != nullptr) ++diagnostics->pathLookups;
             ownedCandidate = materialize(candidate);
-            if (!ownedCandidate) return true;
+            if (!ownedCandidate || (request.candidateFilter && !request.candidateFilter(*ownedCandidate))) {
+                return true;
+            }
         }
 
         const auto matchedRowStart = diagnostics != nullptr ? std::chrono::steady_clock::now()

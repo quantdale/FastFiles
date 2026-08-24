@@ -34,6 +34,11 @@ struct SearchRequest {
     // intentionally remain useful against degraded snapshots; the UI sets
     // this only when the selected broad scope is advertised as indexed.
     bool persistentOnly = false;
+    // Internal bounded-read seam: callers may reject a candidate using a
+    // captured configuration snapshot. The filter is evaluated after any
+    // required folder materialization and before query/scope acceptance.
+    std::function<bool(const Candidate&)> candidateFilter;
+    bool candidateFilterRequiresFolder = false;
 };
 
 struct SearchResult {

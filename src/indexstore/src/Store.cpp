@@ -447,7 +447,10 @@ bool Store::VacuumIfDue(bool userIdle, uint64_t nowEpochSeconds, uint64_t interv
     return true;
 }
 
-std::optional<VolumeRowId> Store::GetOrCreateVolume(const VolumeKey& key) {
+std::optional<VolumeRowId> Store::GetOrCreateVolume(const VolumeKey& key, bool* outCreated) {
+    if (outCreated != nullptr) {
+        *outCreated = false;
+    }
     if (db_ == nullptr) {
         return std::nullopt;
     }
@@ -472,6 +475,9 @@ std::optional<VolumeRowId> Store::GetOrCreateVolume(const VolumeKey& key) {
     sqlite3_bind_int64(insert, 2, static_cast<sqlite3_int64>(key.serialNumber));
     if (sqlite3_step(insert) != SQLITE_DONE) {
         return std::nullopt;
+    }
+    if (outCreated != nullptr) {
+        *outCreated = true;
     }
     return static_cast<VolumeRowId>(sqlite3_last_insert_rowid(db_));
 }
@@ -556,9 +562,26 @@ std::vector<VolumeMetadata> Store::GetAllVolumesImpl(const bool includeEntryCoun
     return result;
 }
 
-bool Store::SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp) {
+bool Store::SetVolumeAvailable(VolumeRowId volumeRowId, bool available, uint64_t nowTimestamp,
+                               bool* outVisibilityChanged) {
+    if (outVisibilityChanged != nullptr) {
+        *outVisibilityChanged = false;
+    }
     if (db_ == nullptr) {
         return false;
+    }
+    {
+        Statement current(db_, "SELECT available FROM volumes WHERE id=?;");
+        if (!current.Valid()) {
+            return false;
+        }
+        sqlite3_bind_int64(current, 1, static_cast<sqlite3_int64>(volumeRowId));
+        if (sqlite3_step(current) != SQLITE_ROW) {
+            return false;
+        }
+        if (outVisibilityChanged != nullptr) {
+            *outVisibilityChanged = (sqlite3_column_int(current, 0) != 0) != available;
+        }
     }
     Statement stmt(db_, "UPDATE volumes SET available=?, last_seen_time=? WHERE id=?;");
     if (!stmt.Valid()) {
@@ -1021,6 +1044,17 @@ bool StoreReadSession::Open() {
         return false;
     }
     transactionActive_ = true;
+    // Force SQLite to establish the read transaction's snapshot before the
+    // caller releases the pipeline mutex. A deferred BEGIN otherwise waits
+    // until the first real query, allowing a writer commit between reader
+    // acquisition and the first streamed row.
+    Statement snapshot(db_, "SELECT id FROM volumes LIMIT 1;");
+    const int snapshotStep = snapshot.Valid() ? sqlite3_step(snapshot) : SQLITE_ERROR;
+    if (!snapshot.Valid() || (snapshotStep != SQLITE_ROW && snapshotStep != SQLITE_DONE)) {
+        failed_ = true;
+        Close();
+        return false;
+    }
     return true;
 }
 
