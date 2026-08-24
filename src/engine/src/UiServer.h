@@ -1,6 +1,8 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -69,6 +71,25 @@ public:
     // restores the production default). Must be called before merges.
     void SetIndexedWorkingSetCap(size_t maxIndexedDirectories);
 
+    // nonblocking-indexed-read-plane 5.1: global admission diagnostics for
+    // the bounded indexed-search coordinator. The limits are deliberately
+    // engine-global even though each connection retains its own supersession
+    // worker.
+    struct IndexedSearchStats {
+        size_t active = 0;
+        size_t queued = 0;
+        size_t peakActive = 0;
+        uint64_t completed = 0;
+        uint64_t queuedCancellations = 0;
+        uint64_t rejected = 0;
+        double totalQueueWaitMs = 0.0;
+        double maxQueueWaitMs = 0.0;
+    };
+    IndexedSearchStats GetIndexedSearchStats() const;
+    // Test seam: changes the bounded coordinator limits before search work is
+    // admitted; zero restores the production default for that limit.
+    void SetIndexedSearchLimitsForTesting(size_t maxActive, size_t maxQueued);
+
     // Invoked (from an arbitrary internal thread) on every UI request --
     // used by IdleManager (task 4.10) as the "recent activity" signal.
     std::function<void()> onActivity;
@@ -94,6 +115,64 @@ public:
     std::function<void(uint8_t scope, bool paused)> onSetIndexingPaused;
 
 private:
+    class SearchCoordinator : public std::enable_shared_from_this<SearchCoordinator> {
+    public:
+        static constexpr size_t kMaxActive = 2;
+        static constexpr size_t kMaxQueued = 8;
+
+        struct Stats {
+            size_t active = 0;
+            size_t queued = 0;
+            size_t peakActive = 0;
+            uint64_t completed = 0;
+            uint64_t queuedCancellations = 0;
+            uint64_t rejected = 0;
+            double totalQueueWaitMs = 0.0;
+            double maxQueueWaitMs = 0.0;
+        };
+
+        class Permit {
+        public:
+            Permit() = delete;
+            ~Permit();
+            Permit(const Permit&) = delete;
+            Permit& operator=(const Permit&) = delete;
+            Permit(Permit&& other) noexcept;
+            Permit& operator=(Permit&& other) noexcept;
+
+        private:
+            friend class SearchCoordinator;
+            explicit Permit(std::shared_ptr<SearchCoordinator> owner);
+            std::shared_ptr<SearchCoordinator> owner_;
+        };
+
+        std::optional<Permit> Acquire(const std::function<bool()>& cancelled);
+        void Notify();
+        void Stop();
+        void SetLimitsForTesting(size_t maxActive, size_t maxQueued);
+        Stats GetStats() const;
+
+    private:
+        struct Waiter {
+            std::chrono::steady_clock::time_point enqueuedAt = std::chrono::steady_clock::now();
+        };
+        void Release();
+
+        mutable std::mutex mutex_;
+        std::condition_variable condition_;
+        std::deque<std::shared_ptr<Waiter>> waiters_;
+        size_t active_ = 0;
+        size_t peakActive_ = 0;
+        uint64_t completed_ = 0;
+        uint64_t queuedCancellations_ = 0;
+        uint64_t rejected_ = 0;
+        double totalQueueWaitMs_ = 0.0;
+        double maxQueueWaitMs_ = 0.0;
+        size_t maxActive_ = kMaxActive;
+        size_t maxQueued_ = kMaxQueued;
+        bool stopping_ = false;
+    };
+
     struct ConnectionGate {
         void Release() noexcept {
             std::lock_guard<std::mutex> lock(mutex);
@@ -132,7 +211,8 @@ private:
         };
         using PipePtr = std::shared_ptr<OwnedPipe>;
 
-        ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller);
+        ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller,
+                         std::shared_ptr<SearchCoordinator> searchCoordinator);
         ~ClientConnection();
 
         bool Write(uint16_t messageType, const void* payload = nullptr, uint32_t payloadSize = 0);
@@ -155,6 +235,7 @@ private:
         PipePtr pipe_;
         FrameWriter frameWriter_;
         PipeCanceller pipeCanceller_;
+        std::shared_ptr<SearchCoordinator> searchCoordinator_;
         std::mutex writeMutex_;
         mutable std::mutex stateMutex_;
         bool closing_ = false;
@@ -229,6 +310,8 @@ private:
     std::mutex clientsMutex_;
     std::vector<ClientConnectionPtr> subscribedClients_;
     std::shared_ptr<ConnectionGate> connectionGate_;
+    mutable std::mutex searchCoordinatorMutex_;
+    std::shared_ptr<SearchCoordinator> searchCoordinator_;
 
     FrameWriter frameWriter_;
     PipeCanceller pipeCanceller_;

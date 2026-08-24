@@ -66,6 +66,30 @@ SearchResponse ExecuteSearchLazy(std::vector<Candidate>& candidates, const Searc
                                   const CandidateMaterializer& materialize,
                                   const std::function<bool()>& cancelled = {});
 
+// nonblocking-indexed-read-plane 4.2: consumes bounded candidate chunks while
+// retaining only the requested top-N results. Matching, path materialization,
+// and sorting occur in the caller's read phase; the accumulator owns no
+// source-index snapshot and therefore cannot turn a broad query into a second
+// full copy of the index.
+class SearchAccumulator {
+public:
+    SearchAccumulator(const SearchRequest& request, const std::function<bool()>& cancelled = {},
+                      SearchDiagnostics* diagnostics = nullptr);
+
+    // Returns false only when cancellation was observed. A false return is a
+    // cooperative stop signal for the source enumerator, not a search error.
+    bool Add(Candidate candidate, const CandidateMaterializer& materialize = {});
+    SearchResponse Finish();
+    bool Cancelled() const noexcept { return response_.cancelled; }
+
+private:
+    SearchRequest request_;
+    std::function<bool()> cancelled_;
+    SearchDiagnostics* diagnostics_ = nullptr;
+    bool folderNeededForEvaluation_ = false;
+    SearchResponse response_;
+};
+
 class CandidateViewVisitor {
 public:
     template <typename Fn>

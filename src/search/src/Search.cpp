@@ -120,6 +120,57 @@ void SortResults(std::vector<SearchResult>& results, SortField field, bool desce
               });
 }
 
+SearchAccumulator::SearchAccumulator(const SearchRequest& request,
+                                     const std::function<bool()>& cancelled,
+                                     SearchDiagnostics* diagnostics)
+    : request_(request), cancelled_(cancelled), diagnostics_(diagnostics),
+      folderNeededForEvaluation_(request.scope != SearchScope::AllIndexedLocations ||
+                                 request.query.requiresFolder) {}
+
+bool SearchAccumulator::Add(Candidate candidate, const CandidateMaterializer& materialize) {
+    if (response_.cancelled) return false;
+    const size_t chunkSize = (std::max)(size_t{1}, request_.chunkSize);
+    if (response_.candidatesVisited % chunkSize == 0 && cancelled_ && cancelled_()) {
+        response_.cancelled = true;
+        response_.results.clear();
+        return false;
+    }
+    ++response_.candidatesVisited;
+    if (!request_.query.MatchesWithoutFolder(candidate)) return true;
+    if (folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
+    if (!InScope(candidate, request_.scope, request_.scopePath, request_.persistentOnly)) return true;
+    if (!request_.query.Matches(candidate)) return true;
+    if (!folderNeededForEvaluation_ && materialize && !materialize(candidate)) return true;
+
+    const MatchTier tier = ClassifyMatch(candidate, request_.query.primaryTerm);
+    response_.results.push_back({std::move(candidate), tier});
+    if (diagnostics_ != nullptr) {
+        ++diagnostics_->matchedRows;
+    }
+    if (request_.maxResults != 0) {
+        const auto comparator = [field = request_.sortField, descending = request_.descending]
+                                (const SearchResult& left, const SearchResult& right) {
+            return ResultLess(right, left, field, descending);
+        };
+        std::push_heap(response_.results.begin(), response_.results.end(), comparator);
+        if (response_.results.size() > request_.maxResults) {
+            std::pop_heap(response_.results.begin(), response_.results.end(), comparator);
+            response_.results.pop_back();
+            response_.truncated = true;
+        }
+    }
+    return true;
+}
+
+SearchResponse SearchAccumulator::Finish() {
+    if (response_.cancelled) {
+        response_.results.clear();
+        return std::move(response_);
+    }
+    SortResults(response_.results, request_.sortField, request_.descending);
+    return std::move(response_);
+}
+
 SearchResponse ExecuteSearchCore(std::vector<Candidate>* mutableCandidates,
                                  const std::vector<Candidate>& candidates, const SearchRequest& request,
                                  const CandidateMaterializer& materialize,

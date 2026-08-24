@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -33,6 +34,20 @@ namespace ffengine {
 // caller) do not need to coordinate with each other.
 class IndexPipeline {
 public:
+    // nonblocking-indexed-read-plane 2.1: deterministic test seam used to
+    // park query work at a named phase. Production callers leave the hook
+    // empty; the fixed implementation invokes it only after long-running
+    // work has released the mutation/lifecycle critical section.
+    enum class SearchPhase : uint8_t {
+        WorkStarted,
+        Matching,
+        ColdStreaming,
+        GenerationValidation,
+    };
+    struct SearchTestHooks {
+        std::function<void(SearchPhase)> onPhase;
+    };
+
     // Optional attribution seam for the explicit scalability benchmark. The
     // normal product path passes no timing object and remains behaviorally
     // unchanged; the fields describe the real SearchIndexed stages rather
@@ -97,6 +112,22 @@ public:
         bool coldSearchUsed = false;
         bool truncated = false;
         bool cancelled = false;
+        uint64_t searchGeneration = 0;
+        size_t generationRestarts = 0;
+        double stateLockWaitMs = 0.0;
+        double maxStateLockHoldMs = 0.0;
+    };
+
+    struct ReadPlaneDiagnostics {
+        size_t activeSearches = 0;
+        size_t peakSearches = 0;
+        size_t activeDurableReaders = 0;
+        size_t peakDurableReaders = 0;
+        uint64_t completedSearches = 0;
+        uint64_t cancelledSearches = 0;
+        uint64_t unavailableSearches = 0;
+        uint64_t readerFailures = 0;
+        uint64_t generationRestarts = 0;
     };
 
     // outIntegrityFailed (optional, task 1.7): set to true when the open
@@ -106,6 +137,17 @@ public:
     // I/O failure.
     bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
     void Close();
+
+    // nonblocking-indexed-read-plane 2.1: test-only phase injection. The
+    // callback is never invoked when no hook is installed.
+    void SetSearchTestHooks(SearchTestHooks hooks);
+
+    // nonblocking-indexed-read-plane 3.4: portable fault injection for the
+    // per-query durable reader. Production callers leave this empty; a
+    // forced reader failure must surface as Unavailable rather than a partial
+    // completed response.
+    void SetReadSessionFaultInjector(ffindexstore::ReadSessionFaultInjector injector);
+    ReadPlaneDiagnostics GetReadPlaneDiagnostics() const noexcept;
 
     // task 1.6: scheduled WAL maintenance, intended to be called on a
     // low-frequency timer (the engine calls it from VolumeSessionManager's
@@ -175,6 +217,10 @@ private:
     // Shared commit-then-apply tail for USN batches.
     bool ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
                               std::vector<ffindexstore::EntryChange>&& changes);
+
+    ffprotocol::IndexedSearchResponse SearchIndexedReadPlane(
+        const ffprotocol::IndexedSearchRequest& request,
+        SearchTimings* timings, const std::function<bool()>& cancelled);
 
 public:
     bool SetVolumeAvailable(ffindexstore::VolumeRowId id, bool available, uint64_t nowTimestamp);
@@ -251,9 +297,26 @@ public:
                                                     const SearchCancellation& cancelled = {});
 
 private:
+    static constexpr size_t kHotCandidateChunkRows = 256;
+    static constexpr size_t kMaxGenerationRestarts = 3;
+    static constexpr size_t kMaximumFilenameIndexCandidates = 16 * 1024;
+
     mutable std::mutex mutex_;
     ffindexstore::Store store_;
     ffindexstore::Projection projection_;
+    SearchTestHooks searchTestHooks_;
+    ffindexstore::ReadSessionFaultInjector readSessionFaultInjector_;
+    uint64_t generation_ = 1;
+    std::atomic<size_t> activeSearches_{0};
+    std::atomic<size_t> peakSearches_{0};
+    std::atomic<size_t> activeDurableReaders_{0};
+    std::atomic<size_t> peakDurableReaders_{0};
+    std::atomic<uint64_t> completedSearches_{0};
+    std::atomic<uint64_t> cancelledSearches_{0};
+    std::atomic<uint64_t> unavailableSearches_{0};
+    std::atomic<uint64_t> readerFailures_{0};
+    std::atomic<uint64_t> generationRestarts_{0};
+    std::atomic<uint64_t> lifecycleEpoch_{1};
 
     // zero-touch-autonomous-engineering (subtree gating): per-volume rules +
     // drive-letter prefix (VolumeSetting.key, e.g. "C:") used to evaluate

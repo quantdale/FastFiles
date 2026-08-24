@@ -10,6 +10,7 @@ namespace ffindexstore {
 
 namespace {
 constexpr uint32_t kFileAttributeDirectory = 0x00000010;
+constexpr size_t kMaxProjectionPathDepth = 4096;
 
 bool IsAsciiLower(std::u16string_view name) {
     for (const char16_t ch : name) {
@@ -603,8 +604,32 @@ const ProjectionEntry* Projection::Find(VolumeRowId volumeRowId, FileId frn) con
     return pIndex ? &entries_[*pIndex] : nullptr;
 }
 
+ProjectionEntryCursor::ProjectionEntryCursor(const Projection& projection)
+    : projection_(&projection), dense_(projection.denseIterationOrderValid_),
+      iterator_(dense_ ? EntryMap::Iterator{} : projection.idToIndex_.begin()) {}
+
+bool ProjectionEntryCursor::Next(const ProjectionEntry*& entry) {
+    entry = nullptr;
+    if (projection_ == nullptr) return false;
+    if (dense_) {
+        if (denseIndex_ >= projection_->entries_.size()) return false;
+        entry = &projection_->entries_[denseIndex_++];
+        return true;
+    }
+    if (!(iterator_ != projection_->idToIndex_.end())) return false;
+    const auto [key, index] = *iterator_;
+    (void)key;
+    ++iterator_;
+    entry = &projection_->entries_[index];
+    return true;
+}
+
+ProjectionEntryCursor Projection::BeginEntryCursor() const {
+    return ProjectionEntryCursor(*this);
+}
+
 std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
-    const std::u16string_view foldedNeedle) const {
+    const std::u16string_view foldedNeedle, const size_t maximumCandidates) const {
     if (!filenameIndexValid_ || foldedNeedle.size() < 3 || !IsAscii(foldedNeedle)) {
         return std::nullopt;
     }
@@ -625,19 +650,39 @@ std::optional<std::vector<uint32_t>> Projection::FilenameCandidateIndices(
             std::sort(postings.begin(), postings.end(), [](const auto* left, const auto* right) {
                 return left->size() < right->size();
             });
+            if (maximumCandidates != 0 && postings.front()->size() > maximumCandidates) {
+                return std::nullopt;
+            }
             result = *postings.front();
             std::vector<uint32_t> scratch;
             for (size_t index = 1; index < postings.size() && !result.empty(); ++index) {
                 scratch.clear();
                 std::set_intersection(result.begin(), result.end(), postings[index]->begin(), postings[index]->end(),
                                       std::back_inserter(scratch));
+                if (maximumCandidates != 0 && scratch.size() > maximumCandidates) {
+                    return std::nullopt;
+                }
                 result.swap(scratch);
             }
         }
         std::vector<uint32_t> merged;
-        merged.reserve(result.size() + filenameNonAsciiEntries_.size());
+        if (maximumCandidates != 0 && result.size() > maximumCandidates) {
+            return std::nullopt;
+        }
+        const size_t maximumSize = (std::numeric_limits<size_t>::max)();
+        const size_t nonAsciiCount = filenameNonAsciiEntries_.size();
+        const size_t combinedSize = nonAsciiCount > maximumSize - result.size()
+            ? maximumSize : result.size() + nonAsciiCount;
+        const size_t reserveSize = maximumCandidates == 0
+            ? combinedSize
+            : (std::min)(maximumCandidates == maximumSize ? maximumSize : maximumCandidates + 1,
+                         combinedSize);
+        merged.reserve(reserveSize);
         std::set_union(result.begin(), result.end(), filenameNonAsciiEntries_.begin(),
                        filenameNonAsciiEntries_.end(), std::back_inserter(merged));
+        if (maximumCandidates != 0 && merged.size() > maximumCandidates) {
+            return std::nullopt;
+        }
         return merged;
     } catch (...) {
         // The index is an accelerator only. A transient allocation failure in
@@ -703,12 +748,18 @@ std::optional<Projection::FolderAggregate> Projection::GetFolderAggregate(Volume
 }
 
 Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, FileId frn) const {
+    return ReconstructPathUntil(volumeRowId, frn, {});
+}
+
+Projection::PathResult Projection::ReconstructPathUntil(
+    VolumeRowId volumeRowId, FileId frn, const std::function<bool()>& cancelled) const {
     PathResult result;
     std::vector<NameId> partsReversed;
     std::unordered_set<EntryKey, EntryKeyHash> visited;
 
     FileId current = frn;
-    for (;;) {
+    for (size_t depth = 0; depth < kMaxProjectionPathDepth; ++depth) {
+        if (cancelled && cancelled()) break;
         const EntryKey currentKey{volumeRowId, current};
         // task 2.4: a walk that revisits an FRN already seen in *this*
         // walk stops rather than looping -- defensive only, a well-formed
@@ -733,6 +784,10 @@ Projection::PathResult Projection::ReconstructPath(VolumeRowId volumeRowId, File
     }
 
     for (auto it = partsReversed.rbegin(); it != partsReversed.rend(); ++it) {
+        if (cancelled && cancelled()) {
+            result.reachedRoot = false;
+            break;
+        }
         if (!result.path.empty()) {
             result.path.push_back(u'\\');
         }

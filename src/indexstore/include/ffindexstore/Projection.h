@@ -42,6 +42,28 @@ struct ProjectionEntry {
     bool nameAsciiLower = false;
 };
 
+class Projection;
+
+// nonblocking-indexed-read-plane 4.1: a cursor carries only the current
+// dense-slot or flat-map bucket position. It does not own an index copy. The
+// caller may release the projection lock between bounded chunks, but must
+// discard the cursor if the owning pipeline generation changes.
+class ProjectionEntryCursor {
+public:
+    ProjectionEntryCursor() = default;
+    bool Next(const ProjectionEntry*& entry);
+
+private:
+    friend class Projection;
+    using EntryMap = FlatHashMap<EntryKey, uint32_t, EntryKeyHash>;
+    explicit ProjectionEntryCursor(const Projection& projection);
+
+    const Projection* projection_ = nullptr;
+    bool dense_ = false;
+    size_t denseIndex_ = 0;
+    EntryMap::Iterator iterator_;
+};
+
 // The compact, RAM-resident view of the index that search/browse/storage-
 // analysis actually read (design.md D2), rebuilt from the durable Store at
 // startup (D4) and kept incrementally in sync thereafter (this is the
@@ -121,12 +143,15 @@ public:
 
     const ProjectionEntry* Find(VolumeRowId volumeRowId, FileId frn) const;
 
+    ProjectionEntryCursor BeginEntryCursor() const;
+
     // Returns a conservative candidate set for an already ASCII-folded
     // simple literal. nullopt means the secondary accelerator is ineligible
     // or unavailable, so callers must use the canonical live-entry scan.
     // Returned slot indices belong to this projection generation and are
     // valid only while the caller holds the projection's synchronization.
-    std::optional<std::vector<uint32_t>> FilenameCandidateIndices(std::u16string_view foldedNeedle) const;
+    std::optional<std::vector<uint32_t>> FilenameCandidateIndices(
+        std::u16string_view foldedNeedle, size_t maximumCandidates = 0) const;
 
     // task 2.3: parent->children lookup for directory-listing/Column-View
     // style access. Returns empty span if the parent has no known children
@@ -172,6 +197,10 @@ public:
     // task 2.4: walks parent references and concatenates interned names
     // on demand -- never reads a precomputed path field.
     PathResult ReconstructPath(VolumeRowId volumeRowId, FileId frn) const;
+    // nonblocking-indexed-read-plane 4.3: the same bounded walk with a
+    // cooperative cancellation check between parent links.
+    PathResult ReconstructPathUntil(VolumeRowId volumeRowId, FileId frn,
+                                     const std::function<bool()>& cancelled) const;
 
     // task 3.1: rebuilds this volume's portion of the projection from the
     // durable store in a single streaming pass, interning names and
@@ -244,6 +273,7 @@ public:
     }
 
 private:
+    friend class ProjectionEntryCursor;
     void EnforceMemoryLimit();
     void EnforceMemoryLimitTo(size_t targetBytes);
     void EnforceMemoryLimitOnceTo(size_t targetBytes);

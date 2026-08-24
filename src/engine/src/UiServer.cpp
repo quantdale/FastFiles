@@ -61,8 +61,119 @@ ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& resul
 
 } // namespace
 
-UiServer::ClientConnection::ClientConnection(HANDLE pipe, FrameWriter frameWriter, PipeCanceller pipeCanceller)
-    : pipe_(std::make_shared<OwnedPipe>(pipe)), frameWriter_(std::move(frameWriter)), pipeCanceller_(std::move(pipeCanceller)) {
+UiServer::SearchCoordinator::Permit::Permit(std::shared_ptr<SearchCoordinator> owner)
+    : owner_(std::move(owner)) {}
+
+UiServer::SearchCoordinator::Permit::~Permit() {
+    if (owner_ != nullptr) owner_->Release();
+}
+
+UiServer::SearchCoordinator::Permit::Permit(Permit&& other) noexcept
+    : owner_(std::move(other.owner_)) {}
+
+UiServer::SearchCoordinator::Permit& UiServer::SearchCoordinator::Permit::operator=(Permit&& other) noexcept {
+    if (this == &other) return *this;
+    if (owner_ != nullptr) owner_->Release();
+    owner_ = std::move(other.owner_);
+    return *this;
+}
+
+std::optional<UiServer::SearchCoordinator::Permit> UiServer::SearchCoordinator::Acquire(
+    const std::function<bool()>& cancelled) {
+    const auto isCancelled = [&cancelled] { return cancelled && cancelled(); };
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (stopping_ || isCancelled()) return std::nullopt;
+    if (active_ < maxActive_ && waiters_.empty()) {
+        ++active_;
+        peakActive_ = (std::max)(peakActive_, active_);
+        return std::optional<Permit>(Permit(shared_from_this()));
+    }
+    if (waiters_.size() >= maxQueued_) {
+        ++rejected_;
+        return std::nullopt;
+    }
+
+    const auto waiter = std::make_shared<Waiter>();
+    waiters_.push_back(waiter);
+    for (;;) {
+        condition_.wait(lock, [&] {
+            return stopping_ || isCancelled() ||
+                   (!waiters_.empty() && waiters_.front() == waiter && active_ < maxActive_);
+        });
+        if (stopping_ || isCancelled()) {
+            const auto it = std::find(waiters_.begin(), waiters_.end(), waiter);
+            if (it != waiters_.end()) waiters_.erase(it);
+            const double waitMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - waiter->enqueuedAt).count();
+            totalQueueWaitMs_ += waitMs;
+            maxQueueWaitMs_ = (std::max)(maxQueueWaitMs_, waitMs);
+            if (!stopping_) ++queuedCancellations_;
+            condition_.notify_all();
+            return std::nullopt;
+        }
+        if (!waiters_.empty() && waiters_.front() == waiter && active_ < maxActive_) {
+            waiters_.pop_front();
+            const double waitMs = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - waiter->enqueuedAt).count();
+            totalQueueWaitMs_ += waitMs;
+            maxQueueWaitMs_ = (std::max)(maxQueueWaitMs_, waitMs);
+            ++active_;
+            peakActive_ = (std::max)(peakActive_, active_);
+            return std::optional<Permit>(Permit(shared_from_this()));
+        }
+    }
+}
+
+void UiServer::SearchCoordinator::Notify() {
+    condition_.notify_all();
+}
+
+void UiServer::SearchCoordinator::Stop() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopping_ = true;
+    }
+    condition_.notify_all();
+}
+
+void UiServer::SearchCoordinator::SetLimitsForTesting(const size_t maxActive,
+                                                       const size_t maxQueued) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        maxActive_ = maxActive == 0 ? kMaxActive : maxActive;
+        maxQueued_ = maxQueued == 0 ? kMaxQueued : maxQueued;
+    }
+    condition_.notify_all();
+}
+
+void UiServer::SearchCoordinator::Release() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (active_ != 0) --active_;
+        ++completed_;
+    }
+    condition_.notify_all();
+}
+
+UiServer::SearchCoordinator::Stats UiServer::SearchCoordinator::GetStats() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    Stats stats;
+    stats.active = active_;
+    stats.queued = waiters_.size();
+    stats.peakActive = peakActive_;
+    stats.completed = completed_;
+    stats.queuedCancellations = queuedCancellations_;
+    stats.rejected = rejected_;
+    stats.totalQueueWaitMs = totalQueueWaitMs_;
+    stats.maxQueueWaitMs = maxQueueWaitMs_;
+    return stats;
+}
+
+UiServer::ClientConnection::ClientConnection(HANDLE pipe, FrameWriter frameWriter,
+                                             PipeCanceller pipeCanceller,
+                                             std::shared_ptr<SearchCoordinator> searchCoordinator)
+    : pipe_(std::make_shared<OwnedPipe>(pipe)), frameWriter_(std::move(frameWriter)),
+      pipeCanceller_(std::move(pipeCanceller)), searchCoordinator_(std::move(searchCoordinator)) {
     indexedSearchThread_ = std::thread(&ClientConnection::IndexedSearchWorker, this);
 }
 
@@ -125,6 +236,7 @@ void UiServer::ClientConnection::StartIndexedSearch(
         pendingIndexedSearch_ = IndexedSearchTask{request, handler, cancellation};
     }
     indexedSearchCondition_.notify_one();
+    if (searchCoordinator_ != nullptr) searchCoordinator_->Notify();
 }
 
 bool UiServer::ClientConnection::CancelIndexedSearch(uint64_t requestId) {
@@ -143,6 +255,7 @@ bool UiServer::ClientConnection::CancelIndexedSearch(uint64_t requestId) {
         }
     }
     indexedSearchCondition_.notify_one();
+    if (searchCoordinator_ != nullptr) searchCoordinator_->Notify();
     return cancelled;
 }
 
@@ -158,6 +271,7 @@ void UiServer::ClientConnection::CancelIndexedSearches() {
         }
     }
     indexedSearchCondition_.notify_one();
+    if (searchCoordinator_ != nullptr) searchCoordinator_->Notify();
 }
 
 void UiServer::ClientConnection::IndexedSearchWorker() {
@@ -177,10 +291,18 @@ void UiServer::ClientConnection::IndexedSearchWorker() {
 
         ffprotocol::IndexedSearchResponse response;
         response.requestId = task.request.requestId;
-        if (task.handler) {
-            const SearchCancellation cancellation = [token = task.cancellation] {
-                return token->load(std::memory_order_acquire);
-            };
+        const SearchCancellation cancellation = [token = task.cancellation] {
+            return token->load(std::memory_order_acquire);
+        };
+        std::optional<SearchCoordinator::Permit> permit;
+        if (searchCoordinator_ != nullptr) {
+            permit = searchCoordinator_->Acquire(cancellation);
+        }
+        if (task.cancellation->load(std::memory_order_acquire)) {
+            response.status = ffprotocol::IndexedSearchStatus::Cancelled;
+        } else if (!permit.has_value()) {
+            response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+        } else if (task.handler) {
             response = task.handler(task.request, cancellation);
             response.requestId = task.request.requestId;
         } else {
@@ -201,8 +323,28 @@ void UiServer::ClientConnection::IndexedSearchWorker() {
             // indexed-search-allocated-size D5: emit the additive V2 response so
             // the UI receives on-disk size + knownness; legacy message 18 is
             // preserved byte-for-byte and still decoded as allocated-unknown.
-            const auto payload = ffprotocol::SerializeIndexedSearchResponseV2(response);
-            if (!payload.empty()) {
+            bool wireTruncated = false;
+            auto payload = ffprotocol::SerializeIndexedSearchResponseV2(response, &wireTruncated);
+            bool wireDroppedCandidates = false;
+            if (!payload.empty() && wireTruncated && response.candidates.size() > 0) {
+                ffprotocol::IndexedSearchResultHeader wireHeader{};
+                if (payload.size() >= sizeof(wireHeader)) {
+                    std::memcpy(&wireHeader, payload.data(), sizeof(wireHeader));
+                    wireDroppedCandidates = wireHeader.count < response.candidates.size();
+                }
+            }
+            if ((payload.empty() || wireDroppedCandidates) &&
+                response.status != ffprotocol::IndexedSearchStatus::Cancelled) {
+                // nonblocking-indexed-read-plane 6.4: a response that cannot
+                // fit the normal bounded frame is never silently dropped or
+                // reported as a complete result. Invalid candidate data also
+                // takes this fail-closed path instead of disappearing.
+                response.status = ffprotocol::IndexedSearchStatus::Unavailable;
+                response.truncated = false;
+                response.candidates.clear();
+                payload = ffprotocol::SerializeIndexedSearchResponseV2(response);
+            }
+            if (!task.cancellation->load(std::memory_order_acquire) && !payload.empty()) {
                 Write(static_cast<uint16_t>(UiMessageType::IndexedSearchResultV2),
                       payload.data(), static_cast<uint32_t>(payload.size()));
             }
@@ -223,6 +365,7 @@ void UiServer::ClientConnection::Close() {
         }
     }
     indexedSearchCondition_.notify_one();
+    if (searchCoordinator_ != nullptr) searchCoordinator_->Notify();
 
     PipePtr pipe;
     {
@@ -280,8 +423,14 @@ UiServer::~UiServer() {
 
 bool UiServer::Start(DWORD sessionId) {
     connectionGate_ = std::make_shared<ConnectionGate>();
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator_ = std::make_shared<SearchCoordinator>();
+    }
     if (!snapshot_.Start(sessionId)) {
         connectionGate_.reset();
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator_.reset();
         return false;
     }
 
@@ -289,6 +438,8 @@ bool UiServer::Start(DWORD sessionId) {
     if (!descriptor) {
         snapshot_.Stop();
         connectionGate_.reset();
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator_.reset();
         return false;
     }
     securityDescriptor_ = std::move(*descriptor);
@@ -315,6 +466,8 @@ bool UiServer::Start(DWORD sessionId) {
         snapshot_.Stop();
         securityDescriptor_ = {};
         connectionGate_.reset();
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator_.reset();
         return false;
     }
     return true;
@@ -322,6 +475,12 @@ bool UiServer::Start(DWORD sessionId) {
 
 void UiServer::Stop() {
     running_ = false;
+    std::shared_ptr<SearchCoordinator> searchCoordinator;
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator = searchCoordinator_;
+    }
+    if (searchCoordinator != nullptr) searchCoordinator->Stop();
     const auto connectionGate = connectionGate_;
     if (connectionGate != nullptr) {
         std::lock_guard<std::mutex> lock(connectionGate->mutex);
@@ -359,6 +518,10 @@ void UiServer::Stop() {
     {
         std::lock_guard<std::mutex> lock(clientsMutex_);
         subscribedClients_.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator_.reset();
     }
 }
 
@@ -551,6 +714,28 @@ void UiServer::SetIndexedWorkingSetCap(const size_t maxIndexedDirectories) {
     std::lock_guard<std::mutex> lock(directoriesMutex_);
     indexedWorkingSetCap_ = maxIndexedDirectories == 0 ? kDefaultMaxRetainedIndexedDirectories
                                                        : maxIndexedDirectories;
+}
+
+UiServer::IndexedSearchStats UiServer::GetIndexedSearchStats() const {
+    std::shared_ptr<SearchCoordinator> coordinator;
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        coordinator = searchCoordinator_;
+    }
+    if (coordinator == nullptr) return {};
+    const auto stats = coordinator->GetStats();
+    return {stats.active, stats.queued, stats.peakActive, stats.completed,
+            stats.queuedCancellations, stats.rejected, stats.totalQueueWaitMs,
+            stats.maxQueueWaitMs};
+}
+
+void UiServer::SetIndexedSearchLimitsForTesting(const size_t maxActive, const size_t maxQueued) {
+    std::shared_ptr<SearchCoordinator> coordinator;
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        coordinator = searchCoordinator_;
+    }
+    if (coordinator != nullptr) coordinator->SetLimitsForTesting(maxActive, maxQueued);
 }
 
 void UiServer::RemoveVolumeDirectories(wchar_t driveLetter) {
@@ -805,7 +990,13 @@ bool UiServer::HandleRequestIndexedSearch(const ClientConnectionPtr& client,
 }
 
 void UiServer::HandleConnection(HANDLE pipe) {
-    const ClientConnectionPtr client = std::make_shared<ClientConnection>(pipe, frameWriter_, pipeCanceller_);
+    std::shared_ptr<SearchCoordinator> searchCoordinator;
+    {
+        std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
+        searchCoordinator = searchCoordinator_;
+    }
+    const ClientConnectionPtr client = std::make_shared<ClientConnection>(
+        pipe, frameWriter_, pipeCanceller_, std::move(searchCoordinator));
     bool subscribed = false;
 
     for (;;) {
