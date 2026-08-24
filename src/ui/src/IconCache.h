@@ -24,7 +24,6 @@
 #include <cstddef>
 #include <d2d1_1.h>
 #include <deque>
-#include <list>
 #include <map>
 #include <mutex>
 #include <string>
@@ -32,6 +31,8 @@
 #include <wincodec.h>
 #include <windows.h>
 #include <wrl/client.h>
+
+#include "ffui/IconLru.h"
 
 namespace ffui {
 
@@ -106,7 +107,9 @@ private:
     std::deque<std::wstring> queue_;                      // keys queued for the worker
     std::map<std::wstring, HICON> pendingIcons_;          // resolved, awaiting UI-thread conversion (owns HICONs)
     std::map<std::wstring, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> bitmaps_;  // UI-thread bitmap cache
-    std::list<std::wstring> lru_;                         // MRU ordering over bitmaps_
+    // active-path-runtime-resilience 2.5: keep recency state independent from
+    // device resources and avoid mutable list iterators across cache flushes.
+    IconLru lru_;
     Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory_;  // UI thread only
     float dpiScale_ = 1.0f;                               // last-seen DPI scale
 };

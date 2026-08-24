@@ -11,6 +11,10 @@
 using namespace fftest;
 
 int main() {
+    Check(std::wstring(ffprotocol::DiagnosticCodeName(
+              ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED))
+              == L"FFDIAG_UI_RESULT_SUPERSEDED",
+          "superseded-result diagnostic keeps its stable append-only name");
     wchar_t temp[MAX_PATH]{};
     Check(GetTempPathW(MAX_PATH, temp) != 0, "temporary path is available");
     const std::filesystem::path localAppData = std::filesystem::path(temp) /

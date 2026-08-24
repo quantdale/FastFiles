@@ -126,6 +126,27 @@ target_include_directories(ffengine_client_handshake_tests PRIVATE
 target_link_libraries(ffengine_client_handshake_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore shell32)
 add_test(NAME ffengine_client_handshake_tests COMMAND ffengine_client_handshake_tests)
 
+# active-path-runtime-resilience 5.2/5.3: headless marked-fixture churn over
+# the production degraded watcher, snapshot publication, reconnect, and local
+# search seams. The default one-second run is a correctness CTest; the
+# verification capability supplies a bounded longer duration and samples the
+# owned process externally.
+add_executable(ffengine_active_path_resilience_tests
+  test_active_path_resilience.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/UiServer.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DirectoryWatcher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
+  ${CMAKE_SOURCE_DIR}/src/ui/src/EngineClient.cpp
+  ${CMAKE_SOURCE_DIR}/src/ui/src/EngineDiscovery.cpp
+)
+target_include_directories(ffengine_active_path_resilience_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/src/engine/src
+  ${CMAKE_SOURCE_DIR}/src/ui/src
+  ${CMAKE_SOURCE_DIR}/src/ui/include)
+target_link_libraries(ffengine_active_path_resilience_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore ffsearch shell32 psapi)
+add_test(NAME ffengine_active_path_resilience_tests COMMAND ffengine_active_path_resilience_tests)
+
 # zero-touch-autonomous-engineering: subtree-gating unit tests (closes
 # settings-and-appearance 2.5). Compiles IndexPipeline.cpp directly so the
 # engine's rule-honoring ingestion is testable without the GUI/service.
@@ -184,5 +205,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

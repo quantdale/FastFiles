@@ -41,8 +41,10 @@ public:
     // failure; the production calls are used whenever no hook is installed.
     using TestCreateFileMapping = std::function<HANDLE(const std::wstring& name)>;
     using TestMapViewOfFile = std::function<uint8_t*(HANDLE mapping)>;
+    using TestWriteSnapshot = std::function<bool(uint8_t* destination, size_t capacity)>;
     static void SetCreateFileMappingHook(TestCreateFileMapping hook);
     static void SetMapViewOfFileHook(TestMapViewOfFile hook);
+    static void SetWriteSnapshotHook(TestWriteSnapshot hook);
 #endif
 
     // Optional attribution seam for the explicit scalability benchmark. The

@@ -18,6 +18,7 @@
 #include <wrl/client.h>
 
 #include "EngineClient.h"
+#include "ffui/AsyncResultGate.h"
 #include "ffui/ShellLayout.h"
 #include "ffui/UiaSurface.h" // semantic-uia-core-surfaces 4.x: UIA projection seam
 #include "ffsearch/Search.h"
@@ -58,6 +59,10 @@ public:
     // Invalidates the candidate materialization after a new snapshot
     // generation. The next search rebuilds it once on the worker thread.
     void OnSnapshotUpdated();
+    // active-path-runtime-resilience 4.2: connection transitions invalidate
+    // callbacks from the old engine/source context and re-enter the existing
+    // indexed or degraded search path when the new source is ready.
+    void OnEngineConnectionState(EngineConnectionState state);
     void SetEngineActive(bool active);
     void ClearHistory();
     // quick-access-home 5.6: most-recent-first queries (the underlying store is
@@ -115,16 +120,19 @@ private:
 
     struct Work {
         uint64_t generation = 0;
+        uint64_t sourceEpoch = 0;
         std::vector<ffsearch::Candidate> candidates;
         ffsearch::SearchRequest request;
     };
     struct Completion {
         uint64_t generation = 0;
+        uint64_t sourceEpoch = 0;
         ffsearch::SearchResponse response;
         std::vector<ffsearch::Candidate> candidates;
     };
     struct IndexedCompletion {
         uint64_t generation = 0;
+        uint64_t sourceEpoch = 0;
         ffprotocol::IndexedSearchResponse response;
     };
     struct IndexedCallbackState {
@@ -133,6 +141,7 @@ private:
     };
 
     void WorkerMain();
+    void InvalidateInFlightWork();
     void Dispatch(bool recordHistory = true, bool forceSnapshot = false);
     void PopulateCandidates(std::vector<ffsearch::Candidate>& candidates);
     void RefreshScopeLabels();
@@ -243,6 +252,8 @@ private:
     bool snapshotRefreshPending_ = false;
     std::chrono::steady_clock::time_point lastSnapshotRefresh_{};
     uint64_t generation_ = 0;
+    uint64_t sourceEpoch_ = 1;
+    AsyncResultGate resultGate_;
     std::atomic<uint64_t> indexedRequestId_{0};
 
     std::thread worker_;
@@ -250,6 +261,7 @@ private:
     std::condition_variable workCv_;
     std::optional<Work> pendingWork_;
     std::atomic<uint64_t> currentGeneration_{0};
+    std::atomic<uint64_t> currentSourceEpoch_{1};
     std::atomic<bool> stopping_{false};
     std::shared_ptr<IndexedCallbackState> indexedCallbackState_ =
         std::make_shared<IndexedCallbackState>();

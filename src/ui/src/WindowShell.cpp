@@ -1983,6 +1983,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             // this message is posted by EngineClient's management thread.
             const EngineConnectionState state = static_cast<EngineConnectionState>(wParam);
             columnView_.OnEngineConnectionState(state);
+            searchPanel_.OnEngineConnectionState(state);
             if (state == EngineConnectionState::Connected) {
                 // A restarted engine owns a fresh snapshot mapping. Replay
                 // the visible columns so reconnects cannot leave the browser

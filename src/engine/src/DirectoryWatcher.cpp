@@ -36,9 +36,11 @@ DirectoryWatcher::~DirectoryWatcher() {
     UnwatchAll();
 }
 
-void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged) {
+bool DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged) {
     std::vector<std::unique_ptr<WatchEntry>> toStop;
     std::shared_ptr<WatchStartupState> startupState;
+    bool watchInstalled = false;
+    bool finalRefreshRequired = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto existing = watches_.find(path);
@@ -52,7 +54,7 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
                 accessOrder_.erase(it);
                 accessOrder_.push_back(existing->first);
             }
-            return;
+            return true;
         }
         if (existing != watches_.end()) {
             // A worker that gave up after an error remains joinable in the
@@ -66,10 +68,18 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
         }
 
         const std::wstring apiPath = ExtendedApiPath(path);
-        HANDLE directoryHandle = CreateFileW(
-            apiPath.c_str(), FILE_LIST_DIRECTORY,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+        HANDLE directoryHandle = INVALID_HANDLE_VALUE;
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+        if (testOpenDirectoryProvider_) {
+            directoryHandle = testOpenDirectoryProvider_(apiPath);
+        } else
+#endif
+        {
+            directoryHandle = CreateFileW(
+                apiPath.c_str(), FILE_LIST_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+        }
         if (directoryHandle == INVALID_HANDLE_VALUE) {
             // e.g. permission-denied or path gone; the old dead entry (if
             // any) is still stopped below, but no replacement is installed.
@@ -77,9 +87,14 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
             // channel as every other watcher error path -- otherwise the
             // directory renders once from enumeration and then silently goes
             // stale with no signal at all.
+            const DWORD error = GetLastError();
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
                                           ffprotocol::DiagnosticCode::FFDIAG_WATCH_FAILED,
-                                          path, {}, L"watch-open-failed", GetLastError(), 0});
+                                          path, {}, L"watch-open-failed", error, 0});
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_WATCH_TERMINAL_REFRESH,
+                                          path, {}, L"watch-open-final-refresh", error, 0});
+            finalRefreshRequired = true;
         } else {
             if (watches_.size() >= kMaxWatchedRoots) {
             // Evict the least-recently-watched root (recovery-degraded-
@@ -102,9 +117,25 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
                 }
             }
 
-            HANDLE stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            HANDLE stopEvent = nullptr;
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+            if (testCreateEventProvider_) {
+                stopEvent = testCreateEventProvider_(true);
+            } else
+#endif
+            {
+                stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            }
             if (stopEvent == nullptr) {
+                const DWORD error = GetLastError();
                 CloseHandle(directoryHandle);
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_WATCH_EVENT_CREATE_FAILED,
+                                              path, {}, L"watch-stop-event-create-failed", error, 0});
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_WATCH_TERMINAL_REFRESH,
+                                              path, {}, L"watch-stop-event-final-refresh", error, 0});
+                finalRefreshRequired = true;
             } else {
                 auto entry = std::make_unique<WatchEntry>();
                 entry->directoryHandle = directoryHandle;
@@ -115,11 +146,13 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
                 const auto finished = entry->finished;
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                 const TestCompletionProvider testCompletionProvider = testCompletionProvider_;
+                const TestCreateEventProvider testCreateEventProvider = testCreateEventProvider_;
+                const TestArmFailureProvider testArmFailureProvider = testArmFailureProvider_;
                 entry->thread = std::thread([directoryHandle, stopEvent, path,
                                              callback = std::move(onChanged), stopRequested, finished, startupState,
-                                             testCompletionProvider] {
+                                             testCompletionProvider, testCreateEventProvider, testArmFailureProvider] {
                     WatchLoop(directoryHandle, stopEvent, path, callback, stopRequested, finished, startupState,
-                              testCompletionProvider);
+                              testCompletionProvider, testCreateEventProvider, testArmFailureProvider);
                 });
 #else
                 entry->thread = std::thread([directoryHandle, stopEvent, path,
@@ -130,6 +163,7 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
 
                 watches_.emplace(path, std::move(entry));
                 accessOrder_.push_back(path);
+                watchInstalled = true;
             }
         }
     }
@@ -143,7 +177,16 @@ void DirectoryWatcher::Watch(const std::wstring& path, ChangeCallback onChanged)
         startupState->condition.wait_for(lock, std::chrono::seconds(1), [&startupState] {
             return startupState->signaled;
         });
+        watchInstalled = watchInstalled && startupState->signaled && startupState->ready;
     }
+    if (finalRefreshRequired && onChanged) {
+        // This runs after the mutex and any retired worker have been released.
+        // It is intentionally one-shot; the caller owns re-enumeration and
+        // publication, and a later browse can attempt to install the watch
+        // again.
+        onChanged(path);
+    }
+    return watchInstalled;
 }
 
 void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const std::wstring& path,
@@ -153,10 +196,12 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
                                  , const std::shared_ptr<WatchStartupState>& startupState
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                                  , const TestCompletionProvider& testCompletionProvider
+                                 , const TestCreateEventProvider& testCreateEventProvider
+                                 , const TestArmFailureProvider& testArmFailureProvider
 #endif
                                  ) {
     bool startupSignaled = false;
-    const auto signalStartup = [&] {
+    const auto signalStartup = [&](bool ready = true) {
         if (startupSignaled) {
             return;
         }
@@ -164,18 +209,34 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
         {
             std::lock_guard<std::mutex> lock(startupState->mutex);
             startupState->signaled = true;
+            startupState->ready = ready;
         }
         startupState->condition.notify_all();
     };
 
     std::vector<uint8_t> buffer(64 * 1024);
     int consecutiveOverflows = 0;
-    HANDLE ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE ioEvent = nullptr;
+#ifdef FF_DIRECTORY_WATCHER_TESTING
+    if (testCreateEventProvider) {
+        ioEvent = testCreateEventProvider(false);
+    } else
+#endif
+    {
+        ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    }
     if (ioEvent == nullptr) {
-        signalStartup();
+        const DWORD error = GetLastError();
+        signalStartup(false);
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
                                       ffprotocol::DiagnosticCode::FFDIAG_WATCH_EVENT_CREATE_FAILED,
-                                      path, {}, L"watch-event-create-failed", GetLastError(), 0});
+                                      path, {}, L"watch-event-create-failed", error, 0});
+        if (!stopRequested->load()) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_WATCH_TERMINAL_REFRESH,
+                                          path, {}, L"watch-event-final-refresh", error, 0});
+            callback(path);
+        }
         finished->store(true);
         return;
     }
@@ -249,6 +310,14 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
 
     while (!stopRequested->load()) {
 #ifdef FF_DIRECTORY_WATCHER_TESTING
+        if (testArmFailureProvider) {
+            const std::optional<DWORD> injectedError = testArmFailureProvider();
+            if (injectedError.has_value()) {
+                signalStartup(false);
+                if (!processCompletion(*injectedError, 0)) break;
+                continue;
+            }
+        }
         if (testCompletionProvider) {
             const std::optional<TestCompletion> completion = testCompletionProvider();
             if (!completion.has_value()) break;
@@ -271,7 +340,7 @@ void DirectoryWatcher::WatchLoop(HANDLE directoryHandle, HANDLE stopEvent, const
         // startup. A successful or pending call has armed the real watcher;
         // an immediate failure has made the watch terminal and also releases
         // the caller from the bounded startup wait.
-        signalStartup();
+        signalStartup(started || error == ERROR_IO_PENDING);
 
         // ReadDirectoryChangesW is being used with an OVERLAPPED structure.
         // In that mode lpBytesReturned is not populated by the initial call;

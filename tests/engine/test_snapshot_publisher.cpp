@@ -397,6 +397,37 @@ void TestPublisherStartFailureInjection() {
           "publisher starts again after MapViewOfFile injection is cleared");
     publisher.Stop();
 }
+
+void TestPublisherSerializationFailurePreservesLastKnownGood() {
+    ffengine::SnapshotPublisher publisher;
+    Check(publisher.Start(GetCurrentProcessId() + 14),
+          "publisher starts before serialization failure injection");
+    if (publisher.SectionName().empty()) return;
+
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> prior{
+        {L"C:\\serialization-failure", MakeDirectory(L"prior.txt", 17)}};
+    const uint64_t priorGeneration = publisher.Publish(prior);
+    const std::wstring priorSection = publisher.CurrentSectionName();
+    Check(priorGeneration != 0, "a last-known-good generation is published before injection");
+
+    ffengine::SnapshotPublisher::SetWriteSnapshotHook(
+        [](uint8_t*, size_t) { return false; });
+    const std::map<std::wstring, ffprotocol::SnapshotDirectory> replacement{
+        {L"C:\\serialization-failure", MakeDirectory(L"replacement.txt", 29)}};
+    Check(publisher.Publish(replacement) == 0,
+          "serialization failure rejects the candidate publication");
+    Check(publisher.CurrentGeneration() == priorGeneration,
+          "serialization failure does not advance the visible generation");
+    Check(publisher.CurrentSectionName() == priorSection,
+          "serialization failure retains the last-known-good mapping name");
+    ffengine::SnapshotPublisher::SetWriteSnapshotHook({});
+
+    Check(publisher.Publish(replacement) == priorGeneration + 1,
+          "publication recovers after serialization injection is cleared");
+    Check(publisher.CurrentGeneration() == priorGeneration + 1,
+          "recovery publication advertises the next valid generation");
+    publisher.Stop();
+}
 #endif
 
 } // namespace
@@ -409,6 +440,7 @@ int main() {
     TestPublisherStartupEmptySnapshot();
 #ifdef FF_SNAPSHOT_PUBLISHER_TESTING
     TestPublisherStartFailureInjection();
+    TestPublisherSerializationFailurePreservesLastKnownGood();
 #endif
     return FailureCount() == 0 ? 0 : 1;
 }

@@ -27,6 +27,7 @@ std::wstring GenerationSectionName(const std::wstring& prefix, uint64_t generati
 // translation unit with FF_SNAPSHOT_PUBLISHER_TESTING defined.
 SnapshotPublisher::TestCreateFileMapping gCreateFileMappingHook;
 SnapshotPublisher::TestMapViewOfFile gMapViewOfFileHook;
+SnapshotPublisher::TestWriteSnapshot gWriteSnapshotHook;
 #endif
 
 } // namespace
@@ -38,6 +39,10 @@ void SnapshotPublisher::SetCreateFileMappingHook(TestCreateFileMapping hook) {
 
 void SnapshotPublisher::SetMapViewOfFileHook(TestMapViewOfFile hook) {
     gMapViewOfFileHook = std::move(hook);
+}
+
+void SnapshotPublisher::SetWriteSnapshotHook(TestWriteSnapshot hook) {
+    gWriteSnapshotHook = std::move(hook);
 }
 #endif
 
@@ -174,7 +179,16 @@ bool SnapshotPublisher::CreateGenerationMapping(uint64_t generation,
     header->generation = 0;
     if (writer) {
         const auto serializationStart = std::chrono::steady_clock::now();
-        if (!writer(candidateView + sizeof(*header), payloadSize)) {
+        bool wrote = false;
+#ifdef FF_SNAPSHOT_PUBLISHER_TESTING
+        if (gWriteSnapshotHook) {
+            wrote = gWriteSnapshotHook(candidateView + sizeof(*header), payloadSize);
+        } else
+#endif
+        {
+            wrote = writer(candidateView + sizeof(*header), payloadSize);
+        }
+        if (!wrote) {
             UnmapViewOfFile(candidateView);
             CloseHandle(candidate);
             return false;

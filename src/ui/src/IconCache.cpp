@@ -152,7 +152,7 @@ bool IconCache::Get(ID2D1DeviceContext* context, const std::wstring& key, ID2D1B
         const float scale = UiDpiScale();
         if (dpiScale_ != scale) {
             bitmaps_.clear();
-            lru_.clear();
+            lru_.Clear();
             dpiScale_ = scale;
         }
     }
@@ -161,8 +161,7 @@ bool IconCache::Get(ID2D1DeviceContext* context, const std::wstring& key, ID2D1B
         std::lock_guard<std::mutex> lock(mutex_);
         auto found = bitmaps_.find(key);
         if (found != bitmaps_.end()) {
-            lru_.remove(key);
-            lru_.push_front(key);
+            lru_.Touch(key);
             found->second.CopyTo(outBitmap);
             return true;
         }
@@ -196,7 +195,7 @@ bool IconCache::Get(ID2D1DeviceContext* context, const std::wstring& key, ID2D1B
 void IconCache::Flush() {
     std::lock_guard<std::mutex> lock(mutex_);
     bitmaps_.clear();
-    lru_.clear();
+    lru_.Clear();
     dpiScale_ = UiDpiScale();
 }
 
@@ -262,13 +261,10 @@ bool IconCache::ConvertPendingIcon(ID2D1DeviceContext* context, const std::wstri
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        lru_.remove(key);
-        lru_.push_front(key);
         bitmaps_[key] = bitmap;
-        while (lru_.size() > kMaxCachedBitmaps) {
-            const std::wstring& victim = lru_.back();
+        lru_.Touch(key);
+        for (const auto& victim : lru_.TrimTo(kMaxCachedBitmaps)) {
             bitmaps_.erase(victim);
-            lru_.pop_back();
         }
     }
     return true;

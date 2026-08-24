@@ -128,6 +128,7 @@ const wchar_t* DiagnosticCodeName(DiagnosticCode code) {
         case DiagnosticCode::FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID: return L"FFDIAG_SNAPSHOT_SUBSCRIBE_INVALID";
         case DiagnosticCode::FFDIAG_WATCH_TERMINAL_REFRESH: return L"FFDIAG_WATCH_TERMINAL_REFRESH";
         case DiagnosticCode::FFDIAG_INDEXED_MERGE_SUPPRESSED: return L"FFDIAG_INDEXED_MERGE_SUPPRESSED";
+        case DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED: return L"FFDIAG_UI_RESULT_SUPERSEDED";
     }
     return L"FFDIAG_UNKNOWN";
 }

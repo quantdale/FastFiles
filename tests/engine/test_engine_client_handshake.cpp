@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -8,8 +9,10 @@
 #include <fstream>
 #include <map>
 #include <mutex>
+#include <set>
 #include <string>
 #include <thread>
+#include <functional>
 
 #include "EngineClient.h"
 #include "UiServer.h"
@@ -159,6 +162,200 @@ void TestEngineClientUiServerHandshake() {
     Check(!std::filesystem::exists(root), "handshake fixture is removed");
 }
 
+// active-path-runtime-resilience 4.3: connect external filesystem mutation to
+// the real degraded watcher, UiServer publication, and EngineClient mapping.
+// The existing file-operation suite owns operation semantics; this battery
+// owns the observation/convergence seam and compares the final snapshot with
+// an independent directory enumeration.
+void TestFilesystemMutationConvergesThroughPublishedSnapshot() {
+    wchar_t tempPath[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, tempPath) != 0, "convergence temporary path is available");
+    const auto root = std::filesystem::path(tempPath) /
+        (L"FastFiles-active-path-convergence-" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(std::filesystem::create_directories(root, error), "convergence fixture directory is created");
+    const auto initialPath = root / L"initial.txt";
+    {
+        std::ofstream output(initialPath, std::ios::binary | std::ios::trunc);
+        output << "initial";
+    }
+    Check(std::filesystem::exists(initialPath), "convergence initial file is created");
+
+    DWORD sessionId = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
+    ffengine::UiServer server;
+    const bool serverStarted = server.Start(sessionId);
+    Check(serverStarted, "convergence UI server starts");
+    if (!serverStarted) {
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    struct State {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool connected = false;
+        bool directoryError = false;
+        uint64_t lastGeneration = 0;
+    } state;
+
+    ffui::EngineClient client;
+    client.Start(
+        [&state](uint64_t generation) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                state.lastGeneration = (std::max)(state.lastGeneration, generation);
+            }
+            state.condition.notify_all();
+        },
+        [&state](ffui::EngineConnectionState connectionState, bool) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                if (connectionState == ffui::EngineConnectionState::Connected) {
+                    state.connected = true;
+                }
+            }
+            state.condition.notify_all();
+        },
+        [&state](const std::wstring&, ffprotocol::DirectoryErrorReason) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                state.directoryError = true;
+            }
+            state.condition.notify_all();
+        });
+
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        Check(state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.connected; }),
+              "convergence client connects to the engine");
+    }
+    client.RequestDirectory(root.wstring());
+    auto initial = client.ReadSnapshotWithGeneration();
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        Check(state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.lastGeneration != 0; }),
+              "convergence initial directory request publishes a generation");
+    }
+    initial = client.ReadSnapshotWithGeneration();
+    Check(initial.has_value() && initial->directories.contains(root.wstring()),
+          "convergence initial snapshot contains the browsed root");
+
+    auto waitForSnapshot = [&](uint64_t previousGeneration, const std::wstring& observedPath,
+                               const std::function<bool(const ffprotocol::SnapshotDirectory&)>& predicate,
+                               const char* description) {
+        const auto deadline = std::chrono::steady_clock::now() + kWaitDeadline;
+        uint64_t observedGeneration = previousGeneration;
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::unique_lock<std::mutex> lock(state.mutex);
+                state.condition.wait_until(lock, deadline, [&] {
+                    return state.directoryError || state.lastGeneration > observedGeneration;
+                });
+                if (state.directoryError) break;
+            }
+            const auto snapshot = client.ReadSnapshotWithGeneration();
+            if (snapshot.has_value()) {
+                observedGeneration = (std::max)(observedGeneration, snapshot->generation);
+                const auto directory = snapshot->directories.find(observedPath);
+                if (directory != snapshot->directories.end() &&
+                    snapshot->generation > previousGeneration && predicate(directory->second)) {
+                    Check(true, description);
+                    return snapshot->generation;
+                }
+            }
+            std::unique_lock<std::mutex> lock(state.mutex);
+            state.condition.wait_for(lock, std::chrono::milliseconds(25));
+        }
+        Check(false, description);
+        return observedGeneration;
+    };
+
+    uint64_t generation = initial.has_value() ? initial->generation : 0;
+    const auto created = root / L"created-U0001F4C1.txt";
+    {
+        std::ofstream output(created, std::ios::binary | std::ios::trunc);
+        output << "created";
+    }
+    generation = waitForSnapshot(generation, root.wstring(), [&](const auto& directory) {
+        return std::any_of(directory.entries.begin(), directory.entries.end(), [&](const auto& entry) {
+            return entry.name == created.filename().wstring();
+        });
+    }, "created file converges into the published snapshot");
+
+    const auto renamed = root / L"renamed.txt";
+    error.clear();
+    std::filesystem::rename(initialPath, renamed, error);
+    Check(!error, "rename mutation succeeds");
+    generation = waitForSnapshot(generation, root.wstring(), [&](const auto& directory) {
+        bool oldPresent = false;
+        bool newPresent = false;
+        for (const auto& entry : directory.entries) {
+            oldPresent = oldPresent || entry.name == initialPath.filename().wstring();
+            newPresent = newPresent || entry.name == renamed.filename().wstring();
+        }
+        return !oldPresent && newPresent;
+    }, "rename removes the old identity and publishes the new identity");
+
+    const auto destination = root / L"moved";
+    Check(std::filesystem::create_directories(destination, error), "move destination is created");
+    const auto moved = destination / renamed.filename();
+    error.clear();
+    std::filesystem::rename(renamed, moved, error);
+    Check(!error, "move mutation succeeds");
+    generation = waitForSnapshot(generation, root.wstring(), [&](const auto& directory) {
+        return std::none_of(directory.entries.begin(), directory.entries.end(), [&](const auto& entry) {
+            return entry.name == renamed.filename().wstring();
+        });
+    }, "move removes the source identity from the active directory");
+
+    client.RequestDirectory(destination.wstring());
+    generation = waitForSnapshot(generation, destination.wstring(), [&](const auto& directory) {
+        return directory.entries.size() == 1 && directory.entries.front().name == moved.filename().wstring();
+    }, "browsing the move destination publishes exactly one moved file");
+
+    const auto copied = root / L"copied.txt";
+    Check(CopyFileW(moved.c_str(), copied.c_str(), TRUE), "copy mutation succeeds");
+    generation = waitForSnapshot(generation, root.wstring(), [&](const auto& directory) {
+        return std::any_of(directory.entries.begin(), directory.entries.end(), [&](const auto& entry) {
+            return entry.name == copied.filename().wstring();
+        });
+    }, "copy mutation converges into the active directory snapshot");
+
+    Check(DeleteFileW(copied.c_str()), "delete mutation succeeds");
+    generation = waitForSnapshot(generation, root.wstring(), [&](const auto& directory) {
+        return std::none_of(directory.entries.begin(), directory.entries.end(), [&](const auto& entry) {
+            return entry.name == copied.filename().wstring();
+        });
+    }, "delete mutation removes the stale copied identity");
+
+    const auto expectedNames = [&] {
+        std::set<std::wstring> names;
+        for (const auto& entry : std::filesystem::directory_iterator(root)) {
+            names.insert(entry.path().filename().wstring());
+        }
+        return names;
+    }();
+    const auto finalSnapshot = client.ReadSnapshotWithGeneration();
+    Check(finalSnapshot.has_value() && finalSnapshot->directories.contains(root.wstring()),
+          "final convergence snapshot contains the active root");
+    if (finalSnapshot.has_value() && finalSnapshot->directories.contains(root.wstring())) {
+        std::set<std::wstring> actualNames;
+        for (const auto& entry : finalSnapshot->directories.at(root.wstring()).entries) {
+            actualNames.insert(entry.name);
+        }
+        Check(actualNames == expectedNames,
+              "final published root rows exactly match independent filesystem enumeration");
+    }
+    Check(!state.directoryError, "filesystem churn does not publish a directory error");
+
+    client.Stop();
+    server.Stop();
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "convergence fixture is removed");
+}
+
 // Audit regression (engine.md P2): a FolderAggregate request left in flight
 // when the engine disconnects must fail its UI callback with NotFound instead
 // of leaving the folder-size cell in perpetual "Calculating...". Uses a
@@ -216,11 +413,20 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
         bool connected = false;
         bool aggregateFailed = false;
         uint64_t failedRequestId = 0;
+        uint64_t generationCallbacks = 0;
+        uint64_t lastGeneration = 0;
     } state;
 
     ffui::EngineClient client;
     client.Start(
-        [&state](uint64_t) { state.condition.notify_all(); },
+        [&state](uint64_t generation) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                ++state.generationCallbacks;
+                state.lastGeneration = generation;
+            }
+            state.condition.notify_all();
+        },
         [&state](ffui::EngineConnectionState connectionState, bool) {
             {
                 std::lock_guard<std::mutex> lock(state.mutex);
@@ -234,6 +440,10 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
 
     // Wait for the client to reach the fake pipe, then complete the
     // Subscribe/SubscribeAck handshake by hand.
+    HANDLE newerMapping = nullptr;
+    HANDLE newestMapping = nullptr;
+    uint8_t* newerView = nullptr;
+    uint8_t* newestView = nullptr;
     const bool clientArrived = pending
         ? WaitForSingleObject(connectOverlapped.hEvent, 10000) == WAIT_OBJECT_0
         : connected == TRUE;
@@ -261,6 +471,68 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
             std::unique_lock<std::mutex> lock(state.mutex);
             const bool ok = state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.connected; });
             Check(ok, "EngineClient reports Connected against the fake engine");
+        }
+
+        // active-path-runtime-resilience 3.2: notifications are ordered by
+        // the accepted snapshot context, not by a late writer's arrival. Keep
+        // two committed mappings so a valid newer notification can bracket
+        // stale/duplicate notifications deterministically.
+        const auto createGenerationMapping = [&](uint64_t generation, HANDLE& newMapping, uint8_t*& newView) {
+            const std::wstring name = sectionPrefix + L"." + std::to_wstring(generation);
+            newMapping = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0,
+                                            static_cast<DWORD>(sectionBytes), name.c_str());
+            if (newMapping == nullptr) return false;
+            newView = static_cast<uint8_t*>(MapViewOfFile(newMapping, FILE_MAP_WRITE, 0, 0, 0));
+            if (newView == nullptr) return false;
+            ffprotocol::SnapshotSharedHeader newerHeader{};
+            newerHeader.formatVersion = ffprotocol::kSnapshotFormatVersion;
+            newerHeader.generation = generation;
+            newerHeader.payloadSizeBytes = payload.size();
+            std::memcpy(newView, &newerHeader, sizeof(newerHeader));
+            if (!payload.empty()) {
+                std::memcpy(newView + sizeof(newerHeader), payload.data(), payload.size());
+            }
+            return true;
+        };
+        const bool mappingsReady = createGenerationMapping(2, newerMapping, newerView)
+            && createGenerationMapping(3, newestMapping, newestView);
+        Check(mappingsReady, "fake engine creates newer committed generation mappings");
+        if (mappingsReady) {
+            const ffprotocol::NewGenerationPayload generationTwo{2};
+            Check(ffipc::WriteFrameOverlapped(serverPipe,
+                                              static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                              &generationTwo, sizeof(generationTwo),
+                                              std::chrono::steady_clock::now() + kWaitDeadline),
+                  "fake engine announces the next generation");
+            {
+                std::unique_lock<std::mutex> lock(state.mutex);
+                const bool accepted = state.condition.wait_for(lock, kWaitDeadline, [&state] {
+                    return state.generationCallbacks >= 1;
+                });
+                Check(accepted && state.lastGeneration == 2,
+                      "EngineClient accepts the newer generation notification");
+            }
+
+            const ffprotocol::NewGenerationPayload staleGeneration{1};
+            const ffprotocol::NewGenerationPayload generationThree{3};
+            Check(ffipc::WriteFrameOverlapped(serverPipe,
+                                              static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                              &staleGeneration, sizeof(staleGeneration),
+                                              std::chrono::steady_clock::now() + kWaitDeadline),
+                  "fake engine writes a stale generation notification");
+            Check(ffipc::WriteFrameOverlapped(serverPipe,
+                                              static_cast<uint16_t>(ffprotocol::UiMessageType::NewGeneration),
+                                              &generationThree, sizeof(generationThree),
+                                              std::chrono::steady_clock::now() + kWaitDeadline),
+                  "fake engine writes a later generation after the stale notification");
+            {
+                std::unique_lock<std::mutex> lock(state.mutex);
+                const bool accepted = state.condition.wait_for(lock, kWaitDeadline, [&state] {
+                    return state.generationCallbacks >= 2;
+                });
+                Check(accepted && state.generationCallbacks == 2 && state.lastGeneration == 3,
+                      "a late stale generation cannot replace the newer accepted generation");
+            }
         }
 
         // Register an aggregate request that the fake engine never answers.
@@ -300,6 +572,10 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
     client.Stop();
     if (view != nullptr) UnmapViewOfFile(view);
     if (mapping != nullptr) CloseHandle(mapping);
+    if (newerView != nullptr) UnmapViewOfFile(newerView);
+    if (newerMapping != nullptr) CloseHandle(newerMapping);
+    if (newestView != nullptr) UnmapViewOfFile(newestView);
+    if (newestMapping != nullptr) CloseHandle(newestMapping);
     if (serverPipe != INVALID_HANDLE_VALUE) CloseHandle(serverPipe);
     if (connectOverlapped.hEvent != nullptr) CloseHandle(connectOverlapped.hEvent);
 }
@@ -308,6 +584,7 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
 
 int main() {
     TestEngineClientUiServerHandshake();
+    TestFilesystemMutationConvergesThroughPublishedSnapshot();
     TestFolderAggregateCallbacksFailOnDisconnect();
     return FailureCount() == 0 ? 0 : 1;
 }

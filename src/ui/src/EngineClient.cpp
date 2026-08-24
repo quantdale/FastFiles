@@ -393,7 +393,13 @@ void EngineClient::ReaderLoop() {
                     std::memcpy(&payload, frame.payload.data(), sizeof(payload));
                     if (payload.generationId == 0) break;
                     const uint64_t announced = announcedGeneration_.load();
-                    if (payload.generationId <= announced) break;
+                    if (payload.generationId <= announced) {
+                        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                                      ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED,
+                                                      {}, {}, L"snapshot-generation-suppressed", 0,
+                                                      payload.generationId, L"stale-generation-suppressed"});
+                        break;
+                    }
                     std::wstring sectionPrefix;
                     {
                         std::lock_guard<std::mutex> mappingLock(mappingMutex_);
@@ -402,7 +408,13 @@ void EngineClient::ReaderLoop() {
                     // Remap before announcing the generation to the UI. If a
                     // new mapping is unavailable, the last good mapping stays
                     // usable and the UI does not discard it as stale.
-                    if (!MapSnapshotGeneration(sectionPrefix, payload.generationId)) break;
+                    if (!MapSnapshotGeneration(sectionPrefix, payload.generationId)) {
+                        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                                      ffprotocol::DiagnosticCode::FFDIAG_UI_SNAPSHOT_READ_FAILED,
+                                                      {}, {}, L"snapshot-generation-remap-failed", GetLastError(),
+                                                      payload.generationId, L"last-known-good-retained"});
+                        break;
+                    }
                     announcedGeneration_.store(payload.generationId);
                     if (onNewGeneration_) onNewGeneration_(payload.generationId);
                 }
@@ -621,7 +633,12 @@ void EngineClient::ReaderLoop() {
 }
 
 void EngineClient::ManagementLoop() {
+    bool hadConnection = false;
     while (running_) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_ENGINE_STATUS_CHANGED,
+                                      {}, {}, hadConnection ? L"engine-reconnect-started" : L"engine-started",
+                                      0, 0, hadConnection ? L"reconnect-start" : L"initial-start"});
         SetConnectionState(EngineConnectionState::Starting, false);
         LaunchEngineIfNotRunning(enginePipeName_);
 
@@ -657,6 +674,7 @@ void EngineClient::ManagementLoop() {
         }
 
         SetConnectionState(EngineConnectionState::Connected, false);
+        hadConnection = true;
         ReaderLoop(); // blocks until disconnect
 
         ClosePipe();

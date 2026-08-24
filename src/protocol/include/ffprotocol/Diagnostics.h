@@ -65,6 +65,10 @@ enum class DiagnosticCode : uint32_t {
     // suppressed because a newer explicit failure observation already
     // exists for the same canonical path.
     FFDIAG_INDEXED_MERGE_SUPPRESSED = 38,
+    // active-path-runtime-resilience 4.1: a completion or snapshot
+    // notification was rejected because it belonged to an older query/source
+    // identity. Append-only so diagnostic consumers retain stable meanings.
+    FFDIAG_UI_RESULT_SUPERSEDED = 39,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

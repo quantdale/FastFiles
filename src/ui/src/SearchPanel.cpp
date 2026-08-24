@@ -2,6 +2,7 @@
 
 
 #include "ffsearch/Path.h"
+#include "ffprotocol/Diagnostics.h"
 #include "IconCache.h"
 #include "UITheme.h"
 #include "UiComponents.h" // ui-v3 search: shared chip/pill/focus GDI grammar
@@ -825,6 +826,23 @@ void SearchPanel::ShowAndFocus(const std::wstring& currentPath, bool engineActiv
     }
 }
 
+void SearchPanel::InvalidateInFlightWork() {
+    const auto token = resultGate_.Invalidate(sourceEpoch_);
+    generation_ = token.request;
+    currentGeneration_ = generation_;
+    currentSourceEpoch_ = sourceEpoch_;
+    candidateCacheEpoch_.fetch_add(1, std::memory_order_acq_rel);
+    {
+        std::lock_guard<std::mutex> lock(workMutex_);
+        pendingWork_.reset();
+    }
+    const uint64_t indexedRequestId = indexedRequestId_.exchange(0);
+    if (engine_ != nullptr && indexedRequestId != 0) {
+        engine_->CancelIndexedSearch(indexedRequestId);
+    }
+    workCv_.notify_all();
+}
+
 void SearchPanel::Hide() {
     // Commitment point for history: a query still present when the panel
     // closes counts as an executed search. Intermediate debounce ticks never
@@ -834,6 +852,11 @@ void SearchPanel::Hide() {
         GetWindowTextW(query_, text.data(), static_cast<int>(text.size()));
         if (text[0] != L'\0') RecordHistory(text.data());
     }
+    // active-path-runtime-resilience 4.2: closing the panel is a real
+    // supersession boundary.  A queued or indexed result may still finish,
+    // but its token must fail before it can be posted as visible state after
+    // a later ShowAndFocus/Dispatch.
+    InvalidateInFlightWork();
     visible_ = false;
     KillTimer(owner_, kDebounceTimer);
     // ui-v3 search: no progress animation while hidden.
@@ -972,8 +995,10 @@ bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (id == kQueryId && notification == CBN_EDITCHANGE) {
         UpdateClearAffordance(); // ui-v3 search: clear affordance follows text
         if (updatingHistory_) return true;
-        ++generation_;
+        const auto token = resultGate_.Begin(sourceEpoch_);
+        generation_ = token.request;
         currentGeneration_ = generation_;
+        currentSourceEpoch_ = sourceEpoch_;
         KillTimer(owner_, kDebounceTimer);
         SetTimer(owner_, kDebounceTimer, kDebounceMilliseconds, nullptr);
         UpdateStatus(L"Waiting for typing to pause…");
@@ -1042,8 +1067,10 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     std::array<wchar_t, static_cast<size_t>(ffprotocol::kMaxIndexedSearchQueryLengthChars) + 1> queryText{};
     GetWindowTextW(query_, queryText.data(), static_cast<int>(queryText.size()));
     UpdateClearAffordance(); // ui-v3 search: covers programmatic text changes too
-    ++generation_;
+    const auto token = resultGate_.Begin(sourceEpoch_);
+    generation_ = token.request;
     currentGeneration_ = generation_;
+    currentSourceEpoch_ = sourceEpoch_;
     if (queryText[0] == L'\0') {
         results_.clear();
         currentPrimaryTerm_.clear();
@@ -1056,6 +1083,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
     snapshotRefreshPending_ = false;
     Work work;
     work.generation = generation_;
+    work.sourceEpoch = sourceEpoch_;
     work.request.query = ffsearch::ParseQuery(queryText.data(), ffsearch::FilterRegistry::WithDefaults());
     // Surface parse diagnostics instead of silently degrading the query: the
     // warning is prefixed to the next status update (searching/results).
@@ -1103,7 +1131,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
         indexedRequestId_.store(engine_->RequestIndexedSearch(
             indexedRequest.query, indexedRequest.scope, indexedRequest.scopePath,
             indexedRequest.sortField, indexedRequest.descending, indexedRequest.maxResults,
-            [this, generation = work.generation,
+            [this, generation = work.generation, sourceEpoch = work.sourceEpoch,
              alive = std::weak_ptr<IndexedCallbackState>(indexedCallbackState_)](
                 ffprotocol::IndexedSearchResponse response) {
                 const auto callbackState = alive.lock();
@@ -1113,7 +1141,7 @@ void SearchPanel::Dispatch(bool recordHistory, bool forceSnapshot) {
                 uint64_t expected = response.requestId;
                 indexedRequestId_.compare_exchange_strong(expected, 0);
                 auto completion = std::make_unique<IndexedCompletion>(
-                    IndexedCompletion{generation, std::move(response)});
+                    IndexedCompletion{generation, sourceEpoch, std::move(response)});
                 if (PostMessageW(owner_, WM_APP_INDEXED_SEARCH_COMPLETE, 0,
                                  reinterpret_cast<LPARAM>(completion.get()))) {
                     completion.release();
@@ -1146,19 +1174,30 @@ void SearchPanel::WorkerMain() {
         // construction off the UI thread just like query execution so a
         // keystroke never stalls painting or navigation.
         PopulateCandidates(work.candidates);
-        if (stopping_ || currentGeneration_.load() != work.generation) continue;
-        auto response = ffsearch::ExecuteSearch(work.candidates, work.request, [this, generation = work.generation] {
-            return stopping_ || currentGeneration_.load() != generation;
+        if (stopping_ || currentGeneration_.load() != work.generation ||
+            currentSourceEpoch_.load() != work.sourceEpoch) continue;
+        auto response = ffsearch::ExecuteSearch(work.candidates, work.request,
+            [this, generation = work.generation, sourceEpoch = work.sourceEpoch] {
+            return stopping_ || currentGeneration_.load() != generation ||
+                currentSourceEpoch_.load() != sourceEpoch;
         });
         if (response.cancelled) continue;
-        auto completion = std::make_unique<Completion>(Completion{work.generation, std::move(response), std::move(work.candidates)});
+        auto completion = std::make_unique<Completion>(
+            Completion{work.generation, work.sourceEpoch, std::move(response), std::move(work.candidates)});
         if (PostMessageW(owner_, WM_APP_SEARCH_COMPLETE, 0, reinterpret_cast<LPARAM>(completion.get()))) completion.release();
     }
 }
 
 bool SearchPanel::HandleCompletion(LPARAM lParam) {
     std::unique_ptr<Completion> completion(reinterpret_cast<Completion*>(lParam));
-    if (!completion || completion->generation != currentGeneration_) return true;
+    if (!completion) return true;
+    if (!resultGate_.Accept({completion->generation, completion->sourceEpoch})) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED,
+                                      {}, {}, L"search-result-superseded", 0,
+                                      completion->generation, L"completion-discarded"});
+        return true;
+    }
     results_ = std::move(completion->response.results);
     candidates_ = std::move(completion->candidates);
     ListView_SetItemCountEx(list_, static_cast<int>(results_.size()), LVSICF_NOINVALIDATEALL);
@@ -1179,7 +1218,14 @@ bool SearchPanel::HandleCompletion(LPARAM lParam) {
 
 bool SearchPanel::HandleIndexedCompletion(LPARAM lParam) {
     std::unique_ptr<IndexedCompletion> completion(reinterpret_cast<IndexedCompletion*>(lParam));
-    if (!completion || completion->generation != currentGeneration_) return true;
+    if (!completion) return true;
+    if (!resultGate_.Accept({completion->generation, completion->sourceEpoch})) {
+        ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                      ffprotocol::DiagnosticCode::FFDIAG_UI_RESULT_SUPERSEDED,
+                                      {}, {}, L"indexed-result-superseded", 0,
+                                      completion->generation, L"completion-discarded"});
+        return true;
+    }
     if (completion->response.status != ffprotocol::IndexedSearchStatus::Completed) {
         // A disconnected/unavailable index must not strand the user's query.
         // Re-enter the existing worker path once, with an explicit source
@@ -2254,8 +2300,10 @@ void SearchPanel::OnSnapshotUpdated() {
     // Invalidate an in-flight query as well as its materialized candidates.
     // Otherwise a worker that started against the previous mapping can post a
     // result after the new generation is already visible in the browser.
-    ++generation_;
+    const auto token = resultGate_.Begin(sourceEpoch_);
+    generation_ = token.request;
     currentGeneration_ = generation_;
+    currentSourceEpoch_ = sourceEpoch_;
     candidateCacheEpoch_.fetch_add(1, std::memory_order_acq_rel);
     {
         std::lock_guard<std::mutex> lock(candidateCacheMutex_);
@@ -2398,6 +2446,31 @@ void SearchPanel::SetEngineActive(bool active) {
     engineActive_ = active;
     UpdateFilterSummary(); // ui-v3 search: the degraded chip tracks engine state
     if (visible_) UpdateScopeAvailability(lostBroadScope);
+}
+
+void SearchPanel::OnEngineConnectionState(EngineConnectionState state) {
+    // active-path-runtime-resilience 4.2: every connection lifecycle event
+    // creates a new source identity.  Numeric query generations alone are not
+    // enough to distinguish a late callback from an engine instance that has
+    // since been replaced.
+    ++sourceEpoch_;
+    if (sourceEpoch_ == 0) sourceEpoch_ = 1;
+    InvalidateInFlightWork();
+
+    if (query_ == nullptr || GetWindowTextLengthW(query_) == 0) return;
+    if (!visible_) {
+        snapshotRefreshPending_ = true;
+        return;
+    }
+
+    if (state == EngineConnectionState::Connected) {
+        Dispatch(false);
+    } else {
+        // Keep the existing degraded snapshot path usable while a reconnect
+        // is in progress or unavailable; the result remains tagged to this
+        // new source epoch and cannot be replaced by the old engine.
+        Dispatch(false, true);
+    }
 }
 
 void SearchPanel::UpdateScopeAvailability(bool showFallbackNotice) {

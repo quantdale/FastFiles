@@ -1,5 +1,6 @@
 #include <windows.h>
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
@@ -408,6 +409,201 @@ void TestWatcherGivesUpAfterEightInjectedOverflows() {
     std::filesystem::remove_all(root, error);
     Check(!std::filesystem::exists(root), "give-up fixture is removed");
 }
+
+void TestWatcherSetupFailuresHaveRecoveryOutcomes() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::filesystem::path localAppData = root / L"local-app-data";
+    std::error_code error;
+    Check(std::filesystem::create_directories(localAppData, error),
+          "setup-failure diagnostics directory fixture is created");
+
+    std::vector<wchar_t> previousLocalAppData(32768);
+    const DWORD previousLength = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", previousLocalAppData.data(), static_cast<DWORD>(previousLocalAppData.size()));
+    Check(SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str()),
+          "setup-failure test redirects diagnostics to its disposable fixture");
+
+    {
+        ffengine::DirectoryWatcher::TestHooks hooks;
+        hooks.openDirectoryProvider = [](const std::wstring&) {
+            SetLastError(ERROR_ACCESS_DENIED);
+            return INVALID_HANDLE_VALUE;
+        };
+        int callbacks = 0;
+        ffengine::DirectoryWatcher watcher(std::move(hooks));
+        const bool installed = watcher.Watch(root.wstring(), [&](const std::wstring&) { ++callbacks; });
+        Check(!installed, "directory-open failure is reported to the caller");
+        Check(callbacks == 1, "directory-open failure gets one final refresh callback");
+    }
+
+    {
+        ffengine::DirectoryWatcher::TestHooks hooks;
+        hooks.createEventProvider = [](bool stopEvent) {
+            if (stopEvent) {
+                SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+                return static_cast<HANDLE>(nullptr);
+            }
+            return CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        };
+        int callbacks = 0;
+        ffengine::DirectoryWatcher watcher(std::move(hooks));
+        const bool installed = watcher.Watch(root.wstring(), [&](const std::wstring&) { ++callbacks; });
+        Check(!installed, "stop-event creation failure is reported to the caller");
+        Check(callbacks == 1, "stop-event creation failure gets one final refresh callback");
+    }
+
+    {
+        ffengine::DirectoryWatcher::TestHooks hooks;
+        hooks.createEventProvider = [](bool stopEvent) {
+            if (!stopEvent) {
+                SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+                return static_cast<HANDLE>(nullptr);
+            }
+            return CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        };
+        std::mutex callbackMutex;
+        std::condition_variable callbackCondition;
+        int callbacks = 0;
+        ffengine::DirectoryWatcher watcher(std::move(hooks));
+        const bool installed = watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        Check(!installed, "notification-event creation failure is reported to the caller");
+        {
+            std::unique_lock<std::mutex> lock(callbackMutex);
+            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks == 1; }),
+                  "notification-event creation failure gets one final refresh callback");
+        }
+        watcher.Unwatch(root.wstring());
+    }
+
+    {
+        auto firstArm = std::make_shared<std::atomic_bool>(true);
+        ffengine::DirectoryWatcher::TestHooks hooks;
+        hooks.armFailureProvider = [firstArm] {
+            if (firstArm->exchange(false)) {
+                return std::optional<DWORD>{ERROR_ACCESS_DENIED};
+            }
+            return std::optional<DWORD>{};
+        };
+        std::mutex callbackMutex;
+        std::condition_variable callbackCondition;
+        int callbacks = 0;
+        ffengine::DirectoryWatcher watcher(std::move(hooks));
+        const bool installed = watcher.Watch(root.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        Check(!installed, "initial notification arm failure is reported to the caller");
+        {
+            std::unique_lock<std::mutex> lock(callbackMutex);
+            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks == 1; }),
+                  "initial notification arm failure gets one final refresh callback");
+        }
+        watcher.Unwatch(root.wstring());
+    }
+
+    const auto diagnosticsPath = localAppData / L"FastFiles" / L"logs" / L"diagnostics.log";
+    std::ifstream diagnostics(diagnosticsPath, std::ios::binary);
+    const std::string diagnosticText((std::istreambuf_iterator<char>(diagnostics)),
+                                     std::istreambuf_iterator<char>());
+    Check(diagnosticText.find("state=watch-open-final-refresh") != std::string::npos,
+          "directory-open recovery action is structured in diagnostics");
+    Check(diagnosticText.find("state=watch-stop-event-create-failed") != std::string::npos,
+          "stop-event setup failure is structured in diagnostics");
+    Check(diagnosticText.find("state=watch-event-final-refresh") != std::string::npos,
+          "notification-event recovery action is structured in diagnostics");
+    Check(diagnosticText.find("state=watch-terminal-refresh") != std::string::npos,
+          "initial arm recovery action is structured in diagnostics");
+    diagnostics.close();
+
+    if (previousLength == 0) {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    } else {
+        SetEnvironmentVariableW(L"LOCALAPPDATA", previousLocalAppData.data());
+    }
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "setup-failure fixture is removed");
+}
+
+void TestWatcherDeleteRecreateUnicodeAndLongName() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    const std::filesystem::path watched = root / L"watched-测试-U0001F4C1";
+    std::error_code error;
+    Check(std::filesystem::create_directories(watched, error),
+          "unicode watcher directory fixture is created");
+
+    std::mutex callbackMutex;
+    std::condition_variable callbackCondition;
+    int callbacks = 0;
+    {
+        ffengine::DirectoryWatcher watcher;
+        watcher.Watch(watched.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+
+        std::filesystem::remove_all(watched, error);
+        {
+            std::unique_lock<std::mutex> lock(callbackMutex);
+            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks >= 1; }),
+                  "deleting a watched directory produces an observable refresh");
+        }
+
+        watcher.Unwatch(watched.wstring());
+        Check(std::filesystem::create_directories(watched, error),
+              "deleted watched directory can be recreated");
+        watcher.Watch(watched.wstring(), [&](const std::wstring&) {
+            std::lock_guard<std::mutex> lock(callbackMutex);
+            ++callbacks;
+            callbackCondition.notify_all();
+        });
+        const std::wstring longName = std::wstring(120, L'x') + L"-U0001F600.txt";
+        std::ofstream output(watched / longName, std::ios::binary | std::ios::trunc);
+        output << "recreated";
+        output.close();
+        {
+            std::unique_lock<std::mutex> lock(callbackMutex);
+            Check(callbackCondition.wait_for(lock, std::chrono::seconds(5), [&] { return callbacks >= 2; }),
+                  "recreated unicode directory observes a long Unicode filename");
+        }
+        watcher.UnwatchAll();
+    }
+
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "delete-recreate fixture is removed");
+}
+
+void TestWatcherRapidReplacementTeardown() {
+    const std::filesystem::path root = MakeFixtureRoot();
+    auto completions = std::make_shared<std::deque<ffengine::DirectoryWatcher::TestCompletion>>();
+    ffengine::DirectoryWatcher::TestHooks hooks;
+    hooks.completionProvider = [completions] {
+        // A null completion retires the injected worker immediately.  The
+        // loop below repeatedly replaces that finished worker and verifies
+        // that join/handle cleanup remains bounded without sleeps.
+        if (completions->empty()) return std::optional<ffengine::DirectoryWatcher::TestCompletion>{};
+        const auto completion = completions->front();
+        completions->pop_front();
+        return std::optional<ffengine::DirectoryWatcher::TestCompletion>{completion};
+    };
+    {
+        ffengine::DirectoryWatcher watcher(std::move(hooks));
+        for (int attempt = 0; attempt < 100; ++attempt) {
+            watcher.Watch(root.wstring(), [](const std::wstring&) {});
+            watcher.Unwatch(root.wstring());
+        }
+        watcher.UnwatchAll();
+        Check(true, "rapid watch/unwatch replacement completes without a teardown timeout");
+    }
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "rapid replacement fixture is removed");
+}
 #endif
 
 } // namespace
@@ -421,6 +617,9 @@ int main() {
     TestWatcherShutdownDoesNotFabricateError();
     TestWatcherRecoversFromInjectedOverflow();
     TestWatcherGivesUpAfterEightInjectedOverflows();
+    TestWatcherSetupFailuresHaveRecoveryOutcomes();
+    TestWatcherDeleteRecreateUnicodeAndLongName();
+    TestWatcherRapidReplacementTeardown();
 #endif
     return FailureCount() == 0 ? 0 : 1;
 }

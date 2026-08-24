@@ -86,6 +86,18 @@ add_executable(ffsnapshot_freshness_tests test_snapshot_freshness.cpp)
 target_include_directories(ffsnapshot_freshness_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
 add_test(NAME ffsnapshot_freshness_tests COMMAND ffsnapshot_freshness_tests)
 
+# active-path-runtime-resilience 4.1: pure request/source identity gate
+# coverage, including a deterministic 150-transition supersession sequence.
+add_executable(ffasync_result_gate_tests test_async_result_gate.cpp)
+target_include_directories(ffasync_result_gate_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffasync_result_gate_tests COMMAND ffasync_result_gate_tests)
+
+# active-path-runtime-resilience 2.5: pure icon-cache recency regression
+# coverage for promotion, bounded eviction, and cache clear/reuse.
+add_executable(ffui_icon_lru_tests test_icon_lru.cpp)
+target_include_directories(ffui_icon_lru_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffui_icon_lru_tests COMMAND ffui_icon_lru_tests)
+
 add_executable(ffstorage_visibility_tests test_storage_visibility.cpp)
 target_include_directories(ffstorage_visibility_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffstorage_visibility_tests COMMAND ffstorage_visibility_tests)
@@ -195,5 +207,5 @@ add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
 add_executable(ffsearch_metadata_tests test_search_metadata.cpp)
 target_include_directories(ffsearch_metadata_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffsearch_metadata_tests COMMAND ffsearch_metadata_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)

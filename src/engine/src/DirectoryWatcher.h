@@ -40,8 +40,27 @@ public:
     };
     using TestCompletionProvider = std::function<std::optional<TestCompletion>()>;
 
+    // These hooks reach setup failures that cannot be made deterministic by
+    // changing a directory on disk.  They are deliberately narrow and are
+    // compiled into test targets only; production always calls the Win32 APIs
+    // directly.
+    using TestOpenDirectoryProvider = std::function<HANDLE(const std::wstring& apiPath)>;
+    using TestCreateEventProvider = std::function<HANDLE(bool stopEvent)>;
+    using TestArmFailureProvider = std::function<std::optional<DWORD>()>;
+    struct TestHooks {
+        TestCompletionProvider completionProvider;
+        TestOpenDirectoryProvider openDirectoryProvider;
+        TestCreateEventProvider createEventProvider;
+        TestArmFailureProvider armFailureProvider;
+    };
+
     explicit DirectoryWatcher(TestCompletionProvider testCompletionProvider)
         : testCompletionProvider_(std::move(testCompletionProvider)) {}
+    explicit DirectoryWatcher(TestHooks testHooks)
+        : testCompletionProvider_(std::move(testHooks.completionProvider)),
+          testOpenDirectoryProvider_(std::move(testHooks.openDirectoryProvider)),
+          testCreateEventProvider_(std::move(testHooks.createEventProvider)),
+          testArmFailureProvider_(std::move(testHooks.armFailureProvider)) {}
 #endif
 
     ~DirectoryWatcher();
@@ -50,7 +69,11 @@ public:
 
     // Idempotent: watching an already-watched path is a no-op (and refreshes
     // its recency). Bounded by kMaxWatchedRoots with LRU eviction.
-    void Watch(const std::wstring& path, ChangeCallback onChanged);
+    // Returns false when setup failed.  A failed setup still invokes the
+    // callback once after the old entry is stopped, giving callers a final
+    // enumeration/publication opportunity instead of leaving a successful
+    // initial listing silently stale.
+    bool Watch(const std::wstring& path, ChangeCallback onChanged);
     void Unwatch(const std::wstring& path);
     void UnwatchAll();
 
@@ -59,6 +82,7 @@ private:
         std::mutex mutex;
         std::condition_variable condition;
         bool signaled = false;
+        bool ready = false;
     };
 
     struct WatchEntry {
@@ -78,6 +102,8 @@ private:
                           const std::shared_ptr<WatchStartupState>& startupState
 #ifdef FF_DIRECTORY_WATCHER_TESTING
                           , const TestCompletionProvider& testCompletionProvider
+                          , const TestCreateEventProvider& testCreateEventProvider
+                          , const TestArmFailureProvider& testArmFailureProvider
 #endif
                           );
 
@@ -86,6 +112,9 @@ private:
     std::deque<std::wstring> accessOrder_; // least-recently-watched first
 #ifdef FF_DIRECTORY_WATCHER_TESTING
     TestCompletionProvider testCompletionProvider_;
+    TestOpenDirectoryProvider testOpenDirectoryProvider_;
+    TestCreateEventProvider testCreateEventProvider_;
+    TestArmFailureProvider testArmFailureProvider_;
 #endif
 };
 
