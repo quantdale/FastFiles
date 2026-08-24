@@ -16,10 +16,10 @@
 
 ## 3. Release qualification and CI
 
-- [ ] 3.1 Add bounded CI jobs for strict OpenSpec, source/diagnostic/status drift, portable trust tests, provider contracts, release-candidate dry run, and determinism checks.
-- [ ] 3.2 Emit safe structured/JUnit artifacts and named failure diagnostics; keep production signer/pins and privileged trust-store tests opt-in.
-- [ ] 3.3 Add release-candidate regression tests for checksum/provenance/release-note/dependency inventory reproducibility, stale version metadata, malformed pins, and cleanup after failure.
-- [ ] 3.4 Cross-check status and release-readiness composition fields so external requirements remain blocked rather than inferred PASS.
+- [x] 3.1 Add bounded CI jobs for strict OpenSpec, source/diagnostic/status drift, portable trust tests, provider contracts, release-candidate dry run, and determinism checks. Evidence: `.github/workflows/ci.yml` adds named hygiene and unsigned-release-qualification jobs; portable trust tests remain in the existing Debug/release-test matrix.
+- [x] 3.2 Emit safe structured/JUnit artifacts and named failure diagnostics; keep production signer/pins and privileged trust-store tests opt-in. Evidence: existing run-tree JUnit/JSON reporting plus CI-uploaded sanitized status/release JSON; no signing material or screenshots are uploaded.
+- [x] 3.3 Add release-candidate regression tests for checksum/provenance/release-note/dependency inventory reproducibility, stale version metadata, malformed pins, and cleanup after failure. Evidence: `Test-ReleaseCandidate.ps1` passed twice with identical archive hashes and fail-closed production-candidate rejection; existing `Test-ReleaseTooling.ps1` covers version, pin, malformed-input, and cleanup cases.
+- [x] 3.4 Cross-check status and release-readiness composition fields so external requirements remain blocked rather than inferred PASS. Evidence: status fixture composition validates the frontier schema and explicitly classifies a PASS unsigned fixture as `NON-PRODUCTION-OR-BLOCKED`; production readiness requires the production artifact gate.
 
 ## 4. Audit and evidence
 

@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-24 (Phase 8 — convergence continuation)
-Status: **Phase-8 status/frontier and provider-contract implementation is committed in `cf54366`; UIA/CI/documentation convergence remains in progress on `phase8/indexed-scale-production-readiness-20260824`**. The worktree is dirty from the remaining session-owned wave; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
-NEXT EXACT ACTION: commit the UIA/CI/documentation wave, run the clean-tree unsigned release-candidate and composed readiness gates, then create the audit ledger and final evidence commit before fetch/reconcile/push.
+Status: **Phase-8 status/provider and degraded-UIA/CI implementation is committed through `5da29c9`; release qualification and audit evidence remain in progress on `phase8/indexed-scale-production-readiness-20260824`**. The worktree is dirty only from this task-ledger evidence update; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
+NEXT EXACT ACTION: commit the completed CI/release task ledger update, run the composed readiness gate on a clean tree, then create the audit ledger/report and final validation evidence before fetch/reconcile/push.
 
 ## Phase-8 convergence checkpoint (2026-08-24)
 
@@ -14,6 +14,7 @@ NEXT EXACT ACTION: commit the UIA/CI/documentation wave, run the clean-tree unsi
 - CI now has separate hygiene/OpenSpec/status/provider and unsigned release-candidate qualification jobs; no signer material or unsafe interactive artifacts are uploaded.
 - The diagnostic UIA build now uses a marked per-session LocalAppData/AppData/fixture sandbox and semantic main-window/fixture-row waits. A direct diagnostic `core` run passed all selected scenarios with only genuine privileged-service subchecks skipped; the former selection failure was a stale terminal-column provider after navigation and is fixed by live-column reacquisition.
 - `verify/core/Schema.psm1` now accepts ISO timestamp values materialized as `DateTime` by `ConvertFrom-Json`; the frontier schema round-trip test caught and covers this harness defect. First convergence commit: `cf54366` (`phase8: add status and provider readiness contracts`).
+- Clean-tree `Test-ReleaseCandidate.ps1` passed: both unsigned candidates emitted checksums/provenance/release notes/dependency inventory, repeated archives had identical SHA-256, and the production candidate rejected missing detached-manifest signing. The CI/release tasks 3.1–3.4 are now checked with this evidence; the task-ledger update is the next commit.
 
 ## Phase-8 checkpoint (memory-bounded-indexed-scale)
 
