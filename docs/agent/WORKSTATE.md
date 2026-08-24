@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-24 (Phase 8 — convergence continuation)
-Status: **Phase-8 status/provider and degraded-UIA/CI implementation is committed through `5da29c9`; release qualification and audit evidence remain in progress on `phase8/indexed-scale-production-readiness-20260824`**. The worktree is dirty only from this task-ledger evidence update; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
-NEXT EXACT ACTION: commit the completed CI/release task ledger update, run the composed readiness gate on a clean tree, then create the audit ledger/report and final validation evidence before fetch/reconcile/push.
+Status: **Phase-8 implementation and audit are complete through `84b909e`; final validation/report generation and remote synchronization remain** on `phase8/indexed-scale-production-readiness-20260824`. The worktree is dirty from the audit/task/workstate evidence commit; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
+NEXT EXACT ACTION: commit the audit ledger and task evidence, run the final Debug/release-test/analyze/ASAN and strict gates, generate the clean final frontier report, then fetch/reconcile/push.
 
 ## Phase-8 convergence checkpoint (2026-08-24)
 
@@ -15,6 +15,8 @@ NEXT EXACT ACTION: commit the completed CI/release task ledger update, run the c
 - The diagnostic UIA build now uses a marked per-session LocalAppData/AppData/fixture sandbox and semantic main-window/fixture-row waits. A direct diagnostic `core` run passed all selected scenarios with only genuine privileged-service subchecks skipped; the former selection failure was a stale terminal-column provider after navigation and is fixed by live-column reacquisition.
 - `verify/core/Schema.psm1` now accepts ISO timestamp values materialized as `DateTime` by `ConvertFrom-Json`; the frontier schema round-trip test caught and covers this harness defect. First convergence commit: `cf54366` (`phase8: add status and provider readiness contracts`).
 - Clean-tree `Test-ReleaseCandidate.ps1` passed: both unsigned candidates emitted checksums/provenance/release notes/dependency inventory, repeated archives had identical SHA-256, and the production candidate rejected missing detached-manifest signing. The CI/release tasks 3.1–3.4 are now checked with this evidence; the task-ledger update is the next commit.
+- Composed release readiness at clean `628a560` completed in 460.3 seconds: 35 PASS, 8 SKIPPED (expected unelevated/optional gates), 1 REQUIRED-BUT-UNAVAILABLE (disposable guest matrix), and 1 FAIL for the existing unsigned/stale production artifact report on a contaminated non-elevated host. It did not mutate the host or trust stores.
+- Audit ledger `codebase-audit/sessions/2026-08-24-phase8-convergence` records FF-P8-001..006. The report sanitizer was then hardened for slash-normalized absolute paths in `84b909e`; status/frontier tests pass again.
 
 ## Phase-8 checkpoint (memory-bounded-indexed-scale)
 
