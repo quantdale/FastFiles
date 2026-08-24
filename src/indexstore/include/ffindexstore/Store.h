@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -11,6 +12,27 @@
 struct sqlite3;
 
 namespace ffindexstore {
+
+// nonblocking-indexed-read-plane 3.1: an independent read connection can be
+// fault-injected at a named boundary without weakening the production
+// one-writer contract. The injector returns true to force that operation to
+// fail closed.
+enum class ReadSessionFaultPoint : uint8_t {
+    Open,
+    BeginSnapshot,
+    Busy,
+    DatabaseClosed,
+    Stream,
+    FindEntry,
+    Aggregate,
+};
+using ReadSessionFaultInjector = std::function<bool(ReadSessionFaultPoint)>;
+
+struct StoreReadSessionOptions {
+    ReadSessionFaultInjector faultInjector;
+};
+
+class StoreReadSession;
 
 // Per-volume metadata persisted alongside its entries (tasks.md 1.3):
 // availability, USN journal identity/position for resume-or-reconcile
@@ -59,6 +81,13 @@ public:
     bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
     void Close();
     bool IsOpen() const noexcept { return db_ != nullptr; }
+
+    // nonblocking-indexed-read-plane 3.1: opens a move-only, query-only
+    // SQLite connection with its own WAL read transaction. The returned
+    // session never runs migrations, writes, checkpoints, or vacuum and must
+    // not be used as a second writer.
+    std::unique_ptr<StoreReadSession> OpenReadSession(
+        const StoreReadSessionOptions& options = {}) const;
 
     // task 1.7, also callable standalone (e.g. from a diagnostics path).
     bool RunIntegrityCheck();
@@ -168,12 +197,48 @@ public:
     FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
 
 private:
+    friend class StoreReadSession;
     std::vector<VolumeMetadata> GetAllVolumesImpl(bool includeEntryCounts);
 
     sqlite3* db_ = nullptr;
     std::string dbPathUtf8_;
     uint64_t lastVacuumTimeSeconds_ = 0;
     uint64_t lastVacuumSizeBytes_ = 0;
+};
+
+// A durable read snapshot owned by one query. Store itself deliberately stays
+// unsynchronized and connection-owned; callers never invoke its writer
+// connection concurrently from a query worker. A session's transaction is
+// closed deterministically by Close()/destruction, making reader resources
+// reusable even when a visitor cancels or a SQLite step fails.
+class StoreReadSession {
+public:
+    StoreReadSession() = delete;
+    ~StoreReadSession();
+    StoreReadSession(const StoreReadSession&) = delete;
+    StoreReadSession& operator=(const StoreReadSession&) = delete;
+    StoreReadSession(StoreReadSession&& other) noexcept;
+    StoreReadSession& operator=(StoreReadSession&& other) noexcept;
+
+    bool IsOpen() const noexcept { return db_ != nullptr && transactionActive_; }
+    bool Failed() const noexcept { return failed_; }
+    void Close() noexcept;
+
+    bool ForEachEntryUntil(VolumeRowId volumeRowId, const Store::EntryVisitorUntil& visitor);
+    std::optional<EntryRecord> FindEntry(VolumeRowId volumeRowId, FileId frn);
+    Store::FolderAggregate GetFolderAggregate(VolumeRowId volumeRowId, FileId parentFrn);
+
+private:
+    friend class Store;
+    StoreReadSession(std::string dbPathUtf8, StoreReadSessionOptions options);
+    bool Open();
+    bool ShouldFail(ReadSessionFaultPoint point) const;
+
+    sqlite3* db_ = nullptr;
+    std::string dbPathUtf8_;
+    StoreReadSessionOptions options_;
+    bool transactionActive_ = false;
+    bool failed_ = false;
 };
 
 } // namespace ffindexstore

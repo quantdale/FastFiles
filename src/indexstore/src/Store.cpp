@@ -5,6 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <utility>
 
 #include "sqlite3.h"
 
@@ -194,6 +195,75 @@ FileId ReadFileId(sqlite3_stmt* stmt, int lowCol, int highCol) {
     return id;
 }
 
+EntryRecord ReadEntryRecord(sqlite3_stmt* stmt) {
+    EntryRecord record;
+    record.id = ReadFileId(stmt, 0, 1);
+    record.parentId = ReadFileId(stmt, 2, 3);
+    const unsigned char* nameText = sqlite3_column_text(stmt, 4);
+    const int nameBytes = sqlite3_column_bytes(stmt, 4);
+    record.name = Utf8ToUtf16(reinterpret_cast<const char*>(nameText), nameBytes);
+    record.sizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 5));
+    record.allocatedSizeKnown = sqlite3_column_type(stmt, 6) != SQLITE_NULL;
+    record.allocatedSizeBytes = record.allocatedSizeKnown
+        ? static_cast<uint64_t>(sqlite3_column_int64(stmt, 6)) : 0;
+    record.creationTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 7));
+    record.lastModifiedTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 8));
+    record.lastAccessTime = static_cast<uint64_t>(sqlite3_column_int64(stmt, 9));
+    record.attributes = static_cast<uint32_t>(sqlite3_column_int64(stmt, 10));
+    return record;
+}
+
+Store::FolderAggregate QueryFolderAggregate(sqlite3* db, VolumeRowId volumeRowId,
+                                             FileId parentFrn, bool* outSuccess) {
+    Store::FolderAggregate result{};
+    if (outSuccess != nullptr) *outSuccess = false;
+    if (db == nullptr) return result;
+
+    Statement exists(db, "SELECT 1 FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;");
+    if (!exists.Valid()) return result;
+    sqlite3_bind_int64(exists, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_int64(exists, 2, static_cast<sqlite3_int64>(parentFrn.low));
+    sqlite3_bind_int64(exists, 3, static_cast<sqlite3_int64>(parentFrn.high));
+    const int existsResult = sqlite3_step(exists);
+    if (existsResult == SQLITE_DONE) {
+        // An unknown root is a valid zero aggregate, not a failed read.
+        if (outSuccess != nullptr) *outSuccess = true;
+        return result;
+    }
+    if (existsResult != SQLITE_ROW) return result;
+
+    Statement stmt(db,
+        "WITH RECURSIVE subtree AS ("
+        "  SELECT volume_id, frn_low, frn_high, size_bytes, allocated_size_bytes, 1 AS depth"
+        "  FROM entries"
+        "  WHERE volume_id=? AND frn_low=? AND frn_high=?"
+        "  UNION ALL"
+        "  SELECT e.volume_id, e.frn_low, e.frn_high, e.size_bytes, e.allocated_size_bytes, s.depth + 1"
+        "  FROM entries e"
+        "  JOIN subtree s ON e.volume_id=s.volume_id"
+        "    AND e.parent_frn_low=s.frn_low AND e.parent_frn_high=s.frn_high"
+        "    AND NOT (e.frn_low = e.parent_frn_low AND e.frn_high = e.parent_frn_high)"
+        ")"
+        "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0), COALESCE(SUM(allocated_size_bytes), 0), "
+        "       COUNT(allocated_size_bytes), COUNT(*)"
+        " FROM subtree"
+        " WHERE depth > 1;");
+    if (!stmt.Valid()) return result;
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(parentFrn.low));
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(parentFrn.high));
+    const int stepResult = sqlite3_step(stmt);
+    if (stepResult == SQLITE_ROW) {
+        result.itemCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 0));
+        result.totalSizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 1));
+        result.totalAllocatedSizeBytes = static_cast<uint64_t>(sqlite3_column_int64(stmt, 2));
+        result.allocatedBytesKnownCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 3));
+        result.allocatedBytesTotalCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 4));
+        if (outSuccess != nullptr) *outSuccess = true;
+    }
+    return result;
+}
+
 } // namespace
 
 Store::~Store() {
@@ -301,6 +371,14 @@ void Store::Close() {
     dbPathUtf8_.clear();
     lastVacuumTimeSeconds_ = 0;
     lastVacuumSizeBytes_ = 0;
+}
+
+std::unique_ptr<StoreReadSession> Store::OpenReadSession(
+    const StoreReadSessionOptions& options) const {
+    if (db_ == nullptr || dbPathUtf8_.empty()) return nullptr;
+    std::unique_ptr<StoreReadSession> session(new StoreReadSession(dbPathUtf8_, options));
+    if (!session->Open()) return nullptr;
+    return session;
 }
 
 bool Store::CheckpointPassive() {
@@ -888,6 +966,150 @@ Store::FolderAggregate Store::GetFolderAggregate(VolumeRowId volumeRowId, FileId
         result.allocatedBytesKnownCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 3));
         result.allocatedBytesTotalCount = static_cast<uint64_t>(sqlite3_column_int64(stmt, 4));
     }
+    return result;
+}
+
+StoreReadSession::StoreReadSession(std::string dbPathUtf8, StoreReadSessionOptions options)
+    : dbPathUtf8_(std::move(dbPathUtf8)), options_(std::move(options)) {}
+
+StoreReadSession::~StoreReadSession() {
+    Close();
+}
+
+StoreReadSession::StoreReadSession(StoreReadSession&& other) noexcept
+    : db_(other.db_), dbPathUtf8_(std::move(other.dbPathUtf8_)),
+      options_(std::move(other.options_)), transactionActive_(other.transactionActive_),
+      failed_(other.failed_) {
+    other.db_ = nullptr;
+    other.transactionActive_ = false;
+    other.failed_ = false;
+}
+
+StoreReadSession& StoreReadSession::operator=(StoreReadSession&& other) noexcept {
+    if (this == &other) return *this;
+    Close();
+    db_ = other.db_;
+    dbPathUtf8_ = std::move(other.dbPathUtf8_);
+    options_ = std::move(other.options_);
+    transactionActive_ = other.transactionActive_;
+    failed_ = other.failed_;
+    other.db_ = nullptr;
+    other.transactionActive_ = false;
+    other.failed_ = false;
+    return *this;
+}
+
+bool StoreReadSession::ShouldFail(const ReadSessionFaultPoint point) const {
+    return options_.faultInjector && options_.faultInjector(point);
+}
+
+bool StoreReadSession::Open() {
+    if (ShouldFail(ReadSessionFaultPoint::Open)) return false;
+    if (sqlite3_open_v2(dbPathUtf8_.c_str(), &db_, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        Close();
+        return false;
+    }
+    if (sqlite3_busy_timeout(db_, 250) != SQLITE_OK || ShouldFail(ReadSessionFaultPoint::Busy) ||
+        !ExecSql(db_, "PRAGMA query_only=ON;")) {
+        failed_ = true;
+        Close();
+        return false;
+    }
+    if (ShouldFail(ReadSessionFaultPoint::BeginSnapshot) || !ExecSql(db_, "BEGIN;")) {
+        failed_ = true;
+        Close();
+        return false;
+    }
+    transactionActive_ = true;
+    return true;
+}
+
+void StoreReadSession::Close() noexcept {
+    if (db_ != nullptr) {
+        if (transactionActive_) {
+            ExecSql(db_, "ROLLBACK;");
+        }
+        sqlite3_close_v2(db_);
+        db_ = nullptr;
+    }
+    transactionActive_ = false;
+    dbPathUtf8_.clear();
+}
+
+bool StoreReadSession::ForEachEntryUntil(VolumeRowId volumeRowId,
+                                         const Store::EntryVisitorUntil& visitor) {
+    if (!IsOpen() || !visitor) {
+        if (!IsOpen()) failed_ = true;
+        return false;
+    }
+    if (ShouldFail(ReadSessionFaultPoint::DatabaseClosed)) {
+        failed_ = true;
+        Close();
+        return false;
+    }
+    Statement stmt(db_,
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes FROM entries WHERE volume_id=?;");
+    if (!stmt.Valid()) {
+        failed_ = true;
+        return false;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+
+    int stepResult;
+    while ((stepResult = sqlite3_step(stmt)) == SQLITE_ROW) {
+        if (ShouldFail(ReadSessionFaultPoint::Stream)) {
+            failed_ = true;
+            return false;
+        }
+        if (!visitor(ReadEntryRecord(stmt))) return true;
+    }
+    if (stepResult != SQLITE_DONE) failed_ = true;
+    return stepResult == SQLITE_DONE;
+}
+
+std::optional<EntryRecord> StoreReadSession::FindEntry(VolumeRowId volumeRowId, FileId frn) {
+    if (!IsOpen()) {
+        failed_ = true;
+        return std::nullopt;
+    }
+    if (ShouldFail(ReadSessionFaultPoint::FindEntry)) {
+        failed_ = true;
+        return std::nullopt;
+    }
+    Statement stmt(db_,
+        "SELECT frn_low, frn_high, parent_frn_low, parent_frn_high, name, size_bytes, allocated_size_bytes, "
+        "creation_time, last_modified_time, last_access_time, attributes "
+        "FROM entries WHERE volume_id=? AND frn_low=? AND frn_high=?;");
+    if (!stmt.Valid()) {
+        failed_ = true;
+        return std::nullopt;
+    }
+    sqlite3_bind_int64(stmt, 1, static_cast<sqlite3_int64>(volumeRowId));
+    sqlite3_bind_int64(stmt, 2, static_cast<sqlite3_int64>(frn.low));
+    sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(frn.high));
+    const int stepResult = sqlite3_step(stmt);
+    if (stepResult == SQLITE_DONE) return std::nullopt;
+    if (stepResult != SQLITE_ROW) {
+        failed_ = true;
+        return std::nullopt;
+    }
+    return ReadEntryRecord(stmt);
+}
+
+Store::FolderAggregate StoreReadSession::GetFolderAggregate(VolumeRowId volumeRowId,
+                                                             FileId parentFrn) {
+    if (!IsOpen()) {
+        failed_ = true;
+        return {};
+    }
+    if (ShouldFail(ReadSessionFaultPoint::Aggregate)) {
+        failed_ = true;
+        return {};
+    }
+    bool success = false;
+    const auto result = QueryFolderAggregate(db_, volumeRowId, parentFrn, &success);
+    if (!success) failed_ = true;
     return result;
 }
 

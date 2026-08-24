@@ -10,10 +10,16 @@ add_executable(ffindexstore_flat_hash_map_tests test_flat_hash_map.cpp)
 target_link_libraries(ffindexstore_flat_hash_map_tests PRIVATE ffindexstore)
 add_test(NAME ffindexstore_flat_hash_map_tests COMMAND ffindexstore_flat_hash_map_tests)
 
+# nonblocking-indexed-read-plane 3.x: one independent WAL reader snapshot,
+# one writer, deterministic overlap, and fail-closed reader faults.
+add_executable(ffindexstore_read_session_tests test_store_read_session.cpp)
+target_link_libraries(ffindexstore_read_session_tests PRIVATE ffindexstore)
+add_test(NAME ffindexstore_read_session_tests COMMAND ffindexstore_read_session_tests)
+
 # Informational only (tasks.md 9.7) -- not registered with add_test, since
 # it reports a measurement rather than passing/failing.
 add_executable(ffindexstore_bench_projection_memory bench_projection_memory.cpp)
 target_link_libraries(ffindexstore_bench_projection_memory PRIVATE ffindexstore psapi)
 
-set_tests_properties(ffindexstore_store_tests ffindexstore_projection_tests ffindexstore_flat_hash_map_tests
+set_tests_properties(ffindexstore_store_tests ffindexstore_projection_tests ffindexstore_flat_hash_map_tests ffindexstore_read_session_tests
                      PROPERTIES TIMEOUT 120)
