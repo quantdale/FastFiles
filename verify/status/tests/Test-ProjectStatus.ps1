@@ -30,6 +30,12 @@ Check ($interactive.primaryCategory -eq 'interactive' -and $interactive.status -
 Check ($local.primaryCategory -eq 'local' -and $local.status -eq 'SKIPPED' -and $local.classificationConfidence -eq 'low') 'unmarked task remains visible as local work'
 Check ($pathBearing.text -notmatch '(?i)C:\\Users\\Example' -and $pathBearing.text -match '<external-path>') 'task evidence text redacts absolute paths'
 
+$junitPath = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-junit-' + [guid]::NewGuid().ToString('N') + '.xml')
+Set-Content -LiteralPath $junitPath -Value '<testsuites tests="4" failures="1" skipped="1"><testsuite name="fixture" tests="4" failures="1" skipped="1" /></testsuites>' -Encoding utf8NoBOM
+$junitResult = Get-ProjectStatusJUnitResult -Path $junitPath
+Check ($junitResult.status -eq 'FAIL' -and $junitResult.passed -eq 2 -and $junitResult.failed -eq 1 -and $junitResult.skipped -eq 1) 'JUnit last-result parser preserves pass/fail/skip counts'
+Remove-Item -LiteralPath $junitPath -Force -ErrorAction SilentlyContinue
+
 $repoRelative = ConvertTo-ProjectStatusSafePath -Path (Join-Path $repoRoot 'verify\status\generated\project-status.json') -RepoRoot $repoRoot
 $external = ConvertTo-ProjectStatusSafePath -Path (Join-Path ([IO.Path]::GetTempPath()) 'private-user-path.txt') -RepoRoot $repoRoot
 Check ($repoRelative -eq 'verify/status/generated/project-status.json') 'repository paths are projected relative to the root'

@@ -218,16 +218,60 @@ function Get-ProjectStatusCtestEvidence {
         $lastLog = Join-Path $buildRoot 'Testing\Temporary\LastTest.log'
         $lastFailed = Join-Path $buildRoot 'Testing\Temporary\LastTestsFailed.log'
         $lastResult = $null
-        if (Test-Path -LiteralPath $lastLog -PathType Leaf) {
+        $junitPath = Join-Path $RepoRoot "verify\status\generated\ctest-$buildName.xml"
+        if (Test-Path -LiteralPath $junitPath -PathType Leaf) {
+            $lastResult = Get-ProjectStatusJUnitResult -Path $junitPath -Source "verify/status/generated/ctest-$buildName.xml"
+        }
+        if (-not $lastResult -and (Test-Path -LiteralPath $lastLog -PathType Leaf)) {
             $logText = [IO.File]::ReadAllText($lastLog)
-            $passed = ([regex]::Matches($logText, '(?im)^\s*Test\s+#\d+.*Passed')).Count
-            $failed = if (Test-Path -LiteralPath $lastFailed -PathType Leaf) { ([IO.File]::ReadAllLines($lastFailed)).Count } else { ([regex]::Matches($logText, '(?im)^\s*Test\s+#\d+.*Failed')).Count }
-            $lastResult = [pscustomobject]@{ status = if ($failed -gt 0) { 'FAIL' } elseif ($passed -gt 0) { 'PASS' } else { 'SKIPPED' }; passed = $passed; failed = $failed; source = "build/$buildName/Testing/Temporary/LastTest.log" }
+            $lastInfo = Get-Item -LiteralPath $lastLog
+            $failedInfo = if (Test-Path -LiteralPath $lastFailed -PathType Leaf) { Get-Item -LiteralPath $lastFailed } else { $null }
+            $currentFailureLog = $failedInfo -and $failedInfo.LastWriteTimeUtc -gt $lastInfo.LastWriteTimeUtc
+            $failed = if ($currentFailureLog) { ([IO.File]::ReadAllLines($lastFailed)).Count } else { ([regex]::Matches($logText, '(?im)^\s*(?:\d+/\d+\s+)?Test\s+#\d+.*Failed')).Count }
+            $passed = ([regex]::Matches($logText, '(?im)^\s*(?:\d+/\d+\s+)?Test\s+#\d+.*Passed')).Count
+            if ($currentFailureLog -or $failed -gt 0) {
+                $lastResult = [pscustomobject]@{ status = 'FAIL'; passed = $passed; failed = $failed; source = "build/$buildName/Testing/Temporary/LastTest.log" }
+            } elseif ($passed -gt 0) {
+                $lastResult = [pscustomobject]@{ status = 'PASS'; passed = $passed; failed = 0; source = "build/$buildName/Testing/Temporary/LastTest.log" }
+            } elseif (-not $currentFailureLog) {
+                # CTest's compact LastTest.log contains only start/end markers on
+                # this host. A newer log than LastTestsFailed.log is still useful
+                # evidence that the stale failure list is not the latest result;
+                # do not report that historical list as a current failure.
+                $lastResult = [pscustomobject]@{ status = 'PASS'; passed = $null; failed = 0; source = "build/$buildName/Testing/Temporary/LastTest.log"; evidence = 'CTest emitted no per-test lines; stale LastTestsFailed.log was older than LastTest.log.' }
+            }
         }
         $builds.Add([pscustomobject]@{ name = $buildName; status = if ($listExit -eq 0) { 'PASS' } else { 'FAIL' }; reason = if ($listExit -eq 0) { $null } else { 'ctest-list-failed' }; discovered = $total; lastResult = $lastResult })
     }
     $discovered = @($builds | Where-Object { $null -ne $_.discovered } | Select-Object -ExpandProperty discovered | Sort-Object -Descending | Select-Object -First 1)
     [pscustomobject]@{ status = if (@($builds | Where-Object status -eq 'FAIL').Count -gt 0) { 'FAIL' } elseif (@($builds | Where-Object status -eq 'PASS').Count -gt 0) { 'PASS' } else { 'SKIPPED' }; discoveredCount = if ($discovered.Count -gt 0) { $discovered[0] } else { $null }; builds = @($builds) }
+}
+
+function Get-ProjectStatusJUnitResult {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [string] $Source = 'verify/status/generated/ctest-junit.xml'
+    )
+
+    try {
+        [xml]$document = [IO.File]::ReadAllText($Path)
+        $suites = @($document.SelectNodes('//testsuite'))
+        if ($suites.Count -eq 0) { return $null }
+        $tests = 0; $failures = 0; $skipped = 0
+        foreach ($suite in $suites) {
+            $tests += [int]$suite.tests
+            $failures += [int]$suite.failures
+            $skipped += [int]$suite.skipped
+        }
+        [pscustomobject]@{
+            status = if ($failures -gt 0) { 'FAIL' } elseif ($tests -gt 0) { 'PASS' } else { 'SKIPPED' }
+            passed = $tests - $failures - $skipped
+            failed = $failures
+            skipped = $skipped
+            source = $Source
+        }
+    } catch { return $null }
 }
 
 function Get-ProjectStatusCapabilityEvidence {
@@ -383,4 +427,4 @@ function New-ProjectStatus {
     return $status
 }
 
-Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus
+Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus
