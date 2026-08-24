@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-24 (Phase 9 — validation and handoff preparation)
-Status: **Phase 9 is active on `phase9/nonblocking-indexed-read-plane-20260824`, stacked on validated Phase-8 head `27b521b` plus current `origin/main` commit `d8d52ab`; the read-plane implementation, deterministic regression, fault coverage, lifecycle coordinator, benchmark evidence, canonical spec sync, and verifier gates are complete in the working tree.** The Phase-8 hosted run `32685840596` for `27b521b` is successful. PR #6 remains open and no authenticated GitHub write path is available.
-NEXT EXACT ACTION: run the direct final Debug gate after the last fail-closed fixes, review the final diff/artifacts, then create logical commits and attempt the normal push/hosted-CI handoff.
+Status: **Phase 9 implementation is committed and pushed on `phase9/nonblocking-indexed-read-plane-20260824` at `7c4c7f1`, stacked on validated Phase-8 head `27b521b` plus current `origin/main` commit `d8d52ab`; the read-plane implementation, deterministic regression, fault coverage, lifecycle coordinator, benchmark evidence, canonical spec sync, and verifier gates are complete.** The Phase-8 hosted run `32685840596` for `27b521b` is successful. Hosted Phase-9 CI run `32698159780` for `7c4c7f1` was observed `in_progress`; PR #6 remains open and the new-PR URL is `https://github.com/quantdale/FastFiles/pull/new/phase9/nonblocking-indexed-read-plane-20260824`.
+NEXT EXACT ACTION: poll hosted run `32698159780`; if it completes successfully, record the live result in the handoff without changing tracked state merely to embed CI evidence. The only local task left open is the direct Debug CTest retry blocked by the host’s packaged-PowerShell/portable-Authenticode process behavior.
 
 ## Phase-9 read-plane checkpoint (2026-08-24)
 
@@ -23,7 +23,7 @@ NEXT EXACT ACTION: run the direct final Debug gate after the last fail-closed fi
 
 1. Run direct Debug configure/build/full CTest and the final diff/artifact gates after the last source/spec edits.
 2. Commit the implementation, tests, benchmark, documentation, and OpenSpec sync in logical waves; keep generated verification/scratch output out of Git.
-3. Fetch/reconcile, push the stacked branch if credentials permit, inspect hosted CI for the exact final SHA, and write the final handoff checkpoint.
+3. Fetch/reconcile, push the stacked branch if credentials permit, inspect hosted CI for the exact final SHA, and write the final handoff checkpoint. — commits `c47ec3a`, `9a02207`, `ba04dc6`, and `7c4c7f1` are pushed; run `32698159780` is the live final-SHA check.
 
 ## Phase-8 convergence checkpoint (2026-08-24)
 
