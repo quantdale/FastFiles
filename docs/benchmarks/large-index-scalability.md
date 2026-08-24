@@ -550,3 +550,47 @@ the rerun confirmed substantial unrelated host CPU contention. No semantic or
 algorithmic regression was identified, and no brittle timing threshold was
 added. The structural contention probe, bounded memory/readers, and exact
 search assertions remain the Phase 9 acceptance evidence.
+
+## Phase 10 sustained-write availability evidence — 2026-08-24
+
+Phase 10 extends this same benchmark rather than creating a separate harness.
+The final local Debug probe used `--scales 1000 --diagnostics` and the real
+`IndexPipeline`/SQLite/WAL/search path. Its machine-readable output was
+`build/debug/phase10-large-index-scalability-final.json`; the generated file
+is execution evidence and is intentionally not source-controlled.
+
+The representative fast-path and cold-path measurements were:
+
+| 1K case | Median/elapsed | Results | Interpretation |
+| --- | ---: | ---: | --- |
+| hot selective | 1.49 ms | 0 | bounded projection/trigram path |
+| hot broad | 18.06 ms | 296 | bounded top-N broad query |
+| cold selective | 15.51 ms | 0 | durable stream after eviction |
+| cold broad | 67.48 ms | 296 | durable stream after eviction |
+
+The sustained-write broad query intentionally committed four searchable MFT
+mutations during the old hybrid validation budget. It completed with 296
+results after four restarts and four relevant invalidations, then made one
+durable-fallback attempt that streamed 1,004 rows from one coherent SQLite
+snapshot and succeeded. It did not return `Unavailable`. The matching
+durable-fallback cancellation probe also crossed the four-restart boundary,
+entered fallback, was cancelled, published zero results, and recorded one
+fallback attempt with no successful completion. These are structural outcomes;
+the elapsed values are host measurements, not acceptance thresholds.
+
+The contention probe held a real cold query while ingestion, a folder
+aggregate, snapshot publication, a second query, and cancellation progressed.
+All five operations completed; measured samples were ingestion `0.55 ms`,
+aggregate `26.99 ms`, snapshot `27.32 ms`, second query `46.75 ms`, and
+cancellation `0.31 ms`. Peak searches were `2`, peak durable readers were `2`,
+and cleanup ended with zero active searches/readers. The final read-plane
+diagnostics reported zero unavailable searches and zero reader failures, two
+fallbacks (one successful, one cancelled), and 1,004 fallback rows streamed.
+
+The run also retained the existing snapshot capacity probe: 1,980,421 rows
+published successfully below the 256 MiB payload ceiling; the estimated
+2,200,468-row boundary and the next row were rejected without advancing the
+published generation. The benchmark continues to exercise memory samples,
+hot/cold selective and broad queries, sustained fallback, cancellation, and
+contention without adding noisy wall-clock CTest thresholds. Larger historical
+Phase 8/9 scales remain preserved above and in their machine-readable artifacts.

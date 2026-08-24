@@ -215,12 +215,17 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
   per-volume hot/cold partition: resident volumes are copied in bounded
   chunks, evicted volumes stream through a move-only query-only
   `StoreReadSession` on an independent WAL connection, and matching/top-N
-  work runs outside the pipeline mutex. A monotonic generation gives each
-  query a snapshot/restart contract; search never reloads evicted volumes;
-  the filename-trigram accelerator is used only for all-hot searchable sets;
-  a failed cold stream fails the query closed. `ReadPlaneDiagnostics` exposes
-  bounded active/peak searches/readers, cancellations, failures, and
-  generation restarts.
+  work runs outside the pipeline mutex. Explicit query-visible
+  data/configuration epochs and scope-aware dependency sets invalidate only
+  relevant captured state; scan/journal/reconciliation bookkeeping is counted
+  without restarting a query. After the fixed hybrid restart budget, a
+  durable-snapshot-only pass streams selected volumes through the same bounded
+  accumulator, never reloads evicted projection state, and fails closed on
+  reader/path/serialization errors. The filename-trigram accelerator is used
+  only for all-hot searchable sets. `ReadPlaneDiagnostics` exposes bounded
+  active/peak searches/readers, cancellations, failures, query epochs, avoided
+  metadata invalidations, fallback attempts/successes, streamed rows, and
+  restart counts.
 - `VolumeSessionManager` — the orchestrator: turns "connection Active" into
   real scan/journal/reconcile. Maps ephemeral `ffprotocol::VolumeId` → durable
   `VolumeRowId`, decides Start-vs-Resume-vs-Reconcile per volume (design D6),

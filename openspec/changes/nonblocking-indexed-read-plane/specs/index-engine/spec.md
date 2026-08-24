@@ -31,13 +31,21 @@ results.
 - **Then** the batch commits and applies without waiting for the search's full
   duration
 
-#### Scenario: Mutation produces one coherent query generation
+#### Scenario: Mutation produces one coherent query-visible state
 
-- **Given** a query has captured a search generation
-- **When** a rename, delete, insert, metadata update, reconciliation removal,
-  or volume lifecycle mutation changes that generation
-- **Then** the query SHALL restart from a newly captured generation or fail
-  closed after the bounded restart limit, and SHALL never publish a mixed result
+- **Given** a query has captured a query-visible epoch and its relevant volume
+  dependencies
+- **When** a searchable row, configuration, lifecycle, or captured residency
+  mutation changes that dependency
+- **Then** the query SHALL restart, use a coherent durable snapshot after the
+  bounded hybrid budget, or fail closed, and SHALL never publish a mixed result
+
+#### Scenario: Operational bookkeeping does not restart indexed search
+
+- **Given** a query is active against a retained indexed volume
+- **When** only scan/journal progress, reconciliation timestamps, checkpoints,
+  planner statistics, or maintenance bookkeeping changes
+- **Then** the query SHALL not restart solely for that metadata write
 
 #### Scenario: Cancellation during cold work
 
@@ -72,3 +80,10 @@ production mode, or fabricating production MFT/USN evidence.
   concurrent read/write exercise execute
 - **Then** every stage's observable state matches the deterministic expectation
   and the final state equals the reference model
+
+#### Scenario: Unavailable indexed volumes retain queryable rows
+
+- **WHEN** a previously indexed volume is marked unavailable while its rows are
+  retained
+- **THEN** indexed search SHALL continue to return retained rows until explicit
+  volume configuration disables that volume

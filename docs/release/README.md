@@ -22,6 +22,15 @@ and add `-IncludePrivileged -Elevate` only for an explicitly authorized disposab
 install/service run. Test-PKI signing is not implicit in release readiness and
 remains non-production diagnostic evidence.
 
+Indexed-search release evidence includes the Phase 10 sustained-write contract:
+query-visible epochs invalidate only searchable state, operational scan/journal/
+reconciliation bookkeeping does not restart active searches, and a bounded
+durable SQLite snapshot is the fallback after relevant hybrid churn. Exercise
+the structural contention/fallback coverage through the existing
+`ffengine_index_pipeline_concurrency_tests`, UI lifecycle tests, and
+`ffengine_bench_large_index_scalability`; do not turn host-dependent timings
+into release thresholds.
+
 ## Portable unsigned validation candidate
 
 From a Visual Studio developer PowerShell on a clean checkout:

@@ -36,34 +36,46 @@ SHALL be reacquired only for bounded capture or generation validation.
 
 ### Requirement: Indexed Query Results Have an Explicit Stable Generation
 
-An indexed query SHALL execute against one coherent durable/projection
-generation. The engine SHALL capture the generation before long-running work,
-discard work that observes a generation change, and deterministically restart
-from a newly captured generation up to a bounded restart limit. If the limit is
-exhausted or the generation cannot be established, the query SHALL fail closed
-as `Unavailable`; it SHALL never publish a mixed-generation result.
+An indexed query SHALL execute against one coherent query-visible state. The
+engine SHALL capture a named query-visible epoch, the relevant volume/configuration
+dependencies, and a durable read context before long-running work. It SHALL
+discard work that observes a relevant dependency change and deterministically
+restart from a newly captured context up to a bounded hybrid restart limit. If
+relevant churn exhausts that limit, the query SHALL switch to one independent
+durable SQLite snapshot before reporting `Unavailable`, subject to bounded
+configuration retries. It SHALL never publish a mixed-generation or partial
+result.
 
 #### Scenario: Mutation during a query
 
-- **WHEN** an insert, rename, move, metadata update, delete, reconciliation
-  removal, volume availability change, or volume forget occurs during an
-  indexed query
-- **THEN** the query SHALL either complete from one stable generation or
-  restart and complete from a later stable generation
+- **WHEN** an insert, rename, move, searchable metadata update, delete,
+  reconciliation removal, relevant volume availability/configuration change,
+  or captured residency change occurs during an indexed query
+- **THEN** the query SHALL either complete from one stable context, restart,
+  switch to one durable snapshot, or cancel before publishing a result
+
+#### Scenario: Bookkeeping during a query
+
+- **WHEN** only a scan cursor, journal position, scan-completion marker,
+  reconciliation timestamp, checkpoint, planner-statistics, or maintenance
+  state changes during an indexed query
+- **THEN** the query SHALL not restart solely for that bookkeeping change
 
 #### Scenario: A query is superseded during a restart
 
-- **WHEN** cancellation is signalled while a query is validating or restarting
-  its generation
+- **WHEN** cancellation is signalled while a query is validating, restarting,
+  or executing durable fallback work
 - **THEN** the query SHALL stop and report `Cancelled` without publishing any
-  result from an earlier generation
+  result from an earlier context
 
 #### Scenario: Restart budget is exhausted
 
-- **WHEN** repeated mutations prevent a query from obtaining a stable
-  generation within the configured bounded restart budget
-- **THEN** the query SHALL report `Unavailable` with diagnostics and SHALL NOT
-  report a partial or fabricated complete result
+- **WHEN** repeated relevant mutations prevent a query from obtaining a stable
+  hybrid context within the configured bounded restart budget
+- **THEN** the query SHALL attempt one bounded durable-snapshot execution and
+  SHALL report `Unavailable` only when that snapshot or its configuration/
+  lifecycle validation cannot complete safely; it SHALL NOT report a partial
+  or fabricated complete result
 
 ### Requirement: Indexed Read Memory and Work Fan-Out Are Bounded
 
@@ -151,9 +163,11 @@ reported as complete.
 ### Requirement: Read-Plane Diagnostics Are Bounded and Testable
 
 The engine SHALL expose structured diagnostics for active and queued searches,
-active and peak durable readers, reader acquisition wait, query generation and
-restart count, hot/cold rows examined, cancellation count, search duration,
-critical-section wait/hold observations, and reader/query failures.
+active and peak durable readers, reader acquisition wait, query-visible and
+dependency-set epochs, relevant invalidations, metadata-only invalidations
+avoided, hybrid restart count, durable fallback attempts and success/failure,
+fallback rows streamed, hot/cold rows examined, cancellation count, search
+duration, critical-section wait/hold observations, and reader/query failures.
 Diagnostics SHALL be bounded, SHALL NOT include arbitrary personal filenames or
 paths, and SHALL remain optional/noisy-output-free in the normal product path.
 
@@ -161,6 +175,7 @@ paths, and SHALL remain optional/noisy-output-free in the normal product path.
 
 - **WHEN** a deterministic contention test runs a long cold query beside
   ingestion
-- **THEN** diagnostics identify the query generation, active/peak reader use,
-  rows by hot/cold source, lock wait/hold observations, and cancellation or
-  restart outcomes without logging user paths
+- **THEN** diagnostics identify the query context, relevant invalidations,
+  avoided metadata churn, active/peak reader use, fallback rows, rows by
+  hot/cold source, lock wait/hold observations, and cancellation or restart
+  outcomes without logging user paths

@@ -46,6 +46,36 @@ Ingestion of scanned or streamed records into the durable store SHALL be perform
 - **WHEN** the one-writer/bounded-independent-reader contract is exercised
 - **THEN** implementations and tests SHALL NOT infer that a single `Store` object is thread-safe or that multiple independent writers may concurrently own the same database
 
+### Requirement: Operational Volume Metadata Is Not Query-Visible State
+
+The durable store SHALL distinguish scan/journal progress and maintenance
+bookkeeping from entries and volume configuration that can change an indexed
+query answer. Updating only a scan cursor, journal position, scan-completion
+marker, last-reconciliation timestamp, passive checkpoint, planner statistics,
+or maintenance timestamp SHALL preserve the one-writer contract without
+requiring a query-visible invalidation.
+
+#### Scenario: Cursor and journal progress overlap a query
+
+- **WHEN** the writer persists scan-cursor or journal-position progress while a
+  query is active
+- **THEN** the query's captured searchable state SHALL remain valid and the
+  writer SHALL continue to commit progress normally
+
+#### Scenario: Reconciliation bookkeeping overlaps a query
+
+- **WHEN** a reconciliation pass updates only its progress/timestamp markers
+  and performs no entry or searchable-volume mutation
+- **THEN** the query SHALL not restart solely because those markers were
+  persisted
+
+#### Scenario: Actual reconciliation removal remains visible
+
+- **WHEN** reconciliation removes an entry or changes searchable inclusion
+  state in addition to updating bookkeeping
+- **THEN** the affected volume's query-visible state SHALL invalidate active
+  dependent queries and the durable store SHALL remain authoritative
+
 ### Requirement: Entry Identity via Volume Identifier and File Reference Number
 Every persisted entry SHALL be uniquely keyed by the pair (durable volume identifier, `FileReferenceNumber`), and this pair SHALL be the only identity used for insert, update, and lookup operations. No persisted entry SHALL be keyed or deduplicated by path string.
 
@@ -58,7 +88,7 @@ Every persisted entry SHALL be uniquely keyed by the pair (durable volume identi
 - **THEN** the store SHALL treat them as entirely distinct entries, since their (volume identifier, `FileReferenceNumber`) pairs differ
 
 ### Requirement: Compact In-Memory Projection
-`FastFilesEngine` SHALL maintain an in-memory projection of the index in which each entry is a fixed-size record referencing its parent by `FileReferenceNumber` (or an equivalent dense internal reference) and its name by an interned/deduplicated string id, rather than by a stored full path string. This projection, not the durable store, is what is published to UI clients per the `index-engine` capability's snapshot-publication mechanism. The projection SHALL remain a bounded working set: when its estimated memory exceeds the configured maximum, subtree eviction SHALL reduce it, evicted data SHALL remain durable in the store, and the eviction/reload policy SHALL be observable through testable diagnostics. No read path (search, browse, aggregate, snapshot export) MAY reconstruct the complete durable index in RAM merely to answer a query. Search SHALL instead capture bounded stable hot chunks and use bounded result accumulation, with a defined generation check before publication.
+`FastFilesEngine` SHALL maintain an in-memory projection of the index in which each entry is a fixed-size record referencing its parent by `FileReferenceNumber` (or an equivalent dense internal reference) and its name by an interned/deduplicated string id, rather than by a stored full path string. This projection, not the durable store, is what is published to UI clients per the `index-engine` capability's snapshot-publication mechanism. The projection SHALL remain a bounded working set: when its estimated memory exceeds the configured maximum, subtree eviction SHALL reduce it, evicted data SHALL remain durable in the store, and the eviction/reload policy SHALL be observable through testable diagnostics. No read path (search, browse, aggregate, snapshot export) MAY reconstruct the complete durable index in RAM merely to answer a query. Search SHALL instead capture bounded stable hot chunks and use bounded result accumulation, with an explicit query-visible dependency check and a durable-snapshot fallback after bounded relevant churn.
 
 #### Scenario: Forced eviction keeps both projection and query memory bounded
 - **Given** a store with more entries than a deliberately small projection budget
@@ -134,9 +164,9 @@ The store SHALL persist a per-volume scan-progress cursor during an in-progress 
 ### Requirement: Disconnected or Removed Volume Retention Without Corruption
 When a previously-indexed volume becomes unavailable (removed, unmounted, or otherwise no longer enumerable), the store SHALL retain that volume's entries and mark the volume's status as unavailable, and SHALL NOT delete the volume's entries or allow this transition to affect any other volume's data.
 
-#### Scenario: A removed external drive's entries remain queryable but marked unavailable
+#### Scenario: A removed external drive's entries remain retained but marked unavailable
 - **WHEN** a previously-indexed removable volume is disconnected
-- **THEN** its entries SHALL remain present in the durable store and in-memory projection, marked as belonging to an unavailable volume, and SHALL be excluded from active/live results unless explicitly requested
+- **THEN** its entries SHALL remain present in the durable store and in-memory projection, marked as belonging to an unavailable volume; live browsing SHALL exclude them by default, while the indexed read plane MAY return the retained rows under its explicit offline-retention contract
 
 #### Scenario: One volume's disconnection does not corrupt or affect other volumes
 - **WHEN** one indexed volume becomes unavailable

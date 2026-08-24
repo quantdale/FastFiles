@@ -33,9 +33,12 @@ maintenance.
 ### Requirement: Durable Read Snapshots Are Coherent and Refreshable
 
 A read session used by one query SHALL pin one SQLite WAL snapshot for that
-query. All rows, point lookups, and aggregates used by that query SHALL come
-from that snapshot. A later query SHALL be able to open a fresh snapshot and
-observe a committed writer change without recreating the engine database.
+query. All rows, point lookups, parent paths, matching inputs, sorting inputs,
+and aggregates used by that query SHALL come from that snapshot. A later query
+SHALL be able to open a fresh snapshot and observe a committed writer change
+without recreating the engine database. When hybrid search falls back, that
+session SHALL be the complete durable source for the fallback; rows SHALL NOT
+be combined from multiple snapshots.
 
 #### Scenario: Held snapshot sees pre-commit state
 
@@ -49,6 +52,13 @@ observe a committed writer change without recreating the engine database.
 - **WHEN** the writer commit completes and the prior reader is released
 - **THEN** a fresh read statement/session SHALL observe the committed rows,
   updates, and removals
+
+#### Scenario: Durable fallback holds one snapshot while writing continues
+
+- **WHEN** a query switches to durable fallback while the writer continues
+  committing relevant or unrelated batches
+- **THEN** every candidate and parent path used for the response SHALL come
+  from the fallback's one snapshot and writer commits SHALL continue
 
 #### Scenario: Passive maintenance overlaps a reader
 
@@ -115,3 +125,33 @@ active statement, volume forget, and database close/shutdown.
   cancelled
 - **THEN** no crash or deadlock occurs, the read reports cancelled/unavailable,
   and a later fresh database open is not left busy or corrupt
+
+### Requirement: Operational Volume Metadata Is Not Query-Visible State
+
+The durable store SHALL distinguish scan/journal progress and maintenance
+bookkeeping from entries and volume configuration that can change an indexed
+query answer. Updating only a scan cursor, journal position, scan-completion
+marker, last-reconciliation timestamp, passive checkpoint, planner statistics,
+or maintenance timestamp SHALL preserve the one-writer contract without
+requiring a query-visible invalidation.
+
+#### Scenario: Cursor and journal progress overlap a query
+
+- **WHEN** the writer persists scan-cursor or journal-position progress while a
+  query is active
+- **THEN** the captured searchable state SHALL remain valid and the writer
+  SHALL continue to commit progress normally
+
+#### Scenario: Reconciliation bookkeeping overlaps a query
+
+- **WHEN** a reconciliation pass updates only progress/timestamp markers and
+  performs no entry or searchable-volume mutation
+- **THEN** the query SHALL not restart solely because those markers were
+  persisted
+
+#### Scenario: Actual reconciliation removal remains visible
+
+- **WHEN** reconciliation removes an entry or changes searchable inclusion
+  state in addition to updating bookkeeping
+- **THEN** the affected volume's query-visible state SHALL invalidate active
+  dependent queries and the durable store SHALL remain authoritative
