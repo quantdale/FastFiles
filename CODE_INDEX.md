@@ -71,11 +71,13 @@ Public headers in `src/protocol/include/ffprotocol/`. Namespace `ffprotocol`.
   RequestDirectory, NewGeneration, EngineStatus, ReloadIndexingConfig,
   Request/Unavailable/Forget/ForgetResult volumes, Request/FolderAggregate),
   `ValidateUiFrame()`, path-length and status validators.
-- `SnapshotFormat.h` — layout of the memory-mapped snapshot:
-  `SnapshotSharedHeader` (generation/activeSlot/activeSlotDataSize) + two
-  equal slots of `kSnapshotSlotCapacityBytes` (8 MiB); `SnapshotDirectory`/
-  `SnapshotDirectoryEntry`; `SerializeSnapshot`/`ParseSnapshot`. Same-tree
-  private format, not a versioned wire protocol.
+- `SnapshotFormat.h` — layout of the immutable, generation-named memory-
+  mapped snapshot: `SnapshotSharedHeader` (formatVersion/reserved/generation/
+  payloadSizeBytes) followed by one serialized payload bounded by
+  `kSnapshotMaximumPayloadBytes` (256 MiB, fail-closed); `SnapshotDirectory`/
+  `SnapshotDirectoryEntry` (v3 adds per-entry allocated size + known flag);
+  `SerializeSnapshot`/`ParseSnapshot`. Same-tree private format, not a
+  versioned wire protocol. The obsolete fixed two-slot design is historical.
 - `Version.h` — `ProtocolVersion` (major/minor) + negotiation.
 - `IndexHealth.h`, `Settings.h`, `Diagnostics.h` — index-health reporting,
   settings (settings.json schema, `VolumeSetting`), and diagnostics payloads.
@@ -107,18 +109,24 @@ Public headers in `src/indexstore/include/ffindexstore/`. Namespace
 - `Store.h` — `class Store`: single-file SQLite DB in WAL mode. `Open`
   (integrity-checks first, sets `outIntegrityFailed` so the caller can fall
   back to a fresh scan), `ApplyBatch` (one explicit transaction, atomic),
-  `ForEachEntry` (streaming), volume-metadata CRUD (`GetOrCreateVolume`,
-  `SetJournalPosition`, `SetScanCursor`, `ForgetVolume` …), `Checkpoint*`
-  (passive + size-triggered forced), `GetFolderAggregate` (recursive CTE
-  subtree size/count). **Not internally synchronized beyond SQLite WAL.**
-- `Projection.h` — `class Projection` + `ProjectionEntry`: the RAM-resident
-  view rebuilt from `Store` at startup and kept incrementally in sync. Parent
-  keyed by FRN (not path); name by interned `NameId`. `Upsert`/`Remove`/
-  `RemoveVolume`, `Find`, `ChildIndices` (returns `std::span`),
-  `ReconstructPath` (walks parent refs + defensive cycle detection),
-  `RebuildVolumeFromStore`, `GetFolderAggregate` (in-memory subtree walk),
-  `ForEachEntry`. **Not internally synchronized** — the engine's single
-  ingestion thread (or a startup-rebuild lock) serializes mutation.
+  `ForEachEntry` (streaming) and `ForEachEntryUntil` (cancellable streaming),
+  `FindEntry` (durable point lookup by volume+FRN), volume-metadata CRUD
+  (`GetOrCreateVolume`, `SetJournalPosition`, `SetScanCursor`,
+  `ForgetVolume` …), `Checkpoint*` (passive + size-triggered forced),
+  `GetFolderAggregate` (recursive CTE subtree size/count). **Not internally
+  synchronized beyond SQLite WAL.**
+- `Projection.h` — `class Projection` + `ProjectionEntry`: the RAM-resident,
+  memory-bounded view rebuilt from `Store` at startup and kept incrementally
+  in sync (LRU subtree eviction under `SetMaximumMemoryBytes`; monotonic
+  `GetMemoryDiagnostics`: configured max, estimated bytes, last-eviction byte
+  delta, subtree-eviction/cold-reload counters; `EvictVolume` whole-volume
+  policy unload). Parent keyed by FRN (not path); name by interned `NameId`.
+  `Upsert`/`Remove`/`RemoveVolume`, `Find`, `ChildIndices` (returns
+  `std::span`), `ReconstructPath` (walks parent refs + defensive cycle
+  detection), `RebuildVolumeFromStore`, `ReloadEvictedVolume`,
+  `GetFolderAggregate` (in-memory subtree walk), `ForEachEntry`. **Not
+  internally synchronized** — the engine's single ingestion thread (or a
+  startup-rebuild lock) serializes mutation.
 - `FlatHashMap.h` — `FlatHashMap<Key,Value,Hash>` (open-addressing, pow-2
   sizing, linear probing, tombstones) and `FlatChildrenMap` (EntryKey →
   contiguous child-index slices, no per-key heap allocation). Used by
@@ -188,11 +196,21 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
 `src/engine/src/Main.cpp`.
 
 - `IndexPipeline` — owns `Store` + `Projection` and is the *single* point that
-  enforces "commit to durable store BEFORE applying to projection" (design D4).
-  Internally synchronized (one mutex). `ApplyMftBatch`/`ApplyUsnBatch`,
+  enforces "commit to durable store BEFORE applying to projection" (design
+  D4). Internally synchronized (one mutex). `ApplyMftBatch`/`ApplyUsnBatch`,
   `RebuildAll`, reconciliation pass (`Begin`/`Finish`/`IsActive` — removes
-  entries a full scan never observed), `ExportDirectorySnapshot` (→ snapshot
-  format), `GetFolderAggregate`, `RunStoreMaintenance` (WAL checkpointing).
+  entries a full scan never observed), `ExportDirectorySnapshot` (complete)
+  and `ExportDirectorySnapshotBounded` (top-of-tree working-set bound used at
+  startup rebuild / scan-complete publication), `GetFolderAggregate`
+  (projection walk when resident; durable recursive CTE when evicted),
+  `RunStoreMaintenance` (WAL checkpointing), memory seams
+  (`SetProjectionMemoryBudget`, `GetProjectionMemoryDiagnostics`,
+  `IsVolumeEvicted`, `UnloadVolumeFromProjection`). `SearchIndexed` serves a
+  per-volume hot/cold partition: resident volumes enumerate from the
+  projection, evicted volumes stream durably via `Store::ForEachEntryUntil` —
+  search never reloads evicted volumes; the filename-trigram accelerator is
+  used only for all-hot searchable sets; a failed cold stream fails the query
+  closed.
 - `VolumeSessionManager` — the orchestrator: turns "connection Active" into
   real scan/journal/reconcile. Maps ephemeral `ffprotocol::VolumeId` → durable
   `VolumeRowId`, decides Start-vs-Resume-vs-Reconcile per volume (design D6),
@@ -210,7 +228,10 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
 - `UiServer` — same-privilege control-plane server for the UI. Handles
   Subscribe/RequestDirectory, republishes on watched-directory changes, pushes
   NewGeneration/EngineStatus, services unavailable-volume + folder-aggregate
-  requests. Owns a `DirectoryWatcher` + `SnapshotPublisher`.
+  requests. Retains indexed directories as a bounded recency-ordered working
+  set (`kDefaultMaxRetainedIndexedDirectories`, observation-epoch eviction,
+  degraded entries immune; `GetSnapshotWorkingSetStats`). Owns a
+  `DirectoryWatcher` + `SnapshotPublisher`.
 - `DegradedModeEnumerator` — unprivileged `FindFirstFileEx` enumeration
   (the permanent fallback path); inaccessible subfolders returned with
   `accessible=false` rather than aborting.
@@ -303,6 +324,7 @@ Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 | `ffindexstore_bench_projection_memory` | `bench_projection_memory.cpp` (informational only, **not** `add_test`-registered) |
 | `ffmftparser_tests`, `ffprivilege_diagnostics_tests`, `ffcommand_surface_tests`, `ffconnection_registry_tests` | `tests/indexsvc/test_mft_parser.cpp`, `test_privilege_diagnostics.cpp`, `test_command_surface.cpp`, `test_connection_registry.cpp` |
 | `ffengine_index_pipeline_tests`, `ffengine_volume_session_manager_tests`, `ffengine_authenticode_verification_tests`, `ffengine_degraded_special_files_tests`, `ffengine_subtree_gating_tests` | `tests/engine/` |
+| `ffengine_seeded_indexed_mode_tests` | `tests/engine/test_seeded_indexed_mode.cpp` — deterministic seeded indexed-mode acceptance (population, restart, cold/evicted search, aggregates, mutations, reconciliation, cancellation, snapshot round-trip) |
 | `ffsearch_tests`, `ffsearch_scan_tests` | `tests/search/test_query.cpp`, `test_search.cpp` |
 | `ffnavigation_tests` | `tests/navigation/test_navigation_workspace.cpp` |
 | `ffcommand_tests` | `tests/commands/test_command_system.cpp` |

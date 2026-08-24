@@ -21,20 +21,27 @@ Three-process privileged/unprivileged split (rationale and decisions in
 - **Degraded mode is the active path**: unprivileged tree walks + directory watches.
   It is a first-class permanent state, not an error path — UI/engine work must keep
   working without the service.
+- **Memory-bounded indexed scale (Phase 8, `memory-bounded-indexed-scale`)**: indexed
+  search is complete under forced projection eviction — cold volumes stream durably
+  from SQLite instead of being reloaded into RAM; folder aggregates answer evicted
+  volumes from the durable recursive CTE; snapshot publication is bounded by a
+  recency-ordered indexed-directory working set (bulk exports are top-of-tree
+  bounded); the deterministic seeded acceptance path lives in
+  `ffengine_seeded_indexed_mode_tests`; scale evidence in `docs/benchmarks/`.
 
 ## Open Work
 
-- 12 of 15 OpenSpec changes closed. Current open change:
-  `openspec/changes/close-independent-validation-gaps/` (storage "% of parent" correctness,
-  responsive details-pane layout, service-account doc consistency, pinned-authentication
-  hardening). Its `tasks.md` is the source of truth.
-- Recovery work (engine discovery/launch reliability, connection-state visibility,
-  degraded-browsing hardening): `openspec/changes/recovery-degraded-browsing/`.
+- Open OpenSpec changes (external/provider-gated): `close-independent-validation-gaps`,
+  `autonomous-runtime-verification`, `zero-touch-autonomous-engineering`,
+  `real-user-dogfooding-release-engineering` (final push/CI evidence), and the active
+  `memory-bounded-indexed-scale`. Each `tasks.md` is the source of truth.
 
 ## Tests
 
-- 27 CTest tests (plain C++ executables with the `Check()` helper).
-  Run `cmake --preset debug && cmake --build --preset debug`, then `ctest --preset debug`.
+- 74 CTest tests (plain C++ executables with the `Check()` helper), including the
+  seeded indexed-mode acceptance suite and forced-eviction search-equivalence
+  regressions. Run `cmake --preset debug && cmake --build --preset debug`, then
+  `ctest --preset debug`.
 
 ## References
 
