@@ -415,6 +415,131 @@ void TestUiClientsDrivePipelineReadPlane() {
     pipeline.Close();
 }
 
+// search-availability-under-index-churn 6.5: UiServer::Stop must cancel an
+// indexed request parked in the durable fallback and join its worker without
+// publishing a result after shutdown has started.
+void TestUiServerStopsDurableFallback() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("ui_server_durable_fallback_shutdown.db")),
+          "UI durable-fallback pipeline opens");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 907;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"G:";
+    pipeline.SetVolumeRules(volume, setting);
+
+    std::vector<ffprotocol::MftRecordV1> seed;
+    ffprotocol::MftRecordV1 root{};
+    root.fixed.fileReferenceNumber = 5;
+    root.fixed.parentFileReferenceNumber = 5;
+    root.fixed.fileAttributes = 0x10;
+    root.fileName = u".";
+    root.fixed.fileNameLengthChars = 1;
+    seed.push_back(root);
+    for (uint64_t id = 10; id < 40; ++id) {
+        ffprotocol::MftRecordV1 entry{};
+        entry.fixed.fileReferenceNumber = id;
+        entry.fixed.parentFileReferenceNumber = 5;
+        entry.fileName = u"entry";
+        entry.fileName.push_back(static_cast<char16_t>(id - 10 + '0'));
+        entry.fixed.fileNameLengthChars = static_cast<uint16_t>(entry.fileName.size());
+        seed.push_back(std::move(entry));
+    }
+    Check(pipeline.ApplyMftBatch(volume, seed), "UI durable-fallback fixture commits");
+    pipeline.UnloadVolumeFromProjection(volume);
+
+    IndexedReadPhaseBarrier fallbackBarrier;
+    std::atomic<size_t> validationCount{0};
+    std::atomic<bool> validationMutationsSucceeded{true};
+    pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+        if (phase == ffengine::IndexPipeline::SearchPhase::GenerationValidation) {
+            const size_t sequence = validationCount.fetch_add(1, std::memory_order_acq_rel);
+            if (sequence < 4) {
+                ffprotocol::MftRecordV1 record{};
+                record.fixed.fileReferenceNumber = 1000 + sequence;
+                record.fixed.parentFileReferenceNumber = 5;
+                record.fileName = u"fallback-churn";
+                record.fixed.fileNameLengthChars = static_cast<uint16_t>(record.fileName.size());
+                if (!pipeline.ApplyMftBatch(volume, {record})) {
+                    validationMutationsSucceeded.store(false, std::memory_order_release);
+                }
+            }
+        } else if (phase == ffengine::IndexPipeline::SearchPhase::DurableFallback) {
+            fallbackBarrier.ArriveAndWait();
+        }
+    }});
+
+    std::mutex stateMutex;
+    std::condition_variable stateCondition;
+    bool cancellationObserved = false;
+    std::optional<ffprotocol::IndexedSearchStatus> responseStatus;
+    ffengine::UiServer server(
+        {},
+        [&](HANDLE pipe) {
+            {
+                std::lock_guard<std::mutex> lock(stateMutex);
+                cancellationObserved = true;
+            }
+            stateCondition.notify_all();
+            CancelIoEx(pipe, nullptr);
+        });
+    server.onRequestIndexedSearch = [&](const ffprotocol::IndexedSearchRequest& request,
+                                        const ffengine::UiServer::SearchCancellation& cancellation) {
+        const auto response = pipeline.SearchIndexed(request, nullptr, cancellation);
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            responseStatus = response.status;
+        }
+        stateCondition.notify_all();
+        return response;
+    };
+
+    const DWORD sessionId = GetCurrentProcessId() + 57;
+    Check(server.Start(sessionId), "UI durable-fallback server starts");
+    HANDLE client = ConnectToServer(PipeName(sessionId));
+    Check(client != INVALID_HANDLE_VALUE, "UI durable-fallback client connects");
+    if (client == INVALID_HANDLE_VALUE) {
+        fallbackBarrier.Release();
+        server.Stop();
+        pipeline.SetSearchTestHooks({});
+        pipeline.Close();
+        return;
+    }
+    Check(SendSubscribe(client), "UI durable-fallback client subscribes");
+    Check(SendIndexedSearch(client, 5701), "UI durable-fallback client starts a search");
+    Check(fallbackBarrier.WaitForArrival(kWaitDeadline),
+          "UI client search reaches the durable fallback rendezvous");
+
+    std::atomic<bool> stopReturned{false};
+    std::thread stopper([&] {
+        server.Stop();
+        stopReturned.store(true, std::memory_order_release);
+    });
+    {
+        std::unique_lock<std::mutex> lock(stateMutex);
+        Check(stateCondition.wait_for(lock, kWaitDeadline, [&] { return cancellationObserved; }),
+              "UiServer::Stop cancels the active durable fallback");
+    }
+    fallbackBarrier.Release();
+    stopper.join();
+    Check(stopReturned.load(std::memory_order_acquire),
+          "UiServer::Stop joins the cancelled durable-fallback worker");
+    Check(validationMutationsSucceeded.load(std::memory_order_acquire),
+          "UI durable-fallback validation mutations commit");
+    CloseHandle(client);
+    pipeline.SetSearchTestHooks({});
+    {
+        std::lock_guard<std::mutex> lock(stateMutex);
+        Check(!responseStatus.has_value() ||
+                  responseStatus == ffprotocol::IndexedSearchStatus::Cancelled,
+              "stopped UI durable fallback publishes no completed result");
+    }
+    Check(pipeline.GetReadPlaneDiagnostics().activeDurableReaders == 0,
+          "stopped UI durable fallback releases its read session");
+    pipeline.Close();
+}
+
 template <typename ConfigureSink, typename CheckResult>
 void RunServerScenario(const wchar_t* suffix, ConfigureSink configureSink, CheckResult checkResult) {
     const auto root = MakeFixtureRoot(suffix);
@@ -1258,6 +1383,7 @@ int main() {
     TestIndexedSearchCancellationIsConnectionScoped();
     TestGlobalIndexedSearchBackpressure();
     TestUiClientsDrivePipelineReadPlane();
+    TestUiServerStopsDurableFallback();
     TestIndexedSearchSerializationFailsClosed();
     TestCloseWhileSearchWorkerWrites();
     TestFailedStartRollsBackSnapshot();

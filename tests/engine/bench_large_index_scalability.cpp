@@ -303,10 +303,19 @@ struct SearchRun {
     bool truncated = false;
     bool wireTruncated = false;
     size_t wireResultCount = 0;
+    bool cancelled = false;
+    bool unavailable = false;
     bool filenameIndexUsed = false;
     size_t filenameIndexCandidateCount = 0;
     uint64_t searchGeneration = 0;
+    uint64_t queryVisibleEpoch = 0;
+    uint64_t dependencySetEpoch = 0;
     size_t generationRestarts = 0;
+    size_t relevantInvalidations = 0;
+    size_t durableFallbackAttempts = 0;
+    size_t durableFallbackRowsStreamed = 0;
+    bool durableFallbackUsed = false;
+    bool durableFallbackSucceeded = false;
     double stateLockWaitMs = 0.0;
     double maxStateLockHoldMs = 0.0;
     size_t peakSearches = 0;
@@ -631,12 +640,21 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.temperature = temperature;
     outcome.run.iteration = iteration;
     outcome.run.resultCount = outcome.timings.resultCount;
+    outcome.run.cancelled = response.status == ffprotocol::IndexedSearchStatus::Cancelled;
+    outcome.run.unavailable = response.status == ffprotocol::IndexedSearchStatus::Unavailable;
     outcome.run.candidateCount = outcome.timings.candidateCount;
     outcome.run.candidatesVisited = outcome.timings.candidatesVisited;
     outcome.run.filenameIndexUsed = outcome.timings.filenameIndexUsed;
     outcome.run.filenameIndexCandidateCount = outcome.timings.filenameIndexCandidateCount;
     outcome.run.searchGeneration = outcome.timings.searchGeneration;
+    outcome.run.queryVisibleEpoch = outcome.timings.queryVisibleEpoch;
+    outcome.run.dependencySetEpoch = outcome.timings.dependencySetEpoch;
     outcome.run.generationRestarts = outcome.timings.generationRestarts;
+    outcome.run.relevantInvalidations = outcome.timings.relevantInvalidations;
+    outcome.run.durableFallbackAttempts = outcome.timings.durableFallbackAttempts;
+    outcome.run.durableFallbackRowsStreamed = outcome.timings.durableFallbackRowsStreamed;
+    outcome.run.durableFallbackUsed = outcome.timings.durableFallbackUsed;
+    outcome.run.durableFallbackSucceeded = outcome.timings.durableFallbackSucceeded;
     outcome.run.stateLockWaitMs = outcome.timings.stateLockWaitMs;
     outcome.run.maxStateLockHoldMs = outcome.timings.maxStateLockHoldMs;
     outcome.run.truncated = outcome.timings.truncated;
@@ -750,6 +768,80 @@ private:
     bool arrived_ = false;
     bool released_ = false;
 };
+
+SearchRun RunDurableFallbackCancellationProbe(ffengine::IndexPipeline& pipeline,
+                                              ffindexstore::VolumeRowId volumeId,
+                                              size_t scale, bool detailedDiagnostics) {
+    SearchRun run;
+    run.scale = scale;
+    run.queryClass = "durable_fallback_cancellation";
+    run.query = "common";
+    run.temperature = "fallback-cancelled";
+
+    ContentionBarrier fallbackBarrier;
+    std::atomic<size_t> validationCount{0};
+    pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+        if (phase == ffengine::IndexPipeline::SearchPhase::GenerationValidation) {
+            const size_t sequence = validationCount.fetch_add(1, std::memory_order_acq_rel);
+            if (sequence < 4) {
+                pipeline.ApplyMftBatch(volumeId, {
+                    MakeMftRecord(20'000'000 + sequence, 5,
+                                  L"benchmark_fallback_churn_" + std::to_wstring(sequence), 0, 1, 1)
+                });
+            }
+        } else if (phase == ffengine::IndexPipeline::SearchPhase::DurableFallback) {
+            fallbackBarrier.ArriveAndWait();
+        }
+    }});
+
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = 950'000 + static_cast<uint64_t>(scale % 100'000);
+    request.scope = 2; // Keep the cancellation probe tied to the fixture volume.
+    request.scopePath = L"C:";
+    request.maxResults = 10'000;
+    request.query = L"common";
+    ffengine::IndexPipeline::SearchTimings timings;
+    timings.detailedDiagnostics = detailedDiagnostics;
+    std::atomic<bool> cancelled{false};
+    ffprotocol::IndexedSearchResponse response;
+    const auto start = Clock::now();
+    std::thread worker([&] {
+        response = pipeline.SearchIndexed(request, &timings, [&cancelled] {
+            return cancelled.load(std::memory_order_acquire);
+        });
+    });
+    // The four deterministic restart passes intentionally stream the full
+    // dataset. This is an evidence probe, not a wall-clock gate; give the
+    // condition-variable rendezvous enough room on a contended host while
+    // still bounding a broken harness run.
+    const bool reachedFallback = fallbackBarrier.WaitForArrival(std::chrono::seconds(30));
+    cancelled.store(true, std::memory_order_release);
+    fallbackBarrier.Release();
+    worker.join();
+    pipeline.SetSearchTestHooks({});
+
+    run.queryVisibleEpoch = timings.queryVisibleEpoch;
+    run.dependencySetEpoch = timings.dependencySetEpoch;
+    run.generationRestarts = timings.generationRestarts;
+    run.relevantInvalidations = timings.relevantInvalidations;
+    run.durableFallbackAttempts = timings.durableFallbackAttempts;
+    run.durableFallbackRowsStreamed = timings.durableFallbackRowsStreamed;
+    run.durableFallbackUsed = timings.durableFallbackUsed;
+    run.durableFallbackSucceeded = timings.durableFallbackSucceeded;
+    run.cancelled = response.status == ffprotocol::IndexedSearchStatus::Cancelled;
+    run.unavailable = response.status == ffprotocol::IndexedSearchStatus::Unavailable;
+    run.resultCount = response.candidates.size();
+    run.totalMs = timings.totalMs != 0.0 ? timings.totalMs : ElapsedMs(start);
+    run.engineAndResponseMs = run.totalMs;
+    run.memory = ReadMemory();
+    if (detailedDiagnostics) {
+        std::printf("  fallback cancellation: reached=%s, cancelled=%s, rows=%zu, %.2f ms\n",
+                    reachedFallback ? "yes" : "no", run.cancelled ? "yes" : "no",
+                    run.durableFallbackRowsStreamed, run.totalMs);
+        std::fflush(stdout);
+    }
+    return run;
+}
 
 DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipeline,
                                                     ffindexstore::VolumeRowId volumeId,
@@ -1087,7 +1179,17 @@ void WriteReadPlane(std::ostream& output, const ffengine::IndexPipeline::ReadPla
            << ",\"cancelled_searches\":" << readPlane.cancelledSearches
            << ",\"unavailable_searches\":" << readPlane.unavailableSearches
            << ",\"reader_failures\":" << readPlane.readerFailures
-           << ",\"generation_restarts\":" << readPlane.generationRestarts << '}';
+           << ",\"generation_restarts\":" << readPlane.generationRestarts
+           << ",\"query_visible_epoch\":" << readPlane.queryVisibleEpoch
+           << ",\"dependency_set_epoch\":" << readPlane.dependencySetEpoch
+           << ",\"query_visible_invalidations\":" << readPlane.queryVisibleInvalidations
+           << ",\"metadata_only_updates\":" << readPlane.metadataOnlyUpdates
+           << ",\"metadata_only_invalidations_avoided\":"
+           << readPlane.metadataOnlyInvalidationsAvoided
+           << ",\"durable_fallbacks\":" << readPlane.durableFallbacks
+           << ",\"successful_durable_fallbacks\":" << readPlane.successfulDurableFallbacks
+           << ",\"failed_durable_fallbacks\":" << readPlane.failedDurableFallbacks
+           << ",\"durable_fallback_rows_streamed\":" << readPlane.durableFallbackRowsStreamed << '}';
 }
 
 void WriteDataset(std::ostream& output, const DatasetResult& dataset) {
@@ -1129,12 +1231,21 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
     output << ",\"iteration\":" << run.iteration << ",\"result_count\":" << run.resultCount
            << ",\"candidate_count\":" << run.candidateCount << ",\"candidates_visited\":"
            << run.candidatesVisited << ",\"truncated\":" << (run.truncated ? "true" : "false")
+           << ",\"cancelled\":" << (run.cancelled ? "true" : "false")
+           << ",\"unavailable\":" << (run.unavailable ? "true" : "false")
            << ",\"wire_result_count\":" << run.wireResultCount
            << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false")
            << ",\"filename_index_used\":" << (run.filenameIndexUsed ? "true" : "false")
            << ",\"filename_index_candidate_count\":" << run.filenameIndexCandidateCount;
     output << ",\"search_generation\":" << run.searchGeneration
+           << ",\"query_visible_epoch\":" << run.queryVisibleEpoch
+           << ",\"dependency_set_epoch\":" << run.dependencySetEpoch
            << ",\"generation_restarts\":" << run.generationRestarts
+           << ",\"relevant_invalidations\":" << run.relevantInvalidations
+           << ",\"durable_fallback_attempts\":" << run.durableFallbackAttempts
+           << ",\"durable_fallback_rows_streamed\":" << run.durableFallbackRowsStreamed
+           << ",\"durable_fallback_used\":" << (run.durableFallbackUsed ? "true" : "false")
+           << ",\"durable_fallback_succeeded\":" << (run.durableFallbackSucceeded ? "true" : "false")
            << ",\"state_lock_wait_ms\":";
     WriteJsonDouble(output, run.stateLockWaitMs);
     output << ",\"max_state_lock_hold_ms\":";
@@ -1387,6 +1498,36 @@ int wmain(int argc, wchar_t** argv) {
                             measured.run.coldRowsExamined, measured.run.storeStreamMs);
                 std::fflush(stdout);
             }
+        }
+
+        // search-availability-under-index-churn 7.1: deterministic sustained
+        // relevant writes exceed the hybrid restart budget, then exercise the
+        // durable-snapshot broad-search and cancellation paths. Keep this
+        // evidence to the first requested scale so the default multi-million
+        // row run remains useful without multiplying full-dataset churn.
+        if (scale == options.scales.front()) {
+            const QueryCase sustainedCase{"sustained_write_broad", L"common", 0};
+            std::atomic<size_t> validationCount{0};
+            pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+                if (phase != ffengine::IndexPipeline::SearchPhase::GenerationValidation) return;
+                const size_t sequence = validationCount.fetch_add(1, std::memory_order_acq_rel);
+                if (sequence < 4) {
+                    pipeline.ApplyMftBatch(volumeId, {
+                        MakeMftRecord(10'000'000 + sequence, 5,
+                                      L"benchmark_sustained_churn_" + std::to_wstring(sequence), 0, 1, 1)
+                    });
+                }
+            }});
+            const SearchOutcome fallback = RunSearch(pipeline, scale, sustainedCase, 0,
+                                                      "durable-fallback", options.detailedDiagnostics);
+            pipeline.SetSearchTestHooks({});
+            searchRuns.push_back(fallback.run);
+            std::printf("  sustained-write broad fallback %.2f ms, results %zu, restarts %zu, rows %zu\n",
+                        fallback.run.totalMs, fallback.run.resultCount,
+                        fallback.run.generationRestarts, fallback.run.durableFallbackRowsStreamed);
+            std::fflush(stdout);
+            searchRuns.push_back(RunDurableFallbackCancellationProbe(
+                pipeline, volumeId, scale, options.detailedDiagnostics));
         }
 
         if (scale == 1'000'000) {
