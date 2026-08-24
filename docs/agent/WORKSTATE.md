@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-24 (Phase 8 — convergence continuation)
-Status: **Phase-8 implementation and audit are complete through `f5e7812`; final report/task closure and remote synchronization remain** on `phase8/indexed-scale-production-readiness-20260824`. The worktree is dirty from the final audit evidence update; `origin/main` is `e8b1d9b076cb2e194ca007303689e71dfe44f671`.
-NEXT EXACT ACTION: commit FF-P8-007 evidence, mark only the locally evidenced report/validation tasks, generate the clean final frontier report, then fetch/reconcile/push.
+Last updated: 2026-08-24 (Phase 8 — final handoff checkpoint)
+Status: **Phase-8 local implementation, audit, and validation are complete through validated baseline `32bc59b`; this checkpoint records the clean pushed branch handoff** on `phase8/indexed-scale-production-readiness-20260824`. `origin/main` remains `e8b1d9b076cb2e194ca007303689e71dfe44f671`; the branch head was verified pushed before this checkpoint.
+NEXT EXACT ACTION: inspect the hosted CI result for the final pushed branch SHA, then open/merge the campaign branch through the repository's normal review path. Do not infer production readiness from unsigned candidate or fake-provider evidence.
 
 ## Phase-8 convergence checkpoint (2026-08-24)
 
@@ -18,6 +18,7 @@ NEXT EXACT ACTION: commit FF-P8-007 evidence, mark only the locally evidenced re
 - Composed release readiness at clean `628a560` completed in 460.3 seconds: 35 PASS, 8 SKIPPED (expected unelevated/optional gates), 1 REQUIRED-BUT-UNAVAILABLE (disposable guest matrix), and 1 FAIL for the existing unsigned/stale production artifact report on a contaminated non-elevated host. It did not mutate the host or trust stores.
 - Audit ledger `codebase-audit/sessions/2026-08-24-phase8-convergence` records FF-P8-001..006. The report sanitizer was then hardened for slash-normalized absolute paths in `84b909e`; status/frontier tests pass again.
 - Final validation repeated Debug CTest **76/76 PASS**, release-test CTest **76/76 PASS**, Analyze build, ASAN protocol/IPC **2/2 PASS**, source/diagnostic policy, doctor, strict OpenSpec **61/61**, and diagnostic UIA `core` **PASS**. CTest JUnit evidence now drives the status report; stale `LastTestsFailed.log` no longer creates false FAILs. FF-P8-007 is recorded and fixed in `f5e7812`.
+- Final handoff checks: exact `pwsh ./verify/verify.ps1 build` **PASS**; focused `ffdoc_drift_tests`, `ffproject_status_ps_tests`, and `ffprovider_contract_ps_tests` **3/3 PASS**; strict OpenSpec re-run **61/61 PASS**. Hosted CI run `32685106949` for baseline `32bc59b` was publicly observable as `in_progress` at the checkpoint; no hosted PASS is claimed yet.
 
 ## Phase-8 checkpoint (memory-bounded-indexed-scale)
 
