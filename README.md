@@ -13,6 +13,7 @@ The whole product rests on one deliberately early architectural decision — a *
 - **File preview & properties** — in-app preview pane and property display.
 - **Command palette & shell integration** — command system, quick actions, and shell menu integration.
 - **Degraded mode is a first-class, permanent state** — when the service is absent, declined, or its connection drops, the engine falls back to unprivileged `FindFirstFileEx` tree walks plus `ReadDirectoryChangesW` watches, shown as a small non-modal status badge.
+- **Active-path resilience** — degraded watcher setup/retirement, snapshot publication, engine reconnect, and asynchronous search supersession are covered by deterministic fault-injection and marked-fixture convergence tests; the privileged path remains fail-closed.
 
 ## Architecture
 
@@ -124,9 +125,18 @@ development vs. privileged trust-store validation".
 
 Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
+The active degraded-path integration target is
+`ffengine_active_path_resilience_tests`. It uses a uniquely marked temporary
+fixture, performs deterministic filesystem churn and server/client replacement,
+and compares the final published rows with independent enumeration. The
+runtime capability
+`windows-active-path-resilience-validation` adds a configurable bounded soak,
+process resource sampling, exact owned-process cleanup, and explicit skips for
+GUI-only rows when an interactive desktop is unavailable.
+
 ## Runtime verification
 
-`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked.
+`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked. Run the active-path capability with `pwsh ./verify/verify.ps1 run -Capability windows-active-path-resilience-validation`; use `-CapabilityOption ActivePathSoakSeconds=<seconds>` to select a shorter or longer bounded run.
 
 ```powershell
 pwsh ./verify/verify.ps1
@@ -134,6 +144,6 @@ pwsh ./verify/verify.ps1
 
 ## Project conventions & workflow
 
-This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
+This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. The current active-path hardening change is `openspec/changes/active-path-runtime-resilience/`. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
 
 C++ style: four-space indentation, opening braces on the same line, `PascalCase` types and public methods, `camelCase` locals and parameters, trailing-underscore members, `kPascalCase` constants, and `ff<component>` namespaces. Keep headers self-contained and prefer standard C++ types at component boundaries. Run the focused test first, then the full suite, before submitting.

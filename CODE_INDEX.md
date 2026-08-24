@@ -272,16 +272,22 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   `UiStyle.h` provides rounded-rect fill/stroke and solid-brush helpers;
   `UiAnimation.h` serves `SystemAnimationsEnabled()` + `FloatAnimation`
   ease-out lerp (snap-instant when animations are off); `IconCache.h` is the
-  bounded, DPI-aware, off-thread icon cache. No hardcoded `RGB`/`GetSysColor`
-  literals except High-Contrast fallbacks.
+  bounded, DPI-aware, off-thread icon cache and `ffui::IconLru` is its pure
+  recency/eviction seam. No hardcoded `RGB`/`GetSysColor` literals except
+  High-Contrast fallbacks.
 - `WindowShell` — HWND creation, message loop, top-level wiring; composes all
    the panels below. Owns `EngineClient`, `ColumnView`, `NavigationWorkspace`,
    `Renderer`, `SearchPanel`, `CommandPalette`, `FileOperations`, `Preview`,
    `StorageAnalysis`, `SettingsDialog`, `CategoryEngine`, `TreemapView`.
 - `EngineClient` — UI-side client to the engine control pipe. Subscribes to
-   generation notifications, requests directory enumeration/watching, maps and
-   reads the shared-memory snapshot directly (`ReadSnapshot`), implements the
-   "lazy start" (launches `FastFilesEngine.exe` directly if unreachable).
+   generation notifications, rejects stale/out-of-context generations, requests
+   directory enumeration/watching, maps and reads the shared-memory snapshot
+   directly (`ReadSnapshot`), and implements the "lazy start" (launches
+   `FastFilesEngine.exe` directly if unreachable). Reconnects replace the
+   mapping context before announcing a new baseline.
+- `AsyncResultGate` — pure request/source identity seam used by `SearchPanel`
+   to invalidate close, snapshot, and engine-connection work without allowing
+   late completions to become visible.
 - `ColumnView` — Finder-style multi-column model + Direct2D/DirectWrite
    rendering; keyboard/mouse navigation; dual-pane; per-pane state save/restore.
 - `NavigationWorkspace` — tabs, dual-pane, back/forward history, address bar
@@ -310,6 +316,10 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   unavailable until a lawful Windows image and host capability are supplied.
 - `verify/providers/tests/Test-ProviderContract.ps1` — fake-provider lifecycle
   contract tests; it proves orchestration semantics only and is not guest evidence.
+- `verify/capabilities/windows-active-path-resilience-validation/` — marked-fixture
+  degraded-path churn capability. The C++ harness performs headless watcher,
+  snapshot, reconnect, and search convergence; the PowerShell module adds
+  bounded external resource sampling and exact owned-process cleanup.
 
 ## `FastFilesSetup` (installer) & `fftest` (probe)
 
@@ -354,7 +364,8 @@ Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 | `ffindexstore_store_tests`, `ffindexstore_projection_tests` | `tests/indexstore/test_store.cpp`, `test_projection.cpp` |
 | `ffindexstore_bench_projection_memory` | `bench_projection_memory.cpp` (informational only, **not** `add_test`-registered) |
 | `ffmftparser_tests`, `ffprivilege_diagnostics_tests`, `ffcommand_surface_tests`, `ffconnection_registry_tests` | `tests/indexsvc/test_mft_parser.cpp`, `test_privilege_diagnostics.cpp`, `test_command_surface.cpp`, `test_connection_registry.cpp` |
-| `ffengine_index_pipeline_tests`, `ffengine_volume_session_manager_tests`, `ffengine_authenticode_verification_tests`, `ffengine_degraded_special_files_tests`, `ffengine_subtree_gating_tests` | `tests/engine/` |
+| `ffengine_index_pipeline_tests`, `ffengine_volume_session_manager_tests`, `ffengine_authenticode_verification_tests`, `ffengine_degraded_special_files_tests`, `ffengine_directory_watcher_tests`, `ffengine_snapshot_publisher_tests`, `ffengine_ui_server_lifecycle_tests`, `ffengine_subtree_gating_tests` | `tests/engine/` |
+| `ffengine_client_handshake_tests`, `ffengine_active_path_resilience_tests` | `tests/engine/test_engine_client_handshake.cpp`, `test_active_path_resilience.cpp` — real control-pipe/snapshot convergence, stale-generation suppression, marked-fixture churn, and bounded server/client replacement |
 | `ffengine_seeded_indexed_mode_tests` | `tests/engine/test_seeded_indexed_mode.cpp` — deterministic seeded indexed-mode acceptance (population, restart, cold/evicted search, aggregates, mutations, reconciliation, cancellation, snapshot round-trip) |
 | `ffsearch_tests`, `ffsearch_scan_tests` | `tests/search/test_query.cpp`, `test_search.cpp` |
 | `ffnavigation_tests` | `tests/navigation/test_navigation_workspace.cpp` |
@@ -362,6 +373,7 @@ Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
 | `fffileoperations_tests`, `fffileoperations_e2e_tests`, `ffselection_tests` | `tests/fileoperations/` |
 | `ffpreview_tests` | `tests/preview/test_preview.cpp` |
 | `fftreemap_layout_tests`, `ffui_style_tests` | `tests/ui/test_treemap_layout.cpp`, `test_ui_style.cpp` |
+| `ffasync_result_gate_tests`, `ffui_icon_lru_tests` | `tests/ui/test_async_result_gate.cpp`, `test_icon_lru.cpp` — deterministic query/source supersession and bounded icon-cache recency/eviction |
 | `ffuia_driver_ps_tests`, `ffintake_gate_ps_tests` | PowerShell; registered in `tests/uia-driver/CMakeLists.txt` → `verify/uia-driver/tests/*.ps1` |
 | `ffproject_status_ps_tests` | PowerShell; `verify/status/tests/Test-ProjectStatus.ps1` |
 | `ffprovider_contract_ps_tests` | PowerShell fake-provider lifecycle contract; `verify/providers/tests/Test-ProviderContract.ps1` |

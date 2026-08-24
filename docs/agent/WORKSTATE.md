@@ -1,10 +1,28 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-24 (Phase 10 final handoff checkpoint)
-Status: **Phase 10 implementation and local/hosted validation are complete on `phase10/search-availability-convergence-20260824`; the pushed validated baseline is `930069b3f86585c89cb11439aee6342142b4157b`.** `origin/main` is `d8d52abec4ad5e5b49c82fc1e9a63637c6ea5dd1`, an ancestor of the branch. The prior Phase 9 workstate was stale and has been superseded by live Git evidence; do not use its historical `e621b70`/CI claims as current state.
-NEXT EXACT ACTION: no further Phase 10 implementation is recommended; the one next frontier is the evidence-gated production release qualification campaign (authorized signing pins, clean-host installation, and real MFT/USN validation). PR #6 remains open/draft because authenticated GitHub write access is unavailable; its full supersession is documented and no obsolete code was reintroduced.
+Last updated: 2026-08-24 (active-path-runtime-resilience validation checkpoint)
+Status: **The campaign implementation and local validation are complete; final hygiene, commit, push, and remote reconciliation remain.** The Phase 8–10 implementation train was fast-forwarded onto `main`; live branch, SHA, remote, hosted CI, and dirty state must be re-derived with Git/tooling at every resume; values recorded here are checkpoint evidence only.
+NEXT EXACT ACTION: run the final verifier/build and runtime checks as needed, update this checkpoint with exact results, then review/stage coherent commits, fetch/reconcile, push `main` without force, and verify a clean `HEAD == origin/main` handoff.
 
-## Phase-10 campaign checkpoint (2026-08-24)
+## Active-path resilience campaign checkpoint (2026-08-24)
+
+- Mainline reconciliation completed: the session started from clean `origin/main` at `d8d52abec4ad5e5b49c82fc1e9a63637c6ea5dd1`; local `main` was fast-forwarded to the validated Phase 8–10 train at checkpoint `178f32e93bbb56a45a5da06efde2b338c8e6287d`. PR #6 was audited against current main; its older display-path/Storage Analysis/UI variants are superseded, its contrast assertions are already present, and no unique code delta remains. Authenticated GitHub write access is unavailable, so the PR remains an administrative follow-up.
+- Created and strictly validated `openspec/changes/active-path-runtime-resilience`. The audit records five current composition gaps: deterministic watcher setup-failure reachability/final-refresh coverage, snapshot serializer failure coverage, search close/source supersession, filesystem-to-published-snapshot convergence, and the missing bounded active-path capability/soak.
+- Implemented narrow test-only watcher setup hooks and terminal final-refresh diagnostics; snapshot serialization fault injection preserving last-known-good generation; `AsyncResultGate`-based SearchPanel query/source invalidation on close, snapshot refresh, and engine lifecycle transitions; append-only superseded-result diagnostics; and a real UiServer/EngineClient disposable-fixture convergence test.
+- Added `ffengine_active_path_resilience_tests`, which performs marked-fixture create/rename/move/copy/delete/search/watch/restart churn and independently compares final snapshot rows with filesystem enumeration. Added the registered `windows-active-path-resilience-validation` capability with configurable duration/seed, external process samples, bounded exact-owned-PID cleanup, and an explicit interactive-desktop SKIPPED row. The default 600-second soak passed; the harness now skips generation waits for read-only searches and caps fixture entries at 96 to keep long runs bounded.
+- Focused evidence: watcher setup-failure and lifecycle tests, snapshot publisher failure/recovery, EngineClient filesystem convergence/order, Search async gate stress (150 deterministic transitions), active-path churn, IconLru promotion/eviction/clear, source-marker policy, diagnostic policy, and the 600-second active-path capability all pass. A Debug diagnostic UIA run reproduced a `<list>` value-initialized iterator assertion in the icon cache; `ffui::IconLru` removed that production list and a focused current Search UIA run passes. The test CMake typo discovered during a fresh configure was corrected (`fftreemap_metadata_tests` property name).
+- Validation checkpoint: final Debug and release-test full CTest are **81/81 PASS**; Analyze completed cleanly; ASAN protocol/IPC is **2/2 PASS**; strict OpenSpec is **66/66 PASS**; source-marker and diagnostic-policy gates pass; visual validation passes. Existing build/filesystem capabilities pass; resource-leak capability explicitly skips for elevation. The current focused selection UIA scenario still fails honestly because `Pane.1` does not appear after Toggle Dual Pane; raw UIA/visual artifacts remain untracked. One initial Debug rerun was contaminated by an orphaned diagnostic `FastFilesEngine.exe`; exact PID cleanup released the pipe and the clean rerun passed.
+- No production signing, trust-store, privileged-service, raw-MFT/USN, clean-host, guest, or physical display validation was attempted. These remain external prerequisites, not reasons to weaken the active degraded path.
+
+### Campaign frontier
+
+1. Run the final verifier/build and any final runtime capability checks after the last UI-cache fix; preserve explicit UIA/resource environment outcomes.
+2. Update the campaign ledger/tasks and current status documentation with the final gate results.
+3. Commit coherent waves directly on `main`, fetch/reconcile/push without force, verify hosted CI if authorized, and leave the worktree clean with `HEAD == origin/main`.
+
+The Phase-10 checkpoint below is historical provenance; its branch and SHA statements are not current repository state.
+
+## Historical Phase-10 campaign checkpoint (2026-08-24)
 
 - Live start reconciliation: `git fetch --prune origin` completed; branch `phase9/nonblocking-indexed-read-plane-20260824` and its remote are at `f332f222c73297d00ae36cc36c8a9ee5ffb375ae` (`phase9: checkpoint final handoff state`); `origin/main` is `d8d52abec4ad5e5b49c82fc1e9a63637c6ea5dd1`; `origin/main...HEAD` is `0 27` before Phase 10 work.
 - Created campaign branch `phase10/search-availability-convergence-20260824` at the exact Phase 9 head. Current uncommitted changes are the Phase 10 OpenSpec artifacts, WORKSTATE checkpoint, epoch/fallback implementation, and deterministic concurrency tests.

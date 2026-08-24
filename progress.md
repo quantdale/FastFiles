@@ -28,6 +28,27 @@ Run `pwsh ./verify/verify.ps1 status` to generate the structured JSON source and
 sanitized Markdown projection under the ignored `verify/status/generated/`
 directory. `tasks.md` remains the acceptance authority for each OpenSpec change.
 
+The current local hardening frontier is `openspec/changes/active-path-runtime-resilience`.
+It strengthens the already implemented degraded path with deterministic watcher
+setup-failure recovery, atomic snapshot-publication fault coverage, engine
+generation/reconnect ordering, SearchPanel supersession identity, filesystem-to-
+snapshot convergence, and the marked-fixture
+`windows-active-path-resilience-validation` capability. This is hardening of
+the mainline implementation, not a replacement architecture. Production
+signing pins, authenticated privileged runtime proof, clean-host MFT/USN
+validation, and physical/guest environment matrices remain external evidence
+gates.
+
+The completed local hardening validation has 81/81 Debug CTests and 81/81
+release-test CTests passing, a clean `/analyze` build, ASAN protocol/IPC 2/2,
+strict OpenSpec 66/66, source-marker and diagnostic-policy passes, and a PASS
+from the visual catalog. The active-path capability's 600-second default soak
+also passed with bounded resource samples and exact owned-process cleanup.
+The focused current Search UIA scenario passes after the icon-cache iterator
+fix; the dual-pane selection scenario remains an explicit interactive-driver
+failure because Pane.1 did not appear, and the elevated resource-leak
+capability is SKIPPED on this non-admin development host.
+
 ## Release-state interpretation
 
 - `PASS` means the named evidence was actually observed.
