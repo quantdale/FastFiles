@@ -23,10 +23,12 @@ $signing = Get-ProjectStatusTaskClassification -TaskText '[external] Signed priv
 $provider = Get-ProjectStatusTaskClassification -TaskText 'Validate the snapshot-restorable Hyper-V Windows guest over WinRM.' -ChangeName 'sample' -TaskId '5.1' -SourcePath 'openspec/changes/sample/tasks.md:5'
 $interactive = Get-ProjectStatusTaskClassification -TaskText 'Run the visual DPI and High Contrast matrix on the interactive desktop.' -ChangeName 'sample' -TaskId '5.2' -SourcePath 'openspec/changes/sample/tasks.md:6'
 $local = Get-ProjectStatusTaskClassification -TaskText 'Add a deterministic parser regression test.' -ChangeName 'sample' -TaskId '1.1' -SourcePath 'openspec/changes/sample/tasks.md:1'
+$pathBearing = Get-ProjectStatusTaskClassification -TaskText 'Inspect C:\Users\Example\private\fixture.vhdx before running the provider.' -ChangeName 'sample' -TaskId '1.2' -SourcePath 'openspec/changes/sample/tasks.md:2'
 Check ($signing.primaryCategory -eq 'production-signing' -and $signing.status -eq 'REQUIRED-BUT-UNAVAILABLE') 'signing task is production-signing blocked'
 Check ($provider.primaryCategory -eq 'external-provider' -and $provider.status -eq 'REQUIRED-BUT-UNAVAILABLE') 'guest task is provider blocked'
 Check ($interactive.primaryCategory -eq 'interactive' -and $interactive.status -eq 'BLOCKED_ENVIRONMENT') 'display task is environment blocked'
 Check ($local.primaryCategory -eq 'local' -and $local.status -eq 'SKIPPED' -and $local.classificationConfidence -eq 'low') 'unmarked task remains visible as local work'
+Check ($pathBearing.text -notmatch '(?i)C:\\Users\\Example' -and $pathBearing.text -match '<external-path>') 'task evidence text redacts absolute paths'
 
 $repoRelative = ConvertTo-ProjectStatusSafePath -Path (Join-Path $repoRoot 'verify\status\generated\project-status.json') -RepoRoot $repoRoot
 $external = ConvertTo-ProjectStatusSafePath -Path (Join-Path ([IO.Path]::GetTempPath()) 'private-user-path.txt') -RepoRoot $repoRoot
@@ -62,7 +64,9 @@ if ($LASTEXITCODE -eq 0) {
     $frontierSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\release-readiness-frontier.schema.json') -Raw | ConvertFrom-Json
     $frontierSchemaResult = Test-JsonSchema -Data $frontierJson -Schema $frontierSchema
     Check $frontierSchemaResult.Valid 'generated release-readiness frontier validates against its schema'
-Check ($frontierJson.releaseCandidate.classification -eq 'NON-PRODUCTION-OR-BLOCKED' -and $frontierJson.status -eq 'PASS') 'release composition cross-check never infers production readiness'
+    Check ($frontierJson.releaseCandidate.classification -eq 'NON-PRODUCTION-OR-BLOCKED' -and $frontierJson.status -eq 'PASS') 'release composition cross-check never infers production readiness'
+    $frontierText = Get-Content -LiteralPath (Join-Path $frontierOutput 'release-readiness-frontier.json') -Raw
+    Check ($frontierText -notmatch '(?i)C:[\\/]Users[\\/]Example') 'release frontier redacts slash-normalized absolute paths'
 }
 Remove-Item -LiteralPath $frontierOutput -Recurse -Force -ErrorAction SilentlyContinue
 

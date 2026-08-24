@@ -16,10 +16,17 @@ function ConvertTo-SafeReadinessText {
     if ([string]::IsNullOrWhiteSpace($Text)) { return $null }
     $value = $Text
     $repoPrefix = [IO.Path]::GetFullPath($repoRoot).TrimEnd('\')
-    $value = $value.Replace($repoPrefix, '<repo>')
-    if ($env:USERPROFILE) { $value = $value.Replace([IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\'), '<user-profile>') }
-    if ($env:TEMP) { $value = $value.Replace([IO.Path]::GetFullPath($env:TEMP).TrimEnd('\'), '<temp>') }
-    $value = [regex]::Replace($value, '(?i)(?:[A-Z]:\\|\\\\)[^,;\s]+', '<external-path>')
+    $repoPrefixes = @($repoPrefix, $repoPrefix.Replace('\', '/'))
+    foreach ($prefix in $repoPrefixes) { $value = $value.Replace($prefix, '<repo>') }
+    if ($env:USERPROFILE) {
+        $userPrefix = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\')
+        foreach ($prefix in @($userPrefix, $userPrefix.Replace('\', '/'))) { $value = $value.Replace($prefix, '<user-profile>') }
+    }
+    if ($env:TEMP) {
+        $tempPrefix = [IO.Path]::GetFullPath($env:TEMP).TrimEnd('\')
+        foreach ($prefix in @($tempPrefix, $tempPrefix.Replace('\', '/'))) { $value = $value.Replace($prefix, '<temp>') }
+    }
+    $value = [regex]::Replace($value, '(?i)(?:[A-Z]:[\\/]|\\\\)[^,;\s]+', '<external-path>')
     if ($value.Length -gt 600) { $value = $value.Substring(0, 600) + '…' }
     return $value
 }

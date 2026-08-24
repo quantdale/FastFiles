@@ -43,6 +43,16 @@ function ConvertTo-ProjectStatusSafePath {
     return '<external-path>'
 }
 
+function ConvertTo-ProjectStatusSafeText {
+    param([AllowNull()] [string] $Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $Text }
+    $value = $Text
+    if ($env:USERPROFILE) {
+        try { $value = $value.Replace([IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\'), '<user-profile>') } catch { }
+    }
+    return [regex]::Replace($value, '(?i)(?:[A-Z]:\\|\\\\)[^\s,;)\]]+', '<external-path>')
+}
+
 function Get-ProjectStatusGitStateFromLines {
     [CmdletBinding()]
     param(
@@ -125,7 +135,7 @@ function Get-ProjectStatusTaskClassification {
     [pscustomobject]@{
         change = $ChangeName
         task = $TaskId
-        text = $TaskText.Trim()
+        text = (ConvertTo-ProjectStatusSafeText -Text $TaskText.Trim())
         source = $SourcePath
         sourceLine = $SourceLine
         categories = @($categories)
