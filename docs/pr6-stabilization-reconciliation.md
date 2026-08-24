@@ -25,3 +25,14 @@ contains the reconciled palette work plus the release-readiness composition
 tooling, and `git fetch` could not reach the network from this session;
 `origin/overnight/release-closure-20260823` is the pushed remote state of that
 tip.
+
+## Phase 10 live reinspection — 2026-08-24
+
+The public GitHub API was rechecked against Phase 10 head
+`d0dc5f4f6d5b48ccbc00be52e1a7fc93356d088c`. PR #6 remains open and draft with
+head `9ddf1a3189be32db11c97e7c79bb7404caac1d8f`, base `main` at
+`90fa560a99217cabcf456b1198c83351c46513ed`, zero comments/review comments,
+and no authenticated write access is available in this environment. The
+Phase 10 source/spec audit confirms that the current Phase 8+9+10 train fully
+supersedes every PR #6 behavior; no PR code was cherry-picked or reintroduced.
+Closing the stale draft remains an external GitHub action.

@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
 Last updated: 2026-08-24 (Phase 10 validation and release-train checkpoint)
-Status: **Phase 10 implementation is active on `phase10/search-availability-convergence-20260824`, based on live Phase 9 head `f332f222c73297d00ae36cc36c8a9ee5ffb375ae`; source/spec/test changes remain uncommitted until the logical commit waves.** `origin/main` at the last reconciliation was `d8d52abec4ad5e5b49c82fc1e9a63637c6ea5dd1`. The prior Phase 9 workstate was stale and has been superseded by live Git evidence; do not use its historical `e621b70`/CI claims as current state.
-NEXT EXACT ACTION: commit the validated logical waves, rerun the clean-tree unsigned release-candidate gate, then fetch/reconcile `origin/main`, inspect PR #6/hosted CI access, push normally if authorized, and leave one clean reviewable Phase 8+9+10 branch. PR #6 remains open pending authenticated GitHub access; do not reintroduce its obsolete code.
+Status: **Phase 10 implementation and local validation are complete on `phase10/search-availability-convergence-20260824`; validated implementation baseline is `d0dc5f4f6d5b48ccbc00be52e1a7fc93356d088c`.** `origin/main` is `d8d52abec4ad5e5b49c82fc1e9a63637c6ea5dd1`, an ancestor of the branch. The prior Phase 9 workstate was stale and has been superseded by live Git evidence; do not use its historical `e621b70`/CI claims as current state.
+NEXT EXACT ACTION: make the final handoff-only WORKSTATE update, commit it, push the branch normally if authorized, inspect hosted CI for that exact final SHA, and leave the tree clean. PR #6 remains open/draft because authenticated GitHub write access is unavailable; its full supersession is documented and no obsolete code was reintroduced.
 
 ## Phase-10 campaign checkpoint (2026-08-24)
 
@@ -30,6 +30,8 @@ NEXT EXACT ACTION: commit the validated logical waves, rerun the clean-tree unsi
 - Concurrency evidence: the initial full-suite barrier timeout did not reproduce in isolation; increasing the condition-variable watchdog from 2s to 10s (explicitly non-semantic) made the final full-suite concurrency test pass. The final direct/CTest focused tests and full Debug suite are green.
 - Validation checkpoint: release-test CTest is **78/78 PASS**; Analyze build is warning-clean; ASAN protocol fuzz, IPC framing, and IPC listener lifecycle pass under `VsDevCmd`; `verify.ps1 doctor` passes; strict OpenSpec validation passes **65/65**.
 - Final local policy checkpoint: `verify.ps1 build` passed on an isolated rerun after an initial opaque host-contention failure; source-marker and diagnostic-policy gates pass; `ffdoc_drift_tests` passes; `git diff --check` and tracked-artifact review are clean. The first unsigned release-candidate attempt correctly refused the dirty checkout (`RELEASE_CLEAN_TREE_REQUIRED`); rerun it after the logical commits.
+- Clean release-candidate checkpoint: unsigned-validation qualification passed against clean baseline `d0dc5f4`, producing a valid portable x64 kit with consistent build identity and `productionReady: false` as required for unsigned artifacts. The clean-tree gate and packaging/provenance checks passed without trust-store or signer changes.
+- Final remote/PR audit: `git fetch --prune origin` leaves the Phase 10 branch **32 ahead / 0 behind** `origin/main`; `git merge-base --is-ancestor origin/main HEAD` passes. Public PR #6 reinspection shows it is still draft/open at head `9ddf1a3`, with no comments/reviews; no authenticated GitHub close/write was attempted. Full supersession remains documented in `docs/pr6-stabilization-reconciliation.md`.
 - NEXT EXACT ACTION: run release-test, Analyze, ASAN, verifier, strict OpenSpec, and hygiene gates; then commit logical waves and reconcile/push the release train. Keep tasks checked only with concrete evidence.
 
 ## Phase-9 read-plane checkpoint (2026-08-24)

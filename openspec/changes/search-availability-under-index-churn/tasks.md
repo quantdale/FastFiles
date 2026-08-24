@@ -66,8 +66,8 @@
 
 ## 10. Release-train handoff
 
-- [ ] 10.1 Run Debug configure/build/full CTest, release-test configure/build/full CTest, Analyze, ASAN protocol/IPC fuzz, doctor, verify build, seeded/concurrency/read-session/UI lifecycle tests, and applicable release-candidate gates.
-- [ ] 10.2 Inspect PR #6 against the exact Phase 10 baseline; document full supersession or port only a uniquely useful behavior with tests, and close it only if authenticated GitHub write access exists.
-- [ ] 10.3 Fetch/prune remotes again, integrate current `main` using the repository's safe history policy, and verify the Phase 8 + Phase 9 + Phase 10 train is intact with no stale PR code.
+- [x] 10.1 Run Debug configure/build/full CTest, release-test configure/build/full CTest, Analyze, ASAN protocol/IPC fuzz, doctor, verify build, seeded/concurrency/read-session/UI lifecycle tests, and applicable release-candidate gates. — Debug and release-test CTest are **78/78 PASS**; Analyze is warning-clean; ASAN protocol fuzz/IPC framing/listener pass; doctor, verifier, focused suites, and unsigned release-candidate qualification pass.
+- [x] 10.2 Inspect PR #6 against the exact Phase 10 baseline; document full supersession or port only a uniquely useful behavior with tests, and close it only if authenticated GitHub write access exists. — live API reinspection confirms the draft remains open with no reviews/comments; `docs/pr6-stabilization-reconciliation.md` records full supersession, and no authenticated close was attempted.
+- [x] 10.3 Fetch/prune remotes again, integrate current `main` using the repository's safe history policy, and verify the Phase 8 + Phase 9 + Phase 10 train is intact with no stale PR code. — final fetch/prune leaves `origin/main` at `d8d52ab...`, an ancestor of Phase 10 `d0dc5f4`; the branch is 32 commits ahead/0 behind and retains the Phase 8+9 ancestry.
 - [ ] 10.4 Commit logical implementation/spec/validation waves, push normally if authorized, inspect hosted CI for the exact final SHA, and record the live result.
 - [ ] 10.5 Run `git diff --check`, leave the working tree clean, and update WORKSTATE with exact branch/SHAs, validation results, external blockers, PR state, and exactly one next recommended frontier.
