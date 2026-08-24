@@ -1,0 +1,20 @@
+FastFiles large-index scalability benchmark (1 dataset scales)
+Building 2000000 synthetic entries...
+  selective          median 2305.27 ms, results 1
+  moderate           median 3157.36 ms, results 4096
+  broad              median 4672.65 ms, results 4096
+  no_match           median 2322.41 ms, results 0
+  prefix             median 3185.00 ms, results 4096
+  extension          median 4389.07 ms, results 4096
+  worst_substring    median 3802.04 ms, results 4096
+  forced eviction: estimated 903299344 -> 26242480 bytes
+  selective          COLD 2374.19 ms, results 1, coldRows 2000000, stream 2374.11 ms
+  moderate           COLD 12737.83 ms, results 4096, coldRows 2000000, stream 12733.78 ms
+  broad              COLD 29827.55 ms, results 4096, coldRows 2000000, stream 29822.81 ms
+  no_match           COLD 2374.54 ms, results 0, coldRows 2000000, stream 2374.46 ms
+  prefix             COLD 11551.62 ms, results 4096, coldRows 2000000, stream 11547.02 ms
+  extension          COLD 30912.30 ms, results 4096, coldRows 2000000, stream 30908.87 ms
+  worst_substring    COLD 27026.59 ms, results 4096, coldRows 2000000, stream 27023.95 ms
+Completed 2000000; database 145.9 MB, generation 115.8 s, rebuild 20.9 s
+Wrote docs\benchmarks\phase8-large-index-scalability-2m.json
+Largest published snapshot probe: 1980421 rows (theoretical capacity estimate 2200468 rows, maximum payload 268435456 bytes)

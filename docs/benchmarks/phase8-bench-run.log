@@ -1,0 +1,54 @@
+FastFiles large-index scalability benchmark (3 dataset scales)
+Building 100000 synthetic entries...
+  selective          median 0.31 ms, results 1
+  moderate           median 57.65 ms, results 4096
+  broad              median 150.62 ms, results 4096
+  no_match           median 0.14 ms, results 0
+  prefix             median 58.17 ms, results 4096
+  extension          median 154.37 ms, results 4096
+  worst_substring    median 89.23 ms, results 4096
+  forced eviction: estimated 41745068 -> 1618044 bytes
+  selective          COLD 174.37 ms, results 1, coldRows 100000, stream 174.27 ms
+  moderate           COLD 775.46 ms, results 4096, coldRows 100000, stream 770.70 ms
+  broad              COLD 1954.24 ms, results 4096, coldRows 100000, stream 1948.91 ms
+  no_match           COLD 143.22 ms, results 0, coldRows 100000, stream 143.12 ms
+  prefix             COLD 785.37 ms, results 4096, coldRows 100000, stream 779.21 ms
+  extension          COLD 2000.06 ms, results 4096, coldRows 100000, stream 1994.83 ms
+  worst_substring    COLD 1214.36 ms, results 4096, coldRows 100000, stream 1211.00 ms
+Completed 100000; database 7.0 MB, generation 1.3 s, rebuild 0.7 s
+Building 500000 synthetic entries...
+  selective          median 0.89 ms, results 1
+  moderate           median 344.11 ms, results 4096
+  broad              median 934.87 ms, results 4096
+  no_match           median 1.57 ms, results 0
+  prefix             median 306.05 ms, results 4096
+  extension          median 936.58 ms, results 4096
+  worst_substring    median 553.70 ms, results 4096
+  forced eviction: estimated 201627312 -> 7010404 bytes
+  selective          COLD 1501.65 ms, results 1, coldRows 500000, stream 1501.53 ms
+  moderate           COLD 7087.65 ms, results 4096, coldRows 500000, stream 7074.12 ms
+  broad              COLD 10960.30 ms, results 4096, coldRows 500000, stream 10955.41 ms
+  no_match           COLD 892.90 ms, results 0, coldRows 500000, stream 892.77 ms
+  prefix             COLD 4033.33 ms, results 4096, coldRows 500000, stream 4028.16 ms
+  extension          COLD 9816.40 ms, results 4096, coldRows 500000, stream 9812.68 ms
+  worst_substring    COLD 6831.77 ms, results 4096, coldRows 500000, stream 6827.30 ms
+Completed 500000; database 36.0 MB, generation 17.9 s, rebuild 3.7 s
+Building 1000000 synthetic entries...
+  selective          median 1.35 ms, results 1
+  moderate           median 588.07 ms, results 4096
+  broad              median 1705.35 ms, results 4096
+  no_match           median 3.95 ms, results 0
+  prefix             median 597.71 ms, results 4096
+  extension          median 1736.33 ms, results 4096
+  worst_substring    median 1058.67 ms, results 4096
+  forced eviction: estimated 403881508 -> 12604532 bytes
+  selective          COLD 1674.98 ms, results 1, coldRows 1000000, stream 1674.87 ms
+  moderate           COLD 7965.10 ms, results 4096, coldRows 1000000, stream 7958.79 ms
+  broad              COLD 19527.70 ms, results 4096, coldRows 1000000, stream 19521.12 ms
+  no_match           COLD 1511.71 ms, results 0, coldRows 1000000, stream 1511.60 ms
+  prefix             COLD 7620.72 ms, results 4096, coldRows 1000000, stream 7614.40 ms
+  extension          COLD 18970.60 ms, results 4096, coldRows 1000000, stream 18968.60 ms
+  worst_substring    COLD 13198.96 ms, results 4096, coldRows 1000000, stream 13196.76 ms
+Completed 1000000; database 72.2 MB, generation 49.6 s, rebuild 6.3 s
+Wrote docs\benchmarks\phase8-large-index-scalability.json
+Largest published snapshot probe: 1980421 rows (theoretical capacity estimate 2200468 rows, maximum payload 268435456 bytes)

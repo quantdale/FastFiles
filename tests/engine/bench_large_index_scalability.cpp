@@ -269,6 +269,12 @@ struct SearchRun {
     double engineAndResponseMs = 0.0;
     size_t projectionEntriesVisited = 0;
     size_t projectionRowsExamined = 0;
+    // memory-bounded-indexed-scale 7.1: hot/cold attribution.
+    size_t hotRowsExamined = 0;
+    size_t coldRowsExamined = 0;
+    size_t coldVolumesSearched = 0;
+    double storeStreamMs = 0.0;
+    bool coldSearchUsed = false;
     size_t namePoolLookups = 0;
     size_t emptyNamesRejected = 0;
     size_t nameViewsConstructed = 0;
@@ -588,6 +594,11 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.engineAndResponseMs = outcome.timings.totalMs + serializationMs;
     outcome.run.projectionEntriesVisited = outcome.timings.projectionEntriesVisited;
     outcome.run.projectionRowsExamined = outcome.timings.projectionRowsExamined;
+    outcome.run.hotRowsExamined = outcome.timings.hotRowsExamined;
+    outcome.run.coldRowsExamined = outcome.timings.coldRowsExamined;
+    outcome.run.coldVolumesSearched = outcome.timings.coldVolumesSearched;
+    outcome.run.storeStreamMs = outcome.timings.storeStreamMs;
+    outcome.run.coldSearchUsed = outcome.timings.coldSearchUsed;
     outcome.run.namePoolLookups = outcome.timings.namePoolLookups;
     outcome.run.emptyNamesRejected = outcome.timings.emptyNamesRejected;
     outcome.run.nameViewsConstructed = outcome.timings.nameViewsConstructed;
@@ -851,7 +862,11 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
     output << ",\"total_ms\":"; WriteJsonDouble(output, run.totalMs);
     output << ",\"engine_and_response_ms\":"; WriteJsonDouble(output, run.engineAndResponseMs);
     output << ",\"projection_entries_visited\":" << run.projectionEntriesVisited;
-    output << ",\"projection_rows_examined\":" << run.projectionRowsExamined;
+            output << ",\"projection_rows_examined\":" << run.projectionRowsExamined;
+            output << ",\"hot_rows_examined\":" << run.hotRowsExamined;
+            output << ",\"cold_rows_examined\":" << run.coldRowsExamined;
+            output << ",\"cold_volumes_searched\":" << run.coldVolumesSearched;
+            output << ",\"store_stream_ms\":" << run.storeStreamMs;
     output << ",\"name_pool_lookups\":" << run.namePoolLookups;
     output << ",\"empty_names_rejected\":" << run.emptyNamesRejected;
     output << ",\"name_views_constructed\":" << run.nameViewsConstructed;
@@ -1043,6 +1058,28 @@ int wmain(int argc, wchar_t** argv) {
                         searchSummaries.back().medianMs, searchSummaries.back().resultCount);
             std::fflush(stdout);
             if (std::string_view(queryCase.name) == "broad") dataset.afterBroadQuery = ReadMemory();
+        }
+
+        // memory-bounded-indexed-scale 7.1: forced-eviction cold stage. The
+        // whole volume is unloaded (durable data untouched) so every query
+        // class streams from SQLite -- the bounded-memory search path.
+        {
+            const auto beforeUnload = pipeline.GetProjectionMemoryDiagnostics();
+            pipeline.UnloadVolumeFromProjection(volumeId);
+            const auto afterUnload = pipeline.GetProjectionMemoryDiagnostics();
+            std::printf("  forced eviction: estimated %zu -> %zu bytes\n",
+                        beforeUnload.estimatedBytes, afterUnload.estimatedBytes);
+            std::fflush(stdout);
+            for (const auto& queryCase : queryCases) {
+                RunSearch(pipeline, scale, queryCase, 0, "warmup", options.detailedDiagnostics);
+                const SearchOutcome measured = RunSearch(pipeline, scale, queryCase, 0, "cold",
+                                                         options.detailedDiagnostics);
+                searchRuns.push_back(measured.run);
+                std::printf("  %-18s COLD %.2f ms, results %zu, coldRows %zu, stream %.2f ms\n",
+                            queryCase.name, measured.run.totalMs, measured.run.resultCount,
+                            measured.run.coldRowsExamined, measured.run.storeStreamMs);
+                std::fflush(stdout);
+            }
         }
 
         if (scale == 1'000'000) {

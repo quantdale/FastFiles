@@ -1123,7 +1123,9 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexed(const ffprotocol:
                     if (!streamed && !isCancelled()) storeStreamFailed = true;
                 }
             }
-            if (detailedDiagnostics) {
+            if (detailedDiagnostics && timings != nullptr) {
+                // (redundant null guard: /analyze cannot carry the
+                // detailedDiagnostics⇒timings implication through the lambda)
                 timings->projectionEnumerationMs +=
                     std::chrono::duration<double, std::milli>(Clock::now() - enumerationStart).count();
             }

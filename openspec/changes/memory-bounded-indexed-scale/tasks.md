@@ -39,12 +39,12 @@
 
 ## 7. Scale evidence
 
-- [ ] 7.1 Refresh `bench_large_index_scalability` measurements on current architecture at executed scales; record results as versioned evidence under this change's `evidence/`.
-- [ ] 7.2 Confirm no active documentation claims the obsolete slot-era snapshot design.
+- [x] 7.1 Refresh `bench_large_index_scalability` measurements on current architecture at executed scales; record results as versioned evidence under this change's `evidence/`.
+- [x] 7.2 Confirm no active documentation claims the obsolete slot-era snapshot design.
 
 ## 8. Validation
 
-- [ ] 8.1 Focused: indexstore, index-pipeline, ui-server, seeded-suite tests pass.
-- [ ] 8.2 Full Debug build + CTest; release-test build + CTest; analyze build clean.
-- [ ] 8.3 ASAN protocol+IPC fuzz targets pass.
-- [ ] 8.4 Strict OpenSpec validation passes; docs drift guard passes.
+- [x] 8.1 Focused: indexstore, index-pipeline, ui-server, seeded-suite tests pass.
+- [x] 8.2 Full Debug build + CTest; release-test build + CTest; analyze build clean.
+- [x] 8.3 ASAN protocol+IPC fuzz targets pass.
+- [x] 8.4 Strict OpenSpec validation passes; docs drift guard passes.

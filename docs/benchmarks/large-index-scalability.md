@@ -1,5 +1,12 @@
 # FastFiles large-index scalability baseline
 
+> **Superseded for architecture claims (2026-08-24):** indexed search now has a
+> durable cold path under projection eviction and publication is bounded by a
+> working set. Current-architecture measurements live in
+> [phase8-large-index-scalability.md](phase8-large-index-scalability.md). This
+> document is retained as the pre-Phase-8 provenance baseline; its hot-path
+> numbers remain representative for fully-resident indexes.
+
 Reference run: 2026-08-10, Release, MSVC 19.44.35228.0, CMake 3.31.6, Windows 10.0.26200, AMD Ryzen 5 7535HS (12 logical cores), 23.3 GiB RAM, Kingston OM8SEP4512Q-AA NVMe SSD, NTFS C:. The machine-readable run is [large-index-scalability.json](large-index-scalability.json).
 
 No formal latency target was found in the repository. The interpretation below uses engineering bands only: `<50 ms` immediate, `50–100 ms` excellent, `100–250 ms` responsive, `250–500 ms` noticeable, `>500 ms` poor, and `>1 s` not instant.

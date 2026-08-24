@@ -5,7 +5,6 @@
 ## MODIFIED Requirements
 
 ### Requirement: Filesystem Snapshot Publication
-
 Snapshot publication SHALL remain immutable, generation-named, version-checked
 (fail-closed), and bounded by the explicit 256 MiB payload cap. In addition,
 bulk indexed publication (startup rebuild, scan completion) SHALL export a
@@ -16,31 +15,48 @@ re-materialize through the existing request/watch path; deleted or renamed
 paths SHALL NOT survive as stale keys; offline volumes SHALL remain honestly
 absent; and degraded enumeration precedence SHALL be unchanged.
 
-#### Scenario: Bulk publication is bounded by the working set
+#### Scenario: UI reads already-published data without an IPC round trip
+- **WHEN** a UI client reads a directory that is present in the current published snapshot generation
+- **THEN** the read comes directly from the mapped immutable section with no control-pipe request for that directory
 
+#### Scenario: New snapshot generation is announced
+- **WHEN** the engine publishes new directory data into the snapshot mechanism
+- **THEN** subscribed clients receive a notification naming the new immutable generation
+
+#### Scenario: Bulk publication is bounded by the working set
 - **Given** an indexed volume with far more directories than the publication working-set bound
 - **When** startup rebuild or scan-complete publishes the volume
 - **Then** the exported directory count is bounded by the configured limit, top-of-tree-first in deterministic path order
 - **And** the published payload size scales with the working set, not the total tree
 
 #### Scenario: Retained indexed directories are capped
-
 - **Given** more distinct indexed directories merged than the retention cap
 - **When** a new generation is published
 - **Then** retained indexed entries never exceed the cap
 - **And** least-recently-observed indexed entries are dropped first while actively browsed (degraded) directories are always retained
 
 #### Scenario: Cold indexed directory re-materializes
-
 - **Given** a directory not present in the current published snapshot whose volume is online
 - **When** a UI requests it through the normal control pipe
 - **Then** the existing degraded request path enumerates, watches, publishes a new immutable generation, and announces it
 
 #### Scenario: Deleted paths still cannot linger
-
 - **Given** a previously published indexed directory that was deleted on disk
 - **When** a new complete per-volume indexed export merges
 - **Then** the stale key is removed exactly as before the working-set cap existed
+
+#### Scenario: Snapshot reflects whole-volume index data, not only browsed directories
+- **WHEN** the privileged path is `Active` and a volume's initial scan has completed or is progressing
+- **THEN** every persisted entry SHALL remain queryable through search and aggregates regardless of publication state
+- **And** the published snapshot SHALL retain the bounded top-of-tree export plus observed directories, while any other indexed directory re-materializes through the normal request path when navigated
+
+#### Scenario: Degraded mode still publishes a snapshot scoped to browsed directories
+- **WHEN** the engine is not in the `Active` privileged state
+- **THEN** the published snapshot SHALL continue to reflect at least the directories the user has browsed or pinned, consistent with degraded-mode operation, even though whole-volume coverage is unavailable in that state
+
+#### Scenario: A fresh subscription is acknowledged with a usable startup generation
+- **WHEN** a UI client subscribes before any directory has been requested or published (fresh engine, empty index database, no indexed volumes, privileged service unavailable)
+- **THEN** the `SubscribeAck` SHALL carry a nonzero generation whose mapping the client can open, validate, and parse as a canonical empty snapshot (zero directories), and the first directory request SHALL advance to the next generation containing the requested directory
 
 ## ADDED Requirements
 

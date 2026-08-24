@@ -1,8 +1,19 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-23 (overnight release-closure campaign; final handoff checkpoint)
-Status: **Campaign handoff ready on `overnight/release-closure-20260823`.** Live Git remains authoritative: this branch was created from `origin/main`/`HEAD` `e8b1d9b076cb2e194ca007303689e71dfe44f671`; do not treat this file as a Git database.
-NEXT EXACT ACTION: Create or update a draft PR after GitHub authentication is available; otherwise provision authorized production signing material and a clean elevated Windows host for the remaining privileged evidence. Do not modify `main` or close external OpenSpec tasks from this campaign.
+Last updated: 2026-08-24 (Phase 8 — memory-bounded indexed scale)
+Status: **Phase-8 campaign implemented on `phase8/indexed-scale-production-readiness-20260824`** (based on `overnight/release-closure-20260823` = pushed remote tip; `git fetch` unavailable offline this session).
+NEXT EXACT ACTION: push the phase-8 branch and open its PR once GitHub is reachable; close PR #6 as superseded (disposition in `docs/pr6-stabilization-reconciliation.md`).
+
+## Phase-8 checkpoint (memory-bounded-indexed-scale)
+
+- Core defect reproduced and fixed: `SearchIndexed` called `ReloadAllEvictedVolumes()` under the pipeline mutex (ceiling violation, reload→evict thrash, ignored-failure partials). Replaced by a per-volume hot/cold partition: cold volumes stream durably (`Store::ForEachEntryUntil`), trigram gated to all-hot sets, hybrid folder reconstruction via new `Store::FindEntry`, fail-closed `Unavailable` on broken cold streams, cancellation inside streams.
+- Memory policy observable: `Projection::MemoryDiagnostics` + `IndexPipeline::{SetProjectionMemoryBudget,GetProjectionMemoryDiagnostics,IsVolumeEvicted,UnloadVolumeFromProjection}`; `Projection::EvictVolume` deterministic unload.
+- ffsearch: total-order tie-breaks (name→folder→volume→id) + bounded top-N heap truncation — capped results no longer depend on enumeration order (was pre-sort scan-order truncation).
+- Snapshot publication bounded: `ExportDirectorySnapshotBounded(kInitialIndexedExportDirectories=4096)` at startup/scan-complete; `UiServer` retained indexed working set cap 16384 w/ observation-epoch eviction (`SetIndexedWorkingSetCap`, `GetSnapshotWorkingSetStats`); degraded entries immune; per-volume replace cleanup intact; precedence rules from deterministic-missing-path-state untouched.
+- New tests: forced-eviction equivalence suite (13 query classes × reference-vs-evicted), no-thrash loop, cold mutations/restart/reconciliation, cold aggregates, cold-stream cancellation, UiServer working-set behavior, `Store::FindEntry`, projection diagnostics, and `ffengine_seeded_indexed_mode_tests` (seeded acceptance: seed→restart→export→publish/parse→search→aggregates→offline→mutations→reconcile→terminal state).
+- Gates this session: Debug CTest **74/74**, release-test CTest **74/74**, analyze build warning-clean, ASAN protocol+IPC fuzz **2/2**, strict OpenSpec **60/60** incl. new change, doc-drift PASS after CRLF normalization of every edited file (recurring hazard: the edit tool emits LF).
+- Bench evidence: `docs/benchmarks/phase8-large-index-scalability.{md,json}` (100K/500K/1M Release, hot+warm+cold stages; result counts identical hot vs cold at every class) plus 2M run JSON; capacity probe ≈2.2M rows at the 256 MiB cap.
+- External/unavailable: GitHub push/PR + PR #6 closure (network unreachable), production signer/clean-host MFT-USN evidence (unchanged, evidence-gated), hosted CI observation for pushed SHAs.
 
 ## Current overnight campaign checkpoint (2026-08-23)
 
