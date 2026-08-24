@@ -37,7 +37,8 @@ function Test-JsonSchemaNode {
     }
 
     if ($null -ne $Schema.pattern -and $null -ne $Data) {
-        if ($Data -isnot [string] -or -not ($Data -match $Schema.pattern)) {
+        $patternValue = if ($Data -is [DateTime] -or $Data -is [DateTimeOffset]) { $Data.ToString('o') } else { $Data }
+        if ($patternValue -isnot [string] -or -not ($patternValue -match $Schema.pattern)) {
             $Errors.Add("$Path : value '$Data' does not match pattern '$($Schema.pattern)'")
         }
     }
@@ -91,7 +92,11 @@ function Test-JsonSchemaNode {
 function Test-JsonType {
     param($Data, [string]$Type)
     switch ($Type) {
-        'string'  { return $Data -is [string] }
+        # ConvertFrom-Json in Windows PowerShell/PowerShell 7 materializes ISO
+        # timestamps as DateTime values. Treat those values as JSON strings so
+        # schema validation can round-trip generated evidence without forcing
+        # producers to abandon the standard timestamp representation.
+        'string'  { return ($Data -is [string]) -or ($Data -is [DateTime]) -or ($Data -is [DateTimeOffset]) }
         'integer' { return ($Data -is [int]) -or ($Data -is [long]) -or ($Data -is [double] -and ($Data -eq [math]::Truncate($Data))) }
         'number'  { return ($Data -is [int]) -or ($Data -is [long]) -or ($Data -is [double]) }
         'boolean' { return $Data -is [bool] }

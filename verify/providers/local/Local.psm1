@@ -21,6 +21,19 @@ function New-LocalProviderState {
     }
 }
 
+function Invoke-LocalProviderPreflight {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
+
+    [pscustomobject]@{
+        Ready = $true
+        Provider = 'local'
+        ReasonCodes = @()
+        Detail = 'The current Windows host is available as the local verification target.'
+        TargetIdentity = $ProviderContext.Fingerprint.TargetIdentity
+    }
+}
+
 function Register-LocalProviderTeardown {
     [CmdletBinding()]
     param(
@@ -96,11 +109,14 @@ function Invoke-LocalProviderCleanup {
         actions = $entries
         succeeded = (@($entries | Where-Object { $_.status -eq 'FAIL' }).Count -eq 0)
     }
-    $cleanupResult | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $ProviderContext.RunContext.RunPath 'provider-cleanup.json') -Encoding utf8
+    if ($ProviderContext.RunContext.RunPath) {
+        New-Item -ItemType Directory -Path $ProviderContext.RunContext.RunPath -Force | Out-Null
+        $cleanupResult | ConvertTo-Json -Depth 8 | Set-Content -Path (Join-Path $ProviderContext.RunContext.RunPath 'provider-cleanup.json') -Encoding utf8
+    }
     $ProviderContext.State.TeardownActions.Clear()
     $ProviderContext.State.CleanupResult = $cleanupResult
     $ProviderContext.State.CleanupCompleted = $true
     return $cleanupResult
 }
 
-Export-ModuleMember -Function Invoke-LocalProviderProvision, Invoke-LocalProviderActivate, Invoke-LocalProviderCollectLogs, Invoke-LocalProviderCleanup, Register-LocalProviderTeardown
+Export-ModuleMember -Function Invoke-LocalProviderPreflight, Invoke-LocalProviderProvision, Invoke-LocalProviderActivate, Invoke-LocalProviderCollectLogs, Invoke-LocalProviderCleanup, Register-LocalProviderTeardown

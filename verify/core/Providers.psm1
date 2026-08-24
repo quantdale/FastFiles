@@ -2,6 +2,7 @@
     Environment Provider contract (task 2.1 / D6).
 
     A provider owns the verification execution target. Its versioned interface is:
+      preflight(context) -> readiness and stable reason codes
       provision(context) -> provider state
       activate(context, state) -> active target metadata
       collect-logs(context, state) -> artifact declarations
@@ -16,7 +17,27 @@
 #>
 
 $script:SupportedEnvironmentProviderInterfaceMajors = @(1)
-$script:RequiredLifecycleEntryPoints = @('provision', 'activate', 'collectLogs', 'cleanup')
+$script:RequiredLifecycleEntryPoints = @('preflight', 'provision', 'activate', 'collectLogs', 'cleanup')
+$script:EnvironmentProviderReasonCodes = @(
+    'HYPERV_FEATURE_UNAVAILABLE',
+    'NO_USABLE_SOURCE_IMAGE',
+    'SOURCE_IMAGE_PATH_INVALID',
+    'VHDX_NOT_WINDOWS_INSTALLATION',
+    'VM_ABSENT',
+    'UNSUPPORTED_VM_GENERATION',
+    'NO_CLEAN_REFERENCE_CHECKPOINT',
+    'GUEST_NOT_BOOTABLE',
+    'WINRM_UNAVAILABLE',
+    'CREDENTIALS_ABSENT',
+    'GUEST_TOOLCHAIN_UNAVAILABLE',
+    'INSUFFICIENT_HOST_RESOURCES',
+    'SNAPSHOT_RESTORE_UNSUPPORTED',
+    'LOG_COLLECTION_UNAVAILABLE',
+    'CLEANUP_INCOMPLETE',
+    'PROVIDER_DESCRIPTOR_INVALID',
+    'PROVIDER_INTERFACE_UNSUPPORTED',
+    'PROVIDER_DEPENDENCY_UNAVAILABLE'
+)
 
 Import-Module (Join-Path $PSScriptRoot 'Schema.psm1') -Force -Global
 
@@ -36,7 +57,9 @@ function New-EnvironmentProviderDescriptor {
         [Parameter(Mandatory)] [hashtable] $EntryPoints,
         [bool] $SupportsSnapshotRestore = $false,
         [string] $DisplayName = $Id,
-        [string] $TargetIdentity = "$($env:COMPUTERNAME):$Id"
+        [string] $TargetIdentity = "$($env:COMPUTERNAME):$Id",
+        [string[]] $SourceKinds = @(),
+        [string[]] $ReasonCodes = @($script:EnvironmentProviderReasonCodes)
     )
 
     [pscustomobject]@{
@@ -45,6 +68,8 @@ function New-EnvironmentProviderDescriptor {
         DisplayName             = $DisplayName
         TargetIdentity          = $TargetIdentity
         SupportsSnapshotRestore = $SupportsSnapshotRestore
+        SourceKinds             = @($SourceKinds)
+        ReasonCodes             = @($ReasonCodes)
         EntryPoints             = [pscustomobject] $EntryPoints
     }
 }
@@ -67,6 +92,11 @@ function Test-EnvironmentProviderDescriptor {
     foreach ($name in $script:RequiredLifecycleEntryPoints) {
         if (-not $Provider.EntryPoints.$name) {
             $errors.Add("provider '$($Provider.Id)' is missing required lifecycle entry point '$name'")
+        }
+    }
+    foreach ($reasonCode in @($Provider.ReasonCodes)) {
+        if ($script:EnvironmentProviderReasonCodes -notcontains $reasonCode) {
+            $errors.Add("provider '$($Provider.Id)' declares unknown reason code '$reasonCode'")
         }
     }
     if ($Provider.SupportsSnapshotRestore -and -not $Provider.EntryPoints.snapshotRestore) {
@@ -94,7 +124,9 @@ function Get-EnvironmentProvider {
         Import-Module $modulePath -Force -Global -ErrorAction Stop
         $provider = New-EnvironmentProviderDescriptor -Id 'local' -InterfaceVersion '1.0.0' `
             -DisplayName 'Local Windows host' -TargetIdentity "$($env:COMPUTERNAME):local" `
+            -SourceKinds @('current-host') `
             -EntryPoints @{
+                preflight       = 'Invoke-LocalProviderPreflight'
                 provision       = 'Invoke-LocalProviderProvision'
                 activate        = 'Invoke-LocalProviderActivate'
                 collectLogs     = 'Invoke-LocalProviderCollectLogs'
@@ -115,12 +147,16 @@ function Get-EnvironmentProvider {
         $provider = New-EnvironmentProviderDescriptor -Id $manifest.id -InterfaceVersion $manifest.interfaceVersion `
             -DisplayName $manifest.displayName -TargetIdentity "$($env:COMPUTERNAME):$($manifest.id)" `
             -SupportsSnapshotRestore ([bool]$manifest.supportsSnapshotRestore) `
+            -SourceKinds @($manifest.sourceKinds) `
+            -ReasonCodes @($manifest.reasonCodes) `
             -EntryPoints @{
+                preflight       = $manifest.entryPoints.preflight
                 provision       = $manifest.entryPoints.provision
                 activate        = $manifest.entryPoints.activate
                 collectLogs     = $manifest.entryPoints.collectLogs
                 cleanup         = $manifest.entryPoints.cleanup
                 snapshotRestore = $manifest.entryPoints.snapshotRestore
+                bootstrapPlan   = $manifest.entryPoints.bootstrapPlan
             }
     }
 
@@ -136,7 +172,7 @@ function Invoke-EnvironmentProviderLifecycle {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [pscustomobject] $Provider,
-        [Parameter(Mandatory)] [ValidateSet('provision', 'activate', 'collectLogs', 'cleanup', 'snapshotRestore')] [string] $Phase,
+        [Parameter(Mandatory)] [ValidateSet('preflight', 'provision', 'activate', 'collectLogs', 'cleanup', 'snapshotRestore', 'bootstrapPlan')] [string] $Phase,
         [Parameter(Mandatory)] [pscustomobject] $ProviderContext
     )
 
@@ -153,6 +189,133 @@ function Invoke-EnvironmentProviderLifecycle {
     return & $entryPoint $ProviderContext
 }
 
+function Invoke-EnvironmentProviderContract {
+    <#
+        Runs the provider lifecycle with cleanup guaranteed after every attempted
+        provision. The executor is deliberately a scriptblock supplied by the
+        caller; providers never receive arbitrary product commands or file paths.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [pscustomobject] $Provider,
+        [Parameter(Mandatory)] [pscustomobject] $ProviderContext,
+        [scriptblock] $Execute,
+        [switch] $RestoreSnapshot
+    )
+
+    $phases = [System.Collections.Generic.List[object]]::new()
+    $provisionAttempted = $false
+    $resultStatus = 'PASS'
+    $resultReason = $null
+    $reasonCodes = [System.Collections.Generic.List[string]]::new()
+    $cleanup = $null
+
+    try {
+        $preflight = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase preflight -ProviderContext $ProviderContext
+        $preflightStatus = if ($preflight.Ready) { 'PASS' } else { 'REQUIRED-BUT-UNAVAILABLE' }
+        $phases.Add([pscustomobject]@{ phase = 'preflight'; status = $preflightStatus; result = $preflight })
+        if (-not $preflight.Ready) {
+            $resultStatus = 'REQUIRED-BUT-UNAVAILABLE'
+            $resultReason = $preflight.Detail
+            foreach ($code in @($preflight.ReasonCodes)) { if ($code) { $reasonCodes.Add([string]$code) } }
+        }
+    } catch {
+        $resultStatus = 'FAIL'
+        $resultReason = $_.Exception.Message
+        $phases.Add([pscustomobject]@{ phase = 'preflight'; status = 'FAIL'; result = $null; error = $resultReason })
+    }
+
+    if ($resultStatus -eq 'PASS') {
+        $provisionAttempted = $true
+        try {
+            $provision = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase provision -ProviderContext $ProviderContext
+            $provisionStatus = if ($provision.Ready) { 'PASS' } else { 'REQUIRED-BUT-UNAVAILABLE' }
+            $phases.Add([pscustomobject]@{ phase = 'provision'; status = $provisionStatus; result = $provision })
+            if (-not $provision.Ready) {
+                $resultStatus = 'REQUIRED-BUT-UNAVAILABLE'
+                $resultReason = $provision.Detail
+                foreach ($code in @($provision.ReasonCodes)) { if ($code) { $reasonCodes.Add([string]$code) } }
+            }
+        } catch {
+            $resultStatus = 'FAIL'
+            $resultReason = $_.Exception.Message
+            $phases.Add([pscustomobject]@{ phase = 'provision'; status = 'FAIL'; result = $null; error = $resultReason })
+        }
+    }
+
+    if ($resultStatus -eq 'PASS') {
+        try {
+            $activate = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase activate -ProviderContext $ProviderContext
+            $activateStatus = if ($activate.Ready -eq $false) { 'FAIL' } else { 'PASS' }
+            $phases.Add([pscustomobject]@{ phase = 'activate'; status = $activateStatus; result = $activate })
+            if ($activate.Ready -eq $false) {
+                $resultStatus = 'FAIL'
+                $resultReason = $activate.Detail
+            }
+        } catch {
+            $resultStatus = 'FAIL'
+            $resultReason = $_.Exception.Message
+            $phases.Add([pscustomobject]@{ phase = 'activate'; status = 'FAIL'; result = $null; error = $resultReason })
+        }
+    }
+
+    if ($resultStatus -eq 'PASS' -and $Execute) {
+        try {
+            $execution = & $Execute $ProviderContext
+            $phases.Add([pscustomobject]@{ phase = 'execute'; status = 'PASS'; result = $execution })
+        } catch {
+            $resultStatus = if ($ProviderContext.Cancelled) { 'SKIPPED' } else { 'FAIL' }
+            $resultReason = $_.Exception.Message
+            $phases.Add([pscustomobject]@{ phase = 'execute'; status = $resultStatus; result = $null; error = $resultReason })
+        }
+    }
+
+    if ($provisionAttempted -and $ProviderContext.State) {
+        try {
+            try {
+                $logs = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase collectLogs -ProviderContext $ProviderContext
+                $phases.Add([pscustomobject]@{ phase = 'collectLogs'; status = 'PASS'; result = $logs })
+            } catch {
+                $resultStatus = 'FAIL'
+                $resultReason = $_.Exception.Message
+                $phases.Add([pscustomobject]@{ phase = 'collectLogs'; status = 'FAIL'; result = $null; error = $resultReason })
+            }
+            if ($RestoreSnapshot) {
+                try {
+                    $restored = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase snapshotRestore -ProviderContext $ProviderContext
+                    $restoreStatus = if ($restored.Restored) { 'PASS' } else { 'REQUIRED-BUT-UNAVAILABLE' }
+                    $phases.Add([pscustomobject]@{ phase = 'snapshotRestore'; status = $restoreStatus; result = $restored })
+                    if (-not $restored.Restored -and $resultStatus -eq 'PASS') {
+                        $resultStatus = 'REQUIRED-BUT-UNAVAILABLE'
+                        $resultReason = $restored.Detail
+                    }
+                } catch {
+                    $resultStatus = 'FAIL'
+                    $resultReason = $_.Exception.Message
+                    $phases.Add([pscustomobject]@{ phase = 'snapshotRestore'; status = 'FAIL'; result = $null; error = $resultReason })
+                }
+            }
+        } finally {
+            try {
+                $cleanup = Invoke-EnvironmentProviderLifecycle -Provider $Provider -Phase cleanup -ProviderContext $ProviderContext
+                $cleanupStatus = if ($cleanup.succeeded -eq $false) { 'FAIL' } else { 'PASS' }
+                $phases.Add([pscustomobject]@{ phase = 'cleanup'; status = $cleanupStatus; result = $cleanup })
+                if ($cleanup.succeeded -eq $false) {
+                    $resultStatus = 'FAIL'
+                    $resultReason = 'Provider cleanup reported CLEANUP_INCOMPLETE.'
+                    $reasonCodes.Add('CLEANUP_INCOMPLETE')
+                }
+            } catch {
+                $resultStatus = 'FAIL'
+                $resultReason = $_.Exception.Message
+                $reasonCodes.Add('CLEANUP_INCOMPLETE')
+                $phases.Add([pscustomobject]@{ phase = 'cleanup'; status = 'FAIL'; result = $null; error = $resultReason })
+            }
+        }
+    }
+    [pscustomobject]@{ status = $resultStatus; reasonCodes = @($reasonCodes | Select-Object -Unique); reason = $resultReason; phases = @($phases); cleanup = $cleanup }
+}
+
 function Get-EnvironmentProviderManifestRecord {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [pscustomobject] $Provider)
@@ -163,7 +326,9 @@ function Get-EnvironmentProviderManifestRecord {
         displayName             = $Provider.DisplayName
         targetIdentity          = $Provider.TargetIdentity
         supportsSnapshotRestore = $Provider.SupportsSnapshotRestore
+        sourceKinds             = @($Provider.SourceKinds)
+        reasonCodes             = @($Provider.ReasonCodes)
     }
 }
 
-Export-ModuleMember -Function Get-EnvironmentProvider, Get-EnvironmentProviderManifestRecord, Invoke-EnvironmentProviderLifecycle, New-EnvironmentProviderDescriptor, Test-EnvironmentProviderDescriptor, Test-EnvironmentProviderInterfaceVersionSupported
+Export-ModuleMember -Function Get-EnvironmentProvider, Get-EnvironmentProviderManifestRecord, Invoke-EnvironmentProviderLifecycle, Invoke-EnvironmentProviderContract, New-EnvironmentProviderDescriptor, Test-EnvironmentProviderDescriptor, Test-EnvironmentProviderInterfaceVersionSupported

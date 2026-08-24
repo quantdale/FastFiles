@@ -2,7 +2,7 @@
     Disposable Hyper-V Windows guest environment provider (task 6.5 / design.md D5).
 
     Implements the Environment Provider contract behind the core's provider
-    interface (provision -> activate -> collectLogs -> cleanup -> snapshotRestore)
+    interface (preflight -> provision -> activate -> collectLogs -> cleanup -> snapshotRestore)
     with supportsSnapshotRestore=true. It is designed to be run against a clean
     reference VHDX template so a full FastFiles validation can execute in an
     isolated guest and then be restored/reset.
@@ -14,9 +14,8 @@
 #>
 
 $script:HyperVModule = 'Hyper-V'
-$script:DefaultVmName = 'FastFiles-Validation'
-$script:DefaultVhdx = 'C:\VMs\FastFiles-Matrix.vhdx'
 $script:DefaultSwitch = 'FastFilesSwitch'
+$script:MinimumVhdBytes = 8GB
 
 function Assert-HyperVModuleAvailable {
     if (-not (Get-Module -ListAvailable -Name $script:HyperVModule)) {
@@ -24,35 +23,172 @@ function Assert-HyperVModuleAvailable {
     }
 }
 
+function Get-HyperVSourcePath {
+    param([pscustomobject] $ProviderContext)
+
+    $candidate = if ($ProviderContext -and $ProviderContext.SourcePath) { [string]$ProviderContext.SourcePath } else { [string]$env:FASTFILES_HYPERV_IMAGE }
+    if ([string]::IsNullOrWhiteSpace($candidate)) { return $null }
+    try {
+        if (-not [IO.Path]::IsPathFullyQualified($candidate)) { return $null }
+        return [IO.Path]::GetFullPath($candidate)
+    } catch {
+        return $null
+    }
+}
+
+function Get-HyperVVmName {
+    param([pscustomobject] $ProviderContext)
+
+    if ($ProviderContext -and $ProviderContext.VmName) { return [string]$ProviderContext.VmName }
+    $suffix = if ($ProviderContext -and $ProviderContext.RunContext.Timestamp) { [string]$ProviderContext.RunContext.Timestamp } else { 'probe' }
+    $safeSuffix = $suffix -replace '[^A-Za-z0-9-]', '-'
+    return "FastFiles-Validation-$safeSuffix"
+}
+
+function Test-HyperVWindowsImage {
+    param([Parameter(Mandatory)] [string] $Path)
+
+    $extension = [IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($extension -eq '.iso') {
+        return [pscustomobject]@{
+            Verified = $false
+            ReasonCode = 'GUEST_TOOLCHAIN_UNAVAILABLE'
+            Detail = 'An ISO is accepted for bootstrap-plan generation only; it is not an installed guest template.'
+        }
+    }
+    if (-not (Get-Command Mount-DiskImage -ErrorAction SilentlyContinue) -or
+        -not (Get-Command Dismount-DiskImage -ErrorAction SilentlyContinue)) {
+        return [pscustomobject]@{
+            Verified = $false
+            ReasonCode = 'PROVIDER_DEPENDENCY_UNAVAILABLE'
+            Detail = 'Mount-DiskImage/Dismount-DiskImage are required for read-only Windows-installation inspection.'
+        }
+    }
+
+    $mounted = $null
+    try {
+        $mounted = Mount-DiskImage -ImagePath $Path -Access ReadOnly -PassThru -ErrorAction Stop
+        $disk = $mounted | Get-Disk -ErrorAction Stop
+        $volumes = @($disk | Get-Partition -ErrorAction Stop | Get-Volume -ErrorAction SilentlyContinue)
+        foreach ($volume in $volumes) {
+            if ([string]::IsNullOrWhiteSpace([string]$volume.Path)) { continue }
+            $systemHive = Join-Path ([string]$volume.Path) 'Windows\System32\config\SYSTEM'
+            if (Test-Path -LiteralPath $systemHive -PathType Leaf) {
+                return [pscustomobject]@{ Verified = $true; ReasonCode = $null; Detail = 'Read-only inspection found Windows\System32\config\SYSTEM.' }
+            }
+        }
+        [pscustomobject]@{ Verified = $false; ReasonCode = 'VHDX_NOT_WINDOWS_INSTALLATION'; Detail = 'Read-only image inspection did not find Windows\System32\config\SYSTEM.' }
+    } catch {
+        [pscustomobject]@{ Verified = $false; ReasonCode = 'VHDX_NOT_WINDOWS_INSTALLATION'; Detail = 'Read-only image inspection failed; the provider will not treat the image as a usable Windows installation.' }
+    } finally {
+        if ($mounted) {
+            try { Dismount-DiskImage -ImagePath $Path -ErrorAction Stop | Out-Null } catch { }
+        }
+    }
+}
+
 function Test-HyperVGuestProvisionable {
-    <# Returns a structured readiness verdict. #>
-    $provisionable = $false
-    $reasons = @()
+    <# Returns a structured readiness verdict with stable reason codes. #>
+    param([pscustomobject] $ProviderContext)
+
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    $information = [System.Collections.Generic.List[string]]::new()
+    $sourcePath = Get-HyperVSourcePath -ProviderContext $ProviderContext
+    $vmName = Get-HyperVVmName -ProviderContext $ProviderContext
+    $vm = $null
     try {
         Assert-HyperVModuleAvailable
     } catch {
-        $reasons += 'hyperv-module-unavailable'
+        $reasons.Add('HYPERV_FEATURE_UNAVAILABLE')
     }
-    if (-not (Test-Path -LiteralPath $script:DefaultVhdx) -or (Get-Item -LiteralPath $script:DefaultVhdx).Length -lt 1GB) {
-        $reasons += 'guest-image-absent'
+    if ($reasons.Count -eq 0) {
+        $service = Get-Service -Name 'vmms' -ErrorAction SilentlyContinue
+        if (-not $service -or $service.Status -ne 'Running') {
+            $reasons.Add('PROVIDER_DEPENDENCY_UNAVAILABLE')
+        }
+        $vm = Get-VM -Name $vmName -ErrorAction SilentlyContinue
+        if ($vm -and [string]$vm.Generation -ne '2') {
+            $reasons.Add('UNSUPPORTED_VM_GENERATION')
+        }
     }
-    $service = Get-Service -Name 'vmms' -ErrorAction SilentlyContinue
-    if (-not $service -or $service.Status -ne 'Running') {
-        $reasons += 'vmms-not-running'
+    if (-not $vm) {
+        $information.Add('VM_ABSENT')
+        if (-not $sourcePath) {
+            $reasons.Add('NO_USABLE_SOURCE_IMAGE')
+        } elseif (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+            $reasons.Add('SOURCE_IMAGE_PATH_INVALID')
+        } else {
+            $source = Get-Item -LiteralPath $sourcePath -ErrorAction SilentlyContinue
+            $extension = [IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
+            if (-not $source -or $source.Length -lt 1MB -or @('.vhd', '.vhdx', '.iso') -notcontains $extension) {
+                $reasons.Add('NO_USABLE_SOURCE_IMAGE')
+            } elseif ($extension -eq '.iso') {
+                # An ISO is accepted as a user-supplied source for bootstrap-plan
+                # generation, but this provider never claims an unattended install
+                # ran without an authorized guest bootstrap step.
+                $reasons.Add('GUEST_TOOLCHAIN_UNAVAILABLE')
+            } elseif (Get-Command Get-VHD -ErrorAction SilentlyContinue) {
+                try {
+                    $vhd = Get-VHD -Path $sourcePath -ErrorAction Stop
+                    if ([string]$vhd.VhdFormat -notin @('VHD', 'VHDX') -or [int64]$vhd.Size -lt $script:MinimumVhdBytes) {
+                        $reasons.Add('NO_USABLE_SOURCE_IMAGE')
+                    }
+                    else {
+                        $imageCheck = Test-HyperVWindowsImage -Path $sourcePath
+                        if (-not $imageCheck.Verified) { $reasons.Add($imageCheck.ReasonCode) }
+                    }
+                } catch {
+                    $reasons.Add('NO_USABLE_SOURCE_IMAGE')
+                }
+            } else {
+                $reasons.Add('PROVIDER_DEPENDENCY_UNAVAILABLE')
+            }
+        }
     }
-    $provisionable = $reasons.Count -eq 0
+    try {
+        $memory = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+        if ([int64]$memory.TotalPhysicalMemory -lt 8GB) { $reasons.Add('INSUFFICIENT_HOST_RESOURCES') }
+    } catch {
+        $information.Add('INSUFFICIENT_HOST_RESOURCES')
+    }
+    $reasons = @($reasons | Select-Object -Unique)
+    $information = @($information | Select-Object -Unique)
     [pscustomobject]@{
-        Provisionable = $provisionable
+        Provisionable = ($reasons.Count -eq 0)
+        Ready = ($reasons.Count -eq 0)
         Reasons = $reasons
-        VhdxPath = $script:DefaultVhdx
-        VmName = $script:DefaultVmName
+        ReasonCodes = $reasons
+        InformationCodes = $information
+        SourcePath = $sourcePath
+        VmName = $vmName
+        SourceVerified = ($null -ne $sourcePath -and $reasons.Count -eq 0)
+    }
+}
+
+function Invoke-HyperVProviderPreflight {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
+
+    $readiness = Test-HyperVGuestProvisionable -ProviderContext $ProviderContext
+    [pscustomobject]@{
+        Ready = $readiness.Ready
+        Provider = 'hyperv'
+        ReasonCodes = @($readiness.ReasonCodes)
+        InformationCodes = @($readiness.InformationCodes)
+        Detail = if ($readiness.Ready) { 'Hyper-V and a user-supplied source are available for disposable provisioning.' } else { "Hyper-V preflight is unavailable: $($readiness.ReasonCodes -join ', ')." }
+        SourcePath = $readiness.SourcePath
+        VmName = $readiness.VmName
+        SourceVerified = $readiness.SourceVerified
     }
 }
 
 function New-HyperVProviderState {
+    param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
     [pscustomobject]@{
-        VmName = $script:DefaultVmName
+        VmName = Get-HyperVVmName -ProviderContext $ProviderContext
+        SourcePath = Get-HyperVSourcePath -ProviderContext $ProviderContext
         Provisioned = $false
+        OwnedByRun = $false
         ProvisionedAtUtc = $null
         RestoreCompleted = $false
         CleanupCompleted = $false
@@ -64,8 +200,8 @@ function Invoke-HyperVProviderProvision {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
 
-    $readiness = Test-HyperVGuestProvisionable
-    $state = New-HyperVProviderState
+    $readiness = Test-HyperVGuestProvisionable -ProviderContext $ProviderContext
+    $state = New-HyperVProviderState -ProviderContext $ProviderContext
     $ProviderContext.State = $state
 
     if (-not $readiness.Provisionable) {
@@ -73,8 +209,9 @@ function Invoke-HyperVProviderProvision {
         return [pscustomobject]@{
             Ready = $false
             Reason = 'REQUIRED-BUT-UNAVAILABLE'
+            ReasonCodes = @($readiness.ReasonCodes)
             Detail = "Hyper-V guest provisioning is not possible in this environment: $($readiness.Reasons -join ', '). A clean Windows VHDX/install media is required."
-            VhdxPath = $readiness.VhdxPath
+            VhdxPath = $readiness.SourcePath
             VmName = $readiness.VmName
         }
     }
@@ -84,16 +221,17 @@ function Invoke-HyperVProviderProvision {
     if ($existing) {
         $state.Provisioned = $true
         $state.ProvisionedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        return [pscustomobject]@{ Ready = $true; Reused = $true; VmName = $state.VmName; Detail = "Existing VM '$($state.VmName)' reused." }
+        return [pscustomobject]@{ Ready = $true; Reused = $true; VmName = $state.VmName; Detail = "Existing VM '$($state.VmName)' reused; it remains outside this run's ownership." }
     }
 
     $switch = Get-VMSwitch -Name $script:DefaultSwitch -ErrorAction SilentlyContinue
     $switchParam = @()
     if ($switch) { $switchParam = @('-SwitchName', $script:DefaultSwitch) }
 
-    New-VM -Name $state.VmName -VHDPath $script:DefaultVhdx -MemoryStartupBytes 4GB -Generation 2 @switchParam -ErrorAction Stop | Out-Null
+    New-VM -Name $state.VmName -VHDPath $state.SourcePath -MemoryStartupBytes 4GB -Generation 2 @switchParam -ErrorAction Stop | Out-Null
     Enable-VMIntegrationService -VMName $state.VmName -Name 'Guest Service Interface' -ErrorAction SilentlyContinue | Out-Null
     $state.Provisioned = $true
+    $state.OwnedByRun = $true
     $state.ProvisionedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
     [pscustomobject]@{ Ready = $true; Reused = $false; VmName = $state.VmName; Detail = "Provisioned VM '$($state.VmName)' from VHDX." }
 }
@@ -138,7 +276,7 @@ function Invoke-HyperVProviderCleanup {
 
     if ($ProviderContext.State.CleanupCompleted) { return [pscustomobject]@{ provider = 'hyperv'; succeeded = $true; alreadyCompleted = $true } }
     $entries = @()
-    if ($ProviderContext.State.Provisioned) {
+    if ($ProviderContext.State.Provisioned -and $ProviderContext.State.OwnedByRun) {
         Assert-HyperVModuleAvailable
         $vm = Get-VM -Name $ProviderContext.State.VmName -ErrorAction SilentlyContinue
         if ($vm) {
@@ -154,12 +292,29 @@ function Invoke-HyperVProviderCleanup {
     $result = [pscustomobject]@{
         provider = 'hyperv'
         completedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
-        mutatedSystemState = $ProviderContext.State.Provisioned
+        mutatedSystemState = ($ProviderContext.State.Provisioned -and $ProviderContext.State.OwnedByRun)
         actions = $entries
         succeeded = (@($entries | Where-Object { $_.status -eq 'FAIL' }).Count -eq 0)
     }
     $ProviderContext.State.CleanupCompleted = $true
     return $result
+}
+
+function Invoke-HyperVProviderBootstrapPlan {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
+
+    $sourcePath = Get-HyperVSourcePath -ProviderContext $ProviderContext
+    [pscustomobject]@{
+        provider = 'hyperv'
+        generated = $true
+        executed = $false
+        sourcePath = if ($sourcePath) { '<user-supplied-source>' } else { $null }
+        requiredInputs = @('FASTFILES_HYPERV_IMAGE or -ProviderSource', 'guest administrator credential injected at execution time', 'authorized clean reference checkpoint')
+        artifacts = @('unattend.xml', 'bootstrap.ps1')
+        secretInputs = @('guestCredential', 'winrmCertificate')
+        detail = 'Plan only. No ISO/VHDX was mounted, no guest was started, and no credentials were materialized.'
+    }
 }
 
 function Invoke-HyperVProviderSnapshotRestore {
@@ -183,4 +338,4 @@ function Invoke-HyperVProviderSnapshotRestore {
     [pscustomobject]@{ Restored = $true; Snapshot = $snapshot.Name; Detail = "Restored guest '$($vm.Name)' to snapshot '$($snapshot.Name)'." }
 }
 
-Export-ModuleMember -Function Invoke-HyperVProviderProvision, Invoke-HyperVProviderActivate, Invoke-HyperVProviderCollectLogs, Invoke-HyperVProviderCleanup, Invoke-HyperVProviderSnapshotRestore, Test-HyperVGuestProvisionable
+Export-ModuleMember -Function Invoke-HyperVProviderPreflight, Invoke-HyperVProviderProvision, Invoke-HyperVProviderActivate, Invoke-HyperVProviderCollectLogs, Invoke-HyperVProviderCleanup, Invoke-HyperVProviderSnapshotRestore, Invoke-HyperVProviderBootstrapPlan, Test-HyperVGuestProvisionable

@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Exposes the fixed verb set (build, install, run, diagnose, report, repair, gate,
-    release-readiness, release-candidate).
+    list, doctor, status, release-readiness, release-candidate).
     Every verb is non-interactive and returns one of the documented exit codes below.
     See verify/README.md for the full extensibility/usage guide.
 
@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory, Position = 0)]
-    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor', 'release-readiness', 'release-candidate')]
+    [ValidateSet('build', 'install', 'run', 'diagnose', 'report', 'repair', 'gate', 'list', 'doctor', 'status', 'release-readiness', 'release-candidate')]
     [string] $Verb,
 
     [string] $Change = 'ad-hoc',
@@ -37,6 +37,7 @@ param(
     # (e.g. -CapabilityOption UiaScenario=search-deep-result-navigation).
     [string[]] $CapabilityOption,
     [string] $Provider = 'local',
+    [string] $ProviderSource,
     [switch] $Elevate,
     [switch] $ElevatedChild,
     [ValidateSet('human', 'json')]
@@ -76,6 +77,7 @@ Import-Module (Join-Path $VerifyRoot 'core\CapabilityRunner.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Reporting.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Repair.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Gate.psm1') -Force
+Import-Module (Join-Path $VerifyRoot 'core\ProjectStatus.psm1') -Force
 
 function ConvertTo-ProcessArgument {
     param([Parameter(Mandatory)] [string] $Value)
@@ -86,6 +88,7 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     # This is deliberately opt-in: UAC approval is the one-time authorization for
     # Tier-1 local validation. The child retains the ordinary non-interactive verbs.
     $childArgs = @('-NoProfile', '-File', $PSCommandPath, $Verb, '-Change', $Change, '-Provider', $Provider, '-ElevatedChild')
+    if ($ProviderSource) { $childArgs += @('-ProviderSource', $ProviderSource) }
     if ($Capability -and $Capability.Count -gt 0) { $childArgs += @('-Capability', ($Capability -join ',')) }
     foreach ($config in $Configuration) { $childArgs += @('-Configuration', $config) }
     if ($Clean) { $childArgs += '-Clean' }
@@ -145,6 +148,9 @@ function Invoke-VerificationRun {
         RunContext = $runContext
         Fingerprint = $fingerprint
         RequiredTier = $requiredTier
+        SourcePath = $ProviderSource
+        VmName = $null
+        Cancelled = $false
         State = $null
     }
     $options = @{
@@ -170,15 +176,25 @@ function Invoke-VerificationRun {
     $envelopes = @()
     $providerProvisioned = $false
     try {
+        # Preflight is a separate, reason-coded phase. A requested external
+        # provider must never silently degrade to the local host.
+        $preflight = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase preflight -ProviderContext $providerContext
+        $preflight | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runContext.RunPath 'provider-preflight.json') -Encoding utf8
+        if (-not $preflight.Ready) {
+            Write-Host "[SKIPPED] Environment provider '$($activeProvider.Id)' is not ready: $($preflight.Detail)" -ForegroundColor Yellow
+            Write-Host "        Reason codes: $(@($preflight.ReasonCodes) -join ', ')"
+            Write-Host '        Refusing to run capabilities on the local host instead of the requested provider.'
+            exit $ExitSkipped
+        }
         # Match intake.ps1 (Invoke-PhaseProvision): a provider that cannot provision
         # (e.g. -Provider hyperv without a provisionable Hyper-V target) must NOT fall
         # back to running capabilities on the local host - that would validate the
         # wrong environment and silently produce a different result than requested.
         $provision = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase provision -ProviderContext $providerContext
         if (-not $provision.Ready) {
-            Write-Host "[ERROR] Environment provider '$($activeProvider.Id)' is not ready: $($provision.Reason)" -ForegroundColor Red
+            Write-Host "[SKIPPED] Environment provider '$($activeProvider.Id)' is not ready: $($provision.Reason)" -ForegroundColor Yellow
             Write-Host "        Refusing to run capabilities on the local host instead of the requested provider."
-            exit $ExitError
+            exit $ExitSkipped
         }
         $providerProvisioned = $true
         Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase activate -ProviderContext $providerContext | Out-Null
@@ -269,6 +285,20 @@ function Write-RunReports {
 }
 
 switch ($Verb) {
+    'status' {
+        $statusDirectory = if ($OutputDirectory) { $OutputDirectory } else { Join-Path $VerifyRoot 'status\generated' }
+        $status = New-ProjectStatus -RepoRoot $RepoRoot -OutputDirectory $statusDirectory
+        if ($Format -eq 'json') {
+            $status | ConvertTo-Json -Depth 20
+        } else {
+            Write-Host "Project status: $($status.git.sha) on $($status.git.branch)"
+            Write-Host "Worktree dirty: $($status.git.dirty); CTest discovered: $($status.tests.discoveredCount)"
+            Write-Host "OpenSpec unchecked tasks: $($status.openSpec.totalOpenTasks); release candidate: $($status.release.classification)"
+            Write-Host "JSON: $($status.jsonPath)"
+            Write-Host "Markdown: $($status.markdownPath)"
+        }
+        exit $ExitPass
+    }
     'release-candidate' {
         $candidateScript = Join-Path $VerifyRoot 'release\Build-ReleaseCandidate.ps1'
         $candidateArgs = @('-NoProfile', '-File', $candidateScript, '-Mode', $ReleaseMode, '-OutputFormat', $Format)

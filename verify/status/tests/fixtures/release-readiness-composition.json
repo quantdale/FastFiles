@@ -1,0 +1,11 @@
+{
+  "overall": "PASS",
+  "gates": [
+    {
+      "id": "unsigned-release-candidate",
+      "status": "PASS",
+      "reason": null,
+      "detail": "fixture report"
+    }
+  ]
+}

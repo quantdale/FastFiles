@@ -7,6 +7,7 @@ CMakeUserPresets.json
 # are evidence of a specific execution, not source — never checked in.
 verify/runs/
 verify/baselines/
+verify/status/generated/
 verify/.signing/
 
 # Build artifact output.

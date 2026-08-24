@@ -9,15 +9,25 @@
     "interfaceVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
     "displayName": { "type": "string" },
     "supportsSnapshotRestore": { "type": "boolean" },
+    "sourceKinds": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+    },
+    "reasonCodes": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+    },
     "entryPoints": {
       "type": "object",
-      "required": ["provision", "activate", "collectLogs", "cleanup"],
+      "required": ["preflight", "provision", "activate", "collectLogs", "cleanup"],
       "properties": {
+        "preflight": { "type": "string" },
         "provision": { "type": "string" },
         "activate": { "type": "string" },
         "collectLogs": { "type": "string" },
         "cleanup": { "type": "string" },
-        "snapshotRestore": { "type": "string" }
+        "snapshotRestore": { "type": "string" },
+        "bootstrapPlan": { "type": "string" }
       }
     }
   }

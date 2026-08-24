@@ -15,33 +15,26 @@ Three-process privileged/unprivileged split (rationale and decisions in
 
 ## Current State
 
-- The privileged MFT/USN scan is **implemented but inert**: mutual-auth signature pins
-  in `src/setup/include/ffsetup/PinnedSignatures.h` are all-zero placeholders (fail-closed),
-  so no peer can authenticate and the privileged path cannot activate.
-- **Degraded mode is the active path**: unprivileged tree walks + directory watches.
-  It is a first-class permanent state, not an error path — UI/engine work must keep
-  working without the service.
-- **Memory-bounded indexed scale (Phase 8, `memory-bounded-indexed-scale`)**: indexed
-  search is complete under forced projection eviction — cold volumes stream durably
-  from SQLite instead of being reloaded into RAM; folder aggregates answer evicted
-  volumes from the durable recursive CTE; snapshot publication is bounded by a
-  recency-ordered indexed-directory working set (bulk exports are top-of-tree
-  bounded); the deterministic seeded acceptance path lives in
-  `ffengine_seeded_indexed_mode_tests`; scale evidence in `docs/benchmarks/`.
+The privileged MFT/USN scan is implemented but remains fail-closed while the
+authorized mutual-auth pins and live production validation are unavailable.
+Degraded mode remains the active, first-class path: unprivileged tree walks and
+directory watches continue to work without the service.
 
-## Open Work
+Dynamic release state is generated from Git, CTest, capability manifests, release
+evidence, and every OpenSpec task ledger. It is never maintained as a test-count or
+checkbox summary in this file.
 
-- Open OpenSpec changes (external/provider-gated): `close-independent-validation-gaps`,
-  `autonomous-runtime-verification`, `zero-touch-autonomous-engineering`,
-  `real-user-dogfooding-release-engineering` (final push/CI evidence), and the active
-  `memory-bounded-indexed-scale`. Each `tasks.md` is the source of truth.
+Run `pwsh ./verify/verify.ps1 status` to generate the structured JSON source and
+sanitized Markdown projection under the ignored `verify/status/generated/`
+directory. `tasks.md` remains the acceptance authority for each OpenSpec change.
 
-## Tests
+## Release-state interpretation
 
-- 74 CTest tests (plain C++ executables with the `Check()` helper), including the
-  seeded indexed-mode acceptance suite and forced-eviction search-equivalence
-  regressions. Run `cmake --preset debug && cmake --build --preset debug`, then
-  `ctest --preset debug`.
+- `PASS` means the named evidence was actually observed.
+- `FAIL` means an executable check ran and found a defect.
+- `SKIPPED` means an optional check was not selected or has no available evidence.
+- `BLOCKED_ENVIRONMENT` means a different interactive/elevated host configuration is required.
+- `REQUIRED-BUT-UNAVAILABLE` means a provider, production signer, or clean-host resource is missing; it is never a certification.
 
 ## References
 

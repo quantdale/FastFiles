@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles Release Readiness Frontier",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "generatedAtUtc", "git", "status", "localEvidence", "frontier"],
+  "properties": {
+    "schemaVersion": { "type": "integer" },
+    "kind": { "type": "string", "enum": ["fastfiles-release-readiness-frontier"] },
+    "generatedAtUtc": { "type": "string" },
+    "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED", "BLOCKED_ENVIRONMENT", "REQUIRED-BUT-UNAVAILABLE"] },
+    "git": { "type": "object" },
+    "localEvidence": { "type": "object" },
+    "releaseCandidate": { "type": "object" },
+    "frontier": { "type": "object" },
+    "externalPrerequisites": { "type": "array", "items": { "type": "string" } }
+  }
+}

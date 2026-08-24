@@ -12,6 +12,8 @@ add_subdirectory(ui)
 add_subdirectory(uia-driver)
 add_subdirectory(setup)
 add_subdirectory(drift)
+add_subdirectory(status)
+add_subdirectory(providers)
 
 # CTest test properties are directory-scoped since CMake 3.29: a
 # set_tests_properties() call here cannot see tests registered by the

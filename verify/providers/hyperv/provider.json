@@ -3,11 +3,32 @@
   "interfaceVersion": "1.0.0",
   "displayName": "Disposable Hyper-V Windows guest",
   "supportsSnapshotRestore": true,
+  "sourceKinds": ["vhd", "vhdx", "iso", "template"],
+  "reasonCodes": [
+    "HYPERV_FEATURE_UNAVAILABLE",
+    "NO_USABLE_SOURCE_IMAGE",
+    "SOURCE_IMAGE_PATH_INVALID",
+    "VHDX_NOT_WINDOWS_INSTALLATION",
+    "VM_ABSENT",
+    "UNSUPPORTED_VM_GENERATION",
+    "NO_CLEAN_REFERENCE_CHECKPOINT",
+    "GUEST_NOT_BOOTABLE",
+    "WINRM_UNAVAILABLE",
+    "CREDENTIALS_ABSENT",
+    "GUEST_TOOLCHAIN_UNAVAILABLE",
+    "INSUFFICIENT_HOST_RESOURCES",
+    "SNAPSHOT_RESTORE_UNSUPPORTED",
+    "LOG_COLLECTION_UNAVAILABLE",
+    "CLEANUP_INCOMPLETE",
+    "PROVIDER_DEPENDENCY_UNAVAILABLE"
+  ],
   "entryPoints": {
+    "preflight": "Invoke-HyperVProviderPreflight",
     "provision": "Invoke-HyperVProviderProvision",
     "activate": "Invoke-HyperVProviderActivate",
     "collectLogs": "Invoke-HyperVProviderCollectLogs",
     "cleanup": "Invoke-HyperVProviderCleanup",
-    "snapshotRestore": "Invoke-HyperVProviderSnapshotRestore"
+    "snapshotRestore": "Invoke-HyperVProviderSnapshotRestore",
+    "bootstrapPlan": "Invoke-HyperVProviderBootstrapPlan"
   }
 }
