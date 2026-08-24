@@ -77,6 +77,23 @@ actively browsed/observed set — payload scales with the working set, and the
 256 MiB ceiling now bounds an extreme multi-volume worst case rather than a
 routine large-volume scan.
 
+## 2M rows (clean rerun; canonical-path dominated — the trigram accelerator was
+not available in this run's residency history, so "warm" here measures the
+canonical scan; cold adds the durable stream on top)
+
+| Query class | warm median ms | COLD ms | results |
+| --- | ---: | ---: | ---: |
+| selective | 2,305.3 | 2,374.2 | 1 |
+| moderate | 3,157.4 | 12,737.8 | 4,096 |
+| broad | 4,672.7 | 29,827.6 | 4,096 |
+| no_match | 2,322.4 | 2,374.5 | 0 |
+| prefix | 3,185.0 | 11,551.6 | 4,096 |
+| extension | 4,389.1 | 30,912.3 | 4,096 |
+| worst_substring | 3,802.0 | 27,026.6 | 4,096 |
+
+DB 145.9 MB; generation 115.8 s; rebuild 20.9 s; forced eviction 903.3 MB →
+26.2 MB estimated projection bytes.
+
 ## Interpretation
 
 - Fully-resident search remains sub-second to ~1.7 s for capped broad queries
