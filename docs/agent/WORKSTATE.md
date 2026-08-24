@@ -1,8 +1,8 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-24 (active-path-runtime-resilience validation checkpoint)
-Status: **The campaign implementation and local validation are complete; final hygiene, commit, push, and remote reconciliation remain.** The Phase 8–10 implementation train was fast-forwarded onto `main`; live branch, SHA, remote, hosted CI, and dirty state must be re-derived with Git/tooling at every resume; values recorded here are checkpoint evidence only.
-NEXT EXACT ACTION: run the final verifier/build and runtime checks as needed, update this checkpoint with exact results, then review/stage coherent commits, fetch/reconcile, push `main` without force, and verify a clean `HEAD == origin/main` handoff.
+Last updated: 2026-08-25 (active-path-runtime-resilience final handoff checkpoint)
+Status: **The active-path hardening campaign is complete on `main`; implementation, regression coverage, validation, documentation, and the non-force push are complete.** The Phase 8–10 implementation train was fast-forwarded onto `main`; live branch, SHA, remote, hosted CI, and dirty state must still be re-derived with Git/tooling at every resume; values recorded here are checkpoint evidence only.
+NEXT EXACT ACTION: on a later resume, fetch `origin`, re-derive the live `main`/remote state, and inspect hosted CI if authenticated tooling is available. No further local implementation slice is identified by this campaign.
 
 ## Active-path resilience campaign checkpoint (2026-08-24)
 
@@ -16,9 +16,9 @@ NEXT EXACT ACTION: run the final verifier/build and runtime checks as needed, up
 
 ### Campaign frontier
 
-1. Run the final verifier/build and any final runtime capability checks after the last UI-cache fix; preserve explicit UIA/resource environment outcomes.
-2. Update the campaign ledger/tasks and current status documentation with the final gate results.
-3. Commit coherent waves directly on `main`, fetch/reconcile/push without force, verify hosted CI if authorized, and leave the worktree clean with `HEAD == origin/main`.
+1. Re-derive `main`, `HEAD`, `origin/main`, worktree cleanliness, and hosted Actions at the next resume; this checkpoint is historical evidence, not a self-referential Git database.
+2. If GitHub authentication becomes available, close PR #6 as superseded and inspect the hosted run for the final pushed tip; otherwise retain the exact administrative follow-up in the handoff.
+3. No meaningful local implementation frontier remains from this campaign. Remaining work is external production signing/privileged validation, clean-host and guest evidence, physical display coverage, or environment-only UIA/resource capability gaps.
 
 The Phase-10 checkpoint below is historical provenance; its branch and SHA statements are not current repository state.
 
