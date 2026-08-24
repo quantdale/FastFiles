@@ -28,8 +28,9 @@ tip.
 
 ## Phase 10 live reinspection — 2026-08-24
 
-The public GitHub API was rechecked against Phase 10 head
-`d0dc5f4f6d5b48ccbc00be52e1a7fc93356d088c`. PR #6 remains open and draft with
+The public GitHub API was rechecked against the Phase 10 pushed baseline
+`930069b3f86585c89cb11439aee6342142b4157b` (the source behavior was already
+validated at `d0dc5f4f6d5b48ccbc00be52e1a7fc93356d088c`). PR #6 remains open and draft with
 head `9ddf1a3189be32db11c97e7c79bb7404caac1d8f`, base `main` at
 `90fa560a99217cabcf456b1198c83351c46513ed`, zero comments/review comments,
 and no authenticated write access is available in this environment. The
