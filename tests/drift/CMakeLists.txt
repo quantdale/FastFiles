@@ -1,7 +1,8 @@
 # Doc-drift guard, registered only when pwsh is available (mirrors
 # tests/uia-driver/CMakeLists.txt's gating). Test name == target name
 # (ffdoc_drift_tests); matching via ctest -R drift.
-find_program(FF_PWSH_EXECUTABLE pwsh)
+include("${PROJECT_SOURCE_DIR}/cmake/FastFilesPowerShell.cmake")
+ff_resolve_powershell(FF_PWSH_EXECUTABLE)
 if(FF_PWSH_EXECUTABLE)
   add_test(
     NAME ffdoc_drift_tests

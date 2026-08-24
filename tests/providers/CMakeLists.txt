@@ -1,9 +1,6 @@
 # phase8-release-readiness-convergence: deterministic provider orchestration tests.
-find_program(FF_PWSH_EXECUTABLE pwsh)
-if(FF_PWSH_EXECUTABLE AND NOT EXISTS "${FF_PWSH_EXECUTABLE}")
-  unset(FF_PWSH_EXECUTABLE CACHE)
-  find_program(FF_PWSH_EXECUTABLE pwsh)
-endif()
+include("${PROJECT_SOURCE_DIR}/cmake/FastFilesPowerShell.cmake")
+ff_resolve_powershell(FF_PWSH_EXECUTABLE)
 if(FF_PWSH_EXECUTABLE)
   add_test(
     NAME ffprovider_contract_ps_tests

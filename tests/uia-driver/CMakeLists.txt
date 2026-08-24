@@ -1,15 +1,8 @@
 # zero-touch-autonomous-engineering (uia-driver): registers the headless PowerShell
 # driver unit tests with CTest. Test name == target name (ffuia_driver_ps_tests);
 # matching via ctest -R uia_driver.
-# find_program caches its result; a PowerShell side-by-side upgrade can leave
-# that cached path dead (e.g. .../Microsoft.PowerShell_7.6.4.0_x64__... removed
-# after 7.6.5 installs), which makes CTest record the pwsh-gated tests as
-# Not Run. Re-resolve once when the cached executable no longer exists.
-find_program(FF_PWSH_EXECUTABLE pwsh)
-if(FF_PWSH_EXECUTABLE AND NOT EXISTS "${FF_PWSH_EXECUTABLE}")
-  unset(FF_PWSH_EXECUTABLE CACHE)
-  find_program(FF_PWSH_EXECUTABLE pwsh)
-endif()
+include("${PROJECT_SOURCE_DIR}/cmake/FastFilesPowerShell.cmake")
+ff_resolve_powershell(FF_PWSH_EXECUTABLE)
 if(FF_PWSH_EXECUTABLE)
   add_test(
     NAME ffuia_driver_ps_tests
