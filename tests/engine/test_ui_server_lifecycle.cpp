@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -16,6 +17,7 @@
 #include <vector>
 
 #include "UiServer.h"
+#include "IndexPipeline.h"
 #include "ffipc/PipeFraming.h"
 #include "ffprotocol/UiProtocol.h"
 #include "ffsetup/Identifiers.h"
@@ -231,6 +233,188 @@ struct IndexedSearchCancellationState {
     }
 };
 
+class IndexedReadPhaseBarrier {
+public:
+    void ArriveAndWait() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            arrived_ = true;
+        }
+        condition_.notify_all();
+        std::unique_lock<std::mutex> lock(mutex_);
+        condition_.wait(lock, [this] { return released_; });
+    }
+
+    bool WaitForArrival(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return condition_.wait_for(lock, timeout, [this] { return arrived_; });
+    }
+
+    void Release() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            released_ = true;
+        }
+        condition_.notify_all();
+    }
+
+private:
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    bool arrived_ = false;
+    bool released_ = false;
+};
+
+void TestUiClientsDrivePipelineReadPlane() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("ui_server_indexed_read_plane.db")),
+          "UI indexed-read pipeline opens");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 906;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"G:";
+    pipeline.SetVolumeRules(volume, setting);
+    std::vector<ffprotocol::MftRecordV1> seed;
+    ffprotocol::MftRecordV1 root{};
+    root.fixed.fileReferenceNumber = 5;
+    root.fixed.parentFileReferenceNumber = 5;
+    root.fixed.fileAttributes = 0x10;
+    root.fileName = u".";
+    root.fixed.fileNameLengthChars = 1;
+    seed.push_back(root);
+    for (uint64_t id = 10; id < 40; ++id) {
+        ffprotocol::MftRecordV1 entry{};
+        entry.fixed.fileReferenceNumber = id;
+        entry.fixed.parentFileReferenceNumber = 5;
+        entry.fixed.sizeBytes = id;
+        entry.fileName = u"entry";
+        for (const char digit : std::to_string(id)) {
+            entry.fileName.push_back(static_cast<char16_t>(digit));
+        }
+        entry.fixed.fileNameLengthChars = static_cast<uint16_t>(entry.fileName.size());
+        seed.push_back(std::move(entry));
+    }
+    Check(pipeline.ApplyMftBatch(volume, seed), "UI indexed-read pipeline fixture commits");
+    pipeline.UnloadVolumeFromProjection(volume);
+
+    IndexedReadPhaseBarrier coldBarrier;
+    std::atomic<bool> firstSearchParked{false};
+    pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+        if (phase != ffengine::IndexPipeline::SearchPhase::ColdStreaming) return;
+        bool expected = false;
+        if (firstSearchParked.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            coldBarrier.ArriveAndWait();
+        }
+    }});
+
+    std::mutex stateMutex;
+    std::condition_variable stateCondition;
+    std::set<uint64_t> started;
+    std::map<uint64_t, ffprotocol::IndexedSearchStatus> completed;
+    ffengine::UiServer server(
+        [](HANDLE, uint16_t, const void*, uint32_t) { return true; });
+    server.onRequestIndexedSearch = [&](const ffprotocol::IndexedSearchRequest& request,
+                                        const ffengine::UiServer::SearchCancellation& cancellation) {
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            started.insert(request.requestId);
+        }
+        stateCondition.notify_all();
+        auto response = pipeline.SearchIndexed(request, nullptr, cancellation);
+        {
+            std::lock_guard<std::mutex> lock(stateMutex);
+            completed[request.requestId] = response.status;
+        }
+        stateCondition.notify_all();
+        return response;
+    };
+
+    const DWORD sessionId = GetCurrentProcessId() + 56;
+    Check(server.Start(sessionId), "UI indexed-read server starts");
+    Check(server.GetIndexedSearchStats().active == 0 && server.GetIndexedSearchStats().queued == 0,
+          "UI indexed-read coordinator starts empty");
+    const std::wstring pipeName = PipeName(sessionId);
+    HANDLE first = ConnectToServer(pipeName);
+    HANDLE second = ConnectToServer(pipeName);
+    Check(first != INVALID_HANDLE_VALUE && second != INVALID_HANDLE_VALUE,
+          "two UI clients connect to the pipeline-backed search server");
+    if (first == INVALID_HANDLE_VALUE || second == INVALID_HANDLE_VALUE) {
+        if (first != INVALID_HANDLE_VALUE) CloseHandle(first);
+        if (second != INVALID_HANDLE_VALUE) CloseHandle(second);
+        server.Stop();
+        pipeline.SetSearchTestHooks({});
+        pipeline.Close();
+        return;
+    }
+    Check(SendSubscribe(first) && SendSubscribe(second),
+          "pipeline-backed UI clients subscribe");
+    Check(SendIndexedSearch(first, 501), "first pipeline-backed client starts a cold search");
+    const bool firstParked = coldBarrier.WaitForArrival(kWaitDeadline);
+    Check(firstParked, "first pipeline-backed client reaches the parked cold stream");
+    if (!firstParked) {
+        Check(SendCancelIndexedSearch(first, 501), "failed parked search can still be cancelled");
+        coldBarrier.Release();
+        CloseHandle(first);
+        CloseHandle(second);
+        server.Stop();
+        pipeline.SetSearchTestHooks({});
+        pipeline.Close();
+        return;
+    }
+
+    std::atomic<bool> mutationDone{false};
+    bool mutationSucceeded = false;
+    std::thread mutation([&] {
+        mutationSucceeded = pipeline.ApplyMftBatch(volume, {
+            [&] {
+                ffprotocol::MftRecordV1 record{};
+                record.fixed.fileReferenceNumber = 1000;
+                record.fixed.parentFileReferenceNumber = 5;
+                record.fileName = u"ui-client-mutation.txt";
+                record.fixed.fileNameLengthChars = static_cast<uint16_t>(record.fileName.size());
+                return record;
+            }(),
+        });
+        mutationDone.store(true, std::memory_order_release);
+    });
+    const auto mutationDeadline = std::chrono::steady_clock::now() + kWaitDeadline;
+    while (!mutationDone.load(std::memory_order_acquire) &&
+           std::chrono::steady_clock::now() < mutationDeadline) {
+        std::this_thread::yield();
+    }
+    Check(mutationDone.load(std::memory_order_acquire) && mutationSucceeded,
+          "engine ingestion progresses while a real UI client search is parked");
+
+    Check(SendIndexedSearch(second, 502), "second pipeline-backed client starts independently");
+    {
+        std::unique_lock<std::mutex> lock(stateMutex);
+        Check(stateCondition.wait_for(lock, kWaitDeadline, [&] {
+            return completed.contains(502);
+        }), "second pipeline-backed client completes while first is parked");
+    }
+    Check(SendCancelIndexedSearch(first, 501), "first pipeline-backed client cancels its search");
+    coldBarrier.Release();
+    {
+        std::unique_lock<std::mutex> lock(stateMutex);
+        Check(stateCondition.wait_for(lock, kWaitDeadline, [&] {
+            return completed.contains(501);
+        }), "cancelled pipeline-backed client drains after release");
+        Check(completed[501] == ffprotocol::IndexedSearchStatus::Cancelled,
+              "pipeline-backed cancellation publishes no completed stale result");
+        Check(completed[502] == ffprotocol::IndexedSearchStatus::Completed,
+              "pipeline-backed second client receives a completed result");
+    }
+    mutation.join();
+    CloseHandle(first);
+    CloseHandle(second);
+    server.Stop();
+    pipeline.SetSearchTestHooks({});
+    Check(pipeline.GetReadPlaneDiagnostics().activeDurableReaders == 0,
+          "pipeline-backed UI clients release all durable readers");
+    pipeline.Close();
+}
+
 template <typename ConfigureSink, typename CheckResult>
 void RunServerScenario(const wchar_t* suffix, ConfigureSink configureSink, CheckResult checkResult) {
     const auto root = MakeFixtureRoot(suffix);
@@ -395,6 +579,166 @@ void TestIndexedSearchCancellationIsConnectionScoped() {
     }
     CloseHandle(first);
     CloseHandle(second);
+    server.Stop();
+}
+
+// nonblocking-indexed-read-plane 5.4: the actual per-client workers share a
+// bounded engine-global coordinator. Two foreground searches may run, a
+// third is queued, and cancellation removes that queued request without ever
+// invoking its handler.
+void TestGlobalIndexedSearchBackpressure() {
+    IndexedSearchCancellationState state;
+    ffengine::UiServer server(
+        [&state](HANDLE, uint16_t messageType, const void*, uint32_t) {
+            return state.Write(messageType);
+        });
+    server.onRequestIndexedSearch = [&state](
+        const ffprotocol::IndexedSearchRequest& request,
+        const ffengine::UiServer::SearchCancellation& cancellation) {
+        return state.Handle(request, cancellation);
+    };
+
+    const DWORD sessionId = GetCurrentProcessId() + 55;
+    const bool started = server.Start(sessionId);
+    Check(started, "UI server starts for global search backpressure");
+    if (!started) return;
+    server.SetIndexedSearchLimitsForTesting(2, 1);
+    const std::wstring pipeName = PipeName(sessionId);
+    HANDLE first = ConnectToServer(pipeName);
+    HANDLE second = ConnectToServer(pipeName);
+    HANDLE third = ConnectToServer(pipeName);
+    HANDLE fourth = ConnectToServer(pipeName);
+    Check(first != INVALID_HANDLE_VALUE && second != INVALID_HANDLE_VALUE && third != INVALID_HANDLE_VALUE &&
+              fourth != INVALID_HANDLE_VALUE,
+          "four UI clients connect for global search backpressure");
+    if (first == INVALID_HANDLE_VALUE || second == INVALID_HANDLE_VALUE || third == INVALID_HANDLE_VALUE ||
+        fourth == INVALID_HANDLE_VALUE) {
+        if (first != INVALID_HANDLE_VALUE) CloseHandle(first);
+        if (second != INVALID_HANDLE_VALUE) CloseHandle(second);
+        if (third != INVALID_HANDLE_VALUE) CloseHandle(third);
+        if (fourth != INVALID_HANDLE_VALUE) CloseHandle(fourth);
+        server.Stop();
+        return;
+    }
+    Check(SendSubscribe(first) && SendSubscribe(second) && SendSubscribe(third) && SendSubscribe(fourth),
+          "all backpressure clients subscribe");
+    Check(SendIndexedSearch(first, 301) && SendIndexedSearch(second, 302),
+          "two foreground clients issue indexed searches");
+    Check(state.WaitForStarted(301, kWaitDeadline) && state.WaitForStarted(302, kWaitDeadline),
+          "the two active coordinator permits are occupied");
+    Check(SendIndexedSearch(third, 303), "a third client queues indexed work");
+
+    const auto queueDeadline = std::chrono::steady_clock::now() + kWaitDeadline;
+    while (server.GetIndexedSearchStats().queued < 1 &&
+           std::chrono::steady_clock::now() < queueDeadline) {
+        std::this_thread::yield();
+    }
+    Check(server.GetIndexedSearchStats().active == 2 && server.GetIndexedSearchStats().queued == 1,
+          "global search admission reports two active and one queued request");
+    Check(SendIndexedSearch(fourth, 304), "a fourth client submits work beyond the queue bound");
+    const auto rejectDeadline = std::chrono::steady_clock::now() + kWaitDeadline;
+    while (server.GetIndexedSearchStats().rejected < 1 &&
+           std::chrono::steady_clock::now() < rejectDeadline) {
+        std::this_thread::yield();
+    }
+    Check(server.GetIndexedSearchStats().rejected >= 1 && !state.IsCancelled(304),
+          "work beyond the bounded queue is rejected without entering a handler");
+    Check(SendCancelIndexedSearch(third, 303), "the queued client requests cancellation");
+
+    const auto cancelDeadline = std::chrono::steady_clock::now() + kWaitDeadline;
+    while (server.GetIndexedSearchStats().queuedCancellations < 1 &&
+           std::chrono::steady_clock::now() < cancelDeadline) {
+        std::this_thread::yield();
+    }
+    Check(server.GetIndexedSearchStats().queuedCancellations >= 1,
+          "queued cancellation reaches the coordinator without starting the handler");
+    Check(!state.IsCancelled(303), "a cancelled queued request never enters the search handler");
+
+    Check(SendCancelIndexedSearch(first, 301) && SendCancelIndexedSearch(second, 302),
+          "active clients request cancellation independently");
+    Check(state.WaitForCancelled(301, kWaitDeadline) && state.WaitForCancelled(302, kWaitDeadline),
+          "active coordinator searches drain on cancellation");
+    const auto stats = server.GetIndexedSearchStats();
+    Check(stats.peakActive == 2 && stats.queued == 0,
+          "coordinator peak and queue remain bounded after cancellation");
+    CloseHandle(first);
+    CloseHandle(second);
+    CloseHandle(third);
+    CloseHandle(fourth);
+    server.Stop();
+}
+
+struct IndexedSearchOverflowSink {
+    std::mutex mutex;
+    std::condition_variable condition;
+    std::optional<ffprotocol::IndexedSearchResponse> response;
+
+    bool Write(uint16_t messageType, const void* payload, uint32_t payloadSize) {
+        if (messageType != static_cast<uint16_t>(ffprotocol::UiMessageType::IndexedSearchResultV2) ||
+            payload == nullptr) {
+            return true;
+        }
+        const auto parsed = ffprotocol::ParseIndexedSearchResponseV2(
+            static_cast<const uint8_t*>(payload), payloadSize);
+        if (parsed.has_value()) {
+            std::lock_guard<std::mutex> lock(mutex);
+            response = *parsed;
+            condition.notify_all();
+        }
+        return true;
+    }
+
+    bool WaitForResponse(std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex);
+        return condition.wait_for(lock, timeout, [this] { return response.has_value(); });
+    }
+};
+
+void TestIndexedSearchSerializationFailsClosed() {
+    IndexedSearchOverflowSink sink;
+    ffengine::UiServer server(
+        [&sink](HANDLE, uint16_t messageType, const void* payload, uint32_t payloadSize) {
+            return sink.Write(messageType, payload, payloadSize);
+        });
+    server.onRequestIndexedSearch = [](const ffprotocol::IndexedSearchRequest& request,
+                                       const ffengine::UiServer::SearchCancellation&) {
+        ffprotocol::IndexedSearchResponse response;
+        response.requestId = request.requestId;
+        response.status = ffprotocol::IndexedSearchStatus::Completed;
+        response.candidates.reserve(ffprotocol::kMaxIndexedSearchResultCount);
+        for (uint32_t index = 0; index < ffprotocol::kMaxIndexedSearchResultCount; ++index) {
+            ffprotocol::IndexedSearchCandidate candidate;
+            candidate.name = std::wstring(512, L'n');
+            candidate.folder = std::wstring(2048, L'f');
+            candidate.id = index + 1;
+            candidate.volumeId = 1;
+            response.candidates.push_back(std::move(candidate));
+        }
+        return response;
+    };
+
+    const DWORD sessionId = GetCurrentProcessId() + 57;
+    Check(server.Start(sessionId), "UI server starts for serialization overflow");
+    Check(server.GetIndexedSearchStats().active == 0 && server.GetIndexedSearchStats().queued == 0,
+          "serialization overflow server starts with a valid coordinator state");
+    HANDLE client = ConnectToServer(PipeName(sessionId));
+    Check(client != INVALID_HANDLE_VALUE, "serialization overflow client connects");
+    if (client == INVALID_HANDLE_VALUE) {
+        server.Stop();
+        return;
+    }
+    Check(SendSubscribe(client), "serialization overflow client subscribes");
+    Check(SendIndexedSearch(client, 601), "serialization overflow client submits a search");
+    Check(sink.WaitForResponse(kWaitDeadline),
+          "serialization overflow receives an explicit bounded response");
+    {
+        std::lock_guard<std::mutex> lock(sink.mutex);
+        Check(sink.response.has_value() &&
+                  sink.response->status == ffprotocol::IndexedSearchStatus::Unavailable &&
+                  sink.response->candidates.empty(),
+              "oversized completed results fail closed as Unavailable without partial candidates");
+    }
+    CloseHandle(client);
     server.Stop();
 }
 
@@ -912,6 +1256,9 @@ int main() {
     TestDisconnectDuringPublication();
     TestIdleShutdown();
     TestIndexedSearchCancellationIsConnectionScoped();
+    TestGlobalIndexedSearchBackpressure();
+    TestUiClientsDrivePipelineReadPlane();
+    TestIndexedSearchSerializationFailsClosed();
     TestCloseWhileSearchWorkerWrites();
     TestFailedStartRollsBackSnapshot();
     TestUiServerStartFailsOnInitialPublicationFailure();

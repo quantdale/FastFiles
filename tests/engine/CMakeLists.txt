@@ -82,12 +82,14 @@ add_test(NAME ffengine_directory_watcher_tests COMMAND ffengine_directory_watche
 add_executable(ffengine_ui_server_lifecycle_tests
   test_ui_server_lifecycle.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/UiServer.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/DirectoryWatcher.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/SnapshotPublisher.cpp
   ${CMAKE_SOURCE_DIR}/src/engine/src/DegradedModeEnumerator.cpp
 )
 target_include_directories(ffengine_ui_server_lifecycle_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
-target_link_libraries(ffengine_ui_server_lifecycle_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore shell32)
+target_link_libraries(ffengine_ui_server_lifecycle_tests PRIVATE ffprotocol ffipc ffsetup ffindexstore ffsearch Rpcrt4 Shell32 Ole32)
 # fix-initial-snapshot-handshake: enables the initial-publication
 # failure-injection seams (see SnapshotPublisher.h) for fail-closed coverage.
 target_compile_definitions(ffengine_ui_server_lifecycle_tests PRIVATE FF_SNAPSHOT_PUBLISHER_TESTING=1)
@@ -150,6 +152,18 @@ target_include_directories(ffengine_seeded_indexed_mode_tests PRIVATE ${CMAKE_SO
 target_link_libraries(ffengine_seeded_indexed_mode_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
 add_test(NAME ffengine_seeded_indexed_mode_tests COMMAND ffengine_seeded_indexed_mode_tests)
 
+# nonblocking-indexed-read-plane 2.x: deterministic reproduction and
+# regression coverage for progress of ingestion, aggregates, and snapshots
+# while an indexed search is held in a controlled phase.
+add_executable(ffengine_index_pipeline_concurrency_tests
+  test_index_pipeline_concurrency.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+)
+target_include_directories(ffengine_index_pipeline_concurrency_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_link_libraries(ffengine_index_pipeline_concurrency_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
+add_test(NAME ffengine_index_pipeline_concurrency_tests COMMAND ffengine_index_pipeline_concurrency_tests)
+
 # Informational only: explicit large-index scalability evidence, never a CTest
 # wall-clock gate and never run by the normal test suite.
 add_executable(ffengine_bench_large_index_scalability
@@ -170,5 +184,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_seeded_indexed_mode_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

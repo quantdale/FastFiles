@@ -5,9 +5,12 @@
 #include <windows.h>
 #include <psapi.h>
 #include <intrin.h>
+#include <tlhelp32.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -16,10 +19,12 @@
 #include <iomanip>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include "IndexPipeline.h"
@@ -42,6 +47,13 @@ struct MemorySample {
     uint64_t privateBytes = 0;
 };
 
+struct ResourceSample {
+    MemorySample memory;
+    uint32_t handleCount = 0;
+    uint32_t threadCount = 0;
+    uint64_t walBytes = 0;
+};
+
 MemorySample ReadMemory() {
     PROCESS_MEMORY_COUNTERS_EX counters{};
     counters.cb = sizeof(counters);
@@ -50,6 +62,36 @@ MemorySample ReadMemory() {
         return {};
     }
     return {static_cast<uint64_t>(counters.WorkingSetSize), static_cast<uint64_t>(counters.PrivateUsage)};
+}
+
+ResourceSample ReadResources(const std::filesystem::path& database = {}) {
+    ResourceSample result;
+    result.memory = ReadMemory();
+    DWORD handles = 0;
+    if (GetProcessHandleCount(GetCurrentProcess(), &handles)) {
+        result.handleCount = handles;
+    }
+    const DWORD processId = GetCurrentProcessId();
+    const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot != INVALID_HANDLE_VALUE) {
+        THREADENTRY32 thread{};
+        thread.dwSize = sizeof(thread);
+        if (Thread32First(snapshot, &thread)) {
+            do {
+                if (thread.th32OwnerProcessID == processId) ++result.threadCount;
+            } while (Thread32Next(snapshot, &thread));
+        }
+        CloseHandle(snapshot);
+    }
+    if (!database.empty()) {
+        std::error_code error;
+        const auto wal = std::filesystem::path(database.wstring() + L"-wal");
+        if (std::filesystem::exists(wal, error)) {
+            result.walBytes = std::filesystem::file_size(wal, error);
+            if (error) result.walBytes = 0;
+        }
+    }
+    return result;
 }
 
 double ElapsedMs(const Clock::time_point start) {
@@ -227,6 +269,26 @@ struct DatasetResult {
     MemorySample afterRebuild;
     MemorySample afterBroadQuery;
     MemorySample postQuery;
+    ResourceSample resourcesAfterRebuild;
+    ResourceSample resourcesPostQuery;
+    struct ContentionResult {
+        bool executed = false;
+        bool searchReachedColdStream = false;
+        bool ingestionCompletedWhileHeld = false;
+        bool aggregateCompletedWhileHeld = false;
+        bool snapshotCompletedWhileHeld = false;
+        bool secondSearchCompletedWhileHeld = false;
+        bool cancelledSearch = false;
+        size_t activeReadersAfterCleanup = 0;
+        size_t peakReaders = 0;
+        double heldSearchMs = 0.0;
+        double ingestionMs = 0.0;
+        double aggregateMs = 0.0;
+        double snapshotMs = 0.0;
+        double secondSearchMs = 0.0;
+        double cancellationMs = 0.0;
+    } contention;
+    ffengine::IndexPipeline::ReadPlaneDiagnostics readPlane;
 };
 
 struct SearchRun {
@@ -243,6 +305,12 @@ struct SearchRun {
     size_t wireResultCount = 0;
     bool filenameIndexUsed = false;
     size_t filenameIndexCandidateCount = 0;
+    uint64_t searchGeneration = 0;
+    size_t generationRestarts = 0;
+    double stateLockWaitMs = 0.0;
+    double maxStateLockHoldMs = 0.0;
+    size_t peakSearches = 0;
+    size_t peakDurableReaders = 0;
     double sqliteMs = 0.0;
     double projectionTraversalMs = 0.0;
     double projectionEnumerationMs = 0.0;
@@ -567,6 +635,10 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.candidatesVisited = outcome.timings.candidatesVisited;
     outcome.run.filenameIndexUsed = outcome.timings.filenameIndexUsed;
     outcome.run.filenameIndexCandidateCount = outcome.timings.filenameIndexCandidateCount;
+    outcome.run.searchGeneration = outcome.timings.searchGeneration;
+    outcome.run.generationRestarts = outcome.timings.generationRestarts;
+    outcome.run.stateLockWaitMs = outcome.timings.stateLockWaitMs;
+    outcome.run.maxStateLockHoldMs = outcome.timings.maxStateLockHoldMs;
     outcome.run.truncated = outcome.timings.truncated;
     outcome.run.sqliteMs = outcome.timings.sqliteMetadataMs;
     outcome.run.projectionTraversalMs = outcome.timings.projectionTraversalMs;
@@ -621,6 +693,9 @@ SearchOutcome RunSearch(ffengine::IndexPipeline& pipeline, size_t scale, const Q
     outcome.run.searchResultObjectsMaterialized = outcome.timings.searchResultObjectsMaterialized;
     outcome.run.wireBytes = payload.size();
     outcome.run.memory = ReadMemory();
+    const auto readPlane = pipeline.GetReadPlaneDiagnostics();
+    outcome.run.peakSearches = readPlane.peakSearches;
+    outcome.run.peakDurableReaders = readPlane.peakDurableReaders;
     return outcome;
 }
 
@@ -645,6 +720,174 @@ void AddSearchSummary(std::vector<SearchSummary>& summaries, size_t scale, const
     std::sort(values.begin(), values.end());
     summaries.push_back({scale, queryCase.name, resultCount, values.front(),
                          Percentile(values, 0.50), Percentile(values, 0.90), values.back()});
+}
+
+class ContentionBarrier {
+public:
+    void ArriveAndWait() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        arrived_ = true;
+        condition_.notify_all();
+        condition_.wait(lock, [this] { return released_; });
+    }
+
+    bool WaitForArrival(const std::chrono::milliseconds timeout) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return condition_.wait_for(lock, timeout, [this] { return arrived_; });
+    }
+
+    void Release() {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            released_ = true;
+        }
+        condition_.notify_all();
+    }
+
+private:
+    std::mutex mutex_;
+    std::condition_variable condition_;
+    bool arrived_ = false;
+    bool released_ = false;
+};
+
+DatasetResult::ContentionResult RunContentionProbe(ffengine::IndexPipeline& pipeline,
+                                                    ffindexstore::VolumeRowId volumeId,
+                                                    size_t scale, bool detailedDiagnostics) {
+    DatasetResult::ContentionResult result;
+    result.executed = true;
+    ContentionBarrier coldStreamBarrier;
+    std::atomic<bool> firstSearchParked{false};
+    pipeline.SetSearchTestHooks({[&](const ffengine::IndexPipeline::SearchPhase phase) {
+        if (phase == ffengine::IndexPipeline::SearchPhase::ColdStreaming) {
+            bool expected = false;
+            if (firstSearchParked.compare_exchange_strong(expected, true,
+                                                           std::memory_order_acq_rel)) {
+                coldStreamBarrier.ArriveAndWait();
+            }
+        }
+    }});
+
+    ffprotocol::IndexedSearchRequest firstRequest;
+    firstRequest.requestId = 900'000 + static_cast<uint64_t>(scale % 100'000);
+    firstRequest.scope = 3;
+    firstRequest.maxResults = 10'000;
+    firstRequest.query = L"common";
+    std::atomic<bool> cancelFirst{false};
+    ffprotocol::IndexedSearchResponse firstResponse;
+    std::thread firstSearch([&] {
+        firstResponse = pipeline.SearchIndexed(firstRequest, nullptr, [&cancelFirst] {
+            return cancelFirst.load(std::memory_order_acquire);
+        });
+    });
+
+    result.searchReachedColdStream = coldStreamBarrier.WaitForArrival(std::chrono::seconds(5));
+    if (!result.searchReachedColdStream) {
+        cancelFirst.store(true, std::memory_order_release);
+        coldStreamBarrier.Release();
+        firstSearch.join();
+        pipeline.SetSearchTestHooks({});
+        result.cancelledSearch = firstResponse.status == ffprotocol::IndexedSearchStatus::Cancelled;
+        const auto diagnostics = pipeline.GetReadPlaneDiagnostics();
+        result.activeReadersAfterCleanup = diagnostics.activeDurableReaders;
+        result.peakReaders = diagnostics.peakDurableReaders;
+        return result;
+    }
+
+    const auto heldStart = Clock::now();
+    std::atomic<bool> ingestionDone{false};
+    std::atomic<bool> aggregateDone{false};
+    std::atomic<bool> snapshotDone{false};
+    std::atomic<bool> secondSearchDone{false};
+    double ingestionMs = 0.0;
+    double aggregateMs = 0.0;
+    double snapshotMs = 0.0;
+    double secondSearchMs = 0.0;
+    bool ingestionSucceeded = false;
+    ffprotocol::IndexedSearchResponse secondResponse;
+
+    std::thread ingestion([&] {
+        const auto start = Clock::now();
+        ingestionSucceeded = pipeline.ApplyMftBatch(volumeId, {
+            MakeMftRecord(10'000'000 + static_cast<uint64_t>(scale), 5,
+                          L"contention_writer.txt", 0, 7, 777),
+        });
+        ingestionMs = ElapsedMs(start);
+        ingestionDone.store(true, std::memory_order_release);
+    });
+    std::thread aggregate([&] {
+        const auto start = Clock::now();
+        (void)pipeline.GetFolderAggregate(volumeId, ffindexstore::FileId{5, 0});
+        aggregateMs = ElapsedMs(start);
+        aggregateDone.store(true, std::memory_order_release);
+    });
+    std::thread snapshot([&] {
+        const auto start = Clock::now();
+        (void)pipeline.ExportDirectorySnapshot(volumeId, L"C:");
+        snapshotMs = ElapsedMs(start);
+        snapshotDone.store(true, std::memory_order_release);
+    });
+    std::thread secondSearch([&] {
+        ffprotocol::IndexedSearchRequest request = firstRequest;
+        request.requestId += 1;
+        request.query = L"report";
+        const auto start = Clock::now();
+        secondResponse = pipeline.SearchIndexed(request);
+        secondSearchMs = ElapsedMs(start);
+        secondSearchDone.store(true, std::memory_order_release);
+    });
+
+    const auto operationDeadline = Clock::now() + std::chrono::seconds(10);
+    while (Clock::now() < operationDeadline &&
+           (!ingestionDone.load(std::memory_order_acquire) ||
+            !aggregateDone.load(std::memory_order_acquire) ||
+            !snapshotDone.load(std::memory_order_acquire) ||
+            !secondSearchDone.load(std::memory_order_acquire))) {
+        std::this_thread::yield();
+    }
+    result.heldSearchMs = ElapsedMs(heldStart);
+    const bool ingestionFinishedWhileHeld = ingestionDone.load(std::memory_order_acquire);
+    const bool aggregateFinishedWhileHeld = aggregateDone.load(std::memory_order_acquire);
+    const bool snapshotFinishedWhileHeld = snapshotDone.load(std::memory_order_acquire);
+    const bool secondSearchFinishedWhileHeld = secondSearchDone.load(std::memory_order_acquire);
+
+    cancelFirst.store(true, std::memory_order_release);
+    const auto cancellationStart = Clock::now();
+    coldStreamBarrier.Release();
+    firstSearch.join();
+    result.cancellationMs = ElapsedMs(cancellationStart);
+    result.cancelledSearch = firstResponse.status == ffprotocol::IndexedSearchStatus::Cancelled;
+    ingestion.join();
+    aggregate.join();
+    snapshot.join();
+    secondSearch.join();
+    pipeline.SetSearchTestHooks({});
+
+    result.ingestionCompletedWhileHeld = ingestionFinishedWhileHeld && ingestionSucceeded;
+    result.aggregateCompletedWhileHeld = aggregateFinishedWhileHeld;
+    result.snapshotCompletedWhileHeld = snapshotFinishedWhileHeld;
+    result.secondSearchCompletedWhileHeld = secondSearchFinishedWhileHeld &&
+        secondResponse.status == ffprotocol::IndexedSearchStatus::Completed;
+    result.ingestionMs = ingestionMs;
+    result.aggregateMs = aggregateMs;
+    result.snapshotMs = snapshotMs;
+    result.secondSearchMs = secondSearchMs;
+
+    const auto diagnostics = pipeline.GetReadPlaneDiagnostics();
+    result.activeReadersAfterCleanup = diagnostics.activeDurableReaders;
+    result.peakReaders = diagnostics.peakDurableReaders;
+    if (detailedDiagnostics) {
+        std::printf("  contention held %.2f ms: ingestion %.2f (%s), aggregate %.2f (%s), "
+                    "snapshot %.2f (%s), second query %.2f (%s), cancellation %.2f ms\n",
+                    result.heldSearchMs, result.ingestionMs,
+                    result.ingestionCompletedWhileHeld ? "progress" : "blocked",
+                    result.aggregateMs, result.aggregateCompletedWhileHeld ? "progress" : "blocked",
+                    result.snapshotMs, result.snapshotCompletedWhileHeld ? "progress" : "blocked",
+                    result.secondSearchMs, result.secondSearchCompletedWhileHeld ? "progress" : "blocked",
+                    result.cancellationMs);
+        std::fflush(stdout);
+    }
+    return result;
 }
 
 std::map<std::wstring, ffprotocol::SnapshotDirectory> MakeSnapshot(size_t rows) {
@@ -786,6 +1029,14 @@ void WriteMemory(std::ostream& output, const MemorySample& sample) {
            << ",\"private_bytes\":" << sample.privateBytes << '}';
 }
 
+void WriteResource(std::ostream& output, const ResourceSample& sample) {
+    output << "{\"memory\":";
+    WriteMemory(output, sample.memory);
+    output << ",\"handle_count\":" << sample.handleCount
+           << ",\"thread_count\":" << sample.threadCount
+           << ",\"wal_bytes\":" << sample.walBytes << '}';
+}
+
 void WriteMachine(std::ostream& output, const MachineInfo& machine) {
     output << "{\"cpu\":"; WriteJsonString(output, machine.cpu);
     output << ",\"logical_cores\":" << machine.logicalCores << ",\"ram_bytes\":" << machine.ramBytes
@@ -794,6 +1045,49 @@ void WriteMachine(std::ostream& output, const MachineInfo& machine) {
     output << ",\"build_configuration\":"; WriteJsonString(output, machine.buildConfiguration);
     output << ",\"database_storage\":"; WriteJsonString(output, machine.databaseStorage);
     output << '}';
+}
+
+void WriteContention(std::ostream& output, const DatasetResult::ContentionResult& contention) {
+    output << "{\"executed\":" << (contention.executed ? "true" : "false")
+           << ",\"search_reached_cold_stream\":"
+           << (contention.searchReachedColdStream ? "true" : "false")
+           << ",\"ingestion_completed_while_held\":"
+           << (contention.ingestionCompletedWhileHeld ? "true" : "false")
+           << ",\"aggregate_completed_while_held\":"
+           << (contention.aggregateCompletedWhileHeld ? "true" : "false")
+           << ",\"snapshot_completed_while_held\":"
+           << (contention.snapshotCompletedWhileHeld ? "true" : "false")
+           << ",\"second_search_completed_while_held\":"
+           << (contention.secondSearchCompletedWhileHeld ? "true" : "false")
+           << ",\"cancelled_search\":"
+           << (contention.cancelledSearch ? "true" : "false")
+           << ",\"active_readers_after_cleanup\":" << contention.activeReadersAfterCleanup
+           << ",\"peak_readers\":" << contention.peakReaders
+           << ",\"held_search_ms\":";
+    WriteJsonDouble(output, contention.heldSearchMs);
+    output << ",\"ingestion_ms\":";
+    WriteJsonDouble(output, contention.ingestionMs);
+    output << ",\"aggregate_ms\":";
+    WriteJsonDouble(output, contention.aggregateMs);
+    output << ",\"snapshot_ms\":";
+    WriteJsonDouble(output, contention.snapshotMs);
+    output << ",\"second_search_ms\":";
+    WriteJsonDouble(output, contention.secondSearchMs);
+    output << ",\"cancellation_ms\":";
+    WriteJsonDouble(output, contention.cancellationMs);
+    output << '}';
+}
+
+void WriteReadPlane(std::ostream& output, const ffengine::IndexPipeline::ReadPlaneDiagnostics& readPlane) {
+    output << "{\"active_searches\":" << readPlane.activeSearches
+           << ",\"peak_searches\":" << readPlane.peakSearches
+           << ",\"active_durable_readers\":" << readPlane.activeDurableReaders
+           << ",\"peak_durable_readers\":" << readPlane.peakDurableReaders
+           << ",\"completed_searches\":" << readPlane.completedSearches
+           << ",\"cancelled_searches\":" << readPlane.cancelledSearches
+           << ",\"unavailable_searches\":" << readPlane.unavailableSearches
+           << ",\"reader_failures\":" << readPlane.readerFailures
+           << ",\"generation_restarts\":" << readPlane.generationRestarts << '}';
 }
 
 void WriteDataset(std::ostream& output, const DatasetResult& dataset) {
@@ -820,6 +1114,10 @@ void WriteDataset(std::ostream& output, const DatasetResult& dataset) {
     output << ",\"memory_after_rebuild\":"; WriteMemory(output, dataset.afterRebuild);
     output << ",\"memory_after_broad_query\":"; WriteMemory(output, dataset.afterBroadQuery);
     output << ",\"memory_post_query\":"; WriteMemory(output, dataset.postQuery);
+    output << ",\"resources_after_rebuild\":"; WriteResource(output, dataset.resourcesAfterRebuild);
+    output << ",\"resources_post_query\":"; WriteResource(output, dataset.resourcesPostQuery);
+    output << ",\"contention\":"; WriteContention(output, dataset.contention);
+    output << ",\"read_plane\":"; WriteReadPlane(output, dataset.readPlane);
     output << '}';
 }
 
@@ -835,6 +1133,14 @@ void WriteSearchRun(std::ostream& output, const SearchRun& run) {
            << ",\"wire_truncated\":" << (run.wireTruncated ? "true" : "false")
            << ",\"filename_index_used\":" << (run.filenameIndexUsed ? "true" : "false")
            << ",\"filename_index_candidate_count\":" << run.filenameIndexCandidateCount;
+    output << ",\"search_generation\":" << run.searchGeneration
+           << ",\"generation_restarts\":" << run.generationRestarts
+           << ",\"state_lock_wait_ms\":";
+    WriteJsonDouble(output, run.stateLockWaitMs);
+    output << ",\"max_state_lock_hold_ms\":";
+    WriteJsonDouble(output, run.maxStateLockHoldMs);
+    output << ",\"peak_searches\":" << run.peakSearches
+           << ",\"peak_durable_readers\":" << run.peakDurableReaders;
     output << ",\"sqlite_ms\":"; WriteJsonDouble(output, run.sqliteMs);
     output << ",\"projection_traversal_ms\":"; WriteJsonDouble(output, run.projectionTraversalMs);
     output << ",\"projection_enumeration_ms\":"; WriteJsonDouble(output, run.projectionEnumerationMs);
@@ -992,6 +1298,7 @@ int wmain(int argc, wchar_t** argv) {
             std::filesystem::remove_all(temporaryDirectory, ignored);
             return 1;
         }
+        dataset.resourcesAfterRebuild = ReadResources(database);
 
         {
             if (options.detailedDiagnostics) {
@@ -1098,7 +1405,15 @@ int wmain(int argc, wchar_t** argv) {
                 incremental.push_back({scale, ToUtf8(step), resultCount, Percentile(values, 0.50)});
             }
         }
+        // nonblocking-indexed-read-plane 7.2: hold one real cold search at
+        // the durable-stream boundary, then exercise the writer, aggregate,
+        // snapshot, second-search, and cancellation paths while that query
+        // is intentionally in flight. This is evidence, not a pass/fail
+        // timing gate; the booleans make lock monopolization visible.
+        dataset.contention = RunContentionProbe(pipeline, volumeId, scale, options.detailedDiagnostics);
+        dataset.readPlane = pipeline.GetReadPlaneDiagnostics();
         dataset.postQuery = ReadMemory();
+        dataset.resourcesPostQuery = ReadResources(database);
         datasets.push_back(dataset);
         pipeline.Close();
         if (options.detailedDiagnostics) {
