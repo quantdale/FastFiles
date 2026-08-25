@@ -30,15 +30,21 @@
 - The post-documentation focused CTest rerun passes `ffdoc_drift_tests` and
   `ffproject_status_ps_tests` 2/2. `git diff --check` passes.
 - Status generated with the supported VS environment reports CTest discovered
-  83, lifecycle model `PASS`, 25 raw unchecked tasks, and 1 active-local task
-  (the final handoff item). Release-readiness generation reports lifecycle
-  `PASS` and candidate classification `NON-PRODUCTION-OR-BLOCKED`.
+  83, lifecycle model `PASS`, 24 raw unchecked tasks, and 0 active-local tasks.
+  Release-readiness generation reports lifecycle `PASS` and candidate
+  classification `NON-PRODUCTION-OR-BLOCKED`.
+
+- Implementation commit
+  `2b600eb9a8d1f8d4e20168653da50afcddc97717` is pushed to `main`; the exact
+  hosted Actions run `32848021114` completed successfully for that SHA. Its
+  Debug, release-test, Analyze, ASAN, hygiene, and unsigned release
+  qualification jobs all passed.
 
 ## Boundaries retained
 
 No trust store, certificate, signing pin, privileged service, guest/provider,
 clean host, or host-bound live UIA state was fabricated or mutated. The old
 external evidence tasks remain unchecked and visible in their lifecycle-aware
-blocked buckets. Final Git reconciliation, push, exact hosted CI inspection,
-and this ledger's final handoff note are completed only after the implementation
-commit is created.
+blocked buckets. The final tracked handoff update is intentionally anchored to
+the prior implementation SHA and hosted run; the handoff commit's own SHA is
+derived from live Git state after push rather than recorded self-referentially.

@@ -14,11 +14,12 @@
 - `cmake --preset release-test` and `cmake --build --preset release-test` pass through the discovered VS x64 environment; the optimized artifact remains unsigned test output only.
 - Full release-test CTest passes 83/83 in 171.50 seconds, including the lifecycle/status regression suite and all existing product/policy tests. Analyze configure/build is warning-clean. ASAN protocol/IPC configure/build and the required `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, and `ffipc_listener_lifecycle_tests` pass 3/3.
 - `pwsh ./verify/verify.ps1 doctor` passes with the discovered VS/CMake/Ninja/CTest/SDK toolchain and truthful optional-tool skips. The official `pwsh ./verify/verify.ps1 build` capability passes: 9 gates passed, 0 failed, 0 skipped across Debug/release-test/Analyze.
-- Current live projection after the implementation slice: 25 raw unchecked tasks, 1 active-local task (the new campaign's final handoff item), lifecycle model `PASS`; the older false local-open items no longer appear in the local frontier.
+- Current live projection after the implementation slice: 24 raw unchecked tasks, 0 active-local tasks, lifecycle model `PASS`; the older false local-open items no longer appear in the local frontier.
+- Implementation commit `2b600eb9a8d1f8d4e20168653da50afcddc97717` is pushed to `main`; hosted Actions run `32848021114` completed `success` for that exact SHA. Debug, release-test, Analyze, ASAN, hygiene, and unsigned release qualification all passed.
 
-NEXT EXACT ACTION: run final status/release projections, strict policy/doc checks, Git diff audit, inspect the complete diff, then update evidence/progress/workstate and perform the final Git/CI handoff. Do not rerun host-bound live UIA/provider/signing paths.
+NEXT EXACT ACTION: after this final handoff commit is pushed, fetch/prune and derive live `HEAD`, `origin/main`, worktree cleanliness, and the exact hosted CI result for that handoff SHA. Do not edit tracked state merely to embed later CI evidence; do not rerun host-bound live UIA/provider/signing paths.
 
-Status: **Implementation slice complete; focused validation is green, broad repository validation and final handoff remain.**
+Status: **Campaign implementation, broad validation, and the exact implementation-SHA hosted handoff are complete; the final documentation commit's live Git/CI state must be derived on resume.**
 
 ## Runtime certification and verifier convergence checkpoint (2026-08-25)
 

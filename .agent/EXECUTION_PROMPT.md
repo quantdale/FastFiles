@@ -1,6 +1,6 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **ACTIVE**
+Status: **COMPLETE**
 Planned-From: `519a647a37a9fe517c7d744b99275569c73bbbb2`
 Planned-At: `2026-08-25T19:28:00+08:00`
 Target-Branch: `main`

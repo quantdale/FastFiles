@@ -1,23 +1,28 @@
 # FastFiles — Project Status
 
-## Current OpenSpec frontier lifecycle truthfulness campaign
+## Completed OpenSpec frontier lifecycle truthfulness campaign
 
-The current local implementation frontier is
-`openspec/changes/openspec-frontier-lifecycle-truthfulness`. The project-status
-pipeline now consumes the schema-validated `openspec/lifecycle.json` manifest,
-preserves the raw unchecked-task inventory, and exposes only genuinely active
-local work in `frontier.localOpen`. Completed/historical, superseded, mixed,
-administrative, provider, signing, clean-host, elevated, and interactive tasks
-retain explicit lifecycle/evidence provenance. Stale historical delivery tasks
-from preceding campaigns were checked only where later Git/CI evidence proves
-completion; genuine external gates remain open.
+The completed `openspec-frontier-lifecycle-truthfulness` campaign left the
+project-status pipeline consuming the schema-validated
+`openspec/lifecycle.json` manifest, preserving the raw unchecked-task inventory,
+and exposing only genuinely active local work in `frontier.localOpen`.
+Completed/historical, superseded, mixed, administrative, provider, signing,
+clean-host, elevated, and interactive tasks retain explicit lifecycle/evidence
+provenance. Stale historical delivery tasks from preceding campaigns were
+checked only where later Git/CI evidence proves completion; genuine external
+gates remain open.
 
-The current live projection has 25 raw unchecked tasks and 1 active-local task
-(the new campaign's final handoff item). Focused project-status
+The final live projection has 24 raw unchecked tasks and 0 active-local tasks.
+Focused project-status
 fixtures pass, strict OpenSpec validation is 70/70, Debug and release-test CTest
 are 83/83, Analyze is warning-clean, ASAN protocol/IPC is 3/3, and the official
 verifier build gate passes 9/9. No production signing, privileged MFT/USN,
 clean-host, guest/provider, or host-bound live UIA claim is inferred.
+
+Implementation commit `2b600eb9a8d1f8d4e20168653da50afcddc97717` and hosted
+Actions run `32848021114` are green. The final documentation handoff is kept
+non-self-referential: derive its exact SHA, branch parity, and later CI state
+from live Git/Actions on resume.
 
 The full supported live UIA wrapper remains an honest host-boundary item: the
 current resource-pressure condition prevented a bounded terminal run, so it is

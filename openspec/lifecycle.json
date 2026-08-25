@@ -141,8 +141,8 @@
     },
     {
       "name": "openspec-frontier-lifecycle-truthfulness",
-      "state": "active",
-      "evidence": [".agent/EXECUTION_PROMPT.md", "openspec/changes/openspec-frontier-lifecycle-truthfulness/proposal.md"],
+      "state": "completed",
+      "evidence": [".agent/EXECUTION_PROMPT.md", "openspec/changes/openspec-frontier-lifecycle-truthfulness/tasks.md", "2b600eb", "32848021114"],
       "supersededBy": null,
       "taskOverrides": []
     },
