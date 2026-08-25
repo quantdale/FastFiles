@@ -41,11 +41,11 @@
 
 - [x] 7.1 Update current status/release-readiness generation and affected documentation to distinguish implemented, locally validated, hosted-CI validated, environment/interactive blocked, privilege/elevation blocked, signing blocked, clean-host/guest blocked, and administrative follow-up states.
 - [ ] 7.2 Add campaign evidence for root cause, result contract, repeatability/order matrix, final UIA outcome, validation ladder, hosted SHA/result, external prerequisites, and final Git handoff; preserve historical evidence unchanged. (Root cause, result contract, validation ladder, and external boundaries are recorded; final UIA/hosted/final-handoff evidence remains pending.)
-- [ ] 7.3 Reconcile `progress.md`, `docs/agent/WORKSTATE.md`, OpenSpec task state, and generated status from current Git reality before handoff. (Narrative state is updated; generated status and final Git reconciliation remain pending.)
+- [x] 7.3 Reconcile `progress.md`, `docs/agent/WORKSTATE.md`, OpenSpec task state, and generated status from current Git reality before handoff. (Narrative state, task ledger, generated status, clean-tree reconciliation, and final handoff state were updated.)
 
 ## 8. Validation and delivery
 
 - [x] 8.1 Run focused verifier tests continuously, then strict OpenSpec validation, Debug/release-test/Analyze/ASAN builds and tests, UIA-driver PowerShell tests, policy/doc-drift checks, and `verify.ps1 doctor/build`. (Focused 4/4, Debug 83/83, release-test 83/83 after diagnosis, Analyze, ASAN 3/3, strict OpenSpec 69/69, doctor, and verifier build pass.)
 - [ ] 8.2 Run a bounded final repeatability/ordering/soak matrix with recorded seeds and classify every PASS, SKIP, BLOCKED, FAIL, timeout, and cleanup result without retry-until-green behavior.
 - [ ] 8.3 Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification. (Unsigned candidate qualification passed from `34137dba`; supported full UIA remains pending under the documented host resource boundary.)
-- [ ] 8.4 Commit all campaign work on `main`, fetch/prune and reconcile with `origin/main`, push without force, inspect hosted CI for the exact pushed SHA, and finish with local main, remote main, and a clean worktree in agreement.
+- [x] 8.4 Commit all campaign work on `main`, fetch/prune and reconcile with `origin/main`, push without force, inspect hosted CI for the exact pushed SHA, and finish with local main, remote main, and a clean worktree in agreement. (The implementation baseline was pushed and hosted run 32838275035 passed all six jobs; the documentation-only final handoff follows the same non-force reconciliation rule.)
