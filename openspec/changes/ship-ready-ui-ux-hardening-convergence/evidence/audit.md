@@ -165,3 +165,11 @@ zero-failure result above. This wrapper discrepancy is retained as a
 validation-harness/order-sensitive blocker rather than relabeled as a product
 pass or hidden with retries. The headless UIA/provider suites remain green,
 and no UIA provider implementation was changed.
+
+## Git handoff
+
+The implementation and campaign ledger were committed on `main` as
+`f51462f9870c0ae577de597e9b531f0bf32ec6b8`, pushed without force, and verified
+locally equal to `origin/main` with a clean worktree. The public GitHub API
+observed a new CI run for that pushed tip; the final CI state is intentionally
+derived from the hosted run rather than copied into this tracked ledger.

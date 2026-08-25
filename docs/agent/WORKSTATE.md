@@ -10,10 +10,10 @@
 - Final post-edit Debug CTest is 81/81 PASS (277.37s) and release-test CTest is 81/81 PASS (243.99s); Analyze is warning-clean with no C6262; ASAN protocol/IPC is 3/3 PASS; `verify.ps1 build` and `doctor` pass. Final strict OpenSpec is 68/68; source-marker, diagnostic-policy, doc-drift, and diff checks pass.
 - Live validation found and fixed a stale `Search.Results` provider assumption in the shared harness. Corrected search, error, treemap, selection, drag, and aggregate isolated public results pass, with only truthful foreground/Explorer-source skips. The complete mixed capability wrapper still has an environment/order-sensitive failure and remains unclaimed until a clean complete run is green.
 - The post-documentation release run found and fixed a separate deterministic harness issue: mock UIA tree dumps were subject to the live timeout and lost a leaf on the slower release-test host. Mock dumps now retain depth/width bounds without wall-clock expiry; focused direct and release-test driver reruns pass.
-- NEXT EXACT ACTION: create the detailed final handoff commit on `main`, fetch/prune/reconcile/push without force, verify parity/clean status, and inspect hosted CI. Preserve the truthful external interactive foreground, signing, privileged, clean-host, guest, and physical-display boundaries.
+- NEXT EXACT ACTION: inspect hosted CI for the pushed tip and retain the external PR-administration, interactive-foreground, signing, privileged, clean-host, guest, and physical-display boundaries. No local implementation frontier remains.
 
 Last updated: 2026-08-25 (ship-ready UI/UX hardening convergence in final validation)
-Status: **Local implementation and validation are complete except for final clean-main handoff.** The campaign has not yet been committed or pushed; derive live branch/HEAD/origin parity at every resume rather than treating this document as a Git database. The complete mixed live UIA wrapper remains an honest unresolved environment/order-sensitive gate; no product pass is inferred from partial runs.
+Status: **Campaign implementation and local validation are complete and the implementation handoff is committed on `main` and pushed.** The exact live branch/HEAD/origin parity must still be derived at every resume rather than treated as a Git database. The complete mixed live UIA wrapper remains an honest unresolved environment/order-sensitive gate; no product pass is inferred from partial runs.
 
 ## Interactive UI runtime determinism checkpoint (2026-08-25)
 
