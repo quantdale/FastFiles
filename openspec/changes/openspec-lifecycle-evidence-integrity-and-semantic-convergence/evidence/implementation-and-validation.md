@@ -33,4 +33,8 @@ Implementation checkpoint (before the final handoff):
   overall result is intentionally not a release PASS while the worktree is
   dirty, unsigned/clean-host prerequisites are unavailable, and an unrelated
   runtime capability reports the pre-existing `PSObject op_Addition` harness
-  error. No privileged or trust-store action was attempted.
+error. No privileged or trust-store action was attempted.
+- The first pushed hosted run exposed that the default shallow CI checkout could
+  not satisfy the new full-reachable historical Git evidence contract. All CI
+  checkout steps now use `fetch-depth: 0`; the corrected pushed SHA is the
+  authoritative hosted validation target.

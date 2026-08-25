@@ -7,11 +7,11 @@
 - `verify/core/ProjectStatus.psm1` now reports separate structural/evidence/semantic diagnostics, validates supersession/task invariants, preserves raw unchecked tasks, projects invalid lifecycle state as ambiguity, and makes release readiness fail closed on lifecycle integrity failure. Project-status and release-readiness schemas/consumers/docs were updated together.
 - Deterministic fixture coverage now includes traversal, absolute, missing, junction/reparse, legacy string, note-only, Git full/abbreviated/nonexistent, hosted binding, self/cyclic supersession, disposition/category/status contradictions, redaction, ordering, schema synchronization, and release fail-closed cases.
 - Focused `verify/status/tests/Test-ProjectStatus.ps1` passes with exit 0, including the reparse-point regression. Diagnostic-policy source gate passes. Strict OpenSpec validation passes 71/71 after adding the required regression scenario to the new spec. The official `pwsh ./verify/verify.ps1 build` gate passes `9 passed, 0 failed, 0 skipped` across Debug/release-test plus Analyze, including Debug and release-test CTest.
-- Current worktree is intentionally dirty with the implementation, migration, test, schema, documentation, and new OpenSpec change; generated `verify/status/generated` output remains ignored. No task checkbox or final lifecycle state has been marked complete yet pending the broad validation ladder.
+- Implementation baseline `cd8b0b1bd60fbb2af25944f172eca1f5b1614684` is pushed to `main`; generated `verify/status/generated` output remains ignored. Exact hosted run `32864154982` is the first validation target. Its local hygiene job exposed the expected shallow-checkout incompatibility with full historical Git evidence; the workflow fix is now the only dirty source delta.
 
-NEXT EXACT ACTION: run the supported release-readiness compose/applicable ASAN and doc-drift gates through the discovered Visual Studio environment, inspect the complete diff, then update this checkpoint and the campaign evidence/tasks from actual results before the implementation commit.
+NEXT EXACT ACTION: commit and push the `.github/workflows/ci.yml` full-history checkout fix, then inspect the corrected exact-SHA hosted CI result before closing task 5.3 and the lifecycle entry.
 
-Status: **Typed evidence and semantic convergence implementation is in place; broad validation and final committed/hosted handoff remain pending.**
+Status: **Typed evidence and semantic convergence implementation is pushed; the first hosted hygiene failure identified a shallow-checkout integration gap, now corrected locally pending the second hosted handoff.**
 
 ## OpenSpec frontier lifecycle truthfulness campaign — implementation checkpoint (2026-08-25)
 

@@ -21,7 +21,7 @@
 
 - [x] 4.1 Migrate every live lifecycle entry to typed, resolvable evidence and preserve genuine external gates. (Evidence: `openspec/lifecycle.json`, `evidence/current-manifest-audit.md`.)
 - [x] 4.2 Add deterministic fixture coverage for evidence resolution, path safety, Git/hosted bindings, cycles, contradictions, drift, redaction, ordering, and release fail-closed behavior. (Evidence: `verify/status/tests/Test-ProjectStatus.ps1` passes all assertions offline.)
-- [x] 4.3 Audit and update every lifecycle/status/release/planner consumer and documentation for the new contract. (Evidence: `ProjectStatus.psm1`, readiness projection, schemas, `AUTONOMOUS.md`, `verify/README.md`, and `CODE_INDEX.md`.)
+- [x] 4.3 Audit and update every lifecycle/status/release/planner consumer and documentation for the new contract. (Evidence: `ProjectStatus.psm1`, readiness projection, schemas, `.github/workflows/ci.yml`, `AUTONOMOUS.md`, `verify/README.md`, and `CODE_INDEX.md`.)
 
 ## 5. Validation and handoff
 

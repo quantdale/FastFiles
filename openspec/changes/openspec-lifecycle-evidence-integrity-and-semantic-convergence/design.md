@@ -30,6 +30,8 @@ absolute, traversal-bearing, outside the root, missing, or reached through a
 reparse point. Git references must be full, resolvable commits reachable from
 the local `HEAD`; abbreviated or nonexistent references fail. Hosted-run
 records are tracked repository files and must contain the exact run ID and SHA.
+CI checkouts fetch full history so this reachability rule remains deterministic
+on hosted workers rather than depending on an implicit shallow-clone accident.
 
 ### D3 — Semantic invariants are separate from shape validation
 
