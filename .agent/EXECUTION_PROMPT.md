@@ -1,39 +1,44 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **COMPLETE**
-Planned-From: `ff4a6fec279e8b881fe9e20b471e2e5b4a2d92f6`
-Planned-At: `2026-08-25T21:26:00+08:00`
+Status: **ACTIVE**
+Planned-From: `165f7bc7e22fcdc21f58735c38f368769828c409`
+Planned-At: `2026-08-26T01:36:00+08:00`
 Target-Branch: `main`
 Repository: `quantdale/FastFiles`
-Campaign: **OpenSpec Lifecycle Evidence Integrity + Semantic Consistency Hardening**
+Campaign: **Executable Repository Truth + Documentation Drift Convergence**
 
 ## Mission
 
-Harden the lifecycle-aware OpenSpec frontier so a future autonomous planner cannot hide real local work, misclassify release blockers, or accept a false completed/superseded state merely because `openspec/lifecycle.json` is structurally well-formed.
+Make FastFiles' repository guidance and architecture/status documentation a trustworthy input to autonomous engineering rather than a manually synchronized narrative that can silently drift while the existing drift gate remains green.
 
-The previous lifecycle-truthfulness campaign successfully removed stale historical checkboxes from the active local frontier and left current `main` with **24 raw unchecked tasks and 0 active-local tasks**. That campaign is complete. There is no justified product-feature implementation campaign to queue from the current repository state, and draft PR #6 remains superseded audit evidence rather than merge work.
+The immediately preceding `openspec-lifecycle-evidence-integrity-and-semantic-convergence` campaign is complete. Current `main` reports **24 raw unchecked tasks and 0 active-local tasks**, lifecycle integrity `PASS`, a green final-handoff CI run, and only external/host-bound signing, privileged, provider, clean-host, guest, physical-display, foreground-owned UIA, and similar evidence gates. There is no justified product-feature campaign to manufacture from that state, and draft PR #6 remains superseded audit evidence rather than merge work.
 
-The next locally actionable hardening frontier is therefore the **integrity of the lifecycle authority itself**. The current model validates names, enum values, task IDs, non-empty evidence arrays, and basic supersession target existence, but evidence remains an untyped string list and semantic relationships between lifecycle state, task disposition, category, status, evidence, and supersession are not comprehensively enforced. The deterministic tests intentionally use arbitrary strings such as `fixture-history`, `fixture-supersession`, and `fixture-current` as accepted evidence. A malformed JSON document fails closed, but a syntactically valid manifest can still carry non-resolving evidence or internally contradictory lifecycle claims.
+A repository-wide negative-space audit did, however, find a concrete local hardening gap: **the guidance truth surface can contain materially stale current-state claims while `ffdoc_drift_tests` still passes**. The existing guard only bans four exact historical phrases in four files and checks mixed line endings. It does not verify the semantics that current agents and maintainers actually depend on: current verifier verbs, current OpenSpec/lifecycle state, snapshot-publication architecture, executable/target topology, release/security boundaries, current validation commands, or other duplicated machine-derived facts.
 
-Close that trust gap without adding network dependence to ordinary status generation, without weakening any production-security or release gate, and without manufacturing unrelated product churn.
+Close that gap. Reconcile current guidance against executable sources, define explicit ownership for machine-derived facts, add deterministic semantic/executable drift checks, and make future contradictory guidance fail locally and in CI. Do this without rewriting completed product architecture, without turning documentation into generated noise, without creating a network dependency, and without relabeling genuine external release prerequisites as local work.
 
 ## Planner findings that must be independently revalidated
 
 Treat these as starting evidence, not unquestionable truth. Reconcile against live `main` before editing.
 
-1. Remote `main` currently points to `ff4a6fec279e8b881fe9e20b471e2e5b4a2d92f6` (`status: close lifecycle frontier handoff`).
-2. `.agent/EXECUTION_PROMPT.md` at that baseline is COMPLETE for `openspec-frontier-lifecycle-truthfulness`; `progress.md` and `docs/agent/WORKSTATE.md` report 24 raw unchecked tasks, 0 active-local tasks, lifecycle model PASS, and green local/hosted evidence for the implementation commit.
-3. The previous implementation commit is `2b600eb9a8d1f8d4e20168653da50afcddc97717` (`status: make OpenSpec frontier lifecycle-aware`).
-4. `openspec/lifecycle.json` is now the repository-owned machine-readable lifecycle source used to separate raw unchecked-task truth from the active local frontier.
-5. `verify/schemas/openspec-lifecycle.schema.json` models lifecycle `evidence` and task-override `evidence` as arrays of unrestricted strings. The schema checks shape, not referential integrity.
-6. `Get-ProjectStatusLifecycleModel` in `verify/core/ProjectStatus.psm1` currently verifies that lifecycle evidence arrays exist and contain non-empty strings. It does not, by itself, prove that an evidence reference resolves to a repository artifact, Git commit, durable hosted-run record, or another accepted evidence type.
-7. The same function checks that a `supersededBy` name exists, but the planner review found no explicit prevention of self-supersession, supersession cycles, or other graph-level contradictions. Revalidate this across the complete implementation and tests before changing it.
-8. Task overrides validate individual enum membership but the planner review found no complete cross-field semantic validator preventing contradictory combinations such as an `external` disposition with only `local` categories, a `mixed` disposition without both local and external components, an impossible lifecycle/disposition relationship, or a stale unchecked task being labeled PASS without evidence strong enough to justify that claim. Revalidate the exact current behavior before edits.
-9. `verify/status/tests/Test-ProjectStatus.ps1` has good coverage for active-local, historical-external, stale administrative, superseded, malformed metadata, explicit-vs-prose classification, mixed work, blocked buckets, deterministic ordering, schema validation, safe redaction, and release-readiness composition. Its lifecycle fixtures deliberately use free-form strings such as `fixture-history`, `fixture-supersession`, `fixture-current`, and `fixture-local-evidence`, which demonstrates that evidence *presence* is tested but evidence *resolution/integrity* is not yet a first-class invariant.
-10. The lifecycle-truthfulness design explicitly identifies stale manifest state as a risk and says lifecycle/evidence provenance must be reviewable. This campaign must make that guarantee executable rather than purely documentary.
-11. Release-readiness and autonomous continuation consume the lifecycle projection. A false lifecycle PASS is therefore not a cosmetic documentation problem; it can alter whether future work is selected and whether blockers are projected correctly.
-12. The repository currently has no open issues. Draft PR #6 (`stabilization/ship-ready-2026-08-23`) remains open but superseded by later mainline hardening; it is evidence only unless current code independently proves a still-valid defect.
-13. Existing production signer/pins, privileged MFT/USN validation, clean-host matrix, guest/provider validation, physical-display/foreground-owned UIA, and other host-bound gates remain external. Do not relabel them as local work just to make this campaign larger.
+1. Current remote `main` is `165f7bc7e22fcdc21f58735c38f368769828c409` (`openspec-lifecycle: record final integrity handoff`).
+2. Hosted Actions run `32867962170` completed successfully for exact final-handoff SHA `165f7bc7e22fcdc21f58735c38f368769828c409`.
+3. `progress.md` and `docs/agent/WORKSTATE.md` report the lifecycle-evidence-integrity campaign complete with 24 raw unchecked tasks, 0 active-local tasks, lifecycle PASS, full local validation, and external production/interactive boundaries preserved.
+4. `.agent/EXECUTION_PROMPT.md` was COMPLETE for the lifecycle-evidence-integrity campaign before this planner update.
+5. The repository currently has no open issues.
+6. Draft PR #6 (`stabilization/ship-ready-2026-08-23`, head `9ddf1a3189be32db11c97e7c79bb7404caac1d8f`) remains open and superseded by later mainline work. Do not merge/reset/cherry-pick it wholesale. It is historical comparison evidence only unless a defect is independently reproduced on current `main`.
+7. `README.md` currently documents the runtime verifier as exposing only `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, and `doctor`, while current repository guidance and implementation also expose `status`, `release-readiness`, and `release-candidate`. Revalidate the actual command registry rather than trusting either document.
+8. The same README still says the "current interactive hardening change" is `interactive-ui-runtime-determinism`, even though multiple later campaigns have completed and the lifecycle authority now records the current campaign history explicitly. This is a current-state claim that can misdirect an agent even though the drift gate passes.
+9. `CODE_INDEX.md` describes `SnapshotPublisher` in one current section as publishing a "double-buffered memory-mapped section", while current `src/engine/src/SnapshotPublisher.cpp` creates immutable generation-named mappings (`<prefix>.<generation>`), publishes a canonical first generation during `Start`, and commits each generation before handoff. Revalidate all snapshot documentation and the reader side before editing; do not simply replace one phrase from source review.
+10. `AGENTS.md`, `README.md`, `CODE_INDEX.md`, `CLAUDE.md`, verifier docs, OpenSpec designs, `.agent` handoff files, and release docs duplicate overlapping facts about architecture, commands, process roles, privileged-path readiness, test presets, snapshot behavior, and active work. Some duplication is useful for humans, but machine-derived claims currently have no comprehensive executable consistency contract.
+11. `tests/drift/check_doc_drift.ps1` currently checks only:
+    - four exact banned strings (`never LocalSystem`, `SeBackupPrivilege only`, `scan calls are stubbed`, `not yet implemented`) across README/AGENTS/CLAUDE/CODE_INDEX; and
+    - mixed CRLF/lone-LF endings under `src/` and `tests/`.
+    A green `ffdoc_drift_tests` therefore does **not** prove current guidance matches the actual repository.
+12. `tests/drift/CMakeLists.txt` registers this script as `ffdoc_drift_tests` whenever PowerShell is available. Recent campaign reports cite that gate as passing, so the gap is not merely missing CI registration: it is a weak contract that can produce a false-green result.
+13. Current source-of-truth seams already exist and should be reused rather than duplicated again: CMake target/test registration, verifier command dispatch/manifests, `VERSION`, `ffprotocol` enums/constants, snapshot-format code, `openspec/lifecycle.json`, OpenSpec task ledgers, `.agent/EXECUTION_PROMPT.md`, release/status schemas, and tracked implementation evidence.
+14. The typed lifecycle campaign intentionally made autonomous work selection fail closed on invalid metadata. Guidance files remain outside that equivalent trust boundary even though planners/executors explicitly read them before acting.
+15. Existing production signer/pins, privileged MFT/USN execution, privileged trust-store integration, clean-host release matrix, guest/provider validation, and physical/foreground-owned interactive UI evidence remain external or opt-in. Documentation reconciliation must preserve those boundaries exactly.
 
 ## Mandatory reconnaissance before edits
 
@@ -41,47 +46,68 @@ Do not start from the planner snapshot without live reconciliation.
 
 1. `git fetch --prune origin`.
 2. Record current branch, local `HEAD`, `origin/main`, ahead/behind counts, worktree state, and recent commits.
-3. Start from the actual current `main`. Fast-forward/rebase safely as repository policy permits. Never destroy valid work and never force-push.
+3. Start from the actual current `main`; fast-forward/rebase safely as repository policy permits. Never discard valid work and never force-push.
 4. Re-read at minimum:
    - `AGENTS.md`
    - `AUTONOMOUS.md`
-   - `.agent/PLANNER_HANDOFF.md`
-   - this `.agent/EXECUTION_PROMPT.md`
+   - `README.md`
+   - `CLAUDE.md`
+   - `CODE_INDEX.md`
    - `progress.md`
    - `docs/agent/WORKSTATE.md`
-   - `README.md`
-   - `CODE_INDEX.md`
+   - `.agent/PLANNER_HANDOFF.md`
+   - this `.agent/EXECUTION_PROMPT.md`
    - `.github/workflows/ci.yml`
-   - `openspec/config.yaml`
-   - `openspec/lifecycle.json`
-   - `verify/schemas/openspec-lifecycle.schema.json`
-   - `verify/schemas/project-status.schema.json`
-   - `verify/schemas/release-readiness-frontier.schema.json`
-   - `verify/core/ProjectStatus.psm1`
-   - `verify/core/Schema.psm1`
-   - `verify/status/Get-ProjectStatus.ps1`
-   - `verify/status/New-ReleaseReadinessReport.ps1`
-   - `verify/status/tests/Test-ProjectStatus.ps1`
+   - root `CMakeLists.txt` and `CMakePresets.json`
+   - all `src/**/CMakeLists.txt` and `tests/**/CMakeLists.txt`
+   - `tests/drift/check_doc_drift.ps1`
+   - `tests/drift/CMakeLists.txt`
    - `verify/verify.ps1`
-   - all CMake/CTest registration for status/policy/doc-drift tests
-   - all repository docs and scripts that consume `frontier.localOpen`, lifecycle status, raw unchecked counts, lifecycle evidence, or `supersededBy`.
-5. Inspect recent lifecycle-related commits and their complete diffs, at minimum:
-   - `b0ed5803b0aeba452822208b5230dd12e00f3832`
+   - verifier command/core modules and capability manifests used to define supported verbs and states
+   - `verify/README.md`
+   - status/release-readiness schemas and their generators
+   - `openspec/lifecycle.json`
+   - the two latest lifecycle campaign proposal/design/tasks/evidence directories
+   - snapshot protocol/publisher/reader implementation and tests
+   - setup/signing/pin configuration and production-release checks
+   - any current docs under `docs/release/`, `docs/quality/`, `docs/agent/`, and `docs/benchmarks/` that restate machine-derived current facts.
+5. Inspect the complete diffs of the recent campaigns that materially changed the truth surface, including at minimum:
+   - `f51462f9870c0ae577de597e9b531f0bf32ec6b8`
+   - `ea15a51298aba2c603152391264767f011fcc3a7`
    - `2b600eb9a8d1f8d4e20168653da50afcddc97717`
-   - `ff4a6fec279e8b881fe9e20b471e2e5b4a2d92f6`
-6. Inspect open PRs/issues. PR #6 is historical/superseded evidence only unless an independently reproduced current-main defect requires action.
-7. Generate current project status and release-readiness from the actual tree before editing. Record raw unchecked tasks, active-local count, lifecycle errors, blocked buckets, and the current candidate classification.
-8. Build an impact map of **every consumer** of lifecycle state/evidence. Do not limit the audit to files changed in the previous campaign. Trace status generation through release-readiness, Markdown/JSON projection, verifier commands, CI artifacts, autonomous/planner documentation, and any tests or policies that make decisions from these fields.
-9. Audit the complete current lifecycle manifest entry-by-entry. For every lifecycle and task-level evidence string, determine what it is intended to mean: repository path, directory, commit, hosted run, durable workstate record, task ledger, prompt, or other provenance. Record ambiguity instead of guessing.
-10. Do not read or glob ignored `verify/runs/`, `verify/baselines/`, or `verify/.signing/`.
-
-Use the repository's native tools and available agent environment. Do not assume a specific AI model, coding harness, shell wrapper, provider, or sub-agent implementation.
+   - `cd8b0b1bd60fbb2af25944f172eca1f5b1614684`
+   - `09bac46a5371ecaad58b7c38ab044deb2c5d8163`
+   - `165f7bc7e22fcdc21f58735c38f368769828c409`.
+6. Inspect open PRs/issues. PR #6 is historical/superseded evidence only unless current-main behavior independently demonstrates a remaining defect.
+7. Generate current project status and release readiness from the actual tree before editing. Record raw unchecked tasks, active-local count, lifecycle diagnostics, blocked buckets, and candidate classification.
+8. Enumerate the complete tracked repository tree and build a coverage ledger for **all current-guidance surfaces and every machine-readable source they restate**. Do not limit review to recently touched files.
+9. Search the whole repository for duplicated claims about:
+   - supported verifier verbs and exit codes;
+   - CMake presets/test presets and required toolchains;
+   - executable/static-library target topology;
+   - process roles and privilege boundaries;
+   - current/active/completed OpenSpec campaigns;
+   - snapshot publication/mapping/version behavior;
+   - Authenticode pin provisioning and privileged-path readiness;
+   - degraded-mode status;
+   - CI validation matrix and test registration;
+   - product `VERSION` and release artifact identity;
+   - production-ready/release-candidate semantics;
+   - counts or lists described as current facts.
+10. Classify every duplicated claim as one of:
+    - **machine-derived** — should be mechanically checked or rendered from an executable source;
+    - **stable architectural rationale** — human-maintained but should be anchored to an authoritative design decision;
+    - **historical evidence** — may remain immutable and must not be interpreted as current truth;
+    - **dynamic status** — should not be copied into durable prose when a live generator already exists;
+    - **external prerequisite** — must remain explicit and must not be auto-closed by documentation cleanup.
+11. Do not read or glob ignored `verify/runs/`, `verify/baselines/`, or `verify/.signing/`.
+12. Use repository-native tools and available environment. Do not assume a specific model, coding harness, shell wrapper, provider, or sub-agent implementation.
 
 ## Fresh campaign ledger
 
 Create a new OpenSpec change named equivalently to:
 
-`openspec-lifecycle-evidence-integrity-and-semantic-convergence`
+`repository-truth-surface-and-doc-drift-convergence`
 
 Include at least:
 
@@ -89,350 +115,259 @@ Include at least:
 - `proposal.md`
 - `design.md`
 - `tasks.md`
-- appropriate spec delta/new spec for lifecycle integrity semantics
+- an appropriate spec delta/new spec for repository truth/drift guarantees
 - `evidence/baseline.md`
-- `evidence/current-manifest-audit.md`
-- `evidence/evidence-reference-model.md`
-- `evidence/semantic-invariant-matrix.md`
+- `evidence/truth-surface-inventory.md`
+- `evidence/authority-map.md`
+- `evidence/drift-findings.md`
+- `evidence/negative-fixture-matrix.md`
 - `evidence/implementation-and-validation.md`
 
-The baseline must preserve exact pre-change Git/status/release facts and must inventory the current lifecycle manifest rather than simply state that it passed.
+The baseline must pin exact pre-change Git/status/CI facts and list every concrete drift finding found during the full audit. Do not merely copy the planner examples.
 
-## Workstream 1 — Repository-wide lifecycle trust-boundary audit
+## Workstream 1 — Build the complete repository truth-surface inventory
 
-Treat lifecycle metadata as a trust boundary because it can influence autonomous work selection and release-state projection.
+Treat current guidance as an execution input, not cosmetic prose.
 
-Build a deterministic audit covering:
+Inventory every current-facing document or handoff that a developer/agent can reasonably use to decide what the system is, what is active, how to build/test it, or what is safe to change. At minimum cover:
 
-- the manifest schema;
-- runtime parser/validator;
-- task classifier;
-- frontier projection;
-- release-readiness projection;
-- JSON/Markdown schemas and rendering;
-- verifier command failure behavior;
-- CI generation/validation;
-- planner/continuation documentation;
-- historical task reconciliation paths;
-- all current lifecycle entries and overrides;
-- all code paths that consume lifecycle evidence or supersession.
+- README / AGENTS / CLAUDE / CODE_INDEX;
+- AUTONOMOUS and `.agent` handoff/continuation files;
+- `progress.md` and `docs/agent/WORKSTATE.md`;
+- verifier and release documentation;
+- current OpenSpec proposal/design/task/evidence files that are explicitly referenced as current authority;
+- quality/release/benchmark guidance with current-state assertions.
 
-For each seam, state:
+For every machine-derived assertion, record:
 
-1. what input is trusted today;
-2. what is syntactically validated;
-3. what is semantically validated;
-4. what is only human convention;
-5. what failure mode occurs if metadata lies or drifts;
-6. whether the system fails closed, fails open, or silently misprojects state.
+1. the prose claim;
+2. the authoritative executable/config source;
+3. whether the current claim matches;
+4. whether drift can be detected today;
+5. what false action a stale claim could cause;
+6. whether the claim should remain prose, become derived output, or be replaced by a stable pointer to the source of truth.
 
-Search the full codebase for lifecycle/status/frontier/release terminology and review effects on unrelated modules only where they consume the changed contract. The audit must account for the system as a whole, not just the recent diff.
+Do not turn historical reports into failures merely because they describe old states. The contract must distinguish historical evidence from files that claim to describe **current** behavior.
 
-## Workstream 2 — Introduce an explicit evidence reference model
+## Workstream 2 — Define explicit authority ownership instead of adding another duplicate manifest
 
-Replace the current "non-empty arbitrary string means evidence exists" assumption with the smallest deterministic evidence model that can be validated offline.
+Design before implementation.
 
-Design before implementation. Requirements:
+The goal is not to create a second hand-maintained `truth.json` that can itself drift. Reuse existing authoritative seams wherever possible.
 
-- Evidence must be machine-classifiable, not inferred from string shape when that would be ambiguous.
-- Ordinary `verify.ps1 status` and release-readiness generation must remain offline and deterministic; do **not** add a GitHub/network dependency to status generation.
-- Evidence that claims a repository file/directory must resolve inside the repository and must not escape via absolute path, `..`, symlink/reparse ambiguity, or host-private path.
-- Evidence that claims a Git commit must resolve to an actual commit reachable from the repository according to the chosen contract. Prefer full immutable SHAs in durable state; if abbreviated SHAs remain accepted, require unique deterministic resolution.
-- Hosted-CI evidence must not be treated as locally re-queryable truth. Define a durable offline representation that binds the run identifier to an exact commit and to a committed evidence/workstate record. A bare numeric run ID must not become authoritative merely because it is non-empty.
-- Human notes may remain useful provenance, but a free-form note alone must not satisfy the evidence requirement for a state transition that can remove work from the active frontier.
-- The model must distinguish "reference exists" from "reference proves this claim". At minimum, provenance strength/type must be visible to reviewers and tests.
-- Evidence resolution must be deterministic across machines and must not expose absolute user paths.
-- Existing historical provenance must be migrated without deleting or rewriting history beyond what is necessary for a truthful current manifest.
-- If a structured evidence object is introduced, version the lifecycle schema deliberately and update all consumers atomically.
+Required principles:
 
-Possible evidence kinds to evaluate include repository artifact/path, Git commit, durable hosted-run binding, and explicitly non-authoritative note/context. Do not hard-code this exact taxonomy if a cleaner repository-native model exists; the acceptance requirement is typed, reviewable, offline-verifiable provenance.
+- verifier verbs come from the same dispatch/registry the executable wrapper uses, or from a single structured definition consumed by both;
+- CMake target/preset/test facts come from CMake/preset sources or a deterministic introspection seam, not a copied list maintained in a PowerShell test;
+- OpenSpec current/completed state comes from `openspec/lifecycle.json` plus the active planner prompt contract, not a hard-coded campaign name in README;
+- version identity comes from `VERSION` and build metadata sources;
+- protocol/snapshot facts come from source constants/contracts or dedicated machine-readable metadata close to the implementation;
+- release-security state remains fail-closed and grounded in existing signing/pin/release-readiness logic;
+- stable rationale may remain prose, but it must point to an authoritative design artifact rather than duplicating mutable implementation detail unnecessarily.
 
-## Workstream 3 — Enforce lifecycle semantic invariants
+If a small structured metadata seam is necessary, it must have one clear owner, be consumed by the product/build/verifier or be mechanically derived from them, and have deterministic tests proving it cannot become another independent source of truth.
 
-Add a dedicated semantic validation layer rather than relying only on JSON Schema enum membership.
+## Workstream 3 — Replace phrase-ban drift detection with semantic/executable contracts
 
-At minimum evaluate and, where appropriate, enforce:
+Harden `ffdoc_drift_tests` or introduce a clearly composed replacement while preserving a fast local/CI gate.
 
-### Change-level invariants
+The resulting drift layer must catch meaningful contradictions, not just exact legacy strings.
 
-- `supersededBy` cannot point to the same change.
-- Supersession relationships must be acyclic.
-- Supersession targets must exist and have a lifecycle state compatible with being an authoritative replacement.
-- A completed/superseded state that removes local work from the active frontier must carry evidence strong enough for that transition under the new evidence model.
-- `external-evidence-only` means local implementation is complete but named external evidence remains; it must not become a generic escape hatch for hiding unexplained local work.
-- `ambiguous` remains fail-closed/visible and cannot project a false clean frontier.
-- Unknown or contradictory lifecycle state must fail the lifecycle model, preserve raw task visibility, and prevent production-ready inference.
+At minimum implement deterministic checks for the following classes where the audit confirms they are applicable:
 
-### Task-override invariants
+### Verifier CLI contract
 
-Audit the exact valid matrix before coding, then enforce it deterministically. Cover at minimum:
+- current docs must not omit supported stable verbs that they claim to enumerate;
+- docs must not advertise unsupported verbs;
+- documented exit-code semantics must match the executable contract;
+- the check must be derived from the real verifier command definition rather than a manually duplicated list in the test.
 
-- `active` disposition is only valid when the parent lifecycle can contain current work.
-- `external` disposition requires one or more external/environmental/administrative categories; a purely `local` category is contradictory.
-- `mixed` disposition must actually represent both a local component and at least one non-local/external component.
-- `superseded` disposition requires supersession provenance and must not silently disappear from historical projection.
-- `historical` disposition requires durable provenance showing why an unchecked source task is no longer current implementation work.
-- A still-unchecked task marked `PASS` must have a clearly defined meaning and sufficient evidence. Do not allow PASS to become a cosmetic escape from an unchecked acceptance item.
-- Category/status combinations must be coherent (`BLOCKED_ENVIRONMENT`, `REQUIRED-BUT-UNAVAILABLE`, `SKIPPED`, `PASS`, `FAIL`) and must not undermine release-state truth.
-- Explicit metadata may override prose classification only when the override itself passes semantic validation.
+### OpenSpec / planner lifecycle contract
 
-Do not over-constrain legitimate historical cases. Preserve the ability to represent a task whose implementation is locally complete while external validation remains pending.
+- guidance that claims a specific campaign is "current" or "active" must agree with lifecycle/prompt state;
+- completed historical campaigns must not be presented as the current local implementation frontier;
+- a COMPLETE planner prompt must not be described as active elsewhere, and an ACTIVE planner prompt must be visible to continuation semantics;
+- 24 raw unchecked / 0 active-local is a dynamic status fact, not a magic number to hard-code into generic docs.
 
-## Workstream 4 — Evidence freshness and drift detection
+### Build/test topology contract
 
-A reference can exist and still be stale. Add the strongest deterministic drift checks that can be justified without network dependence or false positives.
+- current documented presets/toolchain/test commands must correspond to actual presets/registered supported workflows;
+- avoid assertions based on brittle test-count snapshots;
+- if a command is opt-in/privileged/production-only, documentation must preserve that classification.
 
-Evaluate at least:
+### Process / target architecture contract
 
-- manifest entries referring to deleted/renamed repository evidence;
-- task overrides referring to task IDs that changed or disappeared;
-- lifecycle evidence pointing to a commit that does not contain or precede the claimed artifact in a meaningful way;
-- supersession targets whose own lifecycle becomes ambiguous/invalid;
-- completed/external-only changes that later acquire a new unchecked local task without corresponding lifecycle/task metadata;
-- active planner prompt versus lifecycle manifest disagreement;
-- multiple sources claiming incompatible active/completed state for the same campaign;
-- schema version drift between lifecycle parser, JSON Schema, project-status schema, release-readiness schema, tests, and docs.
+- current executable and static-library topology claims must match build ownership sufficiently to detect removed/renamed/added first-party targets that invalidate guidance;
+- do not fail on implementation-private helper targets unless a current guidance document claims to enumerate them.
 
-Where exact semantic freshness cannot be proven mechanically, fail closed or surface an explicit diagnostic rather than guessing.
+### Snapshot publication contract
 
-Do not create a timestamp-based freshness heuristic. Lifecycle truth must come from repository state and evidence, not age.
+- reconcile and protect the current snapshot-generation/publication semantics across source, code index, architecture guidance, and tests;
+- do not encode implementation wording into a fragile exact-string assertion. Prefer a structured contract or behavior-level source seam that can be tested.
 
-## Workstream 5 — Migrate the current manifest truthfully
+### Signing / privileged-path contract
 
-After the new model exists, migrate the live `openspec/lifecycle.json` and any required evidence records.
+- distinguish source fallback placeholders, build-time pin injection, release configure/startup fail-closed behavior, and genuinely unavailable production signer/pin evidence;
+- docs must not claim the privileged path is production-validated merely because implementation exists;
+- docs must not imply production Release can be built safely without authorized pins/signing prerequisites.
 
-For every current entry:
+### Historical/current boundary
 
-1. normalize evidence into the new model;
-2. resolve every repository artifact reference;
-3. resolve every Git commit reference;
-4. bind hosted-run claims to durable exact-SHA evidence where available;
-5. verify supersession relations;
-6. verify task overrides against actual `tasks.md` lines;
-7. preserve external signing/provider/clean-host/elevated/interactive boundaries;
-8. preserve historical task provenance;
-9. leave ambiguous claims visible rather than manufacturing proof.
+- historical audit/recovery reports may preserve old claims when clearly historical;
+- current guidance must not silently copy historical state forward;
+- the guard must scope failures to current-facing surfaces, not rewrite evidence history.
 
-Specifically revalidate the current entries for:
+Keep the gate deterministic, offline, path-safe, and fast enough for normal CTest/CI use.
 
-- `autonomous-runtime-verification`
-- `close-independent-validation-gaps`
-- `interactive-ui-runtime-determinism`
-- `nonblocking-indexed-read-plane`
-- `phase8-release-readiness-convergence`
-- `real-user-dogfooding-release-engineering`
-- `runtime-certification-and-verifier-convergence`
-- `ship-ready-ui-ux-hardening-convergence`
-- `zero-touch-autonomous-engineering`
-- `openspec-frontier-lifecycle-truthfulness`
-- `stabilize-live-uia-e2e`
+## Workstream 4 — Add adversarial drift fixtures, not only happy-path checks
 
-Do not chase a raw unchecked-task count of zero. The target is integrity, not cosmetic closure.
+A drift detector is only trustworthy if tests prove it fails when guidance lies.
 
-## Workstream 6 — Harden project-status and release-readiness consumers
+Add isolated deterministic fixtures or injectable test seams covering at minimum:
 
-Update the complete consumer graph so integrity failures cannot be lost downstream.
+- missing supported verifier verb in a current-doc fixture;
+- extra nonexistent verifier verb;
+- stale "current campaign" reference;
+- lifecycle/prompt disagreement;
+- stale snapshot-publication contract;
+- incorrect production-signing/degraded-mode classification;
+- renamed/removed documented build preset or target where applicable;
+- historical document containing old text that must **not** be rejected merely because it is historical;
+- malformed/unreadable authority input;
+- absolute/private path redaction if generated diagnostic output can include paths;
+- deterministic ordering and stable diagnostics.
+
+Tests must prove both false-negative resistance and false-positive discipline. Do not replace four brittle banned phrases with forty brittle banned phrases.
+
+## Workstream 5 — Reconcile all current guidance against actual mainline behavior
+
+After the authority model and tests exist, update the current-facing documents truthfully.
+
+At minimum reconcile:
+
+- README verifier verbs, current OpenSpec wording, build/test/release instructions, and any stale runtime claims;
+- AGENTS snapshot/index/publication wording, current normal-development vs privileged-release boundaries, verifier command guidance, and any duplicate implementation facts found stale;
+- CODE_INDEX target/dependency map, snapshot publisher/reader semantics, signing/pin wording, verifier/status architecture, and any module descriptions that no longer match source;
+- CLAUDE and other harness-specific guidance only where it contains repository facts rather than harness preferences;
+- AUTONOMOUS and `.agent` continuation wording where current lifecycle/truth sources are relevant;
+- verifier/release docs that enumerate commands/capabilities or current release semantics.
+
+Prefer stable pointers or mechanically checked enumerations over prose that will obviously drift again.
+
+Do **not** erase useful architecture rationale. Do **not** rewrite historical campaign evidence merely to make current docs uniform.
+
+## Workstream 6 — Integrate truth checks into the full verification graph
+
+Trace the complete consumer graph so a semantic drift failure cannot disappear downstream.
 
 Required properties:
 
-- lifecycle structural errors and semantic-integrity errors are separately diagnosable;
-- `frontier.localOpen` is emitted only when the lifecycle model passes the new integrity checks;
-- raw unchecked tasks remain visible even when lifecycle validation fails;
-- ambiguous or invalid evidence cannot cause a task to disappear from all actionable/historical/blocked projections;
-- release-readiness remains non-production/blocked when lifecycle integrity is invalid;
-- a lifecycle model failure cannot be converted into PASS/SKIPPED by a renderer or wrapper;
-- JSON and Markdown expose enough evidence type/source/provenance to audit why work was excluded from the active frontier;
-- generated output remains deterministic and path-safe;
-- no consumer silently interprets old schema-v1 strings as trusted evidence after migration unless an explicit compatibility path is designed and tested.
+- the focused drift contract has one clear command/test entry point;
+- CTest registration remains deterministic when PowerShell is available;
+- hosted CI executes the semantic drift gate in at least one mandatory path;
+- the official verifier/build or policy composition includes it where architecturally appropriate without duplicating execution unnecessarily;
+- a drift failure returns a nonzero/fail classification and cannot be rendered as PASS/SKIPPED by wrapper composition;
+- diagnostics identify the authority, conflicting claim, and current-facing document without leaking host-private absolute paths;
+- CI does not need network access beyond normal checkout to decide documentation truth;
+- shallow/full-history requirements must be justified only where Git reachability is actually part of the contract; do not create another unnecessary full-history dependency.
 
-Version project-status/release-frontier schemas only if the external shape changes. If versions change, update every producer/consumer/test atomically.
+Audit `.github/workflows/ci.yml`, root/test CMake registration, verifier policy/build composition, and any source-marker/doc-drift scripts as one system.
 
-## Workstream 7 — Autonomous continuation safety
+## Workstream 7 — Repository-wide transitive impact and negative-space audit
 
-Re-audit planner/executor semantics after evidence hardening.
+The campaign is not complete after fixing the planner's three examples.
 
-Ensure that:
+Before finalizing:
 
-- `/goal continue` or equivalent resumes an ACTIVE planner prompt only after current Git/lifecycle reconciliation;
-- a completed planner prompt cannot be resurrected by stale historical tasks;
-- an ACTIVE prompt cannot be silently ignored because a bad lifecycle edit marks its change completed;
-- `next-campaign` can distinguish "no local work" from "lifecycle integrity failure" and from "external-only blockers";
-- lifecycle integrity failure causes a repair/hardening action, not a false STOP state;
-- the system remains general-purpose and does not hard-code OpenCode, Codex, Kimi, Pi, a model, or a provider.
+1. enumerate all changed authority seams;
+2. find every direct consumer;
+3. find unchanged dependents that assume the old shape/wording/behavior;
+4. inspect negative space: docs/config/scripts that should consume the authority but do not;
+5. inspect tests that can remain green while a consumer is stale;
+6. inspect release/readiness/autonomous/planner behavior for unintended coupling;
+7. verify no product runtime/security behavior was weakened merely to simplify documentation checks;
+8. re-run searches for stale current-state phrases and manually review every hit in context.
 
-Do not build a new orchestrator. Harden the repository contract that existing agents consume.
+If the audit uncovers a genuine Critical/High product defect directly caused by current contract drift, fix it in this campaign only when it is tightly coupled and can be safely validated. Otherwise document it as a separately qualifying future campaign; do not silently balloon scope.
 
-## Workstream 8 — Deterministic regression suite
+## Workstream 8 — Validation ladder
 
-Extend the status/lifecycle test suite with repository-independent fixtures. No live desktop, elevation, signer, provider, or network access should be required.
+Run the narrowest checks first, then the repository-supported broad gates.
 
-At minimum add cases for:
+Required minimum, adjusted only when the live repo proves a command has changed:
 
-1. valid repository-path evidence resolves and passes;
-2. missing repository-path evidence fails lifecycle integrity;
-3. path traversal / absolute host path / unsafe evidence reference is rejected or sanitized according to the contract;
-4. valid full Git commit evidence resolves;
-5. nonexistent Git commit evidence fails;
-6. ambiguous abbreviated commit evidence fails if abbreviated SHAs remain accepted;
-7. hosted-run evidence without an exact commit/durable record is non-authoritative or fails according to the designed contract;
-8. a valid durable hosted-run binding passes offline;
-9. free-form note alone cannot justify completed/superseded exclusion of local work;
-10. self-supersession fails;
-11. two-node supersession cycle fails;
-12. longer supersession cycle fails;
-13. valid acyclic supersession chain preserves provenance;
-14. supersession to an unknown/invalid target fails;
-15. `external` + only `local` category fails;
-16. `mixed` without a local component fails;
-17. `mixed` without an external/environmental component fails;
-18. impossible disposition/status combination fails;
-19. unchecked historical/PASS task without sufficient evidence fails or remains visible according to the designed semantics;
-20. explicit valid metadata still wins over misleading prose;
-21. a newly added unchecked local task to an external-only/completed change cannot be silently hidden;
-22. malformed lifecycle metadata remains a first-class failure;
-23. integrity failure preserves raw unchecked tasks and projects them as ambiguous/integrity-blocked rather than dropping them;
-24. project-status schema and release-readiness schema remain synchronized;
-25. release-readiness cannot become production-ready when lifecycle integrity fails;
-26. repeated generation has stable ordering/output;
-27. evidence paths remain repository-relative/redacted;
-28. the live migrated manifest validates structurally and semantically.
+1. PowerShell parser/static sanity for changed scripts.
+2. New drift-contract unit/fixture tests, including all adversarial cases.
+3. `ffdoc_drift_tests` (or its deliberate replacement) directly and through CTest.
+4. Any focused verifier/status/lifecycle tests affected by authority integration.
+5. Strict OpenSpec validation for all changes.
+6. Diagnostic/source-marker/policy checks that consume documentation or scripts.
+7. `cmake --preset debug` + build through the supported Visual Studio environment.
+8. Full Debug CTest.
+9. `release-test` configure/build + full CTest.
+10. Analyze configure/build and warning review.
+11. Applicable ASAN protocol/IPC slice if shared build/policy wiring changed.
+12. `pwsh ./verify/verify.ps1 doctor`.
+13. `pwsh ./verify/verify.ps1 build` or the current official build gate.
+14. Current project-status/release-readiness generation and schema validation.
+15. `git diff --check` and complete diff review.
+16. Push implementation and inspect the exact hosted Actions run for the implementation SHA.
 
-Tests must assert exact reason codes where practical so future regressions are diagnosable rather than merely nonzero.
+Do not claim host-bound UIA, production signing, privileged MFT/USN, clean-host, guest/provider, or physical-display validation unless it was actually executed in the required environment. This campaign should normally not need those paths.
 
-## Workstream 9 — Repository-wide regression/compatibility audit
+## Preserved behavior / non-negotiable constraints
 
-After implementation, inspect the entire repository for consequences of the new lifecycle contract.
-
-At minimum audit:
-
-- all PowerShell modules/scripts importing project-status helpers;
-- status/release schema readers;
-- verifier capabilities/manifests;
-- CI jobs and artifacts;
-- CMake/CTest registrations;
-- doc-drift/policy/source-marker tests;
-- OpenSpec validators;
-- planner/handoff files;
-- docs containing old schema-v1 examples or claims;
-- any code that assumes lifecycle evidence is a string;
-- any code that assumes lifecycle PASS means only syntactic validity;
-- any code that reads `activeLocalOpenTasks` without checking lifecycle integrity status.
-
-Do not modify unrelated product/UI/index/security code unless the audit proves a direct contract break caused by this campaign.
-
-## Workstream 10 — Validation ladder and final convergence
-
-Run focused validation first, then the broad repository gates.
-
-Required locally applicable validation:
-
-1. PowerShell parser checks for every modified script/module.
-2. Focused lifecycle/project-status tests.
-3. Project-status and release-readiness generation from the real repository.
-4. Strict validation of the new OpenSpec change and all existing changes.
-5. Debug configure/build and full Debug CTest.
-6. `release-test` configure/build and full release-test CTest.
-7. Analyze configure/build with warnings clean.
-8. ASAN protocol/IPC required slice if repository policy still requires it for campaign closure.
-9. `pwsh ./verify/verify.ps1 doctor`.
-10. `pwsh ./verify/verify.ps1 build`.
-11. status/release-readiness commands and schema validation.
-12. source-marker, diagnostic-policy, doc-drift, lifecycle/status policy, and other applicable policy tests.
-13. `git diff --check`.
-14. Review the complete final diff, not only recently edited files.
-15. Check tracked/untracked scope and keep generated run/build/signing artifacts out of commits.
-
-Do **not** rerun host-bound full live UIA, production signer/pin provisioning, privileged MFT/USN, provider/guest, clean-host, or physical-display validation merely because this campaign exists. Those boundaries remain external unless the implementation directly changes those paths, which it should not.
-
-If a broad test exposes a deterministic Critical/High regression caused by this campaign, fix it before handoff. If it exposes a pre-existing unrelated defect, classify it with evidence and decide whether it is a genuine new local frontier rather than silently expanding scope.
-
-## Preserved behavior and non-negotiable invariants
-
-Preserve all of the following:
-
-- Windows-only C++20 product architecture.
-- Three-process privileged/unprivileged split.
-- Closed privileged command surface.
-- Connection-scoped opaque service handles.
-- Frame/parser hardening and 1 MiB protocol bound.
-- Symmetric signed-peer authentication and production fail-closed signature-pin policy.
-- No SCM control rights for clients.
-- No file-content forwarding from the privileged scanner.
-- DLL search hardening.
-- Degraded mode as a first-class supported path.
-- No network dependency for ordinary status/release-readiness generation.
-- No certificate/trust-store mutation for ordinary development.
-- No weakening of production signing, privileged validation, provider, clean-host, or interactive gates.
-- No reading/committing ignored verification/signing evidence directories.
-- No force-push.
-
-## Out of scope
-
-Unless current-main evidence independently proves otherwise, do not:
-
-- add new product features;
-- redesign the file-manager UI;
-- rewrite the index/search/storage architecture;
-- revive or wholesale merge/cherry-pick draft PR #6;
-- provision production certificates or pins;
-- mutate trusted root stores;
-- require Administrator execution for this hardening campaign;
-- manufacture a production-ready claim;
-- introduce an online GitHub lookup into `verify.ps1 status`;
-- replace OpenSpec wholesale;
-- build a new general agent orchestrator;
-- perform broad refactors unrelated to lifecycle integrity.
+- Preserve the three-process privileged/unprivileged architecture.
+- Preserve the constrained LocalSystem service boundary and closed command protocol.
+- Preserve symmetric Authenticode/image-path verification and fail-closed production Release behavior.
+- Preserve degraded mode as a first-class permanent path.
+- Preserve typed lifecycle schema-v2 evidence semantics and fail-closed status/release projection.
+- Preserve raw unchecked tasks and genuine external blockers; do not cosmetically drive the raw count to zero.
+- Preserve supported UI/engine/index/search/file-operation behavior; this is not a UI redesign or feature campaign.
+- Preserve historical evidence files unless a current-facing pointer is objectively wrong.
+- Do not merge/reset/cherry-pick PR #6 wholesale.
+- Do not weaken tests, timeouts, security checks, or release criteria to obtain green output.
+- Do not hard-code a specific AI model, harness, provider, or sub-agent mechanism into repository guidance.
+- Do not introduce an online/network dependency for doc/truth validation.
+- Do not read ignored verifier run/baseline/signing directories.
+- Never force-push.
 
 ## Acceptance criteria
 
-The campaign is complete only when all applicable criteria below are true:
+The campaign is complete only when all of the following are true:
 
-1. The current repository baseline and pre-change lifecycle frontier are recorded with exact Git evidence.
-2. A fresh OpenSpec campaign ledger exists and is strictly valid.
-3. Lifecycle evidence has an explicit machine-readable integrity model; arbitrary non-empty strings are no longer sufficient authority for state transitions that hide local work.
-4. Repository-path and Git evidence are deterministically validated offline.
-5. Hosted-run evidence has a durable exact-SHA binding model and does not require live GitHub access during ordinary status generation.
-6. Supersession self-links/cycles/invalid targets are detected.
-7. Task override disposition/category/status/evidence relationships are semantically validated.
-8. Invalid lifecycle/evidence state fails closed while retaining raw task visibility.
-9. Project-status and release-readiness consume the same validated lifecycle model.
-10. Lifecycle-integrity failure cannot yield a false zero-work STOP or a false production-ready classification.
-11. All current manifest entries are migrated/revalidated without erasing genuine external gates.
-12. Deterministic regression fixtures cover missing/bad evidence, supersession cycles, contradictory overrides, drift, schema synchronization, redaction, and release-readiness fail-closed behavior.
-13. Focused tests pass.
-14. Debug and release-test full suites pass under the supported toolchain, subject only to honestly documented external/environmental boundaries.
-15. Analyze is warning-clean and required ASAN/verifier/policy/OpenSpec/diff gates pass.
-16. The complete repository-wide consumer audit finds no stale schema-v1/evidence-string assumptions left unhandled.
-17. Documentation and durable workstate describe the new contract accurately.
-18. No unrelated product/security behavior is weakened.
-19. The campaign's local implementation frontier is actually complete at handoff; remaining external tasks stay visible and correctly blocked.
-20. The final implementation/evidence commits are pushed to `main` without force and hosted CI for the exact implementation SHA is inspected when available.
+1. A fresh OpenSpec change records the baseline, truth-surface inventory, authority ownership, concrete drift findings, negative-fixture matrix, implementation, and validation evidence.
+2. Every current-facing guidance surface has been audited against the actual current source/config/test/verifier/lifecycle contract, not only recent diffs.
+3. The known README verifier-verb drift is resolved and protected by an executable semantic check.
+4. Stale current/active OpenSpec campaign wording is removed or replaced with a lifecycle-aware stable formulation and protected against regression.
+5. Snapshot-publication guidance is reconciled with current publisher/reader behavior and protected by a non-brittle contract.
+6. Signing/pin/degraded/production-readiness guidance consistently distinguishes implementation capability from externally validated production readiness.
+7. The drift gate proves meaningful contradictions fail even when none of the original four banned phrases appear.
+8. Adversarial fixtures prove the gate does not falsely reject clearly historical evidence.
+9. Machine-derived facts have one authoritative owner or a mechanically derived/checkable relationship; the campaign does not create a second hand-maintained truth manifest.
+10. CTest and hosted CI execute the semantic drift gate and propagate failures faithfully.
+11. Lifecycle/status/release-readiness remain PASS/fail-closed exactly according to current schema-v2 semantics; no local work is hidden or fabricated.
+12. Full Debug and release-test suites pass; Analyze is warning-clean; applicable verifier/policy/ASAN gates pass.
+13. No introduced Critical/High regression remains open.
+14. `progress.md`, `docs/agent/WORKSTATE.md`, the OpenSpec task/evidence ledger, lifecycle state, and this prompt are updated from final observed reality.
+15. Implementation is committed and pushed to `main` without force; `HEAD`/`origin/main` parity is reconciled.
+16. Hosted CI for the exact implementation SHA is inspected and recorded truthfully. Final documentation-only handoff SHA/CI may be derived live rather than made self-referential.
 
-## Git and delivery requirements
+## Completion gate and handoff
 
-- Work on current `main` unless repository rules require a safer temporary branch; final durable state must be reconciled with `origin/main` without force.
-- Commit logical implementation/evidence waves with descriptive messages.
-- Do not commit generated build trees, `verify/runs/`, `verify/baselines/`, `verify/.signing/`, databases, WAL/SHM files, temporary fixtures, or local host artifacts.
-- Before each final push, fetch/prune and reconcile with remote changes safely.
-- Push without force.
-- Inspect hosted CI for the exact implementation SHA when available. Do not create a self-referential documentation commit merely to record the CI result of itself.
-- Update `docs/agent/WORKSTATE.md`, `progress.md`, lifecycle/OpenSpec evidence, and this prompt from actual final Git/validation reality.
-- Mark this prompt `Status: **COMPLETE**` only after implementation, broad validation, durable evidence, and Git handoff are done.
-- The final commit message must be a detailed session report: baseline, root cause, important design choices, files/contracts changed, regression coverage, validation matrix, external boundaries, final state, and next frontier/STOP result.
+Do not stop after making documentation read better. The point is to make future drift **detectable**.
 
-## Executor continuation contract
+At final handoff:
 
-Use `/goal continue` or the repository's equivalent autonomous continuation command.
+1. Re-run the focused semantic drift suite after all documentation edits.
+2. Re-run the broad supported validation ladder.
+3. Generate project status/release readiness and verify the lifecycle frontier has not been corrupted.
+4. Review the complete diff for accidental product/security behavior changes.
+5. Update the OpenSpec ledger/evidence, `progress.md`, `docs/agent/WORKSTATE.md`, `openspec/lifecycle.json`, and `.agent/EXECUTION_PROMPT.md` with observed final state.
+6. Mark this prompt `Status: **COMPLETE**` only when all locally actionable requirements above are satisfied.
+7. Commit with a detailed session report in the commit message: baseline, root cause, implementation, tests, any failed/retried gates, external blockers, and final delivery state.
+8. Push to `main` without force.
+9. Fetch/prune and verify remote parity.
+10. Inspect hosted CI for the exact pushed implementation SHA. If later final-handoff CI cannot be embedded without self-reference, leave a precise live-derivation instruction rather than guessing.
 
-On every resume:
-
-1. reconcile current Git first;
-2. re-read repository instructions, planner handoff, this ACTIVE prompt, workstate, and the new OpenSpec tasks;
-3. inspect what is genuinely complete rather than replaying the planner snapshot;
-4. continue from the first unsatisfied acceptance requirement;
-5. perform a repository-wide impact check for every meaningful contract change;
-6. fix introduced Critical/High regressions before proceeding;
-7. preserve external boundaries rather than fabricating passes;
-8. update durable state and commit/push per repository policy.
-
-If this campaign completes and the resulting validated frontier has no active local implementation or hardening work, **STOP truthfully**. Do not invent another campaign merely to keep the loop running. External production signing, privileged MFT/USN, provider/guest, clean-host, physical-display, foreground-owned UIA, and similar evidence gates may remain open without constituting a new local campaign.
+If the live audit disproves the planner's premise and shows there is no semantic/current guidance drift after all, do not invent work. Record the evidence, close the prompt as not-applicable/complete, and stop. Otherwise, `/goal continue` should execute this campaign from the first incomplete requirement.
