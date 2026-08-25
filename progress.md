@@ -1,5 +1,20 @@
 # FastFiles — Project Status
 
+## Active lifecycle evidence integrity campaign
+
+The current `openspec-lifecycle-evidence-integrity-and-semantic-convergence`
+campaign has migrated `openspec/lifecycle.json` to schema-v2 typed,
+offline-resolvable evidence and added separate structural, evidence, and
+semantic integrity diagnostics. Invalid metadata preserves raw unchecked tasks
+as ambiguity and cannot produce a production-ready release projection.
+
+At this pre-handoff checkpoint, 25 raw unchecked tasks remain with one active
+local implementation handoff task; the lifecycle model passes. Focused status
+fixtures pass, strict OpenSpec validation is 71/71, the official build gate is
+9/9 across Debug/release-test/Analyze, protocol robustness is 3/3, and
+policy/doc-drift checks pass. Signing, privileged, clean-host, provider, and
+interactive prerequisites remain external and are not inferred as complete.
+
 ## Completed OpenSpec frontier lifecycle truthfulness campaign
 
 The completed `openspec-frontier-lifecycle-truthfulness` campaign left the

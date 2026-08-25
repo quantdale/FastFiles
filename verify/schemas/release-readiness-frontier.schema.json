@@ -11,7 +11,21 @@
     "git": { "type": "object" },
     "localEvidence": { "type": "object" },
     "releaseCandidate": { "type": "object" },
-    "lifecycle": { "type": "object" },
+    "lifecycle": {
+      "type": "object",
+      "required": ["status", "schemaVersion", "source", "errors", "structuralErrors", "evidenceErrors", "semanticErrors", "entries", "integrity"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "schemaVersion": { "type": "integer" },
+        "source": { "type": "string" },
+        "errors": { "type": "array", "items": { "type": "string" } },
+        "structuralErrors": { "type": "array", "items": { "type": "string" } },
+        "evidenceErrors": { "type": "array", "items": { "type": "string" } },
+        "semanticErrors": { "type": "array", "items": { "type": "string" } },
+        "entries": { "type": "array", "items": { "type": "object" } },
+        "integrity": { "type": "object" }
+      }
+    },
     "frontier": { "type": "object" },
     "externalPrerequisites": { "type": "array", "items": { "type": "string" } }
   }

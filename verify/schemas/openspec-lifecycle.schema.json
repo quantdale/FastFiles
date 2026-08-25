@@ -4,7 +4,7 @@
   "type": "object",
   "required": ["schemaVersion", "kind", "changes"],
   "properties": {
-    "schemaVersion": { "type": "integer", "enum": [1] },
+    "schemaVersion": { "type": "integer", "enum": [2] },
     "kind": { "type": "string", "enum": ["fastfiles-openspec-lifecycle"] },
     "changes": {
       "type": "array",
@@ -14,7 +14,21 @@
         "properties": {
           "name": { "type": "string" },
           "state": { "type": "string", "enum": ["active", "completed", "superseded", "external-evidence-only", "ambiguous"] },
-          "evidence": { "type": "array", "items": { "type": "string" } },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["kind"],
+              "properties": {
+                "kind": { "type": "string", "enum": ["repository-path", "git-commit", "hosted-run", "note"] },
+                "path": { "type": "string" },
+                "sha": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+                "runId": { "type": "string", "pattern": "^[0-9]+$" },
+                "record": { "type": "string" },
+                "text": { "type": "string" }
+              }
+            }
+          },
           "supersededBy": { "type": ["string", "null"] },
           "taskOverrides": {
             "type": "array",
@@ -22,14 +36,28 @@
               "type": "object",
               "required": ["task", "disposition", "categories", "status", "evidence"],
               "properties": {
-                "task": { "type": "string" },
+                "task": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
                 "disposition": { "type": "string", "enum": ["active", "external", "historical", "superseded", "mixed"] },
                 "categories": {
                   "type": "array",
                   "items": { "type": "string", "enum": ["local", "interactive", "elevated", "external-provider", "production-signing", "clean-host", "administrative"] }
                 },
                 "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED", "BLOCKED_ENVIRONMENT", "REQUIRED-BUT-UNAVAILABLE"] },
-                "evidence": { "type": "array", "items": { "type": "string" } }
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["kind"],
+                    "properties": {
+                      "kind": { "type": "string", "enum": ["repository-path", "git-commit", "hosted-run", "note"] },
+                      "path": { "type": "string" },
+                      "sha": { "type": "string", "pattern": "^[0-9a-fA-F]{40}$" },
+                      "runId": { "type": "string", "pattern": "^[0-9]+$" },
+                      "record": { "type": "string" },
+                      "text": { "type": "string" }
+                    }
+                  }
+                }
               }
             }
           }

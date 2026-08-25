@@ -57,24 +57,28 @@ try {
         New-Item -ItemType Directory -Path $changeDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $changeDir 'tasks.md') -Value $change.Value -Encoding utf8NoBOM
     }
-    $fixtureOverrideAdmin = [pscustomobject]@{ task = '3.1'; disposition = 'historical'; categories = @('administrative'); status = 'PASS'; evidence = @('fixture-delivery-evidence') }
-    $fixtureOverrideLocal = [pscustomobject]@{ task = '5.1'; disposition = 'active'; categories = @('local'); status = 'SKIPPED'; evidence = @('fixture-local-evidence') }
-    $fixtureOverrideMixed = [pscustomobject]@{ task = '6.1'; disposition = 'mixed'; categories = @('local', 'production-signing'); status = 'REQUIRED-BUT-UNAVAILABLE'; evidence = @('fixture-mixed-evidence') }
+    $fixtureEvidence = {
+        param([string] $ChangeName)
+        [pscustomobject]@{ kind = 'repository-path'; path = "openspec/changes/$ChangeName/tasks.md" }
+    }
+    $fixtureOverrideAdmin = [pscustomobject]@{ task = '3.1'; disposition = 'historical'; categories = @('administrative'); status = 'PASS'; evidence = @(& $fixtureEvidence 'completed-administrative') }
+    $fixtureOverrideLocal = [pscustomobject]@{ task = '5.1'; disposition = 'active'; categories = @('local'); status = 'SKIPPED'; evidence = @(& $fixtureEvidence 'explicit-local') }
+    $fixtureOverrideMixed = [pscustomobject]@{ task = '6.1'; disposition = 'mixed'; categories = @('local', 'production-signing'); status = 'REQUIRED-BUT-UNAVAILABLE'; evidence = @(& $fixtureEvidence 'mixed-work') }
     $fixtureEntries = @(
-        [pscustomobject]@{ name = 'active-local'; state = 'active'; evidence = @('fixture-active'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'completed-external'; state = 'completed'; evidence = @('fixture-history'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'completed-administrative'; state = 'completed'; evidence = @('fixture-history'); supersededBy = $null; taskOverrides = @($fixtureOverrideAdmin) }
-        [pscustomobject]@{ name = 'superseded-old'; state = 'superseded'; evidence = @('fixture-supersession'); supersededBy = 'superseding-new'; taskOverrides = @() }
-        [pscustomobject]@{ name = 'superseding-new'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'explicit-local'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @($fixtureOverrideLocal) }
-        [pscustomobject]@{ name = 'mixed-work'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @($fixtureOverrideMixed) }
-        [pscustomobject]@{ name = 'external-signing'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'external-provider'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'external-interactive'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'external-elevated'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
-        [pscustomobject]@{ name = 'external-clean-host'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'active-local'; state = 'active'; evidence = @(& $fixtureEvidence 'active-local'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'completed-external'; state = 'completed'; evidence = @(& $fixtureEvidence 'completed-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'completed-administrative'; state = 'completed'; evidence = @(& $fixtureEvidence 'completed-administrative'); supersededBy = $null; taskOverrides = @($fixtureOverrideAdmin) }
+        [pscustomobject]@{ name = 'superseded-old'; state = 'superseded'; evidence = @(& $fixtureEvidence 'superseded-old'); supersededBy = 'superseding-new'; taskOverrides = @() }
+        [pscustomobject]@{ name = 'superseding-new'; state = 'active'; evidence = @(& $fixtureEvidence 'superseding-new'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'explicit-local'; state = 'active'; evidence = @(& $fixtureEvidence 'explicit-local'); supersededBy = $null; taskOverrides = @($fixtureOverrideLocal) }
+        [pscustomobject]@{ name = 'mixed-work'; state = 'active'; evidence = @(& $fixtureEvidence 'mixed-work'); supersededBy = $null; taskOverrides = @($fixtureOverrideMixed) }
+        [pscustomobject]@{ name = 'external-signing'; state = 'active'; evidence = @(& $fixtureEvidence 'external-signing'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-provider'; state = 'active'; evidence = @(& $fixtureEvidence 'external-provider'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-interactive'; state = 'active'; evidence = @(& $fixtureEvidence 'external-interactive'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-elevated'; state = 'active'; evidence = @(& $fixtureEvidence 'external-elevated'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-clean-host'; state = 'active'; evidence = @(& $fixtureEvidence 'external-clean-host'); supersededBy = $null; taskOverrides = @() }
     )
-    $fixtureLifecycle = [pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-openspec-lifecycle'; changes = $fixtureEntries }
+    $fixtureLifecycle = [pscustomobject]@{ schemaVersion = 2; kind = 'fastfiles-openspec-lifecycle'; changes = $fixtureEntries }
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Value ($fixtureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
     $fixtureFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot
     $fixtureProjection = Get-ProjectStatusFrontierProjection -OpenSpec $fixtureFrontier
@@ -82,7 +86,7 @@ try {
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].taskDisposition -eq 'active' -and @($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].classificationConfidence -eq 'low') 'active local task remains local with low-confidence fallback provenance'
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'completed-external' }).openTasks[0].taskDisposition -eq 'external' -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'completed-external' }).Count -eq 1) 'completed external task stays visible in a blocked bucket, not local-open'
     Check (@($fixtureProjection.historicalOpen | Where-Object { $_.change -eq 'completed-administrative' }).Count -eq 1) 'later-satisfied administrative task stays historical when its old checkbox remains open'
-    Check (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' }).Count -eq 1 -and (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' })[0].evidence -contains 'fixture-supersession')) 'superseded task preserves target evidence and avoids local-open'
+    Check (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' }).Count -eq 1 -and (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' })[0].evidence[0].kind -eq 'repository-path')) 'superseded task preserves typed evidence and avoids local-open'
     Check (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' }).Count -eq 1 -and (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' })[0].classificationSource -eq 'explicit-lifecycle-metadata')) 'explicit metadata wins over misleading signing/interactive prose'
     Check (@($fixtureProjection.mixedOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 1 -and @($fixtureProjection.localOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 0) 'mixed local/external task is not flattened into local-open'
     Check (@($fixtureProjection.productionSigningBlocked | Where-Object { $_.change -eq 'external-signing' }).Count -eq 1 -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'external-provider' }).Count -eq 1) 'signing and provider tasks remain in their explicit external buckets'
@@ -93,6 +97,105 @@ try {
     $fixtureLifecycleJson = Get-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Raw | ConvertFrom-Json
     $fixtureLifecycleSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\openspec-lifecycle.schema.json') -Raw | ConvertFrom-Json
     Check ((Test-JsonSchema -Data $fixtureLifecycleJson -Schema $fixtureLifecycleSchema).Valid) 'lifecycle fixture validates against its schema'
+
+    $fixtureLifecyclePath = Join-Path $fixtureRoot 'openspec\lifecycle.json'
+    $writeFixtureLifecycle = {
+        param($Manifest)
+        $Manifest | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $fixtureLifecyclePath -Encoding utf8NoBOM
+    }
+    $invalidPathManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($invalidPathManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @([pscustomobject]@{ kind = 'repository-path'; path = '../outside.txt' })
+    & $writeFixtureLifecycle $invalidPathManifest
+    $invalidPathModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check ($invalidPathModel.status -eq 'FAIL' -and @($invalidPathModel.evidenceErrors | Where-Object { $_ -match 'path-unsafe' }).Count -eq 1) 'repository traversal evidence fails closed'
+
+    $absolutePathManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($absolutePathManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @([pscustomobject]@{ kind = 'repository-path'; path = 'C:\Users\Example\proof.md' })
+    & $writeFixtureLifecycle $absolutePathManifest
+    $absolutePathModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($absolutePathModel.evidenceErrors | Where-Object { $_ -match 'path-unsafe' }).Count -eq 1) 'absolute repository evidence is rejected'
+
+    $missingPathManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($missingPathManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @([pscustomobject]@{ kind = 'repository-path'; path = 'missing-proof.md' })
+    & $writeFixtureLifecycle $missingPathManifest
+    $missingPathModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($missingPathModel.evidenceErrors | Where-Object { $_ -match 'path-not-found' }).Count -eq 1) 'missing repository evidence is diagnosed'
+
+    $reparseTarget = Join-Path $fixtureRoot 'reparse-target'
+    $reparseLink = Join-Path $fixtureRoot 'reparse-link'
+    New-Item -ItemType Directory -Path $reparseTarget -Force | Out-Null
+    try {
+        New-Item -ItemType Junction -Path $reparseLink -Target $reparseTarget -ErrorAction Stop | Out-Null
+        $reparseManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        (@($reparseManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @([pscustomobject]@{ kind = 'repository-path'; path = 'reparse-link' })
+        & $writeFixtureLifecycle $reparseManifest
+        $reparseModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+        Check (@($reparseModel.evidenceErrors | Where-Object { $_ -match 'path-reparse-point' }).Count -eq 1) 'repository reparse-point evidence is rejected'
+    } catch {
+        Check $false 'repository reparse-point evidence is rejected'
+    }
+
+    $legacyManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $legacyManifest.schemaVersion = 1
+    (@($legacyManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @('legacy-string-evidence')
+    & $writeFixtureLifecycle $legacyManifest
+    $legacyModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check ($legacyModel.status -eq 'FAIL' -and @($legacyModel.structuralErrors | Where-Object { $_ -eq 'openspec-lifecycle-schema-version-invalid' }).Count -eq 1 -and @($legacyModel.evidenceErrors | Where-Object { $_ -match 'evidence-object-required' }).Count -eq 1) 'schema-v1 string evidence is never trusted'
+
+    $schemaTypeManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $schemaTypeManifest.schemaVersion = '2'
+    & $writeFixtureLifecycle $schemaTypeManifest
+    $schemaTypeModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($schemaTypeModel.structuralErrors | Where-Object { $_ -eq 'openspec-lifecycle-schema-version-invalid' }).Count -eq 1) 'non-integer lifecycle schema versions fail closed'
+
+    $noteManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($noteManifest.changes | Where-Object { $_.name -eq 'completed-external' })[0]).evidence = @([pscustomobject]@{ kind = 'note'; text = 'context only' })
+    & $writeFixtureLifecycle $noteManifest
+    $noteModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($noteModel.semanticErrors | Where-Object { $_ -eq 'openspec-lifecycle-authoritative-evidence-required:completed-external' }).Count -eq 1) 'non-authoritative notes cannot complete a change'
+
+    $selfManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($selfManifest.changes | Where-Object { $_.name -eq 'superseded-old' })[0]).supersededBy = 'superseded-old'
+    & $writeFixtureLifecycle $selfManifest
+    $selfModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($selfModel.semanticErrors | Where-Object { $_ -eq 'openspec-lifecycle-supersession-self:superseded-old' }).Count -eq 1) 'self-supersession is rejected'
+
+    $cycleManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $cycleOld = @($cycleManifest.changes | Where-Object { $_.name -eq 'superseded-old' })[0]
+    $cycleNew = @($cycleManifest.changes | Where-Object { $_.name -eq 'superseding-new' })[0]
+    $cycleNew.state = 'superseded'
+    $cycleNew.supersededBy = 'superseded-old'
+    & $writeFixtureLifecycle $cycleManifest
+    $cycleModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($cycleModel.semanticErrors | Where-Object { $_ -match 'supersession-cycle' }).Count -gt 0) 'multi-node supersession cycles are rejected'
+
+    $externalCategoryManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $externalCategoryOverride = @((@($externalCategoryManifest.changes | Where-Object { $_.name -eq 'explicit-local' })[0]).taskOverrides)[0]
+    $externalCategoryOverride.disposition = 'external'
+    $externalCategoryOverride.categories = @('local')
+    & $writeFixtureLifecycle $externalCategoryManifest
+    $externalCategoryModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($externalCategoryModel.semanticErrors | Where-Object { $_ -match 'external-task-category-required|external-task-local-category-contradiction' }).Count -gt 0) 'external local-only override is rejected'
+
+    $mixedCategoryManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $mixedCategoryOverride = @((@($mixedCategoryManifest.changes | Where-Object { $_.name -eq 'mixed-work' })[0]).taskOverrides)[0]
+    $mixedCategoryOverride.categories = @('local')
+    & $writeFixtureLifecycle $mixedCategoryManifest
+    $mixedCategoryModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($mixedCategoryModel.semanticErrors | Where-Object { $_ -eq 'openspec-lifecycle-mixed-task-external-component-required:mixed-work/6.1' }).Count -eq 1) 'mixed override requires an external component'
+
+    $passManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    $passOverride = @((@($passManifest.changes | Where-Object { $_.name -eq 'explicit-local' })[0]).taskOverrides)[0]
+    $passOverride.status = 'PASS'
+    & $writeFixtureLifecycle $passManifest
+    $passModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($passModel.semanticErrors | Where-Object { $_ -eq 'openspec-lifecycle-active-unchecked-pass:explicit-local/5.1' }).Count -eq 1) 'unchecked active PASS override is rejected'
+
+    $hostedManifest = $fixtureLifecycle | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+    (@($hostedManifest.changes | Where-Object { $_.name -eq 'active-local' })[0]).evidence = @([pscustomobject]@{ kind = 'hosted-run'; runId = '12345'; sha = ('a' * 40); record = 'openspec/changes/active-local/tasks.md' })
+    & $writeFixtureLifecycle $hostedManifest
+    $hostedModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($hostedModel.evidenceErrors | Where-Object { $_ -match 'hosted-run-record|git-commit' }).Count -gt 0) 'hosted run without a durable binding is non-authoritative'
 
     $badRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-lifecycle-bad-' + [guid]::NewGuid().ToString('N'))
     try {
@@ -121,6 +224,13 @@ $repoRelative = ConvertTo-ProjectStatusSafePath -Path (Join-Path $repoRoot 'veri
 $external = ConvertTo-ProjectStatusSafePath -Path (Join-Path ([IO.Path]::GetTempPath()) 'private-user-path.txt') -RepoRoot $repoRoot
 Check ($repoRelative -eq 'verify/status/generated/project-status.json') 'repository paths are projected relative to the root'
 Check ($external -eq '<external-path>') 'external absolute paths are redacted'
+$headSha = ((& git -C $repoRoot rev-parse HEAD 2>$null) | Out-String).Trim()
+$validGitEvidence = Resolve-ProjectStatusEvidence -RepoRoot $repoRoot -Evidence ([pscustomobject]@{ kind = 'git-commit'; sha = $headSha }) -Context 'test/valid-git'
+$shortGitEvidence = Resolve-ProjectStatusEvidence -RepoRoot $repoRoot -Evidence ([pscustomobject]@{ kind = 'git-commit'; sha = $headSha.Substring(0, 7) }) -Context 'test/short-git'
+$missingGitEvidence = Resolve-ProjectStatusEvidence -RepoRoot $repoRoot -Evidence ([pscustomobject]@{ kind = 'git-commit'; sha = ('f' * 40) }) -Context 'test/missing-git'
+Check ($validGitEvidence.valid -and $validGitEvidence.authoritative -and $validGitEvidence.value.sha -eq $headSha) 'full reachable Git evidence resolves authoritatively'
+Check (-not $shortGitEvidence.valid -and @($shortGitEvidence.errors | Where-Object { $_ -match 'sha-not-full' }).Count -eq 1) 'abbreviated Git evidence is rejected'
+Check (-not $missingGitEvidence.valid -and @($missingGitEvidence.errors | Where-Object { $_ -match 'commit-not-found' }).Count -eq 1) 'nonexistent Git evidence is rejected'
 
 $verificationFixture = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-run-result-' + [guid]::NewGuid().ToString('N') + '.json')
 $verificationPass = [pscustomobject]@{
@@ -161,6 +271,8 @@ Check ($markdown -notmatch 'C:\\Users\\') 'Markdown projection does not emit a h
 $releaseFixture = Join-Path $PSScriptRoot 'fixtures\release-readiness-composition.json'
 $releaseEvidence = Get-ProjectStatusReleaseEvidence -RepoRoot $repoRoot -ReleaseReportPath $releaseFixture
 Check ($releaseEvidence.status -eq 'PASS' -and $releaseEvidence.classification -eq 'NON-PRODUCTION-OR-BLOCKED') 'release evidence stays non-production without a production gate'
+$invalidLifecycleRelease = Get-ProjectStatusReleaseEvidence -RepoRoot $repoRoot -ReleaseReportPath $releaseFixture -LifecycleStatus FAIL
+Check ($invalidLifecycleRelease.status -eq 'FAIL' -and $invalidLifecycleRelease.classification -eq 'NON-PRODUCTION-OR-BLOCKED' -and -not $invalidLifecycleRelease.productionReady) 'lifecycle integrity failure cannot project production readiness'
 
 $frontierOutput = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-frontier-' + [guid]::NewGuid().ToString('N'))
 & (Get-Command pwsh.exe).Source -NoProfile -NonInteractive -File (Join-Path $repoRoot 'verify\status\New-ReleaseReadinessReport.ps1') `
@@ -196,7 +308,15 @@ Check ($liveGit.sha.Length -eq 40 -and $liveGit.branch.Length -gt 0) 'live Git e
 Check ($frontier.status -eq 'PASS' -and $null -ne $frontier.totalOpenTasks) 'live OpenSpec frontier parses all task ledgers'
 $liveProjection = Get-ProjectStatusFrontierProjection -OpenSpec $frontier
 Check (@($liveProjection.localOpen | Where-Object { $_.change -in @('nonblocking-indexed-read-plane', 'phase8-release-readiness-convergence', 'real-user-dogfooding-release-engineering', 'runtime-certification-and-verifier-convergence', 'ship-ready-ui-ux-hardening-convergence') }).Count -eq 0) 'historical and external campaign tasks do not reappear as active local work'
-Check (@($liveProjection.localOpen | Where-Object { $_.change -eq 'openspec-frontier-lifecycle-truthfulness' }).Count -eq $frontier.activeLocalOpenTasks) 'active local count matches the new campaign frontier'
+Check (@($liveProjection.localOpen | Where-Object { $_.change -eq 'openspec-lifecycle-evidence-integrity-and-semantic-convergence' }).Count -eq $frontier.activeLocalOpenTasks) 'active local count matches the new campaign frontier'
+$liveLifecycleModel = Get-ProjectStatusLifecycleModel -RepoRoot $repoRoot
+Check ($liveLifecycleModel.status -eq 'PASS' -and $liveLifecycleModel.schemaVersion -eq 2 -and $liveLifecycleModel.integrity.status -eq 'PASS') 'live lifecycle model passes structural, evidence, and semantic integrity'
+$liveHostedEvidence = @($liveLifecycleModel.entries | Where-Object { $_.name -eq 'openspec-frontier-lifecycle-truthfulness' })[0].evidence | Where-Object { $_.kind -eq 'hosted-run' }
+Check ($liveHostedEvidence.valid -and $liveHostedEvidence.authoritative -and $liveHostedEvidence.record -and $liveHostedEvidence.sha.Length -eq 40) 'live hosted-run evidence is an exact-SHA durable binding'
+$shortHostedRunId = $liveHostedEvidence.runId.Substring(0, $liveHostedEvidence.runId.Length - 1)
+$shortHostedEvidence = Resolve-ProjectStatusEvidence -RepoRoot $repoRoot -Evidence ([pscustomobject]@{ kind = 'hosted-run'; runId = $shortHostedRunId; sha = $liveHostedEvidence.sha; record = $liveHostedEvidence.record }) -Context 'test/short-hosted-run'
+Check (-not $shortHostedEvidence.valid -and @($shortHostedEvidence.errors | Where-Object { $_ -match 'record-run-id-missing' }).Count -eq 1) 'hosted-run binding requires an exact run ID token'
+Check (@($liveLifecycleModel.entries | ForEach-Object { $_.evidence } | Where-Object { $_.kind -eq 'invalid' }).Count -eq 0) 'live lifecycle projection contains no invalid evidence objects'
 
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All project-status tests passed.'

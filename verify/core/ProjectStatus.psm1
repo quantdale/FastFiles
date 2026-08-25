@@ -12,6 +12,7 @@ $script:ProjectStatusOutcomes = @('PASS', 'FAIL', 'SKIPPED', 'BLOCKED_ENVIRONMEN
 $script:ProjectStatusCategories = @('local', 'interactive', 'elevated', 'external-provider', 'production-signing', 'clean-host', 'administrative')
 $script:ProjectStatusLifecycleStates = @('active', 'completed', 'superseded', 'external-evidence-only', 'ambiguous')
 $script:ProjectStatusTaskDispositions = @('active', 'external', 'historical', 'superseded', 'mixed')
+$script:ProjectStatusEvidenceKinds = @('repository-path', 'git-commit', 'hosted-run', 'note')
 
 function Get-ProjectStatusOutcome {
     param(
@@ -98,87 +99,320 @@ function Invoke-ProjectStatusGit {
     return Get-ProjectStatusGitStateFromLines -Branch $branch -Sha $sha -StatusLines $statusLines -DiffCheckPassed $diffPassed
 }
 
+function Resolve-ProjectStatusRepositoryEvidencePath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [AllowNull()] [string] $RelativePath,
+        [bool] $RequireTracked = $false
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RelativePath)) {
+        return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-missing' }
+    }
+    $normalized = $RelativePath.Replace('/', '\')
+    if ([IO.Path]::IsPathRooted($normalized) -or $normalized.StartsWith('\') -or $normalized -match '(^|\\)\.\.(\\|$)' -or $normalized -match '^[A-Za-z]:') {
+        return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-unsafe' }
+    }
+    $segments = @($normalized -split '\\' | Where-Object { $_ -ne '' })
+    if ($segments.Count -eq 0 -or @($segments | Where-Object { $_ -eq '.' -or $_ -eq '..' }).Count -gt 0) {
+        return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-unsafe' }
+    }
+
+    try {
+        $rootFull = ([IO.Path]::GetFullPath($RepoRoot)).TrimEnd('\')
+        $fullPath = [IO.Path]::GetFullPath((Join-Path $rootFull $normalized))
+    } catch {
+        return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-invalid' }
+    }
+    $rootPrefix = $rootFull + '\'
+    if (-not $fullPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-unsafe' }
+    }
+
+    $current = $rootFull
+    foreach ($segment in $segments) {
+        $current = Join-Path $current $segment
+        if (-not (Test-Path -LiteralPath $current)) {
+            return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-not-found' }
+        }
+        try {
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-reparse-point' }
+            }
+        } catch {
+            return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-unreadable' }
+        }
+    }
+
+    if ($RequireTracked) {
+        $tracked = @(& git -C $rootFull ls-files --error-unmatch -- $normalized 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $tracked.Count -eq 0) {
+            return [pscustomobject]@{ valid = $false; path = $null; fullPath = $null; reason = 'evidence-repository-path-untracked' }
+        }
+    }
+    [pscustomobject]@{
+        valid = $true
+        path = $normalized.Replace('\', '/')
+        fullPath = $fullPath
+        reason = $null
+    }
+}
+
+function Resolve-ProjectStatusGitCommitEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [AllowNull()] [string] $Sha
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Sha) -or $Sha -notmatch '^[0-9a-fA-F]{40}$') {
+        return [pscustomobject]@{ valid = $false; sha = $null; reason = 'evidence-git-commit-sha-not-full' }
+    }
+    $normalized = $Sha.ToLowerInvariant()
+    $resolved = @(& git -C $RepoRoot rev-parse --verify "${normalized}^{commit}" 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $resolved.Count -eq 0 -or ($resolved -join '').Trim() -ne $normalized) {
+        return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-commit-not-found' }
+    }
+    $headLines = @(& git -C $RepoRoot rev-parse --verify HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -eq 0) {
+        return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-head-not-found' }
+    }
+    $head = ($headLines -join '').Trim()
+    & git -C $RepoRoot merge-base --is-ancestor $normalized $head 2>$null | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-commit-not-reachable' }
+    }
+    [pscustomobject]@{ valid = $true; sha = $normalized; reason = $null }
+}
+
+function Resolve-ProjectStatusEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [AllowNull()] $Evidence,
+        [Parameter(Mandatory)] [string] $Context
+    )
+
+    $errors = [System.Collections.Generic.List[string]]::new()
+    $kind = if (Test-ProjectStatusJsonObject -Value $Evidence) { [string]$Evidence.kind } else { '' }
+    $projection = [ordered]@{
+        kind = if ([string]::IsNullOrWhiteSpace($kind)) { 'invalid' } else { $kind }
+        valid = $false
+        authoritative = $false
+        authority = 'invalid'
+        source = '<invalid-evidence>'
+    }
+    if (-not (Test-ProjectStatusJsonObject -Value $Evidence)) {
+        [void]$errors.Add("${Context}:evidence-object-required")
+        return [pscustomobject]@{ valid = $false; authoritative = $false; value = [pscustomobject]$projection; errors = @($errors) }
+    }
+    if ($script:ProjectStatusEvidenceKinds -notcontains $kind) {
+        [void]$errors.Add("${Context}:evidence-kind-invalid")
+        return [pscustomobject]@{ valid = $false; authoritative = $false; value = [pscustomobject]$projection; errors = @($errors) }
+    }
+
+    switch ($kind) {
+        'repository-path' {
+            $resolvedPath = Resolve-ProjectStatusRepositoryEvidencePath -RepoRoot $RepoRoot -RelativePath ([string]$Evidence.path)
+            if (-not $resolvedPath.valid) {
+                [void]$errors.Add("${Context}:$($resolvedPath.reason)")
+            } else {
+                $projection.path = $resolvedPath.path
+                $projection.source = $resolvedPath.path
+                $projection.authority = 'repository-artifact'
+                $projection.authoritative = $true
+                $projection.valid = $true
+            }
+        }
+        'git-commit' {
+            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha)
+            if (-not $resolvedCommit.valid) {
+                [void]$errors.Add("${Context}:$($resolvedCommit.reason)")
+            } else {
+                $projection.sha = $resolvedCommit.sha
+                $projection.source = $resolvedCommit.sha
+                $projection.authority = 'git-commit'
+                $projection.authoritative = $true
+                $projection.valid = $true
+            }
+        }
+        'hosted-run' {
+            $runId = [string]$Evidence.runId
+            if ([string]::IsNullOrWhiteSpace($runId) -or $runId -notmatch '^[0-9]+$') {
+                [void]$errors.Add("${Context}:evidence-hosted-run-id-invalid")
+            }
+            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha)
+            if (-not $resolvedCommit.valid) { [void]$errors.Add("${Context}:$($resolvedCommit.reason)") }
+            $recordPath = Resolve-ProjectStatusRepositoryEvidencePath -RepoRoot $RepoRoot -RelativePath ([string]$Evidence.record) -RequireTracked:$true
+            if (-not $recordPath.valid) {
+                [void]$errors.Add("${Context}:hosted-run-record-$($recordPath.reason)")
+            } elseif (-not (Test-Path -LiteralPath $recordPath.fullPath -PathType Leaf)) {
+                [void]$errors.Add("${Context}:evidence-hosted-run-record-not-file")
+            } else {
+                try {
+                    $recordText = [IO.File]::ReadAllText($recordPath.fullPath)
+                    $runIdPattern = "(?<![0-9])$([regex]::Escape($runId))(?![0-9])"
+                    if ($recordText -notmatch $runIdPattern) { [void]$errors.Add("${Context}:evidence-hosted-run-record-run-id-missing") }
+                    if ($resolvedCommit.valid) {
+                        $shaPattern = "(?<![0-9a-fA-F])$([regex]::Escape($resolvedCommit.sha))(?![0-9a-fA-F])"
+                        if ($recordText -notmatch $shaPattern) { [void]$errors.Add("${Context}:evidence-hosted-run-record-sha-missing") }
+                    }
+                } catch {
+                    [void]$errors.Add("${Context}:evidence-hosted-run-record-unreadable")
+                }
+            }
+            if ($errors.Count -eq 0) {
+                $projection.runId = $runId
+                $projection.sha = $resolvedCommit.sha
+                $projection.record = $recordPath.path
+                $projection.source = $recordPath.path
+                $projection.authority = 'hosted-run-binding'
+                $projection.authoritative = $true
+                $projection.valid = $true
+            }
+        }
+        'note' {
+            $note = [string]$Evidence.text
+            if ([string]::IsNullOrWhiteSpace($note)) {
+                [void]$errors.Add("${Context}:evidence-note-missing")
+            } else {
+                $projection.text = ConvertTo-ProjectStatusSafeText -Text $note
+                $projection.source = 'note'
+                $projection.authority = 'non-authoritative-note'
+                $projection.authoritative = $false
+                $projection.valid = $true
+            }
+        }
+    }
+    [pscustomobject]@{ valid = ($errors.Count -eq 0 -and $projection.valid); authoritative = ($errors.Count -eq 0 -and $projection.authoritative); value = [pscustomobject]$projection; errors = @($errors) }
+}
+
+function Test-ProjectStatusHasAuthoritativeEvidence {
+    param([AllowEmptyCollection()] [object[]] $Evidence)
+    return @($Evidence | Where-Object { $_.valid -eq $true -and $_.authoritative -eq $true }).Count -gt 0
+}
+
 function Get-ProjectStatusLifecycleModel {
     [CmdletBinding()]
     param([Parameter(Mandatory)] [string] $RepoRoot)
 
     $path = Join-Path $RepoRoot 'openspec\lifecycle.json'
-    $errors = [System.Collections.Generic.List[string]]::new()
+    $structuralErrors = [System.Collections.Generic.List[string]]::new()
+    $evidenceErrors = [System.Collections.Generic.List[string]]::new()
+    $semanticErrors = [System.Collections.Generic.List[string]]::new()
     $entries = [System.Collections.Generic.List[object]]::new()
     $changesRoot = Join-Path $RepoRoot 'openspec\changes'
     $result = [ordered]@{
         status = 'PASS'
-        schemaVersion = 1
+        schemaVersion = 2
         kind = 'fastfiles-openspec-lifecycle'
         source = (ConvertTo-ProjectStatusSafePath -Path $path -RepoRoot $RepoRoot)
         entries = @()
         errors = @()
+        structuralErrors = @()
+        evidenceErrors = @()
+        semanticErrors = @()
+        integrity = [pscustomobject]@{ status = 'PASS'; structuralErrors = @(); evidenceErrors = @(); semanticErrors = @() }
     }
 
+    $raw = $null
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
-        [void]$errors.Add('openspec-lifecycle-metadata-missing')
+        [void]$structuralErrors.Add('openspec-lifecycle-metadata-missing')
     } else {
-        $raw = $null
         try {
             $raw = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -ErrorAction Stop
         } catch {
-            [void]$errors.Add('openspec-lifecycle-metadata-invalid-json')
+            [void]$structuralErrors.Add('openspec-lifecycle-metadata-invalid-json')
         }
-        if ($null -ne $raw) {
-            if ([int]$raw.schemaVersion -ne 1) { [void]$errors.Add('openspec-lifecycle-schema-version-invalid') }
-            if ([string]$raw.kind -ne 'fastfiles-openspec-lifecycle') { [void]$errors.Add('openspec-lifecycle-kind-invalid') }
-            if ($null -eq $raw.changes) { [void]$errors.Add('openspec-lifecycle-changes-missing') }
-            elseif (-not (Test-ProjectStatusJsonArray -Value $raw.changes)) { [void]$errors.Add('openspec-lifecycle-changes-not-array') }
+    }
 
-            $knownChanges = @()
-            if (Test-Path -LiteralPath $changesRoot -PathType Container) {
-                $knownChanges = @(Get-ChildItem -LiteralPath $changesRoot -Directory | Select-Object -ExpandProperty Name)
+    $knownChanges = @()
+    if (Test-Path -LiteralPath $changesRoot -PathType Container) {
+        $knownChanges = @(Get-ChildItem -LiteralPath $changesRoot -Directory | Sort-Object Name | Select-Object -ExpandProperty Name)
+    } else {
+        [void]$structuralErrors.Add('openspec-changes-directory-missing')
+    }
+    $knownChangeSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($known in $knownChanges) { [void]$knownChangeSet.Add($known) }
+    $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $entryByName = @{}
+
+    if ($null -ne $raw) {
+        $rawSchemaVersion = 0
+        $schemaVersionValue = $raw.schemaVersion
+        $schemaVersionType = if ($null -eq $schemaVersionValue) { '' } else { $schemaVersionValue.GetType().Name }
+        if ($schemaVersionType -in @('Byte', 'SByte', 'Int16', 'UInt16', 'Int32', 'UInt32', 'Int64', 'UInt64')) {
+            try { $rawSchemaVersion = [int]$schemaVersionValue } catch { $rawSchemaVersion = 0 }
+        }
+        $result.schemaVersion = $rawSchemaVersion
+        if ($rawSchemaVersion -ne 2) { [void]$structuralErrors.Add('openspec-lifecycle-schema-version-invalid') }
+        if ([string]$raw.kind -ne 'fastfiles-openspec-lifecycle') { [void]$structuralErrors.Add('openspec-lifecycle-kind-invalid') }
+        if ($null -eq $raw.changes) { [void]$structuralErrors.Add('openspec-lifecycle-changes-missing') }
+        elseif (-not (Test-ProjectStatusJsonArray -Value $raw.changes)) { [void]$structuralErrors.Add('openspec-lifecycle-changes-not-array') }
+
+        foreach ($entry in @($raw.changes)) {
+            if (-not (Test-ProjectStatusJsonObject -Value $entry)) { [void]$structuralErrors.Add('openspec-lifecycle-change-not-object'); continue }
+            $name = [string]$entry.name
+            $state = [string]$entry.state
+            if ([string]::IsNullOrWhiteSpace($name)) { [void]$structuralErrors.Add('openspec-lifecycle-change-name-missing'); continue }
+            if (-not $seenNames.Add($name)) { [void]$structuralErrors.Add("openspec-lifecycle-change-duplicate:$name") }
+            if (-not $knownChangeSet.Contains($name)) { [void]$structuralErrors.Add("openspec-lifecycle-change-unknown:$name") }
+            if ($script:ProjectStatusLifecycleStates -notcontains $state) { [void]$structuralErrors.Add("openspec-lifecycle-state-invalid:$name") }
+
+            $resolvedEvidence = [System.Collections.Generic.List[object]]::new()
+            if (-not (Test-ProjectStatusJsonArray -Value $entry.evidence)) {
+                [void]$structuralErrors.Add("openspec-lifecycle-evidence-not-array:$name")
             } else {
-                [void]$errors.Add('openspec-changes-directory-missing')
-            }
-            $knownChangeSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            foreach ($known in $knownChanges) { [void]$knownChangeSet.Add($known) }
-            $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-            foreach ($entry in @($raw.changes)) {
-                if (-not (Test-ProjectStatusJsonObject -Value $entry)) { [void]$errors.Add('openspec-lifecycle-change-not-object'); continue }
-                $name = [string]$entry.name
-                $state = [string]$entry.state
-                if ([string]::IsNullOrWhiteSpace($name)) { [void]$errors.Add('openspec-lifecycle-change-name-missing'); continue }
-                if (-not $seenNames.Add($name)) { [void]$errors.Add("openspec-lifecycle-change-duplicate:$name") }
-                if (-not $knownChangeSet.Contains($name)) { [void]$errors.Add("openspec-lifecycle-change-unknown:$name") }
-                if ($script:ProjectStatusLifecycleStates -notcontains $state) { [void]$errors.Add("openspec-lifecycle-state-invalid:$name") }
-                if (-not (Test-ProjectStatusJsonArray -Value $entry.evidence)) { [void]$errors.Add("openspec-lifecycle-evidence-not-array:$name") }
-                $evidence = @($entry.evidence | ForEach-Object { [string]$_ })
-                if ($evidence.Count -eq 0 -or ($evidence | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) { [void]$errors.Add("openspec-lifecycle-evidence-missing:$name") }
-                $supersededBy = if ($null -eq $entry.supersededBy) { $null } else { [string]$entry.supersededBy }
-                if ($state -eq 'superseded') {
-                    if ([string]::IsNullOrWhiteSpace($supersededBy)) { [void]$errors.Add("openspec-lifecycle-superseded-target-missing:$name") }
-                    elseif (-not $knownChangeSet.Contains($supersededBy)) { [void]$errors.Add("openspec-lifecycle-superseded-target-unknown:$name") }
-                } elseif (-not [string]::IsNullOrWhiteSpace($supersededBy)) {
-                    [void]$errors.Add("openspec-lifecycle-unexpected-superseded-target:$name")
+                $rawEvidence = @($entry.evidence)
+                if ($rawEvidence.Count -eq 0) { [void]$structuralErrors.Add("openspec-lifecycle-evidence-missing:$name") }
+                foreach ($evidence in $rawEvidence) {
+                    $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name"
+                    if (-not $resolved.valid) { foreach ($error in @($resolved.errors)) { [void]$evidenceErrors.Add($error) } }
+                    $resolvedEvidence.Add($resolved.value)
                 }
+            }
 
-                $overrides = [System.Collections.Generic.List[object]]::new()
-                $seenTasks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-                if (-not (Test-ProjectStatusJsonArray -Value $entry.taskOverrides)) { [void]$errors.Add("openspec-lifecycle-task-overrides-not-array:$name") }
+            $supersededBy = if ($null -eq $entry.supersededBy) { $null } else { [string]$entry.supersededBy }
+            if ($state -eq 'superseded') {
+                if ([string]::IsNullOrWhiteSpace($supersededBy)) { [void]$structuralErrors.Add("openspec-lifecycle-superseded-target-missing:$name") }
+            } elseif (-not [string]::IsNullOrWhiteSpace($supersededBy)) {
+                [void]$structuralErrors.Add("openspec-lifecycle-unexpected-superseded-target:$name")
+            }
+
+            $overrides = [System.Collections.Generic.List[object]]::new()
+            $seenTasks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            if (-not (Test-ProjectStatusJsonArray -Value $entry.taskOverrides)) {
+                [void]$structuralErrors.Add("openspec-lifecycle-task-overrides-not-array:$name")
+            } else {
                 foreach ($override in @($entry.taskOverrides)) {
-                    if (-not (Test-ProjectStatusJsonObject -Value $override)) { [void]$errors.Add("openspec-lifecycle-task-override-not-object:$name"); continue }
+                    if (-not (Test-ProjectStatusJsonObject -Value $override)) { [void]$structuralErrors.Add("openspec-lifecycle-task-override-not-object:$name"); continue }
                     $taskId = [string]$override.task
-                    if ($taskId -notmatch '^[0-9]+\.[0-9]+$') { [void]$errors.Add("openspec-lifecycle-task-id-invalid:$name/$taskId") }
-                    if (-not $seenTasks.Add($taskId)) { [void]$errors.Add("openspec-lifecycle-task-duplicate:$name/$taskId") }
+                    if ($taskId -notmatch '^[0-9]+\.[0-9]+$') { [void]$structuralErrors.Add("openspec-lifecycle-task-id-invalid:$name/$taskId") }
+                    if (-not $seenTasks.Add($taskId)) { [void]$structuralErrors.Add("openspec-lifecycle-task-duplicate:$name/$taskId") }
                     $disposition = [string]$override.disposition
-                    if ($script:ProjectStatusTaskDispositions -notcontains $disposition) { [void]$errors.Add("openspec-lifecycle-disposition-invalid:$name/$taskId") }
-                    if (-not (Test-ProjectStatusJsonArray -Value $override.categories)) { [void]$errors.Add("openspec-lifecycle-categories-not-array:$name/$taskId") }
+                    if ($script:ProjectStatusTaskDispositions -notcontains $disposition) { [void]$structuralErrors.Add("openspec-lifecycle-disposition-invalid:$name/$taskId") }
+                    if (-not (Test-ProjectStatusJsonArray -Value $override.categories)) { [void]$structuralErrors.Add("openspec-lifecycle-categories-not-array:$name/$taskId") }
                     $categories = @($override.categories | ForEach-Object { [string]$_ })
-                    if ($categories.Count -eq 0) { [void]$errors.Add("openspec-lifecycle-categories-missing:$name/$taskId") }
+                    if ($categories.Count -eq 0) { [void]$structuralErrors.Add("openspec-lifecycle-categories-missing:$name/$taskId") }
                     foreach ($category in $categories) {
-                        if ($script:ProjectStatusCategories -notcontains $category) { [void]$errors.Add("openspec-lifecycle-category-invalid:$name/$taskId/$category") }
+                        if ($script:ProjectStatusCategories -notcontains $category) { [void]$structuralErrors.Add("openspec-lifecycle-category-invalid:$name/$taskId/$category") }
                     }
                     $overrideStatus = [string]$override.status
-                    if ($script:ProjectStatusOutcomes -notcontains $overrideStatus) { [void]$errors.Add("openspec-lifecycle-status-invalid:$name/$taskId") }
-                    if (-not (Test-ProjectStatusJsonArray -Value $override.evidence)) { [void]$errors.Add("openspec-lifecycle-task-evidence-not-array:$name/$taskId") }
-                    $overrideEvidence = @($override.evidence | ForEach-Object { [string]$_ })
-                    if ($overrideEvidence.Count -eq 0 -or ($overrideEvidence | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) { [void]$errors.Add("openspec-lifecycle-task-evidence-missing:$name/$taskId") }
+                    if ($script:ProjectStatusOutcomes -notcontains $overrideStatus) { [void]$structuralErrors.Add("openspec-lifecycle-status-invalid:$name/$taskId") }
+                    $overrideEvidence = [System.Collections.Generic.List[object]]::new()
+                    if (-not (Test-ProjectStatusJsonArray -Value $override.evidence)) {
+                        [void]$structuralErrors.Add("openspec-lifecycle-task-evidence-not-array:$name/$taskId")
+                    } else {
+                        $rawOverrideEvidence = @($override.evidence)
+                        if ($rawOverrideEvidence.Count -eq 0) { [void]$structuralErrors.Add("openspec-lifecycle-task-evidence-missing:$name/$taskId") }
+                        foreach ($evidence in $rawOverrideEvidence) {
+                            $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name/$taskId"
+                            if (-not $resolved.valid) { foreach ($error in @($resolved.errors)) { [void]$evidenceErrors.Add($error) } }
+                            $overrideEvidence.Add($resolved.value)
+                        }
+                    }
                     $overrides.Add([pscustomobject]@{
                         task = $taskId
                         disposition = $disposition
@@ -187,41 +421,126 @@ function Get-ProjectStatusLifecycleModel {
                         evidence = @($overrideEvidence)
                     })
                 }
-                $declaredTaskIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-                $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
-                if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
-                    foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
-                        if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') { [void]$declaredTaskIds.Add($Matches[1]) }
-                    }
-                }
-                foreach ($override in @($overrides)) {
-                    if (-not $declaredTaskIds.Contains([string]$override.task)) { [void]$errors.Add("openspec-lifecycle-task-unknown:$name/$($override.task)") }
-                }
-                $entries.Add([pscustomobject]@{
-                    name = $name
-                    state = $state
-                    evidence = @($evidence)
-                    supersededBy = $supersededBy
-                    taskOverrides = @($overrides)
-                })
             }
 
-            # Every change with an unchecked task must opt into an explicit lifecycle.
-            if (Test-Path -LiteralPath $changesRoot -PathType Container) {
-                foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File)) {
-                    $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
-                    $hasOpenTask = $false
-                    foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
-                        if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $hasOpenTask = $true; break }
-                    }
-                    if ($hasOpenTask -and -not $seenNames.Contains($changeName)) { [void]$errors.Add("openspec-lifecycle-entry-missing:$changeName") }
+            $declaredTaskIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
+            if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
+                foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
+                    if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') { [void]$declaredTaskIds.Add($Matches[1]) }
                 }
+            }
+            foreach ($override in @($overrides)) {
+                if (-not $declaredTaskIds.Contains([string]$override.task)) { [void]$structuralErrors.Add("openspec-lifecycle-task-unknown:$name/$($override.task)") }
+            }
+
+            $entryModel = [pscustomobject]@{
+                name = $name
+                state = $state
+                evidence = @($resolvedEvidence)
+                supersededBy = $supersededBy
+                taskOverrides = @($overrides)
+            }
+            $entries.Add($entryModel)
+            $entryByName[$name] = $entryModel
+        }
+
+        # Every change with an unchecked task must opt into an explicit lifecycle.
+        if (Test-Path -LiteralPath $changesRoot -PathType Container) {
+            foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File | Sort-Object FullName)) {
+                $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
+                $hasOpenTask = $false
+                foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
+                    if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $hasOpenTask = $true; break }
+                }
+                if ($hasOpenTask -and -not $seenNames.Contains($changeName)) { [void]$structuralErrors.Add("openspec-lifecycle-entry-missing:$changeName") }
             }
         }
     }
-    $result.status = if ($errors.Count -eq 0) { 'PASS' } else { 'FAIL' }
+
+    foreach ($entry in @($entries)) {
+        $hasAuthoritative = Test-ProjectStatusHasAuthoritativeEvidence -Evidence @($entry.evidence)
+        if ($entry.state -in @('completed', 'superseded', 'external-evidence-only') -and -not $hasAuthoritative) {
+            [void]$semanticErrors.Add("openspec-lifecycle-authoritative-evidence-required:$($entry.name)")
+        }
+        if ($entry.state -eq 'superseded') {
+            if ([string]::IsNullOrWhiteSpace([string]$entry.supersededBy)) { continue }
+            if ($entry.name -ieq [string]$entry.supersededBy) { [void]$semanticErrors.Add("openspec-lifecycle-supersession-self:$($entry.name)"); continue }
+            if (-not $entryByName.ContainsKey([string]$entry.supersededBy)) {
+                [void]$semanticErrors.Add("openspec-lifecycle-superseded-target-unknown:$($entry.name)")
+            } else {
+                $target = $entryByName[[string]$entry.supersededBy]
+                if ($target.state -in @('superseded', 'ambiguous')) { [void]$semanticErrors.Add("openspec-lifecycle-superseded-target-not-authoritative:$($entry.name)") }
+            }
+        }
+        foreach ($override in @($entry.taskOverrides)) {
+            $categories = @($override.categories)
+            $hasLocal = $categories -contains 'local'
+            $hasExternal = @($categories | Where-Object { $_ -ne 'local' }).Count -gt 0
+            $hasAuthoritativeOverrideEvidence = Test-ProjectStatusHasAuthoritativeEvidence -Evidence @($override.evidence)
+            switch ([string]$override.disposition) {
+                'active' {
+                    if ($entry.state -ne 'active') { [void]$semanticErrors.Add("openspec-lifecycle-active-task-parent-not-active:$($entry.name)/$($override.task)") }
+                    if (-not $hasLocal) { [void]$semanticErrors.Add("openspec-lifecycle-active-task-local-category-required:$($entry.name)/$($override.task)") }
+                    if ([string]$override.status -eq 'PASS') { [void]$semanticErrors.Add("openspec-lifecycle-active-unchecked-pass:$($entry.name)/$($override.task)") }
+                }
+                'external' {
+                    if (-not $hasExternal) { [void]$semanticErrors.Add("openspec-lifecycle-external-task-category-required:$($entry.name)/$($override.task)") }
+                    if ($hasLocal) { [void]$semanticErrors.Add("openspec-lifecycle-external-task-local-category-contradiction:$($entry.name)/$($override.task)") }
+                }
+                'historical' {
+                    if ($entry.state -notin @('completed', 'external-evidence-only')) { [void]$semanticErrors.Add("openspec-lifecycle-historical-task-parent-invalid:$($entry.name)/$($override.task)") }
+                }
+                'superseded' {
+                    if ($entry.state -ne 'superseded' -or [string]::IsNullOrWhiteSpace([string]$entry.supersededBy)) { [void]$semanticErrors.Add("openspec-lifecycle-superseded-task-parent-invalid:$($entry.name)/$($override.task)") }
+                }
+                'mixed' {
+                    if (-not $hasLocal) { [void]$semanticErrors.Add("openspec-lifecycle-mixed-task-local-component-required:$($entry.name)/$($override.task)") }
+                    if (-not $hasExternal) { [void]$semanticErrors.Add("openspec-lifecycle-mixed-task-external-component-required:$($entry.name)/$($override.task)") }
+                }
+            }
+            if ([string]$override.disposition -ne 'active' -and -not $hasAuthoritativeOverrideEvidence) {
+                [void]$semanticErrors.Add("openspec-lifecycle-task-authoritative-evidence-required:$($entry.name)/$($override.task)")
+            }
+            if ([string]$override.status -eq 'PASS' -and -not $hasAuthoritativeOverrideEvidence) {
+                [void]$semanticErrors.Add("openspec-lifecycle-pass-task-evidence-required:$($entry.name)/$($override.task)")
+            }
+            if ([string]$override.status -eq 'BLOCKED_ENVIRONMENT' -and @($categories | Where-Object { $_ -in @('interactive', 'elevated', 'clean-host') }).Count -eq 0) {
+                [void]$semanticErrors.Add("openspec-lifecycle-environment-status-category-mismatch:$($entry.name)/$($override.task)")
+            }
+            if ([string]$override.status -eq 'REQUIRED-BUT-UNAVAILABLE' -and -not $hasExternal) {
+                [void]$semanticErrors.Add("openspec-lifecycle-required-status-category-mismatch:$($entry.name)/$($override.task)")
+            }
+        }
+    }
+
+    # A supersession target is a directed graph. Detect self-links above and all longer cycles here.
+    foreach ($entry in @($entries | Where-Object { $_.state -eq 'superseded' -and -not [string]::IsNullOrWhiteSpace([string]$_.supersededBy) })) {
+        $visited = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $current = [string]$entry.name
+        while ($entryByName.ContainsKey($current) -and $entryByName[$current].state -eq 'superseded') {
+            if (-not $visited.Add($current)) {
+                [void]$semanticErrors.Add("openspec-lifecycle-supersession-cycle:$($entry.name)")
+                break
+            }
+            $current = [string]$entryByName[$current].supersededBy
+            if ([string]::IsNullOrWhiteSpace($current)) { break }
+        }
+    }
+
+    $allErrors = @($structuralErrors + $evidenceErrors + $semanticErrors)
+    $result.status = if ($allErrors.Count -eq 0) { 'PASS' } else { 'FAIL' }
     $result.entries = @($entries)
-    $result.errors = @($errors)
+    $result.errors = @($allErrors)
+    $result.structuralErrors = @($structuralErrors)
+    $result.evidenceErrors = @($evidenceErrors)
+    $result.semanticErrors = @($semanticErrors)
+    $result.integrity = [pscustomobject]@{
+        status = $result.status
+        structuralErrors = @($structuralErrors)
+        evidenceErrors = @($evidenceErrors)
+        semanticErrors = @($semanticErrors)
+    }
     return [pscustomobject]$result
 }
 
@@ -365,7 +684,7 @@ function Get-ProjectStatusOpenSpecFrontier {
                 $evidence = if ($null -ne $override) { @($override.evidence) } elseif ($null -ne $lifecycleEntry) { @($lifecycleEntry.evidence) } else { @() }
                 $classification | Add-Member -NotePropertyName lifecycleState -NotePropertyValue $changeState
                 $classification | Add-Member -NotePropertyName taskDisposition -NotePropertyValue $disposition
-                $classification | Add-Member -NotePropertyName lifecycleEvidence -NotePropertyValue @($evidence | ForEach-Object { ConvertTo-ProjectStatusSafeText -Text ([string]$_) })
+                $classification | Add-Member -NotePropertyName lifecycleEvidence -NotePropertyValue @($evidence)
                 $classification | Add-Member -NotePropertyName lifecycleSource -NotePropertyValue 'openspec/lifecycle.json'
                 $open.Add($classification)
             }
@@ -404,6 +723,11 @@ function Get-ProjectStatusOpenSpecFrontier {
             schemaVersion = $lifecycle.schemaVersion
             source = $lifecycle.source
             errors = @($lifecycle.errors)
+            structuralErrors = @($lifecycle.structuralErrors)
+            evidenceErrors = @($lifecycle.evidenceErrors)
+            semanticErrors = @($lifecycle.semanticErrors)
+            integrity = $lifecycle.integrity
+            entries = @($lifecycle.entries)
             declaredChangeCount = @($lifecycle.entries).Count
         }
         categories = [pscustomobject]$categoryCounts
@@ -579,8 +903,19 @@ function Get-ProjectStatusReleaseEvidence {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [string] $OutputDirectory,
-        [string] $ReleaseReportPath
+        [string] $ReleaseReportPath,
+        [ValidateSet('PASS', 'FAIL')] [string] $LifecycleStatus = 'PASS'
     )
+
+    if ($LifecycleStatus -eq 'FAIL') {
+        return [pscustomobject]@{
+            status = 'FAIL'
+            classification = 'NON-PRODUCTION-OR-BLOCKED'
+            reason = 'openspec-lifecycle-integrity-invalid'
+            source = $null
+            productionReady = $false
+        }
+    }
 
     $candidates = [System.Collections.Generic.List[string]]::new()
     if ($ReleaseReportPath) { $candidates.Add($ReleaseReportPath) }
@@ -643,6 +978,11 @@ function New-ProjectStatusMarkdown {
     [void]$lines.Add('')
     [void]$lines.Add("Open unchecked tasks: **$($Status.openSpec.totalOpenTasks)** across **$($Status.openSpec.changesWithOpenTasks)** changes; active local open: **$($Status.openSpec.activeLocalOpenTasks)**.")
     [void]$lines.Add("Lifecycle model: **$($Status.openSpec.lifecycle.status)** from ``$($Status.openSpec.lifecycle.source)``$(if ($Status.openSpec.lifecycle.errors.Count -gt 0) { " ($($Status.openSpec.lifecycle.errors -join '; '))" })")
+    [void]$lines.Add("Lifecycle integrity diagnostics: structural=$(@($Status.openSpec.lifecycle.structuralErrors).Count); evidence=$(@($Status.openSpec.lifecycle.evidenceErrors).Count); semantic=$(@($Status.openSpec.lifecycle.semanticErrors).Count).")
+    foreach ($entry in @($Status.openSpec.lifecycle.entries)) {
+        $evidenceSummary = @($entry.evidence | ForEach-Object { "$($_.kind):$($_.source)" }) -join ', '
+        [void]$lines.Add("- Lifecycle ``$($entry.name)`` [$($entry.state)]: $evidenceSummary")
+    }
     foreach ($change in @($Status.openSpec.changes)) {
         [void]$lines.Add("### ``$($change.name)`` [$($change.lifecycleState)] ($($change.openTaskCount) open)")
         foreach ($task in @($change.openTasks)) { [void]$lines.Add("- ``$($task.task)`` [$($task.taskDisposition); $($task.primaryCategory); $($task.status)] $($task.nextAction) (source: $($task.classificationSource))") }
@@ -696,7 +1036,7 @@ function Get-ProjectStatusFrontierProjection {
             classificationConfidence = $task.classificationConfidence
             evidence = @($task.lifecycleEvidence)
         }
-        if ($task.lifecycleState -eq 'unknown' -or ($task.taskDisposition -eq 'mixed' -and $OpenSpec.status -ne 'PASS')) { $frontier.ambiguousOpen += $item }
+        if ($task.lifecycleState -in @('unknown', 'ambiguous') -or ($task.taskDisposition -eq 'mixed' -and $OpenSpec.status -ne 'PASS')) { $frontier.ambiguousOpen += $item }
         elseif ($task.taskDisposition -eq 'historical') { $frontier.historicalOpen += $item }
         elseif ($task.taskDisposition -eq 'superseded') { $frontier.supersededOpen += $item }
         elseif ($task.taskDisposition -eq 'mixed') { $frontier.mixedOpen += $item }
@@ -728,7 +1068,7 @@ function New-ProjectStatus {
     $capabilities = Get-ProjectStatusCapabilityEvidence -RepoRoot $RepoRoot
     $verification = Get-ProjectStatusVerificationEvidence -RepoRoot $RepoRoot -RunResultPath $VerificationRunResultPath
     $openSpec = Get-ProjectStatusOpenSpecFrontier -RepoRoot $RepoRoot
-    $release = Get-ProjectStatusReleaseEvidence -RepoRoot $RepoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath
+    $release = Get-ProjectStatusReleaseEvidence -RepoRoot $RepoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath -LifecycleStatus $openSpec.status
     $frontier = Get-ProjectStatusFrontierProjection -OpenSpec $openSpec
     $status = [pscustomobject]@{
         schemaVersion = $script:ProjectStatusSchemaVersion
@@ -755,4 +1095,4 @@ function New-ProjectStatus {
     return $status
 }
 
-Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusLifecycleModel, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusFrontierProjection, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusVerificationEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus
+Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Resolve-ProjectStatusRepositoryEvidencePath, Resolve-ProjectStatusGitCommitEvidence, Resolve-ProjectStatusEvidence, Get-ProjectStatusLifecycleModel, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusFrontierProjection, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusVerificationEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus

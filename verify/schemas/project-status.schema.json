@@ -19,7 +19,30 @@
         "totalOpenTasks": { "type": "integer" },
         "activeLocalOpenTasks": { "type": "integer" },
         "changesWithOpenTasks": { "type": "integer" },
-        "lifecycle": { "type": "object" },
+        "lifecycle": {
+          "type": "object",
+          "required": ["status", "schemaVersion", "source", "errors", "structuralErrors", "evidenceErrors", "semanticErrors", "entries", "integrity"],
+          "properties": {
+            "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+            "schemaVersion": { "type": "integer" },
+            "source": { "type": "string" },
+            "errors": { "type": "array", "items": { "type": "string" } },
+            "structuralErrors": { "type": "array", "items": { "type": "string" } },
+            "evidenceErrors": { "type": "array", "items": { "type": "string" } },
+            "semanticErrors": { "type": "array", "items": { "type": "string" } },
+            "entries": { "type": "array", "items": { "type": "object" } },
+            "integrity": {
+              "type": "object",
+              "required": ["status", "structuralErrors", "evidenceErrors", "semanticErrors"],
+              "properties": {
+                "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+                "structuralErrors": { "type": "array", "items": { "type": "string" } },
+                "evidenceErrors": { "type": "array", "items": { "type": "string" } },
+                "semanticErrors": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        },
         "changes": { "type": "array" }
       }
     },
@@ -29,7 +52,7 @@
       "required": ["status", "localOpen", "environmentBlocked", "providerBlocked", "productionSigningBlocked", "cleanHostElevatedBlocked", "administrativeBlocked", "mixedOpen", "historicalOpen", "supersededOpen", "ambiguousOpen", "lifecycleErrors"],
       "properties": {
         "status": { "type": "string", "enum": ["PASS", "FAIL"] },
-        "localOpen": { "type": "array" },
+        "localOpen": { "type": "array", "items": { "$ref": "#/definitions/frontierItem" } },
         "environmentBlocked": { "type": "array" },
         "providerBlocked": { "type": "array" },
         "productionSigningBlocked": { "type": "array" },
@@ -38,8 +61,29 @@
         "mixedOpen": { "type": "array" },
         "historicalOpen": { "type": "array" },
         "supersededOpen": { "type": "array" },
-        "ambiguousOpen": { "type": "array" },
+        "ambiguousOpen": { "type": "array", "items": { "$ref": "#/definitions/frontierItem" } },
         "lifecycleErrors": { "type": "array" }
+      }
+    }
+  },
+  "definitions": {
+    "frontierItem": {
+      "type": "object",
+      "properties": {
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["kind", "valid", "authoritative", "authority", "source"],
+            "properties": {
+              "kind": { "type": "string" },
+              "valid": { "type": "boolean" },
+              "authoritative": { "type": "boolean" },
+              "authority": { "type": "string" },
+              "source": { "type": "string" }
+            }
+          }
+        }
       }
     }
   },

@@ -13,9 +13,11 @@ what is deferred. The autonomous loop (`verify/intake.ps1`) drives a full lifecy
 interactively, persists its state so it can be resumed across sessions, classifies failures,
 bounds retries, and never edits tasks.md itself — task closing is an external sweep that marks a task `[x]` only against recorded PASS evidence (never narrative).
 The project-status frontier keeps the raw unchecked-task inventory separate from
-the active local worklist: `openspec/lifecycle.json` declares change lifecycle
-and explicit task dispositions, so historical or external tasks cannot resurrect
-a completed campaign as local implementation work.
+the active local worklist: schema-v2 `openspec/lifecycle.json` declares change
+lifecycle, typed offline-resolvable evidence, and explicit task dispositions.
+Structural, evidence, and semantic integrity errors fail closed, so historical
+or external tasks cannot resurrect a completed campaign as local implementation
+work and a stale manifest cannot create a false clean stop.
 
 ## The one entry point
 

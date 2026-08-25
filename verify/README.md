@@ -185,10 +185,12 @@ prevents an interrupted or stale previous run from being silently projected as c
 `-OutputDirectory`) and derives the current Git state, CTest inventory, OpenSpec
 frontier, capability registry, and release-candidate classification at runtime.
 The raw unchecked-task inventory remains visible, while `frontier.localOpen` is
-derived from the schema-validated `openspec/lifecycle.json` model. Historical,
-superseded, mixed, administrative, and external tasks retain source/evidence
-provenance in their dedicated buckets; malformed lifecycle metadata fails the
-status command and is never guessed into local work.
+derived from the schema-v2 typed and offline-resolved `openspec/lifecycle.json`
+model. Repository-path, full reachable Git-commit, and durable hosted-run
+evidence expose explicit authority; notes are non-authoritative. Historical,
+superseded, mixed, administrative, and external tasks retain typed provenance
+in their dedicated buckets. Structural, evidence, and semantic lifecycle
+errors fail the status command and are never guessed into local work.
 The generated report is the source for dynamic status; do not hand-maintain test
 counts in `progress.md`. To project a verifier result, pass an explicit
 `-VerificationRunResultPath <run>/run-result.json`; status never searches for a latest

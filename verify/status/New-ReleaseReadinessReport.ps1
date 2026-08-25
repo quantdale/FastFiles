@@ -105,7 +105,12 @@ $lines = [System.Collections.Generic.List[string]]::new()
 [void]$lines.Add("- CTest discovered: $($frontierReport.localEvidence.tests.discoveredCount)")
 [void]$lines.Add("- OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks); active local open: $($frontierReport.localEvidence.openSpec.activeLocalOpenTasks)")
 [void]$lines.Add("- OpenSpec lifecycle model: $($frontierReport.lifecycle.status)")
+[void]$lines.Add("- Lifecycle integrity diagnostics: structural=$(@($frontierReport.lifecycle.structuralErrors).Count); evidence=$(@($frontierReport.lifecycle.evidenceErrors).Count); semantic=$(@($frontierReport.lifecycle.semanticErrors).Count)")
 [void]$lines.Add("- Capability registry: $($frontierReport.localEvidence.capabilities.status)")
+foreach ($entry in @($frontierReport.lifecycle.entries)) {
+    $evidenceSummary = @($entry.evidence | ForEach-Object { "$(ConvertTo-SafeReadinessText -Text ([string]$_.kind)):$(ConvertTo-SafeReadinessText -Text ([string]$_.source))" }) -join ', '
+    [void]$lines.Add("- Lifecycle ``$($entry.name)`` [$($entry.state)]: $evidenceSummary")
+}
 $verificationNote = [string]$frontierReport.localEvidence.verification.status
 if ($frontierReport.localEvidence.verification.reason) { $verificationNote += " ($($frontierReport.localEvidence.verification.reason))" }
 [void]$lines.Add("- Selected verifier result: $verificationNote")
