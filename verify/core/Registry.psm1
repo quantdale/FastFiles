@@ -116,6 +116,8 @@ function Resolve-CandidateManifests {
             Id               = $manifest.id
             InterfaceVersion = $manifest.interfaceVersion
             Tier             = $manifest.tier
+            TimeoutSeconds   = [int]$manifest.timeoutSeconds
+            RequiresCleanBuildProcessBaseline = [bool]$manifest.requiresCleanBuildProcessBaseline
             DisplayName      = $manifest.displayName
             Description      = $manifest.description
             ModulePath       = $modulePath
@@ -352,6 +354,8 @@ function Find-Capabilities {
             Id               = $candidate.Id
             InterfaceVersion = $candidate.InterfaceVersion
             Tier             = $candidate.Tier
+            TimeoutSeconds   = $candidate.TimeoutSeconds
+            RequiresCleanBuildProcessBaseline = $candidate.RequiresCleanBuildProcessBaseline
             DisplayName      = $candidate.DisplayName
             Description      = $candidate.Description
             ModulePath       = $candidate.ModulePath

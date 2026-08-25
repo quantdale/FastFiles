@@ -82,6 +82,7 @@ function Get-RunReportModel {
     [pscustomobject]@{
         manifest = $manifest
         index = $index
+        runResult = $index.runResult
         capabilities = $capabilities
         environmentFingerprint = $manifest
         toolVersions = $toolVersions
@@ -129,6 +130,12 @@ function New-MarkdownRunReport {
     $lines.Add("")
     $lines.Add("## Summary")
     $lines.Add("")
+    if ($model.runResult) {
+        $lines.Add("- **Authoritative run result:** $($model.runResult.status) / $($model.runResult.classification)")
+        if ($model.runResult.reason) { $lines.Add("- **Run reason:** $($model.runResult.reason)") }
+        if ($model.runResult.summary) { $lines.Add("- **Run summary:** $($model.runResult.summary)") }
+        $lines.Add("")
+    }
     $lines.Add("| Total | Pass | Fail | Skipped |")
     $lines.Add("|---|---|---|---|")
     $lines.Add("| $($index.summary.total) | $($index.summary.pass) | $($index.summary.fail) | $($index.summary.skipped) |")
@@ -247,7 +254,7 @@ function New-HtmlRunReport {
 <style>body{font-family:Segoe UI,Arial,sans-serif;margin:2rem;color:#1f2937}table{border-collapse:collapse;width:100%}th,td{border:1px solid #d1d5db;padding:.5rem;text-align:left}th{background:#f3f4f6}.PASS{color:#166534}.FAIL{color:#b91c1c}.SKIPPED{color:#92400e}</style>
 </head><body><h1>FastFiles Verification Report</h1>
 <p><strong>Change:</strong> $(ConvertTo-HtmlText $manifest.Change)<br><strong>Run:</strong> $(ConvertTo-HtmlText $RunContext.Timestamp)<br><strong>Provider:</strong> $(ConvertTo-HtmlText $manifest.ProviderId)<br><strong>Target:</strong> $(ConvertTo-HtmlText $manifest.TargetIdentity)<br><strong>OS:</strong> $(ConvertTo-HtmlText $manifest.OsBuild)<br><strong>Elevated:</strong> $(ConvertTo-HtmlText $manifest.IsElevated)<br><strong>Session:</strong> $(ConvertTo-HtmlText $manifest.SessionId) ($(ConvertTo-HtmlText $manifest.SessionKind))</p>
-<h2>Summary</h2><p>Total: $($index.summary.total); Pass: $($index.summary.pass); Fail: $($index.summary.fail); Skipped: $($index.summary.skipped)</p>
+<h2>Summary</h2><p>Authoritative run result: <strong>$(ConvertTo-HtmlText $(if ($model.runResult) { "$($model.runResult.status) / $($model.runResult.classification)" } else { 'missing' }))</strong>$(if ($model.runResult -and $model.runResult.reason) { " — $(ConvertTo-HtmlText $model.runResult.reason)" })<br>Total: $($index.summary.total); Pass: $($index.summary.pass); Fail: $($index.summary.fail); Skipped: $($index.summary.skipped)</p>
 <h2>Capabilities</h2><table><thead><tr><th>Capability</th><th>Status</th><th>Interface</th><th>Tier</th><th>Duration (ms)</th><th>Reason</th></tr></thead><tbody>$($rows -join [Environment]::NewLine)</tbody></table>
 <h2>Failure Summary</h2><ul>$(if ($failureItems.Count -eq 0) { '<li>No failures recorded.</li>' } else { $failureItems -join [Environment]::NewLine })$($crashItems -join [Environment]::NewLine)</ul>
 <h2>Performance Summary</h2><ul>$(if ($performanceItems.Count -eq 0) { '<li>No performance comparison was recorded.</li>' } else { $performanceItems -join [Environment]::NewLine })</ul>
@@ -308,6 +315,7 @@ function Test-RunReportFidelity {
     param([Parameter(Mandatory)] [pscustomobject] $RunContext)
 
     $expected = Get-RunEnvelopeVerdicts -RunContext $RunContext
+    $index = Get-Content -LiteralPath $RunContext.IndexPath -Raw | ConvertFrom-Json
     New-JsonRunReport -RunContext $RunContext | Out-Null
     New-MarkdownRunReport -RunContext $RunContext | Out-Null
     New-HtmlRunReport -RunContext $RunContext | Out-Null
@@ -327,6 +335,20 @@ function Test-RunReportFidelity {
         if ($secondProjection -cne $firstProjection[$name]) { $errors.Add("$name is not deterministic when regenerated from the unchanged run tree") }
     }
     $json = Get-Content -Raw (Join-Path $RunContext.RunPath 'report.json') | ConvertFrom-Json
+    if ($null -eq $json.index.runResult) { $errors.Add('JSON report omitted the authoritative run result') }
+    elseif ([string]$json.index.runResult.runId -ne [string]$RunContext.RunId -or [string]$json.index.runResult.invocationId -ne [string]$RunContext.InvocationId) { $errors.Add('JSON report changed the authoritative run identity') }
+    $persistedRunResult = $index.runResult
+    if ($null -eq $persistedRunResult) { $errors.Add('Selected run has no authoritative run-result.json') }
+    elseif (@($persistedRunResult.capabilities).Count -ne @($index.capabilities).Count) { $errors.Add('Top-level run result capability count disagrees with index') }
+    if ($persistedRunResult) {
+        foreach ($capability in @($index.capabilities)) {
+            $runCapability = @($persistedRunResult.capabilities | Where-Object { $_.capabilityId -eq $capability.capabilityId })
+            if ($runCapability.Count -ne 1) { $errors.Add("Top-level run result omitted or duplicated '$($capability.capabilityId)'"); continue }
+            if ($runCapability[0].status -ne $capability.status -or $runCapability[0].classification -ne $capability.classification -or [string]$runCapability[0].reason -cne [string]$capability.reason) {
+                $errors.Add("Top-level run result changed '$($capability.capabilityId)' relative to its envelope")
+            }
+        }
+    }
     $actual = @{}
     foreach ($cap in @($json.index.capabilities)) { $actual[$cap.capabilityId] = [pscustomobject]@{ status = $cap.status; reason = $cap.reason } }
     if ($actual.Count -ne $expected.Count) { $errors.Add("JSON report has $($actual.Count) capability verdicts; envelopes have $($expected.Count)") }

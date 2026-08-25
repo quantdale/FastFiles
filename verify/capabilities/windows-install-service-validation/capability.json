@@ -2,6 +2,7 @@
   "id": "windows-install-service-validation",
   "interfaceVersion": "1.0.0",
   "tier": 1,
+  "timeoutSeconds": 1800,
   "displayName": "Windows Install And Service Validation",
   "description": "Drives install, upgrade, repair, uninstall, integrity, SCM lifecycle, recovery, and lifecycle-log validation with unconditional teardown.",
   "entryModule": "InstallService.psm1",

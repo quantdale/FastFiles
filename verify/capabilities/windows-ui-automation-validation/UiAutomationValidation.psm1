@@ -29,10 +29,11 @@ $script:UiaDiagnosticExeRel = 'build\debug-diagnostic\src\ui\FastFiles.exe'
 try { Import-Module (Join-Path $PSScriptRoot 'UiAutomationWin32.psm1') -ErrorAction SilentlyContinue } catch { }
 
 function New-UiaVSubResult {
-    param([string] $Id, [string] $Status, [string] $Reason, [double] $DurationMs, [string] $Detail, [array] $Diagnostics = @())
+    param([string] $Id, [string] $Status, [string] $Reason, [double] $DurationMs, [string] $Detail, [array] $Diagnostics = @(), [string] $LifecycleMode = 'unknown', [object] $Cleanup = $null)
     [pscustomobject]@{
         id = $Id; tier = 2; status = $Status; reason = $Reason; requiredContext = $null
         durationMs = [math]::Round($DurationMs, 0); detail = $Detail; diagnostics = @($Diagnostics)
+        lifecycleMode = $LifecycleMode; cleanup = $Cleanup
     }
 }
 
@@ -186,10 +187,18 @@ function Get-UiaMainWindowElement {
     $main = $null
     for ($attempt = 0; $attempt -lt 3 -and -not $main; $attempt++) {
         try {
-            $found = @(Find-UiaElement -Driver $Driver -ClassName 'FastFilesMainWindow' -TimeoutMs 4000 -All)
-            foreach ($el in $found) {
-                $pid2 = Get-UiaElementProperty -Driver $Driver -Element $el -Name 'ProcessId'
-                if ([int]$pid2 -eq $ProcessId) { $main = $el; break }
+            # Main windows are direct children of the desktop UIA root. Do not
+            # use Find-UiaElement here: even with a ProcessId criterion it is
+            # a recursive DFS and callers invoke this function while polling
+            # dynamic fragment replacement. A direct root walk is bounded to
+            # top-level windows and preserves exact class/PID ownership.
+            $root = Get-UiaRootElement -Driver $Driver
+            foreach ($el in @(Get-UiaChildren -Driver $Driver -Element $root)) {
+                $identity = Get-UiaElementIdentity -Driver $Driver -Element $el
+                if ($identity.ClassName -eq 'FastFilesMainWindow' -and [int]$identity.ProcessId -eq $ProcessId) {
+                    $main = $el
+                    break
+                }
             }
         } catch { Start-Sleep -Milliseconds 500 }
     }
@@ -790,27 +799,74 @@ function Open-UiaSearchPanel {
 }
 
 function Get-UiaTabCount {
-    param($Driver, $Main)
+    param($Driver, $Main, [int] $ProcessId = 0)
     try {
-        $btns = @(Find-UiaElement -Driver $Driver -ClassName 'Button' -FromElement $Main -TimeoutMs 3000 -All)
-        return @($btns | Where-Object { $_.Current.AutomationId -match '^830' }).Count
+        if ($ProcessId -gt 0) {
+            $liveMain = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+            if ($liveMain) { $Main = $liveMain }
+        }
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            if ($identity.ClassName -ne 'FastFilesNavigationChrome') { continue }
+            $buttons = @(Get-UiaChildren -Driver $Driver -Element $child | Where-Object {
+                (Get-UiaElementIdentity -Driver $Driver -Element $_).AutomationId -match '^830' })
+            return $buttons.Count
+        }
+        return -1
     } catch { return -1 }
 }
 
+function Find-UiaNavigationButton {
+    param($Driver, $Main, [string] $AutomationId, [int] $ProcessId = 0)
+    try {
+        if ($ProcessId -gt 0) {
+            $liveMain = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+            if ($liveMain) { $Main = $liveMain }
+        }
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            if ($identity.ClassName -ne 'FastFilesNavigationChrome') { continue }
+            foreach ($button in @(Get-UiaChildren -Driver $Driver -Element $child)) {
+                if ((Get-UiaElementIdentity -Driver $Driver -Element $button).AutomationId -eq $AutomationId) {
+                    return $button
+                }
+            }
+        }
+    } catch { }
+    return $null
+}
+
 function Invoke-UiaMouseTabOperation {
-    param($Driver, $Main)
+    param($Driver, $Main, [int] $ProcessId)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $before = Get-UiaTabCount -Driver $Driver -Main $Main
-    $plus = $null
-    try { $plus = Find-UiaElement -Driver $Driver -AutomationId '8204' -FromElement $Main -TimeoutMs 3000 } catch { }
+    try {
+        $liveMain = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+        if ($liveMain) { $Main = $liveMain }
+    } catch { }
+    if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+        $null = Set-UiaForeground -Driver $Driver -Element $Main
+        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+            return [pscustomobject]@{ Pass = $false; Status = 'SKIPPED'; Reason = 'interactive-foreground-unavailable'; Detail = 'FastFiles foreground could not be established for the + button input; no downstream tab assertion was attempted'; DurationMs = $sw.Elapsed.TotalMilliseconds }
+        }
+    }
+    $before = Get-UiaTabCount -Driver $Driver -Main $Main -ProcessId $ProcessId
+    if ($before -lt 0) { return [pscustomobject]@{ Pass = $false; Detail = "tab count could not be read before + click ($before)"; DurationMs = $sw.Elapsed.TotalMilliseconds } }
+    $plus = Find-UiaNavigationButton -Driver $Driver -Main $Main -AutomationId '8204' -ProcessId $ProcessId
     if (-not $plus) { return [pscustomobject]@{ Pass = $false; Detail = '+ (new tab) button not found'; DurationMs = $sw.Elapsed.TotalMilliseconds } }
     $c = Get-UiaElementCenter -Driver $Driver -Element $plus
     if (-not $c) { return [pscustomobject]@{ Pass = $false; Detail = '+ button has no usable geometry'; DurationMs = $sw.Elapsed.TotalMilliseconds } }
-    $null = Send-UiaMouseInput -Driver $Driver -X $c.x -Y $c.y -Button 'Left' -Action 'Click'
-    Start-Sleep -Milliseconds 900
-    $after = Get-UiaTabCount -Driver $Driver -Main $Main
+    try { $null = Send-UiaMouseInput -Driver $Driver -X $c.x -Y $c.y -Button 'Left' -Action 'Click' } catch { return [pscustomobject]@{ Pass = $false; Detail = "+ button input failed: $($_.Exception.Message)"; DurationMs = $sw.Elapsed.TotalMilliseconds } }
+    $created = Wait-UiaCondition -Driver $Driver -TimeoutMs 5000 -PollIntervalMs 100 -Description 'new tab after + click' -ScriptBlock {
+        try {
+            $currentMain = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+            if (-not $currentMain) { return $false }
+            return (Get-UiaTabCount -Driver $Driver -Main $currentMain -ProcessId $ProcessId) -eq ($before + 1)
+        } catch { return $false }
+    }
+    $liveAfter = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+    $after = if ($liveAfter) { Get-UiaTabCount -Driver $Driver -Main $liveAfter -ProcessId $ProcessId } else { -1 }
     $sw.Stop()
-    if ($after -eq $before + 1) {
+    if ($created -and $after -eq $before + 1) {
         return [pscustomobject]@{ Pass = $true; Detail = "mouse click on + created tab ($before -> $after)"; DurationMs = $sw.Elapsed.TotalMilliseconds }
     }
     return [pscustomobject]@{ Pass = $false; Detail = "mouse click on + did not create tab ($before -> $after)"; DurationMs = $sw.Elapsed.TotalMilliseconds }
@@ -930,8 +986,12 @@ function Test-UiaEngineServingData {
 # ColumnView -> pane -> columns) so stale providers and slow chrome/sidebar
 # subtrees cannot stall the search.
 function Get-UiaColumnViewPane {
-    param($Driver, $Main, [string] $PaneId = 'Pane.0')
+    param($Driver, $Main, [string] $PaneId = 'Pane.0', [int] $ProcessId = 0)
     try {
+        if ($ProcessId -gt 0) {
+            $liveMain = Get-UiaMainWindowElement -Driver $Driver -ProcessId $ProcessId
+            if ($liveMain) { $Main = $liveMain }
+        }
         foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
             if ((Get-UiaElementIdentity -Driver $Driver -Element $child).AutomationId -eq 'ColumnView') {
                 foreach ($pane in @(Get-UiaChildren -Driver $Driver -Element $child)) {
@@ -943,6 +1003,27 @@ function Get-UiaColumnViewPane {
         }
     } catch { }
     return $null
+}
+
+# interactive-ui-runtime-determinism: the column fragment is rebuilt after
+# navigation and pane changes. Return only direct List children from a freshly
+# resolved pane; callers must poll this helper rather than recursively walking
+# a cached ColumnView root.
+function Get-UiaColumnListElements {
+    param($Driver, $Main, [string] $PaneId = 'Pane.0', [int] $ProcessId = 0)
+    try {
+        $pane = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId -ProcessId $ProcessId
+        if (-not $pane) { return @() }
+        $lists = @()
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $pane)) {
+            if ((Get-UiaElementIdentity -Driver $Driver -Element $child).ControlType -eq 'List') {
+                $lists += $child
+            }
+        }
+        return @($lists)
+    } catch {
+        return @()
+    }
 }
 
 # interactive-ui-runtime-determinism: enumerate the live ColumnView fragment
@@ -1018,14 +1099,11 @@ function Get-UiaPaneGeometrySignature {
 }
 
 function Find-UiaTerminalColumnItem {
-    param($Driver, $Main, [string] $Name, [string] $PaneId = 'Pane.0', [int] $TimeoutMs = 15000, [scriptblock] $OnTimeout = $null)
+    param($Driver, $Main, [int] $ProcessId = 0, [string] $Name, [string] $PaneId = 'Pane.0', [int] $TimeoutMs = 15000, [scriptblock] $OnTimeout = $null)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
         try {
-            $pane = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId
-            if (-not $pane) { Start-Sleep -Milliseconds 300; continue }
-            $columns = @(Get-UiaChildren -Driver $Driver -Element $pane | Where-Object {
-                (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'List' })
+            $columns = @(Get-UiaColumnListElements -Driver $Driver -Main $Main -PaneId $PaneId -ProcessId $ProcessId)
             if ($columns.Count -gt 0) {
                 $column = $columns[$columns.Count - 1]
                 # ItemContainer lookup is the semantic fast path.
@@ -1265,16 +1343,17 @@ function Position-UiaExplorerBesideFastFiles {
 # returns a context object. Teardown closes session-owned Explorer windows,
 # terminates the app, and removes only the marked session tree.
 function New-UiaSessionSandbox {
-    param([Parameter(Mandatory)] [string] $ScenarioId)
+    param([Parameter(Mandatory)] [string] $ScenarioId, [string] $InvocationId = 'unbound')
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     $safeId = $ScenarioId -replace '[^A-Za-z0-9-]', '-'
-    $sessionRoot = Join-Path $tempRoot ("FastFiles-Uia-$safeId-" + [guid]::NewGuid().ToString('N'))
+    $safeInvocation = ([string]$InvocationId) -replace '[^A-Za-z0-9-]', '-'
+    $sessionRoot = Join-Path $tempRoot ("FastFiles-Uia-$safeId-$safeInvocation-" + [guid]::NewGuid().ToString('N'))
     $localAppData = Join-Path $sessionRoot 'LocalAppData'
     $appData = Join-Path $sessionRoot 'AppData'
     $fixtureRoot = Join-Path $sessionRoot 'Fixtures'
     New-Item -ItemType Directory -Path $localAppData, $appData, $fixtureRoot -Force | Out-Null
     $marker = Join-Path $sessionRoot '.fastfiles-uia-session'
-    Set-Content -LiteralPath $marker -Value 'FastFiles UIA disposable session' -Encoding utf8NoBOM
+    Set-Content -LiteralPath $marker -Value ("FastFiles UIA disposable session; invocation=$InvocationId; scenario=$ScenarioId") -Encoding utf8NoBOM
     [pscustomobject]@{
         SessionRoot = $sessionRoot
         MarkerPath = $marker
@@ -1284,6 +1363,7 @@ function New-UiaSessionSandbox {
             APPDATA = $appData
             FASTFILES_UIA_FIXTURE_ROOT = $fixtureRoot
             FASTFILES_UIA_DIAGNOSTICS = '1'
+            FASTFILES_UIA_INVOCATION_ID = [string]$InvocationId
         }
     }
 }
@@ -1300,13 +1380,13 @@ function Wait-UiaMainWindow {
 }
 
 function New-UiaScenarioContext {
-    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn)
+    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn, [string] $InvocationId = 'unbound')
     # Snapshot before launch. Existing repo-build processes are evidence, not
     # implicit cleanup targets: the engine is intentionally persistent and a
     # same-name process may belong to another test or installation.
     $beforeProcesses = @(Get-UiaRepoProcessSnapshot -RepoRoot $RepoRoot)
     $pipeBefore = Test-UiaEnginePipePresent
-    $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId
+    $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId -InvocationId $InvocationId
     $script:UiaActiveLocalAppData = Join-Path $sandbox.SessionRoot 'LocalAppData'
     $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
     if (-not $launched) {
@@ -1368,7 +1448,7 @@ function New-UiaScenarioContext {
     }
     & $LogFn "[$ScenarioId] main=$($null -ne $main) ready=$ready ($readyReason)"
     return [pscustomobject]@{
-        ScenarioId = $ScenarioId; Exe = $Exe; RepoRoot = $RepoRoot
+        ScenarioId = $ScenarioId; InvocationId = $InvocationId; Exe = $Exe; RepoRoot = $RepoRoot
         Driver = $driver; Main = $main; Launched = $launched; LaunchedIdentity = $launchedIdentity
         Ready = $ready; ReadyReason = $readyReason
         ProcessBaseline = @($beforeProcesses)
@@ -1394,7 +1474,13 @@ function Remove-UiaScenarioContext {
         $leaf = Split-Path $fixture -Leaf
         if (-not $leaf) { continue }
         try {
-            $leftovers = @(Find-UiaElement -Driver $Context.Driver -ClassName 'CabinetWClass' -TimeoutMs 4000 -All)
+            # Explorer windows are top-level root children. A recursive
+            # desktop `FindAll` during teardown can retain unrelated shell
+            # fragments and can itself fail while a window is closing.
+            $root = Get-UiaRootElement -Driver $Context.Driver
+            $leftovers = @(Get-UiaChildren -Driver $Context.Driver -Element $root | Where-Object {
+                (Get-UiaElementIdentity -Driver $Context.Driver -Element $_).ClassName -eq 'CabinetWClass'
+            })
             foreach ($lo in $leftovers) {
                 $loName = (Get-UiaElementIdentity -Driver $Context.Driver -Element $lo).Name
                 if ($loName -like "*$leaf*") {
@@ -3459,7 +3545,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
 # retries a failed scenario or overwrites the failed attempt's evidence.
 function Invoke-UiaScenarioWithRetry {
     param([string] $ScenarioId, [scriptblock] $Runner, [string] $Exe, [string] $RepoRoot,
-        [string] $ArtifactsDir, $LogFn, [ref] $Artifacts, [int] $MaxRetries = 0)
+        [string] $ArtifactsDir, $LogFn, [ref] $Artifacts, [int] $MaxRetries = 0, [string] $InvocationId = 'unbound')
     $lastFail = $null
     $lastError = $null
     $lastDetail = $null
@@ -3467,7 +3553,7 @@ function Invoke-UiaScenarioWithRetry {
         & $LogFn "[$ScenarioId] attempt $attempt of $(1 + $MaxRetries)"
         $attemptDir = Join-Path $ArtifactsDir (Join-Path $ScenarioId ("attempt-{0:D2}" -f $attempt))
         New-Item -ItemType Directory -Path $attemptDir -Force | Out-Null
-        $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId "$ScenarioId#attempt$attempt" -LogFn $LogFn
+        $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId "$ScenarioId#attempt$attempt" -LogFn $LogFn -InvocationId $InvocationId
         $result = $null
         try {
             if (-not $ctx -or -not $ctx.Main) {
@@ -3670,30 +3756,93 @@ $script:UiaScenarioRegistry = @{
     'collect-evidence'                         = @{ Group = 'core';    Isolated = $false }
 }
 
+# The shared runner is intentionally a stateful session, so its source order
+# is the authoritative execution order for non-isolated scenarios. Keep this
+# list explicit instead of deriving order from a hashtable (whose enumeration
+# order is not a contract).
+$script:UiaSharedScenarioOrder = @(
+    'launch-main-window',
+    'settings-dialog-structure',
+    'settings-dialog-close',
+    'in-column-error-state',
+    'keyboard-address-bar-navigation',
+    'column-populated-and-selected-item-in-tree',
+    'mouse-tab-operation',
+    'selection-and-scroll-patterns',
+    'scroll-pattern-real-viewport',
+    'home-surface-structure',
+    'storage-analysis-open',
+    'connection-badge-degraded',
+    'storage-mid-scan-calculating',
+    'search-panel-open',
+    'search-results-discoverable',
+    'search-structured-filter-query',
+    'search-toggle-service-while-open',
+    'ui-responsive',
+    'rendering-geometry-click-precision'
+)
+
 function Resolve-UiaScenarioSelection {
     param([hashtable] $Options)    $all = @($script:UiaScenarioRegistry.Keys | Sort-Object)
     $filter = $null
     if ($Options.UiaScenario) { $filter = [string]$Options.UiaScenario }
-    if (-not $filter) { return @{ Ids = $all; Filter = $null } }
-    if ($filter -eq 'all') { return @{ Ids = $all; Filter = $filter } }
-    if ($filter -eq 'isolated') {
-        return @{ Ids = @($all | Where-Object { $script:UiaScenarioRegistry[$_].Isolated }); Filter = $filter }
+    if (-not $filter) { $selected = $all; $filter = $null }
+    elseif ($filter -eq 'all') { $selected = $all }
+    elseif ($filter -eq 'isolated') {
+        $selected = @($all | Where-Object { $script:UiaScenarioRegistry[$_].Isolated })
     }
-    if ($script:UiaScenarioRegistry.ContainsKey($filter)) {
-        return @{ Ids = @($filter); Filter = $filter }
+    elseif ($script:UiaScenarioRegistry.ContainsKey($filter)) {
+        $selected = @($filter)
     }
-    $groups = @($script:UiaScenarioRegistry.Values | ForEach-Object { $_.Group } | Sort-Object -Unique)
-    if ($filter -in $groups) {
-        return @{ Ids = @($all | Where-Object { $script:UiaScenarioRegistry[$_].Group -eq $filter }); Filter = $filter }
+    else {
+        $groups = @($script:UiaScenarioRegistry.Values | ForEach-Object { $_.Group } | Sort-Object -Unique)
+        if ($filter -in $groups) { $selected = @($all | Where-Object { $script:UiaScenarioRegistry[$_].Group -eq $filter }) }
+        else { throw "Unknown -CapabilityOption UiaScenario '$filter'. Valid scenario ids: $($all -join ', '). Valid groups: $($groups -join ', '), all, isolated." }
     }
-    throw "Unknown -CapabilityOption UiaScenario '$filter'. Valid scenario ids: $($all -join ', '). Valid groups: $($groups -join ', '), all, isolated."
+    if (@($selected | Select-Object -Unique).Count -ne @($selected).Count) { throw "UIA scenario selection '$filter' contains duplicate scenario IDs." }
+    $seed = 0
+    if ($Options.UiaSeed) {
+        try { $seed = [int]$Options.UiaSeed } catch { throw "Invalid -CapabilityOption UiaSeed '$($Options.UiaSeed)'; expected a signed 32-bit integer." }
+    }
+    if ($seed -ne 0 -and @($selected).Count -gt 1) {
+        $random = [System.Random]::new($seed)
+        for ($i = @($selected).Count - 1; $i -gt 0; $i--) {
+            $j = $random.Next($i + 1)
+            $tmp = $selected[$i]; $selected[$i] = $selected[$j]; $selected[$j] = $tmp
+        }
+    }
+    return @{ Ids = @($selected); Filter = $filter; Seed = $seed; Order = @($selected) }
+}
+
+function Resolve-UiaExecutionOrder {
+    param([string[]] $SelectedIds)
+    $selected = @($SelectedIds)
+    $order = [System.Collections.Generic.List[string]]::new()
+    foreach ($id in @($script:UiaSharedScenarioOrder)) {
+        if ($selected -contains $id) { $order.Add($id) }
+    }
+    # Isolated lifecycles execute in the already-resolved seeded order, after
+    # the shared session. Evidence collection is a final harness action.
+    foreach ($id in $selected) {
+        if ($script:UiaScenarioRegistry[$id].Isolated) { $order.Add($id) }
+    }
+    $order.Add('collect-evidence')
+    return @($order)
 }
 
 # The shared-session scenarios (everything that is not isolated). They share
 # one FastFiles lifecycle because sharing state is part of what they test
 # (settings, home, storage panels, selection/scroll on a navigated column).
+function Test-UiaScenarioSelected {
+    param([string[]] $SelectedIds, [string[]] $ScenarioIds)
+    foreach ($scenarioId in @($ScenarioIds)) {
+        if ($SelectedIds -contains $scenarioId) { return $true }
+    }
+    return $false
+}
+
 function Invoke-UiaSharedSessionScenarios {
-    param($Context, [string] $ArtifactsDir, $LogFn, [ref] $SubResults, [ref] $Artifacts)
+    param($Context, [string] $ArtifactsDir, $LogFn, [ref] $SubResults, [ref] $Artifacts, [string[]] $SelectedIds)
     $driver = $Context.Driver
     $main = $Context.Main
     $launched = $Context.Launched
@@ -3711,8 +3860,12 @@ function Invoke-UiaSharedSessionScenarios {
     $launchEvidence = Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.1-launch'
     $Artifacts.Value += $launchEvidence
     & $LogFn "3.1 main window title='$title' chrome=$($null -ne $chrome)"
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'launch-main-window' -Status ($(if ($launchPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($launchPass) { $null } else { 'launch-state-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "title='$title'; chrome present; evidence 3.1-launch.*"))
+    if (-not $launchPass) { throw "shared UIA launch precondition failed: title='$title'; chrome present=$($null -ne $chrome)" }
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('launch-main-window')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'launch-main-window' -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "title='$title'; chrome present; evidence 3.1-launch.*"))
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('settings-dialog-structure', 'settings-dialog-close')) {
     # Scenario 3.5 part 1 - settings dialog structure (unchanged).
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $dialogDetail = 'no settings dialog'
@@ -3728,13 +3881,21 @@ function Invoke-UiaSharedSessionScenarios {
         $dialogDetail = "dialog present; tab=$hasTab OK=$hasOk Cancel=$hasCancel"
     } catch { $dialogDetail = "settings dialog search failed: $($_.Exception.Message)" }
     $sw.Stop()
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-structure' -Status ($(if ($dialogPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($dialogPass) { $null } else { 'dialog-structure-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $dialogDetail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('settings-dialog-structure')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-structure' -Status ($(if ($dialogPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($dialogPass) { $null } else { 'dialog-structure-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $dialogDetail))
+    }
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $close = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $main -ProcessId $launched.Id -ArtifactsDir $ArtifactsDir
     $sw.Stop()
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-close' -Status ($(if ($close.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($close.Pass) { $null } else { 'settings-dialog-did-not-close' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $close.Detail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('settings-dialog-close')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-close' -Status ($(if ($close.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($close.Pass) { $null } else { 'settings-dialog-did-not-close' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $close.Detail))
+    } elseif (-not $close.Pass) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-close-cleanup' -Status 'FAIL' -Reason 'settings-dialog-did-not-close' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $close.Detail -LifecycleMode 'cleanup'))
+    }
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('in-column-error-state')) {
     # Scenario 3.5 - in-column error state, early phase: the columns
     # created before the engine marked Unavailable carry the error
     # wording on an engine-less host. When the engine is connected, the
@@ -3769,10 +3930,13 @@ function Invoke-UiaSharedSessionScenarios {
         } else { $earlyErrorDetail }
     }
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'in-column-error-state' -Status $earlyErrorStatus -Reason $earlyErrorReason -DurationMs 0 -Detail $earlyErrorDetail))
+    }
 
     # Scenario 3.2 - keyboard address-bar navigation into a scratch folder.
     # The fixture lives under the marked per-session sandbox, isolated from the
     # real user profile and inherited by the child UI/engine only as a test path.
+    $needsScratch = Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('keyboard-address-bar-navigation', 'column-populated-and-selected-item-in-tree', 'selection-and-scroll-patterns', 'scroll-pattern-real-viewport')
+    if ($needsScratch) {
     $scratch = Join-Path $Context.FixtureRoot ('ffui-e2e-' + (Get-Random))
     $folder = Join-Path $scratch 'SubFolder'
     New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -3785,8 +3949,11 @@ function Invoke-UiaSharedSessionScenarios {
     $sw.Stop()
     & $LogFn "3.2 address-bar navigation pass=$($nav.Pass) detail=$($nav.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-keyboard-navigation'
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('keyboard-address-bar-navigation')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('column-populated-and-selected-item-in-tree')) {
     # Scenario 3.2 - column items are discoverable + selected item
     # reflected. The provider structure is asserted unconditionally; item
     # presence needs engine-served data.
@@ -3795,16 +3962,20 @@ function Invoke-UiaSharedSessionScenarios {
     $itemReason = 'column-items-unexpected'
     $itemDetail = 'no column item found'
     try {
-        $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
-        if (-not $group) { throw 'ColumnView group not found' }
-        $pane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
-        if (-not $pane) { throw 'Pane.0 not found' }
-        $columns = @(Find-UiaElement -Driver $driver -ControlType 'List' -FromElement $pane -TimeoutMs 3000 -All)
-        if ($columns.Count -eq 0) { throw 'no column elements found' }
+        $columnState = [pscustomobject]@{ Items = @() }
+        $columnsReady = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 150 `
+            -Description 'live column list children after navigation' -ScriptBlock {
+            $candidate = @(Get-UiaColumnListElements -Driver $driver -Main $main -PaneId 'Pane.0' -ProcessId $launched.Id)
+            if ($candidate.Count -eq 0) { return $false }
+            $columnState.Items = $candidate
+            return $true
+        }
+        $columns = @($columnState.Items)
+        if (-not $columnsReady -or $columns.Count -eq 0) { throw 'no live column elements found' }
         # Wait for the actual fixture row, not merely a cached "engine served"
         # observation. This closes the startup race where degraded enumeration
         # publishes its first snapshot after the column structure appears.
-        $subItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'SubFolder' -PaneId 'Pane.0' -TimeoutMs 20000
+        $subItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $launched.Id -Name 'SubFolder' -PaneId 'Pane.0' -TimeoutMs 20000
         if (-not $subItem) {
             if (-not $Context.Ready) {
                 $itemStatus = 'SKIPPED'
@@ -3825,14 +3996,25 @@ function Invoke-UiaSharedSessionScenarios {
     } catch { $itemDetail = "column item scenario failed: $($_.Exception.Message)" }
     $sw.Stop()
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-column-items'
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'column-populated-and-selected-item-in-tree' -Status $itemStatus -Reason $itemReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $itemDetail -Diagnostics @('3.2-column-items.tree.txt')))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('column-populated-and-selected-item-in-tree')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'column-populated-and-selected-item-in-tree' -Status $itemStatus -Reason $itemReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $itemDetail -Diagnostics @('3.2-column-items.tree.txt')))
+    }
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('mouse-tab-operation')) {
     # Scenario 3.2 - mouse: new tab via + then switch back (unchanged).
-    $mouse = Invoke-UiaMouseTabOperation -Driver $driver -Main $main
+    $mouse = Invoke-UiaMouseTabOperation -Driver $driver -Main $main -ProcessId $launched.Id
     & $LogFn "3.2 mouse tab pass=$($mouse.Pass) detail=$($mouse.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-mouse-tab'
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'mouse-tab-operation' -Status ($(if ($mouse.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($mouse.Pass) { $null } else { 'mouse-tab-failed' })) -DurationMs $mouse.DurationMs -Detail $mouse.Detail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('mouse-tab-operation')) {
+        $mouseStatus = if ($mouse.Status) { [string]$mouse.Status } elseif ($mouse.Pass) { 'PASS' } else { 'FAIL' }
+        $mouseReason = if ($mouse.Reason) { [string]$mouse.Reason } elseif ($mouse.Pass) { $null } else { 'mouse-tab-failed' }
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'mouse-tab-operation' -Status $mouseStatus -Reason $mouseReason -DurationMs $mouse.DurationMs -Detail $mouse.Detail))
+    }
+    }
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('selection-and-scroll-patterns')) {
     # Scenario 3.3 - selection + scroll via UIA patterns.
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $selStatus = 'FAIL'
@@ -3941,7 +4123,9 @@ function Invoke-UiaSharedSessionScenarios {
     $sw.Stop()
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.3-selection-scroll'
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'selection-and-scroll-patterns' -Status $selStatus -Reason $selReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $selDetail))
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('scroll-pattern-real-viewport')) {
     # Scenario 3.3 - scroll pattern drives the real viewport.
     $scrollStatus = 'FAIL'
     $scrollReason = 'scroll-unexpected'
@@ -3972,17 +4156,32 @@ function Invoke-UiaSharedSessionScenarios {
         }
     } catch { $scrollDetail = "scroll scenario failed: $($_.Exception.Message)" }
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'scroll-pattern-real-viewport' -Status $scrollStatus -Reason $scrollReason -DurationMs 0 -Detail $scrollDetail))
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('home-surface-structure')) {
     # Scenario 3.x - Home / Quick Access surface (semantic-uia-core-surfaces).
     $homeStatus = 'FAIL'
     $homeReason = 'home-surface-unexpected'
     $homeDetail = 'Home surface not verifiable'
     try {
-        $null = Set-UiaForeground -Driver $driver -Element $main
-        Start-Sleep -Milliseconds 300
+        $homeMain = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+        if (-not $homeMain) { throw 'live main window unavailable before Home navigation' }
+        $main = $homeMain
+        $null = Set-UiaForeground -Driver $driver -Element $homeMain
         $null = Send-UiaInput -Driver $driver -Keys '{ALT}{HOME}'
-        Start-Sleep -Seconds 1
-        $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 3000
+        $homeReady = Wait-UiaCondition -Driver $driver -TimeoutMs 5000 -PollIntervalMs 100 -Description 'Home semantic surface' -ScriptBlock {
+            try {
+                $currentMain = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+                if (-not $currentMain) { return $false }
+                $currentGroup = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $currentMain -TimeoutMs 500
+                $currentPane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $currentGroup -TimeoutMs 500
+                return $null -ne (Find-UiaElement -Driver $driver -AutomationId 'Pane.0.Home' -FromElement $currentPane -TimeoutMs 500)
+            } catch { return $false }
+        }
+        if (-not $homeReady) { throw 'Home semantic surface did not become ready after Alt+Home' }
+        $homeMain = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+        $main = $homeMain
+        $group = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $homeMain -TimeoutMs 3000
         $pane = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
         $homeEl = Find-UiaElement -Driver $driver -AutomationId 'Pane.0.Home' -FromElement $pane -TimeoutMs 3000
         if (-not $homeEl) { throw 'Home group not found after Alt+Home' }
@@ -3995,7 +4194,9 @@ function Invoke-UiaSharedSessionScenarios {
         $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.x-home-surface'
     } catch { $homeDetail = "Home scenario failed: $($_.Exception.Message)" }
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'home-surface-structure' -Status $homeStatus -Reason $homeReason -DurationMs 0 -Detail $homeDetail))
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('storage-analysis-open', 'connection-badge-degraded', 'storage-mid-scan-calculating')) {
     # Scenario 3.10 - storage analysis via palette (unchanged semantics).
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' `
@@ -4036,12 +4237,20 @@ function Invoke-UiaSharedSessionScenarios {
     }
     & $LogFn "3.10 storage pass=$($sa.Pass) detail=$($sa.Detail) degraded=$degradedVisible"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.10-storage-analysis'
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-analysis-open' -Status ($(if ($sa.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sa.Pass) { $null } else { 'storage-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sa.Detail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('storage-analysis-open')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-analysis-open' -Status ($(if ($sa.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sa.Pass) { $null } else { 'storage-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sa.Detail))
+    }
     $badgeStatus = if ($degradedVisible) { 'PASS' } else { 'SKIPPED' }
     $badgeReason = if ($degradedVisible) { $null } else { 'connected-state-observed' }
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail 'Connection badge state recorded: degraded text visible via UIA iff the engine did not connect to the running service.'))
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'No authenticated privileged MFT/USN scan is available in this session (service unavailable or mutual authentication failed); the mid-scan "Calculating..." path cannot be exercised'))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('connection-badge-degraded')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail 'Connection badge state recorded: degraded text visible via UIA iff the engine did not connect to the running service.'))
+    }
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('storage-mid-scan-calculating')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'No authenticated privileged MFT/USN scan is available in this session (service unavailable or mutual authentication failed); the mid-scan "Calculating..." path cannot be exercised'))
+    }
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-panel-open', 'search-results-discoverable', 'search-structured-filter-query', 'search-toggle-service-while-open')) {
     # Scenario 3.11 - search: open the panel, verify result discovery and the
     # structured filter. (Deep-result activation runs as the isolated
     # search-deep-result-navigation scenario.)
@@ -4052,7 +4261,9 @@ function Invoke-UiaSharedSessionScenarios {
     $sw.Stop()
     & $LogFn "3.11 search pass=$($sp.Pass) detail=$($sp.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-search-panel'
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-panel-open' -Status ($(if ($sp.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sp.Pass) { $null } else { 'search-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-panel-open')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-panel-open' -Status ($(if ($sp.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sp.Pass) { $null } else { 'search-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail))
+    }
 
     $searchStatus = 'FAIL'
     $searchReason = 'search-results-unexpected'
@@ -4080,7 +4291,9 @@ function Invoke-UiaSharedSessionScenarios {
             $searchDetail = "Search.Results exposes result 'alpha.txt'"
         }
     } catch { $searchDetail = "search scenario failed: $($_.Exception.Message)" }
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-results-discoverable' -Status $searchStatus -Reason $searchReason -DurationMs 0 -Detail $searchDetail))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-results-discoverable' -Status $searchStatus -Reason $searchReason -DurationMs 0 -Detail $searchDetail))
+    }
 
     # Scenario 3.11 - structured-filter query (ext:txt).
     $filterStatus = 'FAIL'
@@ -4111,9 +4324,15 @@ function Invoke-UiaSharedSessionScenarios {
             $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-structured-filter'
         }
     } catch { $filterDetail = "structured filter failed: $($_.Exception.Message)" }
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-structured-filter-query' -Status $filterStatus -Reason $filterReason -DurationMs 0 -Detail $filterDetail -Diagnostics @('3.11-structured-filter.tree.txt')))
-    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'The privileged path is unverified in this development tree (placeholder signature pins), so the engine treats the service as unavailable; toggling service availability while search is open cannot be meaningfully exercised'))
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-structured-filter-query')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-structured-filter-query' -Status $filterStatus -Reason $filterReason -DurationMs 0 -Detail $filterDetail -Diagnostics @('3.11-structured-filter.tree.txt')))
+    }
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-toggle-service-while-open')) {
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'The privileged path is unverified in this development tree (placeholder signature pins), so the engine treats the service as unavailable; toggling service availability while search is open cannot be meaningfully exercised'))
+    }
+    }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('ui-responsive')) {
     # Scenario 3.5 part 3 - UI remains responsive.
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $respProbe = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' `
@@ -4121,8 +4340,10 @@ function Invoke-UiaSharedSessionScenarios {
     $sw.Stop()
     $respPass = $respProbe.Pass
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'ui-responsive' -Status ($(if ($respPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($respPass) { $null } else { 'ui-unresponsive' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'After opening/closing dialogs and panels, palette shortcut still dispatches and executes a command (responsive message loop)'))
+    }
 
     # Scenario 3.6 - rendering geometry (chrome controls in-window).
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('rendering-geometry-click-precision')) {
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $geoOk = $false
     try {
@@ -4133,6 +4354,7 @@ function Invoke-UiaSharedSessionScenarios {
     } catch { }
     $sw.Stop()
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'rendering-geometry-click-precision' -Status ($(if ($geoOk) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($geoOk) { $null } else { 'geometry-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'UIA-exposed BoundingRectangle for chrome controls is in-window and non-zero'))
+    }
 }
 
 function Invoke-UiAutomationValidationCapability {
@@ -4158,10 +4380,14 @@ function Invoke-UiAutomationValidationCapability {
     $overall = 'FAIL'
     $overallReason = 'scenario-failed'
     $summary = ''
+    $selection = @{ Ids = @(); Filter = $null; Seed = 0; Order = @() }
+    $executionOrder = @()
+    $sharedCleanup = $null
 
     try {
         Import-Module (Get-UiaDriverModulePath) -Force
         $selection = Resolve-UiaScenarioSelection -Options $Options
+        $executionOrder = Resolve-UiaExecutionOrder -SelectedIds $selection.Ids
         & $logFn "exe=$exe; scenario selection: $(if ($selection.Filter) { $selection.Filter } else { 'all' }) -> $($selection.Ids -join ', ')"
         if ($selection.Filter) {
             [void]$subResults.Add((New-UiaVSubResult -Id 'scenario-filter' -Status 'PASS' -Reason $null -DurationMs 0 -Detail "filter '$($selection.Filter)' -> $($selection.Ids.Count) scenario(s)"))
@@ -4173,7 +4399,7 @@ function Invoke-UiAutomationValidationCapability {
         # Shared-session scenarios run in one FastFiles lifecycle.
         if ($sharedIds.Count -gt 0) {
             & $logFn "launching $exe (shared session, $($sharedIds.Count) scenarios)"
-            $sharedCtx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId 'shared-session' -LogFn $logFn
+            $sharedCtx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId 'shared-session' -LogFn $logFn -InvocationId ([string]$Options.InvocationId)
             if (-not $sharedCtx -or -not $sharedCtx.Main) {
                 if ($sharedCtx) {
                     $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
@@ -4184,15 +4410,17 @@ function Invoke-UiAutomationValidationCapability {
                 throw 'failed to start FastFiles UI process / find main window'
             }
             try {
-                Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts)
+                Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts) -SelectedIds $sharedIds
             } finally {
                 try {
                     $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+                    $sharedCleanup = $cleanup
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "shared-session cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
                     }
                 } catch {
                     & $logFn "shared-session teardown failed: $($_.Exception.Message)"
+                    $sharedCleanup = [pscustomobject]@{ Pass = $false; Residue = @("teardown-exception:$($_.Exception.Message)") }
                     [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail $_.Exception.Message))
                 }
             }
@@ -4212,7 +4440,7 @@ function Invoke-UiAutomationValidationCapability {
                         $maxRetries = 2
                         & $logFn "[$id] transient retry override enabled (maxRetries=$maxRetries)"
                     }
-                    $result = Invoke-UiaScenarioWithRetry -ScenarioId $id -Runner $entry.Runner -Exe $exe -RepoRoot $Options.RepoRoot -ArtifactsDir $ArtifactsDir -LogFn $logFn -Artifacts ([ref]$artifacts) -MaxRetries $maxRetries
+                    $result = Invoke-UiaScenarioWithRetry -ScenarioId $id -Runner $entry.Runner -Exe $exe -RepoRoot $Options.RepoRoot -ArtifactsDir $ArtifactsDir -LogFn $logFn -Artifacts ([ref]$artifacts) -MaxRetries $maxRetries -InvocationId ([string]$Options.InvocationId)
                 } catch {
                     [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
                     continue
@@ -4220,7 +4448,7 @@ function Invoke-UiAutomationValidationCapability {
                 [void]$subResults.Add($result)
                 continue
             }
-            $ctx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId $id -LogFn $logFn
+            $ctx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId $id -LogFn $logFn -InvocationId ([string]$Options.InvocationId)
             if (-not $ctx -or -not $ctx.Main) {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail 'failed to start FastFiles UI process / find main window'))
                 if ($ctx) {
@@ -4231,6 +4459,7 @@ function Invoke-UiAutomationValidationCapability {
                 }
                 continue
             }
+            $result = $null
             try {
                 $result = & $entry.Runner $ctx $ArtifactsDir
                 $evName = $id
@@ -4241,6 +4470,7 @@ function Invoke-UiAutomationValidationCapability {
             } finally {
                 try {
                     $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
+                    if ($result) { $result.cleanup = $cleanup; $result.lifecycleMode = 'isolated' }
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "scenario cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
                     }
@@ -4256,6 +4486,17 @@ function Invoke-UiAutomationValidationCapability {
         $artifacts += [pscustomobject]@{ path = $log; type = 'run-log' }
         [void]$subResults.Add((New-UiaVSubResult -Id 'collect-evidence' -Status 'PASS' -Reason $null -DurationMs 0 -Detail ("Evidence written: " + (($artifacts | ForEach-Object { $_.type }) -join ', '))))
 
+        foreach ($subResult in @($subResults)) {
+            if ($subResult.id -in @($selection.Ids)) {
+                $subResult.lifecycleMode = if ($script:UiaScenarioRegistry[$subResult.id].Isolated) { 'isolated' } else { 'shared' }
+                if (-not $script:UiaScenarioRegistry[$subResult.id].Isolated -and $sharedCleanup) { $subResult.cleanup = $sharedCleanup }
+            } elseif ([string]$subResult.id -match 'cleanup$|^shared-session-cleanup$') {
+                $subResult.lifecycleMode = 'cleanup'
+            } else {
+                $subResult.lifecycleMode = 'harness'
+            }
+        }
+
         $failed = @($subResults | Where-Object { $_.status -eq 'FAIL' })
         $passed = @($subResults | Where-Object { $_.status -eq 'PASS' }).Count
         $skipped = @($subResults | Where-Object { $_.status -eq 'SKIPPED' }).Count
@@ -4266,7 +4507,10 @@ function Invoke-UiAutomationValidationCapability {
             $summary = "$passed passed, $skipped skipped with recorded reasons; $($failed.Count) failed"
         } else {
             $overall = 'FAIL'
-            $summary = "$($failed.Count) scenario(s) failed: $((@($failed | ForEach-Object { $_.id }) | Select-Object -Unique) -join ', ')"
+            $firstFailure = $failed[0]
+            $failureDetail = [string]$firstFailure.detail
+            if ($failureDetail.Length -gt 1600) { $failureDetail = $failureDetail.Substring(0, 1600) + '…' }
+            $summary = "$($failed.Count) scenario(s) failed: $((@($failed | ForEach-Object { $_.id }) | Select-Object -Unique) -join ', '); first=$($firstFailure.reason): $failureDetail"
         }
     } catch {
         & $logFn "capability error: $($_.Exception.Message)"
@@ -4282,7 +4526,18 @@ function Invoke-UiAutomationValidationCapability {
     return [pscustomobject]@{
         Status = $overall; Reason = $overallReason; Summary = $summary
         Artifacts = $artifacts; SubResults = @($subResults)
+        Classification = if ($overall -eq 'PASS') { 'PASS' } else { 'ASSERTION_FAILURE' }
+        Metadata = [pscustomobject]@{
+            selectionExpression = $selection.Filter
+            seed = [int]$selection.Seed
+            resolvedScenarioIds = @($selection.Ids)
+            selectionOrder = @($selection.Order)
+            executionOrder = @($executionOrder)
+            executable = $exe
+            driverModule = (Get-UiaDriverModulePath)
+        }
+        Lifecycle = [pscustomobject]@{ scenarioCleanup = $sharedCleanup }
     }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder

@@ -41,12 +41,32 @@ $external = ConvertTo-ProjectStatusSafePath -Path (Join-Path ([IO.Path]::GetTemp
 Check ($repoRelative -eq 'verify/status/generated/project-status.json') 'repository paths are projected relative to the root'
 Check ($external -eq '<external-path>') 'external absolute paths are redacted'
 
+$verificationFixture = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-run-result-' + [guid]::NewGuid().ToString('N') + '.json')
+$verificationPass = [pscustomobject]@{
+    runId = 'run-status-fixture'; invocationId = 'inv-status-fixture'; status = 'PASS'; classification = 'PASS'; capabilities = @(
+        [pscustomobject]@{ capabilityId = 'fixture'; status = 'PASS'; classification = 'PASS'; reason = $null }
+    )
+}
+$verificationPass | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $verificationFixture -Encoding utf8NoBOM
+$verificationEvidence = Get-ProjectStatusVerificationEvidence -RepoRoot $repoRoot -RunResultPath $verificationFixture
+Check ($verificationEvidence.status -eq 'PASS' -and $verificationEvidence.passCount -eq 1 -and $verificationEvidence.runId -eq 'run-status-fixture') 'selected verifier result is projected with identity and counts'
+$verificationContradiction = [pscustomobject]@{
+    runId = 'run-status-bad'; invocationId = 'inv-status-bad'; status = 'PASS'; classification = 'PASS'; capabilities = @(
+        [pscustomobject]@{ capabilityId = 'fixture'; status = 'FAIL'; classification = 'ASSERTION_FAILURE'; reason = 'fixture-failed' }
+    )
+}
+$verificationContradiction | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $verificationFixture -Encoding utf8NoBOM
+$verificationBadEvidence = Get-ProjectStatusVerificationEvidence -RepoRoot $repoRoot -RunResultPath $verificationFixture
+Check ($verificationBadEvidence.status -eq 'FAIL' -and $verificationBadEvidence.classification -eq 'HARNESS_ERROR' -and $verificationBadEvidence.reason -eq 'verification-run-result-contradiction') 'selected verifier contradiction is a harness failure'
+Remove-Item -LiteralPath $verificationFixture -Force -ErrorAction SilentlyContinue
+
 $fixtureStatus = [pscustomobject]@{
     tests = [pscustomobject]@{ discoveredCount = 75; builds = @() }
     openSpec = [pscustomobject]@{ totalOpenTasks = 2; changesWithOpenTasks = 1; changes = @() }
     git = $clean
     generatedAtUtc = '2026-08-24T00:00:00Z'
     capabilities = [pscustomobject]@{ status = 'PASS'; loadedCount = 1; rejectedCount = 0 }
+    verification = [pscustomobject]@{ status = 'SKIPPED'; reason = 'explicit-verification-run-result-not-supplied'; source = $null }
     release = [pscustomobject]@{ status = 'SKIPPED'; classification = 'NOT_RUN' }
     frontier = [pscustomobject]@{ locallyCertified = @(); localOpen = @(); environmentBlocked = @(); providerBlocked = @(); productionSigningBlocked = @(); cleanHostElevatedBlocked = @() }
 }

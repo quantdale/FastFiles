@@ -295,6 +295,62 @@ function Get-ProjectStatusCapabilityEvidence {
     [pscustomobject]@{ status = if ($rejected.Count -eq 0) { 'PASS' } else { 'FAIL' }; loadedCount = $loaded.Count; rejectedCount = $rejected.Count; loaded = @($loaded); rejected = @($rejected) }
 }
 
+function Get-ProjectStatusVerificationEvidence {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $RepoRoot,
+        [string] $RunResultPath
+    )
+
+    if ([string]::IsNullOrWhiteSpace($RunResultPath)) {
+        return [pscustomobject]@{
+            status = 'SKIPPED'; classification = 'NOT_SELECTED'; reason = 'explicit-verification-run-result-not-supplied'
+            source = $null; runId = $null; invocationId = $null; capabilityCount = 0; passCount = 0; skipCount = 0; failCount = 0
+        }
+    }
+    $resolved = $null
+    try {
+        $candidatePath = if ([IO.Path]::IsPathRooted($RunResultPath)) { $RunResultPath } else { Join-Path $RepoRoot $RunResultPath }
+        $resolved = [IO.Path]::GetFullPath($candidatePath)
+    } catch {
+        return [pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'verification-run-result-path-invalid'; source = '<invalid-path>' }
+    }
+    if (-not (Test-Path -LiteralPath $resolved -PathType Leaf)) {
+        return [pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'verification-run-result-not-found'; source = (ConvertTo-ProjectStatusSafePath -Path $resolved -RepoRoot $RepoRoot) }
+    }
+    try {
+        $run = [IO.File]::ReadAllText($resolved) | ConvertFrom-Json
+        foreach ($name in @('runId', 'invocationId', 'status', 'classification', 'capabilities')) {
+            if ($null -eq $run.PSObject.Properties[$name]) { throw "verification run result is missing '$name'" }
+        }
+        if ([string]$run.status -notin @('PASS', 'FAIL', 'SKIPPED')) { throw "verification run result has unsupported status '$($run.status)'" }
+        $capabilities = @($run.capabilities | Where-Object { $null -ne $_ })
+        $fails = @($capabilities | Where-Object { [string]$_.status -eq 'FAIL' })
+        $passes = @($capabilities | Where-Object { [string]$_.status -eq 'PASS' })
+        $skips = @($capabilities | Where-Object { [string]$_.status -eq 'SKIPPED' })
+        $contradiction = $null
+        if ($fails.Count -gt 0 -and [string]$run.status -ne 'FAIL') { $contradiction = 'run-result-status-does-not-reflect-failing-capability' }
+        elseif ($fails.Count -eq 0 -and $passes.Count -eq 0 -and [string]$run.status -eq 'PASS') { $contradiction = 'run-result-pass-without-passing-capability' }
+        elseif ($passes.Count -gt 0 -and [string]$run.status -eq 'SKIPPED') { $contradiction = 'run-result-skipped-with-passing-capability' }
+        elseif ([string]$run.status -eq 'FAIL' -and $null -eq $run.PSObject.Properties['primaryFailure']) { $contradiction = 'run-result-fail-without-primary-failure' }
+        $source = ConvertTo-ProjectStatusSafePath -Path $resolved -RepoRoot $RepoRoot
+        if ($contradiction) {
+            return [pscustomobject]@{
+                status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'verification-run-result-contradiction'; source = $source; detail = $contradiction
+                runId = [string]$run.runId; invocationId = [string]$run.invocationId
+                capabilityCount = $capabilities.Count; passCount = $passes.Count; skipCount = $skips.Count; failCount = $fails.Count
+            }
+        }
+        return [pscustomobject]@{
+            status = [string]$run.status; classification = [string]$run.classification; reason = [string]$run.reason; source = $source
+            runId = [string]$run.runId; invocationId = [string]$run.invocationId
+            capabilityCount = $capabilities.Count; passCount = $passes.Count; skipCount = $skips.Count; failCount = $fails.Count
+        }
+    } catch {
+        [pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'verification-run-result-invalid'; source = (ConvertTo-ProjectStatusSafePath -Path $resolved -RepoRoot $RepoRoot); detail = $_.Exception.Message }
+    }
+}
+
 function Get-ProjectStatusReleaseEvidence {
     [CmdletBinding()]
     param(
@@ -355,6 +411,10 @@ function New-ProjectStatusMarkdown {
     [void]$lines.Add("- CTest discovered: $($Status.tests.discoveredCount)")
     foreach ($build in @($Status.tests.builds)) { [void]$lines.Add("- ``$($build.name)``: $($build.status)$(if ($build.reason) { " ($($build.reason))" })") }
     [void]$lines.Add("- Capability registry: $($Status.capabilities.status) ($($Status.capabilities.loadedCount) loaded, $($Status.capabilities.rejectedCount) rejected)")
+    $verificationNote = [string]$Status.verification.status
+    if ($Status.verification.reason) { $verificationNote += " ($($Status.verification.reason))" }
+    if ($Status.verification.source) { $verificationNote += " from ``$($Status.verification.source)``" }
+    [void]$lines.Add("- Selected verifier result: $verificationNote")
     [void]$lines.Add('')
     [void]$lines.Add('## OpenSpec frontier')
     [void]$lines.Add('')
@@ -383,12 +443,14 @@ function New-ProjectStatus {
         [Parameter(Mandatory)] [string] $RepoRoot,
         [string] $OutputDirectory,
         [string] $ReleaseReportPath,
+        [string] $VerificationRunResultPath,
         [switch] $SkipCtest
     )
 
     $git = Invoke-ProjectStatusGit -RepoRoot $RepoRoot
     $tests = if ($SkipCtest) { [pscustomobject]@{ status = 'SKIPPED'; discoveredCount = $null; builds = @() } } else { Get-ProjectStatusCtestEvidence -RepoRoot $RepoRoot }
     $capabilities = Get-ProjectStatusCapabilityEvidence -RepoRoot $RepoRoot
+    $verification = Get-ProjectStatusVerificationEvidence -RepoRoot $RepoRoot -RunResultPath $VerificationRunResultPath
     $openSpec = Get-ProjectStatusOpenSpecFrontier -RepoRoot $RepoRoot
     $release = Get-ProjectStatusReleaseEvidence -RepoRoot $RepoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath
     $allTasks = @($openSpec.changes | ForEach-Object { $_.openTasks })
@@ -411,6 +473,7 @@ function New-ProjectStatus {
         git = $git
         tests = $tests
         capabilities = $capabilities
+        verification = $verification
         openSpec = $openSpec
         release = $release
         frontier = [pscustomobject]$frontier
@@ -427,4 +490,4 @@ function New-ProjectStatus {
     return $status
 }
 
-Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus
+Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusVerificationEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus

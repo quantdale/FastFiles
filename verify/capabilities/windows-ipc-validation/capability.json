@@ -2,6 +2,7 @@
   "id": "windows-ipc-validation",
   "interfaceVersion": "1.0.0",
   "tier": 1,
+  "timeoutSeconds": 900,
   "displayName": "Windows IPC Validation",
   "description": "Validates the IPC seams: control-pipe first-instance squatting protection, control-pipe and snapshot-section ACLs, and the engine-service handshake boundary.",
   "entryModule": "IpcValidation.psm1",

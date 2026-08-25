@@ -4,6 +4,7 @@
   "type": "object",
   "required": [
     "runId",
+    "invocationId",
     "change",
     "startedAtUtc",
     "osBuild",
@@ -15,7 +16,8 @@
     "targetIdentity"
   ],
   "properties": {
-    "runId": { "type": "string" },
+    "runId": { "type": "string", "minLength": 1 },
+    "invocationId": { "type": "string", "minLength": 1 },
     "change": { "type": "string" },
     "startedAtUtc": { "type": "string" },
     "osBuild": { "type": "string" },

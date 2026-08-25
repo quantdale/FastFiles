@@ -2,6 +2,8 @@
   "id": "windows-ui-automation-validation",
   "interfaceVersion": "1.0.0",
   "tier": 2,
+  "timeoutSeconds": 1200,
+  "requiresCleanBuildProcessBaseline": true,
   "displayName": "Windows UI Automation Validation",
   "description": "UIA-driven validation of launch, column-view navigation, selection, and dialogs. Gated to an interactive UI-Automation context; precise SKIPPED(reason) for missing interactive context or missing provider - never a pixel fallback.",
   "entryModule": "UiAutomationValidation.psm1",

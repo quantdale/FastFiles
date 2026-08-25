@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FastFiles project status",
   "type": "object",
-  "required": ["schemaVersion", "kind", "generatedAtUtc", "git", "tests", "capabilities", "openSpec", "release", "frontier"],
+  "required": ["schemaVersion", "kind", "generatedAtUtc", "git", "tests", "capabilities", "verification", "openSpec", "release", "frontier"],
   "properties": {
     "schemaVersion": { "type": "integer", "const": 1 },
     "kind": { "type": "string", "const": "fastfiles-project-status" },
@@ -10,6 +10,7 @@
     "git": { "type": "object" },
     "tests": { "type": "object" },
     "capabilities": { "type": "object" },
+    "verification": { "type": "object" },
     "openSpec": { "type": "object" },
     "release": { "type": "object" },
     "frontier": { "type": "object" }

@@ -23,7 +23,7 @@ Fixed, non-interactive verb set:
 | `diagnose` | On-failure diagnostics for a run | no |
 | `report` | Project a run tree to MD/HTML/JSON/JUnit + performance/failure summaries | no |
 | `repair` | Bounded autonomous repair loop: starts a fresh run, repairs its failures (Class A auto-applied, Class B flagged), re-runs repaired capabilities | yes (Class A fixes) |
-| `gate` | Resolve the change's gate policy against the latest run | no |
+| `gate` | Resolve the change's gate policy against an explicitly selected run (`-RunTimestamp` or `-RunId`) | no |
 | `list` | Enumerate discovered capabilities (incl. rejected ones) | no |
 | `doctor` | Probe environment readiness; never provisions anything | no |
 | `release-readiness` | Compose build/test/policy/runtime evidence with Release artifact, signature, pin, and privileged-path prerequisites | report/compose: no; privileged or `-IncludePrivileged`: explicit elevation only |
@@ -87,6 +87,7 @@ the local provider must always remain safe to run on a developer machine.
      `verify/schemas/capability-manifest.schema.json`:
      `id` (`[a-z][a-z0-9-]*`), `interfaceVersion` (semver), `tier` (integer),
      `repairPosture` (`repair-supported` | `repair-unsupported` | `repair-unavailable`),
+     positive `timeoutSeconds`,
      `dependsOn` (optional, acyclic), and `entryPoints`:
      **`availability`, `run`, `diagnostics` required**; `baseline`, `repairHints`,
      `repair` optional.
@@ -113,11 +114,22 @@ contract-breaking changes; additive entry points are backward compatible.
 
 ## Run trees, reports, and gate
 
-Each run lives at `verify/runs/<change>/<timestamp>/`: `manifest.json` (fingerprint),
-per-capability envelopes, `artifacts/<capability>/` payloads, `index.json`,
-`repair-log.jsonl` (repair iterations), and `provider-cleanup.json`. Reports
+Each run lives at `verify/runs/<change>/<timestamp>/`: `manifest.json` (fingerprint
+with distinct `runId` and `invocationId`), `run-result.json` (the one authoritative
+top-level outcome), per-capability envelopes, `artifacts/<capability>/` payloads,
+`index.json`, `repair-log.jsonl` (repair iterations), and `provider-cleanup.json`. Reports
 (MD/HTML/JSON/JUnit + performance and failure summaries) are deterministic projections of
-that tree — regenerating from an unchanged tree yields identical verdicts.
+that tree — regenerating from an unchanged tree yields identical verdicts. Every
+capability has a manifest-declared positive `timeoutSeconds`; execution occurs in a
+run-local killable worker and a missing, multiple, malformed, late, or cross-run result
+is a harness failure. The wrapper derives its exit code from `run-result.json`, not from
+console counters.
+
+The verifier-core PowerShell regression test covers the pure composition and identity
+contract on every host. Its additional worker-boundary fixtures run when a bounded nested
+PowerShell worker is available; if the host cannot launch that worker under its resource
+budget, CTest records an explicit skip (return code 77) with the prerequisite reason rather
+than turning the environment boundary into a green worker assertion.
 
 Gate policy: `verify/policies/<change>.json` (falls back to `_default.json`) declares
 required capabilities, acceptable skip reasons, and whether performance regressions gate.
@@ -134,7 +146,8 @@ pwsh ./verify/verify.ps1 doctor
 pwsh ./verify/verify.ps1 run -Change <change-id> -SkipAnalyze
 pwsh ./verify/verify.ps1 install -Change <change-id> -Elevate   # one-time UAC
 pwsh ./verify/verify.ps1 repair -Change <change-id>
-pwsh ./verify/verify.ps1 gate -Change <change-id>
+pwsh ./verify/verify.ps1 report -Change <change-id> -RunTimestamp <timestamp>
+pwsh ./verify/verify.ps1 gate -Change <change-id> -RunId <run-id>
 pwsh ./verify/verify.ps1 release-readiness -Mode report
 pwsh ./verify/verify.ps1 release-readiness -Mode gate
 pwsh ./verify/verify.ps1 release-readiness -Mode compose -Format json
@@ -162,12 +175,20 @@ pins or private material into the repository. Every release kit must also contai
 `FastFiles.package.manifest`, whose exact inventory, sizes, and SHA-256 hashes are
 checked before clean-host or privileged execution.
 
+`report`, `gate`, and existing-run `diagnose` require an explicit `-RunTimestamp` or
+`-RunId`; the harness never guesses by selecting the newest sibling run. A timestamp
+selects exactly that run directory and an ID is checked against its manifest. This
+prevents an interrupted or stale previous run from being silently projected as current.
+
 `status` is the repository-state entry point. It writes `project-status.json` and
 `project-status.md` under `verify/status/generated/` by default (or an explicit
 `-OutputDirectory`) and derives the current Git state, CTest inventory, OpenSpec
 frontier, capability registry, and release-candidate classification at runtime.
 The generated report is the source for dynamic status; do not hand-maintain test
-counts in `progress.md`.
+counts in `progress.md`. To project a verifier result, pass an explicit
+`-VerificationRunResultPath <run>/run-result.json`; status never searches for a latest
+run. The projection validates run/capability identity and rejects contradictory top-level
+state as `HARNESS_ERROR`.
 
 `New-ReleaseReadinessReport.ps1` composes that status with an optional
 `release-readiness-composition.json` into the single sanitized

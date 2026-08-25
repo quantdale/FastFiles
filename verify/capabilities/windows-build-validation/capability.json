@@ -2,6 +2,7 @@
   "id": "windows-build-validation",
   "interfaceVersion": "1.0.0",
   "tier": 0,
+  "timeoutSeconds": 3600,
   "displayName": "Windows Build Validation",
   "description": "MSVC/CMake toolchain discovery, Debug/Release/static-analysis builds, and the ctest unit+fuzz suites.",
   "entryModule": "Build.psm1",

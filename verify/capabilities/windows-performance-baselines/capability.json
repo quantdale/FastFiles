@@ -2,6 +2,7 @@
   "id": "windows-performance-baselines",
   "interfaceVersion": "1.0.0",
   "tier": 0,
+  "timeoutSeconds": 900,
   "displayName": "Windows Performance Baselines",
   "description": "Maintains per-fingerprint duration baselines from run-tree envelopes and emits advisory regression verdicts; regressions only gate when the gate policy says so.",
   "entryModule": "PerformanceBaselines.psm1",

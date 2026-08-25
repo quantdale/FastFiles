@@ -43,6 +43,8 @@ param(
     [ValidateSet('human', 'json')]
     [string] $Format = 'human',
     [string] $RunTimestamp,
+    [string] $RunId,
+    [string] $VerificationRunResultPath,
     [ValidateSet('report', 'gate', 'privileged', 'compose')]
     [string] $Mode = 'report',
     [string] $ArtifactRoot,
@@ -96,6 +98,8 @@ if ($Elevate -and -not $ElevatedChild -and -not (Test-IsElevated)) {
     if ($CapabilityOption) { foreach ($opt in $CapabilityOption) { $childArgs += @('-CapabilityOption', $opt) } }
     if ($SkipTests) { $childArgs += '-SkipTests' }
     if ($RunTimestamp) { $childArgs += @('-RunTimestamp', $RunTimestamp) }
+    if ($RunId) { $childArgs += @('-RunId', $RunId) }
+    if ($VerificationRunResultPath) { $childArgs += @('-VerificationRunResultPath', $VerificationRunResultPath) }
     if ($Format -ne 'human') { $childArgs += @('-Format', $Format) }
     if ($Mode -ne 'report') { $childArgs += @('-Mode', $Mode) }
         if ($ArtifactRoot) { $childArgs += @('-ArtifactRoot', $ArtifactRoot) }
@@ -123,17 +127,24 @@ function Invoke-VerificationRun {
 
     $activeProvider = Get-EnvironmentProvider -ProviderId $Provider
     $providerManifestRecord = Get-EnvironmentProviderManifestRecord -Provider $activeProvider
-    $fingerprint = Get-EnvironmentFingerprint -Change $Change -ProviderId $activeProvider.Id -Provider $providerManifestRecord
     $discovery = Find-Capabilities -CapabilitiesRoot (Join-Path $VerifyRoot 'capabilities') `
         -ManifestSchemaPath (Join-Path $VerifyRoot 'schemas\capability-manifest.schema.json')
-    $fingerprint.CapabilityLoadDiagnostics = @($discovery.LoadDiagnostics)
-
     $runContext = New-VerificationRun -VerifyRoot $VerifyRoot -Change $Change
+    $fingerprint = Get-EnvironmentFingerprint -Change $Change -ProviderId $activeProvider.Id -Provider $providerManifestRecord
+    $fingerprint.CapabilityLoadDiagnostics = @($discovery.LoadDiagnostics)
     Save-RunManifest -RunContext $runContext -Fingerprint $fingerprint
 
     $capsToRun = $discovery.Capabilities
+    $filterFailure = $null
     if ($CapabilityFilter -and $CapabilityFilter.Count -gt 0) {
-        $capsToRun = $capsToRun | Where-Object { $CapabilityFilter -contains $_.Id }
+        $requestedIds = @($CapabilityFilter | Where-Object { $_ })
+        $unknownIds = @($requestedIds | Where-Object { $_ -notin @($discovery.Capabilities | ForEach-Object { $_.Id }) })
+        if ($unknownIds.Count -gt 0) {
+            $filterFailure = [pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'unknown-capability'; summary = "Unknown or rejected capability id(s): $($unknownIds -join ', ')." }
+            $capsToRun = @()
+        } else {
+            $capsToRun = @($capsToRun | Where-Object { $requestedIds -contains $_.Id })
+        }
     }
 
     if (@($capsToRun).Count -eq 0) {
@@ -159,6 +170,8 @@ function Invoke-VerificationRun {
         Clean          = $Clean.IsPresent
         SkipAnalyze    = $SkipAnalyze.IsPresent
         SkipTests      = $SkipTests.IsPresent
+        RunId          = $runContext.RunId
+        InvocationId   = $runContext.InvocationId
     }
     # stabilize-live-uia-e2e: -CapabilityOption key=value entries merge into
     # the options hashtable passed to every capability.
@@ -175,66 +188,119 @@ function Invoke-VerificationRun {
 
     $envelopes = @()
     $providerProvisioned = $false
+    $runFailure = $null
+    if ($filterFailure) { $runFailure = $filterFailure }
+    $providerLifecycleFailures = [System.Collections.Generic.List[object]]::new()
     try {
-        # Preflight is a separate, reason-coded phase. A requested external
-        # provider must never silently degrade to the local host.
-        $preflight = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase preflight -ProviderContext $providerContext
-        $preflight | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runContext.RunPath 'provider-preflight.json') -Encoding utf8
-        if (-not $preflight.Ready) {
+        if (-not $runFailure) {
+            # Preflight is a separate, reason-coded phase. A requested external
+            # provider must never silently degrade to the local host.
+            $preflight = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase preflight -ProviderContext $providerContext
+            $preflight | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $runContext.RunPath 'provider-preflight.json') -Encoding utf8
+            if (-not $preflight.Ready) {
             Write-Host "[SKIPPED] Environment provider '$($activeProvider.Id)' is not ready: $($preflight.Detail)" -ForegroundColor Yellow
             Write-Host "        Reason codes: $(@($preflight.ReasonCodes) -join ', ')"
             Write-Host '        Refusing to run capabilities on the local host instead of the requested provider.'
-            exit $ExitSkipped
+            $runFailure = [pscustomobject]@{ status = 'SKIPPED'; classification = 'REQUIRED-BUT-UNAVAILABLE'; reason = 'provider-preflight-unavailable'; summary = [string]$preflight.Detail }
+            } else {
+            # Match intake.ps1 (Invoke-PhaseProvision): a provider that cannot provision
+            # must not fall back to running capabilities on the local host.
+            $provision = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase provision -ProviderContext $providerContext
+            if (-not $provision.Ready) {
+                Write-Host "[SKIPPED] Environment provider '$($activeProvider.Id)' is not ready: $($provision.Reason)" -ForegroundColor Yellow
+                Write-Host '        Refusing to run capabilities on the local host instead of the requested provider.'
+                $runFailure = [pscustomobject]@{ status = 'SKIPPED'; classification = 'REQUIRED-BUT-UNAVAILABLE'; reason = 'provider-provision-unavailable'; summary = [string]$provision.Reason }
+            } else {
+                $providerProvisioned = $true
+                $activation = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase activate -ProviderContext $providerContext
+                if ($activation.Ready -eq $false) {
+                    $runFailure = [pscustomobject]@{ status = 'FAIL'; classification = 'PROVIDER_FAILURE'; reason = 'provider-activation-failed'; summary = [string]$activation.Detail }
+                } else {
+                    foreach ($cap in $capsToRun) {
+                        Write-Host "==> Running capability: $($cap.Id)" -ForegroundColor Cyan
+                        $envelope = Invoke-Capability -Capability $cap -RunContext $runContext -Fingerprint $fingerprint -Options $options
+                        $envelopes += $envelope
+                        Write-Host "    status=$($envelope.status) classification=$($envelope.classification)$(if ($envelope.reason) { " reason=$($envelope.reason)" })$(if ($envelope.summary) { " summary=$($envelope.summary)" })"
+                    }
+                }
+            }
+            }
         }
-        # Match intake.ps1 (Invoke-PhaseProvision): a provider that cannot provision
-        # (e.g. -Provider hyperv without a provisionable Hyper-V target) must NOT fall
-        # back to running capabilities on the local host - that would validate the
-        # wrong environment and silently produce a different result than requested.
-        $provision = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase provision -ProviderContext $providerContext
-        if (-not $provision.Ready) {
-            Write-Host "[SKIPPED] Environment provider '$($activeProvider.Id)' is not ready: $($provision.Reason)" -ForegroundColor Yellow
-            Write-Host "        Refusing to run capabilities on the local host instead of the requested provider."
-            exit $ExitSkipped
-        }
-        $providerProvisioned = $true
-        Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase activate -ProviderContext $providerContext | Out-Null
-
-        foreach ($cap in $capsToRun) {
-            Write-Host "==> Running capability: $($cap.Id)" -ForegroundColor Cyan
-            $envelope = Invoke-Capability -Capability $cap -RunContext $runContext -Fingerprint $fingerprint -Options $options
-            $envelopes += $envelope
-            Write-Host "    status=$($envelope.status)$(if ($envelope.reason) { " reason=$($envelope.reason)" })"
-        }
+    } catch {
+        $runFailure = [pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'verification-run-exception'; summary = $_.Exception.Message }
     } finally {
         if ($providerProvisioned) {
-            $cleanup = $null
             try {
                 Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase collectLogs -ProviderContext $providerContext | Out-Null
+            } catch {
+                $providerLifecycleFailures.Add([pscustomobject]@{ classification = 'REPORT_FAILURE'; reason = 'provider-log-collection-failed'; summary = $_.Exception.Message })
             } finally {
-                $cleanup = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase cleanup -ProviderContext $providerContext
-            }
-            if (-not $cleanup.succeeded) {
-                throw "Local provider teardown failed; see $($runContext.RunPath)\provider-cleanup.json"
+                try {
+                    $cleanup = Invoke-EnvironmentProviderLifecycle -Provider $activeProvider -Phase cleanup -ProviderContext $providerContext
+                    if (-not $cleanup.succeeded) {
+                        $providerLifecycleFailures.Add([pscustomobject]@{ classification = 'CLEANUP_INCOMPLETE'; reason = 'provider-cleanup-incomplete'; summary = "Provider teardown reported failure; see $($runContext.RunPath)\provider-cleanup.json" })
+                    }
+                } catch {
+                    $providerLifecycleFailures.Add([pscustomobject]@{ classification = 'CLEANUP_INCOMPLETE'; reason = 'provider-cleanup-exception'; summary = $_.Exception.Message })
+                }
             }
         }
     }
 
-    Build-RunIndex -RunContext $runContext | Out-Null
-    New-JsonRunReport -RunContext $runContext | Out-Null
-    New-MarkdownRunReport -RunContext $runContext | Out-Null
-    New-HtmlRunReport -RunContext $runContext | Out-Null
-    New-JUnitRunReport -RunContext $runContext | Out-Null
-    $fidelity = Test-RunReportFidelity -RunContext $runContext
-    if (-not $fidelity.Valid) { throw "Report fidelity check failed: $($fidelity.Errors -join '; ')" }
+    $additionalFailures = @()
+    $runFinishedAt = (Get-Date).ToUniversalTime()
+    $runStartedAt = [DateTime]::Parse([string]$fingerprint.StartedAtUtc).ToUniversalTime()
+    function New-CurrentRunResult {
+        param([object[]] $ExtraFailures = @())
+        $outcome = Resolve-VerificationRunOutcome -CapabilityEnvelopes $envelopes `
+            -RunFailures @($runFailure) -LifecycleFailures @($providerLifecycleFailures) `
+            -AdditionalFailures $ExtraFailures
+        [pscustomobject]@{
+            runId = [string]$runContext.RunId
+            invocationId = [string]$runContext.InvocationId
+            change = $runContext.Change
+            status = $outcome.status
+            classification = $outcome.classification
+            reason = $outcome.reason
+            summary = $outcome.summary
+            startedAtUtc = $runStartedAt.ToString('o')
+            finishedAtUtc = $runFinishedAt.ToString('o')
+            durationMs = [math]::Round(($runFinishedAt - $runStartedAt).TotalMilliseconds, 0)
+            primaryFailure = $outcome.primaryFailure
+            secondaryFailures = @($outcome.secondaryFailures)
+            capabilities = @($envelopes | ForEach-Object { [pscustomobject]@{ capabilityId = $_.capabilityId; status = $_.status; classification = $_.classification; reason = $_.reason } })
+        }
+    }
+    $runResult = New-CurrentRunResult
+    Save-RunResult -RunContext $runContext -Result $runResult | Out-Null
+    try {
+        Build-RunIndex -RunContext $runContext | Out-Null
+        New-JsonRunReport -RunContext $runContext | Out-Null
+        New-MarkdownRunReport -RunContext $runContext | Out-Null
+        New-HtmlRunReport -RunContext $runContext | Out-Null
+        New-JUnitRunReport -RunContext $runContext | Out-Null
+        $fidelity = Test-RunReportFidelity -RunContext $runContext
+        if (-not $fidelity.Valid) { throw "Report fidelity check failed: $($fidelity.Errors -join '; ')" }
+    } catch {
+        $additionalFailures = @([pscustomobject]@{
+                status = 'FAIL'
+                classification = 'REPORT_FAILURE'
+                reason = 'report-generation-failed'
+                summary = Limit-VerificationText $_.Exception.Message
+            })
+        $runResult = New-CurrentRunResult -ExtraFailures $additionalFailures
+        Save-RunResult -RunContext $runContext -Result $runResult | Out-Null
+    }
+    try { Build-RunIndex -RunContext $runContext | Out-Null } catch { Write-Warning "Final run-index projection failed: $($_.Exception.Message)" }
+    Write-Host "Run result: status=$($runResult.status) classification=$($runResult.classification)$(if ($runResult.reason) { " reason=$($runResult.reason)" })$(if ($runResult.summary) { " summary=$($runResult.summary)" })"
 
-    [pscustomobject]@{ RunContext = $runContext; Envelopes = $envelopes; Fingerprint = $fingerprint }
+    [pscustomobject]@{ RunContext = $runContext; Envelopes = $envelopes; Fingerprint = $fingerprint; RunResult = $runResult }
 }
 
 function Get-VerbExitCode {
-    param([array] $Envelopes)
-    if (@($Envelopes | Where-Object { $_.status -eq 'FAIL' }).Count -gt 0) { return $ExitFail }
-    if (@($Envelopes | Where-Object { $_.status -eq 'PASS' }).Count -eq 0) { return $ExitSkipped }
-    return $ExitPass
+    param([array] $Envelopes, [pscustomobject] $RunResult)
+    if ($RunResult) { return (Get-VerificationExitCode -Envelopes @($RunResult)) }
+    return (Get-VerificationExitCode -Envelopes $Envelopes)
 }
 
 function Write-InspectionOutput {
@@ -247,21 +313,52 @@ function Write-InspectionOutput {
 }
 
 function Get-ExistingRunContext {
-    param([string] $RequestedTimestamp)
+    param(
+        [string] $RequestedTimestamp,
+        [string] $RequestedRunId
+    )
 
     $changeRunsDir = Join-Path $VerifyRoot "runs\$Change"
-    if (-not $RequestedTimestamp) {
-        $latest = Get-ChildItem -Path $changeRunsDir -Directory -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending | Select-Object -First 1
-        if (-not $latest) { throw "No runs found for change '$Change' under $changeRunsDir" }
-        $RequestedTimestamp = $latest.Name
+    if (-not $RequestedTimestamp -and -not $RequestedRunId) {
+        throw "Run selection is required: provide -RunTimestamp or -RunId; implicit latest-run discovery is disabled."
+    }
+    if ($RequestedRunId -and -not $RequestedTimestamp) {
+        $matches = @()
+        foreach ($candidate in @(Get-ChildItem -Path $changeRunsDir -Directory -ErrorAction SilentlyContinue)) {
+            $candidateManifestPath = Join-Path $candidate.FullName 'manifest.json'
+            if (-not (Test-Path -LiteralPath $candidateManifestPath)) { continue }
+            try {
+                $candidateManifest = Get-Content -LiteralPath $candidateManifestPath -Raw | ConvertFrom-Json
+                if ([string]$candidateManifest.runId -eq $RequestedRunId -or [string]$candidateManifest.invocationId -eq $RequestedRunId) { $matches += $candidate }
+            } catch {
+                # A malformed sibling is not the selected run unless its identity matches;
+                # its own report operation will fail closed when selected explicitly.
+            }
+        }
+        if ($matches.Count -eq 0) { throw "No run with identity '$RequestedRunId' found for change '$Change'." }
+        if ($matches.Count -ne 1) { throw "Run identity '$RequestedRunId' is ambiguous across $($matches.Count) run directories." }
+        $RequestedTimestamp = $matches[0].Name
     }
     $runPath = Join-Path $changeRunsDir $RequestedTimestamp
     if (-not (Test-Path -LiteralPath $runPath)) { throw "Run not found: $runPath" }
+    $manifestPath = Join-Path $runPath 'manifest.json'
+    if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Run manifest not found: $manifestPath" }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.runId) -or [string]::IsNullOrWhiteSpace([string]$manifest.invocationId)) {
+        throw "Run '$RequestedTimestamp' has no identity-bound manifest; it cannot be selected by the current verifier."
+    }
+    if ([string]$manifest.change -and [string]$manifest.change -ne $Change) {
+        throw "Run '$RequestedTimestamp' belongs to change '$($manifest.change)', not '$Change'."
+    }
+    if ($RequestedRunId -and $RequestedRunId -ne [string]$manifest.runId -and $RequestedRunId -ne [string]$manifest.invocationId) {
+        throw "Run '$RequestedTimestamp' does not match requested identity '$RequestedRunId'."
+    }
     [pscustomobject]@{
         VerifyRoot    = $VerifyRoot
         Change        = $Change
         Timestamp     = $RequestedTimestamp
+        RunId         = [string]$manifest.runId
+        InvocationId  = [string]$manifest.invocationId
         RunPath       = $runPath
         ManifestPath  = Join-Path $runPath 'manifest.json'
         IndexPath     = Join-Path $runPath 'index.json'
@@ -287,7 +384,7 @@ function Write-RunReports {
 switch ($Verb) {
     'status' {
         $statusDirectory = if ($OutputDirectory) { $OutputDirectory } else { Join-Path $VerifyRoot 'status\generated' }
-        $status = New-ProjectStatus -RepoRoot $RepoRoot -OutputDirectory $statusDirectory
+        $status = New-ProjectStatus -RepoRoot $RepoRoot -OutputDirectory $statusDirectory -VerificationRunResultPath $VerificationRunResultPath
         if ($Format -eq 'json') {
             $status | ConvertTo-Json -Depth 20
         } else {
@@ -327,7 +424,7 @@ switch ($Verb) {
         $result = Invoke-VerificationRun -CapabilityFilter @('windows-build-validation')
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
-        exit (Get-VerbExitCode -Envelopes $result.Envelopes)
+        exit (Get-VerbExitCode -Envelopes $result.Envelopes -RunResult $result.RunResult)
     }
     'install' {
         # Tier-1 install validation plus the §6.2-6.5 harnesses that validate the
@@ -341,7 +438,7 @@ switch ($Verb) {
             'windows-ipc-validation')
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
-        exit (Get-VerbExitCode -Envelopes $result.Envelopes)
+        exit (Get-VerbExitCode -Envelopes $result.Envelopes -RunResult $result.RunResult)
     }
     'run' {
         # pwsh -File passes -Capability as literal strings; accept a comma-joined
@@ -350,17 +447,17 @@ switch ($Verb) {
         $result = Invoke-VerificationRun -CapabilityFilter $filter
         Write-Host ''
         Write-Host "Run tree: $($result.RunContext.RunPath)"
-        exit (Get-VerbExitCode -Envelopes $result.Envelopes)
+        exit (Get-VerbExitCode -Envelopes $result.Envelopes -RunResult $result.RunResult)
     }
     'diagnose' {
-        if (-not $RunTimestamp) {
+        if (-not $RunTimestamp -and -not $RunId) {
             $result = Invoke-VerificationRun -CapabilityFilter @('diagnostics', 'crash-analysis')
             Write-Host ''
             Write-Host "Run tree: $($result.RunContext.RunPath)"
-            exit (Get-VerbExitCode -Envelopes $result.Envelopes)
+            exit (Get-VerbExitCode -Envelopes $result.Envelopes -RunResult $result.RunResult)
         }
 
-        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
+        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp -RequestedRunId $RunId
         if (-not (Test-Path -LiteralPath $runContext.ManifestPath)) { throw "Run manifest not found: $($runContext.ManifestPath)" }
         $fingerprint = Get-Content -LiteralPath $runContext.ManifestPath -Raw | ConvertFrom-Json
         $discovery = Find-Capabilities -CapabilitiesRoot (Join-Path $VerifyRoot 'capabilities') `
@@ -375,10 +472,17 @@ switch ($Verb) {
         exit (Get-VerbExitCode -Envelopes @($envelope))
     }
     'report' {
-        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
-        $mdPath = Write-RunReports -RunContext $runContext
-        Write-Host "Report written: $mdPath"
-        exit $ExitPass
+        try {
+            $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp -RequestedRunId $RunId
+            $mdPath = Write-RunReports -RunContext $runContext
+            $index = Build-RunIndex -RunContext $runContext
+            if ($null -eq $index.runResult) { throw 'Selected run has no authoritative run-result.json.' }
+            Write-Host "Report written: $mdPath"
+            exit (Get-VerbExitCode -RunResult $index.runResult)
+        } catch {
+            Write-Host "Report projection failed: $($_.Exception.Message)" -ForegroundColor Red
+            exit $ExitError
+        }
     }
     'list' {
         $discovery = Find-Capabilities -CapabilitiesRoot (Join-Path $VerifyRoot 'capabilities') `
@@ -442,7 +546,7 @@ switch ($Verb) {
         # Task 10: resolve required capabilities to PASS/FAIL/SKIPPED/
         # REQUIRED-BUT-UNAVAILABLE against the per-change policy, and refuse a
         # run that does not represent current product-source state.
-        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp
+        $runContext = Get-ExistingRunContext -RequestedTimestamp $RunTimestamp -RequestedRunId $RunId
         if (-not (Test-Path -LiteralPath $runContext.ManifestPath)) { throw "Run manifest not found: $($runContext.ManifestPath)" }
         $fingerprint = Get-Content -LiteralPath $runContext.ManifestPath -Raw | ConvertFrom-Json
         $policy = Get-GatePolicy -Change $Change

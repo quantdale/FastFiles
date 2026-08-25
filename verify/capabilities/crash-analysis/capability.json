@@ -2,6 +2,7 @@
   "id": "crash-analysis",
   "interfaceVersion": "1.0.0",
   "tier": 0,
+  "timeoutSeconds": 600,
   "displayName": "Crash Analysis",
   "description": "Classifies captured process crashes and preserves dump, stack, symbol, and reproduction evidence.",
   "entryModule": "CrashAnalysis.psm1",

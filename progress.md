@@ -1,20 +1,23 @@
 # FastFiles — Project Status
 
-## Current ship-ready hardening campaign
+## Current runtime-certification and verifier-convergence campaign
 
 The current local frontier is
-`openspec/changes/ship-ready-ui-ux-hardening-convergence`. It reconciles stale
-draft PR #6 against current `main` without importing its obsolete history. The
-implemented local slice hardens display-only local 8.3 expansion and extended
-path presentation, preserves exact editable/canonical paths, closes Storage
-Analysis push-button and keyboard-state gaps, and keeps degraded-mode status
-truthful. Focused navigation, display-path, Storage, theme-contrast, and
-UIA/provider/runtime tests are green. Debug/release-test/Analyze/ASAN and the
-verifier build/doctor gates are green. The live harness also proved the
-corrected Search.Results reacquisition and aggregate isolated scenarios, while
-the complete mixed capability retains an honest environment/order-sensitive
-failure and foreground skips. No production signing, privileged MFT/USN,
-clean-host, guest, or foreground-owned interactive claim is inferred.
+`openspec/changes/runtime-certification-and-verifier-convergence`. The
+implementation adds identity-bound run/result envelopes, deterministic result
+composition and exit projection, killable capability workers with exact owned
+cleanup, stale-artifact rejection, UIA selection/order metadata, and
+release-status fidelity. Debug and post-diagnosis release-test CTest are both
+83/83, Analyze is warning-clean, ASAN protocol/IPC is 3/3, strict OpenSpec is
+69/69, and the verifier doctor/build gates pass. A first release-test run's
+handshake timeout is retained as host resource-pressure evidence; the
+post-diagnosis full run passed and no residue remained.
+
+The full supported live UIA wrapper remains an honest host-boundary item: the
+current resource-pressure condition prevented a bounded terminal run, so it is
+not claimed as a product pass. No production signing, privileged MFT/USN,
+clean-host, guest, physical-display, or foreground-owned interactive claim is
+inferred.
 
 Windows-only C++20 native file manager built around a persistent NTFS index.
 
@@ -44,38 +47,12 @@ Run `pwsh ./verify/verify.ps1 status` to generate the structured JSON source and
 sanitized Markdown projection under the ignored `verify/status/generated/`
 directory. `tasks.md` remains the acceptance authority for each OpenSpec change.
 
-The current local hardening frontier is
-`openspec/changes/interactive-ui-runtime-determinism`. It closes the locally
-actionable dual-pane/UIA verification ambiguity around the real Toggle Dual Pane
-command while preserving the production split and degraded path. The baseline
-product transition was correct (workspace 1→2 and ColumnView dual-pane true);
-the failure was harness semantic discovery of a dynamically replaced UIA
-fragment. The repaired harness uses direct-child live-root reacquisition,
-semantic palette dispatch/postconditions, exact scenario process ownership, and
-bounded pipe cleanup. The provider now retires stale fragment descendants on
-structure replacement, with headless coverage for fresh identities, selection
-isolation, geometry, and 50 replacement cycles.
-
-The corrected exported live UIA capability passes its product assertions with
-23 PASS, 6 truthful SKIP, and 0 FAIL, including dynamic Search.Results
-reacquisition and the current dual-pane/provider semantics. This desktop still
-records `interactive-foreground-unavailable`, `explorer-drag-source-unavailable`,
-and privileged/degraded-host skips where the required external state is absent.
-The supported `verify.ps1 run` wrapper still returns an opaque
-`scenario-failed` after three post-fix invocations; that discrepancy remains a
-validation-harness blocker and is not relabeled as a product PASS. Production
-signing pins, authenticated privileged runtime proof, clean-host MFT/USN
-validation, and physical/guest environment matrices remain external evidence
-gates.
-
-The prior active-path hardening validation had 81/81 Debug and release-test
-CTest passes, a clean `/analyze` build, ASAN protocol/IPC 2/2, strict OpenSpec
-66/66, source-marker and diagnostic-policy passes, and a passing 600-second
-active-path soak. The current campaign's focused headless tests and full UIA
-capability are green; final Debug/release-test, Analyze, ASAN, verifier,
-OpenSpec, policy, drift, and hygiene gates are green. Elevated resource
-validation, privileged service validation, and physical/guest UI matrices are
-not part of ordinary non-admin development.
+The earlier UI/runtime campaigns remain historical evidence. Their corrected
+provider semantics, direct-child UIA discovery, degraded-mode behavior, and
+truthful foreground/Explorer skips are preserved by this verifier slice.
+Elevated resource validation, privileged service validation, production
+signing, and physical/guest UI matrices are not part of ordinary non-admin
+development.
 
 ## Release-state interpretation
 

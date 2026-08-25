@@ -4,6 +4,7 @@ param(
     [string] $ReleaseReportPath,
     [ValidateSet('human', 'json')]
     [string] $Format = 'human',
+    [string] $VerificationRunResultPath,
     [switch] $SkipCtest
 )
 
@@ -45,7 +46,7 @@ function Get-SafeReleaseGateProjection {
     [pscustomobject]@{ status = [string]$Report.overall; reason = $null; gates = $gates }
 }
 
-$status = New-ProjectStatus -RepoRoot $repoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath -SkipCtest:$SkipCtest
+$status = New-ProjectStatus -RepoRoot $repoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath -VerificationRunResultPath $VerificationRunResultPath -SkipCtest:$SkipCtest
 $report = $null
 $releaseSource = $null
 if ($ReleaseReportPath -and (Test-Path -LiteralPath $ReleaseReportPath -PathType Leaf)) {
@@ -69,6 +70,7 @@ $frontierReport = [pscustomobject]@{
     localEvidence = [pscustomobject]@{
         tests = $status.tests
         capabilities = $status.capabilities
+        verification = $status.verification
         openSpec = $status.openSpec
         diffCheck = $status.git.diffCheck
     }
@@ -102,6 +104,9 @@ $lines = [System.Collections.Generic.List[string]]::new()
 [void]$lines.Add("- CTest discovered: $($frontierReport.localEvidence.tests.discoveredCount)")
 [void]$lines.Add("- OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks)")
 [void]$lines.Add("- Capability registry: $($frontierReport.localEvidence.capabilities.status)")
+$verificationNote = [string]$frontierReport.localEvidence.verification.status
+if ($frontierReport.localEvidence.verification.reason) { $verificationNote += " ($($frontierReport.localEvidence.verification.reason))" }
+[void]$lines.Add("- Selected verifier result: $verificationNote")
 [void]$lines.Add('')
 [void]$lines.Add('## Release gates')
 [void]$lines.Add('')

@@ -2,6 +2,7 @@
   "id": "windows-filesystem-validation",
   "interfaceVersion": "1.0.0",
   "tier": 1,
+  "timeoutSeconds": 900,
   "displayName": "Windows Filesystem Validation",
   "description": "Runs the engine + indexstore component scenario batteries behind the four-state contract: volume enumeration, NTFS traversal/ingestion, USN journal handling, incremental indexing, rescan/staleness detection, and index change/recovery (create/delete/rename/move, journal recovery, stale-index recovery).",
   "entryModule": "FilesystemValidation.psm1",

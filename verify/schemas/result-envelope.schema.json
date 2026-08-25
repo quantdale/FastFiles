@@ -3,6 +3,8 @@
   "title": "FastFiles Verify Capability Result Envelope",
   "type": "object",
   "required": [
+    "runId",
+    "invocationId",
     "capabilityId",
     "interfaceVersion",
     "tier",
@@ -10,9 +12,20 @@
     "startedAtUtc",
     "finishedAtUtc",
     "durationMs",
-    "artifacts"
+    "artifacts",
+    "classification",
+    "lifecycle",
+    "secondaryFailures"
   ],
   "properties": {
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "invocationId": {
+      "type": "string",
+      "minLength": 1
+    },
     "capabilityId": {
       "type": "string"
     },
@@ -37,6 +50,21 @@
         "null"
       ]
     },
+    "classification": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "BLOCKED_ENVIRONMENT",
+        "REQUIRED-BUT-UNAVAILABLE",
+        "ASSERTION_FAILURE",
+        "HARNESS_ERROR",
+        "TIMEOUT",
+        "CANCELLED",
+        "CLEANUP_INCOMPLETE",
+        "PROVIDER_FAILURE",
+        "REPORT_FAILURE"
+      ]
+    },
     "requiredContext": {
       "type": [
         "object",
@@ -57,6 +85,36 @@
         "string",
         "null"
       ]
+    },
+    "providerIdentity": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "metadata": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "lifecycle": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "primaryFailure": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "secondaryFailures": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     },
     "artifacts": {
       "type": "array",
@@ -80,7 +138,36 @@
       "type": [
         "array",
         "null"
-      ]
+      ],
+      "items": {
+        "type": "object",
+        "required": [
+          "scenarioId",
+          "runId",
+          "invocationId",
+          "status",
+          "classification"
+        ],
+        "properties": {
+          "scenarioId": { "type": "string", "minLength": 1 },
+          "id": { "type": "string" },
+          "capabilityId": { "type": "string" },
+          "runId": { "type": "string", "minLength": 1 },
+          "invocationId": { "type": "string", "minLength": 1 },
+          "lifecycleMode": { "type": "string" },
+          "startedAtUtc": { "type": "string" },
+          "finishedAtUtc": { "type": "string" },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED"] },
+          "classification": { "type": "string" },
+          "reason": { "type": ["string", "null"] },
+          "durationMs": { "type": "number" },
+          "detail": { "type": ["string", "null"] },
+          "requiredContext": { "type": ["object", "null"] },
+          "evidencePaths": { "type": "array" },
+          "diagnostics": { "type": "array" },
+          "cleanup": { "type": ["object", "null"] }
+        }
+      }
     }
   }
 }

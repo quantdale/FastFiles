@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles Verify Top-Level Run Result",
+  "type": "object",
+  "required": [
+    "runId",
+    "invocationId",
+    "change",
+    "status",
+    "classification",
+    "startedAtUtc",
+    "finishedAtUtc",
+    "durationMs",
+    "capabilities",
+    "secondaryFailures"
+  ],
+  "properties": {
+    "runId": { "type": "string", "minLength": 1 },
+    "invocationId": { "type": "string", "minLength": 1 },
+    "change": { "type": "string" },
+    "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED"] },
+    "classification": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "BLOCKED_ENVIRONMENT",
+        "REQUIRED-BUT-UNAVAILABLE",
+        "ASSERTION_FAILURE",
+        "HARNESS_ERROR",
+        "TIMEOUT",
+        "CANCELLED",
+        "CLEANUP_INCOMPLETE",
+        "PROVIDER_FAILURE",
+        "REPORT_FAILURE"
+      ]
+    },
+    "reason": { "type": ["string", "null"] },
+    "summary": { "type": ["string", "null"] },
+    "startedAtUtc": { "type": "string" },
+    "finishedAtUtc": { "type": "string" },
+    "durationMs": { "type": "number", "minimum": 0 },
+    "primaryFailure": { "type": ["object", "null"] },
+    "secondaryFailures": { "type": "array", "items": { "type": "object" } },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capabilityId", "status", "classification"],
+        "properties": {
+          "capabilityId": { "type": "string" },
+          "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED"] },
+          "classification": { "type": "string" },
+          "reason": { "type": ["string", "null"] }
+        }
+      }
+    }
+  }
+}
