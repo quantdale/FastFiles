@@ -55,25 +55,121 @@ function Get-UiaFastFilesExe {
     return Join-Path $Options.RepoRoot $script:UiaExeRel
 }
 
-function Stop-UiaSessionProcesses {
-    param([string] $RepoRoot)
-    # stabilize-live-uia-e2e: terminate only repo-owned FastFiles UI/engine
-    # processes (a previous run's app or its parked engine) so every isolated
-    # lifecycle starts from a clean process slate. Installed copies and the
-    # privileged service are never touched. Path comparison is normalized
-    # (Get-Process.Path uses backslashes; RepoRoot may use forward slashes).
-    $buildPrefix = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'build'))
+function Get-UiaProcessIdentity {
+    param([Parameter(Mandatory)] $Process, [Parameter(Mandatory)] [string] $RepoRoot)
+    try {
+        $path = [System.IO.Path]::GetFullPath([string]$Process.Path)
+        $buildPrefix = [System.IO.Path]::GetFullPath((Join-Path $RepoRoot 'build')).TrimEnd('\') + '\'
+        if (-not $path.StartsWith($buildPrefix, [System.StringComparison]::OrdinalIgnoreCase)) { return $null }
+        $startUtc = $null
+        try { $startUtc = $Process.StartTime.ToUniversalTime() } catch { }
+        return [pscustomobject]@{
+            Id = [int]$Process.Id
+            Name = [string]$Process.ProcessName
+            Path = $path
+            StartTimeUtc = $startUtc
+            SessionId = [int]$Process.SessionId
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Get-UiaRepoProcessSnapshot {
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+    $snapshot = @()
     foreach ($name in @('FastFiles', 'FastFilesEngine')) {
-        foreach ($p in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
-            try {
-                $path = [System.IO.Path]::GetFullPath($p.Path)
-                if ($path.StartsWith($buildPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-                    Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
-                }
-            } catch { }
+        foreach ($process in @(Get-Process -Name $name -ErrorAction SilentlyContinue)) {
+            $identity = Get-UiaProcessIdentity -Process $process -RepoRoot $RepoRoot
+            if ($identity) { $snapshot += $identity }
         }
     }
-    Start-Sleep -Milliseconds 600
+    return @($snapshot)
+}
+
+function Test-UiaSameProcessIdentity {
+    param($Left, $Right)
+    if (-not $Left -or -not $Right) { return $false }
+    if ([int]$Left.Id -ne [int]$Right.Id) { return $false }
+    if ([string]$Left.Path -ne [string]$Right.Path) { return $false }
+    if ($Left.StartTimeUtc -and $Right.StartTimeUtc) {
+        return [Math]::Abs(($Left.StartTimeUtc - $Right.StartTimeUtc).TotalMilliseconds) -lt 1000
+    }
+    return $true
+}
+
+function Test-UiaProcessIdentityAlive {
+    param($Identity, [string] $RepoRoot)
+    if (-not $Identity) { return $false }
+    try {
+        $process = Get-Process -Id ([int]$Identity.Id) -ErrorAction Stop
+        $current = Get-UiaProcessIdentity -Process $process -RepoRoot $RepoRoot
+        return Test-UiaSameProcessIdentity -Left $Identity -Right $current
+    } catch {
+        return $false
+    }
+}
+
+function Stop-UiaOwnedProcessIdentity {
+    param($Identity, [string] $RepoRoot, [int] $TimeoutMs = 5000)
+    if (-not $Identity) { return [pscustomobject]@{ Pass = $true; State = 'missing-identity' } }
+    if (-not (Test-UiaProcessIdentityAlive -Identity $Identity -RepoRoot $RepoRoot)) {
+        return [pscustomobject]@{ Pass = $true; State = 'already-exited-or-replaced'; Pid = $Identity.Id }
+    }
+    try { Stop-Process -Id ([int]$Identity.Id) -Force -ErrorAction Stop } catch {
+        return [pscustomobject]@{ Pass = $false; State = 'terminate-failed'; Pid = $Identity.Id; Detail = $_.Exception.Message }
+    }
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt $TimeoutMs) {
+        if (-not (Test-UiaProcessIdentityAlive -Identity $Identity -RepoRoot $RepoRoot)) {
+            return [pscustomobject]@{ Pass = $true; State = 'exited'; Pid = $Identity.Id }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return [pscustomobject]@{ Pass = $false; State = 'residue'; Pid = $Identity.Id; Detail = 'owned process remained after bounded termination wait' }
+}
+
+function Get-UiaEnginePipeName {
+    $sessionId = (Get-Process -Id $PID).SessionId
+    return "FastFiles.Ui.Ctrl.$sessionId"
+}
+
+function Test-UiaEnginePipePresent {
+    try {
+        $pipeName = Get-UiaEnginePipeName
+        return @(Get-ChildItem -LiteralPath '\\.\pipe\' -ErrorAction Stop | Where-Object { $_.Name -eq $pipeName }).Count -gt 0
+    } catch {
+        return $null
+    }
+}
+
+function Wait-UiaEnginePipeAbsent {
+    param([int] $TimeoutMs = 5000, [int] $PollIntervalMs = 100)
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt $TimeoutMs) {
+        $present = Test-UiaEnginePipePresent
+        if ($present -eq $false) {
+            return [pscustomobject]@{ Pass = $true; State = 'absent' }
+        }
+        Start-Sleep -Milliseconds $PollIntervalMs
+    }
+    return [pscustomobject]@{ Pass = $false; State = 'residue-or-unverifiable' }
+}
+
+function Get-UiaNewProcessIdentities {
+    param([array] $Before, [array] $After)
+    $new = @()
+    foreach ($candidate in @($After)) {
+        $known = $false
+        foreach ($prior in @($Before)) {
+            if (Test-UiaSameProcessIdentity -Left $candidate -Right $prior) {
+                $known = $true
+                break
+            }
+        }
+        if (-not $known) { $new += $candidate }
+    }
+    return @($new)
 }
 
 function Start-UiaFastFiles {
@@ -409,8 +505,124 @@ function Invoke-UiaAddressBarNavigate {
     return [pscustomobject]@{ Pass = $false; Detail = "tab labels did not reflect '$ExpectedLeaf' within 12s (used $used)" }
 }
 
+function Get-UiaSafeInteractiveState {
+    param($Driver, [int] $ProcessId)
+    try {
+        $state = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
+        $foregroundHwnd = $null
+        try {
+            $rawHwnd = $state.ForegroundHwnd
+            if ($rawHwnd -is [IntPtr]) {
+                $foregroundHwnd = $rawHwnd.ToInt64()
+            } elseif ($rawHwnd -and $rawHwnd.PSObject.Properties['value']) {
+                $foregroundHwnd = [int64]$rawHwnd.value
+            } elseif ($null -ne $rawHwnd) {
+                $foregroundHwnd = [int64]$rawHwnd
+            }
+        } catch { }
+        $focused = $state.FocusedElement
+        return [ordered]@{
+            foregroundHwnd = $foregroundHwnd
+            foregroundTitle = if ($state.ForegroundTitle -eq 'FastFiles') { 'FastFiles' } elseif ($state.ForegroundTitle) { '<foreign>' } else { '<none>' }
+            focusedAutomationId = if ($focused) { $focused.AutomationId } else { $null }
+            focusedControlType = if ($focused) { $focused.ControlType } else { $null }
+            focusedProcessId = if ($focused) { $focused.ProcessId } else { $null }
+            popupClasses = @($state.Popups | ForEach-Object { $_.className })
+        }
+    } catch {
+        return [ordered]@{
+            foregroundHwnd = $null; foregroundTitle = '<unavailable>'; focusedAutomationId = $null
+            focusedControlType = $null; focusedProcessId = $null; popupClasses = @()
+        }
+    }
+}
+
+function Get-UiaPaletteSemanticState {
+    param($Driver, $Main, [int] $ProcessId, [string[]] $ExpectedCommandNames = @(), [string[]] $ExpectedCommandNameLike = @())
+    $state = [ordered]@{
+        editPresent = $false
+        editHasKeyboardFocus = $false
+        editTextPresent = $false
+        listPresent = $false
+        listEnabled = $false
+        listNativeHandle = $null
+        listVisible = $false
+        listItems = @()
+        selectedIndex = -1
+        selectedName = $null
+        expectedMatches = @()
+        expectedNameLikeMatches = @()
+        interactive = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+    }
+    $edit = $null
+    try { $edit = Find-UiaElement -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 500 } catch { }
+    if ($edit) {
+        $state.editPresent = $true
+        try { $state.editHasKeyboardFocus = [bool](Get-UiaElementProperty -Driver $Driver -Element $edit -Name 'HasKeyboardFocus') } catch { }
+        try { $state.editTextPresent = -not [string]::IsNullOrEmpty((Get-UiaElementTextValue -Driver $Driver -Element $edit)) } catch { }
+    }
+    $list = $null
+    try { $list = Find-UiaElement -Driver $Driver -AutomationId '6302' -FromElement $Main -TimeoutMs 500 } catch { }
+    if ($list) {
+        $state.listPresent = $true
+        try { $state.listEnabled = [bool](Get-UiaElementProperty -Driver $Driver -Element $list -Name 'IsEnabled') } catch { }
+        try { $state.listNativeHandle = [int64]([IntPtr](Get-UiaElementProperty -Driver $Driver -Element $list -Name 'NativeWindowHandle')) } catch { }
+        if ($state.listNativeHandle) {
+            $native = Get-UiaListBoxState -ListHandle ([IntPtr]$state.listNativeHandle)
+            if ($native.Available) {
+                $state.listVisible = [bool]$native.Visible
+                $state.listItems = @($native.Items)
+                $state.selectedIndex = [int]$native.SelectedIndex
+                if ($state.selectedIndex -ge 0 -and $state.selectedIndex -lt $state.listItems.Count) {
+                    $state.selectedName = [string]$state.listItems[$state.selectedIndex]
+                }
+            }
+        }
+    }
+    foreach ($name in @($ExpectedCommandNames)) {
+        $state.expectedMatches += @($state.listItems | Where-Object { $_ -eq $name })
+    }
+    foreach ($nameLike in @($ExpectedCommandNameLike)) {
+        $state.expectedNameLikeMatches += @($state.listItems | Where-Object { $_ -like $nameLike })
+    }
+    return [pscustomobject]$state
+}
+
+# interactive-ui-runtime-determinism 4.1/4.2: keep command-result
+# classification pure so recorded/synthetic observations can exercise the
+# driver contract without pretending to be a live palette or product command.
+function Test-UiaPaletteSelectionObservation {
+    param($State, [string] $ExpectedCommandName = '', [string[]] $ExpectedCommandNameLike = @())
+    if (-not $State -or -not $State.listPresent -or -not $State.listVisible -or @($State.listItems).Count -eq 0) {
+        return [pscustomobject]@{ Pass = $false; Reason = 'palette-result-list-unavailable'; Detail = 'palette result list was missing, hidden, or empty' }
+    }
+    if (-not $State.listEnabled) {
+        return [pscustomobject]@{ Pass = $false; Reason = 'palette-result-disabled'; Detail = 'palette result list was not enabled' }
+    }
+    if ($ExpectedCommandName) {
+        $matches = @($State.expectedMatches | Select-Object -Unique)
+        if ($matches.Count -eq 0) {
+            return [pscustomobject]@{ Pass = $false; Reason = 'command-not-found'; Detail = "expected command '$ExpectedCommandName' was absent" }
+        }
+        if ($matches.Count -ne 1) {
+            return [pscustomobject]@{ Pass = $false; Reason = 'command-result-ambiguous'; Detail = "expected command '$ExpectedCommandName' matched $($matches.Count) results" }
+        }
+        if ($State.selectedName -ne $ExpectedCommandName) {
+            return [pscustomobject]@{ Pass = $false; Reason = 'wrong-command-selected'; Detail = "expected '$ExpectedCommandName' selected, observed '$($State.selectedName)'" }
+        }
+    }
+    foreach ($nameLike in @($ExpectedCommandNameLike)) {
+        if (@($State.expectedNameLikeMatches | Select-Object -Unique).Count -ne 1) {
+            return [pscustomobject]@{ Pass = $false; Reason = 'command-result-ambiguous'; Detail = "expected result pattern '$nameLike' was not unique" }
+        }
+    }
+    return [pscustomobject]@{ Pass = $true; Reason = 'semantic-selection-ready'; Detail = "selected='$($State.selectedName)'" }
+}
+
 function Invoke-UiaPaletteCommand {
-    param($Driver, $Main, [int] $ProcessId, [string] $Query, [string[]] $ExpectedNames, [string[]] $ExpectedNameLike = @(), [switch] $VerifyBeforeEnter)
+    param($Driver, $Main, [int] $ProcessId, [string] $Query, [string[]] $ExpectedNames,
+        [string[]] $ExpectedNameLike = @(), [string] $ExpectedCommandName = '',
+        [string] $ExpectedCommandId = '', [switch] $VerifyBeforeEnter)
     $null = Set-UiaForeground -Driver $Driver -Element $Main
     $null = Reset-UiaModifierKeys -Driver $Driver
     Start-Sleep -Milliseconds 400
@@ -440,11 +652,30 @@ function Invoke-UiaPaletteCommand {
         if (-not $edit) { Start-Sleep -Milliseconds 500 }
     }
     if (-not $edit) {
-        $st = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
-        return [pscustomobject]@{ Pass = $false; Detail = "palette edit (6301) did not appear after 2 chord attempts (foreground='$($st.ForegroundTitle)')" }
+        $st = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+        return [pscustomobject]@{ Pass = $false; Detail = "palette edit (6301) did not appear after 2 chord attempts; state=$((ConvertTo-Json $st -Compress))"; CommandState = $null }
+    }
+    $beforeTextState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)
+    if (-not $beforeTextState.editHasKeyboardFocus) {
+        return [pscustomobject]@{ Pass = $false; Detail = "palette edit was present but did not own keyboard focus before text entry; state=$((ConvertTo-Json $beforeTextState -Compress -Depth 8))"; CommandState = $beforeTextState }
     }
     $null = Send-UiaText -Driver $Driver -Text $Query
-    Start-Sleep -Milliseconds 800
+    # The result list is a native child of a custom-rendered palette. Poll its
+    # semantic contents and native selection until the exact command is the
+    # sole match and the selected row agrees. A cadence sleep is only the poll
+    # interval; it is never treated as proof that Enter will activate the row.
+    $commandObservation = [pscustomobject]@{ State = $null }
+    $commandReady = Wait-UiaCondition -Driver $Driver -TimeoutMs 4000 -PollIntervalMs 150 `
+        -Description "palette '$Query' selected command" -ScriptBlock {
+        $candidate = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName) -ExpectedNameLike @($ExpectedNameLike)
+        $commandObservation.State = $candidate
+        return (Test-UiaPaletteSelectionObservation -State $candidate -ExpectedCommandName $ExpectedCommandName -ExpectedCommandNameLike $ExpectedNameLike).Pass
+    }
+    $commandState = $commandObservation.State
+    if (-not $commandReady) {
+        $selection = Test-UiaPaletteSelectionObservation -State $commandState -ExpectedCommandName $ExpectedCommandName -ExpectedCommandNameLike $ExpectedCommandNameLike
+        return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' semantic selection failed: $($selection.Reason): $($selection.Detail); state=$((ConvertTo-Json $commandState -Compress -Depth 8))"; CommandState = $commandState }
+    }
     # stabilize-live-uia-e2e: some commands close the palette on Enter, so the
     # expected command name must be verified while the list is still showing.
     if ($VerifyBeforeEnter) {
@@ -458,7 +689,28 @@ function Invoke-UiaPaletteCommand {
         }
     }
     $null = Send-UiaInput -Driver $Driver -Keys '{ENTER}'
-    Start-Sleep -Seconds 2
+    $paletteClosed = Wait-UiaElementGone -Driver $Driver -AutomationId '6301' -FromElement $Main -TimeoutMs 3000 -PollIntervalMs 200
+    if (-not $paletteClosed) {
+        return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' did not close after one Enter; commandId='$ExpectedCommandId'; state=$((ConvertTo-Json (Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)) -Compress -Depth 8))"; CommandState = $commandState }
+    }
+    $dispatchEvidence = $null
+    if ($ExpectedCommandId) {
+        $dispatchEvidence = Get-UiaCommandDispatchEvidence -CommandId $ExpectedCommandId
+        if (-not $dispatchEvidence) {
+            return [pscustomobject]@{
+                Pass = $false
+                Detail = "palette '$Query' closed, but product dispatch evidence for '$ExpectedCommandId' was not observed; after=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"
+                CommandState = $commandState; PaletteClosed = $true
+            }
+        }
+        if ($dispatchEvidence.outcome -ne 'accepted') {
+            return [pscustomobject]@{
+                Pass = $false
+                Detail = "palette '$Query' selected '$($commandState.selectedName)' but product rejected '$ExpectedCommandId'; dispatch=$((ConvertTo-Json $dispatchEvidence -Compress))"
+                CommandState = $commandState; PaletteClosed = $true; DispatchEvidence = $dispatchEvidence
+            }
+        }
+    }
     $missing = @()
     foreach ($name in $ExpectedNames) {
         try {
@@ -474,9 +726,9 @@ function Invoke-UiaPaletteCommand {
     }
     if ($VerifyBeforeEnter) { $missing = @() }
     if ($missing.Count -eq 0) {
-        return [pscustomobject]@{ Pass = $true; Detail = "palette '$Query' opened; expected controls all present" }
+        return [pscustomobject]@{ Pass = $true; Detail = "palette '$Query' activated commandId='$ExpectedCommandId'; selected='$($commandState.selectedName)'; palette closed; expected controls all present; dispatch=$((ConvertTo-Json $dispatchEvidence -Compress)); after=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"; CommandState = $commandState; PaletteClosed = $true; DispatchEvidence = $dispatchEvidence }
     }
-    return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' ran but missing: $($missing -join ', ')" }
+    return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' activated commandId='$ExpectedCommandId' but missing: $($missing -join ', '); dispatch=$((ConvertTo-Json $dispatchEvidence -Compress)); after=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"; CommandState = $commandState; PaletteClosed = $true; DispatchEvidence = $dispatchEvidence }
 }
 
 # ui-v3 search a11y: the scope/sort/direction/clear-history row lives behind
@@ -519,7 +771,8 @@ function Expand-UiaSearchFilters {
 # are asserted only after expansion (they are hidden by design while collapsed).
 function Open-UiaSearchPanel {
     param($Driver, $Main, [int] $ProcessId, [string[]] $ExpandedNames = @('Clear history', 'Ascending'))
-    $sp = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'search' -ExpectedNames @('Filters')
+    $sp = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'search' -ExpectedNames @('Filters') `
+        -ExpectedCommandName 'Search' -ExpectedCommandId 'search.focus'
     if (-not $sp.Pass) { return $sp }
     $fx = Expand-UiaSearchFilters -Driver $Driver -Main $Main -ProcessId $ProcessId
     if (-not $fx.Pass) { return [pscustomobject]@{ Pass = $false; Detail = "search panel opened but $($fx.Detail)" } }
@@ -609,6 +862,43 @@ function Get-UiaDiagnosticsLogPath {
     return (Join-Path $root 'FastFiles\logs\diagnostics.log')
 }
 
+function Get-UiaCommandDispatchEvidence {
+    param([Parameter(Mandatory)] [string] $CommandId)
+    $logPath = Get-UiaDiagnosticsLogPath
+    if (-not $logPath -or -not (Test-Path -LiteralPath $logPath)) { return $null }
+    try {
+        $commandPattern = [regex]::Escape("command=$CommandId")
+        $lines = @(Get-Content -LiteralPath $logPath -Tail 200 -ErrorAction Stop)
+        for ($lineIndex = $lines.Count - 1; $lineIndex -ge 0; $lineIndex--) {
+            $line = [string]$lines[$lineIndex]
+            # Diagnostics are JSON-shaped but are deliberately written by the
+            # native wide stream. Keep a raw-line fallback so an encoding
+            # quirk cannot turn real product evidence into a false
+            # command-dispatch failure.
+            if ($line -match 'FFDIAG_UI_COMMAND_DISPATCHED' -and $line -match $commandPattern) {
+                $accepted = if ($line -match 'accepted=true') { 'accepted' } elseif ($line -match 'accepted=false') { 'rejected' } else { 'unknown' }
+                return [pscustomobject]@{
+                    codeName = 'FFDIAG_UI_COMMAND_DISPATCHED'
+                    message = "command=$CommandId"
+                    state = $line
+                    outcome = $accepted
+                }
+            }
+            try { $event = $line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
+            if ($event.codeName -eq 'FFDIAG_UI_COMMAND_DISPATCHED' -and
+                [string]$event.message -match $commandPattern) {
+                return [pscustomobject]@{
+                    codeName = [string]$event.codeName
+                    message = [string]$event.message
+                    state = [string]$event.state
+                    outcome = [string]$event.outcome
+                }
+            }
+        }
+    } catch { return $null }
+    return $null
+}
+
 function Test-UiaEngineServingData {
     param($Driver, $Main)
     if ($script:engineServedData) { return $true }
@@ -655,6 +945,78 @@ function Get-UiaColumnViewPane {
     return $null
 }
 
+# interactive-ui-runtime-determinism: enumerate the live ColumnView fragment
+# one level at a time. A recursive Find-UiaElement call gives UIA one short
+# operation budget for the whole stale/replaced subtree; after a pane toggle
+# that can expire while UIA is rebuilding the fragment even though the direct
+# child walk is already correct. This helper returns only live provider
+# objects and their semantic identities/geometry, never a cached row index.
+function Get-UiaLivePaneState {
+    param($Driver, $Main)
+    try {
+        $group = $null
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            if ($identity.AutomationId -eq 'ColumnView') {
+                $group = $child
+                break
+            }
+        }
+        if (-not $group) { return $null }
+        $panes = @()
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $group)) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            if ($identity.AutomationId -notin @('Pane.0', 'Pane.1')) { continue }
+            $rect = $null
+            $hasFocus = $false
+            try { $rect = Get-UiaElementProperty -Driver $Driver -Element $child -Name 'BoundingRectangle' } catch { }
+            try { $hasFocus = [bool](Get-UiaElementProperty -Driver $Driver -Element $child -Name 'HasKeyboardFocus') } catch { }
+            $runtimeId = @()
+            try { $runtimeId = @(Get-UiaElementRuntimeId -Driver $Driver -Element $child) } catch { }
+            $panes += [pscustomobject]@{
+                Element = $child
+                AutomationId = [string]$identity.AutomationId
+                ControlType = [string]$identity.ControlType
+                RuntimeId = $runtimeId
+                BoundingRectangle = $rect
+                HasKeyboardFocus = $hasFocus
+            }
+        }
+        return [pscustomobject]@{
+            Group = $group
+            Panes = @($panes)
+            PaneCount = @($panes).Count
+            PaneIds = @($panes | ForEach-Object { $_.AutomationId })
+            FocusedPaneId = ($panes | Where-Object { $_.HasKeyboardFocus } | Select-Object -First 1).AutomationId
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Test-UiaPaneGeometryState {
+    param($State, [int] $ExpectedPaneCount = 2)
+    if (-not $State -or $State.PaneCount -ne $ExpectedPaneCount) { return $false }
+    foreach ($pane in @($State.Panes)) {
+        $rect = $pane.BoundingRectangle
+        if (-not $rect -or $rect.width -le 0 -or $rect.height -le 0) { return $false }
+    }
+    if ($ExpectedPaneCount -eq 1) { return $true }
+    $left = @($State.Panes | Where-Object { $_.AutomationId -eq 'Pane.0' } | Select-Object -First 1).BoundingRectangle
+    $right = @($State.Panes | Where-Object { $_.AutomationId -eq 'Pane.1' } | Select-Object -First 1).BoundingRectangle
+    if (-not $left -or -not $right) { return $false }
+    return $left.x -lt $right.x -and ($left.x + $left.width) -le ($right.x + 2)
+}
+
+function Get-UiaPaneGeometrySignature {
+    param($State)
+    if (-not $State) { return '' }
+    return (@($State.Panes | Sort-Object AutomationId | ForEach-Object {
+        $rect = $_.BoundingRectangle
+        "$($_.AutomationId):$($rect.x),$($rect.y),$($rect.width),$($rect.height)"
+    }) -join '|')
+}
+
 function Find-UiaTerminalColumnItem {
     param($Driver, $Main, [string] $Name, [string] $PaneId = 'Pane.0', [int] $TimeoutMs = 15000, [scriptblock] $OnTimeout = $null)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -694,42 +1056,104 @@ function Ensure-UiaDualPane {
     param($Driver, $Main, [int] $ProcessId)
     $detail = @()
     try {
-        $group = Find-UiaElement -Driver $Driver -AutomationId 'ColumnView' -FromElement $Main -TimeoutMs 3000
-        if (-not $group) { return [pscustomobject]@{ Pass = $false; Detail = 'ColumnView group not found' } }
-        $pane1 = $null
-        try { $pane1 = Find-UiaElement -Driver $Driver -AutomationId 'Pane.1' -FromElement $group -TimeoutMs 2000 } catch { }
-        if (-not $pane1) {
-            $pal = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'dual'
-            if (-not $pal.Pass) {
-                return [pscustomobject]@{ Pass = $false; Detail = "dual-pane command failed: $($pal.Detail)" }
-            }
-            $detail += 'created via palette'
-            # The ColumnView fragment is replaced when the second pane is
-            # created. Waiting from the pre-toggle group can therefore poll a
-            # stale provider forever even though the live main window already
-            # exposes Pane.1. Re-root the wait at the main window and only
-            # reacquire ColumnView after the pane post-condition is true.
-            $pane1 = Wait-UiaElement -Driver $Driver -AutomationId 'Pane.1' -FromElement $Main -TimeoutMs 8000 -PollIntervalMs 200
-            if (-not $pane1) {
-                $st = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
-                return [pscustomobject]@{ Pass = $false; Detail = "Pane.1 did not appear after 'Toggle Dual Pane'; foreground='$($st.ForegroundTitle)' popups=$(@($st.Popups | ForEach-Object { $_.className }) -join ',')" }
-            }
-        } else {
-            $detail += 'already present'
+        $state = Get-UiaLivePaneState -Driver $Driver -Main $Main
+        if (-not $state) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'provider-root'; Reason = 'columnview-not-discoverable'; Detail = 'ColumnView group not found in the live main-window children' }
         }
-        # Reacquire both panes from the live tree.
-        $group = Find-UiaElement -Driver $Driver -AutomationId 'ColumnView' -FromElement $Main -TimeoutMs 3000
-        $pane0 = Find-UiaElement -Driver $Driver -AutomationId 'Pane.0' -FromElement $group -TimeoutMs 3000
-        $pane1 = Find-UiaElement -Driver $Driver -AutomationId 'Pane.1' -FromElement $group -TimeoutMs 3000
-        if (-not ($pane0 -and $pane1)) { return [pscustomobject]@{ Pass = $false; Detail = 'panes missing after reacquisition' } }
+        if ($state.PaneIds -notcontains 'Pane.1') {
+            $pal = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'dual' `
+                -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+            if (-not $pal.Pass) {
+                return [pscustomobject]@{ Pass = $false; Stage = 'command'; Reason = 'command-activation-failed'; Detail = "dual-pane command failed: $($pal.Detail)"; CommandResult = $pal }
+            }
+            $detail += "created via palette; $($pal.Detail)"
+            $liveAfterToggle = $null
+            $appeared = Wait-UiaCondition -Driver $Driver -TimeoutMs 8000 -PollIntervalMs 200 `
+                -Description 'live ColumnView exposes Pane.0 and Pane.1' -ScriptBlock {
+                $liveAfterToggle = Get-UiaLivePaneState -Driver $Driver -Main $Main
+                return $null -ne $liveAfterToggle -and $liveAfterToggle.PaneCount -eq 2 -and
+                    ($liveAfterToggle.PaneIds -contains 'Pane.0') -and ($liveAfterToggle.PaneIds -contains 'Pane.1')
+            }
+            if (-not $appeared) {
+                return [pscustomobject]@{ Pass = $false; Stage = 'pane-count'; Reason = 'dual-pane-postcondition-timeout'; Detail = "Pane.1 did not appear in the live ColumnView children after 'Toggle Dual Pane'; setup=$($detail -join ' | '); state=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"; PaneState = $liveAfterToggle }
+            }
+            $state = $liveAfterToggle
+        } else {
+            $detail += 'already present in live children'
+        }
+        # Reacquire both panes from the direct live child walk. This is the
+        # same provider reconstruction path used after a root replacement.
+        $state = Get-UiaLivePaneState -Driver $Driver -Main $Main
+        $pane0 = @($state.Panes | Where-Object { $_.AutomationId -eq 'Pane.0' } | Select-Object -First 1).Element
+        $pane1 = @($state.Panes | Where-Object { $_.AutomationId -eq 'Pane.1' } | Select-Object -First 1).Element
+        if (-not ($pane0 -and $pane1)) { return [pscustomobject]@{ Pass = $false; Stage = 'provider-reacquisition'; Reason = 'pane-provider-missing'; Detail = 'live panes missing after reacquisition'; PaneState = $state } }
         $id0 = (Get-UiaElementIdentity -Driver $Driver -Element $pane0).AutomationId
         $id1 = (Get-UiaElementIdentity -Driver $Driver -Element $pane1).AutomationId
         if ($id0 -ne 'Pane.0' -or $id1 -ne 'Pane.1') {
-            return [pscustomobject]@{ Pass = $false; Detail = "pane identities unexpected: '$id0' / '$id1'" }
+            return [pscustomobject]@{ Pass = $false; Stage = 'provider-identity'; Reason = 'pane-automation-id-mismatch'; Detail = "pane identities unexpected: '$id0' / '$id1'"; PaneState = $state }
         }
-        return [pscustomobject]@{ Pass = $true; Pane0 = $pane0; Pane1 = $pane1; Detail = ($detail -join '; ') }
+        $runtime0 = @($state.Panes | Where-Object { $_.AutomationId -eq 'Pane.0' } | Select-Object -First 1).RuntimeId
+        $runtime1 = @($state.Panes | Where-Object { $_.AutomationId -eq 'Pane.1' } | Select-Object -First 1).RuntimeId
+        if ($runtime0.Count -eq 0 -or $runtime1.Count -eq 0 -or ($runtime0 -join ',') -eq ($runtime1 -join ',')) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'provider-identity'; Reason = 'pane-runtime-id-invalid'; Detail = "Pane runtime identities were missing or aliased: pane0=$($runtime0 -join ','); pane1=$($runtime1 -join ',')"; PaneState = $state }
+        }
+        if (-not (Test-UiaPaneGeometryState -State $state -ExpectedPaneCount 2)) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'geometry'; Reason = 'pane-geometry-invalid'; Detail = 'Pane.0/Pane.1 geometry was missing, non-positive, or overlapping'; PaneState = $state }
+        }
+        # Wait-UiaCondition invokes its predicate in a child scope on every
+        # poll. Keep stability state in one mutable object so a successful
+        # semantic read survives the next poll; plain local assignments would
+        # reset to zero and make this postcondition impossible to satisfy.
+        $stability = [pscustomobject]@{ State = $state; LastSignature = ''; StableReads = 0 }
+        $stable = Wait-UiaCondition -Driver $Driver -TimeoutMs 2500 -PollIntervalMs 150 -Description 'dual-pane provider geometry stable' -ScriptBlock {
+            $candidate = Get-UiaLivePaneState -Driver $Driver -Main $Main
+            if (-not (Test-UiaPaneGeometryState -State $candidate -ExpectedPaneCount 2)) { return $false }
+            $signature = Get-UiaPaneGeometrySignature -State $candidate
+            if ($signature -eq $stability.LastSignature) { $stability.StableReads++ } else { $stability.StableReads = 1 }
+            $stability.LastSignature = $signature
+            $stability.State = $candidate
+            return $stability.StableReads -ge 2
+        }
+        if (-not $stable) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'layout-readiness'; Reason = 'pane-geometry-not-stable'; Detail = "live pane geometry did not remain stable for two semantic reads (stableReads=$($stability.StableReads); signature='$($stability.LastSignature)')"; PaneState = $stability.State }
+        }
+        $pane0 = @($stability.State.Panes | Where-Object { $_.AutomationId -eq 'Pane.0' } | Select-Object -First 1).Element
+        $pane1 = @($stability.State.Panes | Where-Object { $_.AutomationId -eq 'Pane.1' } | Select-Object -First 1).Element
+        return [pscustomobject]@{ Pass = $true; Stage = 'complete'; Pane0 = $pane0; Pane1 = $pane1; PaneState = $stability.State; Detail = ($detail -join '; ') }
     } catch {
-        return [pscustomobject]@{ Pass = $false; Detail = "dual-pane setup failed: $($_.Exception.Message)" }
+        return [pscustomobject]@{ Pass = $false; Stage = 'exception'; Reason = 'dual-pane-setup-exception'; Detail = "dual-pane setup failed: $($_.Exception.Message)" }
+    }
+}
+
+function Ensure-UiaSinglePane {
+    param($Driver, $Main, [int] $ProcessId)
+    try {
+        $state = Get-UiaLivePaneState -Driver $Driver -Main $Main
+        if (-not $state) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'provider-root'; Reason = 'columnview-not-discoverable'; Detail = 'ColumnView group not found in the live main-window children' }
+        }
+        if ($state.PaneCount -eq 2) {
+            $pal = Invoke-UiaPaletteCommand -Driver $Driver -Main $Main -ProcessId $ProcessId -Query 'dual' `
+                -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+            if (-not $pal.Pass) {
+                return [pscustomobject]@{ Pass = $false; Stage = 'command'; Reason = 'command-activation-failed'; Detail = "single-pane command failed: $($pal.Detail)"; CommandResult = $pal }
+            }
+        } elseif ($state.PaneCount -ne 1 -or $state.PaneIds -notcontains 'Pane.0') {
+            return [pscustomobject]@{ Pass = $false; Stage = 'pane-count'; Reason = 'unexpected-pane-count'; Detail = "expected one live pane, observed $($state.PaneCount)"; PaneState = $state }
+        }
+        $live = $null
+        $ready = Wait-UiaCondition -Driver $Driver -TimeoutMs 8000 -PollIntervalMs 200 -Description 'live ColumnView exposes only Pane.0' -ScriptBlock {
+            $live = Get-UiaLivePaneState -Driver $Driver -Main $Main
+            return $null -ne $live -and $live.PaneCount -eq 1 -and $live.PaneIds -contains 'Pane.0' -and
+                (Test-UiaPaneGeometryState -State $live -ExpectedPaneCount 1)
+        }
+        if (-not $ready) {
+            return [pscustomobject]@{ Pass = $false; Stage = 'pane-count'; Reason = 'single-pane-postcondition-timeout'; Detail = 'Pane.1 remained present or Pane.0 was not reacquired after disable'; PaneState = $live }
+        }
+        $pane0 = @($live.Panes | Where-Object { $_.AutomationId -eq 'Pane.0' } | Select-Object -First 1).Element
+        return [pscustomobject]@{ Pass = $true; Stage = 'complete'; Pane0 = $pane0; PaneState = $live; Detail = 'single-pane state observed from the live ColumnView children' }
+    } catch {
+        return [pscustomobject]@{ Pass = $false; Stage = 'exception'; Reason = 'single-pane-setup-exception'; Detail = "single-pane setup failed: $($_.Exception.Message)" }
     }
 }
 
@@ -835,8 +1259,8 @@ function Position-UiaExplorerBesideFastFiles {
     }
 }
 
-# stabilize-live-uia-e2e 2.3: an isolated scenario lifecycle. Kills stale
-# repo-owned processes, launches a fresh FastFiles with a private LOCALAPPDATA /
+# interactive-ui-runtime-determinism 2.3: an isolated scenario lifecycle.
+# Snapshots exact repo-owned identities, launches a fresh FastFiles with a private LOCALAPPDATA /
 # APPDATA tree, awaits the main window and the engine-connected signal, and
 # returns a context object. Teardown closes session-owned Explorer windows,
 # terminates the app, and removes only the marked session tree.
@@ -859,6 +1283,7 @@ function New-UiaSessionSandbox {
             LOCALAPPDATA = $localAppData
             APPDATA = $appData
             FASTFILES_UIA_FIXTURE_ROOT = $fixtureRoot
+            FASTFILES_UIA_DIAGNOSTICS = '1'
         }
     }
 }
@@ -876,7 +1301,11 @@ function Wait-UiaMainWindow {
 
 function New-UiaScenarioContext {
     param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn)
-    Stop-UiaSessionProcesses -RepoRoot $RepoRoot
+    # Snapshot before launch. Existing repo-build processes are evidence, not
+    # implicit cleanup targets: the engine is intentionally persistent and a
+    # same-name process may belong to another test or installation.
+    $beforeProcesses = @(Get-UiaRepoProcessSnapshot -RepoRoot $RepoRoot)
+    $pipeBefore = Test-UiaEnginePipePresent
     $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId
     $script:UiaActiveLocalAppData = Join-Path $sandbox.SessionRoot 'LocalAppData'
     $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
@@ -885,17 +1314,28 @@ function New-UiaScenarioContext {
         $script:UiaActiveLocalAppData = $null
         return $null
     }
+    $ownedProcesses = [System.Collections.ArrayList]::new()
+    $launchedIdentity = Get-UiaProcessIdentity -Process $launched -RepoRoot $RepoRoot
+    if ($launchedIdentity) { [void]$ownedProcesses.Add($launchedIdentity) }
     & $LogFn "[$ScenarioId] pid=$($launched.Id); waiting for main window"
     $driver = New-UiaDriver -TimeoutMs 10000 -MaxTreeWidth 2000 -MaxTreeDepth 30
     $main = Wait-UiaMainWindow -Driver $driver -ProcessId $launched.Id -TimeoutMs 15000
     if (-not $main) {
-        # stabilize-live-uia-e2e: ONE bounded launch retry for the documented
-        # transient where the previous lifecycle's processes are still being
-        # reaped and the new UI does not surface within the 4s window. The
-        # retry is reported in the run log, never silent.
-        Stop-UiaSessionProcesses -RepoRoot $RepoRoot
+        # One bounded launch retry remains a launch recovery, never an action
+        # success signal. It terminates only the exact first UI identity; any
+        # engine created by that attempt remains in the owned set.
+        $afterFirstLaunch = @(Get-UiaRepoProcessSnapshot -RepoRoot $RepoRoot)
+        foreach ($created in @(Get-UiaNewProcessIdentities -Before $beforeProcesses -After $afterFirstLaunch)) {
+            if ($created.Name -eq 'FastFilesEngine' -and -not (@($ownedProcesses | Where-Object { Test-UiaSameProcessIdentity -Left $_ -Right $created }).Count)) {
+                [void]$ownedProcesses.Add($created)
+            }
+        }
+        $firstStop = Stop-UiaOwnedProcessIdentity -Identity $launchedIdentity -RepoRoot $RepoRoot
+        & $LogFn "[$ScenarioId] initial UI cleanup before bounded launch recovery: $($firstStop.State)"
         $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
         if ($launched) {
+            $launchedIdentity = Get-UiaProcessIdentity -Process $launched -RepoRoot $RepoRoot
+            if ($launchedIdentity) { [void]$ownedProcesses.Add($launchedIdentity) }
             & $LogFn "[$ScenarioId] launch retry pid=$($launched.Id)"
             $driver = New-UiaDriver -TimeoutMs 10000 -MaxTreeWidth 2000 -MaxTreeDepth 30
             $main = Wait-UiaMainWindow -Driver $driver -ProcessId $launched.Id -TimeoutMs 15000
@@ -917,11 +1357,24 @@ function New-UiaScenarioContext {
         }
         $readyReason = $(if ($ready) { 'engine-connected' } else { 'engine-connect-not-observed' })
     }
+    $afterProcesses = @(Get-UiaRepoProcessSnapshot -RepoRoot $RepoRoot)
+    foreach ($created in @(Get-UiaNewProcessIdentities -Before $beforeProcesses -After $afterProcesses)) {
+        if (-not (@($ownedProcesses | Where-Object { Test-UiaSameProcessIdentity -Left $_ -Right $created }).Count)) {
+            # A repo-build UI created by this context is owned; a repo-build
+            # engine is owned only when it appeared after the baseline. This
+            # preserves a pre-existing per-session engine on teardown.
+            [void]$ownedProcesses.Add($created)
+        }
+    }
     & $LogFn "[$ScenarioId] main=$($null -ne $main) ready=$ready ($readyReason)"
     return [pscustomobject]@{
         ScenarioId = $ScenarioId; Exe = $Exe; RepoRoot = $RepoRoot
-        Driver = $driver; Main = $main; Launched = $launched
+        Driver = $driver; Main = $main; Launched = $launched; LaunchedIdentity = $launchedIdentity
         Ready = $ready; ReadyReason = $readyReason
+        ProcessBaseline = @($beforeProcesses)
+        OwnedProcesses = @($ownedProcesses)
+        PipePresentBefore = $pipeBefore
+        Cleanup = $null
         SessionRoot = $sandbox.SessionRoot; SessionMarker = $sandbox.MarkerPath
         FixtureRoot = $sandbox.FixtureRoot; Environment = $sandbox.Environment
         ExplorerWindows = [System.Collections.ArrayList]::new()
@@ -931,7 +1384,7 @@ function New-UiaScenarioContext {
 
 function Remove-UiaScenarioContext {
     param($Context, $LogFn)
-    if (-not $Context) { return }
+    if (-not $Context) { return [pscustomobject]@{ Pass = $true; State = 'no-context' } }
     foreach ($win in @($Context.ExplorerWindows)) {
         Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $win
     }
@@ -953,11 +1406,23 @@ function Remove-UiaScenarioContext {
     foreach ($fixture in @($Context.Fixtures)) {
         Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if ($Context.Launched -and -not $Context.Launched.HasExited) {
-        Stop-Process -Id $Context.Launched.Id -Force -ErrorAction SilentlyContinue
+    $cleanupFailures = @()
+    foreach ($identity in @($Context.OwnedProcesses)) {
+        $stopped = Stop-UiaOwnedProcessIdentity -Identity $identity -RepoRoot $Context.RepoRoot
+        if (-not $stopped.Pass) {
+            $cleanupFailures += "pid=$($identity.Id):$($stopped.State)"
+        }
     }
-    # Remove the parked engine too so the next isolated lifecycle is fresh.
-    Stop-UiaSessionProcesses -RepoRoot $Context.RepoRoot
+    $pipeAfter = Test-UiaEnginePipePresent
+    $pipeOwnedBefore = ($Context.PipePresentBefore -ne $true)
+    $pipeCleanup = [pscustomobject]@{ Pass = $true; State = $(if ($pipeAfter -eq $false) { 'absent' } else { 'not-required-or-pending' }) }
+    if ($pipeOwnedBefore -and $pipeAfter -ne $false) {
+        $pipeCleanup = Wait-UiaEnginePipeAbsent
+        $pipeAfter = Test-UiaEnginePipePresent
+        if (-not $pipeCleanup.Pass -or $pipeAfter -ne $false) {
+            $cleanupFailures += 'engine-pipe-residue'
+        }
+    }
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     $sessionRoot = if ($Context.SessionRoot) { [IO.Path]::GetFullPath($Context.SessionRoot).TrimEnd('\') } else { $null }
     if ($sessionRoot -and $sessionRoot.StartsWith($tempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
@@ -965,7 +1430,16 @@ function Remove-UiaScenarioContext {
         Remove-Item -LiteralPath $sessionRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
     $script:UiaActiveLocalAppData = $null
-    & $LogFn "[$($Context.ScenarioId)] lifecycle teardown complete"
+    $Context.Cleanup = [pscustomobject]@{
+        Pass = $cleanupFailures.Count -eq 0
+        OwnedPids = @($Context.OwnedProcesses | ForEach-Object { $_.Id })
+        Residue = @($cleanupFailures)
+        PipePresentBefore = $Context.PipePresentBefore
+        PipePresentAfter = $pipeAfter
+        PipeCleanup = $pipeCleanup
+    }
+    & $LogFn "[$($Context.ScenarioId)] lifecycle teardown complete; cleanupPass=$($Context.Cleanup.Pass); residue=$($cleanupFailures -join ',')"
+    return $Context.Cleanup
 }
 
 function Export-UiaEvidence {
@@ -1093,11 +1567,43 @@ function Invoke-UiaScenarioSearchDeep {
 # proves the *live* degraded unknown semantics and the live Size-on-Disk sort
 # control. No OCR, no pixels, no fixed coordinates, no test-only hooks: every
 # geometry/input comes from UIA elements (the sort ComboBox and result rows).
+function Get-UiaSearchResultItems {
+    <#
+        Search.Results is a dynamic fragment: changing the query can replace
+        the list's children while the managed UIA client is enumerating them.
+        Reacquire the list and inspect only its direct, current ListItem
+        children. A recursive FindAll from a cached list is allowed to throw
+        "Unrecognized error" during that replacement and cannot prove that the
+        returned rows belong to the current query.
+    #>
+    param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 6000)
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($sw.ElapsedMilliseconds -lt $TimeoutMs) {
+        try {
+            $list = Wait-UiaElement -Driver $Driver -AutomationId 'Search.Results' -ProcessId $ProcessId `
+                -FromElement $Main -TimeoutMs 800 -PollIntervalMs 100
+            if ($list) {
+                $children = @(Get-UiaChildren -Driver $Driver -Element $list)
+                return @($children | Where-Object {
+                    (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'ListItem'
+                })
+            }
+        } catch { }
+        Start-Sleep -Milliseconds 100
+    }
+    return @()
+}
+
 function Get-UiaSearchResultOrder {
-    param($Driver, $ResultsList, [string] $NamePattern = '.*')
-    $items = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $ResultsList -TimeoutMs 6000 -All)
-    if ($items.Count -eq 0) {
-        $items = @(Find-UiaElement -Driver $Driver -FromElement $ResultsList -TimeoutMs 6000 -All)
+    param($Driver, $ResultsList, $Main = $null, [int] $ProcessId = 0, [string] $NamePattern = '.*')
+    $items = if ($Main -and $ProcessId -gt 0) {
+        @(Get-UiaSearchResultItems -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs 6000)
+    } else {
+        try {
+            @(Get-UiaChildren -Driver $Driver -Element $ResultsList | Where-Object {
+                (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'ListItem'
+            })
+        } catch { @() }
     }
     return @($items | Where-Object { (Get-UiaElementProperty -Driver $Driver -Element $_ -Name 'Name') -match $NamePattern } |
         ForEach-Object { Get-UiaElementProperty -Driver $Driver -Element $_ -Name 'Name' })
@@ -1323,6 +1829,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
     $main = $Context.Main
     $appPid = $Context.Launched.Id
     $id = 'search-allocated-size'
+    $stage = 'setup'
     $fail = { param($detail) New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'search-allocated-size-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
 
     if (-not $Context.Ready) {
@@ -1349,6 +1856,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
     [void]$Context.Fixtures.Add($scratch)
 
     try {
+        $stage = 'foreground-and-navigation'
         # Ensure FastFiles owns the foreground before navigation. Lab popups
         # (e.g. browser games, stale settings dialogs from aborted runs) can
         # steal foreground; dismiss a lingering FastFilesSettingsDialog first,
@@ -1391,22 +1899,26 @@ function Invoke-UiaScenarioSearchAllocatedSize {
 
         # Open the search panel (and expand the Filters row so the sort combo
         # this scenario drives is exposed).
+        $stage = 'open-search-panel'
         $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $appPid
         if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
 
+        $stage = 'locate-search-results'
         $resultsList = $null
         try { $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 6000 -PollIntervalMs 250 } catch { }
         if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
 
         # Query that matches all fixture files.
+        $stage = 'query-alloc'
         $null = Send-UiaText -Driver $driver -Text 'alloc'
         Start-Sleep -Seconds 2
 
         # Discoverability + per-result semantic metadata (degraded = unknown).
-        $fixtureItems = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+        $stage = 'read-alloc-results'
+        $fixtureItems = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
             Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
         if ($fixtureItems.Count -lt 5) {
-            $all = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 4000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
+            $all = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 4000 | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
             return & $fail "expected 5 fixture results for 'alloc', found $($fixtureItems.Count) (all results: $($all -join ', '))"
         }
 
@@ -1421,6 +1933,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         $allUnknown = $true
         $fabricated = $false
         $fdDump = @()
+        $stage = 'read-allocated-metadata'
         foreach ($it in $fixtureItems) {
             $nm = $it.Current.Name
             $fd = Get-UiaFullDescriptionRaw -Element $it
@@ -1435,18 +1948,20 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         if ($fabricated) { return & $fail "a result fabricated on-disk size (logical echoed as on disk / 0 B on disk) :: $($fdDump -join ' | ')" }
 
         # Stale / query-replacement soundness: narrow, then restore the set.
+        $stage = 'query-allocB'
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
         $null = Send-UiaText -Driver $driver -Text 'allocB'
         Start-Sleep -Seconds 2
-        $narrow = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+        $narrow = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
             Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
         if ($narrow.Count -ne 1 -or (Get-UiaElementProperty -Driver $driver -Element $narrow[0] -Name 'Name') -notmatch 'allocB\.txt') {
             return & $fail "query replacement to 'allocB' did not narrow to a single allocB result (count=$($narrow.Count))"
         }
+        $stage = 'restore-alloc'
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
         $null = Send-UiaText -Driver $driver -Text 'alloc'
         Start-Sleep -Seconds 2
-        $restored = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+        $restored = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
             Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
         if ($restored.Count -lt 5) {
             return & $fail "query replacement back to 'alloc' did not restore the full fixture set (count=$($restored.Count))"
@@ -1458,23 +1973,25 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # allocatedSizeKnown=false, so ondisk:>=0B must return zero degraded
         # matches without being treated as an unrecognized key, and the normal
         # query must restore the fixture set (generation/cancellation soundness).
+        $stage = 'query-ondisk'
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
         $null = Send-UiaText -Driver $driver -Text 'ondisk:>=0B'
         Start-Sleep -Seconds 2
         $ondisk = @()
         try {
-            $ondisk = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 4000 -All |
+            $ondisk = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 4000 |
                 Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
         } catch { $ondisk = @() }
         if ($ondisk.Count -ne 0) {
             $allOndisk = @()
-            try { $allOndisk = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 3000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch { }
+            try { $allOndisk = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 3000 | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch { }
             return & $fail "ondisk:>=0B must not fabricate degraded UNKNOWN rows into matches; found $($ondisk.Count) (all: $($allOndisk -join ', '))"
         }
+        $stage = 'restore-after-ondisk'
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
         $null = Send-UiaText -Driver $driver -Text 'alloc'
         Start-Sleep -Seconds 2
-        $restored2 = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 6000 -All |
+        $restored2 = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
             Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
         if ($restored2.Count -lt 5) {
             return & $fail "restoring 'alloc' after 'ondisk:>=0B' did not restore the full fixture set (count=$($restored2.Count))"
@@ -1485,6 +2002,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # deterministic unknown ordering (alphabetical tie-break); Size must be
         # logical-size ordering. The two must differ, proving the control routes
         # to distinct sort fields, and the displayed selection must agree.
+        $stage = 'locate-sort-combo'
         $combo = Get-UiaSearchSortCombo -Driver $driver -ProcessId $appPid -FromElement $main
         if (-not $combo) { return & $fail 'could not locate the Search sort ComboBox' }
 
@@ -1492,33 +2010,36 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         $logicalExpected = @('allocB.txt', 'allocD.txt', 'allocA.txt', 'allocE.txt', 'allocC.txt')
 
         $defSel = Get-UiaComboSelectionName -Driver $driver -Combo $combo
+        $stage = 'sort-size-on-disk'
         if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk' -Main $main)) {
             return & $fail "could not select 'Size on Disk' in the sort control"
         }
         $sel1 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
         $okSod = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size on Disk order" -ScriptBlock {
-            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
         }
-        $orderSod = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        $orderSod = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$'
         if (-not $okSod) { return & $fail "Size on Disk did not resolve to the deterministic unknown (alphabetical) order; got: $($orderSod -join ', ')" }
 
+        $stage = 'sort-size'
         if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size' -Main $main)) {
             return & $fail "could not select 'Size' in the sort control"
         }
         $sel2 = Get-UiaComboSelectionName -Driver $driver -Combo $combo
         $okSize = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size order" -ScriptBlock {
-            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($logicalExpected -join ',')
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($logicalExpected -join ',')
         }
-        $orderSize = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        $orderSize = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$'
         if (-not $okSize) { return & $fail "Size (logical) did not resolve to logical-size ascending order; got: $($orderSize -join ', ')" }
 
+        $stage = 'restore-size-on-disk-sort'
         if (-not (Set-UiaSearchSort -Driver $driver -Combo $combo -ItemName 'Size on Disk' -Main $main)) {
             return & $fail "could not re-select 'Size on Disk' in the sort control"
         }
         $okSod2 = Wait-UiaCondition -Driver $driver -TimeoutMs 6000 -PollIntervalMs 250 -Description "Size on Disk restored order" -ScriptBlock {
-            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
+            (Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$') -join ',' -eq ($alphaExpected -join ',')
         }
-        $orderSod2 = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -NamePattern '^alloc[A-E]\.txt$'
+        $orderSod2 = Get-UiaSearchResultOrder -Driver $driver -ResultsList $resultsList -Main $main -ProcessId $appPid -NamePattern '^alloc[A-E]\.txt$'
         if (-not $okSod2) { return & $fail "Size on Disk was not restored to alphabetical order; got: $($orderSod2 -join ', ')" }
 
         $sw.Stop()
@@ -1526,7 +2047,7 @@ function Invoke-UiaScenarioSearchAllocatedSize {
             -Detail "Search.Results discoverable; each degraded result exposes logical size + 'Size on disk unknown' (no fabrication, no 0 B on disk echo); query replacement sound; sort control default='$defSel', Size on Disk -> alphabetical ($($orderSod -join ',')), Size -> logical ($($orderSize -join ',')), back to Size on Disk -> alphabetical ($($orderSod2 -join ',')); displayed selection agrees (sel1='$sel1', sel2='$sel2')" `
             -Diagnostics @('search-allocated-size.tree.txt')
     } catch {
-        return & $fail "scenario failed: $($_.Exception.Message)"
+        return & $fail "scenario failed at stage '$stage': $($_.Exception.Message)"
     }
 }
 
@@ -1606,7 +2127,8 @@ function Invoke-UiaScenarioTreemapReadability {
         Start-Sleep -Milliseconds 300
 
         # Open Storage Analysis via palette.
-        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap') `
+            -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
         if (-not $sa.Pass) { return & $fail "storage analysis did not open: $($sa.Detail)" }
 
         # Select the Treemap view via real mouse click (BM_CLICK may not
@@ -1683,7 +2205,8 @@ function Invoke-UiaScenarioTreemapReadability {
         }
 
         # Return to storage analysis treemap if we drilled in or navigated away.
-        $sa2 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa2 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap') `
+            -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
         if ($sa2.Pass) {
             $tb2 = $null
             try { $tb2 = Wait-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 3000 -PollIntervalMs 200 } catch { }
@@ -1727,7 +2250,8 @@ function Invoke-UiaScenarioTreemapReadability {
 
         # --- Assert: folder Invoke drills into the folder ---
         # Navigate back to treemap root if needed.
-        $sa3 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap')
+        $sa3 = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Treemap') `
+            -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
         if ($sa3.Pass) {
             $tb3 = $null
             try { $tb3 = Wait-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 3000 -PollIntervalMs 200 } catch { }
@@ -1801,6 +2325,7 @@ function Invoke-UiaScenarioDragOut {
     $main = $Context.Main
     $appPid = $Context.Launched.Id
     $fail = { param($detail) New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'FAIL' -Reason 'drag-out-unexpected' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
+    $skip = { param($detail) New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'interactive-window-layout-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $detail }
     if (-not $Context.Ready) {
         return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' -Reason 'engine-connect-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "engine connectivity not observed ($($Context.ReadyReason)); drag needs engine-served items"
     }
@@ -1850,6 +2375,22 @@ function Invoke-UiaScenarioDragOut {
         [void]$Context.ExplorerWindows.Add($win)
         if (-not $dst) { $dst = Get-UiaElementCenter -Driver $driver -Element $win }
         if (-not $dst) { return & $fail 'Explorer drop target has no usable geometry' }
+        # A maximized FastFiles window can leave no physical display region for
+        # Explorer. In that case Windows clamps SetWindowPos to a full-screen
+        # Explorer rectangle; activating FastFiles for the source drag then
+        # necessarily covers the destination. This is an external desktop
+        # layout limitation, not a failed product drag, and must be classified
+        # before any input is sent.
+        $mainRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
+        $targetRect = Get-UiaElementProperty -Driver $driver -Element $win -Name 'BoundingRectangle'
+        $nonOverlapping = $mainRect -and $targetRect -and (
+            ($mainRect.x + $mainRect.width -le $targetRect.x) -or
+            ($targetRect.x + $targetRect.width -le $mainRect.x) -or
+            ($mainRect.y + $mainRect.height -le $targetRect.y) -or
+            ($targetRect.y + $targetRect.height -le $mainRect.y))
+        if (-not $nonOverlapping) {
+            return & $skip "test-owned Explorer cannot be placed in a non-overlapping display region (FastFilesRect=$($mainRect.x),$($mainRect.y),$($mainRect.width),$($mainRect.height); ExplorerRect=$($targetRect.x),$($targetRect.y),$($targetRect.width),$($targetRect.height)); no drag input sent"
+        }
         # The source item element may be stale after the move; re-acquire.
         $item = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'draggable.txt' -PaneId 'Pane.0' -TimeoutMs 8000
         if (-not $item) { return & $fail 'source item lost after Explorer positioning' }
@@ -1928,6 +2469,16 @@ function Invoke-UiaScenarioDragOut {
             if (-not $freshDst) { break }
             $win = $freshWin
             $dst = $freshDst
+            $freshMainRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
+            $freshTargetRect = Get-UiaElementProperty -Driver $driver -Element $win -Name 'BoundingRectangle'
+            $freshNonOverlapping = $freshMainRect -and $freshTargetRect -and (
+                ($freshMainRect.x + $freshMainRect.width -le $freshTargetRect.x) -or
+                ($freshTargetRect.x + $freshTargetRect.width -le $freshMainRect.x) -or
+                ($freshMainRect.y + $freshMainRect.height -le $freshTargetRect.y) -or
+                ($freshTargetRect.y + $freshTargetRect.height -le $freshMainRect.y))
+            if (-not $freshNonOverlapping) {
+                return & $skip "Explorer layout became overlapping before drag (FastFilesRect=$($freshMainRect.x),$($freshMainRect.y),$($freshMainRect.width),$($freshMainRect.height); ExplorerRect=$($freshTargetRect.x),$($freshTargetRect.y),$($freshTargetRect.width),$($freshTargetRect.height)); no drag input sent"
+            }
             # stabilize-live-uia-e2e: the product arms its OLE drag from the
             # ACTIVE SELECTION at arm time; a mouse-down that misses the row
             # leaves an empty selection and the drag silently no-ops. So the
@@ -2222,8 +2773,10 @@ function Invoke-UiaScenarioDragPanes {
             }
         }
         if (-not $srcItem) { return & $fail 'source item could not be re-acquired inside Pane.0 bounds after dual-pane setup' }
-        # Re-acquire Pane.1 and its terminal column for the drop point.
-        $pane1 = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -ProcessId $appPid -TimeoutMs 3000
+        # Re-acquire Pane.1 and its terminal column for the drop point through
+        # the live ColumnView children. A recursive whole-window search can
+        # spend its budget walking the fragment that was just replaced.
+        $pane1 = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.1'
         if (-not $pane1) { return & $fail 'Pane.1 lost after setup (reacquisition)' }
         $pane1Br = Get-UiaElementProperty -Driver $driver -Element $pane1 -Name 'BoundingRectangle'
         $pane1Cols = @(Get-UiaChildren -Driver $driver -Element $pane1 | Where-Object { (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
@@ -2337,11 +2890,12 @@ function Invoke-UiaScenarioErrorStateLate {
                         (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
                     if ($cols.Count -gt 0) {
                         $terminalCol = $cols[$cols.Count - 1]
-                        # Search for the exact status text across the whole main element
-                        # (the status element is a child of the column provider, not
-                        # necessarily findable via -FromElement on the terminal column
-                        # due to UIA fragment navigation order).
-                        $el = Find-UiaElement -Driver $driver -Name $exactStatus -FromElement $main -TimeoutMs 600
+                        # The status provider is a direct child of the terminal
+                        # column. Query that live parent directly: a whole-window
+                        # DFS can cross the fragment replacement boundary and
+                        # throw or miss the current status while the same live
+                        # terminal column already exposes it (Class H).
+                        $el = Find-UiaDirectChild -Driver $driver -Parent $terminalCol -Name $exactStatus
                         if ($el) {
                             $statusEl = $el
                             $statusIdent = Get-UiaElementIdentity -Driver $driver -Element $el
@@ -2397,7 +2951,15 @@ function Invoke-UiaScenarioErrorStateLate {
         # 6.4: Pre-delete sentinel must be absent from current children of
         # the terminal column (the column was cleared by ForceUnavailable).
         $staleSentinelGone = $true
-        try { $null = Find-UiaElement -Driver $driver -Name 'before-delete.txt' -FromElement $main -TimeoutMs 500; $staleSentinelGone = $false } catch { }
+        try {
+            $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+            $cols = if ($pane) { @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                    (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' }) } else { @() }
+            $termCol = if ($cols.Count -gt 0) { $cols[$cols.Count - 1] } else { $null }
+            if ($termCol -and (Find-UiaDirectChild -Driver $driver -Parent $termCol -Name 'before-delete.txt')) {
+                $staleSentinelGone = $false
+            }
+        } catch { }
         if (-not $staleSentinelGone) {
             return & $fail "pre-delete sentinel 'before-delete.txt' still present after deletion"
         }
@@ -2431,13 +2993,29 @@ function Invoke-UiaScenarioErrorStateLate {
         $newSentinelBr = Get-UiaElementProperty -Driver $driver -Element $newSentinel -Name 'BoundingRectangle'
         # 6.5: old sentinel must still be absent (it was deleted, not recreated).
         $oldGoneAfterRecovery = $true
-        try { $null = Find-UiaElement -Driver $driver -Name 'before-delete.txt' -FromElement $main -TimeoutMs 500; $oldGoneAfterRecovery = $false } catch { }
+        try {
+            $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+            $cols = if ($pane) { @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                    (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' }) } else { @() }
+            $termCol = if ($cols.Count -gt 0) { $cols[$cols.Count - 1] } else { $null }
+            if ($termCol -and (Find-UiaDirectChild -Driver $driver -Parent $termCol -Name 'before-delete.txt')) {
+                $oldGoneAfterRecovery = $false
+            }
+        } catch { }
         if (-not $oldGoneAfterRecovery) {
             return & $fail "old sentinel 'before-delete.txt' present after recovery (stale data not cleared)"
         }
         # 6.5: unavailable status must be gone (column is now current with contents).
         $goneStatus = $true
-        try { $null = Find-UiaElement -Driver $driver -Name $exactStatus -FromElement $main -TimeoutMs 500; $goneStatus = $false } catch { }
+        try {
+            $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId 'Pane.0'
+            $cols = if ($pane) { @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
+                    (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' }) } else { @() }
+            $termCol = if ($cols.Count -gt 0) { $cols[$cols.Count - 1] } else { $null }
+            if ($termCol -and (Find-UiaDirectChild -Driver $driver -Parent $termCol -Name $exactStatus)) {
+                $goneStatus = $false
+            }
+        } catch { }
         if (-not $goneStatus) {
             return & $fail "missing-path status '$exactStatus' still visible after recovery"
         }
@@ -2855,9 +3433,19 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             return & $fail "dual-pane isolation broken: inactive Pane.1 selection changed from {$b} to {$a}"
         }
 
+        # interactive-ui-runtime-determinism 4.4/4.5: prove the inverse
+        # transition in the same clean lifecycle. Teardown alone cannot prove
+        # that the real command removed Pane.1 and re-rooted the provider tree.
+        $single = Ensure-UiaSinglePane -Driver $driver -Main $main -ProcessId $appPid
+        if (-not $single.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $single.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "single-pane postcondition failed after dual-pane isolation: $($single.Detail)"
+        }
+
         $sw.Stop()
         return New-UiaVSubResult -Id $id -Status 'PASS' -Reason $null -DurationMs $sw.Elapsed.TotalMilliseconds `
-            -Detail "harden-selection-model-semantics 5.3-5.9: plain-click selA -> {selA}; Ctrl-click selC -> {selA,selC}; Ctrl-click selA -> {selC}; plain selA + Shift-click selE -> {selA..selE}; second Shift-click selC -> {selA..selC}; Ctrl+A -> all 6; dual-pane isolation: Pane.1 {selF} unchanged after Pane.0 Ctrl+A" `
+            -Detail "harden-selection-model-semantics 5.3-5.9: plain-click selA -> {selA}; Ctrl-click selC -> {selA,selC}; Ctrl-click selA -> {selC}; plain selA + Shift-click selE -> {selA..selE}; second Shift-click selC -> {selA..selC}; Ctrl+A -> all 6; dual-pane isolation: Pane.1 {selF} unchanged after Pane.0 Ctrl+A; real Toggle Dual Pane disable -> one live Pane.0" `
             -Diagnostics @('selection-model-interactions.tree.txt')
     } catch {
         return & $fail "scenario failed: $($_.Exception.Message)"
@@ -2898,9 +3486,53 @@ function Invoke-UiaScenarioWithRetry {
             $lastError = $_
         } finally {
             if ($ctx) {
+                $evidence = @()
                 if ($ctx.Main) {
-                    $evidence = Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $attemptDir -Name ("{0}-attempt-{1:D2}" -f $ScenarioId, $attempt)
+                    try {
+                        $evidence = Export-UiaEvidence -Driver $ctx.Driver -Main $ctx.Main -ArtifactsDir $attemptDir -Name ("{0}-attempt-{1:D2}" -f $ScenarioId, $attempt)
+                    } catch {
+                        & $LogFn "[$ScenarioId] attempt ${attempt}: evidence export failed: $($_.Exception.Message)"
+                    }
                     $Artifacts.Value += $evidence
+                }
+                $cleanup = $null
+                try {
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn
+                } catch {
+                    $cleanup = [pscustomobject]@{
+                        Pass = $false
+                        OwnedPids = @($ctx.OwnedProcesses | ForEach-Object { $_.Id })
+                        Residue = @("teardown-exception:$($_.Exception.Message)")
+                    }
+                    & $LogFn "[$ScenarioId] attempt ${attempt} teardown failed: $($_.Exception.Message)"
+                }
+                if ($cleanup -and -not $cleanup.Pass) {
+                    $cleanupDetail = "cleanup failed: residue=$(@($cleanup.Residue) -join ',')"
+                    if ($null -eq $result) {
+                        $result = New-UiaVSubResult -Id $ScenarioId -Status 'FAIL' -Reason 'scenario-cleanup-failed' `
+                            -DurationMs 0 -Detail $cleanupDetail
+                    } else {
+                        $result.status = 'FAIL'
+                        $result.reason = 'scenario-cleanup-failed'
+                        $result.detail = "$($result.detail); $cleanupDetail"
+                        $result.diagnostics = @($result.diagnostics) + @($cleanup)
+                    }
+                    $lastDetail = $result.detail
+                    $lastFail = $result
+                }
+                $processEvidence = [ordered]@{
+                    launchedUiPid = $ctx.Launched.Id
+                    launchedUiPath = if ($ctx.LaunchedIdentity) { $ctx.LaunchedIdentity.Path } else { $null }
+                    mainHwnd = $null
+                    baseline = @($ctx.ProcessBaseline | ForEach-Object {
+                        [ordered]@{ pid = $_.Id; name = $_.Name; path = $_.Path; startTimeUtc = $_.StartTimeUtc; sessionId = $_.SessionId }
+                    })
+                    owned = @($ctx.OwnedProcesses | ForEach-Object {
+                        [ordered]@{ pid = $_.Id; name = $_.Name; path = $_.Path; startTimeUtc = $_.StartTimeUtc; sessionId = $_.SessionId }
+                    })
+                }
+                try { $processEvidence.mainHwnd = [int64]([IntPtr](Get-UiaElementProperty -Driver $ctx.Driver -Element $ctx.Main -Name 'NativeWindowHandle')) } catch { }
+                if ($ctx.Main) {
                     $state = $null
                     try { $state = Get-UiaInteractiveState -Driver $ctx.Driver -ProcessId $ctx.Launched.Id } catch { $state = [pscustomobject]@{ ForegroundTitle = ''; ForegroundProcessId = 0; Popups = @() } }
                     $diagnostic = [ordered]@{
@@ -2911,7 +3543,9 @@ function Invoke-UiaScenarioWithRetry {
                         detail = if ($null -ne $result) { $result.detail } else { $lastDetail }
                         foreground = $state.ForegroundTitle
                         foregroundProcessId = $state.ForegroundProcessId
+                        process = $processEvidence
                         popups = @($state.Popups)
+                        cleanup = $cleanup
                         evidence = @($evidence)
                         timestampUtc = [DateTime]::UtcNow.ToString('o')
                     }
@@ -2919,7 +3553,6 @@ function Invoke-UiaScenarioWithRetry {
                     $diagnostic | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $diagnosticPath -Encoding utf8
                     $Artifacts.Value += [pscustomobject]@{ path = $diagnosticPath; type = 'uia-attempt-diagnostic' }
                 }
-                try { Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn } catch { & $LogFn "[$ScenarioId] attempt ${attempt} teardown failed: $($_.Exception.Message)" }
             }
         }
     }
@@ -3365,7 +3998,9 @@ function Invoke-UiaSharedSessionScenarios {
 
     # Scenario 3.10 - storage analysis via palette (unchanged semantics).
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' -ExpectedNames @('Back', 'Overview', 'Largest Files', 'Drill Down', 'Treemap')
+    $sa = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' `
+        -ExpectedNames @('Back', 'Overview', 'Largest Files', 'Drill Down', 'Treemap') `
+        -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
     $sw.Stop()
     $degradedVisible = $false
     if ($sa.Pass) {
@@ -3475,7 +4110,8 @@ function Invoke-UiaSharedSessionScenarios {
 
     # Scenario 3.5 part 3 - UI remains responsive.
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $respProbe = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' -ExpectedNames @('Back', 'Overview')
+    $respProbe = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'analyze' `
+        -ExpectedNames @('Back', 'Overview') -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
     $sw.Stop()
     $respPass = $respProbe.Pass
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'ui-responsive' -Status ($(if ($respPass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($respPass) { $null } else { 'ui-unresponsive' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'After opening/closing dialogs and panels, palette shortcut still dispatches and executes a command (responsive message loop)'))
@@ -3533,13 +4169,26 @@ function Invoke-UiAutomationValidationCapability {
             & $logFn "launching $exe (shared session, $($sharedIds.Count) scenarios)"
             $sharedCtx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId 'shared-session' -LogFn $logFn
             if (-not $sharedCtx -or -not $sharedCtx.Main) {
-                if ($sharedCtx) { Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn }
+                if ($sharedCtx) {
+                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+                    if (-not $cleanup.Pass) {
+                        [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "shared-session cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
+                    }
+                }
                 throw 'failed to start FastFiles UI process / find main window'
             }
             try {
                 Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts)
             } finally {
-                try { Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn } catch { & $logFn "shared-session teardown failed: $($_.Exception.Message)" }
+                try {
+                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+                    if (-not $cleanup.Pass) {
+                        [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "shared-session cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
+                    }
+                } catch {
+                    & $logFn "shared-session teardown failed: $($_.Exception.Message)"
+                    [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail $_.Exception.Message))
+                }
             }
         }
 
@@ -3568,7 +4217,12 @@ function Invoke-UiAutomationValidationCapability {
             $ctx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId $id -LogFn $logFn
             if (-not $ctx -or -not $ctx.Main) {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail 'failed to start FastFiles UI process / find main window'))
-                if ($ctx) { Remove-UiaScenarioContext -Context $ctx -LogFn $logFn }
+                if ($ctx) {
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
+                    if (-not $cleanup.Pass) {
+                        [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "scenario cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
+                    }
+                }
                 continue
             }
             try {
@@ -3579,7 +4233,15 @@ function Invoke-UiAutomationValidationCapability {
             } catch {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
             } finally {
-                try { Remove-UiaScenarioContext -Context $ctx -LogFn $logFn } catch { & $logFn "[$id] lifecycle teardown failed: $($_.Exception.Message)" }
+                try {
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
+                    if (-not $cleanup.Pass) {
+                        [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "scenario cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
+                    }
+                } catch {
+                    & $logFn "[$id] lifecycle teardown failed: $($_.Exception.Message)"
+                    [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail $_.Exception.Message))
+                }
             }
         }
 

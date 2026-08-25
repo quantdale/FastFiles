@@ -86,3 +86,21 @@ There is **no `analyze` test preset** — `ctest --preset analyze` fails. Flags 
 ## Coverage
 
 New tests should cover success, malformed-input, recovery, and boundary cases where relevant.
+
+## Dual-pane/UIA lifecycle coverage
+
+`ffnavigation_tests` covers the production `NavigationWorkspace` transition
+seams: enable/disable cycles, active-pane migration, typed Home/filesystem
+state, tab restore, navigation isolation, and rapid toggles. `ffcolumnview_uia_tests`
+covers the custom provider fragment-generation contract, pane-scoped RuntimeIds
+and AutomationIds, geometry, pane-local SelectionItem routing, stale-provider
+failure, fresh reacquisition, loading-column refresh/reconnect notifications,
+no-action pane creation, and 50 deterministic replacement cycles.
+
+`tests/uia-driver/` runs the recorded-tree PowerShell driver suite. Its
+dual-pane fixture tests direct-child discovery, ambiguity reporting, provider
+reacquisition, RuntimeId identity, and exact process-ownership filtering. These
+recorded trees test driver mechanics only; live product evidence comes from
+`windows-ui-automation-validation` and is never replaced by OCR or screenshots.
+Its live scenarios also reacquire missing-path status rows, Search.Results
+children, and Explorer top-level windows after provider/window reconstruction.

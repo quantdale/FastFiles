@@ -77,4 +77,59 @@ namespace FfUiaCom {
     try { return [FfUiaCom.Win32Combo]::SetSelection($ComboHandle, $Index) } catch { return $false }
 }
 
-Export-ModuleMember -Function Set-UiaComboSelectionHwnd, Set-UiaComboSelectionElement
+function Get-UiaListBoxState {
+    param([IntPtr] $ListHandle)
+    if ($ListHandle -eq [IntPtr]::Zero) {
+        return [pscustomobject]@{ Available = $false; Items = @(); SelectedIndex = -1; Visible = $false }
+    }
+    if (-not ('FfUiaCom.Win32ListBox' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace FfUiaCom {
+  public static class Win32ListBox {
+    [DllImport("user32.dll", CharSet=CharSet.Unicode)]
+    public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, StringBuilder lParam);
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
+    public static string[] GetItems(IntPtr hWnd) {
+      const uint LB_GETCOUNT = 0x018B;
+      const uint LB_GETTEXTLEN = 0x018A;
+      const uint LB_GETTEXT = 0x0189;
+      int count = SendMessage(hWnd, LB_GETCOUNT, IntPtr.Zero, null).ToInt32();
+      if (count < 0 || count > 4096) return Array.Empty<string>();
+      var items = new List<string>(count);
+      for (int i = 0; i < count; ++i) {
+        int length = SendMessage(hWnd, LB_GETTEXTLEN, new IntPtr(i), null).ToInt32();
+        if (length < 0 || length > 16384) return Array.Empty<string>();
+        var text = new StringBuilder(length + 1);
+        if (SendMessage(hWnd, LB_GETTEXT, new IntPtr(i), text).ToInt64() < 0) return Array.Empty<string>();
+        items.Add(text.ToString());
+      }
+      return items.ToArray();
+    }
+    public static int GetSelectedIndex(IntPtr hWnd) {
+      const uint LB_GETCURSEL = 0x0188;
+      return SendMessage(hWnd, LB_GETCURSEL, IntPtr.Zero, null).ToInt32();
+    }
+    public static bool IsVisible(IntPtr hWnd) { return IsWindowVisible(hWnd); }
+  }
+}
+'@
+    }
+    try {
+        $items = @([FfUiaCom.Win32ListBox]::GetItems($ListHandle))
+        return [pscustomobject]@{
+            Available = $true
+            Items = $items
+            SelectedIndex = [FfUiaCom.Win32ListBox]::GetSelectedIndex($ListHandle)
+            Visible = [FfUiaCom.Win32ListBox]::IsVisible($ListHandle)
+        }
+    } catch {
+        return [pscustomobject]@{ Available = $false; Items = @(); SelectedIndex = -1; Visible = $false }
+    }
+}
+
+Export-ModuleMember -Function Set-UiaComboSelectionHwnd, Set-UiaComboSelectionElement, Get-UiaListBoxState

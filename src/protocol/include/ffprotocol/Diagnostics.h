@@ -10,6 +10,7 @@ enum class DiagnosticCategory {
     InaccessibleDirectory,
     VolumeStateTransition,
     DatabaseError,
+    UiInteraction,
 };
 
 // Stable machine-readable identifiers. Keep these values append-only: they
@@ -69,6 +70,12 @@ enum class DiagnosticCode : uint32_t {
     // notification was rejected because it belonged to an older query/source
     // identity. Append-only so diagnostic consumers retain stable meanings.
     FFDIAG_UI_RESULT_SUPERSEDED = 39,
+    // interactive-ui-runtime-determinism: opt-in, metadata-only command
+    // dispatch evidence for isolated UI automation sessions.
+    FFDIAG_UI_COMMAND_DISPATCHED = 40,
+    // interactive-ui-runtime-determinism: opt-in provider child-query evidence
+    // for distinguishing a stale UIA root from a wrong live pane count.
+    FFDIAG_UI_PROVIDER_CHILD_QUERY = 41,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);

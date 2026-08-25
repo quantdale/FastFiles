@@ -428,6 +428,134 @@ void TestDualPaneIdentity() {
           "pane-0 selection untouched by pane-1 automation");
 }
 
+// interactive-ui-runtime-determinism 3.1/3.2: a pane-layout change replaces
+// the custom fragment generation. Providers held by a client from the old
+// generation must fail cleanly, and a later enable must mint a new Pane.1
+// provider instead of reviving the old object by index.
+void TestDualPaneFragmentReplacement() {
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
+
+    auto oldGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto oldPane0 = FirstChild(oldGroup.Get());
+    Check(oldGroup != nullptr && oldPane0 != nullptr,
+          "pre-toggle fragment exposes its group and Pane.0");
+
+    surface.panes.push_back(surface.panes[0]);
+    ffui::UiaEventNotification enabled{
+        ffui::UiaEventKind::StructureBulkAdded, -1, -1, -1, -1, -1,
+        false, true};
+    ffui::ColumnViewUiaProvider::SinkThunk(enabled, &root);
+
+    VARIANT value{};
+    VariantInit(&value);
+    Check(GetPropertyHr(oldGroup.Get(), UIA_NamePropertyId, &value) ==
+              UIA_E_ELEMENTNOTAVAILABLE,
+          "old ColumnView group fails after pane enable fragment replacement");
+    VariantClear(&value);
+    VariantInit(&value);
+    Check(GetPropertyHr(oldPane0.Get(), UIA_AutomationIdPropertyId, &value) ==
+              UIA_E_ELEMENTNOTAVAILABLE,
+          "old Pane.0 fails after pane enable fragment replacement");
+    VariantClear(&value);
+
+    auto enabledGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto enabledPane0 = FirstChild(enabledGroup.Get());
+    auto enabledPane1 = NextSibling(enabledPane0.Get());
+    Check(enabledGroup != nullptr && enabledGroup.Get() != oldGroup.Get(),
+          "enable re-roots a fresh ColumnView group");
+    Check(enabledPane0 != nullptr && enabledPane1 != nullptr,
+          "enable exposes both live panes through the fresh group");
+    Check(GetStringProperty(enabledPane0.Get(), UIA_AutomationIdPropertyId) == L"Pane.0" &&
+              GetStringProperty(enabledPane1.Get(), UIA_AutomationIdPropertyId) == L"Pane.1",
+          "fresh panes retain distinct AutomationIds");
+    const auto enabledPane1RuntimeId = GetRuntimeId(enabledPane1.Get());
+
+    UiaRect pane0Rect{};
+    UiaRect pane1Rect{};
+    Check(SUCCEEDED(enabledPane0->get_BoundingRectangle(&pane0Rect)) &&
+              SUCCEEDED(enabledPane1->get_BoundingRectangle(&pane1Rect)) &&
+              pane0Rect.width > 0.0 && pane1Rect.width > 0.0 &&
+              pane0Rect.left + pane0Rect.width <= pane1Rect.left + 1.0,
+          "fresh panes have positive, non-overlapping left-to-right geometry");
+
+    surface.panes.pop_back();
+    ffui::UiaEventNotification disabled{
+        ffui::UiaEventKind::StructureBulkRemoved, -1, -1, -1, -1, -1,
+        false, true};
+    ffui::ColumnViewUiaProvider::SinkThunk(disabled, &root);
+    VariantInit(&value);
+    Check(GetPropertyHr(enabledPane1.Get(), UIA_AutomationIdPropertyId, &value) ==
+              UIA_E_ELEMENTNOTAVAILABLE,
+          "Pane.1 fails after dual-pane disable");
+    VariantClear(&value);
+
+    surface.panes.push_back(surface.panes[0]);
+    ffui::ColumnViewUiaProvider::SinkThunk(enabled, &root);
+    auto reenabledGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    auto reenabledPane0 = FirstChild(reenabledGroup.Get());
+    auto reenabledPane1 = NextSibling(reenabledPane0.Get());
+    Check(reenabledPane1 != nullptr && reenabledPane1.Get() != enabledPane1.Get(),
+          "re-enable mints a fresh Pane.1 provider rather than reviving the old one");
+    Check(GetStringProperty(reenabledPane1.Get(), UIA_AutomationIdPropertyId) == L"Pane.1" &&
+              GetRuntimeId(reenabledPane1.Get()) == enabledPane1RuntimeId,
+          "re-enabled Pane.1 keeps stable identity while using a new provider object");
+
+    // interactive-ui-runtime-determinism 2.3: a snapshot refresh/reconnect
+    // can replace a column while the dual-pane fragment is already live. The
+    // provider must retire and rebuild the fragment without routing any
+    // filesystem, engine, or service action through the UI surface.
+    surface.panes[0].columns[0].status = ffui::UiaColumnStatus::Loading;
+    surface.panes[0].columns[0].statusText = L"Refreshing...";
+    ffui::ColumnViewUiaProvider::SinkThunk(
+        {ffui::UiaEventKind::StructureBulkRemoved, 0, 0, -1}, &root);
+    ffui::ColumnViewUiaProvider::SinkThunk(
+        {ffui::UiaEventKind::StructureBulkAdded, 0, 0, -1}, &root);
+    auto refreshedGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    Check(refreshedGroup != nullptr && FirstChild(refreshedGroup.Get()) != nullptr,
+          "pending refresh/reconnect notification re-roots a live dual-pane fragment");
+    Check(surface.actions.empty(),
+          "pane creation and refresh notifications issue no filesystem/engine/service action");
+    surface.panes[0].columns[0].status = ffui::UiaColumnStatus::Current;
+    surface.panes[0].columns[0].statusText.clear();
+
+    // Stress the same production notification/reacquisition boundary without
+    // using a sleep or a retry. Each iteration keeps the previous Pane.1
+    // alive long enough to prove that the next structure transition retires
+    // it, then obtains the new provider from the root.
+    bool cyclesClean = true;
+    auto previousPane1 = reenabledPane1;
+    for (int cycle = 0; cycle < 50; ++cycle) {
+        const bool disable = (surface.panes.size() == 2);
+        if (disable) {
+            auto staleCandidate = previousPane1;
+            surface.panes.pop_back();
+            ffui::ColumnViewUiaProvider::SinkThunk(disabled, &root);
+            if (staleCandidate != nullptr) {
+                VARIANT stale{};
+                VariantInit(&stale);
+                const HRESULT staleHr = GetPropertyHr(staleCandidate.Get(), UIA_NamePropertyId, &stale);
+                VariantClear(&stale);
+                if (staleHr != UIA_E_ELEMENTNOTAVAILABLE) cyclesClean = false;
+            }
+            previousPane1 = nullptr;
+        } else {
+            surface.panes.push_back(surface.panes[0]);
+            ffui::ColumnViewUiaProvider::SinkThunk(enabled, &root);
+            auto currentGroup = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+            auto currentPane0 = FirstChild(currentGroup.Get());
+            auto currentPane1 = NextSibling(currentPane0.Get());
+            if (currentPane1 == nullptr || currentPane1.Get() == previousPane1.Get() ||
+                GetStringProperty(currentPane1.Get(), UIA_AutomationIdPropertyId) != L"Pane.1") {
+                cyclesClean = false;
+            }
+            previousPane1 = currentPane1;
+        }
+    }
+    Check(cyclesClean, "50 deterministic pane fragment replacement cycles retire stale providers");
+}
+
 void TestStaleItemAfterNavigation() {
     auto surface = MakeSinglePaneSurface();
     auto state = std::make_shared<ffui::UiaOwnerState>();
@@ -982,6 +1110,7 @@ int main() {
     TestScrollPattern();
     TestOffscreenAndBounds();
     TestDualPaneIdentity();
+    TestDualPaneFragmentReplacement();
     TestStaleItemAfterNavigation();
     TestStaleColumnAfterNavigation();
     TestComLifetime();

@@ -1,7 +1,11 @@
 #include "ColumnViewUiaProvider.h"
 
+#include "ffprotocol/Diagnostics.h"
+
 #include <algorithm>
 #include <cwctype>
+#include <iterator>
+#include <string>
 #include <wrl/implements.h> // Microsoft::WRL::Make
 
 namespace ffui {
@@ -32,6 +36,23 @@ constexpr PROPERTYID kIsKeyboardFocusableByUsId = UIA_IsKeyboardFocusablePropert
 
 // The error returned by a provider whose element no longer exists.
 constexpr HRESULT kElementNotAvailable = UIA_E_ELEMENTNOTAVAILABLE;
+
+bool UiInteractionDiagnosticsEnabled() {
+    wchar_t value[8]{};
+    const DWORD length = GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", value,
+                                                  static_cast<DWORD>(std::size(value)));
+    return length == 1 && value[0] == L'1';
+}
+
+void AppendProviderChildQueryDiagnostic(const wchar_t* operation, int paneCount) {
+    if (!UiInteractionDiagnosticsEnabled()) return;
+    ffprotocol::DiagnosticEvent event{};
+    event.category = ffprotocol::DiagnosticCategory::UiInteraction;
+    event.code = ffprotocol::DiagnosticCode::FFDIAG_UI_PROVIDER_CHILD_QUERY;
+    event.state = L"operation=" + std::wstring(operation) + L";paneCount=" + std::to_wstring(paneCount);
+    event.outcome = L"queried";
+    ffprotocol::AppendDiagnostic(event, ffprotocol::DiagnosticFormat::Json);
+}
 
 SAFEARRAY* MakeIntArray(const std::vector<int>& values) {
     if (values.empty()) return nullptr;
@@ -156,7 +177,8 @@ int RowOfItemProvider(ColumnViewUiaProvider* owner, int pane, int column,
 
 ColumnViewUiaProvider::ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND hwnd,
                                              TreemapUiaSurface* treemapSurface)
-    : UiaProviderBase(std::move(state)), surface_(surface), treemapSurface_(treemapSurface), hwnd_(hwnd) {
+    : UiaProviderBase(std::move(state)), surface_(surface),
+      fragmentState_(std::make_shared<UiaOwnerState>()), treemapSurface_(treemapSurface), hwnd_(hwnd) {
     if (hwnd_ != nullptr && IsWindow(hwnd_)) {
         UiaHostProviderFromHwnd(hwnd_, &hostProvider_);
     }
@@ -769,6 +791,14 @@ void ColumnViewUiaProvider::InvalidateAll() {
     InvalidateTreemap();
 }
 
+void ColumnViewUiaProvider::ReplaceFragment() {
+    if (fragmentState_ != nullptr) {
+        fragmentState_->alive = false;
+    }
+    fragmentState_ = std::make_shared<UiaOwnerState>();
+    InvalidateAll();
+}
+
 // --- events ----------------------------------------------------------------
 
 void ColumnViewUiaProvider::SinkThunk(const UiaEventNotification& notification, void* context) {
@@ -831,6 +861,11 @@ void ColumnViewUiaProvider::HandleNotification(const UiaEventNotification& notif
                 if (group != nullptr) {
                     UiaProviderBase::RaiseStructureChanged(group.Get(), changeType, nullptr);
                 }
+                // The event is raised against the old group while it is still
+                // valid. Afterwards the complete custom fragment is replaced;
+                // a same-index Pane.1 from a later toggle must not revive an
+                // element held by the client from this generation.
+                ReplaceFragment();
                 return;
             }
             if (notification.home) {
@@ -933,7 +968,7 @@ void ColumnViewUiaProvider::NotifyFocusChanged() {
 // ---------------------------------------------------------------------------
 
 ColumnViewGroupUiaProvider::ColumnViewGroupUiaProvider(ColumnViewUiaProvider* owner)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr), owner_(owner) {}
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr), owner_(owner) {}
 
 STDMETHODIMP ColumnViewGroupUiaProvider::GetPatternProvider(PATTERNID /*patternId*/, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
@@ -944,7 +979,7 @@ STDMETHODIMP ColumnViewGroupUiaProvider::GetPatternProvider(PATTERNID /*patternI
 STDMETHODIMP ColumnViewGroupUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     switch (propertyId) {
@@ -981,7 +1016,7 @@ STDMETHODIMP ColumnViewGroupUiaProvider::GetPropertyValue(PROPERTYID propertyId,
 STDMETHODIMP ColumnViewGroupUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     switch (direction) {
@@ -995,6 +1030,9 @@ STDMETHODIMP ColumnViewGroupUiaProvider::Navigate(NavigateDirection direction, I
         case NavigateDirection_FirstChild:
         case NavigateDirection_LastChild: {
             const int paneCount = owner_->Surface()->UiaPaneCount();
+            AppendProviderChildQueryDiagnostic(
+                direction == NavigateDirection_FirstChild ? L"group-first-child" : L"group-last-child",
+                paneCount);
             if (paneCount <= 0) return S_OK;
             const int pane = direction == NavigateDirection_LastChild ? paneCount - 1 : 0;
             auto paneElement = owner_->PaneElement(pane);
@@ -1010,13 +1048,14 @@ STDMETHODIMP ColumnViewGroupUiaProvider::Navigate(NavigateDirection direction, I
 
 STDMETHODIMP ColumnViewGroupUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive()) return kElementNotAvailable;
     *retVal = MakeIntArray(UiaGroupRuntimeId());
     return S_OK;
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     const UiaViewGeometry geometry = owner_->Geometry();
@@ -1035,7 +1074,7 @@ STDMETHODIMP ColumnViewGroupUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** re
 }
 
 STDMETHODIMP ColumnViewGroupUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     const HWND hwnd = owner_->Hwnd();
     if (hwnd != nullptr && IsWindow(hwnd)) {
         ::SetFocus(hwnd);
@@ -1046,7 +1085,7 @@ STDMETHODIMP ColumnViewGroupUiaProvider::SetFocus() noexcept {
 STDMETHODIMP ColumnViewGroupUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
@@ -1055,12 +1094,12 @@ STDMETHODIMP ColumnViewGroupUiaProvider::get_FragmentRoot(IRawElementProviderFra
 // ---------------------------------------------------------------------------
 
 PaneUiaProvider::PaneUiaProvider(ColumnViewUiaProvider* owner, int pane)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr), owner_(owner), pane_(pane) {}
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr), owner_(owner), pane_(pane) {}
 
 STDMETHODIMP PaneUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     if (patternId == UIA_ScrollPatternId) {
@@ -1072,7 +1111,7 @@ STDMETHODIMP PaneUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown**
 STDMETHODIMP PaneUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     if (pane_ >= owner_->Surface()->UiaPaneCount()) {
@@ -1086,6 +1125,9 @@ STDMETHODIMP PaneUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* r
             SetVariantString(retVal, pane_ == 0 ? L"Pane 1" : L"Pane 2");
             return S_OK;
         case UIA_AutomationIdPropertyId:
+            if (pane_ == 1) {
+                AppendProviderChildQueryDiagnostic(L"pane1-automation-id", owner_->Surface()->UiaPaneCount());
+            }
             SetVariantString(retVal, pane_ == 0 ? L"Pane.0" : L"Pane.1");
             return S_OK;
         case UIA_IsKeyboardFocusablePropertyId:
@@ -1130,10 +1172,15 @@ STDMETHODIMP PaneUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* r
 STDMETHODIMP PaneUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
+    if (direction == NavigateDirection_NextSibling || direction == NavigateDirection_PreviousSibling) {
+        AppendProviderChildQueryDiagnostic(
+            direction == NavigateDirection_NextSibling ? L"pane-next-sibling" : L"pane-previous-sibling",
+            surface->UiaPaneCount());
+    }
     switch (direction) {
         case NavigateDirection_Parent: {
             auto group = owner_->GroupElement();
@@ -1144,6 +1191,7 @@ STDMETHODIMP PaneUiaProvider::Navigate(NavigateDirection direction, IRawElementP
         }
         case NavigateDirection_NextSibling: {
             if (pane_ + 1 < surface->UiaPaneCount()) {
+                AppendProviderChildQueryDiagnostic(L"pane-next-sibling-returned", surface->UiaPaneCount());
                 auto next = owner_->PaneElement(pane_ + 1);
                 if (next != nullptr) {
                     *retVal = next.Detach();
@@ -1184,13 +1232,14 @@ STDMETHODIMP PaneUiaProvider::Navigate(NavigateDirection direction, IRawElementP
 
 STDMETHODIMP PaneUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive()) return kElementNotAvailable;
     *retVal = MakeIntArray(UiaPaneRuntimeId(pane_));
     return S_OK;
 }
 
 STDMETHODIMP PaneUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     const UiaViewGeometry geometry = owner_->Geometry();
@@ -1211,7 +1260,7 @@ STDMETHODIMP PaneUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noexc
 }
 
 STDMETHODIMP PaneUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     owner_->Surface()->UiaActivatePane(pane_);
@@ -1221,7 +1270,7 @@ STDMETHODIMP PaneUiaProvider::SetFocus() noexcept {
 STDMETHODIMP PaneUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
@@ -1241,7 +1290,7 @@ bool ScrollPercentInRange(double percent) {
 } // namespace
 
 STDMETHODIMP PaneUiaProvider::Scroll(enum ScrollAmount horizontalAmount, enum ScrollAmount verticalAmount) noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1262,7 +1311,7 @@ STDMETHODIMP PaneUiaProvider::Scroll(enum ScrollAmount horizontalAmount, enum Sc
 }
 
 STDMETHODIMP PaneUiaProvider::SetScrollPercent(double horizontalPercent, double verticalPercent) noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1303,7 +1352,7 @@ STDMETHODIMP PaneUiaProvider::SetScrollPercent(double horizontalPercent, double 
 STDMETHODIMP PaneUiaProvider::get_HorizontalScrollPercent(double* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = UIA_ScrollPatternNoScroll;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1320,7 +1369,7 @@ STDMETHODIMP PaneUiaProvider::get_HorizontalScrollPercent(double* retVal) noexce
 STDMETHODIMP PaneUiaProvider::get_VerticalScrollPercent(double* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = UIA_ScrollPatternNoScroll;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1343,7 +1392,7 @@ STDMETHODIMP PaneUiaProvider::get_VerticalScrollPercent(double* retVal) noexcept
 STDMETHODIMP PaneUiaProvider::get_HorizontalViewSize(double* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = 100.0;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1359,7 +1408,7 @@ STDMETHODIMP PaneUiaProvider::get_HorizontalViewSize(double* retVal) noexcept {
 STDMETHODIMP PaneUiaProvider::get_VerticalViewSize(double* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = 100.0;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1381,7 +1430,7 @@ STDMETHODIMP PaneUiaProvider::get_VerticalViewSize(double* retVal) noexcept {
 STDMETHODIMP PaneUiaProvider::get_HorizontallyScrollable(BOOL* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = FALSE;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1395,7 +1444,7 @@ STDMETHODIMP PaneUiaProvider::get_HorizontallyScrollable(BOOL* retVal) noexcept 
 STDMETHODIMP PaneUiaProvider::get_VerticallyScrollable(BOOL* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = FALSE;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1419,12 +1468,15 @@ STDMETHODIMP PaneUiaProvider::get_VerticallyScrollable(BOOL* retVal) noexcept {
 // ---------------------------------------------------------------------------
 
 ColumnUiaProvider::ColumnUiaProvider(ColumnViewUiaProvider* owner, int pane, int column, uint64_t pathHash)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), column_(column), pathHash_(pathHash) {}
 
 STDMETHODIMP ColumnUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+        return kElementNotAvailable;
+    }
     if (patternId == UIA_SelectionPatternId) {
         return QueryInterface(IID_ISelectionProvider, reinterpret_cast<void**>(retVal));
     }
@@ -1437,7 +1489,7 @@ STDMETHODIMP ColumnUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown
 STDMETHODIMP ColumnUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1505,7 +1557,7 @@ STDMETHODIMP ColumnUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT*
 STDMETHODIMP ColumnUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1576,13 +1628,14 @@ STDMETHODIMP ColumnUiaProvider::Navigate(NavigateDirection direction, IRawElemen
 
 STDMETHODIMP ColumnUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive()) return kElementNotAvailable;
     *retVal = MakeIntArray(UiaColumnRuntimeId(pane_, pathHash_));
     return S_OK;
 }
 
 STDMETHODIMP ColumnUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1610,7 +1663,7 @@ STDMETHODIMP ColumnUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noe
 }
 
 STDMETHODIMP ColumnUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     owner_->Surface()->UiaSetColumnFocus(pane_, column_);
@@ -1620,14 +1673,14 @@ STDMETHODIMP ColumnUiaProvider::SetFocus() noexcept {
 STDMETHODIMP ColumnUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
 STDMETHODIMP ColumnUiaProvider::GetSelection(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1652,12 +1705,14 @@ STDMETHODIMP ColumnUiaProvider::GetSelection(SAFEARRAY** retVal) noexcept {
 
 STDMETHODIMP ColumnUiaProvider::get_CanSelectMultiple(BOOL* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive()) return kElementNotAvailable;
     *retVal = TRUE; // the real model supports Ctrl/Shift multi-select
     return S_OK;
 }
 
 STDMETHODIMP ColumnUiaProvider::get_IsSelectionRequired(BOOL* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive()) return kElementNotAvailable;
     *retVal = FALSE;
     return S_OK;
 }
@@ -1667,7 +1722,7 @@ STDMETHODIMP ColumnUiaProvider::FindItemByProperty(IRawElementProviderSimple* st
                                                    IRawElementProviderSimple** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     if (propertyId != UIA_NamePropertyId) {
@@ -1698,12 +1753,12 @@ STDMETHODIMP ColumnUiaProvider::FindItemByProperty(IRawElementProviderSimple* st
 
 ColumnItemUiaProvider::ColumnItemUiaProvider(ColumnViewUiaProvider* owner, int pane, int column, int row,
                                              uint64_t pathHash, uint64_t idHash)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), column_(column), row_(row),
       pathHash_(pathHash), idHash_(idHash) {}
 
 bool ColumnItemUiaProvider::Resolve(UiaItemInfo& item, bool& statusLineShown) const {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return false;
     }
     UiaSurface* surface = owner_->Surface();
@@ -1727,6 +1782,9 @@ bool ColumnItemUiaProvider::Resolve(UiaItemInfo& item, bool& statusLineShown) co
 STDMETHODIMP ColumnItemUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+        return kElementNotAvailable;
+    }
     if (patternId == UIA_SelectionItemPatternId) {
         return QueryInterface(IID_ISelectionItemProvider, reinterpret_cast<void**>(retVal));
     }
@@ -1904,7 +1962,7 @@ STDMETHODIMP ColumnItemUiaProvider::SetFocus() noexcept {
 STDMETHODIMP ColumnItemUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
@@ -1957,7 +2015,7 @@ STDMETHODIMP ColumnItemUiaProvider::get_IsSelected(BOOL* retVal) noexcept {
 STDMETHODIMP ColumnItemUiaProvider::get_SelectionContainer(IRawElementProviderSimple** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     auto column = owner_->ColumnElement(pane_, column_);
@@ -1993,19 +2051,20 @@ STDMETHODIMP ColumnItemUiaProvider::ScrollIntoView() noexcept {
 // ---------------------------------------------------------------------------
 
 ColumnStatusUiaProvider::ColumnStatusUiaProvider(ColumnViewUiaProvider* owner, int pane, int column)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), column_(column) {}
 
 STDMETHODIMP ColumnStatusUiaProvider::GetPatternProvider(PATTERNID /*patternId*/, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return S_OK;
 }
 
 STDMETHODIMP ColumnStatusUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2063,7 +2122,7 @@ STDMETHODIMP ColumnStatusUiaProvider::GetPropertyValue(PROPERTYID propertyId, VA
 STDMETHODIMP ColumnStatusUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     if (direction == NavigateDirection_Parent) {
@@ -2090,7 +2149,7 @@ STDMETHODIMP ColumnStatusUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept 
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
     uint64_t pathHash = 0;
-    if (owner_ != nullptr && owner_->SurfaceAlive() && owner_->ResolveColumnIdentity(pane_, column_, pathHash)) {
+    if (Alive() && owner_ != nullptr && owner_->SurfaceAlive() && owner_->ResolveColumnIdentity(pane_, column_, pathHash)) {
          *retVal = MakeIntArray(UiaStatusRuntimeId(pane_, pathHash));
         return S_OK;
     }
@@ -2099,7 +2158,7 @@ STDMETHODIMP ColumnStatusUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept 
 
 STDMETHODIMP ColumnStatusUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2136,7 +2195,7 @@ STDMETHODIMP ColumnStatusUiaProvider::SetFocus() noexcept {
 STDMETHODIMP ColumnStatusUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
@@ -2146,18 +2205,19 @@ STDMETHODIMP ColumnStatusUiaProvider::get_FragmentRoot(IRawElementProviderFragme
 // ---------------------------------------------------------------------------
 
 HomeGroupUiaProvider::HomeGroupUiaProvider(ColumnViewUiaProvider* owner, int pane)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr), owner_(owner), pane_(pane) {}
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr), owner_(owner), pane_(pane) {}
 
 STDMETHODIMP HomeGroupUiaProvider::GetPatternProvider(PATTERNID /*patternId*/, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return S_OK;
 }
 
 STDMETHODIMP HomeGroupUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     if (!owner_->Surface()->UiaPaneIsHome(pane_)) {
@@ -2205,7 +2265,7 @@ STDMETHODIMP HomeGroupUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIA
 STDMETHODIMP HomeGroupUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2238,13 +2298,14 @@ STDMETHODIMP HomeGroupUiaProvider::Navigate(NavigateDirection direction, IRawEle
 
 STDMETHODIMP HomeGroupUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     *retVal = MakeIntArray(UiaHomeRootRuntimeId(pane_));
     return S_OK;
 }
 
 STDMETHODIMP HomeGroupUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     const UiaViewGeometry geometry = owner_->Geometry();
@@ -2266,7 +2327,7 @@ STDMETHODIMP HomeGroupUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) 
 }
 
 STDMETHODIMP HomeGroupUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     owner_->Surface()->UiaActivatePane(pane_);
@@ -2276,12 +2337,12 @@ STDMETHODIMP HomeGroupUiaProvider::SetFocus() noexcept {
 STDMETHODIMP HomeGroupUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
 HomeSectionUiaProvider::HomeSectionUiaProvider(ColumnViewUiaProvider* owner, int pane, int ordinal)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), ordinal_(ordinal) {}
 
 namespace {
@@ -2308,13 +2369,14 @@ std::wstring HomeSectionAutomationId(int pane, int sectionKind) {
 STDMETHODIMP HomeSectionUiaProvider::GetPatternProvider(PATTERNID /*patternId*/, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return S_OK;
 }
 
 STDMETHODIMP HomeSectionUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2374,7 +2436,7 @@ STDMETHODIMP HomeSectionUiaProvider::GetPropertyValue(PROPERTYID propertyId, VAR
 STDMETHODIMP HomeSectionUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2451,7 +2513,7 @@ STDMETHODIMP HomeSectionUiaProvider::Navigate(NavigateDirection direction, IRawE
 STDMETHODIMP HomeSectionUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2465,7 +2527,7 @@ STDMETHODIMP HomeSectionUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
 
 STDMETHODIMP HomeSectionUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2500,18 +2562,18 @@ STDMETHODIMP HomeSectionUiaProvider::SetFocus() noexcept {
 STDMETHODIMP HomeSectionUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
 HomeItemUiaProvider::HomeItemUiaProvider(ColumnViewUiaProvider* owner, int pane, int globalIndex,
                                          int sectionKind, int indexInSection, uint64_t valueHash)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), globalIndex_(globalIndex),
       sectionKind_(sectionKind), indexInSection_(indexInSection), valueHash_(valueHash) {}
 
 bool HomeItemUiaProvider::Resolve(UiaHomeItemInfo& info) const {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return false;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2710,7 +2772,7 @@ STDMETHODIMP HomeItemUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) n
 }
 
 STDMETHODIMP HomeItemUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaHomeItemInfo item;
@@ -2728,12 +2790,12 @@ STDMETHODIMP HomeItemUiaProvider::SetFocus() noexcept {
 STDMETHODIMP HomeItemUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
 STDMETHODIMP HomeItemUiaProvider::Invoke() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaHomeItemInfo item;
@@ -2750,7 +2812,7 @@ STDMETHODIMP HomeItemUiaProvider::Invoke() noexcept {
 }
 
 STDMETHODIMP HomeItemUiaProvider::ScrollIntoView() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaHomeItemInfo item;
@@ -2763,7 +2825,7 @@ STDMETHODIMP HomeItemUiaProvider::ScrollIntoView() noexcept {
 }
 
 HomeClearUiaProvider::HomeClearUiaProvider(ColumnViewUiaProvider* owner, int pane, int clearKind)
-    : UiaProviderBase(owner != nullptr ? owner->State() : nullptr),
+    : UiaProviderBase(owner != nullptr ? owner->FragmentState() : nullptr),
       owner_(owner), pane_(pane), clearKind_(clearKind) {}
 
 namespace {
@@ -2797,6 +2859,7 @@ UiaHomeSectionInfo HomeClearSectionOf(UiaSurface* surface, int pane, int clearKi
 STDMETHODIMP HomeClearUiaProvider::GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     if (patternId == UIA_InvokePatternId) {
         return QueryInterface(IID_IInvokeProvider, reinterpret_cast<void**>(retVal));
     }
@@ -2806,7 +2869,7 @@ STDMETHODIMP HomeClearUiaProvider::GetPatternProvider(PATTERNID patternId, IUnkn
 STDMETHODIMP HomeClearUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     VariantInit(retVal);
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2895,7 +2958,7 @@ UiaHomeSectionInfo HomeClearUiaProvider::HomeClearSection(UiaSurface* surface) c
 STDMETHODIMP HomeClearUiaProvider::Navigate(NavigateDirection direction, IRawElementProviderFragment** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2929,13 +2992,14 @@ STDMETHODIMP HomeClearUiaProvider::Navigate(NavigateDirection direction, IRawEle
 
 STDMETHODIMP HomeClearUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     *retVal = MakeIntArray(UiaHomeClearRuntimeId(pane_, HomeClearSectionKind(clearKind_)));
     return S_OK;
 }
 
 STDMETHODIMP HomeClearUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();
@@ -2963,7 +3027,7 @@ STDMETHODIMP HomeClearUiaProvider::GetEmbeddedFragmentRoots(SAFEARRAY** retVal) 
 }
 
 STDMETHODIMP HomeClearUiaProvider::SetFocus() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     owner_->Surface()->UiaSetHomeFocusClear(pane_, clearKind_);
@@ -2973,12 +3037,12 @@ STDMETHODIMP HomeClearUiaProvider::SetFocus() noexcept {
 STDMETHODIMP HomeClearUiaProvider::get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
-    if (owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive()) return kElementNotAvailable;
     return owner_->QueryInterface(IID_IRawElementProviderFragmentRoot, reinterpret_cast<void**>(retVal));
 }
 
 STDMETHODIMP HomeClearUiaProvider::Invoke() noexcept {
-    if (owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
+    if (!Alive() || owner_ == nullptr || !owner_->SurfaceAlive() || owner_->Surface() == nullptr) {
         return kElementNotAvailable;
     }
     UiaSurface* surface = owner_->Surface();

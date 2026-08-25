@@ -434,7 +434,15 @@ public:
 
     // --- controller API ---------------------------------------------------
     UiaSurface* Surface() const noexcept { return surface_; }
-    bool SurfaceAlive() const noexcept { return Alive(); }
+    // The root provider remains alive across a pane-layout replacement so
+    // UIA can receive the structure event and re-root from the host window.
+    // Descendants use a separate fragment token; once it is flipped, every
+    // provider minted under the old ColumnView fragment is stale even if the
+    // same pane index is later created again.
+    bool SurfaceAlive() const noexcept {
+        return Alive() && fragmentState_ != nullptr && fragmentState_->alive;
+    }
+    UiaOwnerStatePtr FragmentState() const noexcept { return fragmentState_; }
     UiaViewGeometry Geometry() const { return surface_ != nullptr ? surface_->UiaGeometry() : UiaViewGeometry{}; }
     HWND Hwnd() const noexcept { return hwnd_; }
     // The treemap semantic surface (StorageAnalysis), wired after the views
@@ -469,6 +477,7 @@ public:
     void InvalidateHome(int pane);
     void InvalidateTreemap();
     void InvalidateAll();
+    void ReplaceFragment();
 
     // Bounded item caches: on overflow the whole item cache clears (simple,
     // deterministic). See design D13.
@@ -515,6 +524,7 @@ private:
     size_t treemapTileCacheSize_ = 0;
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> hostProvider_; // UiaHostProviderFromHwnd
     UiaSurface* surface_ = nullptr;
+    UiaOwnerStatePtr fragmentState_;
     TreemapUiaSurface* treemapSurface_ = nullptr;
     bool treemapEventsSubscribed_ = false;
     HWND hwnd_ = nullptr;

@@ -28,6 +28,7 @@ function Import-UiaRecordedTree {
             controlType = $(if ($node.PSObject.Properties['controlType']) { $node.controlType } else { $null })
             className = $(if ($node.PSObject.Properties['className']) { $node.className } else { $null })
             processId = $(if ($node.PSObject.Properties['processId']) { $node.processId } else { 0 })
+            runtimeId = $(if ($node.PSObject.Properties['runtimeId']) { @($node.runtimeId | ForEach-Object { [int]$_ }) } else { @() })
             isEnabled = $(if ($node.PSObject.Properties['isEnabled']) { $node.isEnabled } else { $true })
             isOffscreen = $(if ($node.PSObject.Properties['isOffscreen']) { $node.isOffscreen } else { $false })
             patterns = @(if ($node.PSObject.Properties['patterns']) { $node.patterns } else { @() })
@@ -78,6 +79,7 @@ function Get-UiaMockProperty {
         'ControlType' { return $rec.controlType }
         'ClassName' { return $rec.className }
         'ProcessId' { return $rec.processId }
+        'RuntimeId' { return @($rec.runtimeId) }
         'IsEnabled' { return $rec.isEnabled }
         'IsOffscreen' { return $rec.isOffscreen }
         'SupportedPatterns' { return $rec.patterns }

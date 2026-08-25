@@ -86,8 +86,8 @@ function New-UiaDriver {
 
 Export-ModuleMember -Function `
     Get-UiaDriverAvailability, New-UiaDriver, Import-UiaRecordedTree, New-UiaMockElement, Get-UiaMockRecord, `
-    Get-UiaRootElement, Find-UiaElement, Get-UiaChildren, Get-UiaParent, `
-    Get-UiaElementProperty, Get-UiaElementIdentity, `
+    Get-UiaRootElement, Find-UiaElement, Find-UiaDirectChild, Wait-UiaDirectChild, Get-UiaChildren, Get-UiaParent, `
+    Get-UiaElementProperty, Get-UiaElementRuntimeId, Get-UiaElementIdentity, `
     Get-UiaPattern, Invoke-UiaPattern, Test-UiaPatternAvailable, Invoke-UiaElementAction, `
     Get-UiaClickablePoint, Send-UiaInput, Send-UiaMouseInput, Send-UiaMouseDrag, Send-UiaText, Set-UiaForeground, `
     Register-UiaEvent, Wait-UiaEvent, Unregister-UiaEvent, `

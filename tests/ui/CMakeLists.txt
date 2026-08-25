@@ -126,7 +126,8 @@ set(FFUIA_PROVIDER_SOURCES
     ../../src/ui/src/UiaProviderBase.cpp
     ../../src/ui/src/ColumnViewUiaProvider.cpp
     ../../src/ui/src/SearchUiaProvider.cpp
-    ../../src/ui/src/TreemapUiaProvider.cpp)
+    ../../src/ui/src/TreemapUiaProvider.cpp
+    ../../src/protocol/src/Diagnostics.cpp)
 set(FFUIA_TEST_INCLUDES
     .. ../../src/ui/src ../../src/ui/include ../../src/protocol/include
     ../../src/ipc/include ../../src/setup/include ../../src/search/include)

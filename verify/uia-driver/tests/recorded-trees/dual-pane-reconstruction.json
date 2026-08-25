@@ -1,0 +1,14 @@
+{
+  "root": "main",
+  "nodes": [
+    { "id": "main", "name": "FastFiles", "automationId": "MainWindow", "controlType": "Window", "children": ["group", "chrome"] },
+    { "id": "group", "name": "Column View", "automationId": "ColumnView", "controlType": "Pane", "children": ["pane0", "pane1"] },
+    { "id": "pane0", "name": "Pane 0", "automationId": "Pane.0", "controlType": "Pane", "runtimeId": [42, 100, 0], "boundingRectangle": { "x": 0, "y": 100, "width": 500, "height": 700 }, "children": ["column0"] },
+    { "id": "pane1", "name": "Pane 1", "automationId": "Pane.1", "controlType": "Pane", "runtimeId": [42, 100, 1], "boundingRectangle": { "x": 500, "y": 100, "width": 500, "height": 700 }, "children": ["column1"] },
+    { "id": "column0", "name": "Entries 0", "automationId": "Column.0", "controlType": "List", "children": ["deep0"] },
+    { "id": "column1", "name": "Entries 1", "automationId": "Column.1", "controlType": "List", "children": ["deep1"] },
+    { "id": "deep0", "name": "Nested 0", "automationId": "Nested.0", "controlType": "Pane", "children": [] },
+    { "id": "deep1", "name": "Nested 1", "automationId": "Nested.1", "controlType": "Pane", "children": [] },
+    { "id": "chrome", "name": "Toolbar", "automationId": "Toolbar", "controlType": "ToolBar", "children": [] }
+  ]
+}

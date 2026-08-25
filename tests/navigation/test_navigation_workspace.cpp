@@ -254,6 +254,92 @@ void TestPerTabPaneContexts() {
           workspace.ActivePaneIndex() == 1,
           "switching tabs preserves both dual-pane contexts and active-pane identity");
 }
+
+// interactive-ui-runtime-determinism 3.1/3.3: exercise the production
+// NavigationWorkspace transition seam as a deterministic state machine. The
+// test uses typed locations only; it never asks Win32, the engine, or the
+// service to resolve a path merely because a pane was created.
+void TestDualPaneLifecycleDeterminism() {
+    using namespace ffui;
+    NavigationWorkspace workspace(L"C:\\Start");
+    workspace.Navigate(L"C:\\Left");
+    workspace.PaneContext(0).columnPaths = {L"C:\\", L"C:\\Left"};
+    workspace.PaneContext(0).columnSelections = {1};
+
+    Check(workspace.ActivePaneCount() == 1 && workspace.ActivePaneIndex() == 0,
+          "dual-pane lifecycle starts with one active pane");
+    workspace.EnableDualPane();
+    Check(workspace.ActivePaneCount() == 2 && workspace.ActivePaneIndex() == 0,
+          "enabling dual pane creates exactly one inactive companion and keeps Pane.0 active");
+    Check(workspace.PaneContext(1).currentPath == L"C:\\Left" &&
+          !workspace.PaneContext(1).isHomeLocation &&
+          workspace.PaneContext(1).history.size() == 1 &&
+          workspace.PaneContext(1).history.front() == NavigationLocation::FromPath(L"C:\\Left"),
+          "enabling clones the active typed filesystem location with a fresh history");
+
+    workspace.ActivatePane(1);
+    workspace.Navigate(L"D:\\Right");
+    workspace.PaneContext(1).columnPaths = {L"D:\\", L"D:\\Right"};
+    Check(workspace.PaneContext(0).currentPath == L"C:\\Left" &&
+          workspace.ActiveContext().currentPath == L"D:\\Right",
+          "navigation in Pane.1 leaves Pane.0 independent");
+    workspace.DisableDualPane();
+    Check(workspace.ActivePaneCount() == 1 && workspace.ActivePaneIndex() == 0 &&
+          workspace.ActiveContext().currentPath == L"D:\\Right" &&
+          workspace.ActiveContext().columnPaths == std::vector<std::wstring>{L"D:\\", L"D:\\Right"},
+          "disabling while Pane.1 is active keeps Pane.1 state and migrates focus to the kept pane");
+
+    workspace.EnableDualPane();
+    Check(workspace.PaneContext(0).currentPath == L"D:\\Right" &&
+          workspace.PaneContext(1).currentPath == L"D:\\Right",
+          "re-enabling after a removal clones the surviving typed state");
+
+    workspace.DisableDualPane();
+    workspace.ActivatePane(0);
+    workspace.Navigate(NavigationLocation::Home());
+    workspace.EnableDualPane();
+    Check(workspace.PaneContext(0).isHomeLocation && workspace.PaneContext(0).currentPath.empty() &&
+          workspace.PaneContext(1).isHomeLocation && workspace.PaneContext(1).currentPath.empty(),
+          "Home-to-dual transition preserves Home kind in both panes");
+    workspace.ActivatePane(1);
+    workspace.Navigate(L"E:\\Filesystem");
+    Check(workspace.PaneContext(0).isHomeLocation &&
+          !workspace.PaneContext(1).isHomeLocation &&
+          workspace.PaneContext(1).currentPath == L"E:\\Filesystem",
+          "Home and filesystem locations remain isolated across panes");
+    workspace.DisableDualPane();
+    Check(!workspace.ActiveContext().isHomeLocation && workspace.ActiveContext().currentPath == L"E:\\Filesystem",
+          "disabling a Home/filesystem pair keeps the active filesystem pane");
+
+    workspace.EnableDualPane();
+    workspace.OpenTab(NavigationLocation::Home());
+    Check(workspace.ActivePaneCount() == 1 && workspace.ActiveContext().isHomeLocation,
+          "tab change enters an independent single-pane Home context");
+    Check(workspace.SwitchTab(0) && workspace.IsDualPane() &&
+          workspace.PaneContext(0).isHomeLocation == false &&
+          workspace.PaneContext(0).currentPath == L"E:\\Filesystem",
+          "switching tabs restores the prior pane layout and typed active state");
+
+    bool cyclesClean = true;
+    for (int cycle = 0; cycle < 50; ++cycle) {
+        if (workspace.IsDualPane()) {
+            workspace.ActivatePane(1);
+            workspace.DisableDualPane();
+            if (workspace.ActivePaneCount() != 1 || workspace.ActivePaneIndex() != 0 ||
+                workspace.ActiveContext().currentPath != L"E:\\Filesystem") {
+                cyclesClean = false;
+            }
+        } else {
+            workspace.EnableDualPane();
+            if (workspace.ActivePaneCount() != 2 || workspace.ActivePaneIndex() != 0 ||
+                workspace.PaneContext(0).isHomeLocation || workspace.PaneContext(1).isHomeLocation ||
+                workspace.PaneContext(1).currentPath != L"E:\\Filesystem") {
+                cyclesClean = false;
+            }
+        }
+    }
+    Check(cyclesClean, "50 deterministic enable/disable cycles preserve active-pane and typed-location invariants");
+}
 }
 void TestConcurrentIndependentContextsReadDifferentPaths() {
     using namespace ffui;
@@ -539,6 +625,7 @@ int main() {
     TestPathParsing(); TestParentNavigationPath(); TestSyntheticRootContext(); TestIndependentContextsAndHistory(); TestDualPaneAndClosedTabs();
     TestBreadcrumbAndEditableAddressBar(); TestWorkspacePersistenceFallback(); TestInitialNavigationFallback(); TestCopyRelativePathBaseResolution();
     TestPerTabPaneContexts();
+    TestDualPaneLifecycleDeterminism();
     TestConcurrentIndependentContextsReadDifferentPaths();
     TestTypedClosedTabReopen();
     TestTypedClosedTabStackOrder();

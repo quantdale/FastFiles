@@ -28,26 +28,36 @@ Run `pwsh ./verify/verify.ps1 status` to generate the structured JSON source and
 sanitized Markdown projection under the ignored `verify/status/generated/`
 directory. `tasks.md` remains the acceptance authority for each OpenSpec change.
 
-The current local hardening frontier is `openspec/changes/active-path-runtime-resilience`.
-It strengthens the already implemented degraded path with deterministic watcher
-setup-failure recovery, atomic snapshot-publication fault coverage, engine
-generation/reconnect ordering, SearchPanel supersession identity, filesystem-to-
-snapshot convergence, and the marked-fixture
-`windows-active-path-resilience-validation` capability. This is hardening of
-the mainline implementation, not a replacement architecture. Production
-signing pins, authenticated privileged runtime proof, clean-host MFT/USN
-validation, and physical/guest environment matrices remain external evidence
-gates.
+The current local hardening frontier is
+`openspec/changes/interactive-ui-runtime-determinism`. It closes the locally
+actionable dual-pane/UIA verification ambiguity around the real Toggle Dual Pane
+command while preserving the production split and degraded path. The baseline
+product transition was correct (workspace 1→2 and ColumnView dual-pane true);
+the failure was harness semantic discovery of a dynamically replaced UIA
+fragment. The repaired harness uses direct-child live-root reacquisition,
+semantic palette dispatch/postconditions, exact scenario process ownership, and
+bounded pipe cleanup. The provider now retires stale fragment descendants on
+structure replacement, with headless coverage for fresh identities, selection
+isolation, geometry, and 50 replacement cycles.
 
-The completed local hardening validation has 81/81 Debug CTests and 81/81
-release-test CTests passing, a clean `/analyze` build, ASAN protocol/IPC 2/2,
-strict OpenSpec 66/66, source-marker and diagnostic-policy passes, and a PASS
-from the visual catalog. The active-path capability's 600-second default soak
-also passed with bounded resource samples and exact owned-process cleanup.
-The focused current Search UIA scenario passes after the icon-cache iterator
-fix; the dual-pane selection scenario remains an explicit interactive-driver
-failure because Pane.1 did not appear, and the elevated resource-leak
-capability is SKIPPED on this non-admin development host.
+The live interactive capability now passes its full wrapper with zero
+unexpected failures and no longer fails at Pane.1 discovery. This desktop
+still records a truthful
+`interactive-foreground-unavailable` skip when a foreign interactive window
+(`FocusTube` in the latest run) owns the foreground during Pane.1 activation;
+no downstream input assertion or retry is treated as
+proof, and the requested 20/20 live run is not claimed. Production signing
+pins, authenticated privileged runtime proof, clean-host MFT/USN validation,
+and physical/guest environment matrices remain external evidence gates.
+
+The prior active-path hardening validation had 81/81 Debug and release-test
+CTest passes, a clean `/analyze` build, ASAN protocol/IPC 2/2, strict OpenSpec
+66/66, source-marker and diagnostic-policy passes, and a passing 600-second
+active-path soak. The current campaign's focused headless tests and full UIA
+capability are green; final Debug/release-test, Analyze, ASAN, verifier,
+OpenSpec, policy, drift, and hygiene gates are green. Elevated resource
+validation, privileged service validation, and physical/guest UI matrices are
+not part of ordinary non-admin development.
 
 ## Release-state interpretation
 

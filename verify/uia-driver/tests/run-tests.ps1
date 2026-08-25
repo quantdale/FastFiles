@@ -31,14 +31,14 @@ $avail = Get-UiaDriverAvailability
 Check ($null -ne $avail) 'availability probe returns an envelope'
 Check ($avail.PSObject.Properties['Available'] -ne $null) 'envelope has Available'
 if (-not $avail.Available) {
-    # Non-interactive host/CI: the remaining headless tests cannot run here.
-    # SKIP with a clear message and exit 0 so the CTest-registered suite passes
-    # on CI hosts, while genuine assertion failures (when available) still fail.
-    Write-Host ""
-    Write-Host "SKIPPED: UIA driver unavailable in this session ($($avail.Reason)); headless driver tests require an interactive desktop. Reporting SKIP (exit 0)."
-    exit 0
+    # Recorded-tree tests are deliberately independent of the live UIA
+    # availability probe. Only live-provider capabilities need an interactive
+    # desktop; driver mechanics and stale-provider semantics remain testable in
+    # CI and service-session hosts.
+    Write-Host "  note: live UIA unavailable ($($avail.Reason)); continuing with recorded-tree tests"
+} else {
+    Check ($avail.Available -eq $true) 'interactive desktop session reports available'
 }
-Check ($avail.Available -eq $true) 'interactive desktop session reports available'
 
 Write-Host "== driver construction =="
 $driver = New-UiaDriver
@@ -46,6 +46,57 @@ Check ($driver.TimeoutMs -eq 5000) 'default TimeoutMs'
 Check ($driver.Provider -eq 'managed') 'default provider is managed'
 $mock = New-UiaDriver -Provider mock -TimeoutMs 1000
 Check ($mock.Provider -eq 'mock' -and $mock.TimeoutMs -eq 1000) 'mock driver honors parameters'
+
+Write-Host "== interactive-ui-runtime-determinism: exact process ownership (9.1) =="
+$validationPath = Join-Path $repo 'verify\capabilities\windows-ui-automation-validation\UiAutomationValidation.psm1'
+Import-Module $validationPath -Force
+$validationModule = Get-Module UiAutomationValidation
+$fakeProcess = [pscustomobject]@{
+    Id = 4242
+    ProcessName = 'FastFiles'
+    Path = (Join-Path $repo 'build\debug\src\ui\FastFiles.exe')
+    StartTime = [DateTime]::Now
+    SessionId = 1
+}
+$ownedIdentity = & $validationModule { param($process, $root) Get-UiaProcessIdentity -Process $process -RepoRoot $root } $fakeProcess $repo
+Check ($ownedIdentity -and $ownedIdentity.Id -eq 4242 -and $ownedIdentity.Path -eq $fakeProcess.Path) 'repo-build process identity records exact PID and executable path'
+$foreignProcess = [pscustomobject]@{
+    Id = 4243
+    ProcessName = 'FastFiles'
+    Path = (Join-Path $env:TEMP 'FastFiles.exe')
+    StartTime = [DateTime]::Now
+    SessionId = 1
+}
+$foreignIdentity = & $validationModule { param($process, $root) Get-UiaProcessIdentity -Process $process -RepoRoot $root } $foreignProcess $repo
+Check ($null -eq $foreignIdentity) 'process identity rejects same-name executable outside repository build tree'
+$sameIdentity = & $validationModule { param($left, $right) Test-UiaSameProcessIdentity -Left $left -Right $right } $ownedIdentity $ownedIdentity
+Check $sameIdentity 'same PID/path/start-time identity compares equal'
+$pidReuse = [pscustomobject]@{ Id = 4242; Path = $ownedIdentity.Path; StartTimeUtc = $ownedIdentity.StartTimeUtc.AddSeconds(5) }
+$reuseRejected = & $validationModule { param($left, $right) Test-UiaSameProcessIdentity -Left $left -Right $right } $ownedIdentity $pidReuse
+Check (-not $reuseRejected) 'PID reuse with a different start time is rejected'
+$newIdentities = & $validationModule { param($before, $after) @(Get-UiaNewProcessIdentities -Before $before -After $after) } @($ownedIdentity) @($ownedIdentity, $pidReuse)
+Check ($newIdentities.Count -eq 1 -and $newIdentities[0].Id -eq 4242) 'new-process adoption is based on exact identity rather than name alone'
+
+Write-Host "== interactive-ui-runtime-determinism: semantic palette outcomes (4.1/4.2) =="
+$paletteReady = [pscustomobject]@{
+    listPresent = $true; listVisible = $true; listEnabled = $true
+    listItems = @('Toggle Dual Pane'); expectedMatches = @('Toggle Dual Pane')
+    expectedNameLikeMatches = @(); selectedName = 'Toggle Dual Pane'
+}
+$paletteReadyResult = & $validationModule { param($state) Test-UiaPaletteSelectionObservation -State $state -ExpectedCommandName 'Toggle Dual Pane' } $paletteReady
+Check ($paletteReadyResult.Pass -and $paletteReadyResult.Reason -eq 'semantic-selection-ready') 'palette helper accepts one visible enabled selected command'
+$paletteMissing = $paletteReady.PSObject.Copy(); $paletteMissing.listPresent = $false; $paletteMissing.listItems = @()
+$paletteMissingResult = & $validationModule { param($state) Test-UiaPaletteSelectionObservation -State $state -ExpectedCommandName 'Toggle Dual Pane' } $paletteMissing
+Check (-not $paletteMissingResult.Pass -and $paletteMissingResult.Reason -eq 'palette-result-list-unavailable') 'palette helper classifies missing/dismissed result list'
+$paletteAmbiguous = $paletteReady.PSObject.Copy(); $paletteAmbiguous.expectedMatches = @('Toggle Dual Pane', 'Toggle Dual Pane (legacy)')
+$paletteAmbiguousResult = & $validationModule { param($state) Test-UiaPaletteSelectionObservation -State $state -ExpectedCommandName 'Toggle Dual Pane' } $paletteAmbiguous
+Check (-not $paletteAmbiguousResult.Pass -and $paletteAmbiguousResult.Reason -eq 'command-result-ambiguous') 'palette helper classifies ambiguous command results'
+$paletteWrong = $paletteReady.PSObject.Copy(); $paletteWrong.selectedName = 'Search'
+$paletteWrongResult = & $validationModule { param($state) Test-UiaPaletteSelectionObservation -State $state -ExpectedCommandName 'Toggle Dual Pane' } $paletteWrong
+Check (-not $paletteWrongResult.Pass -and $paletteWrongResult.Reason -eq 'wrong-command-selected') 'palette helper classifies wrong selected command'
+$paletteDisabled = $paletteReady.PSObject.Copy(); $paletteDisabled.listEnabled = $false
+$paletteDisabledResult = & $validationModule { param($state) Test-UiaPaletteSelectionObservation -State $state -ExpectedCommandName 'Toggle Dual Pane' } $paletteDisabled
+Check (-not $paletteDisabledResult.Pass -and $paletteDisabledResult.Reason -eq 'palette-result-disabled') 'palette helper classifies disabled result surface'
 
 Write-Host "== recorded tree import + identity (2.1) =="
 $null = Import-UiaRecordedTree -Driver $mock -Path $treePath
@@ -82,6 +133,29 @@ try {
     $missingFrom = $true
 }
 Check $missingFrom 'find -FromElement excludes elements outside the subtree'
+
+Write-Host "== direct-child lifecycle discovery (interactive-ui-runtime-determinism 5.1) =="
+$dualTreePath = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\dual-pane-reconstruction.json'
+$dualMock = New-UiaDriver -Provider mock -TimeoutMs 1000 -PollIntervalMs 20
+$null = Import-UiaRecordedTree -Driver $dualMock -Path $dualTreePath
+$dualRoot = Get-UiaRootElement -Driver $dualMock
+$dualGroup = Find-UiaDirectChild -Driver $dualMock -Parent $dualRoot -AutomationId 'ColumnView'
+Check ($dualGroup -ne $null) 'direct child finds ColumnView group'
+$directPanes = @(Find-UiaDirectChild -Driver $dualMock -Parent $dualGroup -AutomationId 'Pane.1' -All)
+Check ($directPanes.Count -eq 1) "direct child finds exactly one Pane.1, got $($directPanes.Count)"
+$directPaneId = Get-UiaElementIdentity -Driver $dualMock -Element $directPanes[0]
+Check ($directPaneId.AutomationId -eq 'Pane.1' -and $directPaneId.ControlType -eq 'Pane') 'direct Pane.1 identity is exact'
+$pane0 = Find-UiaDirectChild -Driver $dualMock -Parent $dualGroup -AutomationId 'Pane.0'
+$pane0RuntimeId = @(Get-UiaElementRuntimeId -Driver $dualMock -Element $pane0)
+$pane1RuntimeId = @(Get-UiaElementRuntimeId -Driver $dualMock -Element $directPanes[0])
+Check (($pane0RuntimeId -join ',') -eq '42,100,0' -and ($pane1RuntimeId -join ',') -eq '42,100,1') 'Pane.0/Pane.1 RuntimeIds are captured and distinct'
+$recursivePanes = @(Find-UiaElement -Driver $dualMock -AutomationId 'Pane.1' -FromElement $dualRoot -All)
+Check ($recursivePanes.Count -eq 1) 'recursive search still sees the same recorded Pane.1'
+$waitedDirect = Wait-UiaDirectChild -Driver $dualMock -ParentProvider { return (Find-UiaDirectChild -Driver $dualMock -Parent $dualRoot -AutomationId 'ColumnView') } `
+    -AutomationId 'Pane.1' -TimeoutMs 300 -PollIntervalMs 20
+Check ($waitedDirect -ne $null) 'direct-child wait reacquires parent and returns Pane.1'
+$ambiguous = @(Find-UiaDirectChild -Driver $dualMock -Parent $dualGroup -ControlType 'Pane' -All)
+Check ($ambiguous.Count -eq 2) "direct-child all-results exposes ambiguity for generic Pane identity, got $($ambiguous.Count)"
 
 Write-Host "== traversal + parent (2.1) =="
 $rootKids = @(Get-UiaChildren -Driver $mock -Element $root)

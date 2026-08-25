@@ -2277,9 +2277,12 @@ void ColumnView::SetDualPane(bool enabled) {
             activePane_ = 0;
         }
     }
-    // semantic-uia-core-surfaces 2.6: pane set changed on the Column View group.
-    NotifyUia({UiaEventKind::StructureBulkAdded, -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
-    NotifyUia({UiaEventKind::StructureBulkRemoved, -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
+    // semantic-uia-core-surfaces 2.6: report the actual group transition.
+    // Emitting both directions for every toggle made UIA clients observe an
+    // impossible remove/add pair and obscured the fragment replacement
+    // boundary.
+    NotifyUia({enabled ? UiaEventKind::StructureBulkAdded : UiaEventKind::StructureBulkRemoved,
+               -1, -1, -1, -1, -1, /*home=*/false, /*group=*/true});
 }
 
 void ColumnView::ActivatePane(int paneIndex) {

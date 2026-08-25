@@ -85,6 +85,32 @@ bool IsNativeTextInput(HWND hwnd) {
     return length > 0 && (_wcsicmp(className, L"Edit") == 0 || _wcsicmp(className, L"RichEdit20W") == 0);
 }
 
+bool UiInteractionDiagnosticsEnabled() {
+    wchar_t value[8]{};
+    const DWORD length = GetEnvironmentVariableW(L"FASTFILES_UIA_DIAGNOSTICS", value,
+                                                  static_cast<DWORD>(std::size(value)));
+    return length == 1 && value[0] == L'1';
+}
+
+void AppendUiCommandDiagnostic(const std::wstring& commandId, bool accepted,
+                               size_t workspacePaneCountBefore, size_t workspacePaneCountAfter,
+                               size_t activePaneBefore, size_t activePaneAfter,
+                               bool viewDualBefore, bool viewDualAfter) {
+    if (!UiInteractionDiagnosticsEnabled()) return;
+    ffprotocol::DiagnosticEvent event{};
+    event.category = ffprotocol::DiagnosticCategory::UiInteraction;
+    event.code = ffprotocol::DiagnosticCode::FFDIAG_UI_COMMAND_DISPATCHED;
+    event.state = L"command=" + commandId + L";accepted=" + (accepted ? L"true" : L"false") +
+        L";workspacePaneCountBefore=" + std::to_wstring(workspacePaneCountBefore) +
+        L";workspacePaneCountAfter=" + std::to_wstring(workspacePaneCountAfter) +
+        L";activePaneBefore=" + std::to_wstring(activePaneBefore) +
+        L";activePaneAfter=" + std::to_wstring(activePaneAfter) +
+        L";viewDualBefore=" + (viewDualBefore ? L"true" : L"false") +
+        L";viewDualAfter=" + (viewDualAfter ? L"true" : L"false");
+    event.outcome = accepted ? L"accepted" : L"rejected";
+    ffprotocol::AppendDiagnostic(event, ffprotocol::DiagnosticFormat::Json);
+}
+
 std::wstring FileNameOf(const std::wstring& path) {
     const size_t slash = path.find_last_of(L"\\/");
     return slash == std::wstring::npos ? path : path.substr(slash + 1);
@@ -744,9 +770,17 @@ void WindowShell::FinishInlineRename(bool commit) {
 }
 
 bool WindowShell::InvokeCommand(const std::wstring& commandId) {
+    const size_t workspacePaneCountBefore = navigationWorkspace_.ActivePaneCount();
+    const size_t activePaneBefore = navigationWorkspace_.ActivePaneIndex();
+    const bool viewDualBefore = columnView_.IsDualPane();
     const CommandContext context = CurrentCommandContext();
     const auto paths = columnView_.ActiveSelectionPaths();
-    if (!commandRegistry_.Invoke(commandId, context, paths)) {
+    const bool accepted = commandRegistry_.Invoke(commandId, context, paths);
+    AppendUiCommandDiagnostic(commandId, accepted, workspacePaneCountBefore,
+                              navigationWorkspace_.ActivePaneCount(), activePaneBefore,
+                              navigationWorkspace_.ActivePaneIndex(), viewDualBefore,
+                              columnView_.IsDualPane());
+    if (!accepted) {
         MessageBoxW(hwnd_, L"That command is not available for the current selection.", L"Command unavailable", MB_OK | MB_ICONINFORMATION);
         return false;
     }

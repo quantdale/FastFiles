@@ -14,6 +14,7 @@ The whole product rests on one deliberately early architectural decision — a *
 - **Command palette & shell integration** — command system, quick actions, and shell menu integration.
 - **Degraded mode is a first-class, permanent state** — when the service is absent, declined, or its connection drops, the engine falls back to unprivileged `FindFirstFileEx` tree walks plus `ReadDirectoryChangesW` watches, shown as a small non-modal status badge.
 - **Active-path resilience** — degraded watcher setup/retirement, snapshot publication, engine reconnect, and asynchronous search supersession are covered by deterministic fault-injection and marked-fixture convergence tests; the privileged path remains fail-closed.
+- **Interactive UI determinism** — dual-pane command activation and UIA provider reconstruction use semantic postconditions, direct live-child reacquisition, stale-fragment invalidation, exact scenario process ownership, and bounded cleanup. A foreign interactive foreground window is recorded as an external skip rather than a product pass or retry.
 
 ## Architecture
 
@@ -134,6 +135,15 @@ runtime capability
 process resource sampling, exact owned-process cleanup, and explicit skips for
 GUI-only rows when an interactive desktop is unavailable.
 
+The `windows-ui-automation-validation` capability passes its current full
+semantic interactive matrix with zero unexpected failures, including dual-pane
+enable/disable, pane-local navigation and selection, provider identity, and
+command-palette activation. Its dual-pane setup proves
+the live workspace/view state, fresh `Pane.0`/`Pane.1` providers, distinct
+RuntimeIds/AutomationIds, valid geometry, and bounded stability; it does not use
+OCR or pixels as truth. See `openspec/changes/interactive-ui-runtime-determinism/`
+for the current root-cause evidence and remaining interactive-desktop boundary.
+
 ## Runtime verification
 
 `verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked. Run the active-path capability with `pwsh ./verify/verify.ps1 run -Capability windows-active-path-resilience-validation`; use `-CapabilityOption ActivePathSoakSeconds=<seconds>` to select a shorter or longer bounded run.
@@ -144,6 +154,6 @@ pwsh ./verify/verify.ps1
 
 ## Project conventions & workflow
 
-This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. The current active-path hardening change is `openspec/changes/active-path-runtime-resilience/`. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
+This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. The current interactive hardening change is `openspec/changes/interactive-ui-runtime-determinism/`; the prior active-path change remains historical completed work. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
 
 C++ style: four-space indentation, opening braces on the same line, `PascalCase` types and public methods, `camelCase` locals and parameters, trailing-underscore members, `kPascalCase` constants, and `ff<component>` namespaces. Keep headers self-contained and prefer standard C++ types at component boundaries. Run the focused test first, then the full suite, before submitting.

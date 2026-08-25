@@ -290,6 +290,10 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
    late completions to become visible.
 - `ColumnView` — Finder-style multi-column model + Direct2D/DirectWrite
    rendering; keyboard/mouse navigation; dual-pane; per-pane state save/restore.
+- `ColumnViewUiaProvider` — custom UIA fragment root and pane/column/item
+   providers. A separate fragment-generation token retires descendants when
+   dual-pane structure changes; stale providers fail safely, while fresh panes
+   retain pane-scoped AutomationIds and RuntimeIds.
 - `NavigationWorkspace` — tabs, dual-pane, back/forward history, address bar
    (breadcrumb/editable), bookmarks, known-folder enumeration/re-resolution.
    Plain UI state (no engine handles) — all contexts share the one
@@ -320,6 +324,15 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   degraded-path churn capability. The C++ harness performs headless watcher,
   snapshot, reconnect, and search convergence; the PowerShell module adds
   bounded external resource sampling and exact owned-process cleanup.
+- `verify/capabilities/windows-ui-automation-validation/` — semantic interactive
+  UIA scenarios. Dual-pane setup uses direct live-child provider reacquisition,
+  semantic command-palette dispatch/postconditions, RuntimeId/AutomationId and
+  geometry checks, exact repository-build process ownership, and bounded named-
+  pipe cleanup; a foreign foreground window is classified as an external skip.
+- `verify/uia-driver/` — managed/recorded-tree UIA driver. `Find-UiaDirectChild`
+  and `Wait-UiaDirectChild` cover dynamic fragment reconstruction without
+  whole-tree DFS assumptions; recorded trees cover ambiguity, identity, stale
+  reacquisition, and process-ownership mechanics.
 
 ## `FastFilesSetup` (installer) & `fftest` (probe)
 

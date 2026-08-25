@@ -33,6 +33,82 @@ function Get-UiaChildren {
     return @($Element.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition))
 }
 
+# interactive-ui-runtime-determinism 5.1: direct-child discovery is a
+# different semantic operation from recursive search. It is used for dynamic
+# fragment roots whose descendants may be replaced during a state transition.
+# The caller supplies the live parent for each poll; this function never walks
+# grandchildren and never returns a sibling discovered through a stale root.
+function Find-UiaDirectChild {
+    param(
+        [Parameter(Mandatory)] $Driver,
+        [Parameter(Mandatory)] $Parent,
+        [string] $AutomationId,
+        [string] $Name,
+        [string] $NameLike,
+        [string] $ControlType,
+        [string] $ClassName,
+        [int] $ProcessId,
+        [string] $View,
+        [switch] $All
+    )
+    if (-not ($AutomationId -or $Name -or $NameLike -or $ControlType -or $ClassName -or $ProcessId -gt 0)) {
+        throw 'Find-UiaDirectChild requires at least one identity criterion'
+    }
+    $matches = @()
+    foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Parent -View $View)) {
+        $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+        if (Test-UiaElementMatches -Element $identity -AutomationId $AutomationId -Name $Name -NameLike $NameLike `
+                -ControlType $ControlType -ClassName $ClassName -ProcessId $ProcessId) {
+            $matches += $child
+            if (-not $All) { return $child }
+        }
+    }
+    if ($All) { return $matches }
+    return $null
+}
+
+# Poll a direct-child identity while reacquiring the parent through a provider
+# callback. This is the lifecycle-safe primitive for pane/provider replacement;
+# a fixed sleep or one recursive DFS cannot prove the same postcondition.
+function Wait-UiaDirectChild {
+    param(
+        [Parameter(Mandatory)] $Driver,
+        [scriptblock] $ParentProvider,
+        $Parent,
+        [string] $AutomationId,
+        [string] $Name,
+        [string] $NameLike,
+        [string] $ControlType,
+        [string] $ClassName,
+        [int] $ProcessId,
+        [string] $View,
+        [int] $TimeoutMs,
+        [int] $PollIntervalMs,
+        [string] $Description = '',
+        [scriptblock] $OnTimeout = $null
+    )
+    if (-not $ParentProvider -and -not $Parent) { throw 'Wait-UiaDirectChild requires Parent or ParentProvider' }
+    if (-not ($AutomationId -or $Name -or $NameLike -or $ControlType -or $ClassName -or $ProcessId -gt 0)) {
+        throw 'Wait-UiaDirectChild requires at least one identity criterion'
+    }
+    $timeout = Resolve-UiaTimeout -Driver $Driver -TimeoutMs $TimeoutMs
+    $poll = if ($PollIntervalMs -gt 0) { $PollIntervalMs } else { Get-UiaDriverSetting -Driver $Driver -Name 'PollIntervalMs' -Fallback 50 }
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt $timeout) {
+        try {
+            $currentParent = if ($ParentProvider) { & $ParentProvider } else { $Parent }
+            if ($currentParent) {
+                $found = Find-UiaDirectChild -Driver $Driver -Parent $currentParent -AutomationId $AutomationId -Name $Name `
+                    -NameLike $NameLike -ControlType $ControlType -ClassName $ClassName -ProcessId $ProcessId -View $View
+                if ($found) { return $found }
+            }
+        } catch { }
+        Start-Sleep -Milliseconds $poll
+    }
+    if ($OnTimeout) { try { $null = & $OnTimeout } catch { } }
+    return $null
+}
+
 function Get-UiaParent {
     param($Driver, $Element)
     if (Test-UiaMockElement $Element) {
@@ -86,6 +162,7 @@ function Get-UiaElementProperty {
             'ControlType' { return Format-UiaControlType $Element.Current.ControlType.ProgrammaticName }
             'ClassName' { return $Element.Current.ClassName }
             'ProcessId' { return $Element.Current.ProcessId }
+            'RuntimeId' { return @($Element.GetRuntimeId()) }
             'IsEnabled' { return $Element.Current.IsEnabled }
             'IsOffscreen' { return $Element.Current.IsOffscreen }
             'BoundingRectangle' {
@@ -122,6 +199,19 @@ function Get-UiaElementProperty {
     } catch {
         return $null
     }
+}
+
+# interactive-ui-runtime-determinism 3.1: RuntimeId is the provider identity
+# used to distinguish a fresh fragment from a stale object or an accidental
+# Pane.0/Pane.1 alias. Return an empty array when a provider is already stale;
+# callers can then report the identity transition without reviving it.
+function Get-UiaElementRuntimeId {
+    param($Driver, $Element)
+    if (Test-UiaMockElement $Element) {
+        return @(Get-UiaMockProperty -Driver $Driver -Element $Element -Name 'RuntimeId')
+    }
+    Initialize-UiaManagedApi
+    try { return @($Element.GetRuntimeId()) } catch { return @() }
 }
 
 function Test-UiaElementMatches {

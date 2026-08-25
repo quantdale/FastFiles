@@ -415,7 +415,16 @@ function Get-UiaExplorerWindow {
     $lastError = $null
     while ($deadline.ElapsedMilliseconds -lt $TimeoutMs) {
         try {
-            $windows = @(Find-UiaElement -Driver $Driver -ClassName 'CabinetWClass' -TimeoutMs 3000 -All)
+            # Top-level Explorer windows are direct children of the UIA root.
+            # A recursive desktop DFS is unsafe here: moving an Explorer window
+            # rebuilds its shell fragment, and an unrelated stale descendant
+            # can make FindAll throw before the live top-level window is
+            # returned. Enumerate only the current root children, then inspect
+            # each candidate's own tree for the path/view contract.
+            $root = Get-UiaRootElement -Driver $Driver
+            $windows = @(Get-UiaChildren -Driver $Driver -Element $root | Where-Object {
+                (Get-UiaElementIdentity -Driver $Driver -Element $_).ClassName -eq 'CabinetWClass'
+            })
             foreach ($window in $windows) {
                 $pid = 0
                 try { $pid = [int](Get-UiaElementProperty -Driver $Driver -Element $window -Name 'ProcessId') } catch { }
