@@ -201,3 +201,19 @@ is the current release gate. The nested worker fixtures and the supported full
 live UIA wrapper were not rerun during this continuation because the current
 host remains under the documented resource boundary; no live UIA or production
 signing/privileged/clean-host claim is inferred from the local gates above.
+
+## Candidate and release-readiness boundary
+
+From the clean committed SHA `34137dba12f8df7acbfeb2bae735737ffab14324`,
+`pwsh ./verify/verify.ps1 release-candidate -ReleaseMode unsigned-validation`
+passed. The x64 unsigned-validation kit passed its build gate, package
+inventory/hash validation, validation-probe inclusion, and executable version
+metadata checks for all five packaged artifacts. The candidate explicitly
+reported `productionReady=false`, as required for unsigned artifacts without
+authorized production pins.
+
+The read-only `release-readiness -Mode report` projection correctly classified
+the current production artifact integrity as FAIL and signing, production pins,
+privileged path, and clean-host prerequisites as `BLOCKED_EXTERNAL`; it also
+reported direct rendered visual assertion as out of scope. This is not a
+verifier-convergence failure and is not promoted to production certification.

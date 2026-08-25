@@ -47,5 +47,5 @@
 
 - [x] 8.1 Run focused verifier tests continuously, then strict OpenSpec validation, Debug/release-test/Analyze/ASAN builds and tests, UIA-driver PowerShell tests, policy/doc-drift checks, and `verify.ps1 doctor/build`. (Focused 4/4, Debug 83/83, release-test 83/83 after diagnosis, Analyze, ASAN 3/3, strict OpenSpec 69/69, doctor, and verifier build pass.)
 - [ ] 8.2 Run a bounded final repeatability/ordering/soak matrix with recorded seeds and classify every PASS, SKIP, BLOCKED, FAIL, timeout, and cleanup result without retry-until-green behavior.
-- [ ] 8.3 Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification.
+- [ ] 8.3 Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification. (Unsigned candidate qualification passed from `34137dba`; supported full UIA remains pending under the documented host resource boundary.)
 - [ ] 8.4 Commit all campaign work on `main`, fetch/prune and reconcile with `origin/main`, push without force, inspect hosted CI for the exact pushed SHA, and finish with local main, remote main, and a clean worktree in agreement.
