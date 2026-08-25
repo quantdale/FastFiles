@@ -1,50 +1,52 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **COMPLETE**
-Planned-From: `90d012ebfbcd7530f5b397528dc768de34a7396f`
-Planned-At: `2026-08-25T17:34:00+08:00`
+Status: **ACTIVE**
+Planned-From: `519a647a37a9fe517c7d744b99275569c73bbbb2`
+Planned-At: `2026-08-25T19:28:00+08:00`
 Target-Branch: `main`
 Repository: `quantdale/FastFiles`
-Campaign: **Verification-Orchestration Convergence + Deterministic Evidence Hardening**
-
-Completion note (2026-08-25): the locally actionable verifier lifecycle,
-identity, result-composition, cleanup, status, and deterministic-test work is
-implemented and validated on `main`. The exact current branch/remote SHA and
-hosted CI result are derived at final handoff rather than stored
-self-referentially here. The supported live UIA repeatability matrix remains an
-explicit host resource/interactive boundary; no production-signing,
-privileged, clean-host, guest, or physical-display certification is claimed.
+Campaign: **OpenSpec Frontier Truthfulness + Historical Lifecycle Reconciliation**
 
 ## Mission
 
-Take the actual current `main` and eliminate the remaining locally actionable ambiguity in FastFiles' verification system: the exported/live `windows-ui-automation-validation` capability can produce a truthful green result (`23 PASS / 6 SKIP / 0 FAIL` in the latest recorded campaign evidence), while the supported `pwsh ./verify/verify.ps1 run ...` orchestration path can still return an opaque `scenario-failed` result for a mixed run.
+Make FastFiles' repository-status and autonomous-continuation machinery tell the truth about **what work is actually active now**.
 
-Treat that discrepancy as a verification-platform defect until proven otherwise. Determine exactly whether the divergence is caused by capability orchestration, provider lifecycle, process ownership/cleanup, scenario ordering, stale UIA fragments, foreground ownership, result-envelope aggregation, run-tree/report generation, or an actual product state transition. Fix the locally actionable root cause(s), add durable deterministic coverage, and make the supported verifier path tell the same evidence-backed truth as the underlying capability.
+The latest runtime-certification/verifier-convergence campaign has completed all locally actionable implementation work. Its remaining unchecked items are explicitly host-bound, interactive, privileged, signing, clean-host, or other external evidence gates. Do **not** manufacture another verifier/UI campaign simply because those evidence tasks are still unchecked.
 
-This is a hardening campaign, not a speculative feature campaign. The preceding ship-ready UI/UX convergence, active-path resilience, search-availability, indexed-read-plane, and runtime-determinism work must be preserved. Do not manufacture unrelated product churn merely to make this campaign large.
+The next locally actionable hardening problem is in the project-status/OpenSpec frontier model itself: `verify/core/ProjectStatus.psm1` currently scans every `openspec/changes/**/tasks.md`, treats every unchecked checkbox as current frontier work, and classifies tasks largely from task-text keywords. This can cause historical campaigns whose implementation and delivery were completed later to reappear as current `localOpen` work, while genuinely external gates must remain visible and blocked. The generated status is consumed by release-readiness reporting and by agents deciding what to do next, so stale frontier data can make future autonomous campaigns choose the wrong work.
 
-## Why this is the next campaign
+Fix this at the lifecycle/state-model seam, reconcile historical ledgers only where evidence justifies it, add deterministic regression coverage, and leave FastFiles with one machine-readable, evidence-backed definition of active local work versus completed/historical/external work.
 
-Current repository evidence says the previous local product-hardening frontier is complete:
+This is a repository-state hardening campaign. It is **not** permission to rewrite completed product architecture, revive stale PR #6, weaken security boundaries, or rerun host-bound live UIA loops under the already-recorded resource condition.
 
-- `main` contains the ship-ready UI/UX hardening implementation and pushed handoff.
-- Debug and release-test CTest were recorded green at `81/81`; Analyze was warning-clean; ASAN protocol/IPC was green; strict OpenSpec, source-marker, diagnostic-policy, doc-drift, verifier build/doctor, and diff hygiene were green.
-- The current UIA/provider/runtime work repaired stale fragment discovery, Pane.0/Pane.1 reconstruction, exact process ownership, Search.Results reacquisition, and deterministic mock tree dumps.
-- PR #6 is stale, draft, non-mergeable, and based on an old baseline. Current `main` is far ahead and already re-evaluated/reimplemented the valid ideas. It is evidence only, not an implementation source.
-- No open GitHub issues currently define a new implementation feature frontier.
-- Remaining production signing, privileged MFT/USN, clean-host, guest/VM, physical-display, and externally owned foreground evidence are environment/release prerequisites and must not be converted into fake local engineering work.
+## Planner findings that must be independently revalidated
 
-One important local discrepancy remains: the direct/exported UIA capability result and the supported verifier wrapper can disagree. Because every future autonomous campaign relies on this verifier to distinguish PASS / FAIL / SKIPPED / BLOCKED states, this discrepancy is now the highest-leverage local hardening target.
+Treat these as starting evidence, not unquestionable truth. Re-read current `main` before edits.
+
+1. Current planner baseline is `519a647a37a9fe517c7d744b99275569c73bbbb2` on `main`.
+2. The immediately preceding runtime-certification campaign is marked complete in `.agent/EXECUTION_PROMPT.md` and `docs/agent/WORKSTATE.md`; current workstate says no local implementation action remains for that campaign.
+3. `openspec/changes/runtime-certification-and-verifier-convergence/tasks.md` still contains legitimate unchecked items such as timing/repeatability/full-live-UIA evidence. Those are not automatically local implementation debt; current workstate explicitly records the host-resource/interactive boundary.
+4. `Get-ProjectStatusOpenSpecFrontier` in `verify/core/ProjectStatus.psm1` recursively scans all `tasks.md` files under `openspec/changes` and collects unchecked `- [ ] N.N ...` lines without an explicit change lifecycle filter.
+5. `Get-ProjectStatusTaskClassification` primarily infers category/status from regular-expression matches in task prose. A task with no recognized external keyword becomes low-confidence `local` work.
+6. `New-ProjectStatus` then puts those inferred local unchecked tasks into `frontier.localOpen`.
+7. Existing `verify/status/tests/Test-ProjectStatus.ps1` proves the text classifier and that the live parser can parse all ledgers, but it does not prove lifecycle-aware exclusion of completed/historical campaigns.
+8. Historical examples require reconciliation, not blind checkbox editing:
+   - `openspec/changes/real-user-dogfooding-release-engineering/tasks.md` still has 5.4 unchecked for final remote reconciliation/push/hosted-CI inspection, even though `main` contains many later pushed commits and hosted-CI evidence elsewhere.
+   - `openspec/changes/phase8-release-readiness-convergence/tasks.md` still has 4.5 unchecked for remote reconciliation/push/hosted-CI inspection, while later campaigns and current workstate record later mainline pushes and hosted runs.
+   These are examples of potential stale historical frontier items; prove disposition from Git/evidence before changing them.
+9. External tasks in older ledgers—production signer/pins, privileged MFT/USN, clean-host validation, physical/interactive display matrices, guest/provider evidence—must **not** be auto-closed just to reduce the task count.
+10. PR #6 remains stale/superseded audit evidence. Do not merge or cherry-pick it wholesale.
 
 ## Required reconnaissance before edits
 
-Do not assume the planner's snapshot is still current. Begin by:
+Do not start from the planner snapshot without reconciliation.
 
 1. `git fetch --prune origin`.
-2. Record current branch, local HEAD, `origin/main`, ahead/behind counts, worktree status, and recent history.
-3. Start from current `main`; fast-forward safely if needed. Never reset away valid work and never force-push.
-4. Re-read, at minimum:
+2. Record current branch, local `HEAD`, `origin/main`, ahead/behind counts, worktree state, and recent commits.
+3. Start from the actual current `main`; fast-forward/rebase safely as repository policy allows. Never destroy valid work and never force-push.
+4. Re-read at minimum:
    - `AGENTS.md`
+   - `AUTONOMOUS.md`
    - `.agent/PLANNER_HANDOFF.md`
    - this `.agent/EXECUTION_PROMPT.md`
    - `progress.md`
@@ -52,28 +54,30 @@ Do not assume the planner's snapshot is still current. Begin by:
    - `README.md`
    - `CODE_INDEX.md`
    - `.github/workflows/ci.yml`
-   - `verify/README.md`
+   - `openspec/config.yaml`
+   - every active-looking `openspec/changes/**/tasks.md` that contributes unchecked tasks
+   - `openspec/changes/phase8-release-readiness-convergence/**`
+   - `openspec/changes/real-user-dogfooding-release-engineering/**`
+   - `openspec/changes/runtime-certification-and-verifier-convergence/**`
+   - `verify/core/ProjectStatus.psm1`
+   - `verify/status/Get-ProjectStatus.ps1`
+   - `verify/status/New-ReleaseReadinessReport.ps1`
+   - `verify/status/tests/Test-ProjectStatus.ps1`
+   - `verify/schemas/project-status.schema.json`
+   - `verify/schemas/release-readiness-frontier.schema.json`
    - `verify/verify.ps1`
-   - `verify/core/CapabilityRunner.psm1`
-   - `verify/core/RunTree.psm1`
-   - `verify/core/Reporting.psm1`
-   - `verify/core/Providers.psm1`
-   - `verify/providers/local/Local.psm1`
-   - `verify/capabilities/windows-ui-automation-validation/capability.json`
-   - `verify/capabilities/windows-ui-automation-validation/UiAutomationValidation.psm1`
-   - `verify/capabilities/windows-ui-automation-validation/UiAutomationWin32.psm1`
-   - `verify/uia-driver/**` relevant to process/root reacquisition, input, mock trees, and state
-   - `openspec/changes/interactive-ui-runtime-determinism/**`
-   - `openspec/changes/ship-ready-ui-ux-hardening-convergence/**`
-   - the recent commits from runtime determinism through ship-ready UI/UX convergence.
-5. Inspect current open PR/issue state. PR #6 must be treated as stale audit evidence only; do not merge it wholesale or blindly cherry-pick it.
-6. Inspect the actual current implementations affected by recent UI/navigation/search/storage/runtime-determinism changes, not only the changed files. Trace their callers, state ownership, lifecycle interactions, tests, and verification surfaces across the application.
+   - any doc-drift/status-drift/policy tests that consume generated status or OpenSpec task counts.
+5. Inspect open PRs/issues. PR #6 is evidence only unless current code proves otherwise.
+6. Generate/inspect the current project status from the actual tree before changing classification. Record the exact list of `localOpen` items and which change/task produced each one.
+7. For each purported local-open task, inspect its surrounding change proposal/design/evidence and relevant later commits. Do not infer current work from the checkbox alone.
+
+Use the repository's native tools and available agent environment. Do not assume a specific AI model, coding harness, shell wrapper, or provider.
 
 ## Fresh campaign ledger
 
-Create a new OpenSpec change for this campaign, with a name equivalent to:
+Create a new OpenSpec change named equivalently to:
 
-`verification-orchestration-convergence`
+`openspec-frontier-lifecycle-truthfulness`
 
 Include at least:
 
@@ -81,283 +85,279 @@ Include at least:
 - `proposal.md`
 - `design.md`
 - `tasks.md`
-- appropriate spec deltas/new specs
+- appropriate spec delta/new spec for repository-status/frontier semantics
 - `evidence/baseline.md`
+- `evidence/historical-ledger-reconciliation.md`
 - `evidence/implementation-and-validation.md`
 
-The evidence ledger must distinguish:
+The campaign evidence must distinguish:
 
-1. reproduced local defects;
-2. harness/orchestration defects;
-3. actual product defects discovered during reproduction;
-4. stale/superseded historical assumptions;
-5. environment-only foreground/Explorer/elevation limitations;
-6. production-signing/privileged/clean-host external gates.
+1. currently active local implementation work;
+2. completed historical work whose old task ledger was not reconciled at the time;
+3. superseded work whose requirement is satisfied by a newer implementation/campaign;
+4. genuinely open external evidence gates;
+5. environment-blocked interactive/elevated tasks;
+6. ambiguous tasks that cannot be safely reclassified without stronger evidence.
 
-Do not call an item fixed merely because an isolated scenario passes. Record the exact execution path that passed.
+Never erase historical provenance. If a historical task is checked because later evidence now proves it complete, annotate it with the evidence/commit/run that justifies the change.
 
-## Workstream 1 — Reproduce and classify the wrapper divergence
+## Workstream 1 — Inventory the real OpenSpec frontier
 
-Build a deterministic reproduction matrix for the supported verifier path.
+Build a deterministic inventory of every unchecked OpenSpec task in the current tree.
 
-At minimum compare:
+For each unchecked task capture at least:
 
-- direct invocation of the UIA capability entry point when supported by current tooling;
-- `pwsh ./verify/verify.ps1 run -Capability windows-ui-automation-validation`;
-- the exact mixed/default capability set that previously produced the opaque `scenario-failed` result;
-- isolated scenario selection via `-CapabilityOption UiaScenario=...` where supported;
-- repeated clean-lifecycle runs;
-- scenario-order permutations that are safe to automate;
-- debug vs debug-diagnostic executable selection;
-- fresh-shell vs same-shell runs where module/global state may matter.
+- change name;
+- task ID and exact source line;
+- task text;
+- change creation date if available;
+- whether the change is currently active, completed, superseded, historical, or external-only;
+- whether later commits/evidence satisfy the task;
+- category: local / interactive / elevated / external-provider / production-signing / clean-host / administrative;
+- evidence source used for the disposition;
+- whether the task should remain open, be checked with evidence, or be excluded from the *active* frontier while preserved historically.
 
-For every divergence capture:
+Do not mass-edit task files before this inventory exists.
 
-- exit code;
-- capability envelope status/reason/summary;
-- subresult statuses and reason codes;
-- provider preflight/provision/activate/collect/cleanup state;
-- exact product/engine PIDs, paths, start times, session IDs, and owned-pipe state;
-- selected executable path/configuration;
-- run-tree/report paths;
-- scenario ordering;
-- foreground owner when input is required;
-- whether the failure occurred before a product assertion, during an assertion, during cleanup, or during report generation.
+Explicitly examine historical delivery/checkpoint tasks such as "reconcile with origin/main / push / inspect hosted CI". A later successful push or hosted run can satisfy such a task, but only if the relevant campaign's delivery requirement can be tied to real Git/CI evidence.
 
-Do not reduce this to "retry until green". A retry is diagnostic data, not acceptance evidence.
+## Workstream 2 — Introduce explicit lifecycle semantics
 
-## Workstream 2 — Run-tree and result-envelope truthfulness
+The status system must stop relying on "unchecked anywhere under `openspec/changes` == active frontier".
 
-Audit the complete result path from capability availability through `Invoke-Capability`, capability return object, `New-ResultEnvelope`, persistence, run index generation, Markdown/JSON/HTML/JUnit reporting, and `Get-VerbExitCode`.
+Design and implement an explicit, machine-readable lifecycle model for OpenSpec changes. Prefer repository/OpenSpec-native semantics if the installed OpenSpec workflow already provides a correct archive/completion mechanism; otherwise introduce the smallest compatible repository-owned metadata needed.
+
+Required lifecycle concepts:
+
+- active implementation;
+- completed/historical;
+- superseded by a named newer change;
+- external-evidence-only / locally complete but release evidence pending, when necessary;
+- invalid/unknown lifecycle must fail closed or remain visible rather than silently disappearing.
+
+Requirements:
+
+- lifecycle state must not be inferred from directory name, creation timestamp, latest commit message, or prose-only wording;
+- lifecycle metadata must be schema-validated or otherwise deterministically validated;
+- a completed/historical change's unchecked external tasks may remain historically visible without being counted as current local implementation work;
+- an active change with a genuine unchecked local task must still appear in `localOpen`;
+- a completed change with a task proven complete later must not continue to poison active-frontier counts;
+- superseded work must point to the superseding change/evidence rather than simply disappearing;
+- malformed lifecycle metadata must be reported as a status/model error, not guessed around.
+
+Do not bulk archive/move changes unless the repository's OpenSpec contract supports it and all synced-spec implications are understood. If archival is selected, validate that specs, evidence links, doc-drift tooling, CI, and historical references remain intact.
+
+## Workstream 3 — Replace fragile text-only task classification
+
+Audit `Get-ProjectStatusTaskClassification` and every consumer.
+
+The current keyword classifier can remain as a fallback diagnostic, but it must not be the sole authority for task lifecycle or whether a task is currently actionable.
+
+Harden the model so that:
+
+- active-vs-historical is explicit;
+- category can be explicitly declared where needed;
+- low-confidence text inference is exposed as such and cannot silently promote historical work to current local work;
+- administrative Git/CI handoff tasks are not mistaken for product implementation merely because they lack a signing/interactive keyword;
+- mixed tasks with local + external clauses are not flattened into an incorrect single state;
+- external evidence remains visible and actionable without becoming fake implementation debt;
+- task source/evidence/lifecycle provenance survives into JSON and Markdown projections.
+
+If task-level metadata is introduced, keep Markdown readable and preserve compatibility with existing OpenSpec validation. Do not turn every historical task into a giant metadata rewrite if a cleaner change-level lifecycle solution is sufficient.
+
+## Workstream 4 — Reconcile historical ledgers with evidence
+
+After the lifecycle mechanism exists, systematically reconcile stale historical task state.
+
+At minimum inspect:
+
+- `phase8-release-readiness-convergence`;
+- `real-user-dogfooding-release-engineering`;
+- `runtime-certification-and-verifier-convergence`;
+- `ship-ready-ui-ux-hardening-convergence`;
+- `interactive-ui-runtime-determinism`;
+- `active-path-runtime-resilience`;
+- older release/validation changes that still contribute unchecked tasks to generated status.
+
+For each historical unchecked local/admin task:
+
+1. prove whether it was completed by later Git/CI/evidence;
+2. if proven, check it off and annotate with exact later evidence;
+3. if not proven, keep it open but classify it honestly under the lifecycle model;
+4. if superseded, record the superseding change/commit and preserve the original requirement;
+5. never check an external signing/privileged/clean-host/interactive/provider task without actual evidence.
+
+Do **not** chase task-count zero. The goal is truthful state, not cosmetic completion.
+
+## Workstream 5 — Project-status and release-frontier convergence
+
+Update the complete status pipeline, not only one helper.
+
+Audit and harden:
+
+- `Get-ProjectStatusOpenSpecFrontier`;
+- `Get-ProjectStatusTaskClassification`;
+- `New-ProjectStatus` frontier buckets;
+- project-status JSON schema;
+- release-readiness-frontier schema/generation;
+- Markdown projection;
+- `verify.ps1 status` output;
+- status/release claim-consistency checks;
+- any CI artifact generation based on the frontier;
+- any planner/agent logic that consumes local-open counts or durable state.
 
 Required properties:
 
-- A capability with zero FAIL subresults must not become an unexplained FAIL later in orchestration.
-- A real FAIL must never be softened into PASS/SKIPPED by aggregation.
-- `SKIPPED` / environment-unavailable rows remain explicit and reason-coded.
-- capability exceptions become a structured harness error with enough diagnostic context to identify the failing phase, not a generic `scenario-failed` blob.
-- envelope status, subresults, report summaries, CLI exit code, and persisted run-tree result agree.
-- report generation/fidelity checks cannot silently overwrite or obscure the original capability failure reason.
-- partial capability filters remain correctly marked as partial and do not contaminate persistent baselines.
+- `localOpen` means genuinely active locally actionable work, not "some old checkbox is empty";
+- completed historical changes do not inflate active-local counts;
+- unresolved external gates stay visible in the correct blocked bucket;
+- active campaigns remain visible even if most tasks are blocked;
+- lifecycle/model errors are first-class failures;
+- generated status remains deterministic and free of host-private paths;
+- release readiness never becomes production-ready because external tasks were hidden or archived;
+- a historical task cannot be silently dropped without lifecycle/evidence provenance.
 
-Add focused noninteractive PowerShell tests for the result/aggregation logic. Prefer fixture envelopes and disposable run trees so CI can exercise these invariants without a real desktop.
+If the JSON schema changes, version it deliberately and keep consumers/tests synchronized.
 
-## Workstream 3 — Provider lifecycle and cleanup determinism
+## Workstream 6 — Autonomous continuation / planner safety
 
-Audit the local provider lifecycle around the UIA capability and any other capability that launches repository-built processes.
+This status data directly affects future autonomous work selection. Audit the planner/executor handoff around it.
 
-Verify and harden as needed:
+Ensure that:
 
-- preflight/provision/activate/collectLogs/cleanup phase ordering;
-- cleanup execution on success, capability FAIL, exception, timeout, and report-generation failure;
-- exact repository-build process identity rather than process-name-only cleanup;
-- PID reuse defense;
-- build-path validation;
-- process start-time tolerance;
-- engine-pipe disappearance checks;
-- no accidental termination of installed FastFiles or unrelated same-name processes;
-- no stale provider/module/global state leaking from one capability to the next;
-- cleanup failure remains first-class evidence instead of being collapsed into the prior scenario result.
+- `/goal continue` resumes the currently ACTIVE planner prompt or native active campaign rather than resurrecting a completed historical OpenSpec change;
+- when no active local implementation frontier remains, the system can truthfully say so while still listing external release gates;
+- `next-campaign` planning can distinguish "no local work" from "many historical unchecked tasks";
+- a completed `.agent/EXECUTION_PROMPT.md` cannot be treated as active solely because an old OpenSpec task remains unchecked;
+- the new campaign marks itself complete at final handoff and does not leave a self-referential planner loop.
 
-If the mixed wrapper failure is caused by lifecycle contamination, add a deterministic headless regression that reproduces the contamination without depending on foreground UI input.
+Keep this general-purpose. Do not hard-code OpenCode, Codex, Kimi, Pi, a model name, or any particular agent harness.
 
-## Workstream 4 — UIA scenario isolation and order independence
+## Workstream 7 — Deterministic regression suite
 
-Audit the current UIA capability's scenario coordinator, not merely individual scenario helpers.
+Add focused tests that reproduce the failure mode without needing a live desktop, elevation, signing material, or network access.
 
-Preserve the recent fixes for:
+At minimum cover fixture repositories/change trees with:
 
-- direct-child live-root reacquisition;
-- `Pane.0` / `Pane.1` identity;
-- fragment-generation lifetime and stale-element rejection;
-- Search.Results reacquisition;
-- exact owned-process cleanup;
-- semantic command-palette dispatch;
-- RuntimeId/AutomationId stability;
-- pane-local selection semantics;
-- deterministic mock-tree bounds without live wall-clock expiry.
+1. one active change with one local unchecked task -> appears in `localOpen`;
+2. one completed historical change with an unchecked external evidence task -> does not appear as current local work, but remains visible as historical/external evidence;
+3. one completed historical change with a stale unchecked remote-push/CI task that later evidence satisfies -> reconciles deterministically and no longer appears local-open;
+4. one superseded change -> preserved with supersession provenance and excluded from active implementation frontier;
+5. malformed/unknown lifecycle metadata -> explicit failure/diagnostic;
+6. a real external signing task -> production-signing blocked;
+7. interactive/elevated/provider/clean-host tasks -> correct blocked buckets;
+8. a task whose prose contains misleading keywords -> explicit metadata/lifecycle wins over regex guessing;
+9. mixed local+external wording -> no incorrect flattening;
+10. stable JSON/Markdown ordering across repeated runs;
+11. safe path redaction remains intact;
+12. release-readiness composition never infers production PASS from lifecycle filtering.
 
-Then prove:
+Extend `verify/status/tests/Test-ProjectStatus.ps1` or split tests if that keeps the seam cleaner. Register all new deterministic tests in CTest/CI as appropriate.
 
-- interaction-heavy scenarios begin from a defined fresh state;
-- one scenario cannot leave settings/dialog/palette/search/storage/dual-pane state that changes the next scenario's classification;
-- scenario filtering executes only the requested scenario plus explicit prerequisites;
-- scenario result ordering is deterministic;
-- expected foreground unavailability is emitted as `SKIPPED` before input-dependent assertions run;
-- a product assertion failure remains FAIL and is not downgraded to environment SKIP after the fact;
-- the complete mixed capability converges to the same semantic verdict as the set of isolated scenarios, modulo explicitly modeled environment skips.
+## Workstream 8 — Repository-wide impact audit
 
-If an actual product state/lifecycle bug is discovered, fix it narrowly and add product-level headless regression coverage. Do not broadly rewrite UI architecture merely because the verifier exposed a race.
+Do not limit review to `ProjectStatus.psm1`.
 
-## Workstream 5 — Broad impact audit of the recently hardened product seams
+Trace the change through the whole affected system:
 
-Because the verifier is the evidence layer for recent product changes, audit how the current verification semantics cover the entire affected system rather than checking only the newest files.
+- OpenSpec validation/config and task ledgers;
+- generated project status;
+- release-readiness generation;
+- doc-drift / status-drift tests;
+- CI status/release artifacts;
+- `.agent/PLANNER_HANDOFF.md` and `.agent/EXECUTION_PROMPT.md` lifecycle;
+- `progress.md` / `docs/agent/WORKSTATE.md`;
+- `verify/README.md` and status command documentation;
+- release candidate/readiness reporting;
+- any scripts/tests that assume `totalOpenTasks` means active work;
+- any automation that parses exact schema fields or frontier bucket names.
 
-Trace and verify the interactions among:
+Search for `totalOpenTasks`, `changesWithOpenTasks`, `localOpen`, `Get-ProjectStatusOpenSpecFrontier`, project-status schema fields, and direct scans of `tasks.md`. Update every affected consumer or prove compatibility.
 
-- NavigationWorkspace / NavigationChrome / tabs / breadcrumbs / exact editable address identity;
-- Home / recent folders / sidebar / bookmarks;
-- SearchPanel async result gating and Search UIA provider lifetime;
-- ColumnView / dual-pane transitions / ColumnViewUiaProvider fragment replacement;
-- Storage Analysis mode state, Back/Up, keyboard radio topology, degraded/unavailable status refresh, and treemap activation;
-- theme / High Contrast / DPI repaint paths;
-- EngineClient reconnect/generation updates that can trigger UI replacement;
-- process launch/engine ownership and shutdown;
-- file-operation/navigation identities that must continue using canonical paths rather than display-normalized paths.
+Also audit how the latest runtime-certification result-model changes interact with status generation. Preserve the explicit selected-run identity and fail-closed result contradiction behavior already implemented.
 
-The goal is to ensure a green verifier still represents the complete behavior of the recent hardening work. Add missing durable tests only where the audit finds a genuine coverage hole or integration risk.
+## Workstream 9 — Validation
 
-## Workstream 6 — CI-safe verification of the verifier
+Run focused tests continuously, then the broad local gates. Fix all locally actionable regressions introduced or exposed by this campaign.
 
-Hosted Windows CI cannot be trusted to own an interactive foreground desktop. Do not turn UIA-interactive flows into flaky CI requirements.
+Required final validation, when supported by the current host:
 
-Instead add or improve noninteractive CI coverage for:
-
-- capability registry/load contracts;
-- envelope aggregation;
-- run-tree persistence;
-- report fidelity;
-- provider lifecycle cleanup using fixtures/mocks;
-- UIA driver recorded-tree/mock semantics;
-- scenario-selection/orchestration logic that can run without a live desktop;
-- exact reason-code preservation.
-
-Keep true interactive UIA rows availability-gated. CI should prove orchestration correctness without pretending to prove physical foreground interaction.
-
-Inspect `.github/workflows/ci.yml` after implementation and add only the minimum stable job/step coverage needed for these new deterministic tests.
-
-## Workstream 7 — Failure taxonomy and diagnostics
-
-Replace ambiguous failure surfaces with structured, durable classifications where evidence supports them.
-
-At minimum distinguish:
-
-- `product-assertion-failed`;
-- `scenario-precondition-failed`;
-- `interactive-foreground-unavailable`;
-- `explorer-drag-source-unavailable`;
-- `provider-lifecycle-failed`;
-- `owned-process-cleanup-failed`;
-- `engine-pipe-cleanup-failed`;
-- `uia-element-stale-or-replaced`;
-- `scenario-timeout` with the stage recorded;
-- `capability-exception` / `harness-error`;
-- report/run-tree fidelity failure.
-
-Do not rename failures cosmetically. Every new reason code must correspond to a concrete decision point and have focused test coverage.
-
-## Workstream 8 — Validation
-
-Run focused tests first, then the broad gates. Fix all locally actionable failures introduced or exposed by this campaign.
-
-Required final local validation, when the environment supports it:
-
-1. Configure/build Debug.
-2. Focused verifier/core/provider/UIA-driver tests.
-3. Full Debug CTest.
-4. Configure/build release-test and full release-test CTest.
-5. Analyze configure/build with zero new warnings.
-6. Applicable ASAN protocol/IPC fuzz/parser targets; do not broaden ASAN scope merely for optics.
+1. PowerShell parser/static checks for modified verification scripts.
+2. Focused project-status/lifecycle/frontier fixture tests.
+3. Schema validation for project-status and release-readiness outputs.
+4. Strict OpenSpec validation for all changes/specs.
+5. `pwsh ./verify/verify.ps1 status` and release-readiness generation from a clean tree.
+6. `pwsh ./verify/verify.ps1 doctor`.
 7. `pwsh ./verify/verify.ps1 build`.
-8. `pwsh ./verify/verify.ps1 doctor`.
-9. New verifier orchestration self-tests.
-10. `windows-ui-automation-validation` through the supported `verify.ps1 run` path.
-11. Isolated UIA scenario runs sufficient to prove mixed-vs-isolated semantic convergence.
-12. Source-marker policy.
-13. Diagnostic-policy gate.
-14. Doc-drift tests.
-15. Strict OpenSpec validation for all changes.
-16. `git diff --check`.
-17. Inspect hosted CI for the final pushed commit and fix any local-actionable CI failure.
+8. Configure/build Debug through the repository's supported VS environment.
+9. Full Debug CTest.
+10. Configure/build release-test and full release-test CTest.
+11. Analyze configure/build with no new warnings.
+12. Applicable ASAN protocol/IPC slice only; do not expand ASAN for optics.
+13. Source-marker and diagnostic-policy gates.
+14. Doc-drift/status-drift tests.
+15. `git diff --check`.
+16. Generate the final project-status JSON/Markdown and manually verify the active-local frontier matches the reconciled evidence ledger.
+17. Inspect hosted CI for the exact pushed implementation SHA and fix any locally actionable failure.
 
-For live UIA evidence:
-
-- preserve `interactive-foreground-unavailable` and Explorer-source limitations as truthful skips;
-- never send input after a failed foreground precondition;
-- never claim 20/20 or similar repeated-interaction success unless it was actually observed;
-- never convert an opaque wrapper failure to PASS merely because isolated scenarios are green;
-- the campaign is complete only when the supported wrapper's final semantic verdict is explained and deterministic.
+Do **not** rerun the full live UIA/repeatability matrix merely to satisfy this campaign. The current workstate explicitly records host resource/interactive limits. Only run those live paths if the host condition materially changes or this campaign exposes a new bounded reason to do so.
 
 ## Preserved behavior / non-negotiable constraints
 
 Do not regress or weaken:
 
-- the three-process privileged/unprivileged architecture;
-- the closed command protocol and 1 MiB pre-allocation frame bound;
-- symmetric pinned Authenticode peer authentication;
-- fail-closed production release configuration;
-- service ACL/SCM restrictions;
-- no-forwarded-file-content invariant;
-- DLL search hardening;
-- immutable snapshot publication semantics;
+- three-process privileged/unprivileged architecture;
+- closed protocol and frame-size bounds;
+- symmetric pinned Authenticode verification;
+- fail-closed production signing/pin behavior;
+- service ACL/SCM restrictions and DLL hardening;
+- no forwarded file content across the privileged seam;
+- immutable snapshot/publication semantics;
 - degraded mode as a first-class supported path;
 - exact canonical navigation/file-operation identity;
-- display-only long-path/8.3 normalization boundaries;
-- Search cancellation/supersession semantics;
+- search cancellation/supersession and nonblocking indexed read-plane semantics;
 - UIA fragment lifetime and stale-provider rejection;
 - High Contrast/native accessibility behavior;
-- no host-wide process killing or trust-store mutation during ordinary development.
+- exact owned-process cleanup and no host-wide process killing;
+- no trust-store mutation during ordinary development;
+- truthful distinction between local PASS, environment block, external prerequisite, and production certification.
 
-Production signing, trust-store integration, privileged MFT/USN qualification, clean-host installation, guest/VM providers, and physical display matrices are out of scope unless the required authorized environment is already present. Record them as external prerequisites, not local defects.
-
-## PR #6 disposition
-
-PR #6 (`stabilization/ship-ready-2026-08-23`) remains stale audit evidence. Current `main` is substantially ahead and has already reconciled its valid ideas. Do not merge or cherry-pick it as part of this campaign.
-
-If authenticated GitHub administration is available at final handoff and current-main evidence still proves PR #6 fully superseded, it may be closed with a concise explanation pointing to the mainline hardening commits. This is administrative cleanup, not an acceptance dependency for local engineering.
+PR #6 remains stale evidence only. Do not merge/reset/cherry-pick it wholesale.
 
 ## Acceptance criteria
 
 This campaign is complete only when all of the following are true:
 
-- the original mixed-wrapper divergence is reproduced or conclusively invalidated on current `main` with evidence;
-- the root cause is classified precisely;
-- every locally actionable root cause is fixed;
-- the supported `verify.ps1 run` path yields a deterministic, structured semantic result consistent with the underlying capability evidence;
-- external foreground/elevation/provider limitations remain explicit reason-coded skips/blockers;
-- no generic `scenario-failed` remains where a more precise locally knowable reason exists;
-- scenario ordering/lifecycle cannot contaminate later scenarios without being detected;
-- run-tree, reports, envelope, subresults, and CLI exit code agree;
-- deterministic headless/fixture tests protect orchestration and cleanup logic in CI;
-- the recent Navigation/Search/Storage/dual-pane/runtime hardening remains behaviorally intact;
-- required Debug/release-test/Analyze/ASAN/verifier/policy/OpenSpec/hygiene gates are green or any unavailable external gate is truthfully documented;
-- campaign OpenSpec evidence, `progress.md`, `docs/agent/WORKSTATE.md`, and any genuinely affected README/CODE_INDEX/verify docs are updated to match observed reality.
+- the current false/stale OpenSpec frontier behavior is reproduced with concrete examples from the repository or equivalent deterministic fixtures;
+- an explicit lifecycle model exists and is validated;
+- current local work is distinguished from historical/completed/superseded/external work without prose-only guessing;
+- historical task ledgers are reconciled only where real later evidence supports the disposition;
+- genuine signing/privileged/clean-host/provider/interactive gates remain open and visible;
+- generated `localOpen` contains only genuinely active locally actionable work;
+- project-status and release-readiness JSON/Markdown agree on lifecycle, category, counts, and provenance;
+- schema consumers, CI, doc/status drift, and autonomous continuation semantics remain consistent;
+- deterministic tests cover lifecycle filtering, stale historical tasks, supersession, malformed metadata, external buckets, misleading keyword prose, and stable projection ordering;
+- broad Debug/release-test/Analyze/ASAN/OpenSpec/verifier/policy validation is green for all locally runnable gates;
+- no product/security behavior was weakened to make the frontier look clean;
+- the campaign's durable OpenSpec evidence and workstate are updated from final Git reality;
+- final implementation is committed to `main`, reconciled with `origin/main`, pushed without force, exact hosted CI is inspected, and the worktree/remote state are clean and equal.
 
-## Completion gate / stop rule
+## Git and handoff requirements
 
-Continue autonomously until there is no meaningful implementation-ready work left in this campaign.
+Work on the actual current `main` unless repository-native state requires a safe temporary branch for isolation; final accepted work must land on `main` according to repository policy.
 
-Do not stop merely because one milestone or one scenario passes. Re-run the full supported wrapper after fixes and inspect the broader impact on the verification system and the recently hardened product seams.
+At final delivery:
 
-If the investigation proves the remaining divergence is entirely an external interactive-desktop limitation and no local verifier/product defect remains, do not manufacture code churn. Instead add only the missing deterministic classification/coverage/documentation needed to make that fact machine-readable and reproducible, then stop.
+1. inspect the complete diff and generated status;
+2. run the final validation ladder;
+3. update the new OpenSpec ledger, `progress.md`, and `docs/agent/WORKSTATE.md` with evidence-backed state;
+4. mark this `.agent/EXECUTION_PROMPT.md` **COMPLETE** only after the implementation acceptance criteria are met;
+5. commit with a detailed session-report message describing root cause, lifecycle model, historical reconciliation, tests, external boundaries, and remaining truthful blockers;
+6. fetch/prune and reconcile safely;
+7. never force-push;
+8. push all accepted work to `origin/main`;
+9. verify local `HEAD == origin/main` and the worktree is clean;
+10. inspect hosted CI for the exact pushed SHA;
+11. leave the repository so the next `/goal continue` reads durable state and can proceed without any prompt pasted through chat.
 
-## Git requirements
-
-- Work from current `main` after fetch/prune and reconciliation.
-- Preserve unrelated valid work.
-- Never force-push.
-- Keep generated `verify/runs/`, `verify/baselines/`, signing material, and other ignored runtime evidence out of Git.
-- Commit implementation in coherent checkpoints when useful.
-- Final commit message must be a detailed session handoff: baseline, root cause, implementation, tests, remaining external boundaries, and final status.
-- Fetch/prune again before final push and reconcile safely if `origin/main` moved.
-- Push all completed work to `origin/main`.
-- Verify local HEAD equals `origin/main` and the worktree is clean.
-- Inspect hosted CI for the pushed tip and repair local-actionable failures before declaring completion.
-
-## Final report
-
-At completion, update durable repository state and report:
-
-- start and final SHAs;
-- exact reproduced divergence and root cause classification;
-- files/subsystems changed;
-- product behavior preserved;
-- verifier/orchestration behavior changed;
-- focused and full validation results;
-- live UIA results including all truthful skips;
-- hosted CI state;
-- PR #6 administrative disposition if changed;
-- remaining external production/privileged/environment prerequisites;
-- whether any meaningful local implementation frontier remains.
-
-Do not output a new planner prompt at the end. Mark this prompt non-active/completed in durable state or otherwise make it clear to the next `/goal continue` that the campaign has finished, then push the final handoff.
+Do not output a new pasteable prompt at the end of execution. Execute the campaign, update durable repository state, and hand off through Git/OpenSpec/workstate only.
