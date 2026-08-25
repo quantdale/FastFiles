@@ -27,7 +27,7 @@
 - [x] 4.2 Audit tracked markers, stale claims, provider descriptors, CI, release scripts, and recent high-risk seams; fix every locally reproducible P0/P1/P2 issue with a regression test. Evidence: findings `FF-P8-001` through `FF-P8-007`; no new locally reproducible P0 remains.
 - [x] 4.3 Generate the authoritative release-readiness/frontier report and reconcile only OpenSpec tasks whose acceptance evidence exists. Evidence: `verify/status/generated/release-readiness-frontier.json`/`.md` are generated from the final commit-bound status and composed readiness evidence; only locally evidenced tasks are checked.
 - [x] 4.4 Run the complete local validation ladder and record exact external blockers without modifying trust stores or inventing guest/signing evidence. Evidence: Debug/release-test 76/76, Analyze, ASAN 2/2, strict OpenSpec 61/61, policies, provider/status tests, release candidate, and direct diagnostic UIA core all passed; external frontier remains machine-classified.
-- [ ] 4.5 Reconcile with the remote, commit coherent waves, push without force when authenticated, and inspect hosted CI for the pushed SHA. — external when GitHub authentication/network is unavailable.
+- [x] 4.5 Reconcile with the remote, commit coherent waves, push without force when authenticated, and inspect hosted CI for the pushed SHA. — later mainline reconciliation and push are evidenced by `55408b7`, `f332f22`, and the hosted final-SHA records in `docs/agent/WORKSTATE.md`; the remaining external evidence gates stay open below.
 
 ## 5. External evidence gates
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FastFiles OpenSpec lifecycle manifest",
+  "type": "object",
+  "required": ["schemaVersion", "kind", "changes"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "kind": { "type": "string", "enum": ["fastfiles-openspec-lifecycle"] },
+    "changes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "state", "evidence", "taskOverrides"],
+        "properties": {
+          "name": { "type": "string" },
+          "state": { "type": "string", "enum": ["active", "completed", "superseded", "external-evidence-only", "ambiguous"] },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "supersededBy": { "type": ["string", "null"] },
+          "taskOverrides": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["task", "disposition", "categories", "status", "evidence"],
+              "properties": {
+                "task": { "type": "string" },
+                "disposition": { "type": "string", "enum": ["active", "external", "historical", "superseded", "mixed"] },
+                "categories": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["local", "interactive", "elevated", "external-provider", "production-signing", "clean-host", "administrative"] }
+                },
+                "status": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED", "BLOCKED_ENVIRONMENT", "REQUIRED-BUT-UNAVAILABLE"] },
+                "evidence": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

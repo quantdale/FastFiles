@@ -4,16 +4,44 @@
   "type": "object",
   "required": ["schemaVersion", "kind", "generatedAtUtc", "git", "tests", "capabilities", "verification", "openSpec", "release", "frontier"],
   "properties": {
-    "schemaVersion": { "type": "integer", "const": 1 },
+    "schemaVersion": { "type": "integer", "enum": [2] },
     "kind": { "type": "string", "const": "fastfiles-project-status" },
     "generatedAtUtc": { "type": "string" },
     "git": { "type": "object" },
     "tests": { "type": "object" },
     "capabilities": { "type": "object" },
     "verification": { "type": "object" },
-    "openSpec": { "type": "object" },
+    "openSpec": {
+      "type": "object",
+      "required": ["status", "totalOpenTasks", "activeLocalOpenTasks", "changesWithOpenTasks", "lifecycle", "changes"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "totalOpenTasks": { "type": "integer" },
+        "activeLocalOpenTasks": { "type": "integer" },
+        "changesWithOpenTasks": { "type": "integer" },
+        "lifecycle": { "type": "object" },
+        "changes": { "type": "array" }
+      }
+    },
     "release": { "type": "object" },
-    "frontier": { "type": "object" }
+    "frontier": {
+      "type": "object",
+      "required": ["status", "localOpen", "environmentBlocked", "providerBlocked", "productionSigningBlocked", "cleanHostElevatedBlocked", "administrativeBlocked", "mixedOpen", "historicalOpen", "supersededOpen", "ambiguousOpen", "lifecycleErrors"],
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "localOpen": { "type": "array" },
+        "environmentBlocked": { "type": "array" },
+        "providerBlocked": { "type": "array" },
+        "productionSigningBlocked": { "type": "array" },
+        "cleanHostElevatedBlocked": { "type": "array" },
+        "administrativeBlocked": { "type": "array" },
+        "mixedOpen": { "type": "array" },
+        "historicalOpen": { "type": "array" },
+        "supersededOpen": { "type": "array" },
+        "ambiguousOpen": { "type": "array" },
+        "lifecycleErrors": { "type": "array" }
+      }
+    }
   },
   "additionalProperties": true
 }

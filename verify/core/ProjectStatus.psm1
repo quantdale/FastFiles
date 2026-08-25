@@ -7,9 +7,11 @@
     sanitized before they can reach a committed Markdown projection.
 #>
 
-$script:ProjectStatusSchemaVersion = 1
+$script:ProjectStatusSchemaVersion = 2
 $script:ProjectStatusOutcomes = @('PASS', 'FAIL', 'SKIPPED', 'BLOCKED_ENVIRONMENT', 'REQUIRED-BUT-UNAVAILABLE')
-$script:ProjectStatusCategories = @('local', 'interactive', 'elevated', 'external-provider', 'production-signing', 'clean-host')
+$script:ProjectStatusCategories = @('local', 'interactive', 'elevated', 'external-provider', 'production-signing', 'clean-host', 'administrative')
+$script:ProjectStatusLifecycleStates = @('active', 'completed', 'superseded', 'external-evidence-only', 'ambiguous')
+$script:ProjectStatusTaskDispositions = @('active', 'external', 'historical', 'superseded', 'mixed')
 
 function Get-ProjectStatusOutcome {
     param(
@@ -53,6 +55,16 @@ function ConvertTo-ProjectStatusSafeText {
     return [regex]::Replace($value, '(?i)(?:[A-Z]:\\|\\\\)[^\s,;)\]]+', '<external-path>')
 }
 
+function Test-ProjectStatusJsonArray {
+    param([AllowNull()] $Value)
+    return ($Value -is [System.Collections.IEnumerable]) -and ($Value -isnot [string]) -and ($Value -isnot [System.Collections.IDictionary])
+}
+
+function Test-ProjectStatusJsonObject {
+    param([AllowNull()] $Value)
+    return ($Value -is [System.Collections.IDictionary]) -or ($Value -is [pscustomobject])
+}
+
 function Get-ProjectStatusGitStateFromLines {
     [CmdletBinding()]
     param(
@@ -86,6 +98,144 @@ function Invoke-ProjectStatusGit {
     return Get-ProjectStatusGitStateFromLines -Branch $branch -Sha $sha -StatusLines $statusLines -DiffCheckPassed $diffPassed
 }
 
+function Get-ProjectStatusLifecycleModel {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $path = Join-Path $RepoRoot 'openspec\lifecycle.json'
+    $errors = [System.Collections.Generic.List[string]]::new()
+    $entries = [System.Collections.Generic.List[object]]::new()
+    $changesRoot = Join-Path $RepoRoot 'openspec\changes'
+    $result = [ordered]@{
+        status = 'PASS'
+        schemaVersion = 1
+        kind = 'fastfiles-openspec-lifecycle'
+        source = (ConvertTo-ProjectStatusSafePath -Path $path -RepoRoot $RepoRoot)
+        entries = @()
+        errors = @()
+    }
+
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        [void]$errors.Add('openspec-lifecycle-metadata-missing')
+    } else {
+        $raw = $null
+        try {
+            $raw = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            [void]$errors.Add('openspec-lifecycle-metadata-invalid-json')
+        }
+        if ($null -ne $raw) {
+            if ([int]$raw.schemaVersion -ne 1) { [void]$errors.Add('openspec-lifecycle-schema-version-invalid') }
+            if ([string]$raw.kind -ne 'fastfiles-openspec-lifecycle') { [void]$errors.Add('openspec-lifecycle-kind-invalid') }
+            if ($null -eq $raw.changes) { [void]$errors.Add('openspec-lifecycle-changes-missing') }
+            elseif (-not (Test-ProjectStatusJsonArray -Value $raw.changes)) { [void]$errors.Add('openspec-lifecycle-changes-not-array') }
+
+            $knownChanges = @()
+            if (Test-Path -LiteralPath $changesRoot -PathType Container) {
+                $knownChanges = @(Get-ChildItem -LiteralPath $changesRoot -Directory | Select-Object -ExpandProperty Name)
+            } else {
+                [void]$errors.Add('openspec-changes-directory-missing')
+            }
+            $knownChangeSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($known in $knownChanges) { [void]$knownChangeSet.Add($known) }
+            $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            foreach ($entry in @($raw.changes)) {
+                if (-not (Test-ProjectStatusJsonObject -Value $entry)) { [void]$errors.Add('openspec-lifecycle-change-not-object'); continue }
+                $name = [string]$entry.name
+                $state = [string]$entry.state
+                if ([string]::IsNullOrWhiteSpace($name)) { [void]$errors.Add('openspec-lifecycle-change-name-missing'); continue }
+                if (-not $seenNames.Add($name)) { [void]$errors.Add("openspec-lifecycle-change-duplicate:$name") }
+                if (-not $knownChangeSet.Contains($name)) { [void]$errors.Add("openspec-lifecycle-change-unknown:$name") }
+                if ($script:ProjectStatusLifecycleStates -notcontains $state) { [void]$errors.Add("openspec-lifecycle-state-invalid:$name") }
+                if (-not (Test-ProjectStatusJsonArray -Value $entry.evidence)) { [void]$errors.Add("openspec-lifecycle-evidence-not-array:$name") }
+                $evidence = @($entry.evidence | ForEach-Object { [string]$_ })
+                if ($evidence.Count -eq 0 -or ($evidence | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) { [void]$errors.Add("openspec-lifecycle-evidence-missing:$name") }
+                $supersededBy = if ($null -eq $entry.supersededBy) { $null } else { [string]$entry.supersededBy }
+                if ($state -eq 'superseded') {
+                    if ([string]::IsNullOrWhiteSpace($supersededBy)) { [void]$errors.Add("openspec-lifecycle-superseded-target-missing:$name") }
+                    elseif (-not $knownChangeSet.Contains($supersededBy)) { [void]$errors.Add("openspec-lifecycle-superseded-target-unknown:$name") }
+                } elseif (-not [string]::IsNullOrWhiteSpace($supersededBy)) {
+                    [void]$errors.Add("openspec-lifecycle-unexpected-superseded-target:$name")
+                }
+
+                $overrides = [System.Collections.Generic.List[object]]::new()
+                $seenTasks = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                if (-not (Test-ProjectStatusJsonArray -Value $entry.taskOverrides)) { [void]$errors.Add("openspec-lifecycle-task-overrides-not-array:$name") }
+                foreach ($override in @($entry.taskOverrides)) {
+                    if (-not (Test-ProjectStatusJsonObject -Value $override)) { [void]$errors.Add("openspec-lifecycle-task-override-not-object:$name"); continue }
+                    $taskId = [string]$override.task
+                    if ($taskId -notmatch '^[0-9]+\.[0-9]+$') { [void]$errors.Add("openspec-lifecycle-task-id-invalid:$name/$taskId") }
+                    if (-not $seenTasks.Add($taskId)) { [void]$errors.Add("openspec-lifecycle-task-duplicate:$name/$taskId") }
+                    $disposition = [string]$override.disposition
+                    if ($script:ProjectStatusTaskDispositions -notcontains $disposition) { [void]$errors.Add("openspec-lifecycle-disposition-invalid:$name/$taskId") }
+                    if (-not (Test-ProjectStatusJsonArray -Value $override.categories)) { [void]$errors.Add("openspec-lifecycle-categories-not-array:$name/$taskId") }
+                    $categories = @($override.categories | ForEach-Object { [string]$_ })
+                    if ($categories.Count -eq 0) { [void]$errors.Add("openspec-lifecycle-categories-missing:$name/$taskId") }
+                    foreach ($category in $categories) {
+                        if ($script:ProjectStatusCategories -notcontains $category) { [void]$errors.Add("openspec-lifecycle-category-invalid:$name/$taskId/$category") }
+                    }
+                    $overrideStatus = [string]$override.status
+                    if ($script:ProjectStatusOutcomes -notcontains $overrideStatus) { [void]$errors.Add("openspec-lifecycle-status-invalid:$name/$taskId") }
+                    if (-not (Test-ProjectStatusJsonArray -Value $override.evidence)) { [void]$errors.Add("openspec-lifecycle-task-evidence-not-array:$name/$taskId") }
+                    $overrideEvidence = @($override.evidence | ForEach-Object { [string]$_ })
+                    if ($overrideEvidence.Count -eq 0 -or ($overrideEvidence | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) { [void]$errors.Add("openspec-lifecycle-task-evidence-missing:$name/$taskId") }
+                    $overrides.Add([pscustomobject]@{
+                        task = $taskId
+                        disposition = $disposition
+                        categories = @($categories)
+                        status = $overrideStatus
+                        evidence = @($overrideEvidence)
+                    })
+                }
+                $declaredTaskIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+                $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
+                if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
+                    foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
+                        if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') { [void]$declaredTaskIds.Add($Matches[1]) }
+                    }
+                }
+                foreach ($override in @($overrides)) {
+                    if (-not $declaredTaskIds.Contains([string]$override.task)) { [void]$errors.Add("openspec-lifecycle-task-unknown:$name/$($override.task)") }
+                }
+                $entries.Add([pscustomobject]@{
+                    name = $name
+                    state = $state
+                    evidence = @($evidence)
+                    supersededBy = $supersededBy
+                    taskOverrides = @($overrides)
+                })
+            }
+
+            # Every change with an unchecked task must opt into an explicit lifecycle.
+            if (Test-Path -LiteralPath $changesRoot -PathType Container) {
+                foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File)) {
+                    $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
+                    $hasOpenTask = $false
+                    foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
+                        if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $hasOpenTask = $true; break }
+                    }
+                    if ($hasOpenTask -and -not $seenNames.Contains($changeName)) { [void]$errors.Add("openspec-lifecycle-entry-missing:$changeName") }
+                }
+            }
+        }
+    }
+    $result.status = if ($errors.Count -eq 0) { 'PASS' } else { 'FAIL' }
+    $result.entries = @($entries)
+    $result.errors = @($errors)
+    return [pscustomobject]$result
+}
+
+function Get-ProjectStatusLifecycleEntry {
+    param([Parameter(Mandatory)] $Model, [Parameter(Mandatory)] [string] $ChangeName)
+    return @($Model.entries | Where-Object { $_.name -ieq $ChangeName } | Select-Object -First 1)[0]
+}
+
+function Get-ProjectStatusLifecycleOverride {
+    param([AllowNull()] $Entry, [Parameter(Mandatory)] [string] $TaskId)
+    if ($null -eq $Entry) { return $null }
+    return @($Entry.taskOverrides | Where-Object { $_.task -eq $TaskId } | Select-Object -First 1)[0]
+}
+
 function Get-ProjectStatusTaskClassification {
     [CmdletBinding()]
     param(
@@ -93,7 +243,9 @@ function Get-ProjectStatusTaskClassification {
         [Parameter(Mandatory)] [string] $ChangeName,
         [Parameter(Mandatory)] [string] $TaskId,
         [Parameter(Mandatory)] [string] $SourcePath,
-        [int] $SourceLine = 0
+        [int] $SourceLine = 0,
+        [AllowEmptyCollection()] [string[]] $ExplicitCategories = @(),
+        [AllowNull()] [string] $ExplicitStatus
     )
 
     $text = $TaskText.ToLowerInvariant()
@@ -106,30 +258,49 @@ function Get-ProjectStatusTaskClassification {
         @{ Name = 'interactive'; Pattern = 'interactive|uia|visual|dpi|monitor|high contrast|foreground|desktop|drag|screenshot'; Reason = 'requires an attached interactive desktop or physical display configuration' },
         @{ Name = 'elevated'; Pattern = 'elevat|administrator|admin token|privilege|service install|raw mft|usn|scm'; Reason = 'requires an elevated or privileged validation context' }
     )
+    $inferredCategories = [System.Collections.Generic.List[string]]::new()
     foreach ($rule in $rules) {
         if ($text -match $rule.Pattern) {
-            [void]$categories.Add($rule.Name)
-            [void]$reasons.Add($rule.Reason)
+            [void]$inferredCategories.Add($rule.Name)
         }
+    }
+    $explicit = @($ExplicitCategories | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+    $classificationSource = 'task-text'
+    if ($explicit.Count -gt 0) {
+        $classificationSource = 'explicit-lifecycle-metadata'
+        foreach ($category in $explicit) { [void]$categories.Add($category) }
+    } else {
+        foreach ($category in $inferredCategories) { [void]$categories.Add($category) }
     }
     if ($categories.Count -eq 0) {
         [void]$categories.Add('local')
         [void]$reasons.Add('locally actionable unless evidence proves otherwise')
+    } else {
+        $reasonByCategory = @{
+            'production-signing' = 'requires authorized production signing or trust evidence'
+            'external-provider' = 'requires an isolated/provider execution target or lawful source image'
+            'clean-host' = 'requires an uncontaminated supported Windows host'
+            'interactive' = 'requires an attached interactive desktop or physical display configuration'
+            'elevated' = 'requires an elevated or privileged validation context'
+            'administrative' = 'requires external GitHub/remote or release administration'
+            'local' = 'locally actionable unless evidence proves otherwise'
+        }
+        foreach ($category in @($categories | Select-Object -Unique)) {
+            if ($reasonByCategory.ContainsKey($category)) { [void]$reasons.Add($reasonByCategory[$category]) }
+        }
     }
     $primary = $categories[0]
-    $status = if ($categories -contains 'production-signing' -or $categories -contains 'external-provider' -or $categories -contains 'clean-host') {
-        'REQUIRED-BUT-UNAVAILABLE'
-    } elseif ($categories -contains 'interactive' -or $categories -contains 'elevated') {
-        'BLOCKED_ENVIRONMENT'
-    } else {
-        'SKIPPED'
-    }
+    $status = if (-not [string]::IsNullOrWhiteSpace($ExplicitStatus)) { $ExplicitStatus }
+        elseif ($categories -contains 'production-signing' -or $categories -contains 'external-provider' -or $categories -contains 'clean-host' -or $categories -contains 'administrative') { 'REQUIRED-BUT-UNAVAILABLE' }
+        elseif ($categories -contains 'interactive' -or $categories -contains 'elevated') { 'BLOCKED_ENVIRONMENT' }
+        else { 'SKIPPED' }
     $nextAction = switch ($primary) {
         'production-signing' { 'Supply authorized signer/pins, then run the task-specific release validation command.'; break }
         'external-provider' { 'Supply a lawful Windows guest/template and run the provider preflight before the task capability.'; break }
         'clean-host' { 'Run on a clean supported Windows host and attach the task-specific evidence.'; break }
         'interactive' { 'Run the semantic UIA/visual command in the required interactive desktop configuration.'; break }
         'elevated' { 'Run the documented command with explicit elevation on a disposable or authorized host.'; break }
+        'administrative' { 'Resolve the authenticated remote/PR or release-administration prerequisite and record exact evidence.'; break }
         default { 'Implement the task, run focused validation, and record evidence before checking it off.'; break }
     }
     [pscustomobject]@{
@@ -140,7 +311,9 @@ function Get-ProjectStatusTaskClassification {
         sourceLine = $SourceLine
         categories = @($categories)
         primaryCategory = $primary
-        classificationConfidence = if ($categories.Count -eq 1 -and $primary -eq 'local') { 'low' } else { 'high' }
+        inferredCategories = @($inferredCategories)
+        classificationSource = $classificationSource
+        classificationConfidence = if ($classificationSource -eq 'explicit-lifecycle-metadata') { 'explicit' } elseif ($categories.Count -eq 1 -and $primary -eq 'local') { 'low' } else { 'high' }
         status = $status
         reasons = @($reasons | Select-Object -Unique)
         nextAction = $nextAction
@@ -154,10 +327,13 @@ function Get-ProjectStatusOpenSpecFrontier {
     $changesRoot = Join-Path $RepoRoot 'openspec\changes'
     $changes = [System.Collections.Generic.List[object]]::new()
     if (-not (Test-Path -LiteralPath $changesRoot -PathType Container)) {
-        return [pscustomobject]@{ status = 'FAIL'; reason = 'openspec-changes-directory-missing'; totalOpenTasks = 0; changes = @() }
+        return [pscustomobject]@{ status = 'FAIL'; reason = 'openspec-changes-directory-missing'; totalOpenTasks = 0; activeLocalOpenTasks = 0; changesWithOpenTasks = 0; categories = [pscustomobject]@{}; lifecycle = [pscustomobject]@{ status = 'FAIL'; errors = @('openspec-changes-directory-missing') }; changes = @() }
     }
+    $lifecycle = Get-ProjectStatusLifecycleModel -RepoRoot $RepoRoot
     foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File | Sort-Object FullName)) {
         $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
+        $lifecycleEntry = Get-ProjectStatusLifecycleEntry -Model $lifecycle -ChangeName $changeName
+        $changeState = if ($lifecycle.status -eq 'PASS' -and $null -ne $lifecycleEntry) { [string]$lifecycleEntry.state } else { 'unknown' }
         $open = [System.Collections.Generic.List[object]]::new()
         $lineNumber = 0
         foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
@@ -166,24 +342,71 @@ function Get-ProjectStatusOpenSpecFrontier {
                 $taskId = $Matches[1]
                 $taskText = $Matches[2]
                 $safeSource = "openspec/changes/$changeName/tasks.md:$lineNumber"
-                $open.Add((Get-ProjectStatusTaskClassification -TaskText $taskText -ChangeName $changeName -TaskId $taskId -SourcePath $safeSource -SourceLine $lineNumber))
+                $override = Get-ProjectStatusLifecycleOverride -Entry $lifecycleEntry -TaskId $taskId
+                $explicitCategories = if ($null -ne $override) { @($override.categories) } else { @() }
+                $explicitStatus = if ($null -ne $override) { [string]$override.status } else { $null }
+                $classification = Get-ProjectStatusTaskClassification -TaskText $taskText -ChangeName $changeName -TaskId $taskId -SourcePath $safeSource -SourceLine $lineNumber -ExplicitCategories $explicitCategories -ExplicitStatus $explicitStatus
+                $disposition = $null
+                if ($null -ne $override) {
+                    $disposition = [string]$override.disposition
+                } elseif ($lifecycle.status -ne 'PASS' -or $changeState -eq 'unknown') {
+                    $disposition = 'mixed'
+                } elseif ($changeState -eq 'active') {
+                    $disposition = 'active'
+                } elseif ($changeState -eq 'superseded') {
+                    $disposition = 'superseded'
+                } elseif ($changeState -eq 'completed') {
+                    $disposition = if ($classification.primaryCategory -eq 'local') { 'historical' } else { 'external' }
+                } elseif ($changeState -eq 'external-evidence-only') {
+                    $disposition = if ($classification.primaryCategory -eq 'local') { 'historical' } else { 'external' }
+                } else {
+                    $disposition = 'mixed'
+                }
+                $evidence = if ($null -ne $override) { @($override.evidence) } elseif ($null -ne $lifecycleEntry) { @($lifecycleEntry.evidence) } else { @() }
+                $classification | Add-Member -NotePropertyName lifecycleState -NotePropertyValue $changeState
+                $classification | Add-Member -NotePropertyName taskDisposition -NotePropertyValue $disposition
+                $classification | Add-Member -NotePropertyName lifecycleEvidence -NotePropertyValue @($evidence | ForEach-Object { ConvertTo-ProjectStatusSafeText -Text ([string]$_) })
+                $classification | Add-Member -NotePropertyName lifecycleSource -NotePropertyValue 'openspec/lifecycle.json'
+                $open.Add($classification)
             }
         }
         if ($open.Count -gt 0) {
+            $orderedOpen = @($open | Sort-Object @{ Expression = { [int](($_.task -split '\.')[0]) } }, @{ Expression = { [int](($_.task -split '\.')[1]) } }, sourceLine)
             $changes.Add([pscustomobject]@{
                 name = $changeName
                 tasksPath = "openspec/changes/$changeName/tasks.md"
-                openTaskCount = $open.Count
-                openTasks = @($open)
+                lifecycleState = $changeState
+                lifecycleEvidence = if ($null -ne $lifecycleEntry) { @($lifecycleEntry.evidence) } else { @() }
+                supersededBy = if ($null -ne $lifecycleEntry) { $lifecycleEntry.supersededBy } else { $null }
+                openTaskCount = $orderedOpen.Count
+                openTasks = @($orderedOpen)
             })
         }
     }
     $allTasks = @($changes | ForEach-Object { $_.openTasks })
+    $categoryCounts = [ordered]@{
+        local = @($allTasks | Where-Object primaryCategory -eq 'local').Count
+        interactive = @($allTasks | Where-Object primaryCategory -eq 'interactive').Count
+        elevated = @($allTasks | Where-Object primaryCategory -eq 'elevated').Count
+        externalProvider = @($allTasks | Where-Object primaryCategory -eq 'external-provider').Count
+        productionSigning = @($allTasks | Where-Object primaryCategory -eq 'production-signing').Count
+        cleanHost = @($allTasks | Where-Object primaryCategory -eq 'clean-host').Count
+        administrative = @($allTasks | Where-Object primaryCategory -eq 'administrative').Count
+    }
     [pscustomobject]@{
-        status = 'PASS'
+        status = $lifecycle.status
+        reason = if ($lifecycle.status -eq 'PASS') { $null } else { 'openspec-lifecycle-model-invalid' }
         totalOpenTasks = $allTasks.Count
+        activeLocalOpenTasks = @($allTasks | Where-Object { $_.taskDisposition -eq 'active' -and $_.primaryCategory -eq 'local' }).Count
         changesWithOpenTasks = $changes.Count
-        categories = [pscustomobject]@{ local = @($allTasks | Where-Object primaryCategory -eq 'local').Count; interactive = @($allTasks | Where-Object primaryCategory -eq 'interactive').Count; elevated = @($allTasks | Where-Object primaryCategory -eq 'elevated').Count; externalProvider = @($allTasks | Where-Object primaryCategory -eq 'external-provider').Count; productionSigning = @($allTasks | Where-Object primaryCategory -eq 'production-signing').Count; cleanHost = @($allTasks | Where-Object primaryCategory -eq 'clean-host').Count }
+        lifecycle = [pscustomobject]@{
+            status = $lifecycle.status
+            schemaVersion = $lifecycle.schemaVersion
+            source = $lifecycle.source
+            errors = @($lifecycle.errors)
+            declaredChangeCount = @($lifecycle.entries).Count
+        }
+        categories = [pscustomobject]$categoryCounts
         changes = @($changes)
     }
 }
@@ -418,23 +641,76 @@ function New-ProjectStatusMarkdown {
     [void]$lines.Add('')
     [void]$lines.Add('## OpenSpec frontier')
     [void]$lines.Add('')
-    [void]$lines.Add("Open unchecked tasks: **$($Status.openSpec.totalOpenTasks)** across **$($Status.openSpec.changesWithOpenTasks)** changes.")
+    [void]$lines.Add("Open unchecked tasks: **$($Status.openSpec.totalOpenTasks)** across **$($Status.openSpec.changesWithOpenTasks)** changes; active local open: **$($Status.openSpec.activeLocalOpenTasks)**.")
+    [void]$lines.Add("Lifecycle model: **$($Status.openSpec.lifecycle.status)** from ``$($Status.openSpec.lifecycle.source)``$(if ($Status.openSpec.lifecycle.errors.Count -gt 0) { " ($($Status.openSpec.lifecycle.errors -join '; '))" })")
     foreach ($change in @($Status.openSpec.changes)) {
-        [void]$lines.Add("### ``$($change.name)`` ($($change.openTaskCount) open)")
-        foreach ($task in @($change.openTasks)) { [void]$lines.Add("- ``$($task.task)`` [$($task.primaryCategory); $($task.status)] $($task.nextAction)") }
+        [void]$lines.Add("### ``$($change.name)`` [$($change.lifecycleState)] ($($change.openTaskCount) open)")
+        foreach ($task in @($change.openTasks)) { [void]$lines.Add("- ``$($task.task)`` [$($task.taskDisposition); $($task.primaryCategory); $($task.status)] $($task.nextAction) (source: $($task.classificationSource))") }
     }
     [void]$lines.Add('')
     [void]$lines.Add('## Release-readiness frontier')
     [void]$lines.Add('')
-    foreach ($bucket in @('locallyCertified', 'localOpen', 'environmentBlocked', 'providerBlocked', 'productionSigningBlocked', 'cleanHostElevatedBlocked')) {
-        $title = switch ($bucket) { 'locallyCertified' { 'Locally certified' } 'localOpen' { 'Local open work' } 'environmentBlocked' { 'Environment-blocked' } 'providerBlocked' { 'Provider-blocked' } 'productionSigningBlocked' { 'Production-signing-blocked' } default { 'Clean-host/elevated-blocked' } }
+    foreach ($bucket in @('locallyCertified', 'localOpen', 'environmentBlocked', 'providerBlocked', 'productionSigningBlocked', 'cleanHostElevatedBlocked', 'administrativeBlocked', 'mixedOpen', 'historicalOpen', 'supersededOpen', 'ambiguousOpen')) {
+        $title = switch ($bucket) {
+            'locallyCertified' { 'Locally certified' }
+            'localOpen' { 'Local open work' }
+            'environmentBlocked' { 'Environment-blocked' }
+            'providerBlocked' { 'Provider-blocked' }
+            'productionSigningBlocked' { 'Production-signing-blocked' }
+            'cleanHostElevatedBlocked' { 'Clean-host/elevated-blocked' }
+            'administrativeBlocked' { 'Administrative-blocked' }
+            'mixedOpen' { 'Mixed local/external work' }
+            'historicalOpen' { 'Historical open ledger items' }
+            'supersededOpen' { 'Superseded open ledger items' }
+            default { 'Lifecycle/model errors' }
+        }
         [void]$lines.Add("### $title")
         $items = @($Status.frontier.$bucket)
-        if ($items.Count -eq 0) { [void]$lines.Add('- None recorded.') } else { foreach ($item in $items) { [void]$lines.Add("- ``$($item.change)/$($item.task)``: $($item.reason) Next: $($item.nextAction)") } }
+        if ($items.Count -eq 0) { [void]$lines.Add('- None recorded.') } else { foreach ($item in $items) { [void]$lines.Add("- ``$($item.change)/$($item.task)`` [$($item.lifecycleState); $($item.taskDisposition)]: $($item.reason) Next: $($item.nextAction)") } }
     }
     [void]$lines.Add('')
     [void]$lines.Add("Release candidate: **$($Status.release.classification)** ($($Status.release.status)); production readiness is never inferred from unsigned preparation.")
     return ($lines -join [Environment]::NewLine) + [Environment]::NewLine
+}
+
+function Get-ProjectStatusFrontierProjection {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $OpenSpec)
+
+    $allTasks = @($OpenSpec.changes | ForEach-Object { $_.openTasks })
+    $frontier = [ordered]@{ status = $OpenSpec.status; locallyCertified = @(); localOpen = @(); environmentBlocked = @(); providerBlocked = @(); productionSigningBlocked = @(); cleanHostElevatedBlocked = @(); administrativeBlocked = @(); mixedOpen = @(); historicalOpen = @(); supersededOpen = @(); ambiguousOpen = @(); lifecycleErrors = @($OpenSpec.lifecycle.errors) }
+    foreach ($task in $allTasks) {
+        $item = [pscustomobject]@{
+            change = $task.change
+            task = $task.task
+            category = $task.primaryCategory
+            categories = @($task.categories)
+            status = $task.status
+            reason = ($task.reasons -join '; ')
+            nextAction = $task.nextAction
+            source = $task.source
+            sourceLine = $task.sourceLine
+            lifecycleState = $task.lifecycleState
+            taskDisposition = $task.taskDisposition
+            classificationSource = $task.classificationSource
+            classificationConfidence = $task.classificationConfidence
+            evidence = @($task.lifecycleEvidence)
+        }
+        if ($task.lifecycleState -eq 'unknown' -or ($task.taskDisposition -eq 'mixed' -and $OpenSpec.status -ne 'PASS')) { $frontier.ambiguousOpen += $item }
+        elseif ($task.taskDisposition -eq 'historical') { $frontier.historicalOpen += $item }
+        elseif ($task.taskDisposition -eq 'superseded') { $frontier.supersededOpen += $item }
+        elseif ($task.taskDisposition -eq 'mixed') { $frontier.mixedOpen += $item }
+        elseif ($task.primaryCategory -eq 'production-signing') { $frontier.productionSigningBlocked += $item }
+        elseif ($task.primaryCategory -eq 'external-provider') { $frontier.providerBlocked += $item }
+        elseif ($task.primaryCategory -eq 'clean-host') { $frontier.cleanHostElevatedBlocked += $item }
+        elseif ($task.primaryCategory -eq 'elevated') { $frontier.cleanHostElevatedBlocked += $item }
+        elseif ($task.primaryCategory -eq 'interactive') { $frontier.environmentBlocked += $item }
+        elseif ($task.primaryCategory -eq 'administrative') { $frontier.administrativeBlocked += $item }
+        elseif ($task.status -eq 'PASS') { $frontier.locallyCertified += $item }
+        elseif ($task.taskDisposition -eq 'active') { $frontier.localOpen += $item }
+        else { $frontier.ambiguousOpen += $item }
+    }
+    return [pscustomobject]$frontier
 }
 
 function New-ProjectStatus {
@@ -453,18 +729,7 @@ function New-ProjectStatus {
     $verification = Get-ProjectStatusVerificationEvidence -RepoRoot $RepoRoot -RunResultPath $VerificationRunResultPath
     $openSpec = Get-ProjectStatusOpenSpecFrontier -RepoRoot $RepoRoot
     $release = Get-ProjectStatusReleaseEvidence -RepoRoot $RepoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath
-    $allTasks = @($openSpec.changes | ForEach-Object { $_.openTasks })
-    $frontier = [ordered]@{ locallyCertified = @(); localOpen = @(); environmentBlocked = @(); providerBlocked = @(); productionSigningBlocked = @(); cleanHostElevatedBlocked = @() }
-    foreach ($task in $allTasks) {
-        $item = [pscustomobject]@{ change = $task.change; task = $task.task; category = $task.primaryCategory; status = $task.status; reason = ($task.reasons -join '; '); nextAction = $task.nextAction }
-        if ($task.primaryCategory -eq 'production-signing') { $frontier.productionSigningBlocked += $item }
-        elseif ($task.primaryCategory -eq 'external-provider') { $frontier.providerBlocked += $item }
-        elseif ($task.primaryCategory -eq 'clean-host') { $frontier.cleanHostElevatedBlocked += $item }
-        elseif ($task.primaryCategory -eq 'elevated') { $frontier.cleanHostElevatedBlocked += $item }
-        elseif ($task.primaryCategory -eq 'interactive') { $frontier.environmentBlocked += $item }
-        elseif ($task.status -eq 'PASS') { $frontier.locallyCertified += $item }
-        else { $frontier.localOpen += $item }
-    }
+    $frontier = Get-ProjectStatusFrontierProjection -OpenSpec $openSpec
     $status = [pscustomobject]@{
         schemaVersion = $script:ProjectStatusSchemaVersion
         kind = 'fastfiles-project-status'
@@ -490,4 +755,4 @@ function New-ProjectStatus {
     return $status
 }
 
-Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusVerificationEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus
+Export-ModuleMember -Function Get-ProjectStatusOutcome, ConvertTo-ProjectStatusSafePath, Get-ProjectStatusGitStateFromLines, Invoke-ProjectStatusGit, Get-ProjectStatusLifecycleModel, Get-ProjectStatusTaskClassification, Get-ProjectStatusOpenSpecFrontier, Get-ProjectStatusFrontierProjection, Get-ProjectStatusJUnitResult, Get-ProjectStatusCtestEvidence, Get-ProjectStatusCapabilityEvidence, Get-ProjectStatusVerificationEvidence, Get-ProjectStatusReleaseEvidence, Test-ProjectStatusClaimConsistency, New-ProjectStatusMarkdown, New-ProjectStatus

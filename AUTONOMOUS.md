@@ -12,6 +12,10 @@ OpenSpec *changes* with `tasks.md` files that are the source of truth for what i
 what is deferred. The autonomous loop (`verify/intake.ps1`) drives a full lifecycle non-
 interactively, persists its state so it can be resumed across sessions, classifies failures,
 bounds retries, and never edits tasks.md itself — task closing is an external sweep that marks a task `[x]` only against recorded PASS evidence (never narrative).
+The project-status frontier keeps the raw unchecked-task inventory separate from
+the active local worklist: `openspec/lifecycle.json` declares change lifecycle
+and explicit task dispositions, so historical or external tasks cannot resurrect
+a completed campaign as local implementation work.
 
 ## The one entry point
 

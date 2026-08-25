@@ -29,6 +29,87 @@ Check ($provider.primaryCategory -eq 'external-provider' -and $provider.status -
 Check ($interactive.primaryCategory -eq 'interactive' -and $interactive.status -eq 'BLOCKED_ENVIRONMENT') 'display task is environment blocked'
 Check ($local.primaryCategory -eq 'local' -and $local.status -eq 'SKIPPED' -and $local.classificationConfidence -eq 'low') 'unmarked task remains visible as local work'
 Check ($pathBearing.text -notmatch '(?i)C:\\Users\\Example' -and $pathBearing.text -match '<external-path>') 'task evidence text redacts absolute paths'
+$explicitLocal = Get-ProjectStatusTaskClassification -TaskText 'Run signed interactive validation only after the local parser fixture is ready.' -ChangeName 'sample' -TaskId '1.3' -SourcePath 'openspec/changes/sample/tasks.md:3' -ExplicitCategories @('local') -ExplicitStatus 'SKIPPED'
+Check ($explicitLocal.primaryCategory -eq 'local' -and $explicitLocal.classificationSource -eq 'explicit-lifecycle-metadata' -and $explicitLocal.status -eq 'SKIPPED') 'explicit lifecycle category overrides misleading task prose'
+
+# Lifecycle/frontier fixtures are repository-independent and exercise the model
+# without a live desktop, elevation, signing material, or network access.
+$fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-lifecycle-' + [guid]::NewGuid().ToString('N'))
+try {
+    $fixtureChangesRoot = Join-Path $fixtureRoot 'openspec\changes'
+    New-Item -ItemType Directory -Path $fixtureChangesRoot -Force | Out-Null
+    $fixtureTasks = [ordered]@{
+        'active-local' = @('- [ ] 1.1 Add a deterministic parser regression test.')
+        'completed-external' = @('- [ ] 2.1 Run signed provider acceptance against the authorized guest.')
+        'completed-administrative' = @('- [ ] 3.1 Reconcile with origin/main and inspect hosted CI.')
+        'superseded-old' = @('- [ ] 4.1 Implement the old local behavior.')
+        'superseding-new' = @('- [x] 1.1 Replacement behavior is implemented.')
+        'explicit-local' = @('- [ ] 5.1 Run signed interactive validation only after the local parser fixture is ready.')
+        'mixed-work' = @('- [ ] 6.1 Implement the parser and run signed service validation.')
+        'external-signing' = @('- [ ] 7.1 Provide an authorized production certificate and pins.')
+        'external-provider' = @('- [ ] 8.1 Validate the snapshot-restorable Hyper-V guest.')
+        'external-interactive' = @('- [ ] 9.1 Run the UIA visual matrix on the interactive desktop.')
+        'external-elevated' = @('- [ ] 10.1 Run elevated service validation.')
+        'external-clean-host' = @('- [ ] 11.1 Run on a clean supported Windows host.')
+    }
+    foreach ($change in $fixtureTasks.GetEnumerator()) {
+        $changeDir = Join-Path $fixtureChangesRoot $change.Key
+        New-Item -ItemType Directory -Path $changeDir -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $changeDir 'tasks.md') -Value $change.Value -Encoding utf8NoBOM
+    }
+    $fixtureOverrideAdmin = [pscustomobject]@{ task = '3.1'; disposition = 'historical'; categories = @('administrative'); status = 'PASS'; evidence = @('fixture-delivery-evidence') }
+    $fixtureOverrideLocal = [pscustomobject]@{ task = '5.1'; disposition = 'active'; categories = @('local'); status = 'SKIPPED'; evidence = @('fixture-local-evidence') }
+    $fixtureOverrideMixed = [pscustomobject]@{ task = '6.1'; disposition = 'mixed'; categories = @('local', 'production-signing'); status = 'REQUIRED-BUT-UNAVAILABLE'; evidence = @('fixture-mixed-evidence') }
+    $fixtureEntries = @(
+        [pscustomobject]@{ name = 'active-local'; state = 'active'; evidence = @('fixture-active'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'completed-external'; state = 'completed'; evidence = @('fixture-history'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'completed-administrative'; state = 'completed'; evidence = @('fixture-history'); supersededBy = $null; taskOverrides = @($fixtureOverrideAdmin) }
+        [pscustomobject]@{ name = 'superseded-old'; state = 'superseded'; evidence = @('fixture-supersession'); supersededBy = 'superseding-new'; taskOverrides = @() }
+        [pscustomobject]@{ name = 'superseding-new'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'explicit-local'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @($fixtureOverrideLocal) }
+        [pscustomobject]@{ name = 'mixed-work'; state = 'active'; evidence = @('fixture-current'); supersededBy = $null; taskOverrides = @($fixtureOverrideMixed) }
+        [pscustomobject]@{ name = 'external-signing'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-provider'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-interactive'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-elevated'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'external-clean-host'; state = 'active'; evidence = @('fixture-external'); supersededBy = $null; taskOverrides = @() }
+    )
+    $fixtureLifecycle = [pscustomobject]@{ schemaVersion = 1; kind = 'fastfiles-openspec-lifecycle'; changes = $fixtureEntries }
+    Set-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Value ($fixtureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
+    $fixtureFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot
+    $fixtureProjection = Get-ProjectStatusFrontierProjection -OpenSpec $fixtureFrontier
+    Check ($fixtureFrontier.status -eq 'PASS' -and $fixtureFrontier.totalOpenTasks -eq 11) 'lifecycle fixture parses the complete raw unchecked inventory'
+    Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].taskDisposition -eq 'active' -and @($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].classificationConfidence -eq 'low') 'active local task remains local with low-confidence fallback provenance'
+    Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'completed-external' }).openTasks[0].taskDisposition -eq 'external' -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'completed-external' }).Count -eq 1) 'completed external task stays visible in a blocked bucket, not local-open'
+    Check (@($fixtureProjection.historicalOpen | Where-Object { $_.change -eq 'completed-administrative' }).Count -eq 1) 'later-satisfied administrative task stays historical when its old checkbox remains open'
+    Check (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' }).Count -eq 1 -and (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' })[0].evidence -contains 'fixture-supersession')) 'superseded task preserves target evidence and avoids local-open'
+    Check (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' }).Count -eq 1 -and (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' })[0].classificationSource -eq 'explicit-lifecycle-metadata')) 'explicit metadata wins over misleading signing/interactive prose'
+    Check (@($fixtureProjection.mixedOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 1 -and @($fixtureProjection.localOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 0) 'mixed local/external task is not flattened into local-open'
+    Check (@($fixtureProjection.productionSigningBlocked | Where-Object { $_.change -eq 'external-signing' }).Count -eq 1 -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'external-provider' }).Count -eq 1) 'signing and provider tasks remain in their explicit external buckets'
+    Check (@($fixtureProjection.environmentBlocked | Where-Object { $_.change -eq 'external-interactive' }).Count -eq 1 -and @($fixtureProjection.cleanHostElevatedBlocked | Where-Object { $_.change -eq 'external-elevated' }).Count -eq 1 -and @($fixtureProjection.cleanHostElevatedBlocked | Where-Object { $_.change -eq 'external-clean-host' }).Count -eq 1) 'interactive, elevated, and clean-host tasks remain blocked'
+    $fixtureOrder1 = @($fixtureFrontier.changes | ForEach-Object { $changeName = $_.name; $_.openTasks | ForEach-Object { "$changeName/$($_.task)" } }) -join '|'
+    $fixtureOrder2 = @(Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot).changes | ForEach-Object { $changeName = $_.name; $_.openTasks | ForEach-Object { "$changeName/$($_.task)" } }
+    Check ($fixtureOrder1 -eq (@($fixtureOrder2) -join '|')) 'lifecycle frontier ordering is stable across repeated generation'
+    $fixtureLifecycleJson = Get-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Raw | ConvertFrom-Json
+    $fixtureLifecycleSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\openspec-lifecycle.schema.json') -Raw | ConvertFrom-Json
+    Check ((Test-JsonSchema -Data $fixtureLifecycleJson -Schema $fixtureLifecycleSchema).Valid) 'lifecycle fixture validates against its schema'
+
+    $badRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-lifecycle-bad-' + [guid]::NewGuid().ToString('N'))
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $badRoot 'openspec\changes\bad-change') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $badRoot 'openspec\changes\bad-change\tasks.md') -Value '- [ ] 1.1 A task with no trustworthy lifecycle.' -Encoding utf8NoBOM
+        New-Item -ItemType Directory -Path (Join-Path $badRoot 'openspec') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $badRoot 'openspec\lifecycle.json') -Value '{ "schemaVersion": 1, "kind": "fastfiles-openspec-lifecycle",' -Encoding utf8NoBOM
+        $badFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $badRoot
+        $badProjection = Get-ProjectStatusFrontierProjection -OpenSpec $badFrontier
+        Check ($badFrontier.status -eq 'FAIL' -and $badFrontier.lifecycle.errors.Count -gt 0) 'malformed lifecycle metadata is a first-class status failure'
+        Check (@($badProjection.ambiguousOpen | Where-Object { $_.change -eq 'bad-change' }).Count -eq 1 -and @($badProjection.localOpen | Where-Object { $_.change -eq 'bad-change' }).Count -eq 0) 'malformed lifecycle metadata retains the task as ambiguous, never local-open'
+    } finally {
+        Remove-Item -LiteralPath $badRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} finally {
+    Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 $junitPath = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-junit-' + [guid]::NewGuid().ToString('N') + '.xml')
 Set-Content -LiteralPath $junitPath -Value '<testsuites tests="4" failures="1" skipped="1"><testsuite name="fixture" tests="4" failures="1" skipped="1" /></testsuites>' -Encoding utf8NoBOM
@@ -105,11 +186,17 @@ $generatedStatus = New-ProjectStatus -RepoRoot $repoRoot -OutputDirectory (Join-
 $statusSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\project-status.schema.json') -Raw | ConvertFrom-Json
 $statusSchemaResult = Test-JsonSchema -Data $generatedStatus -Schema $statusSchema
 Check $statusSchemaResult.Valid 'generated project status validates against its schema'
+$liveLifecycleJson = Get-Content -LiteralPath (Join-Path $repoRoot 'openspec\lifecycle.json') -Raw | ConvertFrom-Json
+$liveLifecycleSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\openspec-lifecycle.schema.json') -Raw | ConvertFrom-Json
+Check ((Test-JsonSchema -Data $liveLifecycleJson -Schema $liveLifecycleSchema).Valid) 'live lifecycle manifest validates against its schema'
 
 $liveGit = Invoke-ProjectStatusGit -RepoRoot $repoRoot
 $frontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $repoRoot
 Check ($liveGit.sha.Length -eq 40 -and $liveGit.branch.Length -gt 0) 'live Git evidence contains branch and SHA'
 Check ($frontier.status -eq 'PASS' -and $null -ne $frontier.totalOpenTasks) 'live OpenSpec frontier parses all task ledgers'
+$liveProjection = Get-ProjectStatusFrontierProjection -OpenSpec $frontier
+Check (@($liveProjection.localOpen | Where-Object { $_.change -in @('nonblocking-indexed-read-plane', 'phase8-release-readiness-convergence', 'real-user-dogfooding-release-engineering', 'runtime-certification-and-verifier-convergence', 'ship-ready-ui-ux-hardening-convergence') }).Count -eq 0) 'historical and external campaign tasks do not reappear as active local work'
+Check (@($liveProjection.localOpen | Where-Object { $_.change -eq 'openspec-frontier-lifecycle-truthfulness' }).Count -eq $frontier.activeLocalOpenTasks) 'active local count matches the new campaign frontier'
 
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All project-status tests passed.'

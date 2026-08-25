@@ -312,8 +312,11 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 ## Verification and release-readiness infrastructure
 
 - `verify/core/ProjectStatus.psm1` — derives sanitized Git, CTest, capability,
-  OpenSpec, release, and frontier evidence; `verify/status/Get-ProjectStatus.ps1`
-  writes the JSON source and Markdown projection used by `verify.ps1 status`.
+  lifecycle-aware OpenSpec, release, and frontier evidence; `openspec/lifecycle.json`
+  is the schema-validated change/task lifecycle source and
+  `verify/status/Get-ProjectStatus.ps1` writes the JSON source and Markdown
+  projection used by `verify.ps1 status`. Raw unchecked tasks remain visible,
+  but only active lifecycle tasks can enter `frontier.localOpen`.
 - `verify/core/Providers.psm1` — versioned provider descriptor validation,
   reason-coded preflight, lifecycle dispatch, and cleanup-guaranteed contract
   orchestration. `verify/providers/hyperv/` is a real-provider adapter that stays

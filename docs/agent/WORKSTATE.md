@@ -1,5 +1,25 @@
 # Fast Files — Agent Workstate
 
+## OpenSpec frontier lifecycle truthfulness campaign — implementation checkpoint (2026-08-25)
+
+- Reconciled live repository after `git pull --ff-only` and `git fetch --prune origin`: branch `main`, clean baseline `b0ed5803b0aeba452822208b5230dd12e00f3832`, equal to `origin/main` before campaign edits.
+- The planner baseline reproduced 29 unchecked tasks and six false `frontier.localOpen` items: stale delivery tasks from `nonblocking-indexed-read-plane`, `phase8-release-readiness-convergence`, `real-user-dogfooding-release-engineering`, and `ship-ready-ui-ux-hardening-convergence`, plus a host-bound runtime repeatability task. These were recorded in the new campaign baseline ledger.
+- Added schema-validated `openspec/lifecycle.json` and `verify/schemas/openspec-lifecycle.schema.json`; explicit states cover active, completed, superseded, external-evidence-only, and ambiguous changes. Task overrides preserve explicit categories/dispositions for mixed and administrative work.
+- Reconciled and checked only evidenced historical delivery tasks (`nonblocking` 8.2/8.5/8.6, `phase8` 4.5, `real-user` 5.4). Signing, provider, privilege, clean-host, interactive, and PR-administration gates remain unchecked and lifecycle-visible.
+- `ProjectStatus.psm1` now preserves raw unchecked tasks, requires lifecycle entries for changes with open tasks, fails closed on malformed/unknown metadata, and projects only active local tasks to `frontier.localOpen`. Historical/superseded/mixed/administrative provenance has dedicated buckets; explicit metadata overrides prose classification.
+- Project-status/release-readiness schema version is 2; `verify.ps1 status` and the status command fail on lifecycle-model errors. `verify/README.md`, `CODE_INDEX.md`, and `AUTONOMOUS.md` document raw versus active counts.
+- Focused `verify/status/tests/Test-ProjectStatus.ps1` passes the active-local, historical-external, stale-administrative, supersession, malformed metadata, explicit-vs-prose, mixed-task, blocked-bucket, stable-order, schema, redaction, and non-production release cases. PowerShell parser checks pass for all modified scripts. Strict OpenSpec validation passes 70/70.
+- Through the discovered Visual Studio 2022 BuildTools x64 environment, `cmake --preset debug` and `cmake --build --preset debug` pass; the registered `ffproject_status_ps_tests` CTest target passes 1/1.
+- The full Debug CTest run completed with 83 `Test Passed` records and zero `Test Failed` records in `build/debug/Testing/Temporary/LastTest.log`, including the new lifecycle/status, provider, result-composition, and UIA-selection tests; the result-composition worker fixture completed its explicit 42.45-second contract run.
+- `cmake --preset release-test` and `cmake --build --preset release-test` pass through the discovered VS x64 environment; the optimized artifact remains unsigned test output only.
+- Full release-test CTest passes 83/83 in 171.50 seconds, including the lifecycle/status regression suite and all existing product/policy tests. Analyze configure/build is warning-clean. ASAN protocol/IPC configure/build and the required `ffprotocol_fuzz_tests`, `ffipc_framing_tests`, and `ffipc_listener_lifecycle_tests` pass 3/3.
+- `pwsh ./verify/verify.ps1 doctor` passes with the discovered VS/CMake/Ninja/CTest/SDK toolchain and truthful optional-tool skips. The official `pwsh ./verify/verify.ps1 build` capability passes: 9 gates passed, 0 failed, 0 skipped across Debug/release-test/Analyze.
+- Current live projection after the implementation slice: 25 raw unchecked tasks, 1 active-local task (the new campaign's final handoff item), lifecycle model `PASS`; the older false local-open items no longer appear in the local frontier.
+
+NEXT EXACT ACTION: run final status/release projections, strict policy/doc checks, Git diff audit, inspect the complete diff, then update evidence/progress/workstate and perform the final Git/CI handoff. Do not rerun host-bound live UIA/provider/signing paths.
+
+Status: **Implementation slice complete; focused validation is green, broad repository validation and final handoff remain.**
+
 ## Runtime certification and verifier convergence checkpoint (2026-08-25)
 
 - Current reconciliation after fetching the planner tip: local `main` was rebased onto planner commit `ea15a51`; the immutable implementation baseline `08b794d` was pushed and its hosted run `32838275035` completed successfully across all six jobs. The final documentation-only handoff state must still derive its own SHA/remote parity live rather than storing a self-referential latest-CI value.

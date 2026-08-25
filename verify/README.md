@@ -184,6 +184,11 @@ prevents an interrupted or stale previous run from being silently projected as c
 `project-status.md` under `verify/status/generated/` by default (or an explicit
 `-OutputDirectory`) and derives the current Git state, CTest inventory, OpenSpec
 frontier, capability registry, and release-candidate classification at runtime.
+The raw unchecked-task inventory remains visible, while `frontier.localOpen` is
+derived from the schema-validated `openspec/lifecycle.json` model. Historical,
+superseded, mixed, administrative, and external tasks retain source/evidence
+provenance in their dedicated buckets; malformed lifecycle metadata fails the
+status command and is never guessed into local work.
 The generated report is the source for dynamic status; do not hand-maintain test
 counts in `progress.md`. To project a verifier result, pass an explicit
 `-VerificationRunResultPath <run>/run-result.json`; status never searches for a latest
@@ -193,7 +198,8 @@ state as `HARNESS_ERROR`.
 `New-ReleaseReadinessReport.ps1` composes that status with an optional
 `release-readiness-composition.json` into the single sanitized
 `release-readiness-frontier.json` / Markdown pair. It records local evidence and
-separates environment, provider, production-signing, and clean-host/elevated blockers;
+separates lifecycle state, environment, provider, production-signing,
+clean-host/elevated, and administrative blockers;
 it never promotes an unsigned or unavailable gate to production readiness.
 
 For a future authorized Hyper-V image, pass `-Provider hyperv -ProviderSource

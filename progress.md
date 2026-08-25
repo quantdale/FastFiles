@@ -1,17 +1,23 @@
 # FastFiles — Project Status
 
-## Current runtime-certification and verifier-convergence campaign
+## Current OpenSpec frontier lifecycle truthfulness campaign
 
-The current local frontier is
-`openspec/changes/runtime-certification-and-verifier-convergence`. The
-implementation adds identity-bound run/result envelopes, deterministic result
-composition and exit projection, killable capability workers with exact owned
-cleanup, stale-artifact rejection, UIA selection/order metadata, and
-release-status fidelity. Debug and post-diagnosis release-test CTest are both
-83/83, Analyze is warning-clean, ASAN protocol/IPC is 3/3, strict OpenSpec is
-69/69, and the verifier doctor/build gates pass. A first release-test run's
-handshake timeout is retained as host resource-pressure evidence; the
-post-diagnosis full run passed and no residue remained.
+The current local implementation frontier is
+`openspec/changes/openspec-frontier-lifecycle-truthfulness`. The project-status
+pipeline now consumes the schema-validated `openspec/lifecycle.json` manifest,
+preserves the raw unchecked-task inventory, and exposes only genuinely active
+local work in `frontier.localOpen`. Completed/historical, superseded, mixed,
+administrative, provider, signing, clean-host, elevated, and interactive tasks
+retain explicit lifecycle/evidence provenance. Stale historical delivery tasks
+from preceding campaigns were checked only where later Git/CI evidence proves
+completion; genuine external gates remain open.
+
+The current live projection has 25 raw unchecked tasks and 1 active-local task
+(the new campaign's final handoff item). Focused project-status
+fixtures pass, strict OpenSpec validation is 70/70, Debug and release-test CTest
+are 83/83, Analyze is warning-clean, ASAN protocol/IPC is 3/3, and the official
+verifier build gate passes 9/9. No production signing, privileged MFT/USN,
+clean-host, guest/provider, or host-bound live UIA claim is inferred.
 
 The full supported live UIA wrapper remains an honest host-boundary item: the
 current resource-pressure condition prevented a bounded terminal run, so it is
@@ -40,8 +46,8 @@ Degraded mode remains the active, first-class path: unprivileged tree walks and
 directory watches continue to work without the service.
 
 Dynamic release state is generated from Git, CTest, capability manifests, release
-evidence, and every OpenSpec task ledger. It is never maintained as a test-count or
-checkbox summary in this file.
+evidence, the lifecycle manifest, and every OpenSpec task ledger. It is never
+maintained as a test-count or checkbox summary in this file.
 
 Run `pwsh ./verify/verify.ps1 status` to generate the structured JSON source and
 sanitized Markdown projection under the ignored `verify/status/generated/`

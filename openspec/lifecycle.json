@@ -1,0 +1,157 @@
+{
+  "$schema": "../verify/schemas/openspec-lifecycle.schema.json",
+  "schemaVersion": 1,
+  "kind": "fastfiles-openspec-lifecycle",
+  "changes": [
+    {
+      "name": "autonomous-runtime-verification",
+      "state": "external-evidence-only",
+      "evidence": ["docs/agent/WORKSTATE.md", "openspec/changes/autonomous-runtime-verification/tasks.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "close-independent-validation-gaps",
+      "state": "external-evidence-only",
+      "evidence": ["openspec/changes/close-independent-validation-gaps/evidence", "docs/agent/WORKSTATE.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "interactive-ui-runtime-determinism",
+      "state": "external-evidence-only",
+      "evidence": ["docs/agent/WORKSTATE.md", "openspec/changes/interactive-ui-runtime-determinism/tasks.md"],
+      "supersededBy": null,
+      "taskOverrides": [
+        {
+          "task": "7.2",
+          "disposition": "external",
+          "categories": ["interactive"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        }
+      ]
+    },
+    {
+      "name": "nonblocking-indexed-read-plane",
+      "state": "completed",
+      "evidence": ["evidence/historical-ledger-reconciliation.md", "e621b70", "08b794d", "f332f22"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "phase8-release-readiness-convergence",
+      "state": "external-evidence-only",
+      "evidence": ["evidence/historical-ledger-reconciliation.md", "55408b7", "docs/agent/WORKSTATE.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "real-user-dogfooding-release-engineering",
+      "state": "completed",
+      "evidence": ["evidence/historical-ledger-reconciliation.md", "83e668c", "docs/agent/WORKSTATE.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "runtime-certification-and-verifier-convergence",
+      "state": "external-evidence-only",
+      "evidence": ["docs/agent/WORKSTATE.md", "openspec/changes/runtime-certification-and-verifier-convergence/evidence"],
+      "supersededBy": null,
+      "taskOverrides": [
+        {
+          "task": "1.3",
+          "disposition": "external",
+          "categories": ["interactive"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "5.3",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "6.3",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "7.2",
+          "disposition": "external",
+          "categories": ["interactive"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "8.2",
+          "disposition": "external",
+          "categories": ["interactive"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "8.3",
+          "disposition": "external",
+          "categories": ["clean-host", "interactive", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": ["docs/agent/WORKSTATE.md", "34137dba"]
+        }
+      ]
+    },
+    {
+      "name": "ship-ready-ui-ux-hardening-convergence",
+      "state": "external-evidence-only",
+      "evidence": ["docs/agent/WORKSTATE.md", "90d012e"],
+      "supersededBy": null,
+      "taskOverrides": [
+        {
+          "task": "4.3",
+          "disposition": "external",
+          "categories": ["interactive"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "6.1",
+          "disposition": "external",
+          "categories": ["administrative"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        },
+        {
+          "task": "6.2",
+          "disposition": "external",
+          "categories": ["production-signing", "external-provider", "clean-host", "interactive", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": ["docs/agent/WORKSTATE.md"]
+        }
+      ]
+    },
+    {
+      "name": "zero-touch-autonomous-engineering",
+      "state": "external-evidence-only",
+      "evidence": ["docs/agent/WORKSTATE.md", "openspec/changes/zero-touch-autonomous-engineering/tasks.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "openspec-frontier-lifecycle-truthfulness",
+      "state": "active",
+      "evidence": [".agent/EXECUTION_PROMPT.md", "openspec/changes/openspec-frontier-lifecycle-truthfulness/proposal.md"],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "stabilize-live-uia-e2e",
+      "state": "superseded",
+      "evidence": ["docs/agent/WORKSTATE.md", "openspec/changes/interactive-ui-runtime-determinism"],
+      "supersededBy": "interactive-ui-runtime-determinism",
+      "taskOverrides": []
+    }
+  ]
+}

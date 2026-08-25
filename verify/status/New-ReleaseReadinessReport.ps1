@@ -60,9 +60,9 @@ if ($ReleaseReportPath -and (Test-Path -LiteralPath $ReleaseReportPath -PathType
     }
 }
 $releaseProjection = Get-SafeReleaseGateProjection -Report $report
-$overall = if ($releaseProjection.status -eq 'FAIL') { 'FAIL' } elseif ($releaseProjection.status -eq 'REQUIRED-BUT-UNAVAILABLE') { 'REQUIRED-BUT-UNAVAILABLE' } elseif ($releaseProjection.status -eq 'SKIPPED') { 'SKIPPED' } else { 'PASS' }
+$overall = if ($status.openSpec.status -eq 'FAIL' -or $releaseProjection.status -eq 'FAIL') { 'FAIL' } elseif ($releaseProjection.status -eq 'REQUIRED-BUT-UNAVAILABLE') { 'REQUIRED-BUT-UNAVAILABLE' } elseif ($releaseProjection.status -eq 'SKIPPED') { 'SKIPPED' } else { 'PASS' }
 $frontierReport = [pscustomobject]@{
-    schemaVersion = 1
+    schemaVersion = 2
     kind = 'fastfiles-release-readiness-frontier'
     generatedAtUtc = [DateTime]::UtcNow.ToString('o')
     status = $overall
@@ -80,6 +80,7 @@ $frontierReport = [pscustomobject]@{
         source = $releaseSource
         gates = @($releaseProjection.gates)
     }
+    lifecycle = $status.openSpec.lifecycle
     frontier = $status.frontier
     externalPrerequisites = @(
         'Authorized production signer, pins, and signed privileged runtime',
@@ -102,7 +103,8 @@ $lines = [System.Collections.Generic.List[string]]::new()
 [void]$lines.Add('## Local evidence')
 [void]$lines.Add('')
 [void]$lines.Add("- CTest discovered: $($frontierReport.localEvidence.tests.discoveredCount)")
-[void]$lines.Add("- OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks)")
+[void]$lines.Add("- OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks); active local open: $($frontierReport.localEvidence.openSpec.activeLocalOpenTasks)")
+[void]$lines.Add("- OpenSpec lifecycle model: $($frontierReport.lifecycle.status)")
 [void]$lines.Add("- Capability registry: $($frontierReport.localEvidence.capabilities.status)")
 $verificationNote = [string]$frontierReport.localEvidence.verification.status
 if ($frontierReport.localEvidence.verification.reason) { $verificationNote += " ($($frontierReport.localEvidence.verification.reason))" }
@@ -112,8 +114,20 @@ if ($frontierReport.localEvidence.verification.reason) { $verificationNote += " 
 [void]$lines.Add('')
 if (@($frontierReport.releaseCandidate.gates).Count -eq 0) { [void]$lines.Add('- No release composition evidence supplied.') } else { foreach ($gate in @($frontierReport.releaseCandidate.gates)) { [void]$lines.Add("- ``$($gate.id)``: $($gate.status)$(if ($gate.reason) { " — $($gate.reason)" })") } }
 [void]$lines.Add('')
-foreach ($bucket in @('locallyCertified', 'localOpen', 'environmentBlocked', 'providerBlocked', 'productionSigningBlocked', 'cleanHostElevatedBlocked')) {
-    $title = switch ($bucket) { 'locallyCertified' { 'Locally certified' } 'localOpen' { 'Local open work' } 'environmentBlocked' { 'Environment-blocked' } 'providerBlocked' { 'Provider-blocked' } 'productionSigningBlocked' { 'Production-signing-blocked' } default { 'Clean-host/elevated-blocked' } }
+foreach ($bucket in @('locallyCertified', 'localOpen', 'environmentBlocked', 'providerBlocked', 'productionSigningBlocked', 'cleanHostElevatedBlocked', 'administrativeBlocked', 'mixedOpen', 'historicalOpen', 'supersededOpen', 'ambiguousOpen')) {
+    $title = switch ($bucket) {
+        'locallyCertified' { 'Locally certified' }
+        'localOpen' { 'Local open work' }
+        'environmentBlocked' { 'Environment-blocked' }
+        'providerBlocked' { 'Provider-blocked' }
+        'productionSigningBlocked' { 'Production-signing-blocked' }
+        'cleanHostElevatedBlocked' { 'Clean-host/elevated-blocked' }
+        'administrativeBlocked' { 'Administrative-blocked' }
+        'mixedOpen' { 'Mixed local/external work' }
+        'historicalOpen' { 'Historical open ledger items' }
+        'supersededOpen' { 'Superseded open ledger items' }
+        default { 'Lifecycle/model errors' }
+    }
     [void]$lines.Add("## $title")
     [void]$lines.Add('')
     $items = @($frontierReport.frontier.$bucket)
@@ -127,7 +141,9 @@ foreach ($item in $frontierReport.externalPrerequisites) { [void]$lines.Add("- $
 if ($Format -eq 'json') { $frontierReport | ConvertTo-Json -Depth 25 } else {
     Write-Host "Release-readiness frontier: $($frontierReport.status)"
     Write-Host "Local commit: $($frontierReport.git.sha)"
-    Write-Host "OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks)"
+    Write-Host "OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks); active local open: $($frontierReport.localEvidence.openSpec.activeLocalOpenTasks)"
+    Write-Host "OpenSpec lifecycle model: $($frontierReport.lifecycle.status)"
     Write-Host "JSON: $jsonPath"
     Write-Host "Markdown: $markdownPath"
 }
+if ($status.openSpec.status -eq 'FAIL') { exit 1 }

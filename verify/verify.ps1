@@ -390,10 +390,12 @@ switch ($Verb) {
         } else {
             Write-Host "Project status: $($status.git.sha) on $($status.git.branch)"
             Write-Host "Worktree dirty: $($status.git.dirty); CTest discovered: $($status.tests.discoveredCount)"
-            Write-Host "OpenSpec unchecked tasks: $($status.openSpec.totalOpenTasks); release candidate: $($status.release.classification)"
+            Write-Host "OpenSpec unchecked tasks: $($status.openSpec.totalOpenTasks); active local open: $($status.openSpec.activeLocalOpenTasks); release candidate: $($status.release.classification)"
+            Write-Host "OpenSpec lifecycle model: $($status.openSpec.lifecycle.status)"
             Write-Host "JSON: $($status.jsonPath)"
             Write-Host "Markdown: $($status.markdownPath)"
         }
+        if ($status.openSpec.status -eq 'FAIL') { exit $ExitFail }
         exit $ExitPass
     }
     'release-candidate' {
