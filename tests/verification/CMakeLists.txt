@@ -1,0 +1,19 @@
+# runtime-certification-and-verifier-convergence 8.1: verifier result and
+# worker-boundary fixtures are plain PowerShell tests and use a temp fixture
+# root; they never consume ignored verify/runs artifacts.
+include("${PROJECT_SOURCE_DIR}/cmake/FastFilesPowerShell.cmake")
+ff_resolve_powershell(FF_PWSH_EXECUTABLE)
+if(FF_PWSH_EXECUTABLE)
+  add_test(
+    NAME ffverify_result_composition_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-ResultComposition.ps1"
+  )
+  set_tests_properties(ffverify_result_composition_ps_tests PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
+  add_test(
+    NAME ffverify_uia_selection_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-UiaScenarioSelection.ps1"
+  )
+  set_tests_properties(ffverify_uia_selection_ps_tests PROPERTIES TIMEOUT 30)
+endif()
