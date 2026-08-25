@@ -27,4 +27,4 @@
 
 - [x] 5.1 Run focused status tests, schema checks, strict OpenSpec and policy/doc-drift gates. (Evidence: focused status suite PASS; strict OpenSpec 71/71; diagnostic policy PASS; composition doc-drift gate PASS.)
 - [x] 5.2 Run the supported Debug, release-test, Analyze, ASAN/applicable verifier gates and review the complete diff. (Evidence: official build gate 9/9 PASS; Debug/release-test CTest PASS; Analyze warning-clean; protocol robustness 3/3 PASS; `git diff --check` PASS. Release composition also recorded unrelated runtime harness and external unsigned/clean-host blockers.)
-- [ ] 5.3 Update evidence, progress, workstate, lifecycle state, and this ledger from final Git/CI reality; commit, push, reconcile, and inspect exact hosted CI.
+- [x] 5.3 Update evidence, progress, workstate, lifecycle state, and this ledger from final Git/CI reality; commit, push, reconcile, and inspect exact hosted CI. (Evidence: corrected hosted run `32865014793` completed successfully for exact implementation SHA `09bac46a5371ecaad58b7c38ab044deb2c5d8163`; final handoff Git/CI state is derived live and kept non-self-referential.)

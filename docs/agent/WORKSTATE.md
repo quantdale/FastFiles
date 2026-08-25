@@ -1,17 +1,16 @@
 # Fast Files — Agent Workstate
 
-## OpenSpec lifecycle evidence integrity campaign — implementation checkpoint (2026-08-25)
+## OpenSpec lifecycle evidence integrity campaign — final handoff checkpoint (2026-08-25)
 
-- Reconciled the planner pull: `main` advanced to `9256808088d084d2dd71e702a3ac7bc1f83a9805`, equal to `origin/main`, before this campaign's edits. The active prompt is `OpenSpec Lifecycle Evidence Integrity + Semantic Consistency Hardening`.
-- Created `openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence` and migrated `openspec/lifecycle.json` to schema-v2 typed evidence. Repository paths are root-contained/non-reparse, Git evidence is full and reachable, hosted runs bind an exact SHA/run ID to a tracked record, and notes are explicitly non-authoritative.
-- `verify/core/ProjectStatus.psm1` now reports separate structural/evidence/semantic diagnostics, validates supersession/task invariants, preserves raw unchecked tasks, projects invalid lifecycle state as ambiguity, and makes release readiness fail closed on lifecycle integrity failure. Project-status and release-readiness schemas/consumers/docs were updated together.
-- Deterministic fixture coverage now includes traversal, absolute, missing, junction/reparse, legacy string, note-only, Git full/abbreviated/nonexistent, hosted binding, self/cyclic supersession, disposition/category/status contradictions, redaction, ordering, schema synchronization, and release fail-closed cases.
-- Focused `verify/status/tests/Test-ProjectStatus.ps1` passes with exit 0, including the reparse-point regression. Diagnostic-policy source gate passes. Strict OpenSpec validation passes 71/71 after adding the required regression scenario to the new spec. The official `pwsh ./verify/verify.ps1 build` gate passes `9 passed, 0 failed, 0 skipped` across Debug/release-test plus Analyze, including Debug and release-test CTest.
-- Implementation baseline `cd8b0b1bd60fbb2af25944f172eca1f5b1614684` is pushed to `main`; generated `verify/status/generated` output remains ignored. Exact hosted run `32864154982` is the first validation target. Its local hygiene job exposed the expected shallow-checkout incompatibility with full historical Git evidence; the workflow fix is now the only dirty source delta.
+- Reconciled the planner pull at `9256808088d084d2dd71e702a3ac7bc1f83a9805`, then completed the typed-evidence and semantic-convergence implementation in `cd8b0b1bd60fbb2af25944f172eca1f5b1614684` and the full-history CI correction in `09bac46a5371ecaad58b7c38ab044deb2c5d8163`.
+- `openspec/lifecycle.json` is schema-v2 and now records this campaign as `completed` with typed repository, Git, and exact hosted-run evidence. The live projection is 24 raw unchecked tasks, 0 active-local tasks, lifecycle `PASS`; external signing, privileged, clean-host, provider, and interactive gates remain visible.
+- `verify/core/ProjectStatus.psm1` reports separate structural/evidence/semantic diagnostics, validates supersession/task invariants, preserves raw unchecked tasks, projects invalid lifecycle state as ambiguity, and makes release readiness fail closed. Deterministic status fixtures, schema synchronization, policy/doc-drift, and strict OpenSpec validation pass (71/71).
+- The official build gate passes `9 passed, 0 failed, 0 skipped` across Debug/release-test plus Analyze; protocol robustness is 3/3; Debug and release-test CTest are green; Analyze is warning-clean. Corrected hosted Actions run `32865014793` completed `success` for exact SHA `09bac46a5371ecaad58b7c38ab044deb2c5d8163` in 17m44s across the six CI job areas.
+- The first hosted run `32864154982` exposed the shallow-checkout incompatibility; all CI checkout steps now use `fetch-depth: 0`. This correction is recorded as a diagnostic, not hidden.
 
-NEXT EXACT ACTION: commit and push the `.github/workflows/ci.yml` full-history checkout fix, then inspect the corrected exact-SHA hosted CI result before closing task 5.3 and the lifecycle entry.
+NEXT EXACT ACTION: after committing and pushing this final evidence handoff, fetch/prune and derive the final `HEAD`, `origin/main`, clean-worktree state, and exact hosted result for the pushed handoff SHA. Do not edit tracked state merely to embed that later CI result.
 
-Status: **Typed evidence and semantic convergence implementation is pushed; the first hosted hygiene failure identified a shallow-checkout integration gap, now corrected locally pending the second hosted handoff.**
+Status: **Campaign implementation, semantic evidence migration, broad validation, and exact implementation-SHA hosted validation are complete; final handoff parity/CI is derived live and external production boundaries remain truthful.**
 
 ## OpenSpec frontier lifecycle truthfulness campaign — implementation checkpoint (2026-08-25)
 

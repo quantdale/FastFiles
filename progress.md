@@ -8,12 +8,15 @@ offline-resolvable evidence and added separate structural, evidence, and
 semantic integrity diagnostics. Invalid metadata preserves raw unchecked tasks
 as ambiguity and cannot produce a production-ready release projection.
 
-At this pre-handoff checkpoint, 25 raw unchecked tasks remain with one active
-local implementation handoff task; the lifecycle model passes. Focused status
-fixtures pass, strict OpenSpec validation is 71/71, the official build gate is
-9/9 across Debug/release-test/Analyze, protocol robustness is 3/3, and
-policy/doc-drift checks pass. Signing, privileged, clean-host, provider, and
-interactive prerequisites remain external and are not inferred as complete.
+At final handoff, 24 raw unchecked tasks remain with 0 active-local tasks; the
+lifecycle model passes and this campaign is completed. Focused status fixtures
+pass, strict OpenSpec validation is 71/71, the official build gate is 9/9
+across Debug/release-test/Analyze, protocol robustness is 3/3, and
+policy/doc-drift checks pass. Corrected hosted Actions run `32865014793`
+completed successfully for exact implementation SHA
+`09bac46a5371ecaad58b7c38ab044deb2c5d8163`. Signing, privileged, clean-host,
+provider, and interactive prerequisites remain external and are not inferred
+as complete; final handoff parity and its later CI result are derived live.
 
 ## Completed OpenSpec frontier lifecycle truthfulness campaign
 

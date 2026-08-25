@@ -143,11 +143,14 @@
     },
     {
       "name": "openspec-lifecycle-evidence-integrity-and-semantic-convergence",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/tasks.md" }
+        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md" },
+        { "kind": "git-commit", "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163" },
+        { "kind": "hosted-run", "runId": "32865014793", "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163", "record": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []
