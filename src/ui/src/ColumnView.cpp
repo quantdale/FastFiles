@@ -195,10 +195,7 @@ std::wstring HomeLeafName(const std::wstring& path) {
 }
 
 std::wstring HomeBookmarkDisplayName(const Bookmark& bookmark) {
-    if (bookmark.displayName.empty() || bookmark.displayName == bookmark.path) {
-        return ffui::NormalizeDisplayPath(bookmark.path);
-    }
-    return bookmark.displayName;
+    return ffui::NormalizePathDerivedDisplayLabel(bookmark.displayName, bookmark.path);
 }
 
 // ui-v3 home 5: hover-revealed Clear affordances. The cursor position is not

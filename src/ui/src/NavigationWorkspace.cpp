@@ -60,14 +60,7 @@ bool IsAbsolutePath(const std::wstring& path) {
 }
 
 std::wstring DefaultBookmarkName(const std::wstring& path) {
-    const size_t end = path.find_last_not_of(L'\\');
-    const size_t slash = path.find_last_of(L'\\', end);
-    // A root (e.g. "C:\") has no leaf component; use the trimmed path itself
-    // so a drive-root bookmark never gets a blank display name.
-    if (slash == std::wstring::npos || slash + 1 > end) {
-        return end == std::wstring::npos ? path : path.substr(0, end + 1);
-    }
-    return path.substr(slash + 1, end - slash);
+    return ffui::DisplayPathLeaf(path);
 }
 
 std::wstring EscapeJson(const std::wstring& value) {
@@ -396,7 +389,9 @@ std::vector<BreadcrumbSegment> NavigationWorkspace::Breadcrumbs() const {
 void NavigationWorkspace::BeginAddressBarEdit() {
     auto& context = ActiveContext();
     context.addressBarMode = AddressBarMode::EditableText;
-    context.addressBarText = context.currentPath.empty() ? L"This PC" : ffui::NormalizeDisplayPath(context.currentPath);
+    // The editable field is the path identity surface. Display-only prefix
+    // stripping and 8.3 expansion belong to breadcrumbs/tabs, never here.
+    context.addressBarText = context.currentPath.empty() ? L"This PC" : context.currentPath;
     context.addressBarError.clear();
 }
 

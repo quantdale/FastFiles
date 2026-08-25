@@ -1,5 +1,8 @@
 #pragma once
 
+#include <cstddef>
+#include <string>
+
 namespace ffui {
 
 // These are the semantic Storage Analysis presentations.  The policy below
@@ -61,6 +64,34 @@ constexpr bool StorageControlVisible(StorageViewMode mode, StorageControl contro
         return mode == StorageViewMode::Treemap;
     }
     return false;
+}
+
+inline std::wstring StorageOverviewStatusText(size_t volumeCount, bool engineActive) {
+    std::wstring text = std::to_wstring(volumeCount) + L" fixed volumes";
+    if (!engineActive) text += L" (degraded mode — capacity from OS only, coverage partial)";
+    return text;
+}
+
+inline std::wstring StorageItemsStatusText(size_t itemCount, bool engineActive) {
+    std::wstring text = std::to_wstring(itemCount) + L" items";
+    if (!engineActive) text += L" (degraded mode — partial coverage)";
+    return text;
+}
+
+inline const wchar_t* StorageWaitingStatusText(bool engineActive) noexcept {
+    return engineActive ? L"Waiting for index data…" : L"Degraded mode — browsing via FindFirstFileEx";
+}
+
+inline const wchar_t* StorageNotIndexedStatusText(bool engineActive) noexcept {
+    return engineActive ? L"Folder not yet indexed." : L"Degraded mode — folder not yet browsed";
+}
+
+inline const wchar_t* StorageUnavailableStatusText(bool engineActive) noexcept {
+    return engineActive ? L"This folder is not accessible." : L"Degraded mode — folder not accessible";
+}
+
+inline constexpr const wchar_t* StorageUnavailableVolumeStatusText() noexcept {
+    return L"Volume unavailable — capacity figures are stale; drill-down disabled until it reconnects.";
 }
 
 } // namespace ffui

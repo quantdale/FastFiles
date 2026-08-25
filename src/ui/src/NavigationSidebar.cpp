@@ -643,8 +643,8 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
             }
             const int labelLeft = slot.right + Scaled(UiMetrics::kSpaceXs);
             const std::wstring displayLabel =
-                (!row.path.empty() && (row.label.empty() || row.label == row.path))
-                    ? ffui::NormalizeDisplayPath(row.path) : row.label;
+                row.path.empty() ? row.label
+                                 : ffui::NormalizePathDerivedDisplayLabel(row.label, row.path);
             DrawNavText(dc, displayLabel,
                         {labelLeft, row.bounds.top, row.bounds.right - Scaled(UiMetrics::kSpaceS),
                          row.bounds.bottom},
@@ -931,7 +931,9 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                     if (row.kind == RowKind::Item) {
                         // Full value via tooltip: trimmed labels and paths stay
                         // reachable (docs/ui-improvement/03 §2).
-                        tooltipText_ = row.label;
+                        tooltipText_ = row.path.empty()
+                            ? row.label
+                            : ffui::NormalizePathDerivedDisplayLabel(row.label, row.path);
                         if (row.path.empty() && !row.home) tooltipText_ += L" (unavailable)";
                         if (!row.path.empty() && row.path != row.label) {
                             tooltipText_ += L"\n";

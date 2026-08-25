@@ -39,7 +39,16 @@ function Get-UiaTreeDump {
     if (-not $Element) { $Element = Get-UiaRootElement -Driver $Driver }
     $view = Resolve-UiaView -Driver $Driver -View $View
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
-    $timeout = Get-UiaDriverSetting -Driver $Driver -Name 'TimeoutMs' -Fallback 5000
+    # Recorded/mock trees are pure in-memory fixtures. Applying the live UIA
+    # wall-clock budget to them makes the dump nondeterministic on slower
+    # release-test PowerShell hosts (a leaf can disappear without the fixture
+    # being marked truncated). Live providers retain the bounded timeout;
+    # mock dumps remain bounded by MaxTreeDepth/MaxTreeWidth.
+    $timeout = if (Test-UiaMockElement $Element) {
+        [int]::MaxValue
+    } else {
+        Get-UiaDriverSetting -Driver $Driver -Name 'TimeoutMs' -Fallback 5000
+    }
     $depth = Get-UiaDriverSetting -Driver $Driver -Name 'MaxTreeDepth' -Fallback 30
     $state = [pscustomobject]@{ Nodes = 1; Depth = $depth; TimeoutMs = $timeout; View = $view; Truncated = $false }
     $rootNode = ConvertTo-UiaDumpNode -Driver $Driver -Element $Element -Level 0 -Watch $watch -State $state

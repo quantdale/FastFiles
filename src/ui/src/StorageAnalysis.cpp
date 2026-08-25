@@ -29,8 +29,9 @@ constexpr int kByCategoryId = 7209;
 constexpr int kTreemapId = 7210;
 constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
+constexpr UINT_PTR kStorageButtonSubclassBase = 0x5340;
 constexpr UINT_PTR kRadioSubclassBase = 0x5346;
-constexpr size_t kStorageRadioCount = 6;
+constexpr size_t kStorageRadioCount = kStorageModeCount;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -127,6 +128,54 @@ void DrawStorageRadioButton(const DRAWITEMSTRUCT* item, bool darkTheme) {
         DrawStorageFocusRing(item->hDC, item->rcItem,
                              highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.focusStroke));
     }
+}
+
+void DrawStoragePushButton(HWND hwnd, HDC dc, bool darkTheme) {
+    if (hwnd == nullptr || dc == nullptr) return;
+    RECT rect{};
+    GetClientRect(hwnd, &rect);
+    if (rect.right <= rect.left || rect.bottom <= rect.top) return;
+
+    const bool enabled = IsWindowEnabled(hwnd) != FALSE;
+    const UINT buttonState = static_cast<UINT>(SendMessageW(hwnd, BM_GETSTATE, 0, 0));
+    const bool pressed = (buttonState & BST_PUSHED) != 0;
+    POINT cursor{};
+    RECT client = rect;
+    GetCursorPos(&cursor);
+    ScreenToClient(hwnd, &cursor);
+    const bool hot = PtInRect(&client, cursor) != FALSE;
+    const bool focused = GetFocus() == hwnd;
+    const UiTheme theme = GetUiTheme(darkTheme);
+    const bool highContrast = UiSystemHighContrast();
+    if (highContrast) return;
+
+    COLORREF fill = ToColorRef(theme.surface);
+    if (!enabled) {
+        fill = ToColorRef(theme.background);
+    } else if (pressed) {
+        fill = ToColorRef(theme.surfaceElevated);
+    } else if (hot) {
+        fill = ToColorRef(theme.surfaceSubtle);
+    }
+    UiGdiRoundedRect(dc, rect, fill, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
+
+    DrawStorageFocusRing(dc, rect, ToColorRef(theme.border));
+    if (focused) DrawStorageFocusRing(dc, rect, ToColorRef(theme.focusStroke));
+
+    wchar_t label[64]{};
+    GetWindowTextW(hwnd, label, static_cast<int>(std::size(label)));
+    RECT textRect = rect;
+    const int horizontalPadding = Scaled(static_cast<int>(UiMetrics::kSpaceS));
+    textRect.left += horizontalPadding;
+    textRect.right -= horizontalPadding;
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, ToColorRef(enabled ? theme.text : theme.textDisabled));
+    HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+    if (font == nullptr) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+    HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
+    DrawTextW(dc, label, -1, &textRect,
+              DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    SelectObject(dc, oldFont);
 }
 
 // storage-analysis 2.4: a volume that disappeared keeps its last-known
@@ -268,6 +317,13 @@ private:
 };
 
 StorageAnalysis::~StorageAnalysis() {
+    const HWND pushButtons[] = {back_, up_};
+    for (size_t i = 0; i < std::size(pushButtons); ++i) {
+        if (pushButtons[i] != nullptr) {
+            RemoveWindowSubclass(pushButtons[i], StorageButtonSubclassProc,
+                                 kStorageButtonSubclassBase + static_cast<UINT_PTR>(i));
+        }
+    }
     const HWND radios[] = {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_};
     for (size_t i = 0; i < kStorageRadioCount; ++i) {
         if (radios[i] != nullptr) {
@@ -280,6 +336,63 @@ StorageAnalysis::~StorageAnalysis() {
     uiaState_.reset();
     treemapView_.SetUiaEventHandler(nullptr);
     Hide();
+}
+
+LRESULT CALLBACK StorageAnalysis::StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
+                                                            LPARAM lParam, UINT_PTR subclassId,
+                                                            DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    if (UiSystemHighContrast()) {
+        if (message == WM_NCDESTROY) {
+            RemoveWindowSubclass(hwnd, StorageButtonSubclassProc, subclassId);
+        }
+        return DefSubclassProc(hwnd, message, wParam, lParam);
+    }
+
+    const auto invalidate = [hwnd]() { InvalidateRect(hwnd, nullptr, FALSE); };
+    switch (message) {
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            const HDC dc = BeginPaint(hwnd, &paint);
+            if (dc != nullptr) DrawStoragePushButton(hwnd, dc, self->darkTheme_);
+            EndPaint(hwnd, &paint);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            DrawStoragePushButton(hwnd, reinterpret_cast<HDC>(wParam), self->darkTheme_);
+            return 0;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_MOUSEMOVE: {
+            TRACKMOUSEEVENT track{sizeof(track), TME_LEAVE, hwnd, 0};
+            TrackMouseEvent(&track);
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            invalidate();
+            return result;
+        }
+        case WM_MOUSELEAVE:
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+        case WM_ENABLE:
+        case WM_LBUTTONDOWN:
+        case WM_LBUTTONUP:
+        case WM_KEYDOWN:
+        case WM_KEYUP:
+        case BM_SETSTATE:
+        case WM_SETTEXT:
+        case WM_THEMECHANGED: {
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            invalidate();
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, StorageButtonSubclassProc, subclassId);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 LRESULT CALLBACK StorageAnalysis::RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
@@ -386,9 +499,9 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&controls);
 
-    back_ = CreateWindowExW(0, L"BUTTON", L"Back", WS_CHILD | BS_PUSHBUTTON,
+    back_ = CreateWindowExW(0, L"BUTTON", L"Back", StoragePushButtonStyle(),
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
-    up_ = CreateWindowExW(0, L"BUTTON", L"Up", WS_CHILD | BS_PUSHBUTTON,
+    up_ = CreateWindowExW(0, L"BUTTON", L"Up", StoragePushButtonStyle(),
                           0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
     status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_ENDELLIPSIS | SS_LEFTNOWORDWRAP,
                               0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
@@ -398,25 +511,31 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     overview_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
                                 WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
-    overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON | WS_GROUP,
+    overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", StorageModeRadioStyle(0),
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewId)), nullptr, nullptr);
     categoryFilter_ = CreateWindowExW(0, WC_COMBOBOXW, L"",
                                       WS_CHILD | CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP,
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCategoryFilterId)), nullptr, nullptr);
-    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
+    drillDown_ = CreateWindowExW(0, L"BUTTON", L"Drill Down", StorageModeRadioStyle(1),
                                  0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDrillDownId)), nullptr, nullptr);
-    largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
+    largestFolders_ = CreateWindowExW(0, L"BUTTON", L"Largest Folders", StorageModeRadioStyle(2),
                                       0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFoldersId)), nullptr, nullptr);
-    largestFiles_ = CreateWindowExW(0, L"BUTTON", L"Largest Files", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
+    largestFiles_ = CreateWindowExW(0, L"BUTTON", L"Largest Files", StorageModeRadioStyle(3),
                                     0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLargestFilesId)), nullptr, nullptr);
-    byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
+    byCategory_ = CreateWindowExW(0, L"BUTTON", L"By Category", StorageModeRadioStyle(4),
                                   0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kByCategoryId)), nullptr, nullptr);
-    treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", WS_CHILD | WS_TABSTOP | BS_AUTORADIOBUTTON,
+    treemap_ = CreateWindowExW(0, L"BUTTON", L"Treemap", StorageModeRadioStyle(5),
                                    0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kTreemapId)), nullptr, nullptr);
 
     if (!back_ || !up_ || !status_ || !list_ || !overview_ || !overviewButton_ || !categoryFilter_ ||
         !drillDown_ || !largestFolders_ || !largestFiles_ || !byCategory_ || !treemap_) return false;
 
+    const HWND pushButtons[] = {back_, up_};
+    for (size_t i = 0; i < std::size(pushButtons); ++i) {
+        SetWindowSubclass(pushButtons[i], StorageButtonSubclassProc,
+                          kStorageButtonSubclassBase + static_cast<UINT_PTR>(i),
+                          reinterpret_cast<DWORD_PTR>(this));
+    }
     const HWND radios[] = {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_};
     for (size_t i = 0; i < kStorageRadioCount; ++i) {
         SetWindowSubclass(radios[i], RadioSubclassProc, kRadioSubclassBase + static_cast<UINT_PTR>(i),
@@ -468,6 +587,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
     // startup ApplyTheme already ran, so apply the live theme here or the two
     // report lists keep system-white backgrounds in dark mode.
     SetDarkTheme(ffui::gUiDarkTheme);
+    UpdateNavigationButtonState();
     return true;
 }
 
@@ -479,6 +599,7 @@ void StorageAnalysis::NavigateFromTreemap(const std::wstring& path, bool isDirec
     // a file path in currentPath_ breaks Drill Down/Up/refresh lookups.
     if (isDirectory) {
         currentPath_ = path;
+        UpdateNavigationButtonState();
         treemapView_.ShowAndFocus(path);
     }
     if (navigate_) navigate_(path, isDirectory);
@@ -589,6 +710,7 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     currentPath_ = currentPath;
     engineActive_ = engineActive;
     visible_ = true;
+    UpdateNavigationButtonState();
     // Open on the storage overview (2.1): the volume list is the entry point
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
@@ -662,6 +784,14 @@ void StorageAnalysis::ApplyModeVisibility() {
         if (!treemapView_.Visible()) treemapView_.ShowAndFocus(currentPath_);
     } else {
         treemapView_.Hide();
+    }
+}
+
+void StorageAnalysis::UpdateNavigationButtonState() {
+    if (back_ != nullptr) EnableWindow(back_, close_ != nullptr ? TRUE : FALSE);
+    if (up_ != nullptr) {
+        const bool canNavigateUp = !currentPath_.empty() && !ffsearch::ParentPath(currentPath_).empty();
+        EnableWindow(up_, canNavigateUp ? TRUE : FALSE);
     }
 }
 
@@ -773,13 +903,13 @@ void StorageAnalysis::RefreshOverview() {
                              const_cast<wchar_t*>(vol.fullyIndexed ? L"Fully indexed — whole-volume analysis" : L"Partial — browsed/pinned only"));
     }
 
-    std::wstring statusText = std::to_wstring(volumes_.size()) + L" fixed volumes";
-    if (!engineActive_) statusText += L" (degraded mode — capacity from OS only, coverage partial)";
+    const std::wstring statusText = StorageOverviewStatusText(volumes_.size(), engineActive_);
     SetWindowTextW(status_, statusText.c_str());
 }
 
 void StorageAnalysis::RefreshData() {
     if (!visible_) return;
+    UpdateNavigationButtonState();
 
     // semantic-treemap-uia 22.x: percentage-of-volume denominator from the
     // same OS ground truth as the overview; the treemap metadata uses the
@@ -805,12 +935,15 @@ void StorageAnalysis::RefreshData() {
         RefreshOverview();
         return;
     }
-    if (!engine_) return;
+    if (!engine_) {
+        SetWindowTextW(status_, StorageWaitingStatusText(engineActive_));
+        return;
+    }
     // ui-v3 hardening V3-07: a scope (re)load starts in the calculating state.
     treemapView_.SetEmptyStateText(L"Calculating folder sizes…");
     const auto snapshot = engine_->ReadSnapshot();
     if (!snapshot) {
-        SetWindowTextW(status_, engineActive_ ? L"Waiting for index data…" : L"Degraded mode — browsing via FindFirstFileEx");
+        SetWindowTextW(status_, StorageWaitingStatusText(engineActive_));
         return;
     }
 
@@ -819,7 +952,7 @@ void StorageAnalysis::RefreshData() {
 
     auto it = snapshot->find(targetPath);
     if (it == snapshot->end()) {
-        SetWindowTextW(status_, engineActive_ ? L"Folder not yet indexed." : L"Degraded mode — folder not yet browsed");
+        SetWindowTextW(status_, StorageNotIndexedStatusText(engineActive_));
         items_.clear();
         ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         return;
@@ -827,7 +960,7 @@ void StorageAnalysis::RefreshData() {
 
     const auto& directory = it->second;
     if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) {
-        SetWindowTextW(status_, engineActive_ ? L"This folder is not accessible." : L"Degraded mode — folder not accessible");
+        SetWindowTextW(status_, StorageUnavailableStatusText(engineActive_));
         items_.clear();
         ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
         return;
@@ -873,10 +1006,7 @@ void StorageAnalysis::RefreshData() {
         items_.push_back(item);
     }
 
-    std::wstring statusText = std::to_wstring(items_.size()) + L" items";
-    if (!engineActive_) {
-        statusText += L" (degraded mode — partial coverage)";
-    }
+    const std::wstring statusText = StorageItemsStatusText(items_.size(), engineActive_);
     SetWindowTextW(status_, statusText.c_str());
 
     // Filter based on view mode
@@ -1190,6 +1320,7 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
             const std::wstring parent = ffsearch::ParentPath(currentPath_);
             if (!parent.empty()) {
                 currentPath_ = parent;
+                UpdateNavigationButtonState();
                 RefreshData();
                 if (navigate_) navigate_(currentPath_, true);
             }
@@ -1268,10 +1399,11 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
             if (selected >= 0 && static_cast<size_t>(selected) < volumes_.size()) {
                 const VolumeItem& vol = volumes_[static_cast<size_t>(selected)];
                 if (vol.unavailable) {
-                    SetWindowTextW(status_, L"Volume unavailable — capacity figures are stale; drill-down disabled until it reconnects.");
+                    SetWindowTextW(status_, StorageUnavailableVolumeStatusText());
                     return true;
                 }
                 currentPath_ = vol.rootPath;
+                UpdateNavigationButtonState();
                 SetViewMode(ViewMode::DrillDown);
                 if (navigate_) navigate_(currentPath_, true);
             }
@@ -1380,6 +1512,7 @@ bool StorageAnalysis::HandleNotify(LPARAM lParam) {
             if (item.isDirectory) {
                 std::wstring childPath = ffui::JoinPath(currentPath_, item.name);
                 currentPath_ = childPath;
+                UpdateNavigationButtonState();
                 RefreshData();
                 if (navigate_) navigate_(currentPath_, true);
             } else if (navigate_) {
@@ -1426,7 +1559,9 @@ bool StorageAnalysis::HandleTreemapCompletion(LPARAM lParam) {
 }
 
 void StorageAnalysis::SetEngineActive(bool active) {
+    if (engineActive_ == active) return;
     engineActive_ = active;
+    if (visible_) RefreshData();
 }
 
 bool StorageAnalysis::SelectRadioFromUia(HWND radio) {
@@ -1460,6 +1595,9 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
         if (header != nullptr) InvalidateRect(header, nullptr, TRUE);
     }
     for (HWND control : {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
+        if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
+    }
+    for (HWND control : {back_, up_}) {
         if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
     }
 }

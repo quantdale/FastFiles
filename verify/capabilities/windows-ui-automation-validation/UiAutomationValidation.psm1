@@ -4067,7 +4067,13 @@ function Invoke-UiaSharedSessionScenarios {
         } else {
             $null = Send-UiaText -Driver $driver -Text 'alpha'
             Start-Sleep -Seconds 2
-            $alphaResult = Find-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $resultsList -TimeoutMs 5000
+            # Search query changes replace the Search.Results fragment. Reacquire
+            # the live main/root/list chain before reading the result; a cached
+            # list provider is a retired UIA element and must not be reused.
+            $mainAfterQuery = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+            if (-not $mainAfterQuery) { throw 'main window unavailable after search query replacement' }
+            $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $launched.Id -FromElement $mainAfterQuery -TimeoutMs 5000 -PollIntervalMs 250
+            $alphaResult = Wait-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $resultsList -TimeoutMs 5000 -PollIntervalMs 250
             if (-not $alphaResult) { throw "Search.Results does not expose result 'alpha.txt'" }
             $searchStatus = 'PASS'
             $searchReason = $null

@@ -1,8 +1,19 @@
 # Fast Files — Agent Workstate
 
-Last updated: 2026-08-25 (interactive-ui-runtime-determinism pushed handoff)
-Status: **The locally actionable implementation frontier is complete and pushed.** The campaign implementation commit `6ce1a6f42ccc1373eb55de95154e5d8d5673d547` was pushed from `main`; derive current branch/HEAD/origin parity afresh at the next resume rather than treating this document as a Git database. The final documentation checkpoint is intentionally a follow-up commit.
-NEXT EXACT ACTION: no local product/harness action remains. The next frontier is the external interactive-desktop 20-run selection gate when a desktop with controllable foreground is available; otherwise retain the documented `interactive-foreground-unavailable` boundary and proceed only with separately authorized production signing/privileged/clean-host evidence. The latest selection run was `2 passed, 1 skipped, 0 failed` because `FocusTube` owned the foreground; no 20/20 claim is made.
+## Ship-ready UI/UX hardening convergence checkpoint (2026-08-25)
+
+- Reconciled current `main` after fetch/prune at baseline `69e894f79319bdb4b67fff29281d72e56d1dd857`, equal to `origin/main`, with a clean worktree. PR #6 local head is `9ddf1a3189be32db11c97e7c79bb7404caac1d8f` and merge base is `90fa560a99217cabcf456b1198c83351c46513ed`; hosted PR inspection/write is unavailable because `gh` is unauthenticated.
+- Created and strictly validated `openspec/changes/ship-ready-ui-ux-hardening-convergence`; the fresh evidence ledger records all twelve PR commits, current-main seams, still-valid requirements, superseded/incompatible changes, and external boundaries.
+- Implemented the local display-path slice: local-drive-only `GetLongPathNameW`, resolution-free UNC/device presentation, heap-bounded fallback, exact editable address paths, path-derived bookmark/sidebar/Home labels, and display-only operation diagnostics. Canonical navigation/history/index/file-operation values remain unchanged.
+- Implemented the current Storage slice: token-backed Back/Up subclass with native command/UIA routing and High Contrast delegation, explicit Back/Up Tab stops, one-entry six-radio Tab group, disabled Up at roots, engine-transition refresh, and headless status/style seams. No provider identity/lifetime or security architecture code was changed.
+- Focused evidence is green: `ffdisplay_path_tests`, `ffnavigation_tests`, `ffstorage_visibility_tests`, `ffstorage_radio_state_tests`, `ffui_style_tests`, `FastFiles` build, and the 11-test UIA/provider/runtime subset. The real local 8.3 fixture passed on this volume; fallback/UNC behavior is deterministic.
+- Final post-edit Debug CTest is 81/81 PASS (277.37s) and release-test CTest is 81/81 PASS (243.99s); Analyze is warning-clean with no C6262; ASAN protocol/IPC is 3/3 PASS; `verify.ps1 build` and `doctor` pass. Final strict OpenSpec is 68/68; source-marker, diagnostic-policy, doc-drift, and diff checks pass.
+- Live validation found and fixed a stale `Search.Results` provider assumption in the shared harness. Corrected search, error, treemap, selection, drag, and aggregate isolated public results pass, with only truthful foreground/Explorer-source skips. The complete mixed capability wrapper still has an environment/order-sensitive failure and remains unclaimed until a clean complete run is green.
+- The post-documentation release run found and fixed a separate deterministic harness issue: mock UIA tree dumps were subject to the live timeout and lost a leaf on the slower release-test host. Mock dumps now retain depth/width bounds without wall-clock expiry; focused direct and release-test driver reruns pass.
+- NEXT EXACT ACTION: create the detailed final handoff commit on `main`, fetch/prune/reconcile/push without force, verify parity/clean status, and inspect hosted CI. Preserve the truthful external interactive foreground, signing, privileged, clean-host, guest, and physical-display boundaries.
+
+Last updated: 2026-08-25 (ship-ready UI/UX hardening convergence in final validation)
+Status: **Local implementation and validation are complete except for final clean-main handoff.** The campaign has not yet been committed or pushed; derive live branch/HEAD/origin parity at every resume rather than treating this document as a Git database. The complete mixed live UIA wrapper remains an honest unresolved environment/order-sensitive gate; no product pass is inferred from partial runs.
 
 ## Interactive UI runtime determinism checkpoint (2026-08-25)
 

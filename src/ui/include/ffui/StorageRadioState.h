@@ -1,6 +1,9 @@
 // Pure state seam for the owner-drawn Storage Analysis mode radios.
 #pragma once
 
+#include <cstddef>
+#include <windows.h>
+
 namespace ffui {
 
 enum class StorageRadioVisualState {
@@ -13,6 +16,25 @@ enum class StorageRadioVisualState {
     Disabled,
     DisabledChecked,
 };
+
+constexpr size_t kStorageModeCount = 6;
+
+// The native button controls retain their keyboard and UIA semantics. These
+// style seams make the intended Tab topology executable without requiring a
+// live window: Back/Up are direct Tab stops, and only the first radio enters
+// the mutually-exclusive arrow-navigation group.
+constexpr DWORD StoragePushButtonStyle() noexcept {
+    return WS_CHILD | WS_TABSTOP | BS_PUSHBUTTON;
+}
+
+constexpr DWORD StorageModeRadioStyle(size_t index) noexcept {
+    return WS_CHILD | BS_AUTORADIOBUTTON |
+           (index == 0 ? (WS_TABSTOP | WS_GROUP) : 0u);
+}
+
+constexpr bool StorageModeHasTabStop(size_t index) noexcept {
+    return index == 0;
+}
 
 inline StorageRadioVisualState ResolveStorageRadioVisualState(bool checked, bool pressed,
                                                               bool focused, bool disabled) {

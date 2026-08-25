@@ -1,5 +1,21 @@
 # FastFiles — Project Status
 
+## Current ship-ready hardening campaign
+
+The current local frontier is
+`openspec/changes/ship-ready-ui-ux-hardening-convergence`. It reconciles stale
+draft PR #6 against current `main` without importing its obsolete history. The
+implemented local slice hardens display-only local 8.3 expansion and extended
+path presentation, preserves exact editable/canonical paths, closes Storage
+Analysis push-button and keyboard-state gaps, and keeps degraded-mode status
+truthful. Focused navigation, display-path, Storage, theme-contrast, and
+UIA/provider/runtime tests are green. Debug/release-test/Analyze/ASAN and the
+verifier build/doctor gates are green. The live harness also proved the
+corrected Search.Results reacquisition and aggregate isolated scenarios, while
+the complete mixed capability retains an honest environment/order-sensitive
+failure and foreground skips. No production signing, privileged MFT/USN,
+clean-host, guest, or foreground-owned interactive claim is inferred.
+
 Windows-only C++20 native file manager built around a persistent NTFS index.
 
 ## Architecture
@@ -40,15 +56,17 @@ bounded pipe cleanup. The provider now retires stale fragment descendants on
 structure replacement, with headless coverage for fresh identities, selection
 isolation, geometry, and 50 replacement cycles.
 
-The live interactive capability now passes its full wrapper with zero
-unexpected failures and no longer fails at Pane.1 discovery. This desktop
-still records a truthful
-`interactive-foreground-unavailable` skip when a foreign interactive window
-(`FocusTube` in the latest run) owns the foreground during Pane.1 activation;
-no downstream input assertion or retry is treated as
-proof, and the requested 20/20 live run is not claimed. Production signing
-pins, authenticated privileged runtime proof, clean-host MFT/USN validation,
-and physical/guest environment matrices remain external evidence gates.
+The corrected exported live UIA capability passes its product assertions with
+23 PASS, 6 truthful SKIP, and 0 FAIL, including dynamic Search.Results
+reacquisition and the current dual-pane/provider semantics. This desktop still
+records `interactive-foreground-unavailable`, `explorer-drag-source-unavailable`,
+and privileged/degraded-host skips where the required external state is absent.
+The supported `verify.ps1 run` wrapper still returns an opaque
+`scenario-failed` after three post-fix invocations; that discrepancy remains a
+validation-harness blocker and is not relabeled as a product PASS. Production
+signing pins, authenticated privileged runtime proof, clean-host MFT/USN
+validation, and physical/guest environment matrices remain external evidence
+gates.
 
 The prior active-path hardening validation had 81/81 Debug and release-test
 CTest passes, a clean `/analyze` build, ASAN protocol/IPC 2/2, strict OpenSpec

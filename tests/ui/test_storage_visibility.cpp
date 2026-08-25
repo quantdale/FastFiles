@@ -125,6 +125,25 @@ void TestIdempotence() {
     }
 }
 
+void TestStatusText() {
+    Check(ffui::StorageOverviewStatusText(2, true) == L"2 fixed volumes",
+          "indexed overview status reports the volume count");
+    Check(ffui::StorageOverviewStatusText(2, false).find(L"degraded mode") != std::wstring::npos,
+          "degraded overview status identifies OS-only capacity and partial coverage");
+    Check(ffui::StorageItemsStatusText(7, true) == L"7 items",
+          "indexed list status reports the item count");
+    Check(ffui::StorageItemsStatusText(7, false).find(L"degraded mode") != std::wstring::npos,
+          "degraded list status identifies partial coverage");
+    Check(std::wstring(ffui::StorageWaitingStatusText(false)).find(L"Degraded mode") == 0,
+          "degraded waiting status is explicit");
+    Check(std::wstring(ffui::StorageNotIndexedStatusText(false)).find(L"Degraded mode") == 0,
+          "degraded not-indexed status is explicit");
+    Check(std::wstring(ffui::StorageUnavailableStatusText(false)).find(L"Degraded mode") == 0,
+          "degraded unavailable status is explicit");
+    Check(std::wstring(ffui::StorageUnavailableVolumeStatusText()).find(L"stale") != std::wstring::npos,
+          "stale volume status explains why drill-down is disabled");
+}
+
 } // namespace
 
 int main() {
@@ -132,5 +151,6 @@ int main() {
     TestTransitions();
     TestResizeStability();
     TestIdempotence();
+    TestStatusText();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

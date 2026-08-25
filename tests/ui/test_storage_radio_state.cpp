@@ -34,5 +34,17 @@ int main() {
               ffui::StorageRadioVisualState::DisabledChecked,
           "disabled checked state takes precedence over interaction state");
 
+    check((ffui::StoragePushButtonStyle() & WS_TABSTOP) != 0,
+          "Back and Up are explicit Tab stops");
+    check((ffui::StorageModeRadioStyle(0) & WS_TABSTOP) != 0 &&
+              (ffui::StorageModeRadioStyle(0) & WS_GROUP) != 0,
+          "the first mode radio is the single Tab-entry group anchor");
+    for (size_t index = 1; index < ffui::kStorageModeCount; ++index) {
+        check((ffui::StorageModeRadioStyle(index) & WS_TABSTOP) == 0 &&
+                  (ffui::StorageModeRadioStyle(index) & WS_GROUP) == 0 &&
+                  !ffui::StorageModeHasTabStop(index),
+              "remaining mode radios use arrow navigation within the group");
+    }
+
     return failures == 0 ? 0 : 1;
 }

@@ -111,7 +111,7 @@ add_test(NAME ffstorage_radio_state_tests COMMAND ffstorage_radio_state_tests)
 # ui-v3 navigation: display-only 8.3/long-path normalization never changes
 # canonical activation or identity paths.
 add_executable(ffdisplay_path_tests test_display_path.cpp)
-target_include_directories(ffdisplay_path_tests PRIVATE ../../src/ui/include)
+target_include_directories(ffdisplay_path_tests PRIVATE ../../src/ui/src ../../src/ui/include)
 add_test(NAME ffdisplay_path_tests COMMAND ffdisplay_path_tests)
 
 add_executable(ffshortcut_routing_tests test_shortcut_routing.cpp ../../src/ui/src/CommandSystem.cpp)

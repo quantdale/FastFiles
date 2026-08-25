@@ -101,6 +101,8 @@ public:
 private:
     friend class StorageRadioProvider;
 
+    static LRESULT CALLBACK StorageButtonSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                      UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                               UINT_PTR subclassId, DWORD_PTR refData);
     bool SelectRadioFromUia(HWND radio);
@@ -163,6 +165,7 @@ private:
     void UpdateCategoryFilterFromControl();
     void ApplyCategoryFilter();
     void UpdateVolumeUsedBytes();
+    void UpdateNavigationButtonState();
     // semantic-treemap-uia 11/28: the single real navigation mutation shared
     // by the mouse-click callback and the UI-thread side of a UIA Invoke.
     void NavigateFromTreemap(const std::wstring& path, bool isDirectory);

@@ -2599,7 +2599,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                         if (!details.empty()) details += L"\n";
                         wchar_t error[16]{};
                         swprintf_s(error, L"0x%08X", static_cast<unsigned int>(failure.error));
-                        details += (failure.path.empty() ? L"(operation)" : failure.path) + std::wstring(L" — ") + error;
+                        details += (failure.path.empty() ? std::wstring(L"(operation)")
+                                                         : ffui::NormalizeDisplayPath(failure.path)) +
+                                    std::wstring(L" — ") + error;
                     }
                     if (!details.empty()) MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);
                     return 0;

@@ -97,6 +97,13 @@ void TestBreadcrumbAndEditableAddressBar() {
     Check(workspace.ActiveContext().addressBarMode == AddressBarMode::EditableText && workspace.ActiveContext().addressBarText == L"C:\\Users", "editable address bar is prefilled from current path");
     workspace.ActiveContext().addressBarText = L"C:\\Different"; workspace.CancelAddressBarEdit();
     Check(workspace.ActiveContext().addressBarMode == AddressBarMode::Breadcrumb && workspace.ActiveContext().currentPath == L"C:\\Users", "cancelled edit discards text without navigation");
+
+    const std::wstring canonical = L"\\\\?\\C:\\Users\\MICHAE~1\\Documents";
+    NavigationWorkspace canonicalWorkspace(canonical);
+    canonicalWorkspace.BeginAddressBarEdit();
+    Check(canonicalWorkspace.ActiveContext().addressBarText == canonical &&
+              canonicalWorkspace.ActiveContext().currentPath == canonical,
+          "editable address bar exposes the exact canonical extended short-name path");
 }
 void TestWorkspacePersistenceFallback() {
     using namespace ffui;
