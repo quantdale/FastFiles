@@ -124,6 +124,14 @@ public:
         bool durableFallbackSucceeded = false;
         double stateLockWaitMs = 0.0;
         double maxStateLockHoldMs = 0.0;
+        // indexed-search-zero-copy-hot-path 7.x: view-first lightweight capture
+        size_t hotLightweightRowsCaptured = 0;
+        size_t hotRowsRejectedBeforeMaterialization = 0;
+        size_t viewPathFallbackRows = 0;
+        double lightweightCaptureMs = 0.0;
+        double viewMatchingMs = 0.0;
+        double survivorMaterializationMs = 0.0;
+        bool viewPathUsed = false;
     };
 
     struct ReadPlaneDiagnostics {
@@ -331,6 +339,9 @@ private:
     };
 
     static constexpr size_t kHotCandidateChunkRows = 256;
+    // indexed-search-zero-copy-hot-path: batch size for the lightweight
+    // view-first capture chunk (mirrors kHotCandidateChunkRows).
+    static constexpr size_t kViewCandidateChunkRows = kHotCandidateChunkRows;
     static constexpr size_t kMaxGenerationRestarts = 3;
     static constexpr size_t kMaxDurableFallbackConfigurationRetries = 2;
     static constexpr size_t kMaximumFilenameIndexCandidates = 16 * 1024;

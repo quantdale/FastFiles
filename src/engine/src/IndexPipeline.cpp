@@ -166,6 +166,55 @@ ffsearch::Candidate MakeProjectionCandidate(const ffindexstore::Projection& proj
     return candidate;
 }
 
+// indexed-search-zero-copy-hot-path: a lifetime-safe, owner-less snapshot of
+// one projection row captured while the pipeline mutex is held. The name is
+// NOT stored as a view into NamePool (arena reallocation during Intern or a
+// whole-pool replacement in CompactStorage would dangle it); only a stable
+// NameId plus the name bytes copied into the owning chunk's contiguous buffer
+// travel with the row. A borrowed CandidateView built from those bytes is valid
+// only until the chunk (and therefore the buffer) is destroyed, which is why
+// matching runs within the same bounded block that owns the buffer.
+struct LightweightHotRow {
+    ffindexstore::VolumeRowId volumeRowId = 0;
+    ffindexstore::FileId frn{};
+    ffindexstore::FileId parentFrn{};
+    uint64_t sizeBytes = 0;
+    uint64_t modifiedTime = 0;
+    uint64_t createdTime = 0;
+    uint64_t allocatedSizeBytes = 0;
+    bool isDirectory = false;
+    bool allocatedSizeKnown = false;
+    ffindexstore::NameId nameId = 0;
+    size_t nameOffset = 0;
+    size_t nameLength = 0;
+    bool nameIsAscii = false;
+};
+
+// indexed-search-zero-copy-hot-path: builds an owned Candidate from a
+// lifetime-bounded lightweight row. The name is copied once from the
+// search-owned chunk name buffer (not re-fetched from the mutable NamePool),
+// so the candidate survives the projection lock release that follows capture.
+ffsearch::Candidate MakeProjectionCandidateFromLightweight(
+    const LightweightHotRow& row, std::u16string_view name, const std::wstring& prefix) {
+    ffsearch::Candidate candidate;
+    candidate.volumeId = static_cast<int64_t>(row.volumeRowId);
+    candidate.id = row.frn.low;
+    candidate.parentId = row.parentFrn.low;
+    candidate.sizeBytes = row.sizeBytes;
+    candidate.modifiedTime = row.modifiedTime;
+    candidate.createdTime = row.createdTime;
+    candidate.isDirectory = row.isDirectory;
+    candidate.persistentIndexed = true;
+    candidate.allocatedSizeBytes = row.allocatedSizeBytes;
+    candidate.allocatedSizeKnown = row.allocatedSizeKnown;
+    if (row.parentFrn == row.frn) {
+        candidate.name = prefix + L"\\";
+    } else {
+        candidate.name = ToWString(name);
+    }
+    return candidate;
+}
+
 ffsearch::Candidate MakeDurableCandidate(const ffindexstore::EntryRecord& record,
                                          ffindexstore::VolumeRowId volumeId,
                                          const std::wstring& prefix) {
@@ -1158,6 +1207,14 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
     size_t durableFallbackAttempts = 0;
     size_t durableFallbackRowsStreamed = 0;
     size_t relevantInvalidations = 0;
+    // indexed-search-zero-copy-hot-path: bounded view-first capture counters.
+    size_t hotLightweightRowsCaptured = 0;
+    size_t hotRowsRejectedBeforeMaterialization = 0;
+    size_t viewPathFallbackRows = 0;
+    double lightweightCaptureMs = 0.0;
+    double viewMatchingMs = 0.0;
+    double survivorMaterializationMs = 0.0;
+    bool viewPathUsed = false;
     // search-availability-under-index-churn D1/D2/D5: capture only the
     // searchable volumes relevant to this request, together with their
     // epochs, rules, residency, and one independent WAL snapshot.
@@ -1390,64 +1447,196 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                                                      ? &searchDiagnostics : nullptr);
         bool hotExhausted = false;
         size_t filenameIndex = 0;
+        // indexed-search-zero-copy-hot-path: for view-compatible queries, capture
+        // a lightweight row (scalars + stable NameId + name bytes in a chunk-
+        // owned buffer) under the mutex and evaluate the cheap name/metadata
+        // view predicate outside it. Rejected rows never get an owned Candidate
+        // or a per-row name copy. Non-view-compatible or projectionOnly runs use
+        // the canonical owned-candidate path untouched (survivors still go
+        // through the identical accumulator.Add, so result semantics are unchanged).
+        const bool useViewHotPath = !projectionOnly && searchRequest.query.viewCompatible;
+        const bool folderNeededForView =
+            (searchRequest.scope != ffsearch::SearchScope::AllIndexedLocations) ||
+            searchRequest.query.requiresFolder || searchRequest.candidateFilterRequiresFolder;
         while (!hotExhausted && !stale && !isCancelled()) {
-            std::vector<ffsearch::Candidate> chunk;
-            chunk.reserve(kHotCandidateChunkRows);
-            {
-                const auto waitStart = Clock::now();
-                std::unique_lock<std::mutex> lock(mutex_);
-                lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
-                const auto holdStart = Clock::now();
-                if (!isContextCurrentLocked(context, true)) {
-                    stale = true;
-                } else {
-                    while (chunk.size() < kHotCandidateChunkRows) {
-                        const ffindexstore::ProjectionEntry* entry = nullptr;
-                        if (context.filenameCandidates.has_value()) {
-                            if (filenameIndex >= context.filenameCandidates->size()) {
+            if (useViewHotPath) {
+                std::vector<LightweightHotRow> rows;
+                rows.reserve(kHotCandidateChunkRows);
+                std::u16string nameBuffer;
+                {
+                    const auto waitStart = Clock::now();
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
+                    const auto holdStart = Clock::now();
+                    if (!isContextCurrentLocked(context, true)) {
+                        stale = true;
+                    } else {
+                        const auto captureStart = Clock::now();
+                        while (rows.size() < kHotCandidateChunkRows) {
+                            const ffindexstore::ProjectionEntry* entry = nullptr;
+                            if (context.filenameCandidates.has_value()) {
+                                if (filenameIndex >= context.filenameCandidates->size()) {
+                                    hotExhausted = true;
+                                    break;
+                                }
+                                entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
+                            } else if (!context.cursor.Next(entry)) {
                                 hotExhausted = true;
                                 break;
                             }
-                            entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
-                        } else if (!context.cursor.Next(entry)) {
-                            hotExhausted = true;
-                            break;
+                            if (entry == nullptr || context.coldVolumes.contains(entry->volumeRowId)) continue;
+                            const auto prefixIt = context.prefixes.find(entry->volumeRowId);
+                            if (prefixIt == context.prefixes.end()) continue;
+                            if (detailedDiagnostics) ++projectionEntriesVisited;
+                            ++projectionRowsExamined;
+                            LightweightHotRow row;
+                            row.volumeRowId = entry->volumeRowId;
+                            row.frn = entry->frn;
+                            row.parentFrn = entry->parentFrn;
+                            row.sizeBytes = entry->sizeBytes;
+                            row.modifiedTime = entry->lastModifiedTime;
+                            row.createdTime = entry->creationTime;
+                            row.isDirectory = (entry->attributes & kFileAttributeDirectory) != 0;
+                            row.allocatedSizeBytes = entry->allocatedSizeBytes;
+                            row.allocatedSizeKnown = entry->allocatedSizeKnown;
+                            row.nameId = entry->nameId;
+                            row.nameIsAscii = entry->nameIsAscii;
+                            if (entry->parentFrn != entry->frn) {
+                                ++namePoolLookups;
+                                const std::u16string_view name = projection_.Names().Get(entry->nameId);
+                                row.nameOffset = nameBuffer.size();
+                                row.nameLength = name.size();
+                                nameBuffer.append(name.data(), name.size());
+                                if (name.empty()) {
+                                    if (detailedDiagnostics) ++emptyNamesRejected;
+                                    continue;
+                                }
+                            } else {
+                                row.nameOffset = nameBuffer.size();
+                                row.nameLength = 0;
+                            }
+                            ++nameViewsConstructed;
+                            rows.push_back(std::move(row));
                         }
-                        if (entry == nullptr || context.coldVolumes.contains(entry->volumeRowId)) continue;
-                        const auto prefixIt = context.prefixes.find(entry->volumeRowId);
-                        if (prefixIt == context.prefixes.end()) continue;
-                        if (detailedDiagnostics) ++projectionEntriesVisited;
-                        ++projectionRowsExamined;
-                        if (entry->parentFrn != entry->frn) ++namePoolLookups;
-                        ffsearch::Candidate candidate = MakeProjectionCandidate(
-                            projection_, *entry, prefixIt->second);
-                        if (candidate.name.empty()) {
-                            if (detailedDiagnostics) ++emptyNamesRejected;
+                        lightweightCaptureMs += std::chrono::duration<double, std::milli>(
+                            Clock::now() - captureStart).count();
+                        hotLightweightRowsCaptured += rows.size();
+                        viewPathUsed = true;
+                    }
+                    const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
+                    maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
+                    lock.unlock();
+                }
+                if (!matchingHookCalled) {
+                    if (context.phaseHook) context.phaseHook(SearchPhase::Matching);
+                    matchingHookCalled = true;
+                }
+                if (!projectionOnly) {
+                    const auto matchStart = Clock::now();
+                    for (const auto& row : rows) {
+                        if (stale || isCancelled() || accumulator.Cancelled()) break;
+                        const std::u16string_view name =
+                            (row.parentFrn == row.frn)
+                                ? std::u16string_view()
+                                : std::u16string_view(nameBuffer).substr(row.nameOffset, row.nameLength);
+                        ffsearch::CandidateView view;
+                        view.name = name;
+                        view.sizeBytes = row.sizeBytes;
+                        view.modifiedTime = row.modifiedTime;
+                        view.isDirectory = row.isDirectory;
+                        view.createdTime = row.createdTime;
+                        view.volumeId = static_cast<int64_t>(row.volumeRowId);
+                        view.id = row.frn.low;
+                        view.parentId = row.parentFrn.low;
+                        view.persistentIndexed = true;
+                        view.nameAsciiLower = false;
+                        view.allocatedSizeBytes = row.allocatedSizeBytes;
+                        view.allocatedSizeKnown = row.allocatedSizeKnown;
+                        view.nameIsAscii = row.nameIsAscii;
+                        const bool viewAccepted = folderNeededForView
+                            ? searchRequest.query.MatchesViewWithoutFolder(view, nullptr)
+                            : searchRequest.query.MatchesView(view, nullptr);
+                        if (!viewAccepted) {
+                            ++hotRowsRejectedBeforeMaterialization;
                             continue;
                         }
-                        ++nameViewsConstructed;
+                        const auto survivorStart = Clock::now();
+                        const auto& prefix = context.prefixes.at(row.volumeRowId);
+                        ffsearch::Candidate candidate =
+                            MakeProjectionCandidateFromLightweight(row, name, prefix);
                         ++candidateNameCopies;
-                        chunk.push_back(std::move(candidate));
+                        if (!accumulator.Add(std::move(candidate), materialize)) break;
+                        ++candidateObjectsMaterialized;
+                        survivorMaterializationMs += std::chrono::duration<double, std::milli>(
+                            Clock::now() - survivorStart).count();
+                        if (stale || isCancelled() || accumulator.Cancelled()) break;
+                    }
+                    viewMatchingMs += std::chrono::duration<double, std::milli>(
+                        Clock::now() - matchStart).count();
+                }
+                if (stale || isCancelled() || accumulator.Cancelled() || streamFailed) break;
+            } else {
+                std::vector<ffsearch::Candidate> chunk;
+                chunk.reserve(kHotCandidateChunkRows);
+                {
+                    const auto waitStart = Clock::now();
+                    std::unique_lock<std::mutex> lock(mutex_);
+                    lockWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - waitStart).count();
+                    const auto holdStart = Clock::now();
+                    if (!isContextCurrentLocked(context, true)) {
+                        stale = true;
+                    } else {
+                        while (chunk.size() < kHotCandidateChunkRows) {
+                            const ffindexstore::ProjectionEntry* entry = nullptr;
+                            if (context.filenameCandidates.has_value()) {
+                                if (filenameIndex >= context.filenameCandidates->size()) {
+                                    hotExhausted = true;
+                                    break;
+                                }
+                                entry = &projection_.EntryAt((*context.filenameCandidates)[filenameIndex++]);
+                            } else if (!context.cursor.Next(entry)) {
+                                hotExhausted = true;
+                                break;
+                            }
+                            if (entry == nullptr || context.coldVolumes.contains(entry->volumeRowId)) continue;
+                            const auto prefixIt = context.prefixes.find(entry->volumeRowId);
+                            if (prefixIt == context.prefixes.end()) continue;
+                            if (detailedDiagnostics) ++projectionEntriesVisited;
+                            ++projectionRowsExamined;
+                            if (entry->parentFrn != entry->frn) ++namePoolLookups;
+                            ffsearch::Candidate candidate = MakeProjectionCandidate(
+                                projection_, *entry, prefixIt->second);
+                            if (candidate.name.empty()) {
+                                if (detailedDiagnostics) ++emptyNamesRejected;
+                                continue;
+                            }
+                            ++nameViewsConstructed;
+                            ++candidateNameCopies;
+                            chunk.push_back(std::move(candidate));
+                        }
+                        if (!projectionOnly && !searchRequest.query.viewCompatible) {
+                            viewPathFallbackRows += chunk.size();
+                        }
+                    }
+                    const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
+                    maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
+                    lock.unlock();
+                }
+                if (!matchingHookCalled) {
+                    if (context.phaseHook) context.phaseHook(SearchPhase::Matching);
+                    matchingHookCalled = true;
+                }
+                if (projectionOnly) {
+                    search.candidatesVisited += chunk.size();
+                } else {
+                    for (auto& candidate : chunk) {
+                        if (!accumulator.Add(std::move(candidate), materialize)) break;
+                        ++candidateObjectsMaterialized;
+                        if (stale || isCancelled() || accumulator.Cancelled()) break;
                     }
                 }
-                const double holdMs = std::chrono::duration<double, std::milli>(Clock::now() - holdStart).count();
-                maxLockHoldMs = (std::max)(maxLockHoldMs, holdMs);
-                lock.unlock();
+                if (stale || isCancelled() || accumulator.Cancelled() || streamFailed) break;
             }
-            if (!matchingHookCalled) {
-                if (context.phaseHook) context.phaseHook(SearchPhase::Matching);
-                matchingHookCalled = true;
-            }
-            if (projectionOnly) {
-                search.candidatesVisited += chunk.size();
-            } else {
-                for (auto& candidate : chunk) {
-                    if (!accumulator.Add(std::move(candidate), materialize)) break;
-                    ++candidateObjectsMaterialized;
-                    if (stale || isCancelled() || accumulator.Cancelled()) break;
-                }
-            }
-            if (stale || isCancelled() || accumulator.Cancelled() || streamFailed) break;
         }
 
         if (!stale && !isCancelled() && !accumulator.Cancelled()) {
@@ -1700,6 +1889,14 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
         timings->storeStreamMs = storeStreamMs;
         timings->candidateObjectsMaterialized = candidateObjectsMaterialized;
         timings->candidateNameCopies = candidateNameCopies;
+        // indexed-search-zero-copy-hot-path: view-first capture attribution.
+        timings->hotLightweightRowsCaptured = hotLightweightRowsCaptured;
+        timings->hotRowsRejectedBeforeMaterialization = hotRowsRejectedBeforeMaterialization;
+        timings->viewPathFallbackRows = viewPathFallbackRows;
+        timings->lightweightCaptureMs = lightweightCaptureMs;
+        timings->viewMatchingMs = viewMatchingMs;
+        timings->survivorMaterializationMs = survivorMaterializationMs;
+        timings->viewPathUsed = viewPathUsed;
         timings->candidatesVisited = search.candidatesVisited;
         timings->queryPredicateEvaluations = searchDiagnostics.match.predicateEvaluations;
         timings->queryTermEvaluations = searchDiagnostics.match.termEvaluations;

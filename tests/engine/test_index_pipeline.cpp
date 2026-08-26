@@ -757,6 +757,92 @@ void TestIndexedSearchUsesProjectionPathsAndScopes() {
           "disabled volumes are not exposed through the indexed-search scope");
 }
 
+void TestIndexedSearchViewFirstCaptureReducesMaterialization() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_view_first.db")),
+          "the pipeline opens for the view-first materialization-reduction test");
+    VolumeKey key;
+    key.serialNumber = 42;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    pipeline.SetVolumeRules(volume, setting);
+
+    // 601 resident entries under the volume root: one root plus 590 "noise-NNN"
+    // and 10 "photo-NN". The selective literal "ph" is two characters, too short
+    // for the filename secondary index, so the hot path full-scans every row;
+    // only the 10 "photo" entries match. This exercises the view-first rejection
+    // where most examined rows must avoid an owned Candidate / name copy.
+    std::vector<ffprotocol::MftRecordV1> batch;
+    batch.reserve(601);
+    batch.push_back(MakeMftRecord(5, 5, u".", 0x10, 0));
+    for (uint64_t index = 0; index < 590; ++index) {
+        std::wstring wname = L"noise-" + std::to_wstring(index);
+        batch.push_back(MakeMftRecord(1000 + index, 5,
+                                      std::u16string(wname.begin(), wname.end()), 0, index));
+    }
+    for (uint64_t index = 0; index < 10; ++index) {
+        std::wstring wname = L"photo-" + std::to_wstring(index);
+        batch.push_back(MakeMftRecord(2000 + index, 5,
+                                      std::u16string(wname.begin(), wname.end()), 0, index));
+    }
+    Check(pipeline.ApplyMftBatch(volume, batch),
+          "the view-first fixture is persisted through the normal ingestion path");
+
+    struct SelectiveOutcome {
+        ffprotocol::IndexedSearchResponse response;
+        IndexPipeline::SearchTimings timings;
+    };
+    const auto runSelective = [&](const std::wstring& query) -> SelectiveOutcome {
+        SelectiveOutcome outcome;
+        ffprotocol::IndexedSearchRequest request;
+        request.requestId = 1;
+        request.scope = 3; // AllIndexedLocations
+        request.sortField = 1; // Filename
+        request.maxResults = 4096;
+        request.query = query;
+        outcome.timings.detailedDiagnostics = true;
+        outcome.response = pipeline.SearchIndexed(request, &outcome.timings);
+        return outcome;
+    };
+
+    const auto selective = runSelective(L"ph");
+    Check(selective.response.status == ffprotocol::IndexedSearchStatus::Completed,
+          "the selective view-first query completes");
+    Check(selective.response.candidates.size() == 10, "only the 10 photo entries match 'ph'");
+    Check(selective.timings.viewPathUsed, "the selective query used the view-first hot path");
+    Check(selective.timings.hotLightweightRowsCaptured == 601,
+          "every resident row (including the root) was captured as a lightweight row");
+    Check(selective.timings.hotRowsRejectedBeforeMaterialization == 591,
+          "the 590 noise rows and the root were rejected before owned materialization");
+    Check(selective.timings.candidateNameCopies == 10,
+          "only the 10 surviving rows incurred an owned name copy");
+    Check(selective.timings.candidateNameCopies < selective.timings.hotLightweightRowsCaptured,
+          "rejected rows avoided the per-row name copy (core campaign invariant)");
+    Check(selective.timings.hotRowsRejectedBeforeMaterialization +
+              selective.timings.candidateObjectsMaterialized ==
+              selective.timings.hotLightweightRowsCaptured,
+          "every captured lightweight row is accounted for as rejected or materialized");
+    for (const auto& candidate : selective.response.candidates) {
+        Check(candidate.name.rfind(L"photo-", 0) == 0,
+              "every selective result is a photo entry (exact identity preserved)");
+    }
+
+    const auto noMatch = runSelective(L"qq");
+    Check(noMatch.response.candidates.empty(), "an all-reject query returns no candidates");
+    Check(noMatch.timings.hotRowsRejectedBeforeMaterialization == 601 &&
+              noMatch.timings.candidateNameCopies == 0,
+          "an all-reject query materializes zero owned names");
+
+    const auto broad = runSelective(L"o");
+    Check(broad.response.status == ffprotocol::IndexedSearchStatus::Completed &&
+              broad.response.candidates.size() == 600,
+          "the broad query matches every non-root row without false rejection");
+    Check(broad.timings.candidateNameCopies == 600 &&
+              broad.timings.hotRowsRejectedBeforeMaterialization == 1,
+          "the broad query materializes every matching row and rejects only the root");
+}
+
 void TestIndexedSearchCancellationStopsProjectionWork() {
     IndexPipeline pipeline;
     Check(pipeline.Open(FreshDbPath("engine_test_indexed_search_cancellation.db")),
@@ -1518,6 +1604,7 @@ int main() {
     TestVolumeAvailabilityAndForget();
     TestForgetVolumePurgesProjection();
     TestIndexedSearchUsesProjectionPathsAndScopes();
+    TestIndexedSearchViewFirstCaptureReducesMaterialization();
     TestIndexedSearchCancellationStopsProjectionWork();
         TestIndexedSearchPropagatesAllocatedSize();
         TestIndexedSearchOndiskFilter();

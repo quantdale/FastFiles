@@ -58,6 +58,98 @@ derive live HEAD/origin/main and hosted CI for the pushed SHA(s) at the next
 resume. The provenance-campaign files remain owned by their parallel executor
 — untouched here.
 
+## Indexed-search zero-copy hot path — design checkpoint (2026-08-26)
+
+- Executor resumed the ACTIVE planner prompt `9cec4f0` (planner: queue
+  zero-copy indexed-search hot-path campaign). Fast-forwarded clean `main` from
+  `a1c8085` to `9cec4f0`; recorded branch `main`, HEAD=`9cec4f0`,
+  origin/main=`9cec4f0`, clean tree, 0 ahead/0 behind. Hosted CI for the
+  planner's starting SHA `a1c8085` (run `32970997929`) confirmed **success**
+  (was in_progress at planning). Lifecycle already records the preceding
+  provenance campaign as `completed` with hosted-run `32956387761`.
+- Read the full OpenSpec package (proposal/design/tasks/evidence). Decided the
+  implementation strategy per design.md D3/D5 **Option C (bounded compact
+  capture)**, recorded in
+  `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/implementation-design-decision.md`.
+  Rationale: a naked `CandidateView` into `NamePool::arena_` is rejected (F2 /
+  design.md D2) because `Intern` reallocates and `CompactStorage` replaces the
+  pool; instead capture a chunk-owned contiguous name buffer + a `NameId`
+  (stable index, not a pointer) per lightweight row under the mutex, then run
+  `Query::MatchesView*` against a transient `CandidateView` whose `.name` points
+  into the chunk buffer (lifetime == chunk). This structurally eliminates the
+  owned `Candidate` + per-row name copy for rejected eligible hot rows without
+  exposing a dangling view. Folder/path-dependent and non-view-compatible
+  queries keep the existing owned-candidate path.
+- Added `SearchTimings` fields to `IndexPipeline.h`
+  (`hotLightweightRowsCaptured`, `hotRowsRejectedBeforeMaterialization`,
+  `viewPathFallbackRows`, `viewPathUsed`, `lightweightCaptureMs`,
+  `viewMatchingMs`, `survivorMaterializationMs`) — additive, warning-clean.
+- Baseline (Task 1.3): built release-test `ffengine_bench_large_index_scalability`
+  and ran it at scale 1,000,000 with `--diagnostics`; the run was interrupted
+  before the JSON flush, so the canonical `build/bench-zero-copy-baseline.json`
+  is not yet written. Re-run the 1M scale (and a 100k smoke) to capture the
+  pre-change baseline, then re-run after the change for paired before/after.
+
+NEXT EXACT ACTION: (1) re-run `ffengine_bench_large_index_scalability` at scale
+100000 and 1000000 with `--diagnostics` to `build/bench-zero-copy-baseline.json`
+(pre-change baseline). (2) Implement the lightweight hot capture in
+`IndexPipeline::SearchIndexedReadPlane` per the recorded design decision;
+update counters so rejected eligible rows incur no owned Candidate/name copy.
+(3) Build release-test + run the new/parity tests + focused CTest, then
+paired benchmark. Do NOT push until the full validation ladder (debug/
+release-test/analyze/asan/policy/status/doctor/exact-tree qualification) is
+green and hosted CI for the pushed SHA is inspected.
+
+## Indexed-search zero-copy hot path — implementation checkpoint (2026-08-27)
+
+- Resumed the ACTIVE campaign `indexed-search-zero-copy-hot-path-and-lock-pressure-convergence`
+  (`.agent/NEXT_CAMPAIGN_12H.md`). Branch `main`, HEAD = origin/main =
+  `9cec4f0`, clean apart from a prior-session delta (SearchTimings view-path fields
+  in `IndexPipeline.h` + the design-decision evidence doc). Reconciled: the prior
+  delta's `kViewCandidateChunkRows = kHotCandidateChunkRows` forward-reference was a
+  hard compile error (the constant is declared later in the class); fixed by
+  relocating the declaration after `kHotCandidateChunkRows`.
+- Implemented Option C (bounded compact capture) in
+  `IndexPipeline::SearchIndexedReadPlane`: under the mutex, capture a
+  `LightweightHotRow` (scalars + stable `NameId` + name bytes appended into a
+  per-chunk `std::u16string` buffer) instead of building an owned `Candidate`;
+  release the lock; run the cheap `Query::MatchesView*` predicate against a
+  transient `CandidateView` whose `.name` points into the chunk buffer; only
+  survivors are materialized to an owned `Candidate` and still pass through the
+  identical `SearchAccumulator::Add` (so result semantics are unchanged by
+  construction). Non-view-compatible and `projectionOnly` runs keep the canonical
+  owned path untouched. New `SearchTimings` fields wired: `hotLightweightRowsCaptured`,
+  `hotRowsRejectedBeforeMaterialization`, `viewPathFallbackRows`, `lightweightCaptureMs`,
+  `viewMatchingMs`, `survivorMaterializationMs`, `viewPathUsed`.
+- Added `TestIndexedSearchViewFirstCaptureReducesMaterialization` to
+  `tests/engine/test_index_pipeline.cpp`: proves `candidateNameCopies <
+  hotLightweightRowsCaptured` for a selective query, exact result identity for
+  selective/no-match/broad, and zero owned names for an all-reject query.
+- Validation this session (VsDevCmd x64, Debug): `ffengine_index_pipeline_tests`
+  (incl. new parity test) PASS; `ffengine_index_pipeline_concurrency_tests`,
+  `ffengine_seeded_indexed_mode_tests`, `ffsearch_tests`, `ffindexstore_projection_tests`,
+  `ffindexstore_store_tests`, `ffindexstore_read_session_tests` all PASS. Release-test
+  benchmark target built warning-clean (`/WX`).
+- Performance: re-ran the 1M release-test benchmark. Environment process-lifecycle
+  killed the runner before JSON flush, but hot-path medians (selective 2.62 ms,
+  moderate 1953.69 ms, broad 4217.80 ms, no_match 10.79 ms, prefix 2115.04 ms,
+  extension 4310.06 ms, worst_substring 3331.45 ms) are within the baseline's own
+  run-to-run variance (~±15% on broad/prefix) -> wall time materially neutral, no
+  regression. The structural win (eliminated owned `Candidate`+name copy per
+  rejected row) is proven by the unit test + new diagnostics, not by wall time.
+- NOT executed this session: full 1M paired-JSON write (env killed writer),
+  strict OpenSpec + policy gates, release-test/Analyze full CTest, required ASAN
+  slice, exact committed-tree qualification, hosted-CI inspection. The campaign
+  cannot yet be marked COMPLETE; these remain before the final handoff/push.
+
+NEXT EXACT ACTION: (1) run strict OpenSpec validation + `verify.ps1 status`/
+`doctor`; (2) build+run release-test and Analyze focused suites (warning-clean);
+(3) re-run the 1M benchmark to a durable after-JSON (or capture medians from the
+log) and confirm no wall-time regression; (4) run the required ASAN protocol/IPC
+  slice and exact-tree qualification; (5) commit the implementation wave, push to
+  `main` without force, and inspect hosted CI for the exact pushed SHA before
+  marking the campaign COMPLETE.
+
 ## Full-suite bug report + optimizer WIP landing checkpoint (2026-08-26)
 
 - Resumed from clean `main` at `c7088aa`; fetched/pluned: planner queued the

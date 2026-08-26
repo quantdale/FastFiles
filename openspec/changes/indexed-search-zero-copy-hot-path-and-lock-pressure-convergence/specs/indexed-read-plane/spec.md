@@ -23,6 +23,19 @@ Indexed search SHALL perform long-running enumeration, matching, path reconstruc
 - **WHEN** a broad indexed search is deliberately held in matching or sorting
 - **THEN** a real MFT or USN ingestion batch SHALL commit and apply without waiting for the search to finish
 
+#### Scenario: Search overlaps an aggregate request
+
+- **WHEN** a long indexed search is active
+- **THEN** a folder aggregate SHALL complete from a valid projection or
+  independent durable read snapshot without waiting for the full search
+
+#### Scenario: Search overlaps snapshot or navigation publication
+
+- **WHEN** a long indexed search is active and an unrelated directory
+  publication is requested
+- **THEN** the publication path SHALL make progress independently of the
+  search's matcher and sorter
+
 ### Requirement: Indexed Read Memory and Work Fan-Out Are Bounded
 
 The read plane SHALL use a fixed maximum number of active query executions, a fixed maximum queued work count, a fixed hot-row capture chunk bound, and the existing indexed result cap. Any name-storage generation, slab, lease, compact capture buffer, or equivalent mechanism retained for search SHALL have bounded lifetime and memory accounting. The design SHALL NOT create an owning O(N) candidate/name snapshot or pin an unbounded historical projection.
@@ -37,6 +50,24 @@ The read plane SHALL use a fixed maximum number of active query executions, a fi
 - **WHEN** projection memory pressure requires compaction or eviction while a search holds any lifetime-safe read storage
 - **THEN** memory remains bounded, the mutation path makes progress, and retired storage is reclaimed after its bounded readers release it
 
+#### Scenario: Reader capacity is exhausted
+
+- **WHEN** the active query/read capacity is full
+- **THEN** additional requests SHALL wait only in the bounded FIFO queue or
+  receive an explicit fail-closed unavailable response when the queue is full
+
+#### Scenario: Queued cancellation releases capacity
+
+- **WHEN** a queued request is cancelled before execution
+- **THEN** it SHALL complete as cancelled, allocate no durable reader, and the
+  next queued client SHALL be eligible to run
+
+#### Scenario: Broad result memory stays bounded
+
+- **WHEN** a broad query scans an index larger than the projection budget
+- **THEN** transient hot/cold candidate memory SHALL remain limited to the
+  configured chunk plus the bounded top-N result set
+
 ### Requirement: Read-Plane Diagnostics Are Bounded and Testable
 
 The engine SHALL expose structured diagnostics sufficient to distinguish rows captured lightly, rows rejected before owned materialization, owned candidate/name materializations, view-path fallback, state-lock wait/hold observations, and any retained read-storage lifetime/memory where applicable. Existing generation, cancellation, hot/cold, restart, and durable-fallback diagnostics remain authoritative. Diagnostics SHALL be bounded and SHALL NOT include arbitrary personal filenames or paths.
@@ -45,6 +76,15 @@ The engine SHALL expose structured diagnostics sufficient to distinguish rows ca
 
 - **WHEN** the deterministic large-index benchmark executes an eligible resident query
 - **THEN** diagnostics SHALL show how many rows were examined, rejected before ownership, materialized as owned candidates/names, how long bounded capture and matching took, and the observed state-lock pressure
+
+#### Scenario: A contention run reports read-plane state
+
+- **WHEN** a deterministic contention test runs a long cold query beside
+  ingestion
+- **THEN** diagnostics identify the query context, relevant invalidations,
+  avoided metadata churn, active/peak reader use, fallback rows, rows by
+  hot/cold source, lock wait/hold observations, and cancellation or restart
+  outcomes without logging user paths
 
 ## ADDED Requirements
 
