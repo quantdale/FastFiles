@@ -146,7 +146,10 @@ for the current root-cause evidence and remaining interactive-desktop boundary.
 
 ## Runtime verification
 
-`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`) with documented exit codes. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked. Run the active-path capability with `pwsh ./verify/verify.ps1 run -Capability windows-active-path-resilience-validation`; use `-CapabilityOption ActivePathSoakSeconds=<seconds>` to select a shorter or longer bounded run.
+<!-- ff-truth:verifier-verbs -->
+`verify/verify.ps1` is the autonomous runtime-verification harness entry point. It exposes a fixed, non-interactive verb set (`build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`, `status`, `release-readiness`, `release-candidate`); the authoritative definition is the `$Verb` `ValidateSet` in that script.
+<!-- /ff-truth:verifier-verbs -->
+It documents exit codes, tiers, and capability composition in `verify/README.md`. Generated `verify/runs/` and `verify/baselines/` artifacts are untracked. Run the active-path capability with `pwsh ./verify/verify.ps1 run -Capability windows-active-path-resilience-validation`; use `-CapabilityOption ActivePathSoakSeconds=<seconds>` to select a shorter or longer bounded run.
 
 ```powershell
 pwsh ./verify/verify.ps1
@@ -154,6 +157,6 @@ pwsh ./verify/verify.ps1
 
 ## Project conventions & workflow
 
-This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. The current interactive hardening change is `openspec/changes/interactive-ui-runtime-determinism/`; the prior active-path change remains historical completed work. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
+This project uses **OpenSpec** (`openspec/`, schema: spec-driven). Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. `tasks.md` files track implementation with `[x]`/`[ ]` checkboxes and are the source of truth for what is built vs. deferred. Which changes are active, completed, superseded, or external-evidence-only is owned by the schema-v2 lifecycle manifest `openspec/lifecycle.json`; consult it (plus `.agent/EXECUTION_PROMPT.md`) instead of any campaign list copied here — completed campaigns remain in-tree as historical evidence only. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) that refer to the corresponding `tasks.md`.
 
 C++ style: four-space indentation, opening braces on the same line, `PascalCase` types and public methods, `camelCase` locals and parameters, trailing-underscore members, `kPascalCase` constants, and `ff<component>` namespaces. Keep headers self-contained and prefer standard C++ types at component boundaries. Run the focused test first, then the full suite, before submitting.

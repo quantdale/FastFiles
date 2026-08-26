@@ -83,8 +83,10 @@ constexpr uint32_t kMaxIndexedSearchResultCount = 4096;
 
 struct SubscribeAckPayload {
     uint64_t generationId;
-    // Snapshot section name (e.g. "Local\FastFiles.IndexSnapshot.<SessionId>")
-    // follows as a length-prefixed UTF-16 string.
+    // Snapshot section name for one committed generation, e.g.
+    // "Local\FastFiles.IndexSnapshot.<SessionId>.<Instance>.<Generation>"
+    // (composition: ffsetup::kSnapshotSectionNameFormat + instance +
+    // GenerationSectionName); follows as a length-prefixed UTF-16 string.
     uint16_t sectionNameLengthChars;
 };
 

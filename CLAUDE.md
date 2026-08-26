@@ -21,4 +21,4 @@ This file is a short stub. The authoritative repository guide is **AGENTS.md** �
 
 - **Current state:** the privileged MFT/USN scan is *implemented* but inert in practice — the Authenticode pins in `src/setup/include/ffsetup/PinnedSignatures.h` are all-zero placeholders, so mutual auth fails closed on every peer. Degraded mode is the active path.
 
-- **Workflow:** OpenSpec — work lives in `openspec/changes/<name>/`; `tasks.md` is the source of truth. Current open work: `openspec/changes/close-independent-validation-gaps/tasks.md`. Read `openspec/changes/establish-architecture-foundation/design.md` before touching process boundaries, IPC, or the security model.
+- **Workflow:** OpenSpec — work lives in `openspec/changes/<name>/`; `tasks.md` is the source of truth. Which changes are active, completed, or superseded is owned by `openspec/lifecycle.json` (schema-v2 lifecycle manifest; see AGENTS.md) — do not treat archived campaigns as open work. Read `openspec/changes/establish-architecture-foundation/design.md` before touching process boundaries, IPC, or the security model.

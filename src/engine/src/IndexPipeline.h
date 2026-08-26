@@ -268,8 +268,8 @@ public:
     // existing directory-listing snapshot wire format (SnapshotFormat.h),
     // keyed by full reconstructed path under `rootPathPrefix` (e.g.
     // L"C:"), so it can be published through the already-established
-    // double-buffered snapshot mechanism (tasks.md 3.5) without inventing
-    // a new wire format for this change.
+    // committed-generation snapshot mechanism (tasks.md 3.5) without
+    // inventing a new wire format for this change.
     std::map<std::wstring, ffprotocol::SnapshotDirectory> ExportDirectorySnapshot(
         ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix);
 

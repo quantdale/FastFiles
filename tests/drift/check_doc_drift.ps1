@@ -14,6 +14,12 @@
 #  (b) No .cpp/.h file under src/ or tests/ may have mixed line endings (both
 #      CRLF and lone LF). With `* text=auto` renormalization, a mixed-ending
 #      worktree file indicates line-ending corruption or a partial conversion.
+#  (c) Semantic truth contracts (DocTruth.psm1): fenced machine-derived claims
+#      in current-facing guidance must match their authoritative executable
+#      seams (verifier verbs/exit codes, CMake presets/targets, lifecycle
+#      manifest states, snapshot publication source seam); stale
+#      current-campaign claims fail closed; orphaned fences fail closed.
+#      See openspec/changes/repository-truth-surface-and-doc-drift-convergence/.
 #
 # Run standalone: pwsh -NoProfile -File tests/drift/check_doc_drift.ps1
 
@@ -79,13 +85,26 @@ function Test-LineEndings {
     return $failures
 }
 
+function Test-TruthContracts {
+    Import-Module (Join-Path $PSScriptRoot 'DocTruth.psm1') -Force
+    $findings = @(Get-DocTruthFindings -RepoRoot $repoRoot)
+    foreach ($finding in $findings) {
+        Write-Host ("FAIL: [truth:{0}] {1} :: {2}" -f $finding.Code, $finding.Surface, $finding.Detail)
+    }
+    if ($findings.Count -eq 0) {
+        Write-Host 'PASS: semantic truth contracts over current-facing guidance'
+    }
+    return $findings.Count
+}
+
 $failures = 0
 $failures += Test-SupersededClaims
 $failures += Test-LineEndings
+$failures += Test-TruthContracts
 
 if ($failures -eq 0) {
-    Write-Host 'PASS: doc-drift and line-ending checks'
+    Write-Host 'PASS: doc-drift, line-ending, and truth checks'
     exit 0
 }
-Write-Host "FAIL: $failures doc-drift/line-ending check(s) failed"
+Write-Host "FAIL: $failures doc-drift/line-ending/truth check(s) failed"
 exit 1

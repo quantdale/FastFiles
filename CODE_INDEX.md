@@ -237,9 +237,12 @@ Internal headers in `src/engine/src/`. Namespace `ffengine`. Entry
   Background lifecycle thread with heartbeat + backoff; reader thread
   dispatches scan/journal frames to callbacks. `SendRequest` (thread-safe vs.
   heartbeat), `DropForIdle`/`RequestReconnect` (idle lifecycle).
-- `SnapshotPublisher` — publishes the double-buffered memory-mapped section
-  (`Local\FastFiles.IndexSnapshot.<sessionId>`); `Publish` writes the inactive
-  slot then atomically flips `activeSlot`/`generation`.
+- `SnapshotPublisher` — publishes immutable, generation-named memory-mapped
+  sections (`<session-prefix>.<instance>.<generation>`): each candidate mapping
+  is written fully and committed (`CommitGeneration`) before the publisher swaps
+  its current mapping/generation, a canonical first generation is published
+  during `Start` (generation 0 = no-committed-generation sentinel), and the
+  control pipe carries only the exact new section name.
 - `UiServer` — same-privilege control-plane server for the UI. Handles
   Subscribe/RequestDirectory, republishes on watched-directory changes, pushes
   NewGeneration/EngineStatus, services unavailable-volume + folder-aggregate
@@ -357,10 +360,11 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
    closed, so the index is not populated from MFT/USN yet and degraded mode
    remains the active path.
 2. **Engine→UI snapshot (zero IPC per read).** `IndexPipeline.ExportDirectorySnapshot`
-   → `UiServer.MergeIndexDirectories` → `SnapshotPublisher.Publish` flips a
-   generation in the mapped section. `EngineClient.ReadSnapshot` maps the
-   section and parses it in-process; the control pipe only carries the
-   "new generation ready" notification.
+   → `UiServer.MergeIndexDirectories` → `SnapshotPublisher.Publish`, which writes
+   and commits a new immutable generation mapping and then notifies with the
+   exact section name. `EngineClient.ReadSnapshotWithGeneration` maps that named
+   current-generation section and parses it in-process; the control pipe only
+   carries the "new generation ready" notification.
 3. **Degraded path (active today).** `UiServer` calls `DegradedModeEnumerator`
    on `RequestDirectory`, `DirectoryWatcher` watches each browsed root, and
    each change re-enumerates + republishes a new generation — no service.
@@ -369,10 +373,11 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
 
 Plain C++ executables registered with CTest (`Check(condition, description)`
 helper, non-zero exit on failure — no gtest/catch). Test dirs mirror
-components under `tests/`: `{protocol, ipc, indexstore, search, indexsvc,
-engine, navigation, commands, fileoperations, preview, ui, uia-driver, status,
-providers}`.
+components under `tests/`: `{commands, drift, engine, fileoperations,
+indexstore, indexsvc, ipc, navigation, preview, protocol, providers, search,
+setup, status, ui, uia-driver, verification}`.
 Files named `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`.
+Campaign/lifecycle state authority: `openspec/lifecycle.json`.
 
 | Test target (`-R` matches this) | Source |
 | --- | --- |

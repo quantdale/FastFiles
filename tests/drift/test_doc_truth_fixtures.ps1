@@ -1,0 +1,351 @@
+# tests/drift/test_doc_truth_fixtures.ps1 -- adversarial fixtures for DocTruth.psm1.
+#
+# Registered with CTest as `ffdoc_truth_fixture_tests` (see
+# tests/drift/CMakeLists.txt; pwsh-gated). Exit 0 = every fixture expectation
+# held; exit 1 = any expectation violated (including a check that failed to
+# fire). Builds disposable hermetic repository trees under $env:TEMP, mutates
+# them per case, runs Get-DocTruthFindings, and asserts exact expected reason
+# codes. No repo mutation, no network, no elevation.
+#
+# Contract: openspec/changes/repository-truth-surface-and-doc-drift-convergence/
+#           evidence/negative-fixture-matrix.md
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$script:ModulePath = Join-Path $PSScriptRoot 'DocTruth.psm1'
+Import-Module $script:ModulePath -Force
+
+$script:Failures = 0
+
+function Write-CaseResult {
+    param([string] $CaseId, [bool] $Ok, [string] $Why)
+    if ($Ok) {
+        Write-Host ("PASS: fixture {0}" -f $CaseId)
+    } else {
+        Write-Host ("FAIL: fixture {0} :: {1}" -f $CaseId, $Why)
+        $script:Failures++
+    }
+}
+
+function Assert-CodesPresent {
+    param([string] $CaseId, $Findings, [string[]] $ExpectedSubstrings)
+    foreach ($expected in $ExpectedSubstrings) {
+        # Mirror check_doc_drift.ps1's rendered finding line exactly.
+        $hit = @($Findings | Where-Object { ("[truth:{0}] {1} :: {2}" -f $_.Code, $_.Surface, $_.Detail).StartsWith($expected, [System.StringComparison]::Ordinal) }).Count
+        if ($hit -eq 0) {
+            return @{ Ok = $false; Why = ("expected finding not emitted: " + $expected + " | got: " + (($Findings | ForEach-Object { $_.Code }) -join ',')) }
+        }
+    }
+    return @{ Ok = $true; Why = '' }
+}
+
+function New-FixtureTree {
+    # Builds the green baseline tree; returns its root path.
+    param([string] $Root)
+
+    $dirs = @(
+        'verify', 'src/app', 'src/engine/src', 'openspec/changes/alpha',
+        'openspec/changes/beta', 'openspec/changes/gamma', 'docs/history'
+    )
+    foreach ($d in $dirs) {
+        New-Item -ItemType Directory -Path (Join-Path $Root $d) -Force | Out-Null
+    }
+
+    Set-Content -LiteralPath (Join-Path $Root 'verify/verify.ps1') -Encoding UTF8 -Value @'
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory, Position = 0)]
+    [ValidateSet('build', 'doctor', 'status')]
+    [string] $Verb
+)
+$ExitPass = 0
+$ExitFail = 1
+$ExitSkipped = 2
+$ExitError = 3
+$ExitNotImplemented = 10
+'@
+
+    Set-Content -LiteralPath (Join-Path $Root 'CMakePresets.json') -Encoding UTF8 -Value @'
+{
+  "version": 5,
+  "configurePresets": [
+    { "name": "base", "hidden": true },
+    { "name": "debug" },
+    { "name": "release" }
+  ],
+  "testPresets": [
+    { "name": "debug" }
+  ]
+}
+'@
+
+    Set-Content -LiteralPath (Join-Path $Root 'src/app/CMakeLists.txt') -Encoding UTF8 -Value @'
+add_executable(FastFilesApp main.cpp)
+add_library(ffcore STATIC core.cpp)
+'@
+
+    Set-Content -LiteralPath (Join-Path $Root 'src/engine/src/SnapshotPublisher.cpp') -Encoding UTF8 -Value @'
+std::wstring GenerationSectionName(const std::wstring& prefix, uint64_t generation) { return prefix + L"." + std::to_wstring(generation); }
+void Publish() { CommitGeneration(&header->generation, generation); }
+'@
+
+    Set-Content -LiteralPath (Join-Path $Root 'openspec/lifecycle.json') -Encoding UTF8 -Value @'
+{
+  "schemaVersion": 2,
+  "changes": [
+    { "name": "alpha", "state": "completed", "taskOverrides": [] },
+    { "name": "beta", "state": "active", "taskOverrides": [] },
+    { "name": "gamma", "state": "external-evidence-only", "taskOverrides": [] }
+  ]
+}
+'@
+
+    $surfaces = @{
+        'README.md'        = @'
+# Fixture
+
+Authority for campaign state: `openspec/lifecycle.json`.
+
+<!-- ff-truth:verifier-verbs -->
+Verbs: `build`, `doctor`, `status`.
+<!-- /ff-truth:verifier-verbs -->
+
+<!-- ff-truth:configure-presets-all -->
+Presets: `debug`, `release`.
+<!-- /ff-truth:configure-presets-all -->
+
+<!-- ff-truth:test-presets-all -->
+Test presets: `debug` only.
+<!-- /ff-truth:test-presets-all -->
+
+<!-- ff-truth:product-executables -->**FastFilesApp**<!-- /ff-truth:product-executables -->
+
+<!-- ff-truth:shared-libs-subset -->Libs: `ffcore`.<!-- /ff-truth:shared-libs-subset -->
+'@
+        'AGENTS.md'        = @'
+Guide. Authority: `openspec/lifecycle.json`.
+
+<!-- ff-truth:exit-codes -->Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED.<!-- /ff-truth:exit-codes -->
+
+The beta change is the current change is `beta`.
+'@
+        'CLAUDE.md'        = "Stub. Authority: ``openspec/lifecycle.json``."
+        'CODE_INDEX.md'    = "Index. Authority: ``openspec/lifecycle.json``."
+        'AUTONOMOUS.md'    = "Loop. Authority: ``openspec/lifecycle.json``."
+        'verify/README.md' = "Verifier usage. Authority: ``openspec/lifecycle.json``."
+        'progress.md'      = "Status narrative. Generated by the status command; see ``openspec/lifecycle.json``."
+    }
+    foreach ($k in $surfaces.Keys) {
+        Set-Content -LiteralPath (Join-Path $Root $k) -Encoding UTF8 -Value $surfaces[$k]
+    }
+}
+
+function Invoke-Fixture {
+    param([string] $Root)
+    $result = @(Get-DocTruthFindings -RepoRoot $Root)
+    return ,@($result)
+}
+
+function Copy-GreenTree {
+    param([string] $Source, [string] $Dest)
+    New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+    Copy-Item -Path (Join-Path $Source '*') -Destination $Dest -Recurse -Force
+}
+
+$script:green = Join-Path ([System.IO.Path]::GetTempPath()) ("fftruth-green-" + [guid]::NewGuid().ToString('N'))
+New-FixtureTree -Root $script:green
+
+try {
+    # ---- Case 0 / 15: positive control + deterministic ordering ------------
+    $first = Invoke-Fixture -Root $script:green
+    $second = Invoke-Fixture -Root $script:green
+    $a = ($first | ForEach-Object { "{0}|{1}|{2}" -f $_.Code, $_.Surface, $_.Detail }) -join "`n"
+    $b = ($second | ForEach-Object { "{0}|{1}|{2}" -f $_.Code, $_.Surface, $_.Detail }) -join "`n"
+    $ok = ($first.Count -eq 0) -and ($a -eq $b)
+    Write-CaseResult -CaseId 'positive-control-deterministic' -Ok $ok -Why ("green tree emitted findings: " + $a)
+
+    # ---- Case 14: historical document outside surface set must pass --------
+    $hist = Join-Path $script:green 'docs/history/note.md'
+    Set-Content -LiteralPath $hist -Encoding UTF8 -Value @"
+Historical record: the publisher used to be double-buffered with an
+activeSlot flip. The current campaign was alpha; it is closed now.
+"@
+    $h = Invoke-Fixture -Root $script:green
+    $ok = ($h.Count -eq 0)
+    Write-CaseResult -CaseId 'historical-passthrough' -Ok $ok -Why ("historical wording rejected outside surface set: " + (($h | ForEach-Object { $_.Code }) -join ','))
+    Remove-Item -LiteralPath $hist -Force
+
+    function Test-Mutant {
+        param(
+            [string] $CaseId,
+            [scriptblock] $Mutate,
+            [string[]] $Expect,
+            [switch] $AlsoAssertNoneOf
+        )
+        $root = Join-Path ([System.IO.Path]::GetTempPath()) ("fftruth-" + [guid]::NewGuid().ToString('N'))
+        try {
+            Copy-GreenTree -Source $script:green -Dest $root
+            & $Mutate $root
+            $findings = Invoke-Fixture -Root $root
+            $res = Assert-CodesPresent -CaseId $CaseId -Findings $findings -ExpectedSubstrings $Expect
+            if ($res.Ok -and $AlsoAssertNoneOf) {
+                # caller supplies none-expectations via Expect prefixed '!'
+                foreach ($e in $Expect) {
+                    if ($e.StartsWith('!')) {
+                        $needle = $e.Substring(1)
+                        $hit = @($findings | Where-Object { ("[{0}] {1} :: {2}" -f $_.Code, $_.Surface, $_.Detail).StartsWith($needle, [System.StringComparison]::Ordinal) }).Count
+                        if ($hit -gt 0) { $res = @{ Ok = $false; Why = ("forbidden finding emitted: " + $needle) } }
+                    }
+                }
+            }
+            Write-CaseResult -CaseId $CaseId -Ok $res.Ok -Why $res.Why
+        } finally {
+            if (Test-Path -LiteralPath $root) {
+                Remove-Item -LiteralPath $root -Recurse -Force
+            }
+        }
+    }
+
+    # ---- Case 1: missing supported verb ------------------------------------
+    Test-Mutant -CaseId 'missing-supported-verb' -Expect @('[truth:VERB_MISSING] README.md :: status') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace(', `status`.', '.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 2: extra nonexistent verb ------------------------------------
+    Test-Mutant -CaseId 'extra-nonexistent-verb' -Expect @('[truth:VERB_UNKNOWN] README.md :: teleport') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('`status`.', '`status`, `teleport`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 3: exit-code drift -------------------------------------------
+    Test-Mutant -CaseId 'exitcode-mismatch' -Expect @('[truth:EXITCODE_MISMATCH] AGENTS.md :: 10') -Mutate {
+        param($root)
+        $p = Join-Path $root 'AGENTS.md'
+        $t = [IO.File]::ReadAllText($p).Replace('`10`=NOT-YET-IMPLEMENTED', '`10`=RESERVED')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+    Test-Mutant -CaseId 'exitcode-missing' -Expect @('[truth:EXITCODE_MISSING] AGENTS.md :: 2') -Mutate {
+        param($root)
+        $p = Join-Path $root 'AGENTS.md'
+        $t = [IO.File]::ReadAllText($p).Replace(', `2`=SKIPPED', '')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 4: stale current-change claim (completed state) --------------
+    Test-Mutant -CaseId 'stale-current-change-completed' -Expect @('[truth:STALE_CURRENT_CLAIM] AGENTS.md :: alpha manifest-state=completed') -Mutate {
+        param($root)
+        $p = Join-Path $root 'AGENTS.md'
+        $t = [IO.File]::ReadAllText($p).Replace('The beta change is the current change is `beta`.', 'The alpha change is the current change is `alpha`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 5: current open work pointing at external-evidence-only ------
+    Test-Mutant -CaseId 'stale-current-open-work-pointer' -Expect @('[truth:STALE_CURRENT_CLAIM] AGENTS.md :: gamma manifest-state=external-evidence-only') -Mutate {
+        param($root)
+        $p = Join-Path $root 'AGENTS.md'
+        $t = [IO.File]::ReadAllText($p).Replace('The beta change is the current change is `beta`.', 'Current open work: `openspec/changes/gamma/tasks.md`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 6: lifecycle disagreement (unknown campaign name) ------------
+    Test-Mutant -CaseId 'lifecycle-disagreement-unknown-name' -Expect @('[truth:STALE_CURRENT_CLAIM] AGENTS.md :: delta manifest-state=unknown') -Mutate {
+        param($root)
+        $p = Join-Path $root 'AGENTS.md'
+        $t = [IO.File]::ReadAllText($p).Replace('is `beta`.', 'is `delta`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 7: stale snapshot mechanics -----------------------------------
+    Test-Mutant -CaseId 'removed-snapshot-mechanic' -Expect @('[truth:REMOVED_MECHANIC] README.md :: double-buffered') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p) + "`nPublisher note: double-buffered sections."
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 8: preset equality drift --------------------------------------
+    Test-Mutant -CaseId 'preset-missing' -Expect @('[truth:PRESET_MISSING] README.md :: release') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('Presets: `debug`, `release`.', 'Presets: `debug`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+    Test-Mutant -CaseId 'preset-unknown' -Expect @('[truth:PRESET_UNKNOWN] README.md :: bogus') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('Presets: `debug`, `release`.', 'Presets: `debug`, `release`, `bogus`.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 9: executable topology drift ----------------------------------
+    Test-Mutant -CaseId 'target-renamed-in-build' -Expect @('[truth:TARGET_UNKNOWN] README.md :: FastFilesApp', '[truth:TARGET_MISSING] README.md :: FastFilesRenamed') -Mutate {
+        param($root)
+        $p = Join-Path $root 'src/app/CMakeLists.txt'
+        $t = [IO.File]::ReadAllText($p).Replace('FastFilesApp', 'FastFilesRenamed')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+    Test-Mutant -CaseId 'target-ghost-in-doc' -Expect @('[truth:TARGET_UNKNOWN] README.md :: FastFilesGhost') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('**FastFilesApp**', '**FastFilesApp** **FastFilesGhost**')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Cases 10-12: malformed fences fail closed --------------------------
+    Test-Mutant -CaseId 'fence-unclosed' -Expect @('[truth:FENCE_UNCLOSED] README.md') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('<!-- /ff-truth:verifier-verbs -->', '')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+    Test-Mutant -CaseId 'fence-unknown-contract' -Expect @('[truth:FENCE_UNKNOWN_CONTRACT] README.md') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace('ff-truth:shared-libs-subset', 'ff-truth:not-a-contract')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+    Test-Mutant -CaseId 'fence-duplicate' -Expect @('[truth:FENCE_DUPLICATE] README.md') -Mutate {
+        param($root)
+        $p = Join-Path $root 'README.md'
+        $t = [IO.File]::ReadAllText($p) + "`n<!-- ff-truth:verifier-verbs -->again<!-- /ff-truth:verifier-verbs -->"
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+    }
+
+    # ---- Case 13: unreadable authority input fails closed -------------------
+    Test-Mutant -CaseId 'authority-unreadable-fails-closed' -Expect @('[truth:AUTHORITY_UNREADABLE] verify.ps1') -Mutate {
+        param($root)
+        Remove-Item -LiteralPath (Join-Path $root 'verify/verify.ps1') -Force
+    }
+
+    # ---- Case 16: diagnostics redaction -------------------------------------
+    $redRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("fftruth-" + [guid]::NewGuid().ToString('N'))
+    try {
+        Copy-GreenTree -Source $script:green -Dest $redRoot
+        $p = Join-Path $redRoot 'README.md'
+        $t = [IO.File]::ReadAllText($p).Replace(', `status`.', '.')
+        Set-Content -LiteralPath $p -Encoding UTF8 -Value $t -NoNewline
+        $findings = Invoke-Fixture -Root $redRoot
+        $serialized = ($findings | ForEach-Object { "{0}|{1}|{2}" -f $_.Code, $_.Surface, $_.Detail }) -join "`n"
+        $leak = [regex]::IsMatch($serialized, '[A-Za-z]:\\') -or $serialized.Contains('\')
+        Write-CaseResult -CaseId 'diagnostics-redacted' -Ok (-not $leak) -Why ('absolute/backslash path leaked: ' + $serialized)
+    } finally {
+        if (Test-Path -LiteralPath $redRoot) { Remove-Item -LiteralPath $redRoot -Recurse -Force }
+    }
+} finally {
+    if (Test-Path -LiteralPath $script:green) {
+        Remove-Item -LiteralPath $script:green -Recurse -Force
+    }
+}
+
+if ($script:Failures -eq 0) {
+    Write-Host 'PASS: doc-truth fixture matrix'
+    exit 0
+}
+Write-Host ("FAIL: {0} doc-truth fixture case(s) failed" -f $script:Failures)
+exit 1

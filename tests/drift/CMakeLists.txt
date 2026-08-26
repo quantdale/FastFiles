@@ -10,4 +10,13 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/tests/drift/check_doc_drift.ps1"
   )
   set_tests_properties(ffdoc_drift_tests PROPERTIES TIMEOUT 120)
+
+  # Adversarial fixture matrix for the semantic truth contracts (hermetic
+  # temp trees; no repo mutation, no network).
+  add_test(
+    NAME ffdoc_truth_fixture_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/tests/drift/test_doc_truth_fixtures.ps1"
+  )
+  set_tests_properties(ffdoc_truth_fixture_tests PROPERTIES TIMEOUT 300)
 endif()

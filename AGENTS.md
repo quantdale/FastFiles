@@ -21,7 +21,7 @@ Shared libs: `ffprotocol` (wire protocol — depended on by everything), `ffipc`
 
 **Two IPC seams, both named pipes only** — the only kernel-object type on purpose (one thing to ACL correctly; reference impls Everything and Docker Desktop shipped LPE/DoS CVEs from object-ACL mistakes here). 1) Engine↔Service = the elevation boundary (hardened hard). 2) Engine↔UI = same-privilege control plane only.
 
-**Keystroke search has zero IPC round-trip**: the engine publishes an immutable, double-buffered index into a read-only memory-mapped section (`Local\FastFiles.IndexSnapshot.<SessionId>`) and only sends a lightweight "new generation ready" notification over the control pipe. The UI maps once, re-maps on notification, and reads search/filter/sort entirely in-process. See `SnapshotFormat.h` / `SnapshotPublisher`.
+**Keystroke search has zero IPC round-trip**: the engine publishes immutable, generation-named memory-mapped sections (`<session-prefix>.<instance>.<generation>`; see `kSnapshotSectionNameFormat`) and only sends a lightweight "new generation ready" notification carrying the exact section name over the control pipe. Each candidate mapping is written fully and committed (`CommitGeneration`) before the publisher hands it off; a canonical first generation is published during `Start` (generation 0 stays the no-committed-generation sentinel). The UI maps the named generation section, re-maps on each notification, and reads search/filter/sort entirely in-process. See `SnapshotFormat.h` / `SnapshotPublisher.cpp` / `EngineClient::ReadSnapshotWithGeneration`.
 
 ## Current state: degraded mode is the active path
 
@@ -57,7 +57,13 @@ ctest --test-dir build/debug -R ffprotocol_fuzz_tests --output-on-failure   # si
 cmake --preset analyze && cmake --build --preset analyze   # + MSVC /analyze
 ```
 
-Presets: `debug`, `debug-diagnostic` (Debug-only disposable UIA/degraded validation seam), `release`, `release-test` (RelWithDebInfo unsigned test artifact), `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`), `asan` (Debug + ASan via `/fsanitize:address`). CTest presets exist for `debug`, `release`, and `release-test` only (no `debug-diagnostic`/`analyze`/`asan` test preset). Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
+<!-- ff-truth:configure-presets-all -->
+Presets: `debug`, `debug-diagnostic` (Debug-only disposable UIA/degraded validation seam), `release`, `release-test` (RelWithDebInfo unsigned test artifact), `analyze` (Debug + `/analyze` via `FASTFILES_STATIC_ANALYSIS=ON`), `asan` (Debug + ASan via `/fsanitize:address`).
+<!-- /ff-truth:configure-presets-all -->
+<!-- ff-truth:test-presets-all -->
+CTest presets exist for `debug`, `release`, and `release-test` only; no other configure preset defines a CTest preset.
+<!-- /ff-truth:test-presets-all -->
+Tests are on by default (`FASTFILES_BUILD_TESTS=ON`).
 
 Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl /guard:cf /Zc:__cplusplus`; link `/DYNAMICBASE /NXCOMPAT /guard:cf`); **warnings are errors** — new code must be warning-clean. The vendored SQLite C amalgamation (`third_party/sqlite/`) keeps its own warning config (compiled as C for the SQLite target only) and must not trip FastFiles analysis; avoid incidental edits there.
 
@@ -68,7 +74,7 @@ Tests are **plain C++ executables registered with CTest — no gtest/catch**. Th
 - Test dirs mirror components: `tests/{protocol,ipc,indexstore,search,indexsvc,engine,navigation,commands,fileoperations,preview,ui,setup,uia-driver}` plus `tests/drift` (the doc-drift/line-ending guard). See `tests/README.md` for the test-directory overview.
 - File naming: `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`. Register new executables with CTest in the component's `CMakeLists.txt`. The shared helper header is `tests/TestSupport.h` (`fftest::Check` / `fftest::FailureCount`) — use it in new tests instead of copy-pasting a local `Check`.
 - CTest `-R` matches the **test name**, which equals the target name — e.g. `ffprotocol_tests`, `ffprotocol_fuzz_tests`, `ffprotocol_diagnostics_tests`. Use `-R <substring>` (e.g. `-R indexstore`) to run one component's tests.
-- Single-target fast loop: `cmake --build --preset debug --target <test-target>`, then `ctest --test-dir build/debug -R <name> --output-on-failure`. Note there is no `analyze` test preset (CTest presets exist for `debug` and `release` only).
+- Single-target fast loop: `cmake --build --preset debug --target <test-target>`, then `ctest --test-dir build/debug -R <name> --output-on-failure`.
 - `ffdoc_drift_tests` (pwsh-gated) checks the guidance docs for superseded claims and `src/`/`tests/` for mixed line endings — run it after editing root docs. The `asan` preset (configure/build only, no test preset) builds ASan-instrumented binaries for the fuzz/parser tests: `cmake --preset asan && cmake --build --preset asan --target ffprotocol_fuzz_tests`.
 - Cover success, malformed-input, recovery, and boundary cases where relevant. Run the focused test first, then `ctest --preset debug` before submitting.
 
@@ -123,7 +129,14 @@ privileged path.
 
 ## Runtime verification
 
-`verify/verify.ps1` is the autonomous verification harness entry point. Fixed non-interactive verbs: `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`, `status`, `release-readiness`, and `release-candidate`. Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED. Tier-1 (install/service) verbs need `-Elevate` (opt-in UAC, one-time authorization). Generated `verify/runs/` and `verify/baselines/` are untracked (execution evidence, not source).
+`verify/verify.ps1` is the autonomous verification harness entry point.
+<!-- ff-truth:verifier-verbs -->
+Fixed non-interactive verbs: `build`, `install`, `run`, `diagnose`, `report`, `repair`, `gate`, `list`, `doctor`, `status`, `release-readiness`, and `release-candidate` (authoritative definition: the `$Verb` `ValidateSet` in that script).
+<!-- /ff-truth:verifier-verbs -->
+<!-- ff-truth:exit-codes -->
+Exit codes: `0`=PASS, `1`=FAIL, `2`=SKIPPED, `3`=HARNESS ERROR, `10`=NOT-YET-IMPLEMENTED (authoritative values: the `$Exit*` constants in that script).
+<!-- /ff-truth:exit-codes -->
+Tier-1 (install/service) verbs need `-Elevate` (opt-in UAC, one-time authorization). Generated `verify/runs/` and `verify/baselines/` are untracked (execution evidence, not source).
 
 ```powershell
 pwsh ./verify/verify.ps1 build     # windows-build-validation capability
@@ -240,7 +253,7 @@ the documents and derive the latest run externally.
   with the viewport clip. No 96-DPI assumptions.
 
 ## Workflow: OpenSpec (spec-driven)
-Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **Most changes are fully closed**; remaining open work is tracked in `openspec/changes/*/tasks.md` (check `[ ]` counts) — currently `close-independent-validation-gaps`, `allocated-size-storage-accuracy`, `autonomous-runtime-verification` (external/provider), `indexed-search-allocated-size`, `semantic-treemap-uia`, and `zero-touch-autonomous-engineering` have open tasks. Always consult the relevant `tasks.md` as the source of truth before implementing a feature. Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
+Work is organized as *changes* under `openspec/changes/<name>/`, each with `proposal.md`, `design.md`, `specs/<capability>/spec.md`, and `tasks.md`. **`tasks.md` files are the source of truth for what's built vs. deferred** — consult the relevant one before implementing a feature, and check off `[x]`/`[ ]` items as you complete them. Code comments frequently cite task numbers (e.g. `// Task 4.10:`) referring to the corresponding `tasks.md`; keep that traceability when adding code. New code comments citing tasks should include the change slug (e.g. `// modernize-ui-appearance 3.3:`), because bare numbers like `// Task 3.3:` are ambiguous across changes; existing bare citations are grandfathered — no mass rewrite. The foundation change is `establish-architecture-foundation`. **Most changes are fully closed.** Which changes are active, completed, superseded, or external-evidence-only is owned by the schema-v2 lifecycle manifest `openspec/lifecycle.json` (with `.agent/EXECUTION_PROMPT.md` as the planner contract); consult those instead of any campaign list copied into guidance — unchecked `[ ]` counts in each `tasks.md` remain raw acceptance truth, and open tasks are classified by that manifest rather than by prose lists here. Always consult the relevant `tasks.md` as the source of truth before implementing a feature. Use the `openspec-*` skills for proposing/updating/applying/archiving changes.
 
 ## Coding style
 
