@@ -60,4 +60,5 @@
 - [ ] 8.1 Update benchmark/evidence records with exact commands, machine/build configuration, raw counts, and before/after measurements.
 - [ ] 8.2 Reconcile `docs/agent/WORKSTATE.md`, `progress.md`, lifecycle state, and `.agent/EXECUTION_PROMPT.md` from actual final reality.
 - [ ] 8.3 Commit logical waves, fetch/prune before final delivery, push without force, and verify local/remote parity.
-- [ ] 8.4 Mark the campaign COMPLETE only after exact-tree validation and hosted-CI inspection; if the performance premise is disproven, record the no-change result and STOP cleanly.
+- [ ] 8.4 Mark this bounded OpenSpec campaign COMPLETE only after exact-tree validation and hosted-CI inspection. If the performance premise is disproven, record the no-change result and revert any unjustified invasive optimization; do **not** force code merely to satisfy the premise.
+- [ ] 8.5 If `.agent/NEXT_CAMPAIGN_12H.md` is ACTIVE and its recorded 12-hour campaign deadline has not been reached, return control to that orchestrator after 8.4 instead of stopping: re-audit the live tree, select the next evidence-backed frontier, create the next bounded OpenSpec, and continue the autonomous campaign.
