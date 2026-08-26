@@ -614,32 +614,27 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
     }
     MaybeReportProjectionMemoryPressureLocked();
 
+    // Optimization: fuse the two rule-evaluation passes and cache the
+    // inclusion result per record so each entry's ReconstructPath walk
+    // runs at most once. When no rules are configured for this volume the
+    // gating is a no-op (preserves pre-change behavior without any walks).
+    const bool hasRulesForVolume = volumeRules_.find(volumeId) != volumeRules_.end();
     auto reconciling = reconciliationSeen_.find(volumeId);
-    if (reconciling != reconciliationSeen_.end()) {
+    std::vector<ffindexstore::EntryChange> ruleExcluded;
+    if (hasRulesForVolume) {
+        ruleExcluded.reserve(changes.size() / 8 + 1);
         for (const auto& change : changes) {
-            // zero-touch-autonomous-engineering (subtree gating): only mark an
-            // entry "observed" by the reconciliation pass when its configured
-            // rules include it, so a previously-included-but-now-excluded
-            // entry is reconciled away by FinishReconciliationPass. Records
-            // whose path cannot yet be resolved are marked observed (deferred)
-            // to preserve the existing orphan-tolerant reconciliation behavior.
-            if (IsEntryIncludedLocked(volumeId, change.record.id)) {
+            const bool included = IsEntryIncludedLocked(volumeId, change.record.id);
+            if (reconciling != reconciliationSeen_.end() && included) {
                 reconciling->second.insert(change.record.id);
             }
+            if (!included) {
+                ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, change.record});
+            }
         }
-    }
-
-    // zero-touch-autonomous-engineering (subtree gating): prune any record in
-    // this batch whose parent chain now resolves and which the configured
-    // rules exclude. Records whose chain did not resolve are left in place
-    // and decided on the next reconciliation pass (IsEntryIncludedLocked
-    // returns true for them). Removals are committed to the durable store
-    // then the projection, preserving the commit-before-apply invariant.
-    std::vector<ffindexstore::EntryChange> ruleExcluded;
-    for (const auto& change : changes) {
-        if (!IsEntryIncludedLocked(volumeId, change.record.id)) {
-            ffindexstore::EntryChange removal{ffindexstore::EntryChangeKind::Remove, change.record};
-            ruleExcluded.push_back(removal);
+    } else if (reconciling != reconciliationSeen_.end()) {
+        for (const auto& change : changes) {
+            reconciling->second.insert(change.record.id);
         }
     }
     if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
@@ -726,15 +721,17 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
         }
     }
 
-    // zero-touch-autonomous-engineering (subtree gating): prune upserted
-    // USN records whose parent chain now resolves and which the configured
-    // rules exclude (deletes are already no-ops against excluded subtrees).
-    // Deferred records are decided on the next reconciliation pass.
+    // Optimization: same fused single-walk evaluation as the MFT
+    // path, but only Upsert USN records are gated (deletes are no-ops).
+    // Skips all ReconstructPath walks when no rules exist for the volume.
+    const bool hasRulesForUsnVolume = volumeRules_.find(volumeId) != volumeRules_.end();
     std::vector<ffindexstore::EntryChange> ruleExcluded;
-    for (const auto& change : changes) {
-        if (change.kind == ffindexstore::EntryChangeKind::Upsert && !IsEntryIncludedLocked(volumeId, change.record.id)) {
-            ffindexstore::EntryChange removal{ffindexstore::EntryChangeKind::Remove, change.record};
-            ruleExcluded.push_back(removal);
+    if (hasRulesForUsnVolume) {
+        ruleExcluded.reserve(changes.size() / 8 + 1);
+        for (const auto& change : changes) {
+            if (change.kind == ffindexstore::EntryChangeKind::Upsert && !IsEntryIncludedLocked(volumeId, change.record.id)) {
+                ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, change.record});
+            }
         }
     }
     if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
@@ -826,16 +823,11 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
     }
     const auto& seen = it->second;
 
+    const bool hasRulesForReconcile = volumeRules_.find(id) != volumeRules_.end();
     std::vector<ffindexstore::EntryChange> removals;
     for (const auto& existingId : store_.ListEntryIds(id)) {
-        // zero-touch-autonomous-engineering (subtree gating): remove an entry
-        // when it was not observed by this pass OR when the configured rules
-        // now exclude it. The latter is the catch-all that prunes records
-        // deferred during ingestion (whose parent chain resolved only later)
-        // and any previously-included-but-now-excluded subtree, so rule
-        // changes take full effect on the next reconciliation without a restart.
         const bool notSeen = seen.find(existingId) == seen.end();
-        const bool excluded = !IsEntryIncludedLocked(id, existingId);
+        const bool excluded = hasRulesForReconcile && !IsEntryIncludedLocked(id, existingId);
         if (notSeen || excluded) {
             ffindexstore::EntryRecord marker;
             marker.id = existingId;
@@ -933,16 +925,68 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
 
 std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshotBounded(
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix, size_t maxDirectories) {
-    auto result = ExportDirectorySnapshot(id, rootPathPrefix);
-    if (result.size() > maxDirectories) {
-        // std::map iterates in case-insensitive path order; keeping the first
-        // N keys retains the lexicographically shallowest/top-of-tree
-        // directories deterministically. Deeper directories stay durable and
-        // re-materialize through the normal request/watch path.
-        auto firstDropped = result.begin();
-        std::advance(firstDropped, static_cast<std::ptrdiff_t>(maxDirectories));
-        result.erase(firstDropped, result.end());
+    if (maxDirectories == 0) {
+        return {};
     }
+    // Bounded publication keeps only the lexicographically smallest N
+    // directories (shallowest/top-of-tree) deterministically. To avoid
+    // building the full N=200k map then discarding the tail, insert with
+    // an in-flight bound: each insertion that would exceed maxDirectories
+    // evicts the current largest key (map's rbegin), so final size never
+    // exceeds maxDirectories and total work is O(D log max) not O(D log D).
+    std::lock_guard<std::mutex> lock(mutex_);
+    projection_.ReloadEvictedVolume(store_, id);
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
+    projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
+        if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
+            return;
+        }
+        auto pathResult = projection_.ReconstructPath(id, entry.frn);
+        const std::wstring reconstructed = ToWString(pathResult.path);
+        std::wstring fullPath;
+        if (entry.parentFrn == entry.frn) {
+            fullPath = rootPathPrefix;
+        } else if (pathResult.reachedRoot) {
+            const std::wstring relative = StripVolumeRootName(projection_, id, entry.frn, reconstructed);
+            fullPath = rootPathPrefix;
+            if (!relative.empty()) fullPath += L"\\" + relative;
+        } else {
+            fullPath = rootPathPrefix + L"\\" + reconstructed;
+        }
+        ffprotocol::SnapshotDirectory directory;
+        directory.status = ffprotocol::DirectoryEnumerationStatus::Success;
+        directory.volumeRowId = entry.volumeRowId;
+        directory.directoryIdLow = entry.frn.low;
+        directory.directoryIdHigh = entry.frn.high;
+        directory.parentIdLow = entry.parentFrn.low;
+        directory.parentIdHigh = entry.parentFrn.high;
+        if (auto children = projection_.ChildIndices(id, entry.frn); !children.empty()) {
+            directory.entries.reserve(children.size());
+            for (uint32_t childIndex : children) {
+                const auto& child = projection_.EntryAt(childIndex);
+                ffprotocol::SnapshotDirectoryEntry snapshotEntry;
+                snapshotEntry.name = ToWString(projection_.Names().Get(child.nameId));
+                snapshotEntry.isDirectory = (child.attributes & kFileAttributeDirectory) != 0;
+                snapshotEntry.sizeBytes = child.sizeBytes;
+                snapshotEntry.allocatedSizeBytes = child.allocatedSizeBytes;
+                snapshotEntry.allocatedSizeKnown = child.allocatedSizeKnown;
+                snapshotEntry.attributes = child.attributes;
+                snapshotEntry.creationTime = child.creationTime;
+                snapshotEntry.lastModifiedTime = child.lastModifiedTime;
+                snapshotEntry.volumeRowId = child.volumeRowId;
+                snapshotEntry.fileIdLow = child.frn.low;
+                snapshotEntry.fileIdHigh = child.frn.high;
+                snapshotEntry.parentIdLow = child.parentFrn.low;
+                snapshotEntry.parentIdHigh = child.parentFrn.high;
+                directory.entries.push_back(std::move(snapshotEntry));
+            }
+        }
+        result.emplace(std::move(fullPath), std::move(directory));
+        if (result.size() > maxDirectories) {
+            auto largest = std::prev(result.end());
+            result.erase(largest);
+        }
+    });
     return result;
 }
 

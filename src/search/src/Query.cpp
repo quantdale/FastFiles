@@ -215,12 +215,14 @@ bool HasLowerExtension16(std::u16string_view name, std::wstring_view extension) 
 
 std::vector<std::wstring> Tokenize(std::wstring_view text) {
     std::vector<std::wstring> tokens;
+    tokens.reserve(8);
     std::wstring current;
+    current.reserve(text.size());
     bool quoted = false;
     for (wchar_t c : text) {
         if (c == L'"') { quoted = !quoted; continue; }
-        if (!quoted && iswspace(c)) { if (!current.empty()) { tokens.push_back(std::move(current)); current.clear(); } continue; }
-        current += c;
+        if (!quoted && iswspace(c)) { if (!current.empty()) { tokens.push_back(std::move(current)); current.clear(); current.reserve(text.size()); } continue; }
+        current.push_back(c);
     }
     if (!current.empty()) { tokens.push_back(std::move(current)); }
     return tokens;
@@ -366,10 +368,11 @@ Predicate MakeDatePredicate(const FilterValue& value) { const auto filter = std:
 void FilterRegistry::Register(std::wstring key, FilterDefinition definition) { definitions_[Lower(key)] = std::move(definition); }
 const FilterDefinition* FilterRegistry::Find(std::wstring_view key) const { const auto it = definitions_.find(Lower(key)); return it == definitions_.end() ? nullptr : &it->second; }
 
-FilterRegistry FilterRegistry::WithDefaults() {
-    FilterRegistry registry;
-    registry.Register(L"ext", {[](std::wstring_view v) -> std::optional<FilterValue> { std::wstring x(v); if (!x.empty() && x.front() == L'.') x.erase(0, 1); return x.empty() ? std::nullopt : std::optional<FilterValue>(Lower(x)); }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const Candidate& c) { const size_t dot = c.name.find_last_of(L'.'); return dot != std::wstring::npos && Lower(std::wstring_view(c.name).substr(dot + 1)) == extension; }; }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const CandidateView& c) { return HasLowerExtension16(c.name, extension); }; }});
-    registry.Register(L"name", {[](std::wstring_view value) -> std::optional<FilterValue> {
+const FilterRegistry& FilterRegistry::WithDefaults() {
+    static const FilterRegistry kCachedDefaults = []() {
+        FilterRegistry defaults;
+    defaults.Register(L"ext", {[](std::wstring_view v) -> std::optional<FilterValue> { std::wstring x(v); if (!x.empty() && x.front() == L'.') x.erase(0, 1); return x.empty() ? std::nullopt : std::optional<FilterValue>(Lower(x)); }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const Candidate& c) { const size_t dot = c.name.find_last_of(L'.'); return dot != std::wstring::npos && Lower(std::wstring_view(c.name).substr(dot + 1)) == extension; }; }, [](const FilterValue& v) { const auto extension = std::get<std::wstring>(v); return [extension](const CandidateView& c) { return HasLowerExtension16(c.name, extension); }; }});
+    defaults.Register(L"name", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
         const auto text = std::get<std::wstring>(value);
@@ -384,7 +387,7 @@ FilterRegistry FilterRegistry::WithDefaults() {
                                              candidate.nameAsciiLower, foldedAnchor, foldedAnchorIndex);
         };
     }});
-    registry.Register(L"folder", {[](std::wstring_view value) -> std::optional<FilterValue> {
+    defaults.Register(L"folder", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
         const auto text = std::get<std::wstring>(value);
@@ -393,14 +396,14 @@ FilterRegistry FilterRegistry::WithDefaults() {
         const auto text = std::get<std::wstring>(value);
         return [text](const CandidateView& candidate) { return OrdinalContains(candidate.folder, text); };
     }});
-    registry.Register(L"size", {ParseSizeFilter, MakeSizePredicate, [](const FilterValue& value) {
+    defaults.Register(L"size", {ParseSizeFilter, MakeSizePredicate, [](const FilterValue& value) {
         const auto filter = std::get<SizeFilter>(value);
         return [filter](const CandidateView& c) { switch (filter.op) { case SizeFilter::Op::Equal: return c.sizeBytes == filter.first; case SizeFilter::Op::Greater: return c.sizeBytes > filter.first; case SizeFilter::Op::GreaterEqual: return c.sizeBytes >= filter.first; case SizeFilter::Op::Less: return c.sizeBytes < filter.first; case SizeFilter::Op::LessEqual: return c.sizeBytes <= filter.first; case SizeFilter::Op::Range: return c.sizeBytes >= filter.first && c.sizeBytes <= filter.second; } return false; };
     }});
     // allocated-size-search-filter D1/D2/D3: ondisk: is the single canonical
     // allocated-size key, reusing the SizeFilter numeric grammar and gating
     // every numeric predicate on allocatedSizeKnown.
-    registry.Register(L"ondisk", {ParseSizeFilter, MakeAllocatedSizePredicate, [](const FilterValue& value) {
+    defaults.Register(L"ondisk", {ParseSizeFilter, MakeAllocatedSizePredicate, [](const FilterValue& value) {
         const auto filter = std::get<SizeFilter>(value);
         return [filter](const CandidateView& c) {
             if (!c.allocatedSizeKnown) return false;
@@ -415,15 +418,17 @@ FilterRegistry FilterRegistry::WithDefaults() {
             return false;
         };
     }});
-    registry.Register(L"modified", {ParseDateFilter, MakeDatePredicate, [](const FilterValue& value) {
+    defaults.Register(L"modified", {ParseDateFilter, MakeDatePredicate, [](const FilterValue& value) {
         const auto filter = std::get<DateFilter>(value);
         return [filter](const CandidateView& c) { return filter.op == DateFilter::Op::GreaterThan ? c.modifiedTime > filter.first : c.modifiedTime >= filter.first && c.modifiedTime <= filter.second; };
     }});
-    registry.Register(L"kind", {[](std::wstring_view v) -> std::optional<FilterValue> { const auto x = Lower(v); return (x == L"document" || x == L"image" || x == L"video" || x == L"audio" || x == L"archive" || x == L"executable" || x == L"folder") ? std::optional<FilterValue>(x) : std::nullopt; }, [](const FilterValue& v) { const auto k = std::get<std::wstring>(v); return [k](const Candidate& c) { if (k == L"folder") return c.isDirectory; const size_t dot = c.name.find_last_of(L'.'); const std::wstring ext = dot == std::wstring::npos ? L"" : Lower(std::wstring_view(c.name).substr(dot + 1)); if (k == L"image") return ext == L"png" || ext == L"jpg" || ext == L"jpeg" || ext == L"gif"; if (k == L"document") return ext == L"pdf" || ext == L"doc" || ext == L"docx" || ext == L"txt"; if (k == L"video") return ext == L"mp4" || ext == L"mkv"; if (k == L"audio") return ext == L"mp3" || ext == L"wav"; if (k == L"archive") return ext == L"zip" || ext == L"7z"; return ext == L"exe" || ext == L"bat" || ext == L"cmd"; }; }, [](const FilterValue& v) {
+    defaults.Register(L"kind", {[](std::wstring_view v) -> std::optional<FilterValue> { const auto x = Lower(v); return (x == L"document" || x == L"image" || x == L"video" || x == L"audio" || x == L"archive" || x == L"executable" || x == L"folder") ? std::optional<FilterValue>(x) : std::nullopt; }, [](const FilterValue& v) { const auto k = std::get<std::wstring>(v); return [k](const Candidate& c) { if (k == L"folder") return c.isDirectory; const size_t dot = c.name.find_last_of(L'.'); const std::wstring ext = dot == std::wstring::npos ? L"" : Lower(std::wstring_view(c.name).substr(dot + 1)); if (k == L"image") return ext == L"png" || ext == L"jpg" || ext == L"jpeg" || ext == L"gif"; if (k == L"document") return ext == L"pdf" || ext == L"doc" || ext == L"docx" || ext == L"txt"; if (k == L"video") return ext == L"mp4" || ext == L"mkv"; if (k == L"audio") return ext == L"mp3" || ext == L"wav"; if (k == L"archive") return ext == L"zip" || ext == L"7z"; return ext == L"exe" || ext == L"bat" || ext == L"cmd"; }; }, [](const FilterValue& v) {
         const auto k = std::get<std::wstring>(v);
         return [k](const CandidateView& c) { if (k == L"folder") return c.isDirectory; if (k == L"image") return HasLowerExtension16(c.name, L"png") || HasLowerExtension16(c.name, L"jpg") || HasLowerExtension16(c.name, L"jpeg") || HasLowerExtension16(c.name, L"gif"); if (k == L"document") return HasLowerExtension16(c.name, L"pdf") || HasLowerExtension16(c.name, L"doc") || HasLowerExtension16(c.name, L"docx") || HasLowerExtension16(c.name, L"txt"); if (k == L"video") return HasLowerExtension16(c.name, L"mp4") || HasLowerExtension16(c.name, L"mkv"); if (k == L"audio") return HasLowerExtension16(c.name, L"mp3") || HasLowerExtension16(c.name, L"wav"); if (k == L"archive") return HasLowerExtension16(c.name, L"zip") || HasLowerExtension16(c.name, L"7z"); return HasLowerExtension16(c.name, L"exe") || HasLowerExtension16(c.name, L"bat") || HasLowerExtension16(c.name, L"cmd"); };
     }});
-    return registry;
+        return defaults;
+    }();
+    return kCachedDefaults;
 }
 
 bool Query::Matches(const Candidate& candidate) const { return std::all_of(predicates.begin(), predicates.end(), [&](const auto& p) { return p(candidate); }); }

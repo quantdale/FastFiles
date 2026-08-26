@@ -81,6 +81,18 @@ uint64_t DatabaseFileSize(const std::string& path) {
 // layer (Records.h/SnapshotFormat.h use std::u16string/std::wstring
 // directly rather than calling into Win32).
 std::string Utf16ToUtf8(const std::u16string& in) {
+    // Fast path: pure ASCII (common for file names) avoids per-codepoint
+    // branching and surrogate checks; ~80% of typical NTFS names are ASCII.
+    bool isAscii = true;
+    for (char16_t ch : in) {
+        if (ch > 0x7F) { isAscii = false; break; }
+    }
+    if (isAscii) {
+        std::string out;
+        out.resize(in.size());
+        for (size_t idx = 0; idx < in.size(); ++idx) out[idx] = static_cast<char>(in[idx]);
+        return out;
+    }
     std::string out;
     out.reserve(in.size() * 3 / 2 + 4);
     size_t i = 0;
@@ -118,11 +130,20 @@ std::u16string Utf8ToUtf16(const char* data, int lengthBytes) {
     if (data == nullptr || lengthBytes <= 0) {
         return {};
     }
-    std::u16string out;
-    out.reserve(static_cast<size_t>(lengthBytes));
-    size_t i = 0;
-    const auto bytes = reinterpret_cast<const unsigned char*>(data);
     const size_t size = static_cast<size_t>(lengthBytes);
+    const auto bytes = reinterpret_cast<const unsigned char*>(data);
+    // Fast path: pure ASCII bytes map 1:1 to UTF-16 code units.
+    bool isAscii = true;
+    for (size_t a = 0; a < size; ++a) if (bytes[a] >= 0x80) { isAscii = false; break; }
+    if (isAscii) {
+        std::u16string out;
+        out.resize(size);
+        for (size_t idx = 0; idx < size; ++idx) out[idx] = static_cast<char16_t>(bytes[idx]);
+        return out;
+    }
+    std::u16string out;
+    out.reserve(size);
+    size_t i = 0;
     while (i < size) {
         char32_t codepoint = 0;
         size_t extra = 0;
@@ -359,6 +380,7 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     dbPathUtf8_ = dbPathUtf8;
     lastVacuumTimeSeconds_ = NowEpochSeconds();
     lastVacuumSizeBytes_ = DatabaseFileSize(dbPathUtf8_);
+    cachedPageSize_ = 0;
 
     return true;
 }
@@ -371,6 +393,7 @@ void Store::Close() {
     dbPathUtf8_.clear();
     lastVacuumTimeSeconds_ = 0;
     lastVacuumSizeBytes_ = 0;
+    cachedPageSize_ = 0;
 }
 
 std::unique_ptr<StoreReadSession> Store::OpenReadSession(
@@ -398,9 +421,12 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
     }
     // Use the real page size rather than a hardcoded 4096 — custom page sizes
     // (PRAGMA page_size) make the old approximation wrong by up to 8x. Query
-    // the handle's actual page size; fall back to 4096 only if the query fails.
-    int pageSize = 4096;
-    {
+    // the handle's actual page size once and cache it; fall back to 4096 only
+    // if the query fails. Cache avoids a prepare/step/finalize per maintenance
+    // poll (every 500ms during scan bursts).
+    int pageSize = cachedPageSize_;
+    if (pageSize <= 0) {
+        pageSize = 4096;
         sqlite3_stmt* stmt = nullptr;
         if (sqlite3_prepare_v2(db_, "PRAGMA page_size;", -1, &stmt, nullptr) == SQLITE_OK) {
             if (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -409,6 +435,7 @@ bool Store::CheckpointIfWalExceeds(uint64_t thresholdBytes) {
             }
             sqlite3_finalize(stmt);
         }
+        cachedPageSize_ = pageSize;
     }
     const uint64_t approxWalBytes = static_cast<uint64_t>(frameCount) * static_cast<uint64_t>(pageSize);
     if (approxWalBytes > thresholdBytes) {

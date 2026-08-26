@@ -113,7 +113,7 @@ class FilterRegistry {
 public:
     void Register(std::wstring key, FilterDefinition definition);
     const FilterDefinition* Find(std::wstring_view key) const;
-    static FilterRegistry WithDefaults();
+    static const FilterRegistry& WithDefaults();
 private:
     std::unordered_map<std::wstring, FilterDefinition> definitions_;
 };

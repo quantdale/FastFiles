@@ -205,6 +205,7 @@ private:
     std::string dbPathUtf8_;
     uint64_t lastVacuumTimeSeconds_ = 0;
     uint64_t lastVacuumSizeBytes_ = 0;
+    mutable int cachedPageSize_ = 0;
 };
 
 // A durable read snapshot owned by one query. Store itself deliberately stays

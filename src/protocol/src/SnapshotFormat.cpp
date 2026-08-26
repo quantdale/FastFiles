@@ -109,8 +109,10 @@ private:
 template <typename DirectoryMap>
 bool SerializeSnapshotToImpl(const DirectoryMap& directories, uint8_t* destination,
                              size_t capacity) noexcept {
-    const size_t expectedSize = SerializedSnapshotSizeImpl(directories);
-    if (expectedSize == 0 || destination == nullptr || capacity < expectedSize) {
+    if (destination == nullptr) {
+        return false;
+    }
+    if (directories.size() > std::numeric_limits<uint32_t>::max()) {
         return false;
     }
 
@@ -147,7 +149,7 @@ bool SerializeSnapshotToImpl(const DirectoryMap& directories, uint8_t* destinati
             }
         }
     }
-    return writer.Valid() && writer.Offset() == expectedSize;
+    return writer.Valid();
 }
 
 // A tiny cursor-based reader: every read validates there's enough of the

@@ -34,15 +34,14 @@ void IconCache::Prefetch(const std::wstring& key) {
     if (bitmaps_.find(key) != bitmaps_.end() || pendingIcons_.find(key) != pendingIcons_.end()) {
         return;
     }
-    for (const std::wstring& queued : queue_) {
-        if (queued == key) {
-            return;
-        }
+    if (queuedSet_.find(key) != queuedSet_.end()) {
+        return;
     }
     if (stopping_.load()) {
         return;
     }
     queue_.push_back(key);
+    queuedSet_.insert(key);
     workAvailable_.notify_one();
 }
 
@@ -71,6 +70,7 @@ void IconCache::WorkerLoop() {
             }
             key = std::move(queue_.front());
             queue_.pop_front();
+            queuedSet_.erase(key);
         }
 
         HICON icon = ResolveIcon(key);

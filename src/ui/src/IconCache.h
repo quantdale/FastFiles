@@ -27,6 +27,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <unordered_set>
 #include <thread>
 #include <wincodec.h>
 #include <windows.h>
@@ -105,6 +106,7 @@ private:
     std::condition_variable workAvailable_;
     std::atomic<bool> stopping_{false};
     std::deque<std::wstring> queue_;                      // keys queued for the worker
+    std::unordered_set<std::wstring> queuedSet_;           // O(1) dedup for queue_
     std::map<std::wstring, HICON> pendingIcons_;          // resolved, awaiting UI-thread conversion (owns HICONs)
     std::map<std::wstring, Microsoft::WRL::ComPtr<ID2D1Bitmap1>> bitmaps_;  // UI-thread bitmap cache
     // active-path-runtime-resilience 2.5: keep recency state independent from
