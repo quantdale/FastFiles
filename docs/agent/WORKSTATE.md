@@ -1,5 +1,58 @@
 # Fast Files — Agent Workstate
 
+## Full-suite bug report + optimizer WIP landing checkpoint (2026-08-26)
+
+- Resumed from clean `main` at `c7088aa`; fetched/pluned: planner queued the
+  ACTIVE `committed-tree-validation-provenance-and-clean-checkout-parity`
+  campaign at `36f9859`, planned from exactly that HEAD. Local main
+  fast-forwarded; planner premise revalidated live (`verify.ps1 status`:
+  lifecycle PASS, 24 raw unchecked / 0 active-local).
+- Reconciled an uncommitted 8-file performance working set left by the earlier
+  "repository-wide systemic optimization" session. Audited every hunk against
+  callers; found one High latent defect and repaired it:
+  `SerializeSnapshotToImpl` used `writer.Offset() == capacity` as its success
+  condition, rejecting valid oversized-capacity buffers contrary to the
+  SnapshotFormat.h contract ("fails if the storage is too small"). Restored
+  contract-compatible `return writer.Valid();`. All other hunks verified
+  semantically equivalent (IndexPipeline fused rule-eval/reconciliation passes,
+  bounded snapshot export eviction = old truncate-to-N-smallest, IconCache
+  O(1) dedup, ASCII codec fast paths, cached SQLite page size, magic-static
+  FilterRegistry).
+- First full Debug CTest run failed only `ffdoc_drift_tests` on mixed line
+  endings introduced into `src/protocol/src/SnapshotFormat.cpp` by editing
+  tools; normalized to CRLF; suite then fully green.
+- Validation executed (VsDevCmd x64): Debug build + full CTest **84/84**;
+  release-test build + full CTest **84/84**; analyze configure/build
+  warning-clean; ASAN protocol/IPC slice 3/3 (`ffprotocol_fuzz_tests`,
+  `ffipc_framing_tests`, `ffipc_listener_lifecycle_tests`); `git diff --check`
+  clean.
+- While validating, a parallel executor landed campaign implementation commits
+  on origin/main (`656acb8`, `35deafe`: qualification harness + fixture fix).
+  To avoid duplicating their in-flight workstreams, this session landed only
+  the disjoint validated perf wave: rebased as `b3b62e2` (perf optimizations +
+  serializer repair), merged-tree sanity gates green (`ffdoc_drift_tests`,
+  `ffdoc_truth_fixture_tests`, `ffproject_status_ps_tests`), pushed to main
+  without force.
+- Bugs found this session: (1) the High serializer contract regression above
+  (fixed); (2) the mixed-line-ending gate failure above (fixed); (3) low/
+  observational, not fixed: `Store::cachedPageSize_` is unsynchronized mutable
+  state written by `CheckpointIfWalExceeds` — safe under current single-
+  threaded maintenance usage but technically racy if that ever changes.
+- External boundaries untouched; no ignored run/baseline/signing directories
+  were read; PR #6 remains superseded evidence.
+
+NEXT EXACT ACTION: do not restart the provenance-campaign workstreams here —
+a parallel executor owns them in flight (verify/qualification/, tests/drift/
+test_source_provenance_fixtures.ps1, openspec change ledger). On next resume,
+derive live HEAD/origin/main, check whether `.agent/EXECUTION_PROMPT.md` has
+been marked COMPLETE and hosted CI for `b3b62e2` plus the parallel executor's
+tip; pick up only genuinely incomplete requirements neither session has
+claimed, or report planner-pass-required if the prompt completes.
+
+Status: **Entire local test matrix executed green after two real defect fixes;
+disjoint validated perf wave landed and pushed as `b3b62e2`; provenance
+campaign continues under its parallel executor — no duplicated workstreams.**
+
 ## Repository truth-surface and doc-drift convergence — final checkpoint (2026-08-26)
 
 - Resumed the ACTIVE planner prompt queued at `5758bbf` (Executable Repository
