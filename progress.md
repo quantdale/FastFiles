@@ -1,15 +1,38 @@
 # FastFiles — Project Status
 
-## Active lifecycle evidence integrity campaign
+## Completed repository truth-surface and doc-drift convergence campaign
 
-The current `openspec-lifecycle-evidence-integrity-and-semantic-convergence`
-campaign has migrated `openspec/lifecycle.json` to schema-v2 typed,
+The `repository-truth-surface-and-doc-drift-convergence` campaign made
+current-facing guidance a mechanically checked execution input.
+`tests/drift/DocTruth.psm1` derives expectations from executable seams —
+the verifier `$Verb` ValidateSet and `$Exit*` constants, `CMakePresets.json`,
+first-party CMake target declarations, schema-v2 `openspec/lifecycle.json`
+states, and the snapshot-publisher source seam — and validates fenced claims
+plus whole-file anti-staleness rules in README/AGENTS/CLAUDE/CODE_INDEX/
+AUTONOMOUS/verify docs/progress. Orphan fences, unreadable authority input,
+and stale current-campaign claims fail closed with reason codes; adversarial
+fixtures (`ffdoc_truth_fixture_tests`) prove both false-negative resistance
+and historical pass-through. All previously live guidance drift (stale verb
+enumerations, completed campaigns presented as current, removed
+snapshot slot-flip mechanics) is reconciled to stable pointers.
+
+Validation: strict OpenSpec 72/72, fixtures 19/19, both drift tests green in
+CTest, official build gate 9/9 across debug/release-test/analyze, ASAN
+protocol/IPC 3/3, doctor PASS, lifecycle model PASS with 24 raw unchecked /
+0 active-local tasks preserved. Hosted CI for the exact implementation SHA is
+recorded in the campaign's lifecycle entry; the final handoff commit's own
+Git/CI parity is derived live on resume.
+
+## Completed lifecycle evidence integrity campaign
+
+The `openspec-lifecycle-evidence-integrity-and-semantic-convergence`
+campaign migrated `openspec/lifecycle.json` to schema-v2 typed,
 offline-resolvable evidence and added separate structural, evidence, and
 semantic integrity diagnostics. Invalid metadata preserves raw unchecked tasks
 as ambiguity and cannot produce a production-ready release projection.
 
 At final handoff, 24 raw unchecked tasks remain with 0 active-local tasks; the
-lifecycle model passes and this campaign is completed. Focused status fixtures
+lifecycle model passes and that campaign is completed. Focused status fixtures
 pass, strict OpenSpec validation is 71/71, the official build gate is 9/9
 across Debug/release-test/Analyze, protocol robustness is 3/3, and
 policy/doc-drift checks pass. Corrected hosted Actions run `32865014793`
@@ -23,8 +46,7 @@ as complete; final handoff parity and its later CI result are derived live.
 The completed `openspec-frontier-lifecycle-truthfulness` campaign left the
 project-status pipeline consuming the schema-validated
 `openspec/lifecycle.json` manifest, preserving the raw unchecked-task inventory,
-and exposing only genuinely active local work in `frontier.localOpen`.
-Completed/historical, superseded, mixed, administrative, provider, signing,
+and exposing only genuinely active local work in `frontier.localOpen`. Completed/historical, superseded, mixed, administrative, provider, signing,
 clean-host, elevated, and interactive tasks retain explicit lifecycle/evidence
 provenance. Stale historical delivery tasks from preceding campaigns were
 checked only where later Git/CI evidence proves completion; genuine external
