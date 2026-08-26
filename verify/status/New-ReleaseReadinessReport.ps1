@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 Import-Module (Join-Path $repoRoot 'verify\core\ProjectStatus.psm1') -Force
+Import-Module (Join-Path $repoRoot 'verify\core\RepositoryState.psm1') -Force
 
 function ConvertTo-SafeReadinessText {
     param([AllowNull()] [string] $Text)
@@ -47,6 +48,12 @@ function Get-SafeReleaseGateProjection {
 }
 
 $status = New-ProjectStatus -RepoRoot $repoRoot -OutputDirectory $OutputDirectory -ReleaseReportPath $ReleaseReportPath -VerificationRunResultPath $VerificationRunResultPath -SkipCtest:$SkipCtest
+if ($VerificationRunResultPath) {
+    $qualification = Resolve-VerificationRunQualification -RepoRoot $repoRoot -RunResultPath $VerificationRunResultPath
+    $status.verification = Apply-VerificationQualification -Evidence $status.verification -Qualification $qualification
+    $status | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'project-status.json') -Encoding utf8NoBOM
+    (New-ProjectStatusMarkdown -Status $status) | Set-Content -LiteralPath (Join-Path $OutputDirectory 'project-status.md') -Encoding utf8NoBOM
+}
 $report = $null
 $releaseSource = $null
 if ($ReleaseReportPath -and (Test-Path -LiteralPath $ReleaseReportPath -PathType Leaf)) {
@@ -60,7 +67,9 @@ if ($ReleaseReportPath -and (Test-Path -LiteralPath $ReleaseReportPath -PathType
     }
 }
 $releaseProjection = Get-SafeReleaseGateProjection -Report $report
-$overall = if ($status.openSpec.status -eq 'FAIL' -or $releaseProjection.status -eq 'FAIL') { 'FAIL' } elseif ($releaseProjection.status -eq 'REQUIRED-BUT-UNAVAILABLE') { 'REQUIRED-BUT-UNAVAILABLE' } elseif ($releaseProjection.status -eq 'SKIPPED') { 'SKIPPED' } else { 'PASS' }
+$selectedVerificationFailure = $VerificationRunResultPath -and $status.verification.status -eq 'FAIL'
+$selectedVerificationNonQualifying = $VerificationRunResultPath -and $status.verification.status -eq 'SKIPPED'
+$overall = if ($status.openSpec.status -eq 'FAIL' -or $releaseProjection.status -eq 'FAIL' -or $selectedVerificationFailure) { 'FAIL' } elseif ($releaseProjection.status -eq 'REQUIRED-BUT-UNAVAILABLE') { 'REQUIRED-BUT-UNAVAILABLE' } elseif ($selectedVerificationNonQualifying -or $releaseProjection.status -eq 'SKIPPED') { 'SKIPPED' } else { 'PASS' }
 $frontierReport = [pscustomobject]@{
     schemaVersion = 2
     kind = 'fastfiles-release-readiness-frontier'
@@ -113,6 +122,7 @@ foreach ($entry in @($frontierReport.lifecycle.entries)) {
 }
 $verificationNote = [string]$frontierReport.localEvidence.verification.status
 if ($frontierReport.localEvidence.verification.reason) { $verificationNote += " ($($frontierReport.localEvidence.verification.reason))" }
+if ($VerificationRunResultPath) { $verificationNote += "; qualification=$($frontierReport.localEvidence.verification.qualification)" }
 [void]$lines.Add("- Selected verifier result: $verificationNote")
 [void]$lines.Add('')
 [void]$lines.Add('## Release gates')
@@ -148,7 +158,8 @@ if ($Format -eq 'json') { $frontierReport | ConvertTo-Json -Depth 25 } else {
     Write-Host "Local commit: $($frontierReport.git.sha)"
     Write-Host "OpenSpec unchecked tasks: $($frontierReport.localEvidence.openSpec.totalOpenTasks); active local open: $($frontierReport.localEvidence.openSpec.activeLocalOpenTasks)"
     Write-Host "OpenSpec lifecycle model: $($frontierReport.lifecycle.status)"
+    if ($VerificationRunResultPath) { Write-Host "Selected verification qualification: $($frontierReport.localEvidence.verification.qualification)" }
     Write-Host "JSON: $jsonPath"
     Write-Host "Markdown: $markdownPath"
 }
-if ($status.openSpec.status -eq 'FAIL') { exit 1 }
+if ($status.openSpec.status -eq 'FAIL' -or $selectedVerificationFailure) { exit 1 }

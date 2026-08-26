@@ -116,7 +116,7 @@ jobs:
   hygiene:
     name: repository-hygiene-and-contracts
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -148,6 +148,18 @@ jobs:
           ./verify/providers/tests/Test-ProviderContract.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Exact committed-tree qualification
+        shell: pwsh
+        run: |
+          $statusRoot = Join-Path $env:GITHUB_WORKSPACE 'ci-status'
+          $qualification = Join-Path $statusRoot 'exact-tree-qualification.json'
+          ./verify/qualification/Invoke-ExactTreeQualification.ps1 -OutputPath $qualification -Format human
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/status/Get-ProjectStatus.ps1 -SkipCtest -OutputDirectory $statusRoot -VerificationRunResultPath $qualification -Format human
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./verify/status/New-ReleaseReadinessReport.ps1 -SkipCtest -OutputDirectory $statusRoot -VerificationRunResultPath $qualification -Format human
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload sanitized status evidence

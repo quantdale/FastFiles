@@ -19,4 +19,13 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/tests/drift/test_doc_truth_fixtures.ps1"
   )
   set_tests_properties(ffdoc_truth_fixture_tests PROPERTIES TIMEOUT 300)
+
+  # Repository-state provenance fixtures use disposable Git repositories to
+  # prove dirty development results cannot qualify a different committed tree.
+  add_test(
+    NAME ffsource_provenance_fixture_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/tests/drift/test_source_provenance_fixtures.ps1"
+  )
+  set_tests_properties(ffsource_provenance_fixture_tests PROPERTIES TIMEOUT 180)
 endif()

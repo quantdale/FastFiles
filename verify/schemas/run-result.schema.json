@@ -41,6 +41,41 @@
     "durationMs": { "type": "number", "minimum": 0 },
     "primaryFailure": { "type": ["object", "null"] },
     "secondaryFailures": { "type": "array", "items": { "type": "object" } },
+    "candidateSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "candidateTreeSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sourceProvenance": {
+      "type": "object",
+      "required": [
+        "mode",
+        "repositoryId",
+        "headSha",
+        "treeSha",
+        "branch",
+        "detached",
+        "sourceCleanAtStart",
+        "sourceCleanAtFinish",
+        "changedDuringRun",
+        "exactTreeQualified",
+        "startStateDigest",
+        "finishStateDigest",
+        "reasonCodes"
+      ],
+      "properties": {
+        "mode": { "type": "string", "enum": ["development", "exact-tree"] },
+        "repositoryId": { "type": "string", "minLength": 1 },
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "treeSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "branch": { "type": "string" },
+        "detached": { "type": "boolean" },
+        "sourceCleanAtStart": { "type": "boolean" },
+        "sourceCleanAtFinish": { "type": "boolean" },
+        "changedDuringRun": { "type": "boolean" },
+        "exactTreeQualified": { "type": "boolean" },
+        "startStateDigest": { "type": "string" },
+        "finishStateDigest": { "type": "string" },
+        "reasonCodes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "capabilities": {
       "type": "array",
       "items": {

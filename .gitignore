@@ -9,6 +9,7 @@ verify/runs/
 verify/baselines/
 verify/status/generated/
 verify/.signing/
+ci-status/
 
 # Build artifact output.
 dist/
