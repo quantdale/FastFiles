@@ -26,26 +26,17 @@ constexpr uint32_t kUsnReasonFileDelete = 0x00000200;
 
 // Projection/EntryRecord use std::u16string (portable, matches the wire
 // protocol's own char16_t records) while SnapshotFormat.h -- consumed
-// only from Windows engine code -- uses std::wstring. On Windows the two
-// are the same UTF-16 bit width but remain distinct C++ types, so an
-// explicit per-code-unit copy is required at this boundary rather than a
-// direct iterator-range assign/append.
+// only from Windows engine code -- uses std::wstring. On Windows both are
+// 16-bit UTF-16 code units; reinterpret-based range construction lets the
+// string traits perform one bulk copy instead of a per-code-unit loop.
+// This runs for every candidate row of every search chunk while holding the
+// pipeline mutex, so the copy strategy is lock-hold-time sensitive.
 std::wstring ToWString(std::u16string_view text) {
-    std::wstring result;
-    result.reserve(text.size());
-    for (char16_t ch : text) {
-        result.push_back(static_cast<wchar_t>(ch));
-    }
-    return result;
+    return std::wstring(reinterpret_cast<const wchar_t*>(text.data()), text.size());
 }
 
 std::u16string ToU16String(std::wstring_view text) {
-    std::u16string result;
-    result.reserve(text.size());
-    for (wchar_t ch : text) {
-        result.push_back(static_cast<char16_t>(ch));
-    }
-    return result;
+    return std::u16string(reinterpret_cast<const char16_t*>(text.data()), text.size());
 }
 
 std::wstring NormalizeVolumePrefix(std::wstring value) {

@@ -16,6 +16,7 @@ using Clock = std::chrono::steady_clock;
 struct Name {
     std::u16string value;
     bool asciiLower = false;
+    bool ascii = false;
 };
 
 struct PreparedLiteral {
@@ -27,6 +28,13 @@ struct PreparedLiteral {
     size_t anchorIndex = 0;
     std::array<size_t, 128> shifts{};
 };
+
+bool IsAscii(std::u16string_view value) {
+    for (const char16_t ch : value) {
+        if (ch > 0x7f) return false;
+    }
+    return true;
+}
 
 bool IsAsciiLower(std::u16string_view value) {
     for (const char16_t ch : value) {
@@ -188,6 +196,7 @@ Name MakeName(std::wstring value) {
     Name result;
     result.value.assign(value.begin(), value.end());
     result.asciiLower = IsAsciiLower(result.value);
+    result.ascii = IsAscii(result.value);
     return result;
 }
 
@@ -210,6 +219,24 @@ std::vector<Name> MakeCommonPrefixNames(size_t count) {
     result.reserve(count);
     for (size_t index = 0; index < count; ++index) {
         result.push_back(MakeName(L"aaaaaaaaaaaaaaaaaaaa" + std::to_wstring(index % 10) + L"_tail"));
+    }
+    return result;
+}
+
+std::vector<Name> MakeMixedCaseNames(size_t count) {
+    // Real-world volumes are dominated by ASCII names with mixed case
+    // ("Documents", "README.md"). These must exercise the same matcher as the
+    // lowercase dataset while taking the non-all-lowercase classification.
+    const std::vector<std::wstring> patterns{L"Documents", L"README", L"Program Files",
+                                             L"Quarterly-Report", L"MyPhotoAlbum"};
+    std::vector<Name> result;
+    result.reserve(count);
+    for (size_t index = 0; index < count; ++index) {
+        std::wstring value = patterns[index % patterns.size()];
+        value += L"_";
+        value += std::to_wstring(index);
+        if ((index % 3) == 0) value += L".txt";
+        result.push_back(MakeName(std::move(value)));
     }
     return result;
 }
@@ -248,7 +275,8 @@ Timing Measure(const std::vector<Name>& names, const PreparedLiteral& query, Mat
 }
 
 bool QueryMatcher(const Name& name, const PreparedLiteral& query) {
-    const ffsearch::CandidateView candidate{name.value, {}, 0, 0, false, 0, 1, 1, 0, true, name.asciiLower};
+    const ffsearch::CandidateView candidate{name.value, {}, 0, 0, false, 0, 1, 1, 0, true,
+                                            name.asciiLower, 0, false, name.ascii};
     return query.parsed.MatchesView(candidate);
 }
 
@@ -302,6 +330,9 @@ int wmain() {
     RunCase("long", synthetic, L"unique_component_7391");
     RunCase("too_long", synthetic, L"this_needle_is_longer_than_any_synthetic_filename_0123456789");
     RunCase("common_prefix", commonPrefix, L"aaaaaaaaaaaaaaaaaaaab");
+    const std::vector<Name> mixedCase = MakeMixedCaseNames(kCount);
+    RunCase("mixed_case_hit", mixedCase, L"Report");
+    RunCase("mixed_case_miss", mixedCase, L"zzzz_never_present");
     RunCase("unicode", unicode, L"Résumé");
     RunCase("unicode_mixed", unicode, L"REPORT_ФАЙЛ");
     return 0;

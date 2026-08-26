@@ -1,5 +1,58 @@
 # Fast Files — Agent Workstate
 
+## Repository-wide optimization campaign checkpoint (2026-08-26)
+
+- Resumed clean `main` at `d42caae` (perf wave `b3b62e2` already landed by the
+  earlier optimization session). Baseline established: Debug build + full
+  CTest 85/85 PASS (209s); RelWithDebInfo literal-matcher bench captured
+  BEFORE changes, including a newly added mixed-case ASCII dataset.
+- Root cause found: production projection search matched literals via
+  `OrdinalContains` = one Win32 `CompareStringOrdinal` call per alignment on
+  EVERY row; the prepared BMH/anchor fast paths existed only on the unused
+  view path, so the dominant real-world name class (mixed-case ASCII like
+  "Documents"/"README.md") always took the slow route. Measured baseline:
+  mixed-case hit 258.6ms / miss 122.7ms per 1M rows vs ~40-60ms achievable.
+- Implemented: prepared `ffsearch::AsciiFoldNeedle` (`PrepareAsciiFoldNeedle`
+  /`AsciiFoldContains`/Equals/StartsWith) used by ParseQuery literals,
+  name/folder filters, and ClassifyMatch; equivalence argument is that for a
+  pure-ASCII needle ordinal-ignorecase == ASCII folding (non-ASCII haystack
+  units never fold into ASCII range), with exhaustive 128x128 single-unit API
+  comparison plus a deterministic randomized corpus test proving parity.
+- Extended view path: `CandidateView::nameIsAscii` appended LAST (positional-
+  aggregate safety) and mirrored on `ProjectionEntry`; u16 AnchorContains/BMH
+  are now fold-aware for any-case ASCII haystacks. Fixed a latent OOB read:
+  the old `AnchorContains` compared an unbounded window when an anchor
+  occurrence sat within the final anchorIndex+1 code units (bounded read past
+  logical end); regression-pinned by anchor-boundary shapes in
+  `ffsearch_ascii_fold_tests`.
+- Also: `ToWString`/`ToU16String` (IndexPipeline.cpp) now construct via one
+  reinterpret-range copy instead of a per-code-unit loop — runs per candidate
+  row while holding the pipeline mutex (lock-hold reduction).
+- Measured AFTER (same host/build): mixed_case_hit 85.9ms (-67%),
+  mixed_case_miss 75.2ms (-39%) per 1M rows; lowercase/unicode cases
+  unchanged within noise; all match-count equivalences PASS.
+- Investigated, no change warranted: MftParser/UsnRecordParser (tight memcpy
+  field reads; privileged path not production-active); VolumeScanner (I/O-
+  bound per-record FSCTL inherent to design); SnapshotFormat/Publisher
+  (zero-copy two-pass publish already optimal); Store ingestion (prepared
+  statements + batched transactions present); DegradedModeEnumerator (single
+  buffered enumeration). Deferred with rationale: parallel hot-row scan
+  (pipeline mutex/epoch fail-closed invariants; filename-index eligibility
+  already bounds most simple-literal queries); PCH for build time.
+- Validation executed (VsDevCmd x64): Debug 86/86 (new
+  `ffsearch_ascii_fold_tests` registered, TIMEOUT 120); release-test 86/86;
+  analyze configure/build warning-clean; bench re-run post-change; CRLF
+  normalized across all edited files (drift gate passes).
+- Files touched: src/search/{Query.h,Query.cpp,Search.cpp},
+  src/indexstore/{Projection.h,Projection.cpp}, src/engine/IndexPipeline.cpp,
+  tests/search/{CMakeLists.txt,test_ascii_fold_matcher.cpp,
+  bench_literal_matcher.cpp}.
+
+NEXT EXACT ACTION: commit this validated wave to main (fetch/reconcile first,
+push without force, derive live HEAD/origin and hosted CI afterwards). The
+provenance-campaign files remain owned by their parallel executor — untouched
+here.
+
 ## Full-suite bug report + optimizer WIP landing checkpoint (2026-08-26)
 
 - Resumed from clean `main` at `c7088aa`; fetched/pluned: planner queued the

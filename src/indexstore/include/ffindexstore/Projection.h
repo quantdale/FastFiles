@@ -40,6 +40,9 @@ struct ProjectionEntry {
     uint64_t lastAccessTime = 0;
     uint32_t attributes = 0;
     bool nameAsciiLower = false;
+    // Any-case ASCII classification for the prepared fold matcher; see
+    // CandidateView::nameIsAscii in ffsearch for the equivalence argument.
+    bool nameIsAscii = false;
 };
 
 class Projection;

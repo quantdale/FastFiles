@@ -2,6 +2,10 @@ add_executable(ffsearch_tests test_query.cpp)
 target_link_libraries(ffsearch_tests PRIVATE ffsearch)
 add_test(NAME ffsearch_tests COMMAND ffsearch_tests)
 
+add_executable(ffsearch_ascii_fold_tests test_ascii_fold_matcher.cpp)
+target_link_libraries(ffsearch_ascii_fold_tests PRIVATE ffsearch)
+add_test(NAME ffsearch_ascii_fold_tests COMMAND ffsearch_ascii_fold_tests)
+
 add_executable(ffsearch_scan_tests test_search.cpp)
 target_link_libraries(ffsearch_scan_tests PRIVATE ffsearch)
 add_test(NAME ffsearch_scan_tests COMMAND ffsearch_scan_tests)
@@ -18,4 +22,4 @@ add_test(NAME ffsearch_history_tests COMMAND ffsearch_history_tests)
 add_executable(ffsearch_bench_literal_matcher bench_literal_matcher.cpp)
 target_link_libraries(ffsearch_bench_literal_matcher PRIVATE ffsearch)
 
-set_tests_properties(ffsearch_tests ffsearch_scan_tests ffsearch_ondisk_filter_tests ffsearch_history_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffsearch_tests ffsearch_ascii_fold_tests ffsearch_scan_tests ffsearch_ondisk_filter_tests ffsearch_history_tests PROPERTIES TIMEOUT 120)

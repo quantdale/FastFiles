@@ -61,6 +61,16 @@ struct CandidateView {
     // eager path reconstruction.
     uint64_t allocatedSizeBytes = 0;
     bool allocatedSizeKnown = false;
+    // Appended last on purpose: existing positional aggregate initializers
+    // keep initializing exactly the members they always did. True when every
+    // name code unit is ASCII regardless of letter case. Matching an ASCII
+    // haystack with a pure-ASCII needle is equivalence-preserving under
+    // ordinal ignore-case comparison (exactly ASCII case folding -- proven
+    // exhaustively over all 128x128 code-unit pairs in
+    // ffsearch_ascii_fold_tests), which lets the matcher avoid one Win32
+    // CompareStringOrdinal call per alignment for the dominant real-world
+    // name class ("Documents", "README.md").
+    bool nameIsAscii = false;
 };
 
 struct SizeFilter { enum class Op { Equal, Greater, GreaterEqual, Less, LessEqual, Range }; Op op; uint64_t first; uint64_t second = 0; };
@@ -149,5 +159,24 @@ struct Query {
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry);
 bool OrdinalContains(std::wstring_view haystack, std::wstring_view needle);
 bool GlobMatches(std::wstring_view text, std::wstring_view pattern);
+
+// A literal needle prepared once for repeated case-insensitive ordinal
+// substring searches over wide strings. When `ascii` is true the needle is
+// pure ASCII and `AsciiFoldContains` is semantically identical to
+// `OrdinalContains` while avoiding per-alignment CompareStringOrdinal calls;
+// callers must fall back to `OrdinalContains` when `ascii` is false.
+struct AsciiFoldNeedle {
+    bool ascii = false;
+    std::wstring value;
+    std::u16string folded;
+    char16_t anchor = 0;
+    size_t anchorIndex = 0;
+    std::array<size_t, 128> shifts{};
+};
+
+AsciiFoldNeedle PrepareAsciiFoldNeedle(std::wstring_view value);
+bool AsciiFoldContains(std::wstring_view haystack, const AsciiFoldNeedle& needle);
+bool AsciiFoldEquals(std::wstring_view left, std::wstring_view right);
+bool AsciiFoldStartsWith(std::wstring_view value, std::wstring_view prefix);
 
 } // namespace ffsearch

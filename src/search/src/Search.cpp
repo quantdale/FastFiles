@@ -52,12 +52,23 @@ struct EntryKeyHash {
 
 MatchTier ClassifyMatch(const Candidate& candidate, std::wstring_view term) {
     if (term.empty()) return MatchTier::Substring;
+    // Tier classification runs once per matched row; ASCII terms classify via
+    // fold comparison instead of three ordinal Win32 scans per row.
+    const auto needle = PrepareAsciiFoldNeedle(term);
+    const auto equals = [&term, &needle](std::wstring_view value) {
+        return needle.ascii ? AsciiFoldEquals(value, term) : OrdinalEqual(value, term);
+    };
+    const auto startsWith = [&term, &needle](std::wstring_view value) {
+        return needle.ascii ? AsciiFoldStartsWith(value, term) : OrdinalStartsWith(value, term);
+    };
     std::wstring_view stem = candidate.name;
     const size_t dot = stem.find_last_of(L'.');
     if (dot != std::wstring_view::npos) stem = stem.substr(0, dot);
-    if (OrdinalEqual(stem, term) || OrdinalEqual(candidate.name, term)) return MatchTier::Exact;
-    if (OrdinalStartsWith(candidate.name, term)) return MatchTier::Prefix;
-    if (OrdinalContains(candidate.name, term)) return MatchTier::Substring;
+    if (equals(stem) || equals(candidate.name)) return MatchTier::Exact;
+    if (startsWith(candidate.name)) return MatchTier::Prefix;
+    if (needle.ascii ? AsciiFoldContains(candidate.name, needle) : OrdinalContains(candidate.name, term)) {
+        return MatchTier::Substring;
+    }
     return MatchTier::PathOnly;
 }
 

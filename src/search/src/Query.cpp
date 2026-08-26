@@ -99,22 +99,42 @@ std::array<size_t, 128> BuildAsciiShifts(std::u16string_view needle) {
     shifts.fill(needle.size());
     if (needle.size() < 2) return shifts;
     for (size_t index = 0; index + 1 < needle.size(); ++index) {
-        shifts[needle[index]] = needle.size() - 1 - index;
+        const size_t shift = needle.size() - 1 - index;
+        shifts[needle[index]] = shift;
+        // Mixed-case haystacks index the table with their raw character; map
+        // the uppercase spelling of every folded needle character to the same
+        // skip so bad-character shifts stay effective. Skip values only ever
+        // change speed, never the match decision.
+        if (needle[index] >= u'a' && needle[index] <= u'z') {
+            shifts[static_cast<size_t>(needle[index]) - (u'a' - u'A')] = shift;
+        }
     }
     return shifts;
 }
 
-bool AnchorContains(std::u16string_view haystack, std::u16string_view needle,
-                    char16_t anchor, size_t anchorIndex) {
-    if (needle.empty()) return true;
-    if (haystack.size() < needle.size()) return false;
-    size_t anchorPosition = anchorIndex;
-    while (anchorPosition < haystack.size()) {
-        anchorPosition = haystack.find(anchor, anchorPosition);
-        if (anchorPosition == std::u16string_view::npos) return false;
-        const size_t start = anchorPosition - anchorIndex;
-        if (std::u16string_view(haystack.data() + start, needle.size()) == needle) return true;
-        ++anchorPosition;
+constexpr char16_t FoldAscii16Char(char16_t value) {
+    return value >= u'A' && value <= u'Z' ? static_cast<char16_t>(value + (u'a' - u'A')) : value;
+}
+
+bool FoldedWindowEquals16(std::u16string_view haystack, size_t start, std::u16string_view folded) {
+    for (size_t index = 0; index < folded.size(); ++index) {
+        if (FoldAscii16Char(haystack[start + index]) != folded[index]) return false;
+    }
+    return true;
+}
+
+// Anchor scan over any-case ASCII haystacks. The window bound below also
+// closes an out-of-bounds read the previous exact-match variant had when an
+// anchor occurrence sat within the final anchorIndex+1 code units.
+bool AnchorContainsFold(std::u16string_view haystack, std::u16string_view folded,
+                        char16_t anchor, size_t anchorIndex) {
+    if (folded.empty()) return true;
+    if (haystack.size() < folded.size()) return false;
+    for (size_t position = anchorIndex; position < haystack.size(); ++position) {
+        if (FoldAscii16Char(haystack[position]) != anchor) continue;
+        const size_t start = position - anchorIndex;
+        if (start + folded.size() > haystack.size()) return false;
+        if (FoldedWindowEquals16(haystack, start, folded)) return true;
     }
     return false;
 }
@@ -126,23 +146,70 @@ bool BoyerMooreHorspoolContains(std::u16string_view haystack, std::u16string_vie
     const size_t lastIndex = needle.size() - 1;
     size_t position = lastIndex;
     while (position < haystack.size()) {
-        const char16_t tail = haystack[position];
-        if (tail == needle.back() &&
-            std::u16string_view(haystack.data() + position - lastIndex, needle.size()) == needle) {
+        const char16_t rawTail = haystack[position];
+        if (FoldAscii16Char(rawTail) == needle.back() &&
+            FoldedWindowEquals16(haystack, position - lastIndex, needle)) {
             return true;
         }
-        position += tail < shifts.size() ? shifts[tail] : needle.size();
+        position += rawTail < shifts.size() ? shifts[rawTail] : needle.size();
     }
     return false;
 }
 
+// Public prepared-needle surface (declared in Query.h); defined at namespace
+// scope below together with the other exported matchers.
+
+constexpr wchar_t FoldAsciiWideChar(wchar_t value) {
+    return value >= L'A' && value <= L'Z' ? static_cast<wchar_t>(value + (L'a' - L'A')) : value;
+}
+
+bool FoldedWindowEqualsWide(std::wstring_view haystack, size_t start, std::u16string_view folded) {
+    for (size_t index = 0; index < folded.size(); ++index) {
+        if (static_cast<char16_t>(FoldAsciiWideChar(haystack[start + index])) != folded[index]) return false;
+    }
+    return true;
+}
+
+bool AnchorContainsFoldWide(std::wstring_view haystack, const AsciiFoldNeedle& needle) {
+    const std::u16string_view folded(needle.folded);
+    for (size_t position = needle.anchorIndex; position < haystack.size(); ++position) {
+        if (static_cast<char16_t>(FoldAsciiWideChar(haystack[position])) != needle.anchor) continue;
+        const size_t start = position - needle.anchorIndex;
+        if (start + folded.size() > haystack.size()) return false;
+        if (FoldedWindowEqualsWide(haystack, start, folded)) return true;
+    }
+    return false;
+}
+
+bool BoyerMooreHorspoolContainsWide(std::wstring_view haystack, const AsciiFoldNeedle& needle) {
+    const std::u16string_view folded(needle.folded);
+    const size_t lastIndex = folded.size() - 1;
+    size_t position = lastIndex;
+    while (position < haystack.size()) {
+        const wchar_t rawTail = haystack[position];
+        if (static_cast<char16_t>(FoldAsciiWideChar(rawTail)) == folded.back() &&
+            FoldedWindowEqualsWide(haystack, position - lastIndex, folded)) {
+            return true;
+        }
+        const size_t raw = static_cast<size_t>(rawTail);
+        position += raw < needle.shifts.size() ? needle.shifts[raw] : folded.size();
+    }
+    return false;
+}
+
+// Single dispatch point for prepared literal matching over projection views.
+// `shifts` must be built once by the caller via BuildAsciiShifts(foldedNeedle).
 bool OrdinalContains16Prepared(std::u16string_view haystack, std::wstring_view needle,
-                               std::u16string_view foldedNeedle, bool nameAsciiLower,
+                               std::u16string_view foldedNeedle,
+                               const std::array<size_t, 128>& shifts,
+                               bool nameIsAscii,
                                char16_t anchor, size_t anchorIndex) {
     if (needle.empty()) return true;
     if (haystack.size() < needle.size()) return false;
-    if (nameAsciiLower && !foldedNeedle.empty()) {
-        return AnchorContains(haystack, foldedNeedle, anchor, anchorIndex);
+    if (!foldedNeedle.empty() && nameIsAscii) {
+        return foldedNeedle.size() >= 4
+            ? BoyerMooreHorspoolContains(haystack, foldedNeedle, shifts)
+            : AnchorContainsFold(haystack, foldedNeedle, anchor, anchorIndex);
     }
     for (size_t index = 0; index + needle.size() <= haystack.size(); ++index) {
         if (CompareOrdinal16(haystack.substr(index, needle.size()), needle) == 0) return true;
@@ -375,26 +442,29 @@ const FilterRegistry& FilterRegistry::WithDefaults() {
     defaults.Register(L"name", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
-        const auto text = std::get<std::wstring>(value);
-        return [text](const Candidate& candidate) { return OrdinalContains(candidate.name, text); };
+        const auto needle = PrepareAsciiFoldNeedle(std::get<std::wstring>(value));
+        return [needle](const Candidate& candidate) { return AsciiFoldContains(candidate.name, needle); };
     }, [](const FilterValue& value) {
         const auto text = std::get<std::wstring>(value);
         const auto foldedText = IsAscii(text) ? FoldAscii16(text) : std::u16string{};
+        const auto foldedShifts = BuildAsciiShifts(foldedText);
         const size_t foldedAnchorIndex = ChooseAsciiAnchor(foldedText);
         const char16_t foldedAnchor = foldedText.empty() ? 0 : foldedText[foldedAnchorIndex];
-        return [text, foldedText, foldedAnchor, foldedAnchorIndex](const CandidateView& candidate) {
-            return OrdinalContains16Prepared(candidate.name, text, foldedText,
-                                             candidate.nameAsciiLower, foldedAnchor, foldedAnchorIndex);
+        return [text, foldedText, foldedShifts, foldedAnchor, foldedAnchorIndex](const CandidateView& candidate) {
+            return OrdinalContains16Prepared(candidate.name, text, foldedText, foldedShifts,
+                                             candidate.nameIsAscii, foldedAnchor, foldedAnchorIndex);
         };
     }});
     defaults.Register(L"folder", {[](std::wstring_view value) -> std::optional<FilterValue> {
         return value.empty() ? std::nullopt : std::optional<FilterValue>(std::wstring(value));
     }, [](const FilterValue& value) {
-        const auto text = std::get<std::wstring>(value);
-        return [text](const Candidate& candidate) { return OrdinalContains(candidate.folder, text); };
+        // Folder paths are long; the prepared fold scan avoids one ordinal
+        // API call per alignment on the dominant ASCII path class.
+        const auto needle = PrepareAsciiFoldNeedle(std::get<std::wstring>(value));
+        return [needle](const Candidate& candidate) { return AsciiFoldContains(candidate.folder, needle); };
     }, [](const FilterValue& value) {
-        const auto text = std::get<std::wstring>(value);
-        return [text](const CandidateView& candidate) { return OrdinalContains(candidate.folder, text); };
+        const auto needle = PrepareAsciiFoldNeedle(std::get<std::wstring>(value));
+        return [needle](const CandidateView& candidate) { return AsciiFoldContains(candidate.folder, needle); };
     }});
     defaults.Register(L"size", {ParseSizeFilter, MakeSizePredicate, [](const FilterValue& value) {
         const auto filter = std::get<SizeFilter>(value);
@@ -495,11 +565,9 @@ bool EvaluateViewPredicates(const std::vector<ViewPredicate>& predicates,
 }
 
 bool MatchSimpleLiteral(const Query& query, const CandidateView& candidate) {
-    return candidate.nameAsciiLower && query.simpleLiteralUseBmh
-        ? BoyerMooreHorspoolContains(candidate.name, query.simpleLiteralFolded, query.simpleLiteralShifts)
-        : OrdinalContains16Prepared(candidate.name, query.simpleLiteralTerm, query.simpleLiteralFolded,
-                                    candidate.nameAsciiLower, query.simpleLiteralAnchor,
-                                    query.simpleLiteralAnchorIndex);
+    return OrdinalContains16Prepared(candidate.name, query.simpleLiteralTerm, query.simpleLiteralFolded,
+                                     query.simpleLiteralShifts, candidate.nameIsAscii,
+                                     query.simpleLiteralAnchor, query.simpleLiteralAnchorIndex);
 }
 
 bool EvaluateSimpleLiteral(const Query& query, const CandidateView& candidate,
@@ -569,6 +637,44 @@ bool GlobMatches(std::wstring_view text, std::wstring_view pattern) {
     while (patternIndex < pattern.size() && pattern[patternIndex] == L'*') ++patternIndex;
     return patternIndex == pattern.size();
 }
+AsciiFoldNeedle PrepareAsciiFoldNeedle(std::wstring_view value) {
+    AsciiFoldNeedle needle;
+    needle.value = std::wstring(value);
+    needle.ascii = IsAscii(value);
+    if (!needle.ascii) return needle;
+    needle.folded = FoldAscii16(value);
+    if (!needle.folded.empty()) {
+        needle.anchorIndex = ChooseAsciiAnchor(needle.folded);
+        needle.anchor = needle.folded[needle.anchorIndex];
+        needle.shifts = BuildAsciiShifts(needle.folded);
+    }
+    return needle;
+}
+
+bool AsciiFoldContains(std::wstring_view haystack, const AsciiFoldNeedle& needle) {
+    // Non-ASCII and empty needles keep exact ordinal semantics via fallback.
+    if (!needle.ascii || needle.folded.empty()) return OrdinalContains(haystack, needle.value);
+    if (haystack.size() < needle.folded.size()) return false;
+    return needle.folded.size() >= 4 ? BoyerMooreHorspoolContainsWide(haystack, needle)
+                                     : AnchorContainsFoldWide(haystack, needle);
+}
+
+bool AsciiFoldEquals(std::wstring_view left, std::wstring_view right) {
+    if (left.size() != right.size()) return false;
+    for (size_t index = 0; index < right.size(); ++index) {
+        if (static_cast<char16_t>(FoldAsciiWideChar(left[index])) !=
+            FoldAscii16Char(static_cast<char16_t>(right[index]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool AsciiFoldStartsWith(std::wstring_view value, std::wstring_view prefix) {
+    if (value.size() < prefix.size()) return false;
+    return AsciiFoldEquals(value.substr(0, prefix.size()), prefix);
+}
+
 Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
     Query query;
     std::wstring simpleLiteralTerm;
@@ -625,12 +731,14 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
             if (query.primaryTerm.empty()) query.primaryTerm = token;
             simpleLiteralTerm = token;
             const auto foldedToken = IsAscii(token) ? FoldAscii16(token) : std::u16string{};
+            const auto foldedTokenShifts = BuildAsciiShifts(foldedToken);
             const size_t foldedAnchorIndex = ChooseAsciiAnchor(foldedToken);
             const char16_t foldedAnchor = foldedToken.empty() ? 0 : foldedToken[foldedAnchorIndex];
-            addPredicate([token](const Candidate& candidate) { return OrdinalContains(candidate.name, token); },
-                         [token, foldedToken, foldedAnchor, foldedAnchorIndex](const CandidateView& candidate) {
-                             return OrdinalContains16Prepared(candidate.name, token, foldedToken,
-                                                              candidate.nameAsciiLower, foldedAnchor, foldedAnchorIndex);
+            const auto asciiNeedle = PrepareAsciiFoldNeedle(token);
+            addPredicate([asciiNeedle](const Candidate& candidate) { return AsciiFoldContains(candidate.name, asciiNeedle); },
+                         [token, foldedToken, foldedTokenShifts, foldedAnchor, foldedAnchorIndex](const CandidateView& candidate) {
+                             return OrdinalContains16Prepared(candidate.name, token, foldedToken, foldedTokenShifts,
+                                                              candidate.nameIsAscii, foldedAnchor, foldedAnchorIndex);
                          }, false,
                          PredicateKind::LiteralName);
         }

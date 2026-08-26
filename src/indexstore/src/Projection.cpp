@@ -459,6 +459,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
         entry.lastAccessTime = record.lastAccessTime;
         entry.attributes = record.attributes;
         entry.nameAsciiLower = IsAsciiLower(record.name);
+        entry.nameIsAscii = IsAscii(record.name);
         Touch(key);
         AddFilenameIndexEntry(index);
         return;
@@ -479,6 +480,7 @@ void Projection::Upsert(VolumeRowId volumeRowId, const EntryRecord& record) {
     entry.lastAccessTime = record.lastAccessTime;
     entry.attributes = record.attributes;
     entry.nameAsciiLower = IsAsciiLower(record.name);
+    entry.nameIsAscii = IsAscii(record.name);
 
     uint32_t index;
     if (!freeList_.empty()) {
