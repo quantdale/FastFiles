@@ -54,8 +54,18 @@ ASAN, hygiene/OpenSpec/status/provider, and unsigned release qualification remai
 unchanged gates. The hygiene job additionally runs the exact-tree script and then
 re-selects its result through project-status and release-frontier provenance checks.
 
-The final corrected SHA/tree and successful hosted run are recorded only after they
-exist; no self-referential future result is fabricated here.
+## Final corrected implementation and hosted evidence
+
+Corrective SHA `35deafe13e601b82bc88fc2e893f0df0b788a5f4`
+(tree `6c77278bd5f6299d10185460fb8c09568f8b5976`) fixed the two harness defects above
+without changing product/runtime/security behavior. Hosted GitHub Actions CI run
+`32956387761` completed successfully for exactly that SHA on 2026-08-26. The OpenSpec
+task ledger is fully checked through task 7.3.
+
+The later search/performance commits on `main` are separate work and do not change
+the provenance campaign's completed status. Final handoff/status consumers should
+derive later HEAD/CI facts live rather than pretending the successful run above
+certifies a different commit.
 
 ## Preserved external boundaries
 

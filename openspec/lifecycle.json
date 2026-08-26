@@ -169,6 +169,34 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "committed-tree-validation-provenance-and-clean-checkout-parity",
+      "state": "completed",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md" },
+        { "kind": "git-commit", "sha": "656acb8b8ebdc69da97501f34917df484213bf49" },
+        { "kind": "git-commit", "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4" },
+        { "kind": "hosted-run", "runId": "32956387761", "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4", "record": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "indexed-search-zero-copy-hot-path-and-lock-pressure-convergence",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": ".agent/EXECUTION_PROMPT.md" },
+        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/baseline.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
