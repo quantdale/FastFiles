@@ -1,5 +1,52 @@
 # Fast Files — Agent Workstate
 
+## Repository truth-surface and doc-drift convergence — final checkpoint (2026-08-26)
+
+- Resumed the ACTIVE planner prompt queued at `5758bbf` (Executable Repository
+  Truth + Documentation Drift Convergence) after fast-forwarding clean `main`
+  from `165f7bc`; baseline facts pinned in the campaign's `evidence/baseline.md`.
+- Confirmed every planner finding live and added audit extras F7–F11 (AGENTS
+  enumerated three fully-completed changes as having open tasks; AGENTS
+  self-contradicted on CTest presets; progress.md headed a completed campaign
+  as Active; two stale source comments in `UiProtocol.h` / `IndexPipeline.h`).
+- Implemented `tests/drift/DocTruth.psm1` (authority-derived semantic
+  contracts + fail-closed fence parsing + sentence-segmented anti-staleness),
+  composed it into `check_doc_drift.ps1`, added the 19-case adversarial
+  fixture matrix as CTest `ffdoc_truth_fixture_tests`, and reconciled all
+  current-facing guidance (README/AGENTS/CLAUDE/CODE_INDEX/progress) to
+  stable pointers. Design decisions D1–D7 in the campaign `design.md`;
+  authority map records one owner per machine-derived fact class.
+- Validation: strict OpenSpec 72/72; fixtures 19/19; both drift tests green
+  via ctest; project status from the real tree shows lifecycle PASS with 24
+  raw unchecked / 0 active-local preserved; `verify.ps1 doctor` PASS;
+  official build gate 9/9 across debug/release-test/analyze; ASAN
+  protocol/IPC 3/3 under VsDevCmd; `git diff --check` clean.
+- Implementation commits pushed to `main` without force:
+  `80b24ffa37185e90a02af798dd9245ce6894fb7b` (main implementation) and
+  `72db280e9b41723a571c0f1367aa4ba8bb0be15b` (progress.md frontier
+  reconciliation). The first hosted Actions run `32934249659` correctly
+  FAILED `ffdoc_drift_tests` on the wave-1 tree: progress.md had not been
+  reconciled before committing, so committed text still presented the
+  completed lifecycle-evidence-integrity campaign as Active/current while
+  the local gate had only seen the fixed dirty worktree. Root cause,
+  reproduction (fresh-clone ctest), and fix are recorded in commit
+  `72db280`; re-hosted Actions run `32935961728` completed `success` for
+  exactly `72db280e9b41723a571c0f1367aa4ba8bb0be15b`. This failure is the
+  campaign's own guard eliminating the false-green class it targets.
+- External boundaries untouched: production signing/pins, privileged MFT/USN,
+  clean-host, provider/guest, physical-display, foreground-owned interactive
+  UIA evidence all remain external; PR #6 stays superseded historical
+  evidence; no ignored run/baseline/signing directories were read.
+
+NEXT EXACT ACTION: after committing and pushing this final handoff, fetch/prune
+and derive live `HEAD`, `origin/main`, clean-worktree state, and the hosted CI
+result for the pushed handoff SHA. Do not edit tracked state merely to embed
+that later CI result.
+
+Status: **Campaign implementation, adversarial fixture proof, broad local
+validation, and implementation-SHA push are complete; final handoff parity/
+CI is derived live and external production boundaries remain truthful.**
+
 ## OpenSpec lifecycle evidence integrity campaign — final handoff checkpoint (2026-08-25)
 
 - Reconciled the planner pull at `9256808088d084d2dd71e702a3ac7bc1f83a9805`, then completed the typed-evidence and semantic-convergence implementation in `cd8b0b1bd60fbb2af25944f172eca1f5b1614684` and the full-history CI correction in `09bac46a5371ecaad58b7c38ab044deb2c5d8163`.

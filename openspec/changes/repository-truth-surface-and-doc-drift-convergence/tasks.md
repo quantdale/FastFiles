@@ -27,4 +27,4 @@
 
 - [x] 5.1 Run focused drift gates, PowerShell parser checks, strict OpenSpec validation, and policy/doc-drift consumers. (Evidence: implementation-and-validation record.)
 - [x] 5.2 Run Debug/release-test builds + full CTest suites, Analyze warning-clean gate, and applicable ASAN slice. (Evidence: implementation-and-validation record.)
-- [x] 5.3 Update evidence ledgers, progress/workstate/lifecycle/prompt durable state; commit, push, reconcile parity, and inspect hosted CI for the exact implementation SHA. (Evidence: final session report commit.)
+- [x] 5.3 Update evidence ledgers, progress/workstate/lifecycle/prompt durable state; commit, push, reconcile parity, and inspect hosted CI for the exact implementation SHA. (Evidence: implementation `80b24ff` + reconciliation `72db280e9b41723a571c0f1367aa4ba8bb0be15b`; first hosted run `32934249659` correctly failed the committed drift, fixed and re-validated; corrected run `32935961728` completed success for exact `72db280e9b41723a571c0f1367aa4ba8bb0be15b`.)

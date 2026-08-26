@@ -1,8 +1,9 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **ACTIVE**
+Status: **COMPLETE**
 Planned-From: `165f7bc7e22fcdc21f58735c38f368769828c409`
 Planned-At: `2026-08-26T01:36:00+08:00`
+Completed-At: `2026-08-26T14:45:00+08:00`
 Target-Branch: `main`
 Repository: `quantdale/FastFiles`
 Campaign: **Executable Repository Truth + Documentation Drift Convergence**
@@ -371,3 +372,34 @@ At final handoff:
 10. Inspect hosted CI for the exact pushed implementation SHA. If later final-handoff CI cannot be embedded without self-reference, leave a precise live-derivation instruction rather than guessing.
 
 If the live audit disproves the planner's premise and shows there is no semantic/current guidance drift after all, do not invent work. Record the evidence, close the prompt as not-applicable/complete, and stop. Otherwise, `/goal continue` should execute this campaign from the first incomplete requirement.
+
+## Completion record (executor, 2026-08-26)
+
+Executed to completion on `main` without force:
+
+- Implementation `80b24ffa37185e90a02af798dd9245ce6894fb7b`; frontier
+  reconciliation `72db280e9b41723a571c0f1367aa4ba8bb0be15b`. Campaign ledger:
+  `openspec/changes/repository-truth-surface-and-doc-drift-convergence`
+  (strict-valid; 72/72 with all changes).
+- All acceptance criteria met: authority-derived semantic drift contracts
+  (`tests/drift/DocTruth.psm1`) with fail-closed fences and lifecycle-aware
+  anti-staleness; 19-case adversarial fixture matrix registered as CTest
+  `ffdoc_truth_fixture_tests`; every planner example plus audit extras F7–F11
+  reconciled (README verbs/presets/targets, stale current-campaign claims in
+  README/CLAUDE/progress, snapshot slot-flip mechanics in AGENTS/CODE_INDEX
+  plus two source comments); machine-derived facts keep one authoritative
+  owner per `evidence/authority-map.md`.
+- Validation: fixtures 19/19; both drift tests green via ctest locally and on
+  fresh checkout; strict OpenSpec 72/72; status generation lifecycle PASS
+  (24 raw unchecked / 0 active-local preserved); doctor PASS; official build
+  gate 9/9 (debug/release-test + analyze); ASAN protocol/IPC 3/3;
+  `git diff --check` clean.
+- Hosted CI honestly recorded: run `32934249659` FAILED debug/release-test
+  because wave 1 committed before the progress.md reconciliation — the new
+  guard caught real committed-tree drift its own campaign had left behind.
+  Fixed by `72db280`, verified green on a fresh clone pre-push, re-hosted run
+  `32935961728` completed success for exact `72db280e9b41723a571c0f1367aa4ba8bb0be15b`.
+- External prerequisites remain external and visible: production signer/pins,
+  privileged MFT/USN validation, clean-host matrix, guest/provider,
+  physical-display, foreground-owned interactive UIA. Draft PR #6 remains
+  superseded evidence. No product/runtime/security behavior changed.

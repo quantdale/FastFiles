@@ -154,6 +154,21 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "repository-truth-surface-and-doc-drift-convergence",
+      "state": "completed",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md" },
+        { "kind": "git-commit", "sha": "80b24ffa37185e90a02af798dd9245ce6894fb7b" },
+        { "kind": "git-commit", "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b" },
+        { "kind": "hosted-run", "runId": "32935961728", "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b", "record": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

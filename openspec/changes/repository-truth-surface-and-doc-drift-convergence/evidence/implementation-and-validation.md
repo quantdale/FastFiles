@@ -59,8 +59,16 @@ shared build/policy wiring change for completeness.
 
 `.github/workflows/ci.yml` matrix jobs run `ctest --preset debug` and
 `ctest --preset release-test`, which include both drift tests automatically;
-no duplicate execution added. Hosted result for the pushed implementation SHA
-is recorded by the final handoff per the non-self-referential rule.
+no duplicate execution added.
+
+Hosted outcomes: run `32934249659` for `80b24ff` (hygiene + asan +
+analyze + release-candidate succeeded; debug/release-test failed on
+`ffdoc_drift_tests`) exposed that wave 1 had committed without the
+progress.md reconciliation — the guard caught real residual drift on the
+committed tree that the dirty-worktree local run could not see. Fixed by
+`72db280`; fresh-clone `ctest -R ffdoc` verified green before push; re-hosted
+run `32935961728` completed **success** for exact SHA
+`72db280e9b41723a571c0f1367aa4ba8bb0be15b`.
 
 ## Consumer/transitive audit
 
