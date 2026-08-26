@@ -42,16 +42,21 @@
 - Validation executed (VsDevCmd x64): Debug 86/86 (new
   `ffsearch_ascii_fold_tests` registered, TIMEOUT 120); release-test 86/86;
   analyze configure/build warning-clean; bench re-run post-change; CRLF
-  normalized across all edited files (drift gate passes).
+  normalized across all edited files (drift gate passes). Final-tree reruns
+  after the dead-field cleanup (`simpleLiteralUseBmh` removed — strategy is
+  now derived from folded length in one dispatcher): Debug 86/86, release-test
+  86/86, analyze warning-clean, drift PASS.
+- Implementation commits on main: `27f7d01` (fold-match wave) + the follow-up
+  cleanup commit recorded in the next checkpoint line.
 - Files touched: src/search/{Query.h,Query.cpp,Search.cpp},
   src/indexstore/{Projection.h,Projection.cpp}, src/engine/IndexPipeline.cpp,
   tests/search/{CMakeLists.txt,test_ascii_fold_matcher.cpp,
-  bench_literal_matcher.cpp}.
+  bench_literal_matcher.cpp,test_query.cpp}.
 
-NEXT EXACT ACTION: commit this validated wave to main (fetch/reconcile first,
-push without force, derive live HEAD/origin and hosted CI afterwards). The
-provenance-campaign files remain owned by their parallel executor — untouched
-here.
+NEXT EXACT ACTION: none local — this campaign wave is committed and pushed;
+derive live HEAD/origin/main and hosted CI for the pushed SHA(s) at the next
+resume. The provenance-campaign files remain owned by their parallel executor
+— untouched here.
 
 ## Full-suite bug report + optimizer WIP landing checkpoint (2026-08-26)
 

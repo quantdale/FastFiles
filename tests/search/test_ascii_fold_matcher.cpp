@@ -189,9 +189,10 @@ int MixedCaseEndToEnd(const ffsearch::FilterRegistry& registry) {
     Check(boundaryMatches == 2, "anchor-boundary names classify without overreading or false positives");
 
     const auto bmhCaseQuery = ffsearch::ParseQuery(L"phot", registry);
-    Check(bmhCaseQuery.simpleLiteralUseBmh, "four-character needles select the BMH scan");
     const ffsearch::Candidate shiftedUpper{L"pHoToS", L"C:\\", 1, 0, false};
     Check(bmhCaseQuery.Matches(shiftedUpper), "BMH bad-character shifts handle uppercase spellings");
+    Check(ffsearch::ParseQuery(L"ph", registry).Matches(shiftedUpper),
+          "anchor-range needles agree with BMH-range needles on mixed-case haystacks");
 
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

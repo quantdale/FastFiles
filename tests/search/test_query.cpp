@@ -66,15 +66,15 @@ int main() {
     const auto simpleLiteral = ffsearch::ParseQuery(L"REPORT", registry);
     Check(simpleLiteral.simpleLiteralName && simpleLiteral.MatchesView(reportView),
           "simple literal queries use the prepared projection matcher");
-    const auto shortLiteral = ffsearch::ParseQuery(L"ph", registry);
-    const auto bmhLiteral = ffsearch::ParseQuery(L"phot", registry);
-    Check(!shortLiteral.simpleLiteralUseBmh && bmhLiteral.simpleLiteralUseBmh,
-          "ASCII matcher selects BMH only beyond the short-needle boundary");
     static const ffsearch::Candidate upperAscii{L"Report.TXT", L"C:\\ascii", 1, 0, false};
     static const ffsearch::CandidateView upperAsciiView{u"Report.TXT", upperAscii.folder, upperAscii.sizeBytes,
                                                  upperAscii.modifiedTime, upperAscii.isDirectory,
                                                  upperAscii.createdTime, upperAscii.volumeId, upperAscii.id,
                                                  upperAscii.parentId, upperAscii.persistentIndexed};
+    const auto shortLiteral = ffsearch::ParseQuery(L"ph", registry);
+    const auto bmhLiteral = ffsearch::ParseQuery(L"phot", registry);
+    Check(shortLiteral.Matches(upperAscii) == bmhLiteral.Matches(upperAscii),
+          "short and BMH-range needles agree on the same mixed-case candidate");
     Check(simpleLiteral.Matches(upperAscii) == simpleLiteral.MatchesView(upperAsciiView) &&
               simpleLiteral.MatchesView(upperAsciiView),
           "uppercase ASCII names use the ordinal fallback without false negatives");

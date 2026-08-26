@@ -754,7 +754,6 @@ Query ParseQuery(std::wstring_view text, const FilterRegistry& registry) {
         query.simpleLiteralAnchor = query.simpleLiteralFolded.empty()
             ? 0 : query.simpleLiteralFolded[query.simpleLiteralAnchorIndex];
         query.simpleLiteralShifts = BuildAsciiShifts(query.simpleLiteralFolded);
-        query.simpleLiteralUseBmh = query.simpleLiteralFolded.size() >= 4;
     }
     return query;
 }
