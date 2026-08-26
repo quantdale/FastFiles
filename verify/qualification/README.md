@@ -31,13 +31,19 @@ Run from the repository root:
 pwsh ./verify/qualification/Invoke-ExactTreeQualification.ps1
 ```
 
-The qualifier materializes the current HEAD in a uniquely named detached temporary
-Git worktree using only local repository objects. It runs the fast repository-state
-sensitive gates (source/diagnostic policy, semantic documentation truth, OpenSpec
-and project-status/release-frontier contracts, including provenance fixtures),
-then removes only the worktree whose exact path it created and verified as owned.
-It does not use a network clone and refuses to repurpose or delete a pre-existing
-path.
+The qualifier materializes the current HEAD in a uniquely named temporary Git
+worktree on a GUID-owned ephemeral branch whose tip is the exact candidate commit.
+The branch exists only because the existing project-status generator requires a
+non-empty branch name; commit/tree identity, not that branch name, is the
+qualification authority. The qualifier runs the fast repository-state-sensitive
+gates, re-samples source state, removes only the worktree whose exact path it created
+and verified as owned, then deletes the ephemeral branch only if it still points to
+the captured candidate SHA. It does not use a network clone and refuses to reuse or
+delete a pre-existing path.
+
+The source-provenance model itself also supports detached HEAD and has a regression
+fixture for it; the ephemeral branch is an orchestration compatibility seam, not an
+identity requirement.
 
 The emitted `run-result.json`-compatible record contains `candidateSha`,
 `candidateTreeSha`, and `sourceProvenance`. Pass it explicitly to the status or
@@ -51,8 +57,9 @@ pwsh ./verify/status/New-ReleaseReadinessReport.ps1 `
   -VerificationRunResultPath ./verify/status/generated/exact-tree-qualification.json
 ```
 
-Those consumers compare the selected result with the current repository HEAD/tree.
-A legacy or dirty development PASS is projected as `DEVELOPMENT_ONLY`; stale or
+Those consumers compare the selected result with the current repository HEAD/tree
+and require the current source checkout itself to remain clean. A legacy or dirty
+development PASS is projected as `DEVELOPMENT_ONLY`; stale, mutated, or otherwise
 contradictory exact-tree evidence fails closed.
 
 Hosted GitHub Actions remains separate, stronger remote evidence for the complete CI

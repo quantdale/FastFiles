@@ -14,15 +14,17 @@
 | clean unchanged exact-tree state | exact-tree qualification true |
 | prior-commit result selected after new commit | full HEAD and tree mismatch reasons |
 | exact result selected for same candidate | valid binding |
-| detached clean HEAD | supported and exact-tree eligible |
+| detached clean HEAD | source-provenance model remains exact-tree eligible |
 | missing `.git` metadata | fail closed |
 | repeated reason projection | stable sorted reason codes |
 | serialized provenance | no absolute fixture path |
+| pre-existing qualifier destination with sentinel | qualifier exits nonzero and sentinel remains intact |
 
 The matrix is implemented by `tests/drift/test_source_provenance_fixtures.ps1` and
 registered as `ffsource_provenance_fixture_tests` under the existing PowerShell-gated
 CTest drift suite.
 
-The exact-tree orchestrator separately proves owned detached-worktree materialization,
-fast gate execution, start/finish source identity, run-result schema compatibility,
-and cleanup restricted to the GUID-owned path it created.
+Hosted run `32955810413` additionally supplied a negative integration fixture for the
+orchestrator itself: it exposed command-shadow recursion and the existing status
+system's detached-branch incompatibility. Both are explicitly root-caused and fixed
+in the corrective implementation rather than hidden by a blind retry.
