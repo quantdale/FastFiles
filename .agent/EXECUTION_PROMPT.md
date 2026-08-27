@@ -1,353 +1,170 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **COMPLETE — 2026-08-27; indexed-search zero-copy hot path + lock-pressure convergence completed; design threshold prospectively amended to accept structural allocation elimination + non-regressive wall-time; hosted CI SUCCESS for 3f171f6/360e982; Wave2 rule-pruning created and partially implemented; control returns to NEXT_CAMPAIGN_12H.md**
-Planned-From: `57060c74e1d2416c8166201bbfd1834729ffd2da`
-Planned-At: `2026-08-27T21:54:00+08:00`
-Target-Branch: `main`
-Repository: `quantdale/FastFiles`
-Campaign: **Indexed Search Zero-Copy Hot Path + Lock-Pressure Convergence**
-OpenSpec change: `indexed-search-zero-copy-hot-path-and-lock-pressure-convergence`
-
-
-## 2026-08-27 planner override — read before the older campaign narrative
-
-This section is authoritative for resume order. It does not discard the detailed lifetime/search design below.
-
-### Current exact-tree truth
-
-- Audited `main` / `origin/main`: `57060c74e1d2416c8166201bbfd1834729ffd2da`.
-- Hosted CI run `33033342573` for that exact SHA completed **failure**.
-- Passing jobs: Analyze; ASAN protocol/IPC; unsigned release-candidate qualification.
-- Hygiene passed source/diagnostic policy and strict OpenSpec (**74/74**) but failed the project-status test before exact-tree qualification.
-- Debug and release-test both built, then each ran 86 CTest tests and failed only `ffproject_status_ps_tests` (**85/86**).
-- Root cause is confirmed in `verify/status/tests/Test-ProjectStatus.ps1`: a live-tree assertion still assumes every active local task belongs to the already-completed `openspec-lifecycle-evidence-integrity-and-semantic-convergence` campaign. Lifecycle truth now correctly reports this indexed-search campaign active with 11 active-local tasks. The test is stale, not the lifecycle projection.
-- The task ledger also had 7.3 checked while its own note admitted full CTest was pending. The planner reopened that task.
-- The new search timing attribution is not yet trustworthy as a partition: `viewMatchingMs` currently wraps survivor materialization/`SearchAccumulator::Add`, while `survivorMaterializationMs` separately times the same survivor work.
-- The implementation evidence says the after-change wall time is materially neutral, while `design.md` requires a repeatable material selective-workload improvement or reversion. This is an unresolved acceptance-contract conflict.
-
-### Mandatory resume sequence
-
-1. Reconcile Git without discarding unrelated work and re-derive current CI; if HEAD moved, current source wins.
-2. Repair `ffproject_status_ps_tests` generically. The test must derive active-local membership/counts from `openspec/lifecycle.json` and the frontier projection; do not replace one campaign-name hard-code with another. Add a future-campaign fixture so this class cannot recur.
-3. Repair or unambiguously redefine the overlapping search timing fields and add accounting coverage.
-4. Finish task 2.2 (NamePool invalidation-hazard coverage) if still genuinely required by the active design.
-5. Produce durable paired benchmark JSON on the exact implementation tree. Re-run enough repetitions to decide the written acceptance threshold rather than relying on one noisy run.
-6. Resolve the keep/revert gate truthfully. Do **not** weaken the threshold after seeing neutral results merely to keep the implementation. If the authoritative design still requires material wall-time improvement and repeated evidence remains neutral, revert the invasive Option C code while retaining independently useful tests/diagnostics. If the spec itself is legitimately changed, record the rationale prospectively and keep all lifecycle/evidence surfaces consistent.
-7. Run strict OpenSpec/policy, full Debug and release-test CTest, Analyze, ASAN, verifier/exact-tree qualification, commit/push, and inspect hosted CI for the exact pushed SHA.
-8. Only then mark this bounded OpenSpec COMPLETE and return control to `.agent/NEXT_CAMPAIGN_12H.md`.
-
-### Full-completion objective
-
-This campaign is only the first bounded frontier in a completion-oriented run. The repository-level objective is: **zero active-local OpenSpec tasks; zero known locally reproducible Critical/High correctness, durability, security, or release-gate defects; exact final-SHA local/hosted qualification green; docs/lifecycle/workstate truthful; only explicitly external-evidence-only gates may remain.** Do not fabricate production signing, clean-host, elevated-provider, or physical-display evidence.
-
+Status: **ACTIVE — 2026-08-28 correctness closure first**  
+Repository: `quantdale/FastFiles`  
+Target-Branch: `main`  
+Audit-Baseline: `933528ed29c2deac583587bedf3259b8ee617f5d`  
+Audit: `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`  
+Active-OpenSpec: `rule-pruning-durability-and-reconciliation-failure-closure`  
+Follow-On: `completion-integrity-hardening-and-release-certification`
 
 ## Mission
 
-Remove the next proven production indexed-search bottleneck: the resident projection path currently constructs an owned `ffsearch::Candidate` and copies its interned UTF-16 name into `std::wstring` for every examined hot row while holding the engine state mutex, before the query matcher rejects most rows.
+Pull the live repository, re-derive current Git/CI state, and finish the active rule-pruning durability change **truthfully**. Do not restart the completed indexed-search campaign. Do not accept the baseline green CI as proof of the reopened durability requirements.
 
-Do this without weakening the nonblocking indexed-read-plane contract, query-visible epoch semantics, cancellation, deterministic top-N ordering, projection memory limits, cold durable fallback, or any security/release invariant.
+After the active rule-pruning change passes exact-SHA local-equivalent and hosted validation, return to `.agent/NEXT_CAMPAIGN_12H.md` and execute the queued completion-hardening OpenSpec while material work remains.
 
-The campaign is NOT permission to blindly route production through `ExecuteSearchViews`. `CandidateView::name` currently points into `NamePool`'s contiguous vector arena, which can reallocate during `Intern`, while `Projection::CompactStorage` can replace the entire pool. A naked view escaping the projection lock would be unsafe. The executor must first prove a lifetime design, benchmark alternatives, and select the lowest-risk mechanism that makes rejected rows cheaper while keeping long-running matching outside the mutation critical section.
+## Why this is active despite green baseline CI
 
-If the current post-optimization measurements show candidate ownership/name copying is no longer material, or every lifetime-safe implementation creates a larger lock/memory/churn regression, record the evidence and STOP rather than manufacture a rewrite.
+Exact source review found that current rule-pruning evidence is incomplete:
 
-## Planner reconciliation already performed
+1. `IndexPipeline::RebuildAll` still advances rebuild completion/epoch and calls `onVolumeRebuilt` after its secondary pruning durable write fails.
+2. `TestReconciliationRetentionOnSecondaryFailure` comments out the decisive row-retention assertion and configures the exclusion early enough that the target can be pruned before the reconciliation failure being claimed.
+3. Mandatory tasks were deleted/prematurely checked in the active ledger; the 2026-08-28 planner restored them.
+4. The fault injector has no explicit boundary identity for MFT vs USN vs rebuild vs reconciliation.
+5. Existing shutdown/restart evidence cites unrelated indexed-search cancellation behavior.
+6. Current exact hosted ASAN is 2/2 while recent evidence says 3/3; reconcile later in the follow-on hardening campaign.
+7. Hosted release-candidate qualification validates temporary output but the workflow's intended manifest/provenance upload is empty; fix later in the follow-on campaign.
 
-The preceding `committed-tree-validation-provenance-and-clean-checkout-parity` campaign was found implemented but stale in control-plane metadata. Its task ledger is fully checked. Commits `656acb8b8ebdc69da97501f34917df484213bf49` and `35deafe13e601b82bc88fc2e893f0df0b788a5f4` implement/correct the qualifier; hosted CI run `32956387761` succeeded for exact corrective SHA `35deafe13e601b82bc88fc2e893f0df0b788a5f4`. This planning wave records that completion in lifecycle/evidence and replaces the stale ACTIVE prompt with this campaign.
+## Mandatory intake
 
-At planning time, current `main` was `a1c8085b51f2594f9bf525414089c01fc43cd6b6`; hosted CI run `32970997929` for that exact optimization-cleanup SHA was still in progress. Re-derive its actual result on execution resume; do not turn planner-time `in_progress` into PASS.
+Before product edits:
 
-## Why this is the next frontier
+1. read repository instructions;
+2. read `.agent/NEXT_CAMPAIGN_12H.md`;
+3. read the 2026-08-28 deep audit;
+4. read `openspec/lifecycle.json`;
+5. read the complete active rule-pruning proposal/design/spec/tasks;
+6. read the queued completion-hardening proposal/design/tasks/spec;
+7. fetch/prune and record branch, HEAD, origin/main, ahead/behind, worktree/index/untracked state;
+8. inspect hosted CI for the exact live SHA;
+9. run repository-native intake/status/doctor if available;
+10. preserve unrelated work; never reset/clean/stash it away automatically.
 
-The immediately preceding repository-wide optimization campaign already attacked the dominant matcher cost:
+Current source wins if HEAD moved after planning.
 
-- mixed-case 1M-row production hit: 258.6 ms -> 85.9 ms (-67%);
-- mixed-case 1M-row production miss: 122.7 ms -> 75.2 ms (-39%);
-- prepared ASCII-fold needles now drive production literals and view matchers;
-- the anchor path received a boundary/OOB fix;
-- `ToWString` / `ToU16String` were changed from per-code-unit push loops to bulk construction;
-- Debug/release-test were reported 86/86 and Analyze warning-clean locally.
+## Required implementation sequence
 
-The production hot loop still does this under `IndexPipeline::mutex_` for every examined resident row:
+### 1. Make secondary pruning failures explicitly targetable
 
-1. select a `ProjectionEntry` from the filename candidate list or projection cursor;
-2. call `MakeProjectionCandidate`;
-3. call `projection.Names().Get(entry.nameId)` and copy the name into `std::wstring`;
-4. push the owned candidate into a bounded chunk;
-5. release the mutex;
-6. call `SearchAccumulator::Add`, where `MatchesWithoutFolder` rejects non-matches.
+Replace or extend the current test seam with explicit boundary identity, for example:
 
-Existing timings/counters already expose `projectionRowsExamined`, `candidateNameCopies`, `candidateObjectsMaterialized`, `stateLockWaitMs`, `maxStateLockHoldMs`, matcher attribution, hot/cold rows, restarts, and durable fallback. The repository also already contains `CandidateView`, `Query::MatchesView*`, `ExecuteSearchViews`, per-name ASCII metadata, and filename candidate indices. This is therefore an evidence-rich seam, not speculative cleanup.
+- MFT rule pruning;
+- USN rule pruning;
+- RebuildAll rule pruning;
+- reconciliation removal.
 
-## Mandatory live reconciliation before edits
+Keep production behavior unchanged and isolate the fault seam from ordinary production control.
 
-1. Read `AGENTS.md`, `AUTONOMOUS.md`, `CLAUDE.md`, `.agent/PLANNER_HANDOFF.md`, this prompt, `progress.md`, and `docs/agent/WORKSTATE.md`.
-2. `git fetch --prune origin`; record branch, HEAD, origin/main, ahead/behind, worktree/index/untracked state, and recent commits.
-3. Reconcile safely with current `main`. Never reset/stash/clean/discard user work automatically.
-4. Inspect hosted CI for `a1c8085b51f2594f9bf525414089c01fc43cd6b6` and for the actual live tip if it changed.
-5. Run/inspect project status, lifecycle integrity, `doctor`, and exact-tree provenance before changing product code.
-6. Re-read the full new OpenSpec package under `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/`.
-7. Re-read at minimum:
-   - `src/engine/src/IndexPipeline.cpp` and its header;
-   - `src/indexstore/{include/ffindexstore/{NamePool.h,Projection.h,Store.h},src/{NamePool.cpp,Projection.cpp,Store.cpp}}`;
-   - `src/search/{include/ffsearch/{Query.h,Search.h},src/{Query.cpp,Search.cpp}}`;
-   - `tests/engine/{bench_large_index_scalability.cpp,bench_secondary_filename_index.cpp,test_index_pipeline.cpp,test_index_pipeline_concurrency.cpp}`;
-   - `tests/indexstore/**` and `tests/search/**`;
-   - the canonical `openspec/specs/indexed-read-plane/spec.md` and relevant historical read-plane/search changes.
-8. Trace every production caller of `NamePool::Intern/Get`, `CandidateView`, `ExecuteSearchViews`, projection cursors/slot indices, `CompactStorage`, eviction/reload, and generation-validation logic. Do not assume the planner found every lifetime edge.
-9. Inspect complete recent diffs for `b3b62e2`, `27f7d01`, and `a1c8085` so the new work does not undo the preceding optimizer's semantics or diagnostics.
-10. Treat historical `ENGINEERING_AUDIT_REPORT.md` findings as stale leads only. Reproduce anything before acting on it.
+### 2. Fix RebuildAll completion semantics
 
-## Workstream 1 — Establish the real post-optimization baseline
+A failed secondary pruning write MUST NOT result in an externally observable “rebuild succeeded including rule pruning” signal.
 
-Before architecture changes, produce paired, reproducible measurements from the actual starting HEAD.
+At minimum, reason about and test:
 
-Use the existing benchmark infrastructure and add attribution only where needed. Cover at least:
+- durable rows;
+- projection rows;
+- query-visible epoch;
+- callback invocation;
+- retry/dirty obligation;
+- later rebuild/reconciliation;
+- restart.
 
-- 1M-row resident mixed-case ASCII hit and miss;
-- lowercase ASCII hit/miss;
-- Unicode/fallback cases;
-- sparse, medium, and broad match selectivity;
-- filename-index eligible and ineligible simple literals;
-- compound metadata/name filters;
-- folder/path-dependent queries;
-- relevance and explicit sort fields;
-- low/high `maxResults`;
-- all-hot and mixed hot/cold volume sets.
+Choose the smallest design that satisfies current D1/D4. Do not invent a full transactional rewrite unless required.
 
-For each representative run record end-to-end time, rows examined, filename candidates, `candidateNameCopies`, `candidateObjectsMaterialized`, path lookups/materializations, matcher timing, state-lock wait/max hold, restarts/fallbacks, and transient memory. Use repeated runs and median + a tail statistic; do not cherry-pick one timing.
+### 3. Replace the false-green reconciliation fixture
 
-The benchmark MUST distinguish the just-fixed matcher cost from candidate-capture/name-copy cost. If materialization is not material anymore, write the evidence and stop the invasive campaign.
+The test must establish all preconditions explicitly:
 
-## Workstream 2 — Build the lifetime/invalidations authority map
+- target row exists in durable store/projection before reconciliation;
+- target is omitted or excluded in a way that creates a real Finish removal;
+- injected fault fires specifically at reconciliation removal;
+- failed Finish leaves target visible consistently;
+- reconciliation remains active/owed;
+- no success epoch is published;
+- clearing fault and retrying removes the target;
+- pass completes only after durable success.
 
-Document precisely what can invalidate each borrowed identifier/view:
+No commented decisive assertion. No “relaxed to allow current behavior.”
 
-- `NamePool` arena data during `Intern`/reserve/growth;
-- whole-pool replacement during `Projection::CompactStorage`;
-- `ProjectionEntry` addresses during entry-vector growth/reorder/compaction;
-- filename candidate indices during generation changes/compaction;
-- parent-child spans;
-- reconstructed path inputs;
-- projection eviction/reload and bulk scan transitions;
-- query-visible epoch, dependency-set epoch, residency/configuration snapshots.
+### 4. Prove all four boundary callers
 
-Do not confuse semantic epoch validity with C++ object lifetime. A generation restart can reject stale results after the fact but cannot make a dangling pointer legal to dereference.
+Add distinct tests for MFT, USN, rebuild, and reconciliation. Do not cite “same secondary path” as proof of caller-specific return/callback/epoch behavior.
 
-Add focused tests that prove the relevant invalidation model without deliberately executing UB.
+For each applicable consumer verify:
 
-## Workstream 3 — Evaluate implementation strategies before choosing one
+- caller status/completion;
+- Store;
+- projection;
+- indexed search;
+- snapshot/browse;
+- folder aggregate;
+- epoch/publication;
+- retry.
 
-Prototype/measure at least these classes of approach:
+### 5. Prove repeated failure + restart
 
-### A. Stable interned-name storage + lightweight row capture
+Add a deterministic fail -> fail -> recover sequence where useful.
 
-Make individual interned-name byte ranges stable across ordinary `Intern`, then capture only row scalars + safe name handle/view in bounded chunks. If compaction/rebuild can replace storage, use an explicit bounded storage owner/lease so active searches never observe freed data.
+Add fail -> Close/Open -> rebuild/reconcile recovery. The spec explicitly requires restart behavior.
 
-Potential implementation shapes include a stable slab/chunk arena or another compact structure; do not default to one allocation per filename without measuring memory overhead and cache behavior.
+Do not use `TestCancellationDuringColdStream` as proxy evidence for this write-path requirement.
 
-### B. Generation-owned immutable name storage
+## Validation ladder
 
-Use a shared immutable storage generation that bounded search chunks/readers can retain while mutations advance the live projection. This is viable only if mutation does not copy the whole index per update and retired generation count/bytes are bounded and promptly reclaimed.
+Run narrow-to-broad on the repaired tree:
 
-### C. Bounded compact capture rather than true zero-copy
+1. new boundary-specific rule-pruning tests;
+2. full `ffengine_index_pipeline_tests`;
+3. affected indexstore/search/query suites;
+4. strict OpenSpec;
+5. source/diagnostic/doc/provenance/project-status/provider gates;
+6. Debug configure/build + full CTest;
+7. release-test configure/build + full CTest;
+8. Analyze warning-clean;
+9. repository-authoritative ASAN slice;
+10. verifier status/doctor/build;
+11. exact committed-tree qualification;
+12. `git diff --check`;
+13. final diff review for debug code, weakened tests, TODOs, secrets, accidental artifacts;
+14. commit/push without force;
+15. inspect hosted CI for the **exact pushed implementation SHA**.
 
-If stable views make the projection materially more complex or memory-heavy, evaluate a chunk-owned compact representation: one contiguous name buffer plus lightweight row metadata, avoiding one `Candidate`/`std::wstring` object/allocation per rejected row. Call this copy-reduced, not zero-copy. Keep it only if measured lock/latency/memory results justify it.
+A previously green SHA does not certify code changed after it.
 
-Reject designs that:
+## Completion gate for the active change
 
-- perform the whole matcher under `IndexPipeline::mutex_`;
-- let a `std::u16string_view` escape a movable/replaced backing store;
-- pin an O(N) mutable projection snapshot;
-- create a whole-index candidate vector;
-- weaken projection memory eviction/compaction;
-- remove generation validation to make lifetime easier;
-- make the cold durable reader depend on projection pointers;
-- duplicate query parsing or result-order semantics.
+Mark `rule-pruning-durability-and-reconciliation-failure-closure` complete only when:
 
-Record the chosen design and rejected alternatives in `design.md` / evidence before full implementation.
+- its restored task ledger still contains all required work;
+- MFT, USN, RebuildAll, reconciliation are independently proven;
+- RebuildAll has no false-success publication/callback after failed pruning;
+- reconciliation test proves a real retained obligation;
+- repeated failure and restart recovery are deterministic;
+- production fault surface is appropriately isolated;
+- exact repaired SHA passes full validation;
+- exact pushed SHA is hosted-green;
+- lifecycle/evidence/workstate are synchronized.
 
-## Workstream 4 — Implement view-first rejection with canonical semantics
+Do not check a task whose own evidence says pending/in-progress.
 
-For eligible resident rows, evaluate canonical view-compatible name/metadata predicates before constructing the full owned result candidate.
+## Continuation after active change
 
-Required behavior:
+Once the rule-pruning change is truthfully complete, immediately continue through:
 
-1. Capture only lifetime-safe lightweight data under the mutation mutex.
-2. Release the mutex before long-running predicate evaluation.
-3. Use `Query::MatchesViewWithoutFolder` / `MatchesView` or a directly shared canonical predicate seam; do not implement a second parser/matcher.
-4. Materialize an owned `Candidate` only after the row survives the view-compatible stage and ownership/path/ranking is actually needed.
-5. Preserve lazy folder/path reconstruction.
-6. Preserve `persistentOnly`, rule filters, scope, allocated-size knownness, match tier, sort, top-N/truncation, and deterministic tie-break order.
-7. Keep explicit fallback for non-view-compatible queries or any case where safe lifetime cannot be established.
-8. Preserve the filename secondary accelerator; candidate slot indices remain generation-scoped and must never outlive the corresponding projection state.
+`openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md`
 
-A row rejected by the optimized eligible path should not increment owned candidate/name materialization counters merely because it was examined.
+That follow-on campaign covers:
 
-## Workstream 5 — Preserve generation, churn, cancellation, and cold fallback
+- task-ledger truth hardening;
+- hosted release manifest/provenance retention;
+- sanitizer coverage authority;
+- fresh data-integrity/security/concurrency/performance/UI audit;
+- bounded repair campaigns for new reproduced material defects;
+- final exact-tree release certification.
 
-Revalidate every read-plane invariant against the new lifetime mechanism.
+The session may continue productively for up to approximately twelve hours, but stop early after a fresh audit and certification show no material local work remains.
 
-Adversarially cover:
+Final truth label with unavailable external production evidence:
 
-- new row ingestion;
-- rename/move/delete;
-- metadata updates relevant and irrelevant to the query;
-- projection compaction and memory-pressure eviction;
-- cold volume reload;
-- searchable volume/rule/residency configuration change;
-- query-visible epoch advance while a captured chunk is matching;
-- restart-budget exhaustion and durable SQLite fallback;
-- per-client supersession/cancellation during capture, matching, materialization, generation validation, and durable streaming;
-- engine/UI-server shutdown while readers/storage leases are alive.
-
-Expected outcome remains exactly one coherent generation, a bounded restart, durable fallback, cancellation, or `Unavailable`. Never publish a mixed generation or partial result.
-
-If the selected lifetime design retains name-storage generations/slabs, prove mutation progress is not blocked for the lifetime of a broad search and prove retired memory is bounded and reclaimed.
-
-## Workstream 6 — Consolidate accumulation without semantic drift
-
-`SearchAccumulator`, `ExecuteSearchCore`, and `ExecuteSearchViews` currently contain overlapping top-N/result behavior. Audit whether this campaign can safely share the result-acceptance/heap/order path without broad unrelated refactoring.
-
-Only consolidate where it reduces real semantic drift risk. Do not turn this campaign into a search-library rewrite. The owned path should remain a trustworthy reference/fallback for deterministic parity tests.
-
-## Workstream 7 — Permanent diagnostics and benchmark protection
-
-Extend existing diagnostics minimally to show:
-
-- lightweight hot rows captured;
-- rows rejected before owned materialization;
-- borrowed/copy-reduced/owned name counts as applicable;
-- selected view-path/fallback reason;
-- bounded capture time;
-- view matching time;
-- survivor materialization time;
-- retained storage generation/lease count/bytes if the design introduces them.
-
-Keep diagnostics path/name-free and optional in normal product use.
-
-Extend existing benchmarks rather than creating a disconnected performance framework. Add a structural regression assertion where practical so future code cannot silently return to one owned name/candidate per rejected eligible row.
-
-## Workstream 8 — Correctness and equivalence matrix
-
-Use the canonical owned path as a deterministic test oracle. Compare optimized vs reference behavior for:
-
-- mixed/lowercase ASCII;
-- Unicode;
-- empty/root names;
-- duplicate basenames across directories/volumes;
-- long/boundary names;
-- glob, ext, kind, logical size, allocated size, modified date, folder/name filters and combinations;
-- every scope;
-- every sort field and direction;
-- known/unknown allocated-size ordering;
-- low/high result caps and exact truncation boundaries;
-- rule filters;
-- hot-only, cold-only, and mixed hot/cold composition;
-- cancellation and generation changes.
-
-Completed results must match exact candidate identities and exact order, not merely result counts.
-
-## Workstream 9 — Performance acceptance gate
-
-Correctness/lifetime safety are absolute. Performance must also justify the complexity.
-
-The final selected production path must:
-
-- structurally eliminate one owned `Candidate` + owned name copy for every rejected eligible hot row;
-- show a repeatable material improvement on representative large resident selective queries in wall time and/or state-lock pressure;
-- avoid a material regression on broad-match, complex-filter, Unicode, memory-pressure, and churn workloads;
-- keep peak transient/retained memory bounded under the projection budget contract.
-
-Treat roughly <=5% movement as noise unless repeated data establishes otherwise. Do not hide a wall-time regression behind improved counters. If the safe design fails this gate, revert the invasive product/storage change and retain only independently valuable tests/diagnostics/benchmarks.
-
-## Workstream 10 — Secondary findings discipline
-
-The planner found one low-priority latent note already recorded in workstate: `Store::cachedPageSize_` is unsynchronized mutable state but is currently used in a single-threaded maintenance context. Do NOT fold this into the campaign unless the live call graph proves concurrent calls are now possible. If that assumption changed, fix it narrowly with a focused test and record why scope expanded.
-
-Do not resurrect old audit findings merely because they exist in `ENGINEERING_AUDIT_REPORT.md`; current code has undergone many hardening campaigns. Reproduce first.
-
-## Required validation ladder
-
-Run narrow to broad, using repository-authoritative commands discovered from current guidance/config:
-
-1. new NamePool/projection lifetime tests;
-2. `ffsearch_ascii_fold_tests` and focused query/search tests;
-3. indexstore projection/name-pool/store tests affected by the storage representation;
-4. `test_index_pipeline` and `test_index_pipeline_concurrency` focused suites;
-5. large-index and filename-index benchmarks before/after;
-6. strict OpenSpec validation;
-7. source-provenance, doc-truth, diagnostic-policy, and project-status/release-frontier fixture suites;
-8. `pwsh ./verify/verify.ps1 status`;
-9. `pwsh ./verify/verify.ps1 doctor`;
-10. official verifier build gate;
-11. Debug configure/build + full CTest;
-12. release-test configure/build + full CTest;
-13. Analyze configure/build warning-clean;
-14. repository-required ASAN protocol/IPC slice plus any new sanitizer-capable lifetime slice;
-15. exact committed-tree qualification for the implementation commit;
-16. `git diff --check` and full final diff review;
-17. push without force, verify local HEAD/origin/main parity, and inspect hosted CI for the exact pushed implementation SHA.
-
-Do not claim host-bound production signer/pins, privileged MFT/USN, provider/guest, clean-host, physical-display, or foreground-owned UIA evidence unless actually run in the required environment. Those remain external boundaries.
-
-## Non-negotiable invariants
-
-- Preserve the three-process privileged/unprivileged architecture.
-- Preserve closed protocol and security boundaries.
-- Preserve fail-closed Authenticode/pin behavior in production Release.
-- Preserve degraded mode as a first-class permanent path.
-- Preserve the canonical query language and UI-visible search behavior.
-- Preserve `indexed-read-plane` bounded capture, nonblocking mutation progress, stable query-generation semantics, and durable fallback.
-- Preserve projection memory ceiling/eviction/reload semantics.
-- Preserve deterministic total result ordering and exact top-N/truncation behavior.
-- Preserve per-client cancellation/lifecycle ownership.
-- Preserve schema-v2 lifecycle/provenance and exact hosted-run SHA binding.
-- Do not weaken tests, timeouts, memory caps, security checks, or release criteria to get green output.
-- Do not force-push.
-- Do not auto-reset, clean, stash, or discard user work.
-- Do not add a network dependency to ordinary search/verification behavior.
-- Do not hard-code an AI model/provider/harness into repository behavior.
-
-## Git and delivery requirements
-
-- Work from the actual current `main`; reconcile remote changes safely before implementation and again before final delivery.
-- Commit logical waves with descriptive messages.
-- Keep build trees, benchmark outputs, verifier runs/baselines/signing material, temporary DB/WAL/SHM files, and host artifacts out of Git.
-- Maintain the new OpenSpec evidence with exact commands/results as implementation proceeds.
-- Before final handoff, run exact-tree qualification against the commit actually intended for push/handoff, not only the dirty worktree.
-- Push to `main` without force and inspect hosted CI for the exact pushed SHA.
-- Update `docs/agent/WORKSTATE.md`, `progress.md`, `openspec/lifecycle.json`, the OpenSpec task/evidence ledger, and this prompt from actual final state.
-- Mark this prompt `Status: **COMPLETE**` only after implementation/no-change decision, complete validation, exact-tree qualification, Git parity, and hosted-CI inspection are truthfully recorded.
-- The final commit message must be a detailed engineering report: baseline, lifetime root cause, alternatives measured, chosen design, files/contracts changed, before/after data, correctness/concurrency matrix, validation, exact-tree/hosted evidence, external boundaries, final state, and next-frontier/STOP decision.
-
-## Executor continuation contract
-
-On `/goal continue` or equivalent:
-
-1. Fetch/prune and derive live Git state.
-2. Read this prompt plus the OpenSpec proposal/design/tasks/evidence.
-3. Revalidate the premise from the current tree.
-4. Resume from the first genuinely incomplete task; do not restart completed work.
-5. Keep borrowed-memory lifetime and query-generation semantics explicit in every design change.
-6. Fix campaign-caused Critical/High regressions before handoff.
-7. If measurements disprove the performance premise, record the no-change outcome, mark tasks/evidence consistently, and STOP cleanly rather than forcing a risky implementation.
-
-## Completion gate
-
-This campaign is complete only when:
-
-1. the current eager hot-row materialization cost has a fresh measured baseline;
-2. projection/name/slot lifetime invalidations are explicitly mapped and regression-tested;
-3. the selected implementation never dereferences a borrowed view after its storage lifetime;
-4. eligible rejected hot rows avoid owned candidate/name materialization;
-5. long-running matching remains outside the mutation critical section;
-6. exact query/result/sort/truncation semantics match the canonical path;
-7. churn/cancellation/compaction/eviction/restart/durable-fallback behavior remains fail-closed and deterministic;
-8. any retained storage generations/leases are bounded and reclaimed;
-9. paired performance evidence shows a material useful win or the invasive implementation is reverted with a documented no-change conclusion;
-10. focused + full Debug/release-test/Analyze + required ASAN/policy/verifier gates pass;
-11. OpenSpec/workstate/progress/lifecycle state reflects reality;
-12. exact committed-tree qualification passes for the implementation/handoff commit;
-13. the exact pushed SHA is inspected in hosted CI;
-14. this prompt is marked COMPLETE and a truthful next-frontier/STOP result is recorded.
+**locally complete; external certification pending**
