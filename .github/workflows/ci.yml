@@ -200,7 +200,8 @@ jobs:
           $toolchain = Find-VSToolchain
           if (-not $toolchain) { throw 'Toolchain discovery failed after release-test build.' }
           Enter-DevEnvironment -Toolchain $toolchain -Arch x64
-          ./verify/release/tests/Test-ReleaseCandidate.ps1 -RepoRoot $env:GITHUB_WORKSPACE -BuildRoot (Join-Path $env:GITHUB_WORKSPACE 'build\release-test')
+          $evidenceDirectory = Join-Path $env:GITHUB_WORKSPACE 'out\release-candidate'
+          ./verify/release/tests/Test-ReleaseCandidate.ps1 -RepoRoot $env:GITHUB_WORKSPACE -BuildRoot (Join-Path $env:GITHUB_WORKSPACE 'build\release-test') -RetainedEvidenceDirectory $evidenceDirectory
 
       - name: Upload safe release test summary
         if: always()
@@ -208,7 +209,7 @@ jobs:
         with:
           name: release-qualification-${{ github.run_id }}
           path: |
-            out/release-candidate/**/candidate-manifest.json
-            out/release-candidate/**/provenance.json
-          if-no-files-found: ignore
+            out/release-candidate/candidate-manifest.json
+            out/release-candidate/provenance.json
+          if-no-files-found: error
           retention-days: 14

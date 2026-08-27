@@ -1,6 +1,6 @@
 # Fast Files — Agent Workstate
 
-## Completion-integrity campaign — final handoff (2026-08-27/28)
+## Completion-integrity campaign — release-evidence slice (2026-08-28)
 
 - The session began from `af43727` after a fast-forward-only pull on `main`;
   the only pre-existing local change was the untracked
@@ -30,15 +30,21 @@
   The handoff metadata is intentionally anchored to the implementation SHA
   and its hosted run; derive the later handoff commit and live CI state rather
   than creating a self-referential workstate claim.
+- Handoff commit `0583790c3ac1ca477b6d26e3b8603d975b3b69ae` is the current
+  reconciled `main`/`origin/main` SHA. Its exact hosted run `33124312993`
+  passed all six jobs. The run's release qualification still retained no
+  `release-qualification-*` artifact: only the project-status artifact exists,
+  reproducing the queued FF-P2-01 producer/consumer path mismatch.
 - External production signing/pins, privileged MFT/USN operation, clean-host,
   guest/provider, and physical-display evidence remain unavailable and are
   not claimed. The queued completion-integrity campaign still owns release
   artifact retention, action-warning cleanup, and the fresh post-fix audit.
 
-NEXT EXACT ACTION: validate and commit the synchronized handoff metadata,
-push it without force, verify local/origin parity, inspect its hosted run, and
-then resume the queued completion-integrity frontier only if material local
-work remains.
+NEXT EXACT ACTION: add deterministic workflow-owned safe manifest/provenance
+retention to `Test-ReleaseCandidate.ps1`, assert the exact retained files in
+the release qualification regression, update CI to upload those exact files
+with a non-empty-file failure, run focused release checks, and then record the
+result in the queued task/evidence surfaces.
 
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 
