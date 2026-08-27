@@ -10,7 +10,26 @@ The 12-hour override never authorizes speculative churn or weakening a gate. If 
 
 For `/goal continue` or equivalent: read repository instructions, this file, `.agent/NEXT_CAMPAIGN_12H.md` when ACTIVE, `.agent/EXECUTION_PROMPT.md` if present, the OpenSpec lifecycle and active change, and native campaign/state files; reconcile with current Git and implementation; resume from the first genuinely incomplete requirement, preserving existing behavior and avoiding unrelated rewrites; validate, repair introduced Critical/High regressions, update durable state, and commit/push per repository policy. If the 12-hour orchestrator is absent/inactive and no active planner prompt exists, fall back to native continuation semantics; if neither exists, report that a planner pass is required.
 
+## Completion-integrity audit override — 2026-08-28
 
-## Completion-oriented audit override — 2026-08-27
+The current authoritative planner evidence is `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`.
 
-Current planner evidence is `docs/agent/DEEP_AUDIT_2026-08-27_FASTFILES.md`. The active orchestrator is `.agent/NEXT_CAMPAIGN_12H.md` planned from `57060c74e1d2416c8166201bbfd1834729ffd2da`. On resume, re-derive live HEAD and exact-SHA CI first. The current audited SHA has failed CI run `33033342573`; do not treat the prior indexed-search checkpoint as qualified until the stale lifecycle-status assertion, timing attribution, acceptance gate, full CTest/exact-tree, and hosted-CI requirements are resolved.
+Read `.agent/NEXT_CAMPAIGN_12H.md` first. The 2026-08-27 baseline failure is obsolete: audited SHA `933528ed29c2deac583587bedf3259b8ee617f5d` has hosted CI SUCCESS in run `33095061127`.
+
+Green CI did not close the active correctness frontier. Exact source review found that `rule-pruning-durability-and-reconciliation-failure-closure` still has:
+
+- RebuildAll false-success callback/epoch behavior after secondary pruning failure;
+- an invalid/relaxed reconciliation retention regression;
+- deleted/prematurely completed task requirements;
+- a fault injector without explicit named-boundary identity;
+- unsupported shutdown/restart evidence.
+
+The active rule-pruning `tasks.md` has been reopened to reflect those gaps. Finish it first.
+
+After its exact implementation SHA is fully qualified and hosted-green, continue through the queued OpenSpec:
+
+`openspec/changes/completion-integrity-hardening-and-release-certification/`
+
+That campaign covers truth-surface hardening, release evidence retention, sanitizer policy reconciliation, fresh repository-wide correctness/security/concurrency/performance/UI audit, and final certification.
+
+Do not reopen the completed indexed-search optimization without a new current-tree reproducer. Do not delete open requirements to make active-local count reach zero. Do not manufacture external signer/clean-host/elevated/physical-display evidence.
