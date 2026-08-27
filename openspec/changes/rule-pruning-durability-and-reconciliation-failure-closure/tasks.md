@@ -39,13 +39,13 @@ Prior 86/86 and hosted green results remain useful baseline evidence but do not 
 - [x] 6.2 Run strict OpenSpec plus documentation/source/provenance/diagnostic/project-status/provider policy gates. Strict OpenSpec passed 76/76; source, diagnostic, documentation, provenance, project-status, provider, and doctor gates passed.
 - [x] 6.3 Run Debug configure/build + full CTest and release-test configure/build + full CTest. Both final configurations passed 86/86 (Debug 441.23s; release-test 442.47s).
 - [x] 6.4 Run Analyze warning-clean and the repository-authoritative ASAN protocol/IPC/lifecycle slice. Reconcile any stale 3/3 vs hosted 2/2 claim. Analyze completed warning-clean; the hosted and release-readiness ASAN definitions now select the same three targets, and the discovered-VS local slice passed 3/3 in 113.76s.
-- [ ] 6.5 Run exact committed-tree qualification for the repaired implementation commit.
-- [ ] 6.6 Push without force and inspect hosted CI for that exact SHA. Do not check this task while the run is queued/in-progress.
+- [x] 6.5 Run exact committed-tree qualification for the repaired implementation commit. `Invoke-ExactTreeQualification.ps1` passed all nine repository-sensitive checks for commit `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`, tree `64eb812771966279e332d8ec253394548fd2b7a1`.
+- [x] 6.6 Push without force and inspect hosted CI for that exact SHA. Do not check this task while the run is queued/in-progress. GitHub Actions run `33122565103` completed successfully for the exact implementation SHA; every job, including the aligned ASAN 3/3 slice, passed.
 
 ## 7. Handoff
 
-- [ ] 7.1 Update lifecycle, WORKSTATE, progress, and evidence with exact commands, test counts, implementation SHA, hosted run ID, failure/recovery observations, and remaining external boundaries.
-- [ ] 7.2 Restore the deleted completion gate: mark this bounded change COMPLETE only after every requirement above is evidence-backed and exact-SHA hosted CI is green. Then return control to `.agent/NEXT_CAMPAIGN_12H.md` / `completion-integrity-hardening-and-release-certification` while useful session budget remains.
+- [x] 7.1 Update lifecycle, WORKSTATE, progress, and evidence with exact commands, test counts, implementation SHA, hosted run ID, failure/recovery observations, and remaining external boundaries. Recorded in `evidence/implementation-and-validation.md`, lifecycle, and the synchronized handoff documents.
+- [x] 7.2 Restore the deleted completion gate: mark this bounded change COMPLETE only after every requirement above is evidence-backed and exact-SHA hosted CI is green. Then return control to `.agent/NEXT_CAMPAIGN_12H.md` / `completion-integrity-hardening-and-release-certification` while useful session budget remains. The lifecycle entry is completed; the follow-on remains active.
 
 ## Acceptance summary
 

@@ -1,12 +1,13 @@
 # FASTFILES — 12-HOUR COMPLETION INTEGRITY + HARDENING CAMPAIGN
 
-Status: **ACTIVE — 2026-08-28 audit refresh**  
+Status: **ACTIVE — 2026-08-28 hardening follow-on**
 Repository: `quantdale/FastFiles`  
 Target-Branch: `main`  
 Audit-Baseline: `933528ed29c2deac583587bedf3259b8ee617f5d`  
 Audit-Evidence: `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`  
 Baseline-Hosted-CI: run `33095061127` = **SUCCESS**  
-First-Dependency: `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/`  
+Completed-Dependency: `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/`
+Active-OpenSpec: `openspec/changes/completion-integrity-hardening-and-release-certification/`
 Queued-Umbrella: `openspec/changes/completion-integrity-hardening-and-release-certification/`
 
 ## 0. Authoritative 2026-08-28 override
@@ -18,6 +19,13 @@ The previous baseline problem (stale project-status hard-coding and indexed-sear
 The exact audited SHA `933528ed...` has green hosted CI, including Debug/release-test full CTest, Analyze, strict OpenSpec/policy/status, exact-tree qualification, an ASAN protocol/IPC slice, and unsigned release-candidate qualification.
 
 However, source/test/task review found **green-CI false confidence** in the currently active rule-pruning change. Therefore the next session is a **combined Implementation + Hardening campaign**, with a narrow correctness repair first and broad hardening/certification second.
+
+Wave 1 is now complete: implementation SHA
+`f65b3bfc770587b4f28f3fa49f3da68faa4142a3`, exact-tree qualification PASS, and
+hosted run `33122565103` SUCCESS with the authoritative ASAN protocol/IPC/
+lifecycle 3/3 slice. The active frontier is now the completion-integrity
+follow-on; the findings below are the audit baseline and remain useful only
+where they still reproduce on the live tree.
 
 Read in this order:
 

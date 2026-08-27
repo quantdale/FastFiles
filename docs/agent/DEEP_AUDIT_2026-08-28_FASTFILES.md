@@ -83,7 +83,7 @@ These are preservation constraints. The next campaign must not replace them with
 
 ## Evidence classification
 
-### 1. Verified working on exact current SHA
+### 1. Verified working on the audit-baseline SHA
 
 Hosted CI run `33095061127` for `933528ed...` completed successfully.
 
@@ -92,7 +92,7 @@ Verified on that exact SHA:
 - Debug configure/build + full CTest: **86/86 PASS**
 - release-test configure/build + full CTest: **86/86 PASS**
 - Analyze job: PASS / warning-clean build
-- hosted ASAN slice: **2/2 PASS** (`ffprotocol_fuzz_tests`, `ffipc_framing_tests`)
+- hosted ASAN slice at the audit baseline: **2/2 PASS** (`ffprotocol_fuzz_tests`, `ffipc_framing_tests`)
 - source marker policy: PASS
 - diagnostic policy: PASS
 - documentation truth + fixtures: PASS
@@ -106,7 +106,7 @@ Verified on that exact SHA:
 
 MFT and USN secondary rule-pruning code currently returns `false` when the second durable pruning batch fails. `FinishReconciliationPass` currently retains `reconciliationSeen_` when its removal batch fails and avoids a searchable epoch advance.
 
-### 2. Implemented but insufficiently validated
+### 2. Implemented but insufficiently validated at the audit baseline
 
 - reconciliation failure-obligation retention;
 - USN-specific secondary-pruning failure behavior;
@@ -119,12 +119,12 @@ MFT and USN secondary rule-pruning code currently returns `false` when the secon
 - real release-readiness execution beyond unsigned validation;
 - external signer/pins, elevated raw-volume operation, clean-host installation, physical-display/UIA certification.
 
-### 3. Partially implemented
+### 3. Partially implemented at the audit baseline
 
 - `rule-pruning-durability-and-reconciliation-failure-closure`: MFT/USN and reconciliation implementation improved, but rebuild failure closure and required boundary/restart proof are incomplete.
 - release qualification evidence retention: candidate validation runs, but hosted artifact upload retains no candidate/provenance files because the test writes to temporary directories while CI uploads from `out/release-candidate/**`.
 
-### 4. Missing behavior or proof
+### 4. Missing behavior or proof at the audit baseline
 
 - explicit boundary identity in the secondary-pruning fault injector;
 - deterministic tests for MFT, USN, RebuildAll, and reconciliation as distinct boundaries;
@@ -155,13 +155,25 @@ See P1 findings below.
 | FF-P1-04 | P1 High | `IndexPipeline.h/.cpp`, engine tests | The fault injector is described as named-boundary but accepts only `(volume, changes)`; tests cannot select MFT vs USN vs rebuild vs reconciliation explicitly. Existing evidence extrapolates MFT behavior to other callers. | Fault seam lacks a boundary discriminator; coverage relies on call sequencing. | Distinct callers can regress while one generic test stays green. | Add an enum/boundary token to the test seam and build separate fixtures for all four boundaries. | One-shot and persistent tests at each boundary; ensure primary write behavior is unchanged. |
 | FF-P1-05 | P1 High | rule-pruning tasks/tests | Task 5.3 claims cancellation/shutdown coverage using `TestCancellationDuringColdStream` and reconciliation `isCancelled` checks, but that search test is unrelated and the reconciliation fixture has no such cancellation path. Restart is required by the spec but not proven. | Evidence was inferred from adjacent tests rather than executed for the subsystem. | Outstanding pruning debt may behave incorrectly across Close/Open/restart without detection. | Add subsystem-specific Close/Open/rebuild/reconciliation recovery tests; classify cancellation semantics only where the API actually supports cancellation. | Fail/restart/reopen produces store/projection parity and a bounded successful prune without manual repair. |
 | FF-P2-01 | P2 Medium | `.github/workflows/ci.yml`, `verify/release/tests/Test-ReleaseCandidate.ps1` | Release qualification passes, but artifact upload reports no files. The test writes candidates to temporary `FastFiles-release-candidate-test-*` directories while CI uploads `out/release-candidate/**`. | Producer and artifact-retention paths disagree. | Hosted CI loses candidate manifest/provenance evidence needed for later audit/release debugging. | Make the test emit/copy a safe summary to the workflow-owned output directory or parameterize output; upload exact known paths. | Final hosted run must upload candidate manifest + provenance with exact-SHA binding. |
-| FF-P2-02 | P2 Medium | CI ASAN job, `tests/ipc/CMakeLists.txt` | Current hosted ASAN runs only protocol fuzz + IPC framing (2/2), while `ffipc_listener_lifecycle_tests` exists and prior campaign evidence described the required slice as 3/3. | CI sanitizer target list drifted/narrowed. | Listener lifecycle memory/lifetime regressions are not sanitizer-checked on every hosted SHA. | Reconcile the authoritative sanitizer policy. If listener test is sanitizer-compatible, restore it to hosted ASAN and exact qualification; otherwise document why and add equivalent lifetime coverage. | Exact final hosted SHA runs the authoritative sanitizer slice with no stale 3/3 claims. |
+| FF-P2-02 | P2 Medium | CI ASAN job, `tests/ipc/CMakeLists.txt` | At the audit baseline, hosted ASAN ran only protocol fuzz + IPC framing (2/2), while `ffipc_listener_lifecycle_tests` existed and prior campaign evidence described the required slice as 3/3. | CI sanitizer target list drifted/narrowed. | Listener lifecycle memory/lifetime regressions were not sanitizer-checked on every hosted SHA. | Reconcile the authoritative sanitizer policy. If listener test is sanitizer-compatible, restore it to hosted ASAN and exact qualification; otherwise document why and add equivalent lifetime coverage. | Resolved by the post-audit authority update; hosted run `33122565103` executes the three-target slice successfully. |
 | FF-P2-03 | P2 Medium | `IndexPipeline.h/.cpp` | `SetSecondaryPruningFaultInjector` is public internal API and compiled unconditionally although design calls it test-only/guarded. | No test-build guard/friend harness separation. | Unnecessary production surface and spec mismatch. | Compile-guard or encapsulate the seam without weakening testability. | Release symbol/API review and all fault tests pass in test builds; production defaults/surface unchanged. |
 | FF-P2-04 | P2 Medium | active OpenSpec evidence/tasks | Task 6.5 is checked while its note itself says hosted CI for the referenced implementation SHA was still in progress. Current HEAD CI is green, but evidence was never reconciled to exact current SHA. | Stale evidence text and premature checkbox. | Lifecycle truth becomes historical rather than exact-SHA truth. | Bind completion evidence to current final implementation SHA and run ID; update lifecycle/tasks only after observation. | No checked validation task may contain pending/in-progress evidence. |
 | FF-P2-05 | P2 Medium / external | release-readiness lifecycle | Current exact-tree status reports release-readiness frontier SKIPPED; production signing/pins/clean-host/elevated raw-volume/direct-render evidence remains external. | Environment/provider prerequisites intentionally unavailable in ordinary CI. | Full production certification cannot be claimed locally. | Keep blocked-external state truthful; improve kits/instructions only if a concrete evidence-collection gap exists. | Final report separates local completion from external certification with explicit required artifacts. |
 | FF-P3-01 | P3 Low | CI action/runtime maintenance | GitHub runner reports Node/action deprecation warnings during artifact steps. | Ecosystem transition. | Future CI maintenance risk, not a current product blocker. | Update only when supported action/runtime versions make the warning actionable; do not churn solely for cosmetic green logs. | CI remains supported and warning-free when practical. |
 
 No P0/Critical defect was confirmed in this audit.
+
+## Post-audit wave-1 disposition
+
+The rule-pruning findings FF-P1-01 through FF-P1-05 and FF-P2-02 were repaired
+and validated in implementation SHA
+`f65b3bfc770587b4f28f3fa49f3da68faa4142a3`; exact-tree qualification passed,
+and hosted run `33122565103` completed successfully for that SHA. The active
+rule-pruning ledger contains all restored requirements and is completed at
+22/22 tasks. FF-P2-01 release-candidate artifact retention and FF-P3-01
+GitHub Action runtime maintenance remain in the active completion-integrity
+follow-on; production signing, clean-host, provider, and physical-display
+boundaries remain external.
 
 ## Architectural observations
 

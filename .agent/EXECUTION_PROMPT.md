@@ -1,20 +1,26 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **ACTIVE — 2026-08-28 correctness closure first**  
+Status: **ACTIVE — 2026-08-28 hardening follow-on**
 Repository: `quantdale/FastFiles`  
 Target-Branch: `main`  
 Audit-Baseline: `933528ed29c2deac583587bedf3259b8ee617f5d`  
 Audit: `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`  
-Active-OpenSpec: `rule-pruning-durability-and-reconciliation-failure-closure`  
+Active-OpenSpec: `completion-integrity-hardening-and-release-certification`
+Completed-Dependency: `rule-pruning-durability-and-reconciliation-failure-closure`
 Follow-On: `completion-integrity-hardening-and-release-certification`
 
 ## Mission
 
-Pull the live repository, re-derive current Git/CI state, and finish the active rule-pruning durability change **truthfully**. Do not restart the completed indexed-search campaign. Do not accept the baseline green CI as proof of the reopened durability requirements.
+The rule-pruning durability dependency is now truthfully complete at
+implementation SHA `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`, hosted run
+`33122565103`, and 22/22 checked tasks. Continue the active completion-
+integrity hardening campaign from its task ledger. Do not restart the completed
+indexed-search campaign or accept historical green CI as proof for new work.
 
-After the active rule-pruning change passes exact-SHA local-equivalent and hosted validation, return to `.agent/NEXT_CAMPAIGN_12H.md` and execute the queued completion-hardening OpenSpec while material work remains.
+Keep the final truth label **locally complete; external certification pending**
+until the follow-on work and its external boundaries are resolved honestly.
 
-## Why this is active despite green baseline CI
+## Completed wave-1 dependency
 
 Exact source review found that current rule-pruning evidence is incomplete:
 
@@ -23,7 +29,7 @@ Exact source review found that current rule-pruning evidence is incomplete:
 3. Mandatory tasks were deleted/prematurely checked in the active ledger; the 2026-08-28 planner restored them.
 4. The fault injector has no explicit boundary identity for MFT vs USN vs rebuild vs reconciliation.
 5. Existing shutdown/restart evidence cites unrelated indexed-search cancellation behavior.
-6. Current exact hosted ASAN is 2/2 while recent evidence says 3/3; reconcile later in the follow-on hardening campaign.
+6. The audit-baseline hosted ASAN slice was 2/2 while recent evidence said 3/3; the repaired authority now runs the protocol/IPC/lifecycle 3/3 slice.
 7. Hosted release-candidate qualification validates temporary output but the workflow's intended manifest/provenance upload is empty; fix later in the follow-on campaign.
 
 ## Mandatory intake

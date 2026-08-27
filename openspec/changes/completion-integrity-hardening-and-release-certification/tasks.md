@@ -53,7 +53,7 @@ Proceed only if:
 - [ ] 3.2 Change the release qualification interface so safe candidate metadata/provenance is emitted/copied to a deterministic workflow-owned directory. Do not retain secrets or signing material.
 - [ ] 3.3 Add a release-tooling regression that fails if a successful qualification produces no retainable candidate manifest/provenance evidence.
 - [ ] 3.4 Update CI upload paths to exact produced locations and verify artifact upload is non-empty on the hosted final run.
-- [ ] 3.5 Reconcile sanitizer policy. Determine whether `ffipc_listener_lifecycle_tests` is supported under ASAN; if yes, restore it to the authoritative hosted slice. If not, document the incompatibility and provide equivalent lifecycle memory-safety coverage.
+- [x] 3.5 Reconcile sanitizer policy. Determine whether `ffipc_listener_lifecycle_tests` is supported under ASAN; if yes, restore it to the authoritative hosted slice. If not, document the incompatibility and provide equivalent lifecycle memory-safety coverage. The listener target passed locally and in hosted run `33122565103`; CI and release-readiness now select the same three-target ASAN slice.
 - [ ] 3.6 Remove stale “ASAN 3/3” or “2/2” claims that do not match the chosen authority.
 - [ ] 3.7 Review GitHub Actions warnings/deprecations. Upgrade only supported action/runtime usage that presents real future-breakage risk.
 - [ ] 3.8 Run unsigned release-candidate qualification twice and confirm deterministic archive/checksum/provenance behavior remains intact.

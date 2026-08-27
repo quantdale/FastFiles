@@ -1,5 +1,25 @@
 # FastFiles — Project Status
 
+## Completed rule-pruning durability closure
+
+The `rule-pruning-durability-and-reconciliation-failure-closure` change is
+complete. The four secondary-write boundaries now have a test-only named fault
+seam; failed MFT/USN pruning returns failure, failed RebuildAll pruning does
+not publish completion, and failed reconciliation retains its active repair
+obligation. Deterministic tests cover durable Store state, resident
+projection, search/snapshot/aggregate views, epochs, retries, repeated
+failures, and Close/Open recovery.
+
+Implementation SHA `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` passed the exact
+committed-tree qualification and hosted GitHub Actions run `33122565103`.
+Debug and release-test CTest passed 86/86, Analyze was warning-clean, and the
+authoritative ASAN protocol/IPC/lifecycle slice passed 3/3. Production
+signing, privileged clean-host, guest/provider, and physical-display evidence
+remain external. The active follow-on is
+`completion-integrity-hardening-and-release-certification`; its release
+artifact-retention and action-runtime maintenance tasks remain separate from
+this completed dependency.
+
 ## Completed repository truth-surface and doc-drift convergence campaign
 
 The `repository-truth-surface-and-doc-drift-convergence` campaign made

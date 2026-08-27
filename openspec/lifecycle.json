@@ -201,12 +201,15 @@
     },
     {
       "name": "rule-pruning-durability-and-reconciliation-failure-closure",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/design.md" },
         { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/specs/index/rule-pruning-durability/spec.md" }
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/specs/index/rule-pruning-durability/spec.md" },
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md" },
+        { "kind": "git-commit", "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3" },
+        { "kind": "hosted-run", "runId": "33122565103", "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3", "record": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []
