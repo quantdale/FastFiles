@@ -435,6 +435,11 @@ void IndexPipeline::SetReadSessionFaultInjector(ffindexstore::ReadSessionFaultIn
     readSessionFaultInjector_ = std::move(injector);
 }
 
+void IndexPipeline::SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    secondaryPruningFaultInjector_ = std::move(injector);
+}
+
 IndexPipeline::ReadPlaneDiagnostics IndexPipeline::GetReadPlaneDiagnostics() const noexcept {
     ReadPlaneDiagnostics result;
     result.activeSearches = activeSearches_.load(std::memory_order_relaxed);
@@ -536,9 +541,13 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
                         ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, record});
                     }
                 });
-                if (!ruleExcluded.empty() && store_.ApplyBatch(meta.rowId, ruleExcluded)) {
-                    for (const auto& removal : ruleExcluded) {
-                        projection_.Remove(meta.rowId, removal.record.id);
+                if (!ruleExcluded.empty()) {
+                    bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(meta.rowId, ruleExcluded);
+                    bool secondaryApplied = !injectedFailure && store_.ApplyBatch(meta.rowId, ruleExcluded);
+                    if (secondaryApplied) {
+                        for (const auto& removal : ruleExcluded) {
+                            projection_.Remove(meta.rowId, removal.record.id);
+                        }
                     }
                 }
             }
@@ -619,7 +628,6 @@ bool IndexPipeline::IsEntryIncludedLocked(ffindexstore::VolumeRowId volumeId, ff
     std::wstring canonical = prefix + ToWString(pathResult.path);
     return ffprotocol::IsPathIncluded(setting, canonical);
 }
-
 bool IndexPipeline::ApplyMftBatch(ffindexstore::VolumeRowId volumeId, const std::vector<ffprotocol::MftRecordV1>& records) {
     std::vector<ffindexstore::EntryChange> changes;
     changes.reserve(records.size());
@@ -677,13 +685,21 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
             reconciling->second.insert(change.record.id);
         }
     }
-    if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
-        for (const auto& removal : ruleExcluded) {
-            projection_.Remove(volumeId, removal.record.id);
+    if (!ruleExcluded.empty()) {
+        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(volumeId, ruleExcluded);
+        bool secondaryApplied = !injectedFailure && store_.ApplyBatch(volumeId, ruleExcluded);
+        if (secondaryApplied) {
+            for (const auto& removal : ruleExcluded) {
+                projection_.Remove(volumeId, removal.record.id);
+            }
+        } else {
+            // Secondary pruning failed: durable and projection remain consistent (both retain the excluded rows),
+            // but do not report success. Caller can retry the batch; the next attempt will re-evaluate pruning.
+            projection_.EnforceMemoryLimitNow();
+            MaybeReportProjectionMemoryPressureLocked();
+            return false;
         }
     }
-    // close-independent-validation-gaps 4.6: compact at the batch boundary,
-    // never once per record. CompactStorage rebuilds every projection index;
     // invoking it from Projection::Upsert turns a large volume scan into an
     // O(N) compaction storm once the bounded memory policy is reached.
     projection_.EnforceMemoryLimitNow();
@@ -774,9 +790,17 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
             }
         }
     }
-    if (!ruleExcluded.empty() && store_.ApplyBatch(volumeId, ruleExcluded)) {
-        for (const auto& removal : ruleExcluded) {
-            projection_.Remove(volumeId, removal.record.id);
+    if (!ruleExcluded.empty()) {
+        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(volumeId, ruleExcluded);
+        bool secondaryApplied = !injectedFailure && store_.ApplyBatch(volumeId, ruleExcluded);
+        if (secondaryApplied) {
+            for (const auto& removal : ruleExcluded) {
+                projection_.Remove(volumeId, removal.record.id);
+            }
+        } else {
+            projection_.EnforceMemoryLimitNow();
+            MaybeReportProjectionMemoryPressureLocked();
+            return false;
         }
     }
     projection_.EnforceMemoryLimitNow();
@@ -876,14 +900,27 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
     }
 
     bool searchableMutation = false;
-    if (!removals.empty() && store_.ApplyBatch(id, removals)) {
-        for (const auto& removal : removals) {
-            projection_.Remove(id, removal.record.id);
+    bool secondaryApplied = true;
+    if (!removals.empty()) {
+        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(id, removals);
+        secondaryApplied = !injectedFailure && store_.ApplyBatch(id, removals);
+        if (secondaryApplied) {
+            for (const auto& removal : removals) {
+                projection_.Remove(id, removal.record.id);
+            }
+            searchableMutation = true;
         }
-        searchableMutation = true;
     }
 
-    reconciliationSeen_.erase(it);
+    if (secondaryApplied || removals.empty()) {
+        reconciliationSeen_.erase(it);
+    } else {
+        // Secondary durable removal failed: retain the current pass's obligation
+        // so the next reconciliation or retry still owes the same deletions.
+        // Do not advance searchable epoch; the failure is not a searchable mutation.
+        searchableMutation = false;
+    }
+
     if (searchableMutation) {
         AdvanceQueryVisibleEpochLocked(id, QueryMutationReason::EntryMutation);
     } else {

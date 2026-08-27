@@ -176,6 +176,13 @@ public:
     // forced reader failure must surface as Unavailable rather than a partial
     // completed response.
     void SetReadSessionFaultInjector(ffindexstore::ReadSessionFaultInjector injector);
+    // rule-pruning-durability D3: deterministic fault injection for secondary
+    // pruning writes. Production callers leave this empty. When installed, the
+    // injector is consulted before each secondary ApplyBatch(ruleExcluded/removals);
+    // if it returns true, that secondary batch is forced to fail (returns false)
+    // without touching the store, allowing tests to prove fail-closed behavior.
+    using SecondaryPruningFaultInjector = std::function<bool(ffindexstore::VolumeRowId, const std::vector<ffindexstore::EntryChange>&)>;
+    void SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector);
     ReadPlaneDiagnostics GetReadPlaneDiagnostics() const noexcept;
 
     // task 1.6: scheduled WAL maintenance, intended to be called on a
@@ -362,6 +369,7 @@ private:
     ffindexstore::Projection projection_;
     SearchTestHooks searchTestHooks_;
     ffindexstore::ReadSessionFaultInjector readSessionFaultInjector_;
+    SecondaryPruningFaultInjector secondaryPruningFaultInjector_;
     std::atomic<uint64_t> queryVisibleEpoch_{1};
     std::atomic<uint64_t> dependencySetEpoch_{1};
     std::unordered_map<ffindexstore::VolumeRowId, uint64_t> volumeDataEpochs_;

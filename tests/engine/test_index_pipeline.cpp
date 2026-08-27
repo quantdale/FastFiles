@@ -1590,6 +1590,67 @@ void TestCancellationDuringColdStream() {
           "a cancelled cold search does not silently hydrate the volume");
 }
 
+// rule-pruning-durability: secondary pruning failure is fail-closed and retryable.
+void TestRulePruningSecondaryFailureIsFailClosed() {
+    IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_rule_pruning.db")), "rule-pruning fixture opens");
+    VolumeKey key;
+    key.serialNumber = 91;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    setting.rules.push_back({L"C:\\.\\file2.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(100, 1, u"Excluded", 0x10, 0),
+        MakeMftRecord(200, 1, u"Included", 0x10, 0),
+        MakeMftRecord(201, 200, u"keep.txt", 0, 10),
+    }), "seed batch applies");
+    // Verify seed: keep.txt should be present, Excluded dir present
+    auto snap0 = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    bool hasKeep = false;
+    for (const auto& [p, d] : snap0) for (const auto& e : d.entries) if (e.name == L"keep.txt") hasKeep = true;
+    Check(hasKeep, "seed keep file present");
+
+    // Inject a one-shot secondary failure for the next pruning batch.
+    bool injectedOnce = false;
+    pipeline.SetSecondaryPruningFaultInjector([&injectedOnce](ffindexstore::VolumeRowId vol, const std::vector<ffindexstore::EntryChange>& changes) {
+        (void)vol;
+        if (!injectedOnce && !changes.empty()) {
+            injectedOnce = true;
+            return true;
+        }
+        return false;
+    });
+    bool appliedWithFault = pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(101, 1, u"file2.txt", 0, 42),
+    });
+    Check(!appliedWithFault, "MFT batch with injected secondary failure returns false (fail-closed)");
+    // The file should still be visible in both store and projection (pruning didn't happen, but primary upsert did).
+    auto snap1 = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    bool hasFile2 = false;
+    for (const auto& [p, d] : snap1) for (const auto& e : d.entries) if (e.name == L"file2.txt") hasFile2 = true;
+    Check(hasFile2, "excluded file remains visible after injected secondary failure (consistent)");
+
+    // Clear the injector and retry via RebuildAll (which will re-evaluate pruning).
+    pipeline.SetSecondaryPruningFaultInjector({});
+    pipeline.RebuildAll([](ffindexstore::VolumeRowId){});
+    auto snap2 = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    hasFile2 = false;
+    for (const auto& [p, d] : snap2) for (const auto& e : d.entries) if (e.name == L"file2.txt") hasFile2 = true;
+    Check(!hasFile2, "excluded file is pruned after retry/rebuild succeeds");
+    // keep.txt should still be there
+    hasKeep = false;
+    for (const auto& [p, d] : snap2) for (const auto& e : d.entries) if (e.name == L"keep.txt") hasKeep = true;
+    Check(hasKeep, "included file still present after recovery");
+    pipeline.Close();
+    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db"));
+    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db") + "-wal");
+    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db") + "-shm");
+}
+
 int main() {
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
     TestVolumeResolutionIsStable();
@@ -1613,9 +1674,9 @@ int main() {
         TestColdMutationsAndRestartEquivalence();
         TestColdFolderAggregateServedFromStore();
         TestCancellationDuringColdStream();
+        TestRulePruningSecondaryFailureIsFailClosed();
 
     if (fftest::FailureCount() > 0) {
-        std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;
     }
     std::printf("All tests passed.\n");
