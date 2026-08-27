@@ -233,7 +233,7 @@ function Invoke-DirectCMakeAsanGate {
             -DurationMs $configure.durationMs -Required $true -Detail 'ASAN configure failed' `
             -Artifacts @($configure.logPath)
     }
-    $build = Invoke-ReadinessProcess -FilePath $CMakePath -Arguments @('--build', '--preset', 'asan', '--target', 'ffprotocol_fuzz_tests', 'ffipc_framing_tests') `
+    $build = Invoke-ReadinessProcess -FilePath $CMakePath -Arguments @('--build', '--preset', 'asan', '--target', 'ffprotocol_fuzz_tests', 'ffipc_framing_tests', 'ffipc_listener_lifecycle_tests') `
         -LogPath (Join-Path $LogDirectory 'asan-build.log') -TimeoutSeconds 1800
     if ($build.status -ne 'PASS') {
         return New-ReadinessGate -Id 'asan-protocol-ipc' -Status 'FAIL' -Reason 'asan-build-failed' `
@@ -241,13 +241,13 @@ function Invoke-DirectCMakeAsanGate {
             -Artifacts @($configure.logPath, $build.logPath)
     }
     $tests = Invoke-ReadinessProcess -FilePath $CTestPath `
-        -Arguments @('--test-dir', (Join-Path $RepoRoot 'build\asan'), '-R', '^(ffprotocol_fuzz_tests|ffipc_framing_tests)$', '--output-on-failure') `
+        -Arguments @('--test-dir', (Join-Path $RepoRoot 'build\asan'), '-R', '^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests)$', '--output-on-failure') `
         -LogPath (Join-Path $LogDirectory 'asan-tests.log') -TimeoutSeconds 600
     $asanReason = if ($tests.status -eq 'PASS') { $null } else { 'asan-fuzz-tests-failed' }
     New-ReadinessGate -Id 'asan-protocol-ipc' -Status (Get-ProcessGateStatus -ProcessResult $tests) `
         -Reason $asanReason `
         -DurationMs ($configure.durationMs + $build.durationMs + $tests.durationMs) -Required $true `
-        -Detail 'MSVC AddressSanitizer protocol and IPC framing fuzz targets' `
+        -Detail 'MSVC AddressSanitizer protocol, IPC framing, and listener lifecycle targets' `
         -Artifacts @($configure.logPath, $build.logPath, $tests.logPath)
 }
 

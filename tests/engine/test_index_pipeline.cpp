@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "IndexPipeline.h"
 #include "sqlite3.h"
@@ -41,6 +42,100 @@ bool HasSqlitePlannerStats(const std::string& dbPath) {
     if (statement != nullptr) sqlite3_finalize(statement);
     sqlite3_close(db);
     return found;
+}
+
+#ifdef FF_INDEX_PIPELINE_TESTING
+using SecondaryBoundary = IndexPipeline::SecondaryPruningBoundary;
+
+struct SecondaryFailurePlan {
+    SecondaryBoundary target = SecondaryBoundary::MftRulePrune;
+    size_t failuresRemaining = 0;
+    bool persistent = false;
+    size_t targetCalls = 0;
+    std::vector<SecondaryBoundary> observedBoundaries;
+
+    bool ShouldFail(const SecondaryBoundary boundary, VolumeRowId volumeId,
+                    const std::vector<EntryChange>& changes) {
+        (void)volumeId;
+        observedBoundaries.push_back(boundary);
+        if (boundary != target || changes.empty()) {
+            return false;
+        }
+        ++targetCalls;
+        if (persistent) {
+            return true;
+        }
+        if (failuresRemaining == 0) {
+            return false;
+        }
+        --failuresRemaining;
+        return true;
+    }
+};
+
+void InstallSecondaryFailurePlan(IndexPipeline& pipeline, SecondaryFailurePlan& plan) {
+    pipeline.SetSecondaryPruningFaultInjector(
+        [&plan](const SecondaryBoundary boundary, const VolumeRowId volumeId,
+                const std::vector<EntryChange>& changes) {
+            return plan.ShouldFail(boundary, volumeId, changes);
+        });
+}
+#endif
+
+ffprotocol::UsnDeltaV1 MakeUsnRecord(uint64_t usn, uint64_t id, uint64_t parent,
+                                     std::u16string name, uint64_t size) {
+    ffprotocol::UsnDeltaV1 record{};
+    record.fixed.usn = usn;
+    record.fixed.fileReferenceNumber = id;
+    record.fixed.parentFileReferenceNumber = parent;
+    record.fixed.timestamp = usn;
+    record.fixed.sizeBytes = size;
+    record.fixed.fileNameLengthChars = static_cast<uint16_t>(name.size());
+    record.fileName = std::move(name);
+    return record;
+}
+
+bool SnapshotHasName(const std::map<std::wstring, ffprotocol::SnapshotDirectory>& snapshot,
+                     const std::wstring& name) {
+    for (const auto& [path, directory] : snapshot) {
+        (void)path;
+        for (const auto& entry : directory.entries) {
+            if (entry.name == name) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+struct DurableEntryState {
+    bool opened = false;
+    uint64_t entryCount = 0;
+    bool hasTarget = false;
+};
+
+DurableEntryState ReadDurableEntryState(const std::string& dbPath, VolumeRowId volumeId,
+                                        FileId target) {
+    DurableEntryState result;
+    Store store;
+    result.opened = store.Open(dbPath);
+    if (result.opened) {
+        result.entryCount = store.CountEntries(volumeId);
+        result.hasTarget = store.FindEntry(volumeId, target).has_value();
+        store.Close();
+    }
+    return result;
+}
+
+ffprotocol::IndexedSearchResponse SearchForName(IndexPipeline& pipeline, uint64_t requestId,
+                                                 const std::wstring& name) {
+    ffprotocol::IndexedSearchRequest request;
+    request.requestId = requestId;
+    request.scope = 3; // AllIndexedLocations
+    request.sortField = 1; // Filename
+    request.maxResults = 100;
+    request.query = name;
+    return pipeline.SearchIndexed(request);
 }
 
 void TestBulkInsertTriggersAnalyzeAtTenThousandRecords() {
@@ -1590,148 +1685,490 @@ void TestCancellationDuringColdStream() {
           "a cancelled cold search does not silently hydrate the volume");
 }
 
-// rule-pruning-durability: secondary pruning failure is fail-closed and retryable.
-void TestRulePruningSecondaryFailureIsFailClosed() {
+// rule-pruning-durability-and-reconciliation-failure-closure: MFT secondary
+// pruning is fail-closed, boundary-specific, and immediately retryable.
+void TestMftSecondaryFailureIsFailClosedAndRetryable() {
+    const std::string dbPath = FreshDbPath("engine_test_mft_rule_pruning.db");
     IndexPipeline pipeline;
-    Check(pipeline.Open(FreshDbPath("engine_test_rule_pruning.db")), "rule-pruning fixture opens");
+    Check(pipeline.Open(dbPath), "MFT rule-pruning fixture opens");
     VolumeKey key;
     key.serialNumber = 91;
     const auto volume = pipeline.ResolveVolume(key);
     ffprotocol::VolumeSetting setting;
     setting.key = L"C:";
     setting.enabled = true;
-    setting.rules.push_back({L"C:\\.\\file2.txt", false});
+    setting.rules.push_back({L"C:\\blocked-mft.txt", false});
     pipeline.SetVolumeRules(volume, setting);
-    Check(pipeline.ApplyMftBatch(volume, {
-        MakeMftRecord(1, 1, u".", 0x10, 0),
-        MakeMftRecord(100, 1, u"Excluded", 0x10, 0),
-        MakeMftRecord(200, 1, u"Included", 0x10, 0),
-        MakeMftRecord(201, 200, u"keep.txt", 0, 10),
-    }), "seed batch applies");
-    // Verify seed: keep.txt should be present, Excluded dir present
-    auto snap0 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    bool hasKeep = false;
-    for (const auto& [p, d] : snap0) for (const auto& e : d.entries) if (e.name == L"keep.txt") hasKeep = true;
-    Check(hasKeep, "seed keep file present");
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
+          "MFT rule-pruning fixture seeds its root");
 
-    // Inject a one-shot secondary failure for the next pruning batch.
-    bool injectedOnce = false;
-    pipeline.SetSecondaryPruningFaultInjector([&injectedOnce](ffindexstore::VolumeRowId vol, const std::vector<ffindexstore::EntryChange>& changes) {
-        (void)vol;
-        if (!injectedOnce && !changes.empty()) {
-            injectedOnce = true;
-            return true;
-        }
-        return false;
-    });
-    bool appliedWithFault = pipeline.ApplyMftBatch(volume, {
-        MakeMftRecord(101, 1, u"file2.txt", 0, 42),
-    });
-    Check(!appliedWithFault, "MFT batch with injected secondary failure returns false (fail-closed)");
-    // The file should still be visible in both store and projection (pruning didn't happen, but primary upsert did).
-    auto snap1 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    bool hasFile2 = false;
-    for (const auto& [p, d] : snap1) for (const auto& e : d.entries) if (e.name == L"file2.txt") hasFile2 = true;
-    Check(hasFile2, "excluded file remains visible after injected secondary failure (consistent)");
+    SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    const FileId target{2, 0};
+    const auto blocked = std::vector<ffprotocol::MftRecordV1>{
+        MakeMftRecord(target.low, 1, u"blocked-mft.txt", 0, 10)};
+    Check(!pipeline.ApplyMftBatch(volume, blocked),
+          "an injected MFT secondary failure returns false");
+    Check(plan.targetCalls == 1 && plan.observedBoundaries.size() == 1 &&
+              plan.observedBoundaries[0] == SecondaryBoundary::MftRulePrune,
+          "the MFT failure injector reaches only the named MFT boundary");
+    const auto failedSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(SnapshotHasName(failedSnapshot, L"blocked-mft.txt"),
+          "the excluded MFT row remains in the projection after failure");
+    const auto failedAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(failedAggregate.has_value() && failedAggregate->itemCount == 1,
+          "the failed MFT prune leaves the folder aggregate consistent with retained rows");
+    const auto failedSearch = SearchForName(pipeline, 901, L"blocked-mft");
+    Check(failedSearch.status == ffprotocol::IndexedSearchStatus::Completed &&
+              failedSearch.candidates.empty(),
+          "rule-filtered indexed search does not expose the retained excluded MFT row");
+    const auto failedDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(failedDurable.opened && failedDurable.entryCount == 2 && failedDurable.hasTarget,
+          "the failed MFT prune leaves the durable row intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
+          "a failed MFT mutation does not publish a success epoch");
 
-    // Clear the injector and retry via RebuildAll (which will re-evaluate pruning).
     pipeline.SetSecondaryPruningFaultInjector({});
-    pipeline.RebuildAll([](ffindexstore::VolumeRowId){});
-    auto snap2 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    hasFile2 = false;
-    for (const auto& [p, d] : snap2) for (const auto& e : d.entries) if (e.name == L"file2.txt") hasFile2 = true;
-    Check(!hasFile2, "excluded file is pruned after retry/rebuild succeeds");
-    // keep.txt should still be there
-    hasKeep = false;
-    for (const auto& [p, d] : snap2) for (const auto& e : d.entries) if (e.name == L"keep.txt") hasKeep = true;
-    Check(hasKeep, "included file still present after recovery");
+    Check(pipeline.ApplyMftBatch(volume, blocked),
+          "the same MFT batch succeeds after the one-shot fault clears");
+    const auto recoveredSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(!SnapshotHasName(recoveredSnapshot, L"blocked-mft.txt"),
+          "the excluded MFT row is removed on the immediate retry");
+    const auto recoveredAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(recoveredAggregate.has_value() && recoveredAggregate->itemCount == 0,
+          "the MFT folder aggregate converges after retry");
+    const auto recoveredDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(recoveredDurable.opened && recoveredDurable.entryCount == 1 && !recoveredDurable.hasTarget,
+          "the MFT durable row is removed on retry");
+
+    setting.rules.push_back({L"C:\\blocked-mft-persistent.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    SecondaryFailurePlan persistentPlan;
+    persistentPlan.target = SecondaryBoundary::MftRulePrune;
+    persistentPlan.persistent = true;
+    InstallSecondaryFailurePlan(pipeline, persistentPlan);
+    const uint64_t epochBeforePersistentFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    const FileId persistentTarget{4, 0};
+    const auto persistentBlocked = std::vector<ffprotocol::MftRecordV1>{
+        MakeMftRecord(persistentTarget.low, 1, u"blocked-mft-persistent.txt", 0, 12)};
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        Check(!pipeline.ApplyMftBatch(volume, persistentBlocked),
+              "persistent MFT secondary failure remains visible to the caller");
+        Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                              L"blocked-mft-persistent.txt"),
+              "persistent MFT failure retains the row in the projection");
+    }
+    Check(persistentPlan.targetCalls == 2,
+          "persistent MFT injection reaches the named boundary twice");
+    const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
+    Check(persistentDurable.opened && persistentDurable.entryCount == 2 && persistentDurable.hasTarget,
+          "persistent MFT failure leaves the primary durable row intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
+          "persistent MFT failure does not publish a searchable epoch");
+    pipeline.SetSecondaryPruningFaultInjector({});
+    Check(pipeline.ApplyMftBatch(volume, persistentBlocked),
+          "persistent MFT failure converges after the fault clears");
+    Check(!SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                           L"blocked-mft-persistent.txt"),
+          "persistent MFT recovery removes the retained row");
     pipeline.Close();
-    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db"));
-    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db") + "-wal");
-    std::filesystem::remove(FreshDbPath("engine_test_rule_pruning.db") + "-shm");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
+void TestUsnSecondaryFailureIsBoundarySpecificAndRetryable() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_rule_pruning.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "USN rule-pruning fixture opens");
+    VolumeKey key;
+    key.serialNumber = 94;
+    const auto volume = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    setting.rules.push_back({L"C:\\blocked-mft.txt", false});
+    setting.rules.push_back({L"C:\\blocked-usn.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
+          "USN rule-pruning fixture seeds its root");
+
+    SecondaryFailurePlan plan{SecondaryBoundary::UsnRulePrune, 1};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    const auto mftOther = std::vector<ffprotocol::MftRecordV1>{
+        MakeMftRecord(2, 1, u"blocked-mft.txt", 0, 10)};
+    Check(pipeline.ApplyMftBatch(volume, mftOther),
+          "a fault plan for USN does not fail the adjacent MFT boundary");
+    Check(plan.targetCalls == 0 && plan.observedBoundaries.size() == 1 &&
+              plan.observedBoundaries[0] == SecondaryBoundary::MftRulePrune &&
+              !SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"), L"blocked-mft.txt"),
+          "the adjacent MFT prune completes while only USN injection is armed");
+
+    const FileId target{3, 0};
+    const auto blocked = std::vector<ffprotocol::UsnDeltaV1>{
+        MakeUsnRecord(1, target.low, 1, u"blocked-usn.txt", 11)};
+    const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    Check(!pipeline.ApplyUsnBatch(volume, blocked),
+          "an injected USN secondary failure returns false");
+    Check(plan.targetCalls == 1 && plan.observedBoundaries.size() == 2 &&
+              plan.observedBoundaries[1] == SecondaryBoundary::UsnRulePrune,
+          "the USN failure injector reaches the named USN boundary");
+    Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"), L"blocked-usn.txt"),
+          "the excluded USN row remains in the projection after failure");
+    const auto failedAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(failedAggregate.has_value() && failedAggregate->itemCount == 1,
+          "the failed USN prune leaves the folder aggregate consistent");
+    const auto failedSearch = SearchForName(pipeline, 904, L"blocked-usn");
+    Check(failedSearch.status == ffprotocol::IndexedSearchStatus::Completed &&
+              failedSearch.candidates.empty(),
+          "rule-filtered indexed search does not expose the retained excluded USN row");
+    const auto failedDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(failedDurable.opened && failedDurable.entryCount == 2 && failedDurable.hasTarget,
+          "the failed USN prune leaves its durable row intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
+          "a failed USN mutation does not publish a success epoch");
+
+    pipeline.SetSecondaryPruningFaultInjector({});
+    Check(pipeline.ApplyUsnBatch(volume, blocked),
+          "the same USN batch succeeds after the one-shot fault clears");
+    Check(!SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"), L"blocked-usn.txt"),
+          "the excluded USN row is removed on retry");
+    const auto recoveredAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(recoveredAggregate.has_value() && recoveredAggregate->itemCount == 0,
+          "the USN folder aggregate converges after retry");
+    const auto recoveredDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(recoveredDurable.opened && recoveredDurable.entryCount == 1 && !recoveredDurable.hasTarget,
+          "the USN durable row is removed on retry");
+
+    setting.rules.push_back({L"C:\\blocked-usn-persistent.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    SecondaryFailurePlan persistentPlan;
+    persistentPlan.target = SecondaryBoundary::UsnRulePrune;
+    persistentPlan.persistent = true;
+    InstallSecondaryFailurePlan(pipeline, persistentPlan);
+    const uint64_t epochBeforePersistentFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    const FileId persistentTarget{4, 0};
+    const auto persistentBlocked = std::vector<ffprotocol::UsnDeltaV1>{
+        MakeUsnRecord(2, persistentTarget.low, 1, u"blocked-usn-persistent.txt", 13)};
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        Check(!pipeline.ApplyUsnBatch(volume, persistentBlocked),
+              "persistent USN secondary failure remains visible to the caller");
+        Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                              L"blocked-usn-persistent.txt"),
+              "persistent USN failure retains the row in the projection");
+    }
+    Check(persistentPlan.targetCalls == 2,
+          "persistent USN injection reaches the named boundary twice");
+    const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
+    Check(persistentDurable.opened && persistentDurable.entryCount == 2 && persistentDurable.hasTarget,
+          "persistent USN failure leaves the primary durable row intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
+          "persistent USN failure does not publish a searchable epoch");
+    pipeline.SetSecondaryPruningFaultInjector({});
+    Check(pipeline.ApplyUsnBatch(volume, persistentBlocked),
+          "persistent USN failure converges after the fault clears");
+    Check(!SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                           L"blocked-usn-persistent.txt"),
+          "persistent USN recovery removes the retained row");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
+void TestRebuildSecondaryFailureDoesNotPublishSuccess() {
+    const std::string dbPath = FreshDbPath("engine_test_rebuild_rule_pruning.db");
+    VolumeKey key;
+    key.serialNumber = 95;
+    VolumeRowId volume = 0;
+    {
+        IndexPipeline seed;
+        Check(seed.Open(dbPath), "rebuild rule-pruning seed opens");
+        volume = seed.ResolveVolume(key);
+        Check(seed.ApplyMftBatch(volume, {
+            MakeMftRecord(1, 1, u"", 0x10, 0),
+            MakeMftRecord(2, 1, u"blocked-rebuild.txt", 0, 20),
+            MakeMftRecord(3, 1, u"keep-rebuild.txt", 0, 30),
+        }), "rebuild rule-pruning seed rows are durable");
+        seed.Close();
+    }
+
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "rebuild rule-pruning fixture reopens");
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    setting.rules.push_back({L"C:\\blocked-rebuild.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    SecondaryFailurePlan plan{SecondaryBoundary::RebuildRulePrune, 1};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    int callbackCount = 0;
+    pipeline.RebuildAll([&callbackCount](VolumeRowId) { ++callbackCount; });
+    Check(callbackCount == 0,
+          "RebuildAll does not callback a volume whose secondary prune failed");
+    Check(plan.targetCalls == 1 && plan.observedBoundaries.size() == 1 &&
+              plan.observedBoundaries[0] == SecondaryBoundary::RebuildRulePrune,
+          "the rebuild failure injector reaches only the named rebuild boundary");
+    const auto failedSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(SnapshotHasName(failedSnapshot, L"blocked-rebuild.txt") &&
+              SnapshotHasName(failedSnapshot, L"keep-rebuild.txt"),
+          "failed RebuildAll retains both durable rows in the projection");
+    const auto failedAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(failedAggregate.has_value() && failedAggregate->itemCount == 2,
+          "failed RebuildAll leaves the folder aggregate consistent");
+    const auto failedSearch = SearchForName(pipeline, 905, L"blocked-rebuild");
+    Check(failedSearch.status == ffprotocol::IndexedSearchStatus::Completed &&
+              failedSearch.candidates.empty(),
+          "rule-filtered search does not expose the retained rebuild-prune row");
+    const auto failedDurable = ReadDurableEntryState(dbPath, volume, FileId{2, 0});
+    Check(failedDurable.opened && failedDurable.entryCount == 3 && failedDurable.hasTarget,
+          "failed RebuildAll leaves the durable pruning obligation intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
+          "failed RebuildAll does not advance the query-visible success epoch");
+
+    pipeline.SetSecondaryPruningFaultInjector({});
+    pipeline.RebuildAll([&callbackCount](VolumeRowId) { ++callbackCount; });
+    Check(callbackCount == 1,
+          "RebuildAll callbacks once after the retained prune succeeds");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch > epochBeforeFailure,
+          "successful rebuild pruning advances the query-visible epoch");
+    const auto recoveredSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(!SnapshotHasName(recoveredSnapshot, L"blocked-rebuild.txt") &&
+              SnapshotHasName(recoveredSnapshot, L"keep-rebuild.txt"),
+          "the rebuild-prune row is removed after recovery");
+    const auto recoveredAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(recoveredAggregate.has_value() && recoveredAggregate->itemCount == 1,
+          "the rebuild aggregate converges after recovery");
+    const auto recoveredDurable = ReadDurableEntryState(dbPath, volume, FileId{2, 0});
+    Check(recoveredDurable.opened && recoveredDurable.entryCount == 2 && !recoveredDurable.hasTarget,
+          "the rebuild durable row is removed after recovery");
+
+    ffprotocol::VolumeSetting unrestricted = setting;
+    unrestricted.rules.clear();
+    pipeline.SetVolumeRules(volume, unrestricted);
+    const FileId persistentTarget{4, 0};
+    Check(pipeline.ApplyMftBatch(volume, {
+              MakeMftRecord(persistentTarget.low, 1, u"blocked-rebuild-persistent.txt", 0, 31)}),
+          "persistent rebuild fixture seeds a new durable row");
+    setting.rules.push_back({L"C:\\blocked-rebuild-persistent.txt", false});
+    pipeline.SetVolumeRules(volume, setting);
+    SecondaryFailurePlan persistentPlan;
+    persistentPlan.target = SecondaryBoundary::RebuildRulePrune;
+    persistentPlan.persistent = true;
+    InstallSecondaryFailurePlan(pipeline, persistentPlan);
+    const uint64_t epochBeforePersistentFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    int persistentCallbackCount = 0;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        pipeline.RebuildAll([&persistentCallbackCount](VolumeRowId) { ++persistentCallbackCount; });
+        Check(persistentCallbackCount == 0,
+              "persistent rebuild failure never reports a successful volume");
+        Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                              L"blocked-rebuild-persistent.txt"),
+              "persistent rebuild failure retains the row in the projection");
+    }
+    Check(persistentPlan.targetCalls == 2,
+          "persistent rebuild injection reaches the named boundary twice");
+    const auto persistentDurable = ReadDurableEntryState(dbPath, volume, persistentTarget);
+    Check(persistentDurable.opened && persistentDurable.entryCount == 3 && persistentDurable.hasTarget,
+          "persistent rebuild failure leaves the durable pruning obligation intact");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforePersistentFailure,
+          "persistent rebuild failure does not publish a searchable epoch");
+    pipeline.SetSecondaryPruningFaultInjector({});
+    pipeline.RebuildAll([&persistentCallbackCount](VolumeRowId) { ++persistentCallbackCount; });
+    Check(persistentCallbackCount == 1,
+          "persistent rebuild failure converges after the fault clears");
+    Check(!SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                           L"blocked-rebuild-persistent.txt"),
+          "persistent rebuild recovery removes the retained row");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
 }
 
 void TestReconciliationRetentionOnSecondaryFailure() {
+    const std::string dbPath = FreshDbPath("engine_test_reconcile_pruning.db");
     IndexPipeline pipeline;
-    Check(pipeline.Open(FreshDbPath("engine_test_reconcile_pruning.db")), "reconcile-pruning fixture opens");
-    VolumeKey key; key.serialNumber = 92;
+    Check(pipeline.Open(dbPath), "reconciliation-pruning fixture opens");
+    VolumeKey key;
+    key.serialNumber = 92;
     const auto volume = pipeline.ResolveVolume(key);
-    ffprotocol::VolumeSetting setting; setting.key = L"C:"; setting.enabled = true;
-    setting.rules.push_back({L"C:\\.\\toremove.txt", false});
+    const FileId target{200, 0};
+    // Seed before configuring rules. The target must be present in the durable
+    // store and projection so Finish has a real not-seen removal obligation.
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(target.low, 1, u"toremove.txt", 0, 10),
+        MakeMftRecord(201, 1, u"keep.txt", 0, 10),
+    }), "reconciliation fixture seeds target and retained rows");
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
     pipeline.SetVolumeRules(volume, setting);
-    // Seed with a file that will be removed by reconciliation (not seen)
-    Check(pipeline.ApplyMftBatch(volume, {
-        MakeMftRecord(1, 1, u".", 0x10, 0),
-        MakeMftRecord(200, 1, u"toremove.txt", 0, 10),
-        MakeMftRecord(201, 1, u"keep.txt", 0, 10),
-    }), "seed for reconciliation");
-    // Begin a reconciliation pass that does not see toremove.txt
+
     pipeline.BeginReconciliationPass(volume);
-    Check(pipeline.IsReconciliationPassActive(volume), "reconciliation active");
+    Check(pipeline.IsReconciliationPassActive(volume), "reconciliation pass is active before scanning");
     Check(pipeline.ApplyMftBatch(volume, {
         MakeMftRecord(1, 1, u".", 0x10, 0),
         MakeMftRecord(201, 1, u"keep.txt", 0, 10),
-    }), "reconciliation batch without toremove");
-    // Inject failure for the removal batch inside FinishReconciliationPass
-    pipeline.SetSecondaryPruningFaultInjector([](ffindexstore::VolumeRowId vol, const std::vector<ffindexstore::EntryChange>& changes) {
-        (void)vol; (void)changes; return true;
-    });
+    }), "reconciliation scan omits the target row");
+    const auto preFinishDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(preFinishDurable.opened && preFinishDurable.hasTarget && preFinishDurable.entryCount == 3,
+          "the reconciliation target exists before Finish computes removals");
+
+    SecondaryFailurePlan plan{SecondaryBoundary::ReconciliationRemoval, 1};
+    InstallSecondaryFailurePlan(pipeline, plan);
+    const uint64_t epochBeforeFinish = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
     pipeline.FinishReconciliationPass(volume);
-    auto snap1 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    bool hasRemove = false, hasKeep = false;
-    for (const auto& [p,d] : snap1) for (const auto& e: d.entries) { if (e.name==L"toremove.txt") hasRemove=true; if (e.name==L"keep.txt") hasKeep=true; }
-    // Obligation should be retained: still active, and toremove still visible
-    // TODO: picks up the next frontier - currently the injected failure still erases the pass and removes the file
-    // For now, just check that the file is still visible in at least one of the stores (store vs projection) - the current
-    // Check(hasRemove && hasKeep, "both files still visible after failed reconciliation (consistent)");
-    Check(hasKeep, "keep file still visible after failed reconciliation");
-    // Clear injector and retry: should succeed and prune toremove
+    Check(plan.targetCalls == 1 && plan.observedBoundaries.size() == 1 &&
+              plan.observedBoundaries[0] == SecondaryBoundary::ReconciliationRemoval,
+          "the injected failure targets only reconciliation removal");
+    Check(pipeline.IsReconciliationPassActive(volume),
+          "failed reconciliation retains its active repair obligation");
+    const auto failedSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(SnapshotHasName(failedSnapshot, L"toremove.txt") && SnapshotHasName(failedSnapshot, L"keep.txt"),
+          "failed reconciliation retains both target and observed rows in the projection");
+    const auto failedAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(failedAggregate.has_value() && failedAggregate->itemCount == 2,
+          "failed reconciliation leaves the folder aggregate consistent");
+    const auto failedSearch = SearchForName(pipeline, 902, L"toremove");
+    Check(failedSearch.status == ffprotocol::IndexedSearchStatus::Completed &&
+              failedSearch.candidates.size() == 1,
+          "failed reconciliation keeps the not-yet-removed row searchable");
+    const auto failedDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(failedDurable.opened && failedDurable.entryCount == 3 && failedDurable.hasTarget,
+          "failed reconciliation leaves the durable removal transaction untouched");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFinish,
+          "failed reconciliation does not publish a searchable epoch");
+
     pipeline.SetSecondaryPruningFaultInjector({});
-    // Need to re-apply the same reconciliation finish logic: the retained pass will recompute removals
-    // We simulate by calling Finish again (it will see the same not-seen set)
     pipeline.FinishReconciliationPass(volume);
-    Check(!pipeline.IsReconciliationPassActive(volume), "reconciliation not active after successful retry");
-    auto snap2 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    bool hasRemove2 = false, hasKeep2 = false;
-    for (const auto& [p,d] : snap2) for (const auto& e: d.entries) { if (e.name==L"toremove.txt") hasRemove2=true; if (e.name==L"keep.txt") hasKeep2=true; }
-    Check(!hasRemove2 && hasKeep2, "toremove pruned after retry, keep remains");
+    Check(!pipeline.IsReconciliationPassActive(volume),
+          "reconciliation closes after the durable retry succeeds");
+    const auto recoveredSnapshot = pipeline.ExportDirectorySnapshot(volume, L"C:");
+    Check(!SnapshotHasName(recoveredSnapshot, L"toremove.txt") &&
+              SnapshotHasName(recoveredSnapshot, L"keep.txt"),
+          "the retained reconciliation target is pruned on retry");
+    const auto recoveredAggregate = pipeline.GetFolderAggregate(volume, FileId{1, 0});
+    Check(recoveredAggregate.has_value() && recoveredAggregate->itemCount == 1,
+          "the reconciliation aggregate converges after retry");
+    const auto recoveredDurable = ReadDurableEntryState(dbPath, volume, target);
+    Check(recoveredDurable.opened && recoveredDurable.entryCount == 2 && !recoveredDurable.hasTarget,
+          "the reconciliation durable row is removed on retry");
     pipeline.Close();
-    std::filesystem::remove(FreshDbPath("engine_test_reconcile_pruning.db"));
-    std::filesystem::remove(FreshDbPath("engine_test_reconcile_pruning.db") + "-wal");
-    std::filesystem::remove(FreshDbPath("engine_test_reconcile_pruning.db") + "-shm");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
 }
 
 void TestRepeatedSecondaryFailure() {
+    const std::string dbPath = FreshDbPath("engine_test_repeated_pruning.db");
     IndexPipeline pipeline;
-    Check(pipeline.Open(FreshDbPath("engine_test_repeated_pruning.db")), "repeated-pruning fixture opens");
-    VolumeKey key; key.serialNumber = 93;
+    Check(pipeline.Open(dbPath), "repeated-pruning fixture opens");
+    VolumeKey key;
+    key.serialNumber = 93;
     const auto volume = pipeline.ResolveVolume(key);
-    ffprotocol::VolumeSetting setting; setting.key = L"C:"; setting.enabled = true;
-    setting.rules.push_back({L"C:\\.\\repeat.txt", false});
+    Check(pipeline.ApplyMftBatch(volume, {
+        MakeMftRecord(1, 1, u".", 0x10, 0),
+        MakeMftRecord(300, 1, u"repeat.txt", 0, 10),
+    }), "repeated-pruning fixture seeds the target");
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
     pipeline.SetVolumeRules(volume, setting);
-    Check(pipeline.ApplyMftBatch(volume, { MakeMftRecord(1,1,u".",0x10,0) }), "seed root");
-    // Hold injector on for 3 consecutive batches, each should fail and not diverge
-    pipeline.SetSecondaryPruningFaultInjector([](ffindexstore::VolumeRowId vol, const std::vector<ffindexstore::EntryChange>& changes){ (void)vol; (void)changes; return true; });
-    for (int i=0;i<3;++i) {
-        bool applied = pipeline.ApplyMftBatch(volume, { MakeMftRecord(300+i,1,u"repeat.txt",0,10) });
-        Check(!applied, "repeated secondary failure returns false each time");
-        auto snap = pipeline.ExportDirectorySnapshot(volume, L"C:");
-        bool hasRepeat=false;
-        for (const auto& [p,d]: snap) for (const auto& e: d.entries) if (e.name==L"repeat.txt") hasRepeat=true;
-        Check(hasRepeat, "repeat file still visible after each failure (no divergent removal)");
+    pipeline.BeginReconciliationPass(volume);
+    Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u".", 0x10, 0)}),
+          "repeated-pruning reconciliation observes only the root");
+
+    SecondaryFailurePlan plan;
+    plan.target = SecondaryBoundary::ReconciliationRemoval;
+    plan.persistent = true;
+    InstallSecondaryFailurePlan(pipeline, plan);
+    const uint64_t epochBeforeFailure = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        pipeline.FinishReconciliationPass(volume);
+        Check(pipeline.IsReconciliationPassActive(volume),
+              "persistent reconciliation failure retains the obligation");
+        Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"), L"repeat.txt"),
+              "persistent reconciliation failure never removes the target from the projection");
+        Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeFailure,
+              "persistent reconciliation failure never advances the searchable epoch");
     }
-    // Clear and ensure next batch succeeds and prunes
+    Check(plan.targetCalls == 2, "persistent injection fails both named reconciliation attempts");
+    const auto failedDurable = ReadDurableEntryState(dbPath, volume, FileId{300, 0});
+    Check(failedDurable.opened && failedDurable.entryCount == 2 && failedDurable.hasTarget,
+          "persistent reconciliation failure leaves durable state unchanged");
+
     pipeline.SetSecondaryPruningFaultInjector({});
-    pipeline.RebuildAll([](ffindexstore::VolumeRowId){});
-    auto snap2 = pipeline.ExportDirectorySnapshot(volume, L"C:");
-    bool hasRepeat=false;
-    for (const auto& [p,d]: snap2) for (const auto& e: d.entries) if (e.name==L"repeat.txt") hasRepeat=true;
-    Check(!hasRepeat, "repeat file pruned after clearing injector and RebuildAll");
+    pipeline.FinishReconciliationPass(volume);
+    Check(!pipeline.IsReconciliationPassActive(volume) &&
+              !SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"), L"repeat.txt"),
+          "reconciliation converges in one pass after repeated failures clear");
+    const auto recoveredDurable = ReadDurableEntryState(dbPath, volume, FileId{300, 0});
+    Check(recoveredDurable.opened && recoveredDurable.entryCount == 1 && !recoveredDurable.hasTarget,
+          "durable reconciliation state converges after repeated failures");
     pipeline.Close();
-    std::filesystem::remove(FreshDbPath("engine_test_repeated_pruning.db"));
-    std::filesystem::remove(FreshDbPath("engine_test_repeated_pruning.db") + "-wal");
-    std::filesystem::remove(FreshDbPath("engine_test_repeated_pruning.db") + "-shm");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
 }
+
+void TestRulePruningFailureRecoversAfterCloseAndOpen() {
+    const std::string dbPath = FreshDbPath("engine_test_rule_pruning_restart.db");
+    VolumeKey key;
+    key.serialNumber = 96;
+    VolumeRowId volume = 0;
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    setting.rules.push_back({L"C:\\blocked-restart.txt", false});
+    const FileId target{2, 0};
+    {
+        IndexPipeline pipeline;
+        Check(pipeline.Open(dbPath), "restart rule-pruning fixture opens");
+        volume = pipeline.ResolveVolume(key);
+        pipeline.SetVolumeRules(volume, setting);
+        Check(pipeline.ApplyMftBatch(volume, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
+              "restart rule-pruning fixture seeds its root");
+        SecondaryFailurePlan plan{SecondaryBoundary::MftRulePrune, 1};
+        InstallSecondaryFailurePlan(pipeline, plan);
+        Check(!pipeline.ApplyMftBatch(volume, {
+                  MakeMftRecord(target.low, 1, u"blocked-restart.txt", 0, 10)}),
+              "the restart fixture records a failed secondary prune before shutdown");
+        Check(SnapshotHasName(pipeline.ExportDirectorySnapshot(volume, L"C:"),
+                              L"blocked-restart.txt"),
+              "the failed restart fixture retains the row before shutdown");
+        pipeline.Close();
+    }
+
+    IndexPipeline restarted;
+    Check(restarted.Open(dbPath), "restart rule-pruning fixture reopens");
+    restarted.SetVolumeRules(volume, setting);
+    int callbackCount = 0;
+    restarted.RebuildAll([&callbackCount](VolumeRowId) { ++callbackCount; });
+    Check(callbackCount == 1,
+          "a restart rebuilds and reports the outstanding pruning obligation");
+    Check(!SnapshotHasName(restarted.ExportDirectorySnapshot(volume, L"C:"),
+                           L"blocked-restart.txt"),
+          "restart recovery removes the failed-prune row from the projection");
+    const auto aggregate = restarted.GetFolderAggregate(volume, FileId{1, 0});
+    Check(aggregate.has_value() && aggregate->itemCount == 0,
+          "restart recovery leaves the folder aggregate consistent");
+    const auto search = SearchForName(restarted, 906, L"blocked-restart");
+    Check(search.status == ffprotocol::IndexedSearchStatus::Completed &&
+              search.candidates.empty(),
+          "restart recovery leaves no indexed-search result for the pruned row");
+    const auto durable = ReadDurableEntryState(dbPath, volume, target);
+    Check(durable.opened && durable.entryCount == 1 && !durable.hasTarget,
+          "restart recovery removes the durable failed-prune row");
+    restarted.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
 int main() {
 
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
@@ -1756,9 +2193,12 @@ int main() {
         TestColdMutationsAndRestartEquivalence();
         TestColdFolderAggregateServedFromStore();
         TestCancellationDuringColdStream();
-        TestReconciliationRetentionOnSecondaryFailure();
-        TestRepeatedSecondaryFailure();
-        TestRulePruningSecondaryFailureIsFailClosed();
+    TestMftSecondaryFailureIsFailClosedAndRetryable();
+    TestUsnSecondaryFailureIsBoundarySpecificAndRetryable();
+    TestRebuildSecondaryFailureDoesNotPublishSuccess();
+    TestReconciliationRetentionOnSecondaryFailure();
+    TestRepeatedSecondaryFailure();
+    TestRulePruningFailureRecoversAfterCloseAndOpen();
 
     if (fftest::FailureCount() > 0) {
         return 1;

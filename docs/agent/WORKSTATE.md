@@ -1,5 +1,74 @@
 # Fast Files — Agent Workstate
 
+## Completion-integrity campaign — executor intake (2026-08-27/28)
+
+- Executor resume started `2026-08-27T20:02:14Z`; a twelve-hour steering
+  deadline is `2026-08-28T08:02:14Z` unless the work reaches an evidence-based
+  stop earlier.
+- Pulled `main` fast-forward-only after `git fetch --prune origin`: branch
+  `main`, HEAD=`af43727af4aa084f33f3f7d89258f37920c9df9e`,
+  `origin/main` equal, 0 ahead/behind. The only pre-existing local change is
+  untracked `docs/agent/HANDOFF_12H_2026-08-27.md`; preserve it.
+- Live planner prompt is ACTIVE and makes
+  `rule-pruning-durability-and-reconciliation-failure-closure` the first
+  frontier. The pulled planning-only delta adds the completion-integrity
+  follow-on; no product code has changed in this resume.
+- Intake evidence: `verify.ps1 doctor` passed toolchain/prerequisite checks;
+  the lifecycle/status metadata has since been repaired locally and must be
+  rechecked on the final committed tree. `intake.ps1 status` correctly reports
+  no autonomous run exists. `origin/main` remains `af43727`; hosted runs
+  `33118800172` and `33119135195` are unrelated in-progress pushes (the latter
+  is on the planner branch), so neither certifies this dirty worktree.
+- Active OpenSpec apply status: 13/22 tasks complete; local implementation
+  gaps are now limited to exact committed-tree/hosted evidence and handoff
+  metadata. The implementation gaps that were repaired were
+  explicit named boundary injection, RebuildAll fail-closed completion,
+  valid reconciliation retention proof, boundary-specific retry/repeated
+  failure and restart/shutdown tests, then exact-SHA validation and state
+  convergence.
+- Implementation milestone: the test-only
+  `FF_INDEX_PIPELINE_TESTING` seam now names MFT, USN, rebuild, and
+  reconciliation-removal boundaries. `RebuildAll` reports/advances the
+  query-visible epoch only for volumes whose rule-pruning transaction
+  succeeds. The focused engine test now covers durable retention, snapshot /
+  aggregate / indexed-search behavior, immediate retry, repeated failure,
+  and close/open recovery; `ffengine_index_pipeline_tests` is 1/1 PASS.
+- Follow-up coverage now exercises persistent injection and recovery at all
+  four named boundaries. `FastFilesEngine` production compilation passed;
+  the focused engine test is 1/1 PASS and the neighboring index-store/search
+  suite is 11/11 PASS.
+- Full Debug build passed. The first full Debug CTest run exposed mixed
+  line endings plus a status-fixture timeout; CRLF normalization fixed the
+  former. The status module now validates reachable commit evidence in one
+  Git snapshot and lazily initializes it only for Git-backed evidence; the
+  focused drift/status policies pass (87.8s). Strict OpenSpec is 76/76 PASS,
+  and release-test configure/build passed (115/115 steps). Analyze rebuilt
+  warning-clean after the C6239 short-circuit repair. With the discovered VS
+  environment active, the repository ASAN protocol/IPC/lifecycle slice is
+  3/3 PASS in 113.76s (`ffprotocol_fuzz_tests` 50.65s,
+  `ffipc_framing_tests` 1.25s, `ffipc_listener_lifecycle_tests` 60.86s).
+
+Final validation milestone: the final Debug configure/build and full CTest
+passed 86/86 in 441.23s; the final release-test configure/build and full CTest
+passed 86/86 in 442.47s. The hosted ASAN authority is now configured for the
+same three protocol/IPC/lifecycle targets exercised locally.
+
+NEXT EXACT ACTION: run the repository verifier build gate, then commit this
+implementation, run exact-tree qualification on that committed SHA, and push
+without force for hosted validation.
+
+Verifier milestone: `pwsh ./verify/verify.ps1 build` passed with 9 passed, 0
+failed, 0 skipped across Debug/release-test/Analyze. `git diff --check` is
+clean and all edited tracked files are CRLF-normalized.
+
+NEXT EXACT ACTION: commit the implementation and validation-policy changes;
+then run `Invoke-ExactTreeQualification.ps1` against that clean commit.
+
+DEFERRED / BACKLOG: queued `completion-integrity-hardening-and-release-
+certification` implementation (release artifact retention, sanitizer policy,
+truth-surface hardening, fresh audit) starts only after the active rule-
+pruning dependency is truthfully closed.
+
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 
 - Resumed clean `main` at `d42caae` (perf wave `b3b62e2` already landed by the

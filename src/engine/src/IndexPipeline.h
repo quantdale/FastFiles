@@ -176,13 +176,23 @@ public:
     // forced reader failure must surface as Unavailable rather than a partial
     // completed response.
     void SetReadSessionFaultInjector(ffindexstore::ReadSessionFaultInjector injector);
-    // rule-pruning-durability D3: deterministic fault injection for secondary
-    // pruning writes. Production callers leave this empty. When installed, the
-    // injector is consulted before each secondary ApplyBatch(ruleExcluded/removals);
-    // if it returns true, that secondary batch is forced to fail (returns false)
-    // without touching the store, allowing tests to prove fail-closed behavior.
-    using SecondaryPruningFaultInjector = std::function<bool(ffindexstore::VolumeRowId, const std::vector<ffindexstore::EntryChange>&)>;
+#ifdef FF_INDEX_PIPELINE_TESTING
+    // rule-pruning-durability-and-reconciliation-failure-closure D3: the
+    // deterministic fault seam names the secondary transaction boundary so a
+    // regression test cannot accidentally exercise a different caller.
+    enum class SecondaryPruningBoundary : uint8_t {
+        MftRulePrune,
+        UsnRulePrune,
+        RebuildRulePrune,
+        ReconciliationRemoval,
+    };
+    using SecondaryPruningFaultInjector = std::function<bool(
+        SecondaryPruningBoundary, ffindexstore::VolumeRowId,
+        const std::vector<ffindexstore::EntryChange>&)>;
+    // Test-only: production builds do not expose or compile this mutable fault
+    // surface. The callback is invoked while the pipeline mutation lock is held.
     void SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector);
+#endif
     ReadPlaneDiagnostics GetReadPlaneDiagnostics() const noexcept;
 
     // task 1.6: scheduled WAL maintenance, intended to be called on a
@@ -195,8 +205,9 @@ public:
                              uint64_t vacuumSizeGrowthPercent = 10);
 
     // task 3.1/3.2: rebuilds every volume already known to the durable
-    // store, invoking onVolumeRebuilt once per volume as soon as that
-    // volume's rebuild completes (not gated on every volume finishing).
+    // store, invoking onVolumeRebuilt once per volume whose rebuild and rule
+    // pruning both complete successfully. A volume whose pruning transaction
+    // fails remains retryable and is deliberately not reported as complete.
     using VolumeRebuiltCallback = std::function<void(ffindexstore::VolumeRowId)>;
     void RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt);
 
@@ -253,6 +264,12 @@ private:
     // Shared commit-then-apply tail for USN batches.
     bool ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
                               std::vector<ffindexstore::EntryChange>&& changes);
+
+#ifdef FF_INDEX_PIPELINE_TESTING
+    bool ShouldInjectSecondaryPruningFailureLocked(
+        SecondaryPruningBoundary boundary, ffindexstore::VolumeRowId volumeId,
+        const std::vector<ffindexstore::EntryChange>& changes);
+#endif
 
     ffprotocol::IndexedSearchResponse SearchIndexedReadPlane(
         const ffprotocol::IndexedSearchRequest& request,
@@ -369,7 +386,9 @@ private:
     ffindexstore::Projection projection_;
     SearchTestHooks searchTestHooks_;
     ffindexstore::ReadSessionFaultInjector readSessionFaultInjector_;
+#ifdef FF_INDEX_PIPELINE_TESTING
     SecondaryPruningFaultInjector secondaryPruningFaultInjector_;
+#endif
     std::atomic<uint64_t> queryVisibleEpoch_{1};
     std::atomic<uint64_t> dependencySetEpoch_{1};
     std::unordered_map<ffindexstore::VolumeRowId, uint64_t> volumeDataEpochs_;

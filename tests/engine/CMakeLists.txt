@@ -5,6 +5,9 @@ add_executable(ffengine_index_pipeline_tests
 )
 target_include_directories(ffengine_index_pipeline_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_index_pipeline_tests PRIVATE ffindexstore ffprotocol ffsearch Rpcrt4 Shell32 Ole32)
+# rule-pruning-durability-and-reconciliation-failure-closure: keep the named
+# secondary-write fault seam out of the production IndexPipeline target.
+target_compile_definitions(ffengine_index_pipeline_tests PRIVATE FF_INDEX_PIPELINE_TESTING=1)
 
 add_test(NAME ffengine_index_pipeline_tests COMMAND ffengine_index_pipeline_tests)
 

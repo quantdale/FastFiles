@@ -63,7 +63,7 @@ jobs:
           }
 
   asan:
-    name: asan-protocol-fuzz
+    name: asan-protocol-ipc-lifecycle
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -80,7 +80,7 @@ jobs:
         shell: pwsh
         run: ./verify/check_diagnostic_policy.ps1
 
-      - name: Configure, build, and run ASAN protocol + IPC framing fuzz in discovered VS environment
+      - name: Configure, build, and run ASAN protocol + IPC/lifecycle fuzz in discovered VS environment
         shell: pwsh
         run: |
           Import-Module ./verify/core/Toolchain.psm1 -Force
@@ -94,9 +94,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $toolchain.CMakeExe --preset asan
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests
+          & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $ctestOutput = @(& $toolchain.CTestExe --test-dir build/asan -R "ffprotocol_fuzz_tests|ffipc_framing_tests" --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
+          $ctestOutput = @(& $toolchain.CTestExe --test-dir build/asan -R "^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests)$" --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
           $ctestExit = $LASTEXITCODE
           $ctestOutput | ForEach-Object { Write-Host $_ }
           if ($ctestExit -ne 0) {

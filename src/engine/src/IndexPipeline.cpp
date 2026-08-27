@@ -435,10 +435,19 @@ void IndexPipeline::SetReadSessionFaultInjector(ffindexstore::ReadSessionFaultIn
     readSessionFaultInjector_ = std::move(injector);
 }
 
+#ifdef FF_INDEX_PIPELINE_TESTING
 void IndexPipeline::SetSecondaryPruningFaultInjector(SecondaryPruningFaultInjector injector) {
     std::lock_guard<std::mutex> lock(mutex_);
     secondaryPruningFaultInjector_ = std::move(injector);
 }
+
+bool IndexPipeline::ShouldInjectSecondaryPruningFailureLocked(
+    const SecondaryPruningBoundary boundary, const ffindexstore::VolumeRowId volumeId,
+    const std::vector<ffindexstore::EntryChange>& changes) {
+    return secondaryPruningFaultInjector_ &&
+        secondaryPruningFaultInjector_(boundary, volumeId, changes);
+}
+#endif
 
 IndexPipeline::ReadPlaneDiagnostics IndexPipeline::GetReadPlaneDiagnostics() const noexcept {
     ReadPlaneDiagnostics result;
@@ -527,6 +536,7 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& meta : store_.GetAllVolumes()) {
             projection_.RebuildVolumeFromStore(store_, meta.rowId, meta.entryCount);
+            bool rebuildSucceeded = true;
             // zero-touch-autonomous-engineering (subtree gating): after the
             // projection is rebuilt from the durable store (parent chains
             // fully present), prune any excluded subtrees from store +
@@ -542,16 +552,32 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
                     }
                 });
                 if (!ruleExcluded.empty()) {
-                    bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(meta.rowId, ruleExcluded);
-                    bool secondaryApplied = !injectedFailure && store_.ApplyBatch(meta.rowId, ruleExcluded);
+#ifdef FF_INDEX_PIPELINE_TESTING
+                    const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
+                        SecondaryPruningBoundary::RebuildRulePrune, meta.rowId, ruleExcluded);
+#else
+                    const bool injectedFailure = false;
+#endif
+                    bool secondaryApplied = false;
+                    if (!injectedFailure) {
+                        secondaryApplied = store_.ApplyBatch(meta.rowId, ruleExcluded);
+                    }
                     if (secondaryApplied) {
                         for (const auto& removal : ruleExcluded) {
                             projection_.Remove(meta.rowId, removal.record.id);
                         }
+                    } else {
+                        // The projection was rebuilt from the unchanged durable
+                        // rows, so retaining them is consistent. Do not publish
+                        // this volume as a successful rebuild; the next rebuild
+                        // will re-evaluate the same derived rule obligation.
+                        rebuildSucceeded = false;
                     }
                 }
             }
-            volumeIds.push_back(meta.rowId);
+            if (rebuildSucceeded) {
+                volumeIds.push_back(meta.rowId);
+            }
         }
         MaybeReportProjectionMemoryPressureLocked();
         for (const auto volumeId : volumeIds) {
@@ -686,8 +712,16 @@ bool IndexPipeline::ApplyMftBatchChanges(ffindexstore::VolumeRowId volumeId,
         }
     }
     if (!ruleExcluded.empty()) {
-        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(volumeId, ruleExcluded);
-        bool secondaryApplied = !injectedFailure && store_.ApplyBatch(volumeId, ruleExcluded);
+#ifdef FF_INDEX_PIPELINE_TESTING
+        const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
+            SecondaryPruningBoundary::MftRulePrune, volumeId, ruleExcluded);
+#else
+        const bool injectedFailure = false;
+#endif
+        bool secondaryApplied = false;
+        if (!injectedFailure) {
+            secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
+        }
         if (secondaryApplied) {
             for (const auto& removal : ruleExcluded) {
                 projection_.Remove(volumeId, removal.record.id);
@@ -791,8 +825,16 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
         }
     }
     if (!ruleExcluded.empty()) {
-        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(volumeId, ruleExcluded);
-        bool secondaryApplied = !injectedFailure && store_.ApplyBatch(volumeId, ruleExcluded);
+#ifdef FF_INDEX_PIPELINE_TESTING
+        const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
+            SecondaryPruningBoundary::UsnRulePrune, volumeId, ruleExcluded);
+#else
+        const bool injectedFailure = false;
+#endif
+        bool secondaryApplied = false;
+        if (!injectedFailure) {
+            secondaryApplied = store_.ApplyBatch(volumeId, ruleExcluded);
+        }
         if (secondaryApplied) {
             for (const auto& removal : ruleExcluded) {
                 projection_.Remove(volumeId, removal.record.id);
@@ -902,8 +944,17 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
     bool searchableMutation = false;
     bool secondaryApplied = true;
     if (!removals.empty()) {
-        bool injectedFailure = secondaryPruningFaultInjector_ && secondaryPruningFaultInjector_(id, removals);
-        secondaryApplied = !injectedFailure && store_.ApplyBatch(id, removals);
+#ifdef FF_INDEX_PIPELINE_TESTING
+        const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
+            SecondaryPruningBoundary::ReconciliationRemoval, id, removals);
+#else
+        const bool injectedFailure = false;
+#endif
+        if (!injectedFailure) {
+            secondaryApplied = store_.ApplyBatch(id, removals);
+        } else {
+            secondaryApplied = false;
+        }
         if (secondaryApplied) {
             for (const auto& removal : removals) {
                 projection_.Remove(id, removal.record.id);

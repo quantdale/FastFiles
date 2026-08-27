@@ -210,6 +210,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "completion-integrity-hardening-and-release-certification",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

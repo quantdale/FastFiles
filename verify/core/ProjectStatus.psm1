@@ -160,17 +160,54 @@ function Resolve-ProjectStatusRepositoryEvidencePath {
     }
 }
 
+function New-ProjectStatusGitEvidenceContext {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $RepoRoot)
+
+    $headLines = @(& git -C $RepoRoot rev-parse --verify HEAD 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $headLines.Count -eq 0) { return $null }
+    $head = ($headLines -join '').Trim().ToLowerInvariant()
+    $reachableLines = @(& git -C $RepoRoot rev-list $head 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        return [pscustomobject]@{ repoRoot = [IO.Path]::GetFullPath($RepoRoot); head = $head; reachable = $null }
+    }
+    $reachable = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($line in $reachableLines) {
+        $candidate = $line.ToString().Trim()
+        if ($candidate -match '^[0-9a-fA-F]{40}$') { [void]$reachable.Add($candidate) }
+    }
+    [pscustomobject]@{ repoRoot = [IO.Path]::GetFullPath($RepoRoot); head = $head; reachable = $reachable }
+}
+
 function Resolve-ProjectStatusGitCommitEvidence {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [AllowNull()] [string] $Sha
+        [AllowNull()] [string] $Sha,
+        [AllowNull()] $GitContext
     )
 
     if ([string]::IsNullOrWhiteSpace($Sha) -or $Sha -notmatch '^[0-9a-fA-F]{40}$') {
         return [pscustomobject]@{ valid = $false; sha = $null; reason = 'evidence-git-commit-sha-not-full' }
     }
     $normalized = $Sha.ToLowerInvariant()
+    $repoFull = [IO.Path]::GetFullPath($RepoRoot)
+    $contextMatches = $null -ne $GitContext -and
+        [String]::Equals([string]$GitContext.repoRoot, $repoFull, [StringComparison]::OrdinalIgnoreCase)
+    if (-not $contextMatches) {
+        $GitContext = New-ProjectStatusGitEvidenceContext -RepoRoot $RepoRoot
+    }
+    if ($null -ne $GitContext -and $null -ne $GitContext.reachable) {
+        if ($GitContext.reachable.Contains($normalized)) {
+            return [pscustomobject]@{ valid = $true; sha = $normalized; reason = $null }
+        }
+        $resolved = @(& git -C $RepoRoot rev-parse --verify "${normalized}^{commit}" 2>$null)
+        if ($LASTEXITCODE -ne 0 -or $resolved.Count -eq 0 -or ($resolved -join '').Trim() -ne $normalized) {
+            return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-commit-not-found' }
+        }
+        return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-commit-not-reachable' }
+    }
+
     $resolved = @(& git -C $RepoRoot rev-parse --verify "${normalized}^{commit}" 2>$null)
     if ($LASTEXITCODE -ne 0 -or $resolved.Count -eq 0 -or ($resolved -join '').Trim() -ne $normalized) {
         return [pscustomobject]@{ valid = $false; sha = $normalized; reason = 'evidence-git-commit-not-found' }
@@ -192,7 +229,8 @@ function Resolve-ProjectStatusEvidence {
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
         [AllowNull()] $Evidence,
-        [Parameter(Mandatory)] [string] $Context
+        [Parameter(Mandatory)] [string] $Context,
+        [AllowNull()] $GitContext
     )
 
     $errors = [System.Collections.Generic.List[string]]::new()
@@ -227,7 +265,7 @@ function Resolve-ProjectStatusEvidence {
             }
         }
         'git-commit' {
-            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha)
+            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha) -GitContext $GitContext
             if (-not $resolvedCommit.valid) {
                 [void]$errors.Add("${Context}:$($resolvedCommit.reason)")
             } else {
@@ -243,7 +281,7 @@ function Resolve-ProjectStatusEvidence {
             if ([string]::IsNullOrWhiteSpace($runId) -or $runId -notmatch '^[0-9]+$') {
                 [void]$errors.Add("${Context}:evidence-hosted-run-id-invalid")
             }
-            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha)
+            $resolvedCommit = Resolve-ProjectStatusGitCommitEvidence -RepoRoot $RepoRoot -Sha ([string]$Evidence.sha) -GitContext $GitContext
             if (-not $resolvedCommit.valid) { [void]$errors.Add("${Context}:$($resolvedCommit.reason)") }
             $recordPath = Resolve-ProjectStatusRepositoryEvidencePath -RepoRoot $RepoRoot -RelativePath ([string]$Evidence.record) -RequireTracked:$true
             if (-not $recordPath.valid) {
@@ -338,6 +376,11 @@ function Get-ProjectStatusLifecycleModel {
     foreach ($known in $knownChanges) { [void]$knownChangeSet.Add($known) }
     $seenNames = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $entryByName = @{}
+    # completion-integrity-hardening-and-release-certification 2.6: validate
+    # all lifecycle commit evidence against one reachable-commit snapshot so
+    # status remains truthful without spawning three Git processes per item.
+    $gitEvidenceContext = $null
+    $gitEvidenceContextInitialized = $false
 
     if ($null -ne $raw) {
         $rawSchemaVersion = 0
@@ -368,7 +411,12 @@ function Get-ProjectStatusLifecycleModel {
                 $rawEvidence = @($entry.evidence)
                 if ($rawEvidence.Count -eq 0) { [void]$structuralErrors.Add("openspec-lifecycle-evidence-missing:$name") }
                 foreach ($evidence in $rawEvidence) {
-                    $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name"
+                    if (-not $gitEvidenceContextInitialized -and
+                        ([string]$evidence.kind -in @('git-commit', 'hosted-run'))) {
+                        $gitEvidenceContext = New-ProjectStatusGitEvidenceContext -RepoRoot $RepoRoot
+                        $gitEvidenceContextInitialized = $true
+                    }
+                    $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name" -GitContext $gitEvidenceContext
                     if (-not $resolved.valid) { foreach ($error in @($resolved.errors)) { [void]$evidenceErrors.Add($error) } }
                     $resolvedEvidence.Add($resolved.value)
                 }
@@ -408,7 +456,12 @@ function Get-ProjectStatusLifecycleModel {
                         $rawOverrideEvidence = @($override.evidence)
                         if ($rawOverrideEvidence.Count -eq 0) { [void]$structuralErrors.Add("openspec-lifecycle-task-evidence-missing:$name/$taskId") }
                         foreach ($evidence in $rawOverrideEvidence) {
-                            $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name/$taskId"
+                            if (-not $gitEvidenceContextInitialized -and
+                                ([string]$evidence.kind -in @('git-commit', 'hosted-run'))) {
+                                $gitEvidenceContext = New-ProjectStatusGitEvidenceContext -RepoRoot $RepoRoot
+                                $gitEvidenceContextInitialized = $true
+                            }
+                            $resolved = Resolve-ProjectStatusEvidence -RepoRoot $RepoRoot -Evidence $evidence -Context "openspec-lifecycle/$name/$taskId" -GitContext $gitEvidenceContext
                             if (-not $resolved.valid) { foreach ($error in @($resolved.errors)) { [void]$evidenceErrors.Add($error) } }
                             $overrideEvidence.Add($resolved.value)
                         }
