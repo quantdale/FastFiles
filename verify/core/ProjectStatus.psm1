@@ -381,6 +381,7 @@ function Get-ProjectStatusLifecycleModel {
     # status remains truthful without spawning three Git processes per item.
     $gitEvidenceContext = $null
     $gitEvidenceContextInitialized = $false
+    $openTaskCounts = @{}
 
     if ($null -ne $raw) {
         $rawSchemaVersion = 0
@@ -477,12 +478,17 @@ function Get-ProjectStatusLifecycleModel {
             }
 
             $declaredTaskIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+            $openTaskCount = 0
             $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
             if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
                 foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
-                    if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') { [void]$declaredTaskIds.Add($Matches[1]) }
+                    if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') {
+                        [void]$declaredTaskIds.Add($Matches[1])
+                        if ($taskLine -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $openTaskCount++ }
+                    }
                 }
             }
+            $openTaskCounts[$name] = $openTaskCount
             foreach ($override in @($overrides)) {
                 if (-not $declaredTaskIds.Contains([string]$override.task)) { [void]$structuralErrors.Add("openspec-lifecycle-task-unknown:$name/$($override.task)") }
             }
@@ -513,6 +519,9 @@ function Get-ProjectStatusLifecycleModel {
 
     foreach ($entry in @($entries)) {
         $hasAuthoritative = Test-ProjectStatusHasAuthoritativeEvidence -Evidence @($entry.evidence)
+        if ($entry.state -eq 'active' -and $openTaskCounts.ContainsKey($entry.name) -and $openTaskCounts[$entry.name] -eq 0) {
+            [void]$semanticErrors.Add("openspec-lifecycle-active-without-open-tasks:$($entry.name)")
+        }
         if ($entry.state -in @('completed', 'superseded', 'external-evidence-only') -and -not $hasAuthoritative) {
             [void]$semanticErrors.Add("openspec-lifecycle-authoritative-evidence-required:$($entry.name)")
         }

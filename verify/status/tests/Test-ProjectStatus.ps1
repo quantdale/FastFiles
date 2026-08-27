@@ -43,7 +43,7 @@ try {
         'completed-external' = @('- [ ] 2.1 Run signed provider acceptance against the authorized guest.')
         'completed-administrative' = @('- [ ] 3.1 Reconcile with origin/main and inspect hosted CI.')
         'superseded-old' = @('- [ ] 4.1 Implement the old local behavior.')
-        'superseding-new' = @('- [x] 1.1 Replacement behavior is implemented.')
+        'superseding-new' = @('- [ ] 1.1 Replacement behavior is implemented.')
         'explicit-local' = @('- [ ] 5.1 Run signed interactive validation only after the local parser fixture is ready.')
         'mixed-work' = @('- [ ] 6.1 Implement the parser and run signed service validation.')
         'external-signing' = @('- [ ] 7.1 Provide an authorized production certificate and pins.')
@@ -82,7 +82,7 @@ try {
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Value ($fixtureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
     $fixtureFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot
     $fixtureProjection = Get-ProjectStatusFrontierProjection -OpenSpec $fixtureFrontier
-    Check ($fixtureFrontier.status -eq 'PASS' -and $fixtureFrontier.totalOpenTasks -eq 11) 'lifecycle fixture parses the complete raw unchecked inventory'
+    Check ($fixtureFrontier.status -eq 'PASS' -and $fixtureFrontier.totalOpenTasks -eq 12) 'lifecycle fixture parses the complete raw unchecked inventory'
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].taskDisposition -eq 'active' -and @($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].classificationConfidence -eq 'low') 'active local task remains local with low-confidence fallback provenance'
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'completed-external' }).openTasks[0].taskDisposition -eq 'external' -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'completed-external' }).Count -eq 1) 'completed external task stays visible in a blocked bucket, not local-open'
     Check (@($fixtureProjection.historicalOpen | Where-Object { $_.change -eq 'completed-administrative' }).Count -eq 1) 'later-satisfied administrative task stays historical when its old checkbox remains open'
@@ -91,6 +91,11 @@ try {
     Check (@($fixtureProjection.mixedOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 1 -and @($fixtureProjection.localOpen | Where-Object { $_.change -eq 'mixed-work' }).Count -eq 0) 'mixed local/external task is not flattened into local-open'
     Check (@($fixtureProjection.productionSigningBlocked | Where-Object { $_.change -eq 'external-signing' }).Count -eq 1 -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'external-provider' }).Count -eq 1) 'signing and provider tasks remain in their explicit external buckets'
     Check (@($fixtureProjection.environmentBlocked | Where-Object { $_.change -eq 'external-interactive' }).Count -eq 1 -and @($fixtureProjection.cleanHostElevatedBlocked | Where-Object { $_.change -eq 'external-elevated' }).Count -eq 1 -and @($fixtureProjection.cleanHostElevatedBlocked | Where-Object { $_.change -eq 'external-clean-host' }).Count -eq 1) 'interactive, elevated, and clean-host tasks remain blocked'
+    $activeTaskPath = Join-Path $fixtureChangesRoot 'superseding-new\tasks.md'
+    Set-Content -LiteralPath $activeTaskPath -Value '- [x] 1.1 Replacement behavior is implemented.' -Encoding utf8NoBOM
+    $activeWithoutTasksModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check ($activeWithoutTasksModel.status -eq 'FAIL' -and @($activeWithoutTasksModel.semanticErrors | Where-Object { $_ -eq 'openspec-lifecycle-active-without-open-tasks:superseding-new' }).Count -eq 1) 'active lifecycle entries cannot silently lose every unchecked task'
+    Set-Content -LiteralPath $activeTaskPath -Value '- [ ] 1.1 Replacement behavior is implemented.' -Encoding utf8NoBOM
     $fixtureOrder1 = @($fixtureFrontier.changes | ForEach-Object { $changeName = $_.name; $_.openTasks | ForEach-Object { "$changeName/$($_.task)" } }) -join '|'
     $fixtureOrder2 = @(Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot).changes | ForEach-Object { $changeName = $_.name; $_.openTasks | ForEach-Object { "$changeName/$($_.task)" } }
     Check ($fixtureOrder1 -eq (@($fixtureOrder2) -join '|')) 'lifecycle frontier ordering is stable across repeated generation'
