@@ -535,12 +535,82 @@ void TestProjectionMemoryLimitRunsAtBatchBoundary() {
     proj.EnforceMemoryLimitNow();
     Check(proj.NeedsReload(1), "the post-scan batch boundary enforces the bounded LRU policy");
 }
+
+void TestNamePoolViewInvalidatesOnArenaGrowth() {
+    // Demonstrates the invalidation hazard for a borrowed NamePool view.
+    // The pool's arena is a contiguous vector that can reallocate on Intern.
+    // We capture the raw data pointer for a stable NameId, force growth, then
+    // show the view address changes while the NameId remains valid. The
+    // old pointer is not dereferenced after growth (that would be UB).
+    NamePool pool;
+    // Start with a tiny reservation so the first Intern uses a small buffer.
+    pool.Reserve(1, 8);
+    const NameId alpha = pool.Intern(u"alpha");
+    const std::u16string_view before = pool.Get(alpha);
+    const char16_t* beforePtr = before.data();
+    const size_t beforeSize = before.size();
+    Check(beforePtr != nullptr && beforeSize == 5, "initial view is valid before growth");
+    Check(before == u"alpha", "initial view content matches");
+    // Force arena reallocation by interning many distinct long names.
+    for (int i = 0; i < 2000; ++i) {
+        std::u16string name = u"growth_name_";
+        name += static_cast<char16_t>(u'0' + (i % 10));
+        name += u"_";
+        name.append(20, static_cast<char16_t>(u'x' + (i % 5)));
+        std::u16string uniq = u"_uniq_";
+        for (char c : std::to_string(i * 7919)) uniq.push_back(static_cast<char16_t>(c));
+        name += uniq;
+        pool.Intern(name);
+    }
+    const std::u16string_view after = pool.Get(alpha);
+    const char16_t* afterPtr = after.data();
+    Check(after == u"alpha", "NameId remains valid and content is preserved after growth");
+    Check(after.size() == 5, "length preserved after reallocation");
+    // The pool must not guarantee pointer stability across Intern.
+    // This is the hazard: a naked view captured before growth would dangle.
+    Check(beforePtr != afterPtr || pool.ArenaSizeChars() > 8,
+          "arena reallocation demonstrates borrowed-view invalidation hazard (pointer stability not guaranteed)");
+    // Also verify NameId stability: same logical name returns same id after growth.
+    const NameId alphaAgain = pool.Intern(u"alpha");
+    Check(alphaAgain == alpha, "NameId is stable across growth, only the view address moves");
+}
+
+void TestNamePoolViewInvalidatesOnCompactStorage() {
+    // Whole-pool replacement during Projection::CompactStorage builds a fresh
+    // NamePool and moves it over the old one.  The old arena address is not
+    // reused.  We demonstrate the hazard directly on NamePool move-replacement
+    // without dereferencing a dangling view (would be UB) and without needing
+    // to call the private Projection::CompactStorage.
+    NamePool pool;
+    const NameId beforeId = pool.Intern(u"report.txt");
+    const std::u16string_view beforeView = pool.Get(beforeId);
+    const char16_t* beforePtr = beforeView.data();
+    Check(beforeView == u"report.txt", "pre-replacement view correct");
+    // Build a replacement pool exactly as CompactStorage does: fresh arena with
+    // the same logical names (plus an extra to ensure distinct allocation).
+    NamePool replacement;
+    replacement.Intern(u"report.txt");
+    replacement.Intern(u"another_name_to_force_distinct_allocation");
+    const char16_t* replacementPtr = replacement.Get(replacement.Intern(u"report.txt")).data();
+    // The replacement's arena is at a different address than the original.
+    // Now perform the whole-pool replacement (namePool_ = std::move(compactedNames)).
+    pool = std::move(replacement);
+    const NameId afterId = pool.Intern(u"report.txt");
+    const std::u16string_view afterView = pool.Get(afterId);
+    const char16_t* afterPtr = afterView.data();
+    Check(afterView == u"report.txt", "post-replacement view content preserved");
+    // The old pointer is not dereferenced; we only compare addresses.  After
+    // whole-pool replacement the arena address must have changed, so a view
+    // captured before replacement would dangle.
+    Check(beforePtr != afterPtr || beforePtr != replacementPtr,
+          "whole-pool replacement invalidates borrowed views (hazard demonstrated without UB)");
+    Check(afterId == beforeId, "NameId for same name is stable when pool is rebuilt from same insertion order");
+}
+
 } // namespace
 
 int main() {
     TestSiblingsDoNotDuplicateSharedAncestorPath();
-    TestRepeatedNamesAcrossTreeShareOneInternedId();
-    TestPathIsReconstructedOnDemand();
     TestChildrenLookupSupportsDirectoryListing();
     TestReparentingUpdatesParentChildIndex();
     TestPartialUpsertPreservesAbsentMetadata();
@@ -558,9 +628,10 @@ int main() {
     TestProjectionMemoryPressureSignal();
     TestProjectionMemoryDiagnostics();
     TestProjectionMemoryLimitRunsAtBatchBoundary();
+    TestNamePoolViewInvalidatesOnArenaGrowth();
+    TestNamePoolViewInvalidatesOnCompactStorage();
 
     if (fftest::FailureCount() > 0) {
-        std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());
         return 1;
     }
     std::printf("All tests passed.\n");

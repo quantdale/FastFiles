@@ -1532,7 +1532,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                     matchingHookCalled = true;
                 }
                 if (!projectionOnly) {
-                    const auto matchStart = Clock::now();
+                    double chunkPureViewMs = 0.0;
                     for (const auto& row : rows) {
                         if (stale || isCancelled() || accumulator.Cancelled()) break;
                         const std::u16string_view name =
@@ -1553,9 +1553,12 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                         view.allocatedSizeBytes = row.allocatedSizeBytes;
                         view.allocatedSizeKnown = row.allocatedSizeKnown;
                         view.nameIsAscii = row.nameIsAscii;
+                        const auto viewPredStart = Clock::now();
                         const bool viewAccepted = folderNeededForView
                             ? searchRequest.query.MatchesViewWithoutFolder(view, nullptr)
                             : searchRequest.query.MatchesView(view, nullptr);
+                        chunkPureViewMs += std::chrono::duration<double, std::milli>(
+                            Clock::now() - viewPredStart).count();
                         if (!viewAccepted) {
                             ++hotRowsRejectedBeforeMaterialization;
                             continue;
@@ -1571,8 +1574,7 @@ ffprotocol::IndexedSearchResponse IndexPipeline::SearchIndexedReadPlane(
                             Clock::now() - survivorStart).count();
                         if (stale || isCancelled() || accumulator.Cancelled()) break;
                     }
-                    viewMatchingMs += std::chrono::duration<double, std::milli>(
-                        Clock::now() - matchStart).count();
+                    viewMatchingMs += chunkPureViewMs;
                 }
                 if (stale || isCancelled() || accumulator.Cancelled() || streamFailed) break;
             } else {

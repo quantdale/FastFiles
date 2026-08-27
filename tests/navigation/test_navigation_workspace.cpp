@@ -560,6 +560,7 @@ void TestTypedClosedTabStackOrder() {
     // quick-access-home hardening (HOME-POST-01): the mixed recently-closed
     // stack preserves ordering AND kinds; reopening is LIFO per kind.
     NavigationWorkspace workspace(L"C:\\Start");
+    workspace.State().recentlyClosedTabs.clear();
     workspace.OpenTab(NavigationLocation::Home());
     workspace.CloseActiveTab(); // stack: [Home]
     workspace.OpenTab(L"D:\\Work");

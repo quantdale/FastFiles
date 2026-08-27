@@ -214,6 +214,24 @@ try {
     Remove-Item -LiteralPath $fixtureRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
+$futureRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-future-' + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Path (Join-Path $futureRoot 'openspec\changes\future-campaign-2099-xyz') -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $futureRoot 'openspec\changes\future-campaign-2099-xyz\tasks.md') -Value '- [ ] 1.1 Future local work that should be frontier-visible.' -Encoding utf8NoBOM
+    $futureEntry = [pscustomobject]@{ name = 'future-campaign-2099-xyz'; state = 'active'; evidence = @([pscustomobject]@{ kind = 'repository-path'; path = 'openspec/changes/future-campaign-2099-xyz/tasks.md' }); supersededBy = $null; taskOverrides = @() }
+    $futureLifecycle = [pscustomobject]@{ schemaVersion = 2; kind = 'fastfiles-openspec-lifecycle'; changes = @($futureEntry) }
+    Set-Content -LiteralPath (Join-Path $futureRoot 'openspec\lifecycle.json') -Value ($futureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
+    $futureFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $futureRoot
+    $futureProjection = Get-ProjectStatusFrontierProjection -OpenSpec $futureFrontier
+    Check ($futureFrontier.status -eq 'PASS' -and $futureFrontier.activeLocalOpenTasks -eq 1) 'future campaign fixture active-local count is lifecycle-derived'
+    Check ($futureProjection.localOpen.Count -eq $futureFrontier.activeLocalOpenTasks -and @($futureProjection.localOpen | Where-Object { $_.change -eq 'future-campaign-2099-xyz' }).Count -eq 1) 'future campaign appears in lifecycle-driven local-open without hard-coded test name'
+    $futureActiveMismatch = @($futureProjection.localOpen | Where-Object { $_.lifecycleState -ne 'active' }).Count
+    $futureDispositionMismatch = @($futureProjection.localOpen | Where-Object { $_.taskDisposition -ne 'active' }).Count
+    Check (($futureActiveMismatch -eq 0) -and ($futureDispositionMismatch -eq 0)) 'future local-open tasks are lifecycle-active with active disposition'
+} finally {
+    Remove-Item -LiteralPath $futureRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 $junitPath = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-status-junit-' + [guid]::NewGuid().ToString('N') + '.xml')
 Set-Content -LiteralPath $junitPath -Value '<testsuites tests="4" failures="1" skipped="1"><testsuite name="fixture" tests="4" failures="1" skipped="1" /></testsuites>' -Encoding utf8NoBOM
 $junitResult = Get-ProjectStatusJUnitResult -Path $junitPath
@@ -308,7 +326,12 @@ Check ($liveGit.sha.Length -eq 40 -and $liveGit.branch.Length -gt 0) 'live Git e
 Check ($frontier.status -eq 'PASS' -and $null -ne $frontier.totalOpenTasks) 'live OpenSpec frontier parses all task ledgers'
 $liveProjection = Get-ProjectStatusFrontierProjection -OpenSpec $frontier
 Check (@($liveProjection.localOpen | Where-Object { $_.change -in @('nonblocking-indexed-read-plane', 'phase8-release-readiness-convergence', 'real-user-dogfooding-release-engineering', 'runtime-certification-and-verifier-convergence', 'ship-ready-ui-ux-hardening-convergence') }).Count -eq 0) 'historical and external campaign tasks do not reappear as active local work'
-Check (@($liveProjection.localOpen | Where-Object { $_.change -eq 'openspec-lifecycle-evidence-integrity-and-semantic-convergence' }).Count -eq $frontier.activeLocalOpenTasks) 'active local count matches the new campaign frontier'
+Check ($liveProjection.localOpen.Count -eq $frontier.activeLocalOpenTasks) 'live local-open projection count matches frontier active-local count'
+$liveActiveMismatch = @($liveProjection.localOpen | Where-Object { $_.lifecycleState -ne 'active' }).Count
+$liveDispositionMismatch = @($liveProjection.localOpen | Where-Object { $_.taskDisposition -ne 'active' }).Count
+Check (($liveActiveMismatch -eq 0) -and ($liveDispositionMismatch -eq 0)) 'live local-open tasks are lifecycle-active with active disposition'
+$liveCategoryMismatch = @($liveProjection.localOpen | Where-Object { $_.category -ne 'local' }).Count
+Check ($liveCategoryMismatch -eq 0) 'live local-open tasks are local category'
 $liveLifecycleModel = Get-ProjectStatusLifecycleModel -RepoRoot $repoRoot
 Check ($liveLifecycleModel.status -eq 'PASS' -and $liveLifecycleModel.schemaVersion -eq 2 -and $liveLifecycleModel.integrity.status -eq 'PASS') 'live lifecycle model passes structural, evidence, and semantic integrity'
 $liveHostedEvidence = @($liveLifecycleModel.entries | Where-Object { $_.name -eq 'openspec-frontier-lifecycle-truthfulness' })[0].evidence | Where-Object { $_.kind -eq 'hosted-run' }

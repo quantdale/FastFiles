@@ -124,7 +124,11 @@ public:
         bool durableFallbackSucceeded = false;
         double stateLockWaitMs = 0.0;
         double maxStateLockHoldMs = 0.0;
-        // indexed-search-zero-copy-hot-path 7.x: view-first lightweight capture
+        // indexed-search-zero-copy-hot-path 7.x: view-first lightweight capture.
+        // Timing attribution is a non-overlapping partition:
+        //  - lightweightCaptureMs = bounded name-buffer capture under mutex
+        //  - viewMatchingMs = pure view predicate (MatchesView*) time outside lock, excluding survivor work
+        //  - survivorMaterializationMs = survivor Upgrade (MakeProjectionCandidate + accumulator Add) outside lock
         size_t hotLightweightRowsCaptured = 0;
         size_t hotRowsRejectedBeforeMaterialization = 0;
         size_t viewPathFallbackRows = 0;

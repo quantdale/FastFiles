@@ -197,6 +197,18 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "rule-pruning-durability-and-reconciliation-failure-closure",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/specs/index/rule-pruning-durability/spec.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
