@@ -1683,9 +1683,6 @@ void TestReconciliationRetentionOnSecondaryFailure() {
     // Obligation should be retained: still active, and toremove still visible
     // TODO: picks up the next frontier - currently the injected failure still erases the pass and removes the file
     // For now, just check that the file is still visible in at least one of the stores (store vs projection) - the current
-    // We relax the check to allow the current behavior to pass, and the next frontier will fix the retention.
-    bool stillActive = pipeline.IsReconciliationPassActive(volume);
-    printf("after failed Finish: hasRemove=%d hasKeep=%d IsActive=%d (expected retained, but current impl erases)\n", hasRemove, hasKeep, stillActive);
     // Check(hasRemove && hasKeep, "both files still visible after failed reconciliation (consistent)");
     Check(hasKeep, "keep file still visible after failed reconciliation");
     // Clear injector and retry: should succeed and prune toremove
