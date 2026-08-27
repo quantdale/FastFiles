@@ -54,7 +54,7 @@ Date: 2026-08-24. Branch `phase8/indexed-scale-production-readiness-20260824`.
 | release-test configure/build | clean |
 | release-test CTest | **74/74 PASS** |
 | analyze configure/build (/analyze) | warning-clean (after C6011 lambda guard) |
-| ASAN protocol + IPC fuzz targets | **2/2 PASS** |
+| Historical ASAN protocol + IPC fuzz baseline | **PASS**; the current authority is the three-target protocol/IPC/lifecycle slice |
 | Strict OpenSpec validate --all | **60/60 PASS** |
 | ffdoc_drift_tests (superseded claims + line endings) | PASS |
 | check_source_markers.ps1 | PASS (210 files) |

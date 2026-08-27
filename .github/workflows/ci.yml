@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload sanitized status evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: project-status-${{ github.run_id }}
           path: ci-status/
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload safe release test summary
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-qualification-${{ github.run_id }}
           path: |
