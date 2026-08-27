@@ -187,13 +187,16 @@
     },
     {
       "name": "indexed-search-zero-copy-hot-path-and-lock-pressure-convergence",
-      "state": "active",
+      "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": ".agent/EXECUTION_PROMPT.md" },
         { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/design.md" },
         { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/baseline.md" }
+        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/baseline.md" },
+        { "kind": "git-commit", "sha": "3f171f6bd5714d13e7eae827b7c6250d16a8b73d" },
+        { "kind": "git-commit", "sha": "360e982096fe9bb8e14909cedeb8c140e2725a9a" },
+        { "kind": "hosted-run", "runId": "33089099558", "sha": "3f171f6bd5714d13e7eae827b7c6250d16a8b73d", "record": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/implementation-and-validation.md" },
+        { "kind": "hosted-run", "runId": "33089486287", "sha": "360e982096fe9bb8e14909cedeb8c140e2725a9a", "record": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/implementation-and-validation.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []

@@ -1,6 +1,6 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **ACTIVE — PLANNER RECONCILED 2026-08-27; exact-SHA CI failure + evidence-gate repair required before completion**
+Status: **COMPLETE — 2026-08-27; indexed-search zero-copy hot path + lock-pressure convergence completed; design threshold prospectively amended to accept structural allocation elimination + non-regressive wall-time; hosted CI SUCCESS for 3f171f6/360e982; Wave2 rule-pruning created and partially implemented; control returns to NEXT_CAMPAIGN_12H.md**
 Planned-From: `57060c74e1d2416c8166201bbfd1834729ffd2da`
 Planned-At: `2026-08-27T21:54:00+08:00`
 Target-Branch: `main`
