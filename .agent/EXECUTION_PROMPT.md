@@ -1,12 +1,45 @@
 # NEXT CAMPAIGN — FASTFILES
 
-Status: **ACTIVE — IMPLEMENTATION + FOCUSED DEBUG VALIDATION COMPLETE; full ladder (release-test/Analyze/ASAN/OpenSpec/exact-tree/hosted-CI) + durable 1M after-JSON pending**
-Planned-From: `a1c8085b51f2594f9bf525414089c01fc43cd6b6`
-Planned-At: `2026-08-26T21:00:00+08:00`
+Status: **ACTIVE — PLANNER RECONCILED 2026-08-27; exact-SHA CI failure + evidence-gate repair required before completion**
+Planned-From: `57060c74e1d2416c8166201bbfd1834729ffd2da`
+Planned-At: `2026-08-27T21:54:00+08:00`
 Target-Branch: `main`
 Repository: `quantdale/FastFiles`
 Campaign: **Indexed Search Zero-Copy Hot Path + Lock-Pressure Convergence**
 OpenSpec change: `indexed-search-zero-copy-hot-path-and-lock-pressure-convergence`
+
+
+## 2026-08-27 planner override — read before the older campaign narrative
+
+This section is authoritative for resume order. It does not discard the detailed lifetime/search design below.
+
+### Current exact-tree truth
+
+- Audited `main` / `origin/main`: `57060c74e1d2416c8166201bbfd1834729ffd2da`.
+- Hosted CI run `33033342573` for that exact SHA completed **failure**.
+- Passing jobs: Analyze; ASAN protocol/IPC; unsigned release-candidate qualification.
+- Hygiene passed source/diagnostic policy and strict OpenSpec (**74/74**) but failed the project-status test before exact-tree qualification.
+- Debug and release-test both built, then each ran 86 CTest tests and failed only `ffproject_status_ps_tests` (**85/86**).
+- Root cause is confirmed in `verify/status/tests/Test-ProjectStatus.ps1`: a live-tree assertion still assumes every active local task belongs to the already-completed `openspec-lifecycle-evidence-integrity-and-semantic-convergence` campaign. Lifecycle truth now correctly reports this indexed-search campaign active with 11 active-local tasks. The test is stale, not the lifecycle projection.
+- The task ledger also had 7.3 checked while its own note admitted full CTest was pending. The planner reopened that task.
+- The new search timing attribution is not yet trustworthy as a partition: `viewMatchingMs` currently wraps survivor materialization/`SearchAccumulator::Add`, while `survivorMaterializationMs` separately times the same survivor work.
+- The implementation evidence says the after-change wall time is materially neutral, while `design.md` requires a repeatable material selective-workload improvement or reversion. This is an unresolved acceptance-contract conflict.
+
+### Mandatory resume sequence
+
+1. Reconcile Git without discarding unrelated work and re-derive current CI; if HEAD moved, current source wins.
+2. Repair `ffproject_status_ps_tests` generically. The test must derive active-local membership/counts from `openspec/lifecycle.json` and the frontier projection; do not replace one campaign-name hard-code with another. Add a future-campaign fixture so this class cannot recur.
+3. Repair or unambiguously redefine the overlapping search timing fields and add accounting coverage.
+4. Finish task 2.2 (NamePool invalidation-hazard coverage) if still genuinely required by the active design.
+5. Produce durable paired benchmark JSON on the exact implementation tree. Re-run enough repetitions to decide the written acceptance threshold rather than relying on one noisy run.
+6. Resolve the keep/revert gate truthfully. Do **not** weaken the threshold after seeing neutral results merely to keep the implementation. If the authoritative design still requires material wall-time improvement and repeated evidence remains neutral, revert the invasive Option C code while retaining independently useful tests/diagnostics. If the spec itself is legitimately changed, record the rationale prospectively and keep all lifecycle/evidence surfaces consistent.
+7. Run strict OpenSpec/policy, full Debug and release-test CTest, Analyze, ASAN, verifier/exact-tree qualification, commit/push, and inspect hosted CI for the exact pushed SHA.
+8. Only then mark this bounded OpenSpec COMPLETE and return control to `.agent/NEXT_CAMPAIGN_12H.md`.
+
+### Full-completion objective
+
+This campaign is only the first bounded frontier in a completion-oriented run. The repository-level objective is: **zero active-local OpenSpec tasks; zero known locally reproducible Critical/High correctness, durability, security, or release-gate defects; exact final-SHA local/hosted qualification green; docs/lifecycle/workstate truthful; only explicitly external-evidence-only gates may remain.** Do not fabricate production signing, clean-host, elevated-provider, or physical-display evidence.
+
 
 ## Mission
 

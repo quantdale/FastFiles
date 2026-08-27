@@ -1,213 +1,250 @@
-# FASTFILES — 12-HOUR AUTONOMOUS NEXT-CAMPAIGN ORCHESTRATOR
+# FASTFILES — 12-HOUR COMPLETION-ORIENTED AUTONOMOUS CAMPAIGN
 
 Status: ACTIVE
-Planned-From: 9cec4f06ca3dae652b05d13615cb8ef2f7e13ea2
-Planned-At: 2026-08-26T22:57+08:00
-Target-Branch: main
-Primary-OpenSpec: `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/`
-Audit-Evidence: `docs/agent/DEEP_AUDIT_2026-08-26_FASTFILES.md`
+Planned-From: `57060c74e1d2416c8166201bbfd1834729ffd2da`
+Planned-At: `2026-08-27T21:54:00+08:00`
+Target-Branch: `main`
+Repository: `quantdale/FastFiles`
+Current-OpenSpec: `indexed-search-zero-copy-hot-path-and-lock-pressure-convergence`
+Audit-Evidence: `docs/agent/DEEP_AUDIT_2026-08-27_FASTFILES.md`
+Exact-SHA-CI: run `33033342573` = **FAIL**
 
-## 0. Read this first
+## 0. Mission
 
-This file is the repository-level executor contract for the next autonomous FastFiles run. It extends, but does not replace, repository rules in `AGENTS.md`, `AUTONOMOUS.md`, `.agent/PLANNER_HANDOFF.md`, `.agent/EXECUTION_PROMPT.md`, `openspec/config.yaml`, and `openspec/lifecycle.json`.
+Use the next autonomous engineering window to drive FastFiles as close as evidence permits to **full locally actionable project completion**, not merely to finish one optimization.
 
-The existing active OpenSpec change, `indexed-search-zero-copy-hot-path-and-lock-pressure-convergence`, is Campaign 1. Execute it first. When that bounded change is completed or evidence shows that its invasive optimization should be rejected, **do not end the autonomous run merely because Campaign 1 is finished**. Re-audit the live tree, create the next bounded OpenSpec change, execute it, validate it, and repeat while the 12-hour campaign budget remains.
+The preferred terminal state is:
 
-A disproven optimization is a successful evidence result, not a reason to force code and not a reason to end the 12-hour campaign.
+- no active-local OpenSpec work remains;
+- all confirmed locally reproducible correctness, durability, security, concurrency/lifetime, and release-gate defects are fixed;
+- current product behavior is covered by deterministic tests at the highest-risk seams;
+- Debug and release-test full CTest are green;
+- Analyze is warning-clean;
+- required ASAN slices are green;
+- strict OpenSpec, source/diagnostic/doc/provenance policy, project-status, verifier, and exact committed-tree qualification are green;
+- unsigned release-candidate qualification is green;
+- hosted CI is green for the exact final pushed SHA;
+- lifecycle, task ledgers, WORKSTATE, progress, and execution prompts match reality;
+- only explicit external-evidence-only boundaries remain external.
 
-## 1. Twelve-hour wall-clock contract
+Do not claim production release certification without the external evidence the repository requires.
 
-At executor start:
+## 1. Wall-clock contract
 
-1. Record `campaign_start_utc` using an actual wall clock.
-2. Set `campaign_deadline_utc = campaign_start_utc + 12 hours`.
-3. Record both timestamps in the durable campaign log/workstate.
-4. Continue productive, repository-relevant work until the deadline unless the user explicitly stops the run or the repository becomes genuinely inaccessible/corrupt in a way that prevents safe progress.
+At executor start, record `campaign_start_utc` from a real wall clock and `campaign_deadline_utc = campaign_start_utc + 12 hours` in durable workstate. Treat twelve hours as an upper engineering budget and continuity contract, not permission to sleep, spin, or create cosmetic churn.
 
-The 12 hours are a **productive engineering budget**, not permission for busywork. Do not sleep, spin, create cosmetic churn, manufacture findings, or keep bad code merely to consume time. If an implementation frontier closes early, pivot to deeper verification, fault injection, benchmark evidence, test-gap closure, current-source audit, documentation truth reconciliation, or the next evidence-backed OpenSpec.
+Continue through sequential evidence-backed OpenSpec campaigns until either:
 
-External-only blockers such as production signing identities, unavailable privileged hardware/provider/guest environments, physical-display/UIA evidence, or unavailable clean-host infrastructure do **not** justify ending early. Respect repository policy: do not mutate trust stores, weaken security, fabricate external evidence, or chase signing. Instead, continue with locally actionable work and/or prepare deterministic harnesses/evidence collection for the blocked boundary.
+1. the deadline is reached; or
+2. a genuine **full local completion** audit proves there is no remaining evidence-backed locally actionable frontier.
 
-## 2. Non-negotiable safety and architecture invariants
+If full local completion appears early, run a fresh repository-wide adversarial audit and assurance-gap pass before declaring that state. Never manufacture changes solely to consume time.
 
-Preserve all stricter repository rules. In particular:
+## 2. Safety and architecture invariants
 
-- Windows-only C++20 product assumptions remain intact.
-- Preserve the three-process privilege split: `FastFilesIndexSvc` (privileged), `FastFilesEngine` (unprivileged), `FastFiles` UI.
-- Preserve the two named-pipe seams and zero-IPC keystroke-search design.
-- Do not broaden privileged commands, handles, SCM rights, forwarded data, DLL search policy, trust policy, or authentication surface.
-- Never move long-running search matching under the engine mutation/state mutex to solve a pointer-lifetime problem.
-- Never let a borrowed projection/name pointer outlive the storage generation that owns it.
-- Preserve degraded-mode behavior and fail-closed publication/authentication semantics.
-- Do not edit vendored SQLite except for a separately justified dependency-management campaign.
-- Keep query semantics canonical across resident/cold, owned/view, accelerated/fallback, and restart/churn paths.
-- Critical/High regressions introduced by the campaign must be fixed before delivery.
+Preserve all stricter repository rules, especially:
 
-## 3. Mandatory intake and repository-wide reconciliation
+- Windows-native C++20 assumptions and the three-process privilege split;
+- privileged `FastFilesIndexSvc`, unprivileged `FastFilesEngine`, and UI separation;
+- the closed named-pipe command surfaces and least-privilege handles/ACLs;
+- Authenticode/pin fail-closed behavior and no unsigned production bypass;
+- degraded mode;
+- zero-IPC keystroke search and snapshot/read-plane contracts;
+- deterministic query semantics, ordering, result caps, cancellation, and generation/epoch behavior;
+- long-running matching/path work outside `IndexPipeline::mutex_`;
+- real storage lifetime ownership for any borrowed view;
+- projection memory/eviction bounds and durable SQLite semantics;
+- no vendored SQLite edits unless a separately justified dependency campaign exists;
+- no force-push, destructive cleaning, or unrelated user-work loss.
 
-Before product edits:
+External signing, privileged/clean-host/provider, and physical-display/UIA requirements remain external unless the actual environment is available. Never fake evidence.
 
-1. `git fetch --all --prune` and reconcile local `main`, `origin/main`, worktree/index/untracked state, ahead/behind, and recent commits.
-2. Read `AGENTS.md`, `AUTONOMOUS.md`, `.agent/PLANNER_HANDOFF.md`, this file, `.agent/EXECUTION_PROMPT.md`, `CODE_INDEX.md`, `docs/agent/WORKSTATE.md`, `progress.md`, `openspec/config.yaml`, and `openspec/lifecycle.json`.
-3. Run the repository-supported autonomous intake (`verify/intake.ps1 autonomous`) or the current canonical equivalent if the repository has changed.
-4. Enumerate the **current tracked tree**, not only files named in old audits. Classify every tracked path by subsystem: build/config, protocol, IPC, setup/trust, service, engine, index store, search, UI, installer, tests/benchmarks, verification, OpenSpec/docs, generated/policy assets, and vendored dependencies.
-5. Reconcile current implementation against current OpenSpec requirements and tests. Old reports are leads only; reproduce old findings against live code before acting.
-6. Pin the exact starting SHA and hosted-CI state in the evidence log.
+## 3. Mandatory intake
 
-If the tree changed after this planner commit, current code and current repository rules win. Update the plan rather than blindly applying stale line-level assumptions.
+Before edits:
 
-## 4. Campaign 1 — execute the active indexed-search OpenSpec
+1. fetch/prune and reconcile `main`, `origin/main`, HEAD, worktree/index/untracked state, ahead/behind, and recent commits;
+2. read `AGENTS.md`, `AUTONOMOUS.md`, `.agent/PLANNER_HANDOFF.md`, this file, `.agent/EXECUTION_PROMPT.md`, `CODE_INDEX.md`, `docs/agent/WORKSTATE.md`, `progress.md`, `openspec/config.yaml`, `openspec/lifecycle.json`, and the active OpenSpec;
+3. run the repository-native autonomous intake;
+4. enumerate the current tracked tree and compare blob SHAs against the audit baseline; re-audit every changed path before trusting this plan;
+5. inspect exact current hosted CI rather than assuming planner-time status;
+6. preserve one active implementation OpenSpec at a time unless repository policy explicitly changes.
 
-Canonical sources:
+If current HEAD differs from Planned-From, current source and current repository contracts win. Update evidence and continue; do not blindly patch stale line numbers.
 
-- `.agent/EXECUTION_PROMPT.md`
-- `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/proposal.md`
-- `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/design.md`
-- `openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/tasks.md`
-- its spec delta/baseline/audit evidence
+## 4. Wave 0 — repair the current false-red/false-green control plane
 
-### Required outcome
+This is the first task because the current exact SHA cannot qualify.
 
-Measure and, only if justified, eliminate avoidable owned `Candidate`/`std::wstring` name materialization for resident projection rows rejected by canonical matching, while reducing mutation-lock pressure without changing search semantics or creating dangling views.
+### 4.1 Project-status lifecycle test
 
-### Required proof before implementation
+Hosted run `33033342573` failed Debug, release-test, and hygiene because `verify/status/tests/Test-ProjectStatus.ps1` contains a live-tree assertion that assumes all active local work belongs to the completed `openspec-lifecycle-evidence-integrity-and-semantic-convergence` campaign.
 
-- Re-baseline current post-ASCII-fold performance.
-- Map every invalidation event for `NamePool` views, projection entries/cursors/indices, `CompactStorage`, eviction/reload, generation changes, and query-visible/dependency epochs.
-- Compare the candidate lifetime strategies in the active design; choose the least invasive design that is measurably useful.
-- Add tests that prove the chosen lifetime model rather than relying on generation numbers as a substitute for pointer ownership.
+Required repair:
 
-### Keep/revert gate
+- derive the expected active-local set/count from lifecycle state and the generated frontier;
+- do not hard-code the current indexed-search campaign name as the replacement;
+- add a hermetic fixture proving that activating an arbitrary future campaign does not require changing the test;
+- preserve fail-closed lifecycle/evidence validation;
+- prove historical, superseded, external, mixed, and active-local buckets remain distinct.
 
-Keep an invasive optimization only when paired evidence shows a repeatable material gain outside noise, with exact result/order/truncation parity and no material lock, memory, cancellation, churn, cold-store, or Unicode regression. If the premise fails, revert the invasive part, preserve useful tests/diagnostics where appropriate, record the no-change conclusion, complete the OpenSpec truthfully, and continue to Section 5.
+### 4.2 Task-ledger truth
 
-## 5. Frontier loop — mandatory after Campaign 1 while budget remains
+The active OpenSpec had task 7.3 checked even though its note said full Debug CTest was pending; exact-SHA CI later proved the full suite failed. Keep the planner correction that reopens it. Reconcile any other checkbox/evidence contradiction before completion.
 
-After each completed/no-change OpenSpec:
+### 4.3 Search timing attribution
 
-1. Run the focused validation for that change.
-2. Reconcile tasks, evidence, lifecycle, `WORKSTATE.md`, `progress.md`, and relevant docs.
-3. Commit a coherent checkpoint and push without force.
-4. Inspect exact-SHA hosted CI when available.
-5. Re-enumerate/re-audit the live tree and recent diff for the next highest-value local frontier.
-6. Rank candidates by: correctness/security > durability/data integrity > concurrency/lifetime > performance/resource bounds > observability/testability > maintainability/UI polish.
-7. Require a concrete reproducer, failing/absent invariant, measurable bottleneck, contract mismatch, or high-confidence test gap before source changes.
-8. Create a **new bounded OpenSpec change** (proposal + design + tasks + spec delta where applicable + baseline/evidence) before implementation.
-9. Keep only one implementation change active at a time unless repository OpenSpec policy explicitly supports otherwise.
-10. Execute, validate, reconcile, commit/push, and repeat until `campaign_deadline_utc`.
+In `SearchIndexedReadPlane`, `viewMatchingMs` currently measures the entire per-row loop, including survivor construction and `SearchAccumulator::Add`, while `survivorMaterializationMs` separately measures the survivor path. Those metrics overlap.
 
-Do not create a mega-spec covering unrelated fixes. The 12-hour run is a sequence of bounded, evidence-gated campaigns.
+Make the timing contract explicit and non-overlapping, or rename/redefine fields so consumers cannot interpret them as a partition. Add coverage. Do not use contaminated attribution to justify the optimization.
 
-## 6. Highest-priority post-Campaign-1 investigation
+## 5. Wave 1 — truthfully close the active indexed-search OpenSpec
 
-The deep audit found a concrete seam that should be investigated first after Campaign 1 unless a more severe live failure appears.
+Resume `.agent/EXECUTION_PROMPT.md` and the active change only after Wave 0.
 
-### Candidate frontier: rule-pruning durability failure propagation
+Mandatory remaining gates include:
 
-Current `IndexPipeline` ingestion flow persists the incoming MFT/USN batch, updates the projection, evaluates volume rules, then performs a second durable removal batch for newly excluded rows. The current source path appears to remove those rows from the projection only when the second `Store::ApplyBatch({}, ruleExcluded)` succeeds, but it does not propagate that second-batch failure to the caller; the ingestion method can continue and report success. Reconciliation/rebuild cleanup contains closely related second-mutation behavior.
+- task 2.2 lifetime-hazard coverage unless the design is revised with evidence;
+- durable paired 1M benchmark JSON with exact commands/build/machine metadata;
+- candidate/name materialization, rejected-row, lock wait/hold, fallback/restart, and transient-memory evidence;
+- fixed non-overlapping matcher/materialization attribution;
+- parity across selective/no-match/broad/complex/Unicode/churn/cancellation/cold-store paths;
+- strict OpenSpec and all repository policy gates;
+- full Debug/release-test CTest;
+- Analyze and required ASAN;
+- exact committed-tree qualification;
+- exact pushed-SHA hosted CI inspection.
 
-This is **not pre-labeled as a bug**. First determine the intended contract from current OpenSpec, tests, recovery/reconciliation semantics, and callers. Then add deterministic fault injection around the second durable mutation.
+### Keep/revert gate is binding
 
-Questions that must be answered:
+Current committed evidence reports materially neutral wall time. Current `design.md` says the final selected implementation must show a repeatable material improvement on a representative resident selective workload (about <=5% is noise unless repeated evidence establishes otherwise) or the invasive optimization is reverted.
 
-- Can an excluded row remain durably present after the method reports success?
-- Can it remain projection-visible to browse/snapshot/aggregate consumers even if search-time rule checks mask it?
-- Does a later reconciliation deterministically repair the state, and is eventual repair an explicit contract?
-- Should the operation fail closed, retry, defer publication, or record a recovery obligation when the pruning mutation fails?
-- Are MFT, USN, rebuild, and reconciliation paths behaviorally consistent?
-- Can a failed cleanup be lost because reconciliation bookkeeping is cleared anyway?
+Do not silently reinterpret structural allocation reduction as satisfying a latency threshold written before implementation. Resolve the design/evidence conflict explicitly. Prefer preserving the existing acceptance threshold unless there is a legitimate, documented product-contract reason to amend it. A clean no-change/revert outcome is better than a post-hoc success definition.
 
-If the current contract requires atomic/fail-closed rule exclusion, create a dedicated OpenSpec such as `rule-pruning-durability-and-reconciliation-failure-closure` and repair it with fault-injection tests. If the current contract intentionally permits eventual reconciliation, document that explicitly and add tests proving bounded deterministic recovery; do not invent a stronger transactional model without evidence.
+When this campaign is truthfully COMPLETE/no-change, commit/push, confirm exact-SHA CI, update lifecycle/docs, then continue to Wave 2 while budget remains.
 
-## 7. Secondary audit frontiers if the rule-pruning seam is not actionable
+## 6. Wave 2 — OpenSpec: rule-pruning durability and reconciliation failure closure
 
-Investigate these in order of evidence, not as automatic implementation tasks:
+This is the highest-value current post-search correctness frontier unless a more severe live defect appears.
 
-### 7.1 NamePool/storage boundary hardening
+Create a **new bounded OpenSpec** only after the indexed-search change is closed. Suggested name:
 
-If Campaign 1 changes storage ownership, re-check:
+`rule-pruning-durability-and-reconciliation-failure-closure`
 
-- `std::vector<char16_t>` view invalidation during growth and `Projection::CompactStorage` pool replacement;
-- `size_t` to `uint32_t` narrowing for stored offsets/lengths under configured memory ceilings;
-- whether `MemoryUsageBytes()` materially undercounts per-hash bucket/vector capacity and can weaken the projection memory ceiling;
-- reserve/compaction/eviction determinism under large Unicode-heavy names.
+### Confirmed source seam
 
-Only change this if a reproducible bound/overflow/accounting problem exists or Campaign 1 requires a safer storage contract.
+Current `IndexPipeline.cpp` has multiple secondary durable removals whose failure is not propagated equivalently to the primary write:
 
-### 7.2 Mutation/read-plane fault matrix
+- rebuild/open rule pruning: a failed secondary `Store::ApplyBatch(ruleExcluded)` simply skips projection removals and continues;
+- `ApplyMftBatchChanges`: primary ApplyBatch failure returns false, but rule-pruning ApplyBatch failure can still reach `return true`;
+- `ApplyUsnBatchChanges`: same asymmetry;
+- reconciliation: failed removal does not remove projection rows, but `reconciliationSeen_` is erased anyway, potentially discarding the current repair obligation.
 
-Audit failure propagation and recovery across SQLite writer transactions, independent read sessions, projection mutation, snapshot publication, cold durable reads, generation restarts, cancellation, and shutdown. Prefer deterministic fault injection over speculative rewrites.
+`Store::ApplyBatch` itself documents transactional rollback and caller retry on failure. Determine the intended higher-level contract from current specs/callers before changing APIs.
 
-### 7.3 Security/IPC regression audit
+### Required OpenSpec work
 
-Re-run current-source checks for closed command surfaces, opaque-handle scope, frame bounds, peer image/signature authentication, SCM rights, DLL hardening, write deadlines, and content-forwarding prohibitions. Old security audit findings must be reproduced on current source before re-opening them.
+1. Map every writer mutation and secondary cleanup path: MFT, USN, rebuild/open, reconciliation, rules changes, forget/eviction/reload, restart.
+2. Introduce deterministic writer fault injection at named transaction boundaries with production defaults unchanged. Avoid flaky filesystem/SQLite-lock tricks if an injectable seam can prove the contract.
+3. Reproduce secondary-write failure and observe:
+   - return status;
+   - durable SQLite state;
+   - resident projection state;
+   - search, snapshot/browse, and aggregate visibility;
+   - query-visible epoch/publication behavior;
+   - reconciliation obligation retention;
+   - restart and next-reconciliation behavior.
+4. Decide and specify atomic/fail-closed vs explicit eventual-recovery semantics. Do not assume.
+5. Make MFT/USN/rebuild/reconcile behavior consistent with the chosen contract.
+6. Ensure failure cannot be reported as successful while leaving an untracked repair obligation.
+7. Add regression tests for first failure, retry/recovery, repeated failure, cancellation/shutdown interaction, and restart.
+8. Run the full validation ladder and exact-SHA CI before completing the change.
 
-### 7.4 UI/engine state-machine coverage
+Correctness/data integrity outranks performance. If this seam confirms a user-visible stale/excluded-row state, finish it before opening lower-priority campaigns.
 
-Inspect whether user-visible modes (degraded/indexed, unavailable volume, reconnect/restart, queued/cancelled search, file-operation conflicts, preview/properties, dual-pane, history/address bar) have deterministic state transitions and tests. Prioritize correctness and stale-state bugs over cosmetic rewrites.
+## 7. Wave 3 — fresh repository-wide completion audit
 
-### 7.5 Verification and provenance gaps
+After Wave 2, re-enumerate the live tracked tree. Old audit findings are leads only; reproduce them on current source.
 
-Look for source paths that are not exercised by Debug/release-test/Analyze/ASAN slices, committed-tree verification, or exact-SHA hosted CI. Add harness coverage when it closes a real assurance gap.
+Audit in this order:
 
-## 8. Suggested time allocation — targets, not hard cutoffs
+1. **Correctness/data integrity:** durable/store/projection divergence, mutation error propagation, stale publication, restart/rebuild equivalence, file operations/conflict handling.
+2. **Security/privilege/IPC:** command-surface closure, peer authentication, frame bounds, opaque-handle scope, SCM rights, DLL loading, write deadlines, content-forwarding restrictions.
+3. **Concurrency/lifetime:** shutdown races, cancellation, worker ownership, snapshot generations, UI/engine reconnect, Store writer/read-session separation.
+4. **Resource bounds/performance:** projection/name memory accounting, compaction/eviction, pathological names, large result sets, lock contention, cold-stream behavior.
+5. **UI state machines:** degraded/indexed transitions, unavailable volumes, queued/cancelled search, dual-pane selection/history/address-bar, preview/properties, file-operation errors, UIA identity/event consistency.
+6. **Verification:** source paths not covered by CTest/Analyze/ASAN/exact-tree/hosted CI; false-green or stale hard-coded truth assumptions.
+7. **Maintainability/docs:** only after the above; avoid cosmetic rewrites with no user/reliability benefit.
 
-Use these as steering targets. Never abandon an unresolved Critical/High introduced regression merely because a phase window elapsed.
+For every finding: record severity, exact path/function, reproducer or missing invariant, affected contract, and why an existing test fails to catch it. Open a bounded OpenSpec only for a confirmed material frontier.
 
-- Hour 0.0–0.75: intake, exact-SHA reconciliation, current tracked-tree inventory, baseline refresh.
-- Hour 0.75–5.0: Campaign 1 lifetime proof, implementation/no-change decision, adversarial tests, benchmarks.
-- Hour 5.0–6.0: Campaign 1 full validation, exact-tree commit/push/CI evidence, state reconciliation.
-- Hour 6.0–7.0: fresh frontier audit and fault-injection design.
-- Hour 7.0–10.0: Campaign 2 OpenSpec + implementation or evidence-backed no-change closure.
-- Hour 10.0–11.25: next highest-value bounded hardening/test/benchmark frontier.
-- Hour 11.25–12.0: final exact-tree validation, lifecycle/doc truth reconciliation, final push, remote parity, handoff.
+## 8. Wave 4 — completion convergence
 
-If Campaign 1 legitimately consumes more time, compress later phases rather than skipping its correctness gates.
+Before the 12-hour boundary, or whenever no stronger frontier remains:
 
-## 9. Validation ladder for every implementation campaign
+- resolve every introduced Critical/High regression;
+- finish all active-local OpenSpec tasks or leave a truthful active continuation if deadline stops the run;
+- run strict OpenSpec;
+- run Debug configure/build + full CTest;
+- run release-test configure/build + full CTest;
+- run Analyze warning-clean;
+- run repository-required ASAN;
+- run source/diagnostic/doc/provenance/status/provider/verifier gates;
+- run exact committed-tree qualification;
+- run unsigned release-candidate qualification;
+- commit coherent waves and push without force;
+- inspect hosted CI for the exact pushed SHA;
+- regenerate/reconcile lifecycle, WORKSTATE, progress, and current prompts;
+- prove local/remote parity.
 
-Use the narrowest relevant tests first, then widen:
+### Full local completion gate
 
-1. New/modified focused tests and reproducer.
-2. Relevant search/indexstore/engine/protocol/IPC/setup/UI suites.
-3. Strict OpenSpec validation.
-4. Debug configure/build + full CTest.
-5. release-test configure/build + full CTest.
-6. Analyze configure/build warning-clean.
-7. Repository-required ASAN protocol/IPC slice.
-8. `verify/verify.ps1` and committed-tree/source/provenance policy gates as required by current repo instructions.
-9. Commit, push without force, inspect exact pushed SHA and hosted CI.
+Do not write “100% complete”, “production ready”, or equivalent unless all locally enforceable gates above are green and a fresh audit found no remaining evidence-backed local frontier.
 
-Never report an external-evidence gate as passed unless the evidence actually exists.
+If external-evidence-only entries remain, say precisely: **locally complete / external certification pending**. Production signer, clean-host, elevated provider/privileged evidence, and physical-display/UIA evidence cannot be manufactured by local code changes.
 
-## 10. Checkpoint and Git discipline
+## 9. Time steering
 
-- Start from a reconciled current branch; do not overwrite unrelated user work.
-- Commit logical, reviewable waves; do not wait until hour 12 for the first durable checkpoint.
-- Before each finalizing push, fetch/prune and re-check divergence.
-- No force push.
-- Commit messages must summarize the implementation/evidence wave, tests, relevant measured before/after data, and remaining blockers/frontier.
-- Keep generated artifacts and temporary benchmark output out of version control unless repository policy explicitly requires them.
-- Update OpenSpec task checkboxes only from actual evidence.
+Suggested allocation, adjustable to evidence:
 
-## 11. Mandatory final handoff at the 12-hour boundary
+- 0.0–1.5h: Wave 0 control-plane + timing-contract repairs and focused tests.
+- 1.5–4.0h: close/revert indexed-search campaign with durable benchmarks and full qualification.
+- 4.0–7.5h: rule-pruning OpenSpec, deterministic writer fault injection, implementation, focused validation.
+- 7.5–10.0h: fresh cross-subsystem completion audit + next bounded high-value repair if confirmed.
+- 10.0–12.0h: full convergence, exact-tree/hosted validation, state reconciliation, final handoff.
 
-At or immediately before `campaign_deadline_utc`, leave the repository in a safe, understandable state and push all intended commits. Write a final durable handoff containing:
+Never abandon a confirmed Critical/High defect because its nominal time box expired. Compress lower-priority work instead.
 
-- campaign start/deadline/end timestamps and productive duration;
-- starting SHA, final SHA, branch, origin parity;
-- every OpenSpec opened/completed/no-change/left active;
+## 10. Git and evidence discipline
+
+- preserve unrelated work;
+- no force push;
+- checkpoint coherent implementation/evidence waves;
+- fetch/prune before final pushes;
+- bind claims to exact SHAs and exact run IDs;
+- no “passed” claim from an unrun/skipped gate;
+- no external PASS without actual external evidence;
+- keep benchmark raw data only where repository policy expects it;
+- task checkboxes change only from observed evidence;
+- if CI fails, root-cause the failure before rerunning blindly.
+
+Commit messages should be full-session engineering reports: root cause, implementation, tests, before/after measurements, exact CI/qualification evidence, remaining blockers, and next frontier.
+
+## 11. Required final handoff
+
+Write a durable final handoff with:
+
+- campaign start/deadline/end timestamps;
+- starting and final SHA, branch, origin parity;
+- OpenSpecs opened/completed/reverted/left active;
+- all confirmed findings and severity;
 - files/subsystems changed and why;
-- defects found and severity, including rejected hypotheses;
-- exact test/build/verify commands and pass/fail counts;
-- benchmark before/after data and machine/build configuration;
-- hosted-CI runs for exact pushed SHAs;
-- external blockers that remain external-only;
-- any introduced/repaired Critical/High regressions;
-- the single best next frontier, with evidence and a ready OpenSpec/prompt if work remains.
+- exact commands and test counts;
+- benchmark data and build/machine context;
+- exact hosted run IDs;
+- external-only blockers;
+- zero/nonzero active-local task count;
+- whether full local completion was actually achieved;
+- if not, one execution-ready next frontier.
 
-If work is mid-campaign at the deadline, do not rush an unsafe merge. Commit/push the safe completed checkpoint, mark remaining tasks truthfully, and leave an execution-ready continuation.
-
-## 12. Definition of success
-
-This 12-hour campaign succeeds when the executor has used the wall-clock budget for evidence-backed FastFiles engineering, not when it maximizes diff size. A valid result may contain both implementations and measured no-change decisions. The final tree must be safer or better understood than the starting tree, current documentation/OpenSpec state must match reality, and the next agent must be able to continue without reconstructing hidden context.
+At the deadline, prefer a safe pushed checkpoint and truthful continuation over a rushed unsafe “complete” label.

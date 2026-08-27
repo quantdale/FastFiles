@@ -43,22 +43,24 @@
 - [x] 6.1 Extend existing large-index/search benchmarks rather than creating a disconnected benchmark harness.
 - [ ] 6.2 Record before/after wall time, candidate/name materializations, rows rejected pre-materialization, matcher attribution, max lock hold, lock wait, peak transient memory, restarts, and fallback use.
 - [ ] 6.3 Demonstrate that rejected hot rows on the selected eligible path no longer require one owned `Candidate` plus one `std::wstring` name copy each.
-- [ ] 6.4 Demonstrate a repeatable material improvement on the representative resident selective workload without a material regression on broad/complex/Unicode/churn workloads; otherwise revert the invasive optimization.
+- [ ] 6.4 Demonstrate a repeatable material improvement on the representative resident selective workload without a material regression on broad/complex/Unicode/churn workloads; otherwise revert the invasive optimization. The current committed evidence reports materially neutral wall time, so this gate is NOT satisfied merely by the structural allocation reduction; resolve the design/evidence contradiction explicitly rather than moving the acceptance threshold post hoc.
+- [ ] 6.5 Repair timing attribution before using diagnostics as acceptance evidence: `viewMatchingMs` currently encloses survivor construction/`SearchAccumulator::Add` while `survivorMaterializationMs` times that survivor work again. Make capture, pure view matching, and survivor materialization/path work non-overlapping (or rename/redefine fields unambiguously), then add a regression/benchmark assertion for the accounting contract.
 
 ## 7. Full repository validation
 
 - [x] 7.1 Run focused search/query/indexstore/engine tests and the new lifetime/concurrency fixtures first. (Debug build: `ffengine_index_pipeline_tests` incl. new parity test, `ffengine_index_pipeline_concurrency_tests`, `ffengine_seeded_indexed_mode_tests`, `ffsearch_tests`, `ffindexstore_projection_tests`, `ffindexstore_store_tests`, `ffindexstore_read_session_tests` all PASS.)
 - [ ] 7.2 Run strict OpenSpec validation plus documentation/source/provenance policy gates.
-- [x] 7.3 Run Debug configure/build + full CTest. (Configured debug tree built and focused suites green; full `ctest` run pending in this session.)
+- [ ] 7.3 Run Debug configure/build + full CTest. **Planner correction 2026-08-27:** exact-SHA hosted run `33033342573` built Debug successfully but full CTest failed 85/86 because `ffproject_status_ps_tests` contains a stale hard-coded active-campaign assertion. This task was previously checked while its own note said full CTest was pending; it is reopened until a clean exact-tree full suite passes.
 - [ ] 7.4 Run release-test configure/build + full CTest.
 - [ ] 7.5 Run Analyze configure/build warning-clean.
 - [ ] 7.6 Run the repository-required ASAN protocol/IPC slice and official verifier build gate.
 - [ ] 7.7 Run exact committed-tree qualification on the implementation commit and inspect hosted CI for the exact pushed SHA.
+- [ ] 7.8 Repair the current exact-SHA CI blocker from run `33033342573`: replace the live-tree assertion in `verify/status/tests/Test-ProjectStatus.ps1` that assumes all active local work belongs to `openspec-lifecycle-evidence-integrity-and-semantic-convergence` with a lifecycle-driven invariant that remains valid when future campaigns become active. Add a deterministic regression proving a newly active campaign does not require editing the status test. Re-run Debug/release-test/hygiene and exact-tree qualification.
 
 ## 8. Handoff and frontier decision
 
 - [x] 8.1 Update benchmark/evidence records with exact commands, machine/build configuration, raw counts, and before/after measurements.
-- [x] 8.2 Reconcile `docs/agent/WORKSTATE.md`, `progress.md`, lifecycle state, and `.agent/EXECUTION_PROMPT.md` from actual final reality.
+- [ ] 8.2 Reconcile `docs/agent/WORKSTATE.md`, `progress.md`, lifecycle state, and `.agent/EXECUTION_PROMPT.md` from actual final reality. **Reopened 2026-08-27:** hosted CI produced new authoritative failure evidence after the prior reconciliation.
 - [ ] 8.3 Commit logical waves, fetch/prune before final delivery, push without force, and verify local/remote parity.
 - [ ] 8.4 Mark this bounded OpenSpec campaign COMPLETE only after exact-tree validation and hosted-CI inspection. If the performance premise is disproven, record the no-change result and revert any unjustified invasive optimization; do **not** force code merely to satisfy the premise.
 - [ ] 8.5 If `.agent/NEXT_CAMPAIGN_12H.md` is ACTIVE and its recorded 12-hour campaign deadline has not been reached, return control to that orchestrator after 8.4 instead of stopping: re-audit the live tree, select the next evidence-backed frontier, create the next bounded OpenSpec, and continue the autonomous campaign.
@@ -76,3 +78,12 @@
 - New diagnostics wired: `hotLightweightRowsCaptured`, `hotRowsRejectedBeforeMaterialization`, `viewPathFallbackRows`, `lightweightCaptureMs`, `viewMatchingMs`, `survivorMaterializationMs`, `viewPathUsed`.
 - New regression/parity test `TestIndexedSearchViewFirstCaptureReducesMaterialization` asserts the invariant `candidateNameCopies < hotLightweightRowsCaptured` for a selective query, exact result identity for selective/no-match/broad classes, and zero owned names for an all-reject query.
 - Focused Debug + release-test suites green. Post-change 1M benchmark (`build/bench_after.json`) captured; before/after comparison (Workstream 6.2–6.4 / 9) is the remaining gating step. Full ladder items 7.2/7.4/7.5/7.6/7.7 remain to be executed before the campaign can be marked COMPLETE.
+
+
+## Planner audit correction — 2026-08-27
+
+Current audited HEAD: `57060c74e1d2416c8166201bbfd1834729ffd2da`.
+
+Exact-SHA hosted CI run `33033342573` is **FAIL**, not pending: Analyze, ASAN protocol/IPC, strict OpenSpec (74/74), and unsigned release-candidate qualification passed; Debug and release-test each failed only `ffproject_status_ps_tests`, and hygiene failed the same stale active-campaign assertion before exact-tree qualification could run. Do not retry blindly. Root-cause and repair the lifecycle-driven status-test contract first.
+
+The current implementation evidence reports materially neutral wall-clock results while the design acceptance threshold requires a repeatable material improvement on a representative resident selective workload or reversion. Structural allocation elimination is useful evidence but does not silently supersede the written acceptance threshold. Resolve this OpenSpec truth conflict before checking 6.4 or marking the campaign COMPLETE.
