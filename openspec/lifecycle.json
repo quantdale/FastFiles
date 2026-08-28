@@ -221,7 +221,8 @@
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/design.md" },
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md" }
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md" },
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/release-and-truth-surface-validation.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []

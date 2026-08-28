@@ -1,5 +1,34 @@
 # FastFiles — Project Status
 
+## Current completion-integrity checkpoint — 2026-08-28
+
+The current implementation candidate is `ceffa009ef566edfc9895c363a68fdd005ddc0fa`.
+It closes the confirmed cold-reload integrity defect: failed durable projection
+streams remove partial resident rows, retain the cold retry marker, propagate
+failed rule enumeration, and fail closed at snapshot export. Focused recovery
+tests pass, and the predecessor hosted baseline `2a3841ceef1b0b99f533ed3bf46d7a63096cc114`
+/ run `33129228485` is green across all six jobs with non-empty, SHA-bound,
+path-safe unsigned release evidence. The final candidate still requires its
+own hosted exact-SHA result.
+
+Local validation for this wave includes Debug and release-test CTest 86/86,
+warning-clean Analyze, the authoritative ASAN 3/3 slice, release-tooling
+qualification, clean detached release-candidate qualification, and the
+100,000-entry cold-reload/eviction benchmark. Source, marker, skip/timeout,
+security, and lifecycle truth-surface audits found no additional material
+local defect.
+
+The diagnostic UIA build is clean, and the verifier now supplies the shared
+search fixture, selects Current Folder on persistent hosts, isolates Win32
+helper type guards, and avoids repeated disclosure toggles. A prior isolated
+allocated-size scenario passed, but the latest focused run still stopped at
+the Filters disclosure; this host-sensitive semantic boundary is not claimed
+as a product PASS. The UIA journey tasks and final release gates remain open
+until a live run is certified or the provider/foreground limitation is
+explicitly classified as external. Production signing/pins, privileged
+MFT/USN, clean-host, guest/provider, and physical-display evidence likewise
+remain external.
+
 ## Completed rule-pruning durability closure
 
 The `rule-pruning-durability-and-reconciliation-failure-closure` change is

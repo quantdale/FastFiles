@@ -1,14 +1,22 @@
 # Fast Files — Agent Workstate
 
-## Completion-integrity campaign — release evidence + ledger slice (2026-08-28)
+## Completion-integrity campaign — cold-reload correctness + release evidence (2026-08-28)
 
 - The session began from `af43727` after a fast-forward-only pull on `main`;
   the only pre-existing local change remains the untracked
   `docs/agent/HANDOFF_12H_2026-08-27.md`, which is preserved. No autonomous
-  intake run exists. At this checkpoint, local `HEAD` is implementation
-  commit `967546a849cbb46c6fd491fd65929fef8ddeb520`; `origin/main` is still
-  the previously pushed `cff3659c4ef6f095734aebc6b1e620ed87b8588f` until the
-  next explicit push/reconciliation.
+  intake run exists. Local `HEAD` is implementation commit
+  `ceffa009ef566edfc9895c363a68fdd005ddc0fa`; `origin/main` is
+  `2a3841ceef1b0b99f533ed3bf46d7a63096cc114` until the next explicit
+  push/reconciliation.
+- Hosted run `33129228485` passed exact SHA
+  `2a3841ceef1b0b99f533ed3bf46d7a63096cc114` across all six jobs, including
+  ASAN protocol/IPC/lifecycle, Debug, release-test, Analyze, hygiene, and
+  unsigned release qualification. Its release artifact contains exactly two
+  non-empty JSON files (2,286 and 1,080 bytes), both bound to that SHA. The
+  artifact is explicitly `unsigned-validation`/`productionReady=false`, all
+  version paths are relative, pin sources are redacted, and no annotations
+  were returned.
 - Implementation baseline `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`
   (tree `64eb812771966279e332d8ec253394548fd2b7a1`) adds the guarded,
   named MFT/USN/RebuildAll/reconciliation fault seam, fail-closed rebuild
@@ -45,17 +53,43 @@
   cover candidate and retained provenance metadata. Commit
   `c132721b1385fff097fee73dbd8d061262c035ad` separately rejects an active
   lifecycle entry with zero unchecked task lines; its focused project-status
-  test passed locally. Both commits are still ahead of `origin/main`.
+  test passed locally.
+- Fresh correctness audit confirmed a material cold-reload defect: the
+  projection rebuild discarded `Store::ForEachEntry` failure, could clear the
+  cold marker, and could expose a partial resident volume. Commit
+  `ceffa009ef566edfc9895c363a68fdd005ddc0fa`
+  makes rebuild status explicit, removes partial rows, retains the cold retry
+  marker, propagates failed rule enumeration, and makes snapshot export fail
+  closed. New projection recovery coverage and the dependent engine pipeline
+  test pass.
+- `Test-ReleaseTooling.ps1` first failed only against stale/incomplete default
+  `build/release` input. A fresh `build/release-test` build followed by the
+  same suite passed with `Failures: 0`.
 - External production signing/pins, privileged MFT/USN operation, clean-host,
   guest/provider, and physical-display evidence remain unavailable and are
   not claimed. Older `2/2` ASAN references in historical checkpoints are
   explicitly historical; the current authority is the three-target hosted
   ASAN slice.
+- Live UIA follow-up: the diagnostic build completed cleanly (`[82/82]`). The
+  verifier was corrected for the omitted search fixture, duplicate palette
+  toggles, persistent-host scope selection, separate Win32 helper type guards,
+  and repeated Filters disclosure clicks. An earlier isolated allocated-size
+  scenario passed; the latest focused run after these sequencing fixes still
+  failed at the Filters disclosure, and widening the bounded command-log read
+  did not turn that run into a pass. No product change was inferred from this
+  host-sensitive boundary; the major-journey/UIA acceptance tasks remain open
+  until a live semantic run is certified or the provider/foreground boundary
+  is explicitly recorded as external.
+- Truth-surface checks after synchronization: UIA driver headless tests and
+  scenario-selection tests pass; the focused CTest status/doc-drift/
+  projection/engine slice is 4/4; strict OpenSpec is 76/76; source-marker and
+  diagnostic-policy checks pass. The latest live UIA result above remains the
+  authoritative UIA outcome.
 
-NEXT EXACT ACTION: run the clean focused release-candidate regression for
-`967546a` in the discovered Visual Studio environment, then push the pending
-commits, verify the exact hosted SHA/artifacts/annotations, and record the
-safe-metadata and empty-ledger evidence in the queued OpenSpec surfaces.
+NEXT EXACT ACTION: synchronize the queued OpenSpec tasks, lifecycle evidence,
+progress/audit/prompt docs, and this checkpoint; then run the final committed-
+tree qualification, push the complete candidate, and inspect hosted CI for
+that exact final SHA.
 
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 

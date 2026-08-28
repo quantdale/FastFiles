@@ -4,6 +4,7 @@
 # not UIA-discoverable). This module drives the native control directly
 # through its HWND.
 $script:UiaWin32ComDefined = $false
+$script:UiaWin32ComboComDefined = $false
 function Set-UiaComboSelectionHwnd {
     param([IntPtr] $MainWindowHandle, [int] $ControlId, [int] $Index)
     if (-not $script:UiaWin32ComDefined) {
@@ -44,7 +45,7 @@ function Set-UiaComboSelectionElement {
     # native control once the host raw element provider is exposed.
     param([IntPtr] $ComboHandle, [int] $Index)
     if ($ComboHandle -eq [IntPtr]::Zero) { return $false }
-    if (-not $script:UiaWin32ComDefined) {
+    if (-not $script:UiaWin32ComboComDefined) {
         Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -72,7 +73,7 @@ namespace FfUiaCom {
   }
 }
 '@
-        $script:UiaWin32ComDefined = $true
+        $script:UiaWin32ComboComDefined = $true
     }
     try { return [FfUiaCom.Win32Combo]::SetSelection($ComboHandle, $Index) } catch { return $false }
 }

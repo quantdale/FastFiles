@@ -39,6 +39,30 @@ Read in this order:
 
 Current source after pulling always outranks stale line numbers or planner assumptions.
 
+## Current live checkpoint — 2026-08-28
+
+The rule-pruning dependency remains complete at `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` /
+run `33122565103`. Subsequent truth-surface and release-evidence repairs are
+also in the current lineage: retention at `030bd172`, upload-artifact v6 and
+metadata-path qualification at `cff3659c`, redacted release metadata at
+`967546a`, the active-ledger guard at `c132721`, and the cold-reload repair at
+`ceffa009ef566edfc9895c363a68fdd005ddc0fa`.
+
+The predecessor hosted run `33129228485` for `2a3841ceef1b0b99f533ed3bf46d7a63096cc114`
+passed all six jobs and retained two non-empty safe release JSON files. Local
+Debug/release-test suites are 86/86, Analyze is warning-clean, ASAN is 3/3,
+release tooling and clean-candidate qualification pass, and the benchmark
+shows bounded cold reload/eviction behavior. The final candidate must still be
+qualified and inspected at its own exact hosted SHA.
+
+The live UIA verifier has been hardened for fixture readiness, palette
+sequencing, persistent-host scope selection, separate Win32 helper guards, and
+single-shot Filters disclosure. The latest focused run remains blocked at the
+Filters disclosure, so 4.5.1–4.5.3 and the dependent final UIA gate are not
+checked. Do not convert this host-boundary result into a product PASS; the
+exact next frontier is final committed-tree/release/hosted qualification while
+preserving the external UIA and production-certification boundaries.
+
 ## 1. Mission
 
 Use up to approximately twelve productive hours to drive FastFiles toward the strongest truthfully supportable completion state.

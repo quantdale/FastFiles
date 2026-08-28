@@ -265,3 +265,37 @@ Primary execution contract after this audit:
 - queued completion package `openspec/changes/completion-integrity-hardening-and-release-certification/`
 
 The queued completion package is dependency-ordered behind truthful closure of the current rule-pruning change. It may coordinate the remaining hardening/certification work without forcing a second simultaneous implementation frontier.
+
+## Post-fix live review — 2026-08-28
+
+The rule-pruning dependency was repaired and hosted at `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` /
+run `33122565103`. The later release-evidence lineage reproduced and closed
+retention, action-runtime, metadata-path, and active-empty-ledger defects
+(`030bd172`, `cff3659c`, `967546a`, `c132721`). A fresh correctness audit then
+found the incomplete projection-stream reload defect and fixed it at
+`ceffa009ef566edfc9895c363a68fdd005ddc0fa`, with durable/projection retry
+coverage and fail-closed snapshot export.
+
+The local post-fix gates are Debug/release-test CTest 86/86, warning-clean
+Analyze, ASAN protocol/IPC/lifecycle 3/3, release-tooling PASS, clean detached
+release-candidate PASS, and a successful 100,000-entry eviction/cold-reload
+benchmark. Adversarial source review found no actionable marker, disabled
+decisive assertion, skip/timeout false green, security regression, or
+single-threaded `cachedPageSize_` issue.
+
+The live UIA continuation corrected several verifier defects exposed by bounded
+runs: the shared search fixture did not create its required files; shared
+palette flows sent duplicate toggles; persistent indexed hosts needed explicit
+Current Folder selection; two Win32 helper classes incorrectly shared one
+Add-Type guard; and Filters polling could toggle an already-open disclosure
+closed. After those repairs, one earlier isolated allocated-size run passed,
+but the latest focused run still failed at the Filters disclosure. This is
+recorded as unverified host/provider behavior, not silently accepted as a
+product PASS; the corresponding major-journey/UIA tasks remain open.
+
+Hosted predecessor run `33129228485` for `2a3841ceef1b0b99f533ed3bf46d7a63096cc114`
+passed all six jobs and retained exactly two non-empty, SHA-bound JSON release
+records with relative paths and redacted pin sources. The final candidate must
+be built, qualified, pushed, and inspected at its own exact SHA. Production
+signing/pins, privileged raw-volume operation, clean-host/guest/provider, and
+physical-display evidence remain external.

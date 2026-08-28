@@ -749,23 +749,30 @@ function Expand-UiaSearchFilters {
     param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 6000)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+    $clicked = $false
     while ([DateTime]::UtcNow -lt $deadline) {
+        # completion-integrity-hardening-and-release-certification 2.6: the
+        # disclosure is a toggle. Re-clicking while UIA is catching up can
+        # collapse a successful expansion, so detect the expanded row first
+        # and allow at most one action per invocation.
+        $expanded = $false
+        try { $expanded = $null -ne (Find-UiaElement -Driver $Driver -AutomationId '7105' -FromElement $Main -TimeoutMs 300) } catch { }
+        if (-not $expanded) {
+            try { $expanded = $null -ne (Get-UiaSearchScopeCombo -Driver $Driver -ProcessId $ProcessId -FromElement $Main) } catch { }
+        }
+        if ($expanded) {
+            $sw.Stop()
+            return [pscustomobject]@{ Pass = $true; Detail = "filters row expanded ($($sw.Elapsed.TotalMilliseconds) ms)" }
+        }
         $btn = $null
         try {
             try { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -FromElement $Main -TimeoutMs 800 } catch { }
             if (-not $btn) { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -ProcessId $ProcessId -TimeoutMs 800 }
         } catch { $btn = $null }
-        if ($btn) {
+        if ($btn -and -not $clicked) {
             try {
                 $null = Invoke-UiaElementAction -Driver $Driver -Element $btn -Action 'Click'
-                Start-Sleep -Milliseconds 500
-                # Confirm the expansion actually revealed the row (Clear history is
-                # hidden exactly when collapsed), then retry through the deadline.
-                try {
-                    $null = Find-UiaElement -Driver $Driver -Name 'Clear history' -FromElement $Main -TimeoutMs 1000
-                    $sw.Stop()
-                    return [pscustomobject]@{ Pass = $true; Detail = "filters row expanded via 'Filters' ($($sw.Elapsed.TotalMilliseconds) ms)" }
-                } catch { }
+                $clicked = $true
             } catch { }
         }
         Start-Sleep -Milliseconds 300
@@ -924,7 +931,11 @@ function Get-UiaCommandDispatchEvidence {
     if (-not $logPath -or -not (Test-Path -LiteralPath $logPath)) { return $null }
     try {
         $commandPattern = [regex]::Escape("command=$CommandId")
-        $lines = @(Get-Content -LiteralPath $logPath -Tail 200 -ErrorAction Stop)
+        # completion-integrity-hardening-and-release-certification 2.6: opening
+        # a surface can emit many provider-child-query records while the
+        # palette-close wait is polling. Keep the read bounded, but large enough
+        # that those post-dispatch records cannot evict the command evidence.
+        $lines = @(Get-Content -LiteralPath $logPath -Tail 2000 -ErrorAction Stop)
         for ($lineIndex = $lines.Count - 1; $lineIndex -ge 0; $lineIndex--) {
             $line = [string]$lines[$lineIndex]
             # Diagnostics are JSON-shaped but are deliberately written by the
@@ -1595,8 +1606,14 @@ function Invoke-UiaScenarioSearchDeep {
         }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
+        if (-not (Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $appPid -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 20000)) {
+            return & $fail 'alpha.txt fixture was not visible in the browsed snapshot before deep search'
+        }
         $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $appPid
         if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
+        if (-not (Set-UiaSearchFixtureScope -Driver $driver -Main $main -ProcessId $appPid)) {
+            return & $fail 'could not select Current Folder available-data scope for the fixture'
+        }
         $resultsList = $null
         try {
             $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 6000 -PollIntervalMs 250
@@ -1771,6 +1788,63 @@ function Get-UiaSearchSortCombo {
         } catch { }
     }
     return $null
+}
+
+# completion-integrity-hardening-and-release-certification 2.6: fixture-backed
+# search scenarios must use the real current-folder available-data scope. A
+# host with retained indexed coverage otherwise defaults to All Indexed
+# Locations, which legitimately excludes a newly-created degraded fixture.
+function Get-UiaSearchScopeCombo {
+    param($Driver, [int] $ProcessId, $FromElement = $null)
+    $findArgs = @{ Driver = $Driver; ClassName = 'ComboBox'; ProcessId = $ProcessId; TimeoutMs = 4000; All = $true }
+    if ($FromElement) { $findArgs['FromElement'] = $FromElement }
+    foreach ($combo in @(Find-UiaElement @findArgs)) {
+        try {
+            if ((Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'AutomationId') -eq '7102') { return $combo }
+        } catch { }
+    }
+    return $null
+}
+
+function Get-UiaSearchScopeComboById {
+    param($Driver, [int] $ProcessId, $FromElement = $null)
+    $findArgs = @{ Driver = $Driver; AutomationId = '7102'; ProcessId = $ProcessId; TimeoutMs = 4000; All = $true }
+    if ($FromElement) { $findArgs['FromElement'] = $FromElement }
+    foreach ($combo in @(Find-UiaElement @findArgs)) {
+        try {
+            if ((Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'AutomationId') -eq '7102') { return $combo }
+        } catch { }
+    }
+    return $null
+}
+
+function Set-UiaSearchFixtureScope {
+    param($Driver, $Main, [int] $ProcessId)
+    try {
+        $selectionApplied = $false
+        $combo = Get-UiaSearchScopeComboById -Driver $Driver -ProcessId $ProcessId -FromElement $Main
+        if ($combo) {
+            $current = [string](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'Name')
+            if ($current -match '^Current Folder') { return $true }
+            $comboHwnd = [IntPtr]$combo.Current.NativeWindowHandle
+            if ($comboHwnd -ne [IntPtr]::Zero) {
+                $selectionApplied = Set-UiaComboSelectionElement -ComboHandle $comboHwnd -Index 0
+            }
+        }
+        # Some Windows UIA providers expose the scope wrapper without the
+        # native child handle. Use the same stable control-ID fallback as the
+        # existing owner-drawn sort path, then reacquire and verify the label.
+        if (-not $selectionApplied -and $Main) {
+            $mainHwnd = [IntPtr]$Main.Current.NativeWindowHandle
+            if ($mainHwnd -ne [IntPtr]::Zero) {
+                $selectionApplied = Set-UiaComboSelectionHwnd -MainWindowHandle $mainHwnd -ControlId 7102 -Index 0
+            }
+        }
+        Start-Sleep -Milliseconds 700
+        $combo = Get-UiaSearchScopeComboById -Driver $Driver -ProcessId $ProcessId -FromElement $Main
+        if (-not $combo) { return $false }
+        return ([string](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'Name')) -match '^Current Folder'
+    } catch { return $false }
 }
 
 function Get-UiaComboSelectionName {
@@ -1985,9 +2059,15 @@ function Invoke-UiaScenarioSearchAllocatedSize {
 
         # Open the search panel (and expand the Filters row so the sort combo
         # this scenario drives is exposed).
+        if (-not (Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $appPid -Name 'allocA.txt' -PaneId 'Pane.0' -TimeoutMs 20000)) {
+            return & $fail 'allocA.txt fixture was not visible in the browsed snapshot before allocated-size search'
+        }
         $stage = 'open-search-panel'
         $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $appPid
         if (-not $sp.Pass) { return & $fail "search panel did not open: $($sp.Detail)" }
+        if (-not (Set-UiaSearchFixtureScope -Driver $driver -Main $main -ProcessId $appPid)) {
+            return & $fail 'could not select Current Folder available-data scope for the fixture'
+        }
 
         $stage = 'locate-search-results'
         $resultsList = $null
@@ -3935,7 +4015,15 @@ function Invoke-UiaSharedSessionScenarios {
     # Scenario 3.2 - keyboard address-bar navigation into a scratch folder.
     # The fixture lives under the marked per-session sandbox, isolated from the
     # real user profile and inherited by the child UI/engine only as a test path.
-    $needsScratch = Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('keyboard-address-bar-navigation', 'column-populated-and-selected-item-in-tree', 'selection-and-scroll-patterns', 'scroll-pattern-real-viewport')
+    # completion-integrity-hardening-and-release-certification 2.6: the shared
+    # search scenarios query the same fixture-backed snapshot as the core
+    # navigation checks. Include their fixture-dependent IDs here so a filtered
+    # search-group run cannot report a misleading missing-result failure simply
+    # because the fixture was omitted.
+    $needsScratch = Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @(
+        'keyboard-address-bar-navigation', 'column-populated-and-selected-item-in-tree',
+        'selection-and-scroll-patterns', 'scroll-pattern-real-viewport',
+        'search-results-discoverable', 'search-structured-filter-query')
     if ($needsScratch) {
     $scratch = Join-Path $Context.FixtureRoot ('ffui-e2e-' + (Get-Random))
     $folder = Join-Path $scratch 'SubFolder'
@@ -3951,6 +4039,11 @@ function Invoke-UiaSharedSessionScenarios {
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-keyboard-navigation'
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('keyboard-address-bar-navigation')) {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
+    }
+
+    if ($nav.Pass -and (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable', 'search-structured-filter-query'))) {
+        $fixtureItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $launched.Id -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 20000
+        if (-not $fixtureItem) { throw 'alpha.txt fixture was not visible in the browsed snapshot before search' }
     }
 
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('column-populated-and-selected-item-in-tree')) {
@@ -4254,8 +4347,9 @@ function Invoke-UiaSharedSessionScenarios {
     # Scenario 3.11 - search: open the panel, verify result discovery and the
     # structured filter. (Deep-result activation runs as the isolated
     # search-deep-result-navigation scenario.)
-    $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
-    Start-Sleep -Milliseconds 600
+    # completion-integrity-hardening-and-release-certification 2.6: do not
+    # toggle the palette here; Open-UiaSearchPanel owns the single
+    # foreground-safe open/dispatch sequence.
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id
     $sw.Stop()
@@ -4265,12 +4359,20 @@ function Invoke-UiaSharedSessionScenarios {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-panel-open' -Status ($(if ($sp.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sp.Pass) { $null } else { 'search-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail))
     }
 
+    $fixtureScopeReady = $true
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable', 'search-structured-filter-query')) {
+        $fixtureScopeReady = Set-UiaSearchFixtureScope -Driver $driver -Main $main -ProcessId $launched.Id
+    }
+
     $searchStatus = 'FAIL'
     $searchReason = 'search-results-unexpected'
     $searchDetail = 'search results not verifiable'
     try {
         $resultsList = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $launched.Id -TimeoutMs 5000
         if (-not $resultsList) { throw 'Search.Results element not found' }
+        if (-not $fixtureScopeReady) {
+            throw 'could not select Current Folder available-data scope for the fixture'
+        }
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
             $searchStatus = 'SKIPPED'
             $searchReason = 'engine-connect-unavailable'
@@ -4300,9 +4402,10 @@ function Invoke-UiaSharedSessionScenarios {
     $filterReason = 'structured-filter-unexpected'
     $filterDetail = 'structured filter not verifiable'
     try {
-        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
-        Start-Sleep -Milliseconds 600
         $null = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id | Out-Null
+        if (-not $fixtureScopeReady) {
+            throw 'could not select Current Folder available-data scope for the fixture'
+        }
         if (-not (Test-UiaEngineServingData -Driver $driver -Main $main)) {
             $filterStatus = 'SKIPPED'
             $filterReason = 'engine-connect-unavailable'

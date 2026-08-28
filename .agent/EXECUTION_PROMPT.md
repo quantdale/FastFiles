@@ -20,6 +20,27 @@ indexed-search campaign or accept historical green CI as proof for new work.
 Keep the final truth label **locally complete; external certification pending**
 until the follow-on work and its external boundaries are resolved honestly.
 
+## Live 2026-08-28 implementation checkpoint
+
+The active rule-pruning dependency is closed at `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` /
+run `33122565103`. The current cold-reload candidate is
+`ceffa009ef566edfc9895c363a68fdd005ddc0fa`; it fails closed on incomplete
+durable projection streams, retains cold retry state, propagates failed rule
+enumeration, and refuses unreloaded snapshot export. Focused recovery tests,
+Debug/release-test 86/86, Analyze, ASAN 3/3, release tooling, clean candidate
+qualification, and the large-index benchmark pass locally. Hosted run
+`33129228485` is a green predecessor for `2a3841ceef1b0b99f533ed3bf46d7a63096cc114`
+with retained SHA-bound safe release evidence; it is not proof of the current
+candidate.
+
+The UIA diagnostic build is clean. Verifier fixes address omitted search
+fixtures, duplicate palette toggles, persistent-host scope selection, a shared
+Win32 Add-Type guard, and repeated Filters toggling. The latest focused run
+still fails at the Filters disclosure, so no live major-journey/UIA PASS is
+claimed and the corresponding OpenSpec tasks remain open. Keep production
+signing/pins, privileged/clean-host, provider/guest, physical-display, and
+foreground-dependent evidence explicitly external.
+
 ## Completed wave-1 dependency
 
 Exact source review found that current rule-pruning evidence is incomplete:
