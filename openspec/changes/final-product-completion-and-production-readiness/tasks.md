@@ -35,15 +35,15 @@
 ## 6. Search and Storage presentation
 
 - [x] 6.1 Search empty/degraded/scope chrome uses shared tokens; scope remains distinct from path. — idle Fast Search empty state plus existing no-results/degraded copy; chrome search field vs address bar.
-- [x] 6.2 Storage toolbar/status consume the same component language as the shell. — Storage remains a content workspace; Settings gear and palette commands replace the unthemed native menubar.
+- [x] 6.2 Storage toolbar/status consume the same component language as the shell. — segmented mode pills, flush lists, Explorer/CFD native theming; Settings gear and palette commands replace the unthemed native menubar.
 
 ## 7. Validation
 
 - [x] 7.1 Focused UI/protocol/command/home tests.
-- [ ] 7.2 Debug configure/build + full CTest.
-- [ ] 7.3 release-test configure/build + full CTest.
-- [ ] 7.4 Analyze warning-clean.
-- [ ] 7.5 Authoritative ASAN slice.
-- [ ] 7.6 Strict OpenSpec + doc-drift + `git diff --check`.
+- [x] 7.2 Debug configure/build + full CTest.
+- [x] 7.3 release-test configure/build + full CTest.
+- [x] 7.4 Analyze warning-clean.
+- [x] 7.5 Authoritative ASAN slice.
+- [x] 7.6 Strict OpenSpec + doc-drift + `git diff --check`.
 - [ ] 7.7 Commit/push without force; inspect hosted CI for the exact SHA.
 - [ ] 7.8 Record remaining external blockers (signing, privileged MFT, live UIA host) without converting them to PASS.

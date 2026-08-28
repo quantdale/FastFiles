@@ -392,4 +392,39 @@ inline void UiGdiRoundedRect(HDC dc, RECT rect, COLORREF fill, int radiusPx) {
     DeleteObject(brush);
 }
 
+// Applies the Windows Explorer or ComboFlyout visual style so remaining native
+// ListView/Tab/Combo/Edit chrome matches the tokenized shell. High Contrast
+// resets to the system theme. Loads uxtheme on demand (same pattern as DWM).
+enum class NativeExplorerTheme {
+    Explorer,
+    Combo,
+};
+
+inline void ApplyNativeExplorerTheme(HWND hwnd, bool dark,
+                                     NativeExplorerTheme kind = NativeExplorerTheme::Explorer) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return;
+    }
+    HMODULE module = GetModuleHandleW(L"uxtheme.dll");
+    if (module == nullptr) {
+        module = LoadLibraryW(L"uxtheme.dll");
+    }
+    if (module == nullptr) {
+        return;
+    }
+    using SetWindowThemeFn = HRESULT(WINAPI*)(HWND, LPCWSTR, LPCWSTR);
+    auto setWindowTheme = reinterpret_cast<SetWindowThemeFn>(GetProcAddress(module, "SetWindowTheme"));
+    if (setWindowTheme == nullptr) {
+        return;
+    }
+    if (UiSystemHighContrast()) {
+        setWindowTheme(hwnd, L"", nullptr);
+        return;
+    }
+    const wchar_t* name = (kind == NativeExplorerTheme::Combo)
+                              ? (dark ? L"DarkMode_CFD" : L"CFD")
+                              : (dark ? L"DarkMode_Explorer" : L"Explorer");
+    setWindowTheme(hwnd, name, nullptr);
+}
+
 }  // namespace ffui

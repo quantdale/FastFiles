@@ -57,6 +57,9 @@ private:
     void UpdateThemeBrush();
     // §5.4: applies (or removes) the Win11 immersive dark title bar on dialog_.
     void ApplyDwmDarkTitleBar();
+    // final-product-completion-and-production-readiness: Explorer/CFD visual
+    // styles so tab, lists, combos, and edits follow the shell theme.
+    void ApplyNativeControlThemes();
     // §5.4: shared WM_CTLCOLOR* helper — sets DC text/bk colors from the active
     // theme and returns the themed background brush for the control/dialog.
     HBRUSH ThemeControlColor(HDC hdc);

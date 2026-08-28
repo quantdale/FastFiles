@@ -8,6 +8,7 @@
 
 #include "IconCache.h"
 #include "UiAnimation.h"
+#include "UiComponents.h"
 #include "UiStyle.h"
 #include "UITheme.h"
 
@@ -234,6 +235,14 @@ void TestIconCacheHeaderApi() {
           "a literal 'folder' filename extension can never collide with the folder key");
     Check(IconKeyForExtension(L"txt") != FolderKey(), "extension keys are distinct from the folder key");
 }
+
+void TestNativeExplorerThemeNullHwnd() {
+    using namespace ffui;
+    NativeExplorerTheme kind = NativeExplorerTheme::Combo;
+    ApplyNativeExplorerTheme(nullptr, true);
+    ApplyNativeExplorerTheme(nullptr, false, kind);
+    Check(kind == NativeExplorerTheme::Combo, "combo theme kind is preserved across a null-HWND apply");
+}
 } // namespace
 
 int main() {
@@ -244,6 +253,7 @@ int main() {
     TestFloatAnimationEasing();
     TestFloatAnimationSnap();
     TestIconCacheHeaderApi();
+    TestNativeExplorerThemeNullHwnd();
     TestThemeContrast();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

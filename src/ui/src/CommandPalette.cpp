@@ -1,5 +1,6 @@
 #include "CommandPalette.h"
 #include "UITheme.h"
+#include "UiComponents.h"
 
 #include <algorithm>
 
@@ -50,7 +51,7 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     execute_ = std::move(execute);
     edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteEditId)), nullptr, nullptr);
-    list_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"LISTBOX", L"",
+    list_ = CreateWindowExW(0, L"LISTBOX", L"",
                             WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteListId)), nullptr, nullptr);
     if (edit_ == nullptr || list_ == nullptr) return false;
@@ -66,6 +67,8 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     SendMessageW(edit_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     SendMessageW(list_, LB_SETITEMHEIGHT, 0, static_cast<LPARAM>(Scaled(static_cast<int>(ffui::UiMetrics::kRowHeight))));
+    ApplyNativeExplorerTheme(edit_, ffui::gUiDarkTheme, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(list_, ffui::gUiDarkTheme);
     return true;
 }
 
@@ -177,6 +180,8 @@ void CommandPalette::SetDarkTheme(bool dark) {
     DeleteBrush(ctlEditBrush_);
     DeleteBrush(ctlListBrush_);
     DeleteBrush(ctlAccentBrush_);
+    ApplyNativeExplorerTheme(edit_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(list_, dark);
     if (edit_ != nullptr) InvalidateRect(edit_, nullptr, FALSE);
     if (list_ != nullptr) InvalidateRect(list_, nullptr, FALSE);
 }

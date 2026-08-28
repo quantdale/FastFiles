@@ -1,28 +1,28 @@
 # Fast Files — Agent Workstate
 
-## Final product-completion campaign — shell product map (2026-08-29)
+## Final product-completion campaign — native chrome + Storage pills (2026-08-29)
 
-- Starting SHA (derived at resume): `3fa9fd44d5cbee68cdf07a6522e182a2de0a564b` =
-  `origin/main`, hosted CI run `33145596607` SUCCESS. Untracked
-  `docs/agent/HANDOFF_12H_2026-08-27.md` preserved. PR #6 remains superseded
-  (`docs/pr6-stabilization-reconciliation.md`); no unique code to port.
-- Opened OpenSpec `final-product-completion-and-production-readiness` (active
-  in `openspec/lifecycle.json`). Experience architecture: Browse / Home /
-  Fast Search / Storage Analysis as exclusive `contentRect` workspaces.
-- Implemented: sidebar product map (Home, Fast Search, Storage Analysis,
-  then Drives/Known Folders/Bookmarks); chrome tabs-on-top + Back/Forward/Up +
-  breadcrumb + Fast Search field (drive combo hidden; 72 DIP height preserved);
-  Compact/Comfortable density persisted as `appearance.density`; Home Analyze
-  Storage action (`kHomeActionCount` = 5); Ctrl+Shift+S for `storage.analyze`.
-- Debug CTest: 87/87 PASS (new `ffsidebar_destinations_tests`). Remaining in
-  this change: Search/Storage interior presentation (task 6), release-test /
-  Analyze / ASAN / OpenSpec / push / hosted CI (task 7).
+- Resume derived: `origin/main` = `3fa6796` (hosted CI `33199599604` SUCCESS).
+  Local HEAD was `2aada8a` (menubar drop + search empty states), unpushed.
+  Untracked `docs/agent/HANDOFF_12H_2026-08-27.md` preserved. PR #6 remains
+  superseded.
+- OpenSpec `final-product-completion-and-production-readiness` tasks 1–6 and
+  7.1–7.2 complete. Remaining: 7.3 release-test, 7.4 Analyze, 7.5 ASAN,
+  7.6 OpenSpec/drift, 7.7 commit/push + exact-SHA CI, 7.8 external blockers.
+- This wave: Storage mode radios paint as segmented pills (High Contrast keeps
+  radio glyphs); dropped `WS_EX_CLIENTEDGE` on Search/Storage/Settings/palette
+  lists; `ApplyNativeExplorerTheme` (Explorer / DarkMode_Explorer / CFD) on
+  remaining native ListView/Tab/Combo/Edit chrome.
+- Debug CTest: 87/87 PASS after this wave. FastFiles Debug linked clean.
+- Local gates this wave: Debug 87/87, release-test 87/87, Analyze warning-clean,
+  ASAN protocol/IPC/lifecycle 3/3, OpenSpec `--all --strict` 77/77, drift PASS,
+  `git diff --check` clean.
 - External still: production signing/pins, privileged MFT/USN, live
-  foreground UIA host, administrative PR #6 close.
+  foreground UIA host, administrative PR #6 close. Not claimed.
 
-NEXT EXACT ACTION: run release-test CTest + Analyze + ASAN slice, then
-commit/push this shell wave if those gates are green; continue task 6
-Search/Storage presentation if time remains.
+NEXT EXACT ACTION: commit this native-chrome wave, push `2aada8a` plus the
+new commit to `origin/main` without force, then inspect hosted CI for the
+exact pushed SHA. Do not claim production-signed readiness.
 
 ## Completion-integrity campaign — cold-reload correctness + release evidence (2026-08-28)
 

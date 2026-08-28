@@ -8,6 +8,7 @@
 
 #include "EngineClient.h"
 #include "UITheme.h"
+#include "UiComponents.h"
 #include "ffprotocol/IndexHealth.h"
 
 #pragma comment(lib, "shlwapi.lib")
@@ -105,11 +106,9 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
                               owner_, nullptr, GetModuleHandleW(nullptr), this);
     if (!dialog_) return false;
 
-    // §5.4: themed dialog background + immersive dark title bar. Inner controls
-    // (tab control, listviews, combos, buttons) intentionally stay stock — the
-    // themed-brush WM_CTLCOLOR* handling below covers the dialog background,
-    // statics, edits, and listboxes, so the dialog is never blinding-white in
-    // dark mode; fully custom-painted controls are out of scope for the dialog.
+    // §5.4: themed dialog background + immersive dark title bar. Native tab,
+    // list, combo, and edit chrome pick up Explorer/CFD visual styles so dark
+    // mode is not a mix of tokenized background and system-white controls.
     UpdateThemeBrush();
     ApplyDwmDarkTitleBar();
 
@@ -144,7 +143,8 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
     }
 
     SwitchPage(0);
-    // The dialog is created hidden and shown on demand (Settings menu /
+    ApplyNativeControlThemes();
+    // The dialog is created hidden and shown on demand (Settings gear /
     // Ctrl+, / app.settings command). Showing it here made it cover the
     // browser on every launch (recovery-degraded-browsing finding: the
     // unconditional ShowWindow was a leftover from a compile-health fix).
@@ -183,10 +183,34 @@ void SettingsDialog::SetDarkTheme(bool dark) {
     // delivered by the WM_CTLCOLORDLG/WM_CTLCOLOR* handlers from themeBrush_.
     UpdateThemeBrush();
     ApplyDwmDarkTitleBar();
+    ApplyNativeControlThemes();
     if (dialog_) {
         // Repaint the dialog and all children so the themed brush/text colors
         // (WM_CTLCOLOR*) take effect without recreating any control.
         RedrawWindow(dialog_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    }
+}
+
+void SettingsDialog::ApplyNativeControlThemes() {
+    const bool dark = darkTheme_;
+    ApplyNativeExplorerTheme(tabControl_, dark);
+    ApplyNativeExplorerTheme(volumeList_, dark);
+    ApplyNativeExplorerTheme(ruleList_, dark);
+    ApplyNativeExplorerTheme(categoryList_, dark);
+    ApplyNativeExplorerTheme(shortcutList_, dark);
+    ApplyNativeExplorerTheme(themeCombo_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(densityCombo_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(searchScopeCombo_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(previewSizeEdit_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(startupPathEdit_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(shortcutEdit_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(categoryEdit_, dark, NativeExplorerTheme::Combo);
+    for (HWND list : {volumeList_, ruleList_, categoryList_, shortcutList_}) {
+        if (list == nullptr) continue;
+        const UiTheme theme = GetUiTheme(dark);
+        ListView_SetBkColor(list, ToColorRef(theme.background));
+        ListView_SetTextColor(list, ToColorRef(theme.text));
+        ListView_SetTextBkColor(list, ToColorRef(theme.background));
     }
 }
 
@@ -929,7 +953,7 @@ void SettingsDialog::PopulateIndexingPage() {
     if (!volumeList_) {
         const int rightColumnX = Scaled(kDialogWidth - 2 * kPagePadding - 100);
         const int rightColumnWidth = Scaled(100);
-        volumeList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        volumeList_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                                        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                        Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(180),
                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -943,7 +967,7 @@ void SettingsDialog::PopulateIndexingPage() {
                                          Scaled(kPagePadding), Scaled(kPagePadding + 214), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(44),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
 
-        ruleList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        ruleList_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                                     WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                     Scaled(kPagePadding), Scaled(kPagePadding + 292),
                                     Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(128), Scaled(142),
@@ -987,7 +1011,7 @@ void SettingsDialog::PopulateIndexingPage() {
 
 void SettingsDialog::PopulateStoragePage() {
     if (!categoryList_) {
-        categoryList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        categoryList_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                                          WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                          Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(200),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
@@ -1021,7 +1045,7 @@ void SettingsDialog::PopulateStoragePage() {
 
 void SettingsDialog::PopulateShortcutsPage() {
     if (!shortcutList_) {
-        shortcutList_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+        shortcutList_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                                          WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                          Scaled(kPagePadding), Scaled(kPagePadding + 30), Scaled(kDialogWidth) - 2 * Scaled(kPagePadding) - Scaled(100), Scaled(200),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);

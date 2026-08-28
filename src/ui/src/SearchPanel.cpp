@@ -713,13 +713,13 @@ bool SearchPanel::Initialize(HWND owner, EngineClient* engine,
     historyStore_.SetRecordingEnabled(retainHistory);
     INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
     InitCommonControlsEx(&controls);
-    query_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWN | WS_VSCROLL,
+    query_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWN | WS_VSCROLL,
                              0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kQueryId)), nullptr, nullptr);
     scope_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
                              0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kScopeId)), nullptr, nullptr);
     sort_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED | CBS_HASSTRINGS,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSortId)), nullptr, nullptr);
-    list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+    list_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_OWNERDRAWFIXED | LVS_SINGLESEL |
                             // ui-v3 hardening V3-02: owner-drawn rows carry name +
                             // location themselves, so the column header strip is
@@ -869,6 +869,10 @@ void SearchPanel::Hide() {
 }
 
 void SearchPanel::SetDarkTheme(bool dark) {
+    ApplyNativeExplorerTheme(query_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(scope_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(sort_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(list_, dark);
     if (query_) InvalidateRect(query_, nullptr, FALSE);
     if (list_) {
         const ffui::UiTheme theme = ffui::GetUiTheme(dark);

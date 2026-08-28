@@ -61,73 +61,106 @@ void DrawStorageRadioButton(const DRAWITEMSTRUCT* item, bool darkTheme) {
     const bool disabled = (item->itemState & ODS_DISABLED) != 0;
     const bool hot = (item->itemState & ODS_HOTLIGHT) != 0;
     const auto state = ResolveStorageRadioVisualState(checked, pressed, focused, disabled);
-    const bool interactionFill = state == StorageRadioVisualState::Pressed ||
-                                 state == StorageRadioVisualState::CheckedPressed || hot;
     const bool highContrast = UiSystemHighContrast();
     const UiTheme theme = GetUiTheme(darkTheme);
-    COLORREF background = highContrast ? GetSysColor(COLOR_BTNFACE) : ToColorRef(theme.background);
-    if (highContrast && interactionFill) background = GetSysColor(COLOR_BTNSHADOW);
-    if (!highContrast && interactionFill) background = ToColorRef(theme.surfaceSubtle);
-    UiGdiRoundedRect(item->hDC, item->rcItem, background, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
-
-    const COLORREF border = highContrast
-                                ? GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_WINDOWTEXT)
-                                : ToColorRef(disabled ? theme.textDisabled : theme.border);
-    const COLORREF text = highContrast
-                              ? GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_BTNTEXT)
-                              : ToColorRef(disabled ? theme.textDisabled : theme.text);
-    const COLORREF accent = highContrast
-                                ? GetSysColor(COLOR_HIGHLIGHT)
-                                : ToColorRef(disabled ? theme.textDisabled : theme.accent);
-    const int glyphSize = (std::max)(Scaled(16), 12);
-    const int glyphLeft = item->rcItem.left + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
-    const int glyphTop = (item->rcItem.top + item->rcItem.bottom - glyphSize) / 2;
-    const RECT glyph{glyphLeft, glyphTop, glyphLeft + glyphSize, glyphTop + glyphSize};
-
-    HBRUSH glyphBrush = CreateSolidBrush(background);
-    HPEN glyphPen = CreatePen(PS_SOLID, (std::max)(1, Scaled(1)), border);
-    HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(
-        item->hDC, glyphBrush != nullptr ? glyphBrush : GetStockObject(NULL_BRUSH)));
-    HPEN oldPen = static_cast<HPEN>(SelectObject(
-        item->hDC, glyphPen != nullptr ? glyphPen : GetStockObject(NULL_PEN)));
-    Ellipse(item->hDC, glyph.left, glyph.top, glyph.right, glyph.bottom);
-    SelectObject(item->hDC, oldBrush);
-    SelectObject(item->hDC, oldPen);
-    if (glyphBrush != nullptr) DeleteObject(glyphBrush);
-    if (glyphPen != nullptr) DeleteObject(glyphPen);
-
-    if (checked) {
-        const int inset = (std::max)(2, glyphSize / 4);
-        const RECT dot{glyph.left + inset, glyph.top + inset,
-                       glyph.right - inset, glyph.bottom - inset};
-        HBRUSH dotBrush = CreateSolidBrush(accent);
-        if (dotBrush != nullptr) {
-            HBRUSH previous = static_cast<HBRUSH>(SelectObject(item->hDC, dotBrush));
-            HPEN previousPen = static_cast<HPEN>(SelectObject(item->hDC, GetStockObject(NULL_PEN)));
-            Ellipse(item->hDC, dot.left, dot.top, dot.right, dot.bottom);
-            SelectObject(item->hDC, previous);
-            SelectObject(item->hDC, previousPen);
-            DeleteObject(dotBrush);
-        }
-    }
 
     wchar_t label[256]{};
     GetWindowTextW(item->hwndItem, label, static_cast<int>(std::size(label)));
-    RECT textRect = item->rcItem;
-    textRect.left = glyph.right + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
-    SetBkMode(item->hDC, TRANSPARENT);
-    SetTextColor(item->hDC, text);
     HFONT font = reinterpret_cast<HFONT>(SendMessageW(item->hwndItem, WM_GETFONT, 0, 0));
     if (font == nullptr) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+
+    if (highContrast) {
+        // High Contrast keeps a literal radio glyph so the mutually exclusive
+        // group remains recognizable when token overlays are suppressed.
+        const bool interactionFill = state == StorageRadioVisualState::Pressed ||
+                                     state == StorageRadioVisualState::CheckedPressed || hot;
+        COLORREF background = interactionFill ? GetSysColor(COLOR_BTNSHADOW) : GetSysColor(COLOR_BTNFACE);
+        UiGdiRoundedRect(item->hDC, item->rcItem, background, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
+        const COLORREF border = GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_WINDOWTEXT);
+        const COLORREF text = GetSysColor(disabled ? COLOR_GRAYTEXT : COLOR_BTNTEXT);
+        const COLORREF accent = GetSysColor(COLOR_HIGHLIGHT);
+        const int glyphSize = (std::max)(Scaled(16), 12);
+        const int glyphLeft = item->rcItem.left + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+        const int glyphTop = (item->rcItem.top + item->rcItem.bottom - glyphSize) / 2;
+        const RECT glyph{glyphLeft, glyphTop, glyphLeft + glyphSize, glyphTop + glyphSize};
+        HBRUSH glyphBrush = CreateSolidBrush(background);
+        HPEN glyphPen = CreatePen(PS_SOLID, (std::max)(1, Scaled(1)), border);
+        HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(
+            item->hDC, glyphBrush != nullptr ? glyphBrush : GetStockObject(NULL_BRUSH)));
+        HPEN oldPen = static_cast<HPEN>(SelectObject(
+            item->hDC, glyphPen != nullptr ? glyphPen : GetStockObject(NULL_PEN)));
+        Ellipse(item->hDC, glyph.left, glyph.top, glyph.right, glyph.bottom);
+        SelectObject(item->hDC, oldBrush);
+        SelectObject(item->hDC, oldPen);
+        if (glyphBrush != nullptr) DeleteObject(glyphBrush);
+        if (glyphPen != nullptr) DeleteObject(glyphPen);
+        if (checked) {
+            const int inset = (std::max)(2, glyphSize / 4);
+            const RECT dot{glyph.left + inset, glyph.top + inset,
+                           glyph.right - inset, glyph.bottom - inset};
+            HBRUSH dotBrush = CreateSolidBrush(accent);
+            if (dotBrush != nullptr) {
+                HBRUSH previous = static_cast<HBRUSH>(SelectObject(item->hDC, dotBrush));
+                HPEN previousPen = static_cast<HPEN>(SelectObject(item->hDC, GetStockObject(NULL_PEN)));
+                Ellipse(item->hDC, dot.left, dot.top, dot.right, dot.bottom);
+                SelectObject(item->hDC, previous);
+                SelectObject(item->hDC, previousPen);
+                DeleteObject(dotBrush);
+            }
+        }
+        RECT textRect = item->rcItem;
+        textRect.left = glyph.right + Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+        SetBkMode(item->hDC, TRANSPARENT);
+        SetTextColor(item->hDC, text);
+        HFONT oldFont = static_cast<HFONT>(SelectObject(item->hDC, font));
+        DrawTextW(item->hDC, label, -1, &textRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+        SelectObject(item->hDC, oldFont);
+        if (focused) DrawStorageFocusRing(item->hDC, item->rcItem, GetSysColor(COLOR_WINDOWTEXT));
+        return;
+    }
+
+    // final-product-completion-and-production-readiness 6.2: segmented pills,
+    // not native radio dots. Keyboard/UIA stay BS_AUTORADIOBUTTON.
+    HBRUSH erase = CreateSolidBrush(ToColorRef(theme.background));
+    if (erase != nullptr) {
+        FillRect(item->hDC, &item->rcItem, erase);
+        DeleteObject(erase);
+    }
+    COLORREF fill = ToColorRef(theme.surface);
+    COLORREF text = ToColorRef(theme.text);
+    if (disabled) {
+        fill = ToColorRef(theme.background);
+        text = ToColorRef(theme.textDisabled);
+    } else if (checked) {
+        fill = ToColorRef(theme.selectionSoft);
+        text = ToColorRef(theme.text);
+    } else if (pressed) {
+        fill = ToColorRef(theme.surfaceElevated);
+    } else if (hot) {
+        fill = ToColorRef(theme.surfaceSubtle);
+    }
+    UiGdiRoundedRect(item->hDC, item->rcItem, fill, Scaled(static_cast<int>(UiMetrics::kRadiusSmall)));
+    if (checked && !disabled) {
+        RECT bar = item->rcItem;
+        const int inset = Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+        bar.left += inset;
+        bar.right -= inset;
+        bar.top = bar.bottom - Scaled(3);
+        bar.bottom -= Scaled(1);
+        UiGdiRoundedRect(item->hDC, bar, ToColorRef(theme.accent), Scaled(1));
+    }
+    RECT textRect = item->rcItem;
+    const int pad = Scaled(static_cast<int>(UiMetrics::kSpaceXs));
+    textRect.left += pad;
+    textRect.right -= pad;
+    SetBkMode(item->hDC, TRANSPARENT);
+    SetTextColor(item->hDC, text);
     HFONT oldFont = static_cast<HFONT>(SelectObject(item->hDC, font));
     DrawTextW(item->hDC, label, -1, &textRect,
-              DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+              DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
     SelectObject(item->hDC, oldFont);
-
-    if (focused) {
-        DrawStorageFocusRing(item->hDC, item->rcItem,
-                             highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.focusStroke));
-    }
+    if (focused) DrawStorageFocusRing(item->hDC, item->rcItem, ToColorRef(theme.focusStroke));
 }
 
 void DrawStoragePushButton(HWND hwnd, HDC dc, bool darkTheme) {
@@ -505,10 +538,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                           0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
     status_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_ENDELLIPSIS | SS_LEFTNOWORDWRAP,
                               0, 0, 0, 0, owner, nullptr, nullptr, nullptr);
-    list_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+    list_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                             WS_CHILD | LVS_REPORT | LVS_OWNERDATA | LVS_SINGLESEL | WS_TABSTOP,
                             0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kListId)), nullptr, nullptr);
-    overview_ = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, L"",
+    overview_ = CreateWindowExW(0, WC_LISTVIEWW, L"",
                                 WS_CHILD | LVS_REPORT | LVS_SINGLESEL | WS_TABSTOP,
                                 0, 0, 0, 0, owner, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverviewListId)), nullptr, nullptr);
     overviewButton_ = CreateWindowExW(0, L"BUTTON", L"Overview", StorageModeRadioStyle(0),
@@ -1584,6 +1617,11 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     // ui-v3 hardening: theme the two report lists (they previously kept
     // system-white backgrounds in dark mode) and repaint their headers.
     const ffui::UiTheme theme = ffui::GetUiTheme(dark);
+    ApplyNativeExplorerTheme(list_, dark);
+    ApplyNativeExplorerTheme(overview_, dark);
+    ApplyNativeExplorerTheme(categoryFilter_, dark, NativeExplorerTheme::Combo);
+    ApplyNativeExplorerTheme(listHeader_, dark);
+    ApplyNativeExplorerTheme(overviewHeader_, dark);
     for (HWND list : {list_, overview_}) {
         if (list == nullptr) continue;
         ListView_SetBkColor(list, ffui::ToColorRef(theme.background));
