@@ -1088,10 +1088,18 @@ function Test-PackageManifest {
 function Get-SafePinState {
     param([Parameter(Mandatory)] $PinState)
 
+    $source = [string]$PinState.source
+    $safeSource = if ([string]::IsNullOrWhiteSpace($source)) {
+        $null
+    } elseif ([IO.Path]::IsPathRooted($source) -or $source.Contains('\') -or $source.Contains('/')) {
+        'path-redacted'
+    } else {
+        $source
+    }
     [pscustomobject]@{
         name = $PinState.name
         state = $PinState.state
-        source = $PinState.source
+        source = $safeSource
         length = $PinState.length
     }
 }

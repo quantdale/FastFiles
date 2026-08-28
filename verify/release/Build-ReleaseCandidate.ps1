@@ -259,6 +259,15 @@ try {
     $artifactManifest = Get-Content -LiteralPath $artifactManifestPath -Raw | ConvertFrom-Json
     $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $BuildRoot -RepoRoot $repoRoot -AdditionalPaths @((Join-Path $output 'validation\fftest.exe'))
     if (-not $versionCheck.valid) { throw 'VERSION_CONSISTENCY_FAILED: release executable metadata does not match VERSION and the current commit.' }
+    # Keep the candidate's exported version evidence portable; the verifier needs
+    # the metadata and validity fields, not the operator's build-machine paths.
+    foreach ($versionRecord in @($versionCheck.artifacts)) {
+        $versionRecord.path = if ($versionRecord.filename -eq 'fftest.exe') {
+            'validation/fftest.exe'
+        } else {
+            "package/$($versionRecord.filename)"
+        }
+    }
     $artifactVersions = @($artifactManifest.artifacts | Select-Object -ExpandProperty productVersion -Unique)
     if ($artifactVersions.Count -ne 1 -or [string]$artifactVersions[0] -cne $version) { throw "VERSION_CONSISTENCY_FAILED: VERSION=$version but artifact metadata is '$($artifactVersions -join ',')'." }
     if ([string]$artifactManifest.commit -ine $commit) { throw 'BUILD_IDENTITY_FAILED: artifact manifest does not identify the clean checkout commit.' }

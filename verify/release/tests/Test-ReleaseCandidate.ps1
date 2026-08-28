@@ -104,6 +104,15 @@ try {
         Check ([string]$manifest.classification -ceq 'unsigned-validation') 'candidate manifest classifies unsigned output explicitly'
         Check (-not [bool]$manifest.productionReady -and -not [bool]$manifest.signed) 'unsigned candidate is not production-ready'
         Check ([string]$manifest.version -match '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') 'candidate manifest carries strict product version'
+        $versionPaths = @($manifest.versionConsistency.artifacts | ForEach-Object { [string]$_.path })
+        Check (@($versionPaths | Where-Object { $_ -match '^[A-Za-z]:[\\/]|^\\\\' }).Count -eq 0) 'candidate metadata contains no absolute artifact paths'
+        Check (@($versionPaths | Where-Object { $_ -notmatch '^(package|validation)/[^/]+$' }).Count -eq 0) 'candidate metadata uses portable artifact paths'
+        $pinSources = @(
+            [string]$manifest.pins.engine.source,
+            [string]$manifest.pins.service.source,
+            @($manifest.signatures.matrix | ForEach-Object { if ($_.pinState) { [string]$_.pinState.source } })
+        )
+        Check (@($pinSources | Where-Object { $_ -match '^[A-Za-z]:[\\/]|^\\\\' }).Count -eq 0) 'candidate metadata redacts pin source paths'
         $checksumLines = @(Get-Content -LiteralPath (Join-Path $output 'SHA256SUMS.txt') | Where-Object { $_ -and $_ -notmatch '^\s*#' })
         Check ($checksumLines.Count -gt 0) 'candidate checksum list is non-empty'
         foreach ($line in $checksumLines) {
@@ -129,6 +138,11 @@ try {
     $retainedProvenance = Get-Content -LiteralPath (Join-Path $published 'provenance.json') -Raw | ConvertFrom-Json
     Check ([string]$retainedManifest.commit -ceq [string]$sourceManifest.commit) 'retained candidate manifest is bound to the qualified commit'
     Check ([string]$retainedProvenance.commit -ceq [string]$sourceManifest.commit) 'retained provenance is bound to the qualified commit'
+    $provenancePinSources = @(
+        [string]$retainedProvenance.signing.pins.engine.source,
+        [string]$retainedProvenance.signing.pins.service.source
+    )
+    Check (@($provenancePinSources | Where-Object { $_ -match '^[A-Za-z]:[\\/]|^\\\\' }).Count -eq 0) 'retained provenance contains no absolute pin source paths'
     $retainedManifestHash = (Get-FileHash -LiteralPath (Join-Path $published 'candidate-manifest.json') -Algorithm SHA256).Hash.ToUpperInvariant()
     Check ([string]$retainedProvenance.candidateManifestSha256 -ceq $retainedManifestHash) 'retained provenance binds the retained candidate manifest'
 
