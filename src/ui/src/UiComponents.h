@@ -427,4 +427,24 @@ inline void ApplyNativeExplorerTheme(HWND hwnd, bool dark,
     setWindowTheme(hwnd, name, nullptr);
 }
 
+// Disables visual styles so NM_CUSTOMDRAW / owner-draw can paint the control.
+inline void DisableNativeWindowTheme(HWND hwnd) {
+    if (hwnd == nullptr || !IsWindow(hwnd)) {
+        return;
+    }
+    HMODULE module = GetModuleHandleW(L"uxtheme.dll");
+    if (module == nullptr) {
+        module = LoadLibraryW(L"uxtheme.dll");
+    }
+    if (module == nullptr) {
+        return;
+    }
+    using SetWindowThemeFn = HRESULT(WINAPI*)(HWND, LPCWSTR, LPCWSTR);
+    auto setWindowTheme = reinterpret_cast<SetWindowThemeFn>(GetProcAddress(module, "SetWindowTheme"));
+    if (setWindowTheme == nullptr) {
+        return;
+    }
+    setWindowTheme(hwnd, L"", L"");
+}
+
 }  // namespace ffui

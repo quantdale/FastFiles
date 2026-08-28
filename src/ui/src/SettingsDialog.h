@@ -135,6 +135,7 @@ private:
     HWND retainHistoryCheck_ = nullptr;
 
     // Navigation page controls
+    HWND startupLabel_ = nullptr;
     HWND startupPathEdit_ = nullptr;
     HWND restoreSessionCheck_ = nullptr;
 
@@ -159,9 +160,12 @@ private:
     bool volumeStatusReceived_ = false;
 
     // General page controls
+    HWND themeLabel_ = nullptr;
     HWND themeCombo_ = nullptr;
+    HWND densityLabel_ = nullptr;
     HWND densityCombo_ = nullptr;
     HWND previewCheck_ = nullptr;
+    HWND previewSizeLabel_ = nullptr;
     HWND previewSizeEdit_ = nullptr;
 
     // Storage page controls

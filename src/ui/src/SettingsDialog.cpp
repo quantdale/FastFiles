@@ -160,6 +160,7 @@ void SettingsDialog::Show() {
         PopulateGeneralPage();
         PopulateSearchPage();
         PopulateNavigationPage();
+        SwitchPage(tabControl_ ? TabCtrl_GetCurSel(tabControl_) : 0);
         ShowWindow(dialog_, SW_SHOW);
         SetForegroundWindow(dialog_);
         visible_ = true;
@@ -398,6 +399,13 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         // boxes so dark mode never produces blinding-white chrome. Buttons and
         // the tab control stay stock (documented trade-off; the dialog surface,
         // statics, edit fields, and listview/listbox bodies are themed here).
+        case WM_ERASEBKGND: {
+            RECT client{};
+            GetClientRect(hwnd, &client);
+            HBRUSH brush = ThemeControlColor(reinterpret_cast<HDC>(wParam));
+            if (brush != nullptr) FillRect(reinterpret_cast<HDC>(wParam), &client, brush);
+            return 1;
+        }
         case WM_CTLCOLORDLG:
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT:
@@ -420,7 +428,7 @@ void SettingsDialog::CreateControls(HWND hwnd) {
 
 void SettingsDialog::PopulateGeneralPage() {
     if (!themeCombo_) {
-        CreateWindowExW(0, L"STATIC", L"Theme:", WS_CHILD | WS_VISIBLE,
+        themeLabel_ = CreateWindowExW(0, L"STATIC", L"Theme:", WS_CHILD | WS_VISIBLE,
                         Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(34), Scaled(90), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         themeCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
@@ -430,7 +438,7 @@ void SettingsDialog::PopulateGeneralPage() {
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Follow System"));
-        CreateWindowExW(0, L"STATIC", L"Density:", WS_CHILD | WS_VISIBLE,
+        densityLabel_ = CreateWindowExW(0, L"STATIC", L"Density:", WS_CHILD | WS_VISIBLE,
                         Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(66), Scaled(90), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         densityCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
@@ -439,7 +447,7 @@ void SettingsDialog::PopulateGeneralPage() {
                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Compact"));
         SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Comfortable"));
-        CreateWindowExW(0, L"STATIC", L"Automatic preview size limit (bytes):", WS_CHILD | WS_VISIBLE,
+        previewSizeLabel_ = CreateWindowExW(0, L"STATIC", L"Automatic preview size limit (bytes):", WS_CHILD | WS_VISIBLE,
                         Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(126), Scaled(240), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeEdit_ = CreateWindowExW(0, L"EDIT", L"",
@@ -502,8 +510,8 @@ void SettingsDialog::PopulateSearchPage() {
 
 void SettingsDialog::PopulateNavigationPage() {
     if (!startupPathEdit_) {
-        CreateWindowExW(0, L"STATIC", L"Startup location:", WS_CHILD | WS_VISIBLE,
-                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(100), Scaled(20),
+        startupLabel_ = CreateWindowExW(0, L"STATIC", L"Startup location:", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(160), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         startupPathEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
@@ -525,8 +533,8 @@ void SettingsDialog::PopulateNavigationPage() {
 
 void SettingsDialog::SwitchPage(int pageIndex) {
     // Hide all page-specific controls
-    for (HWND c : {themeCombo_, previewCheck_, previewSizeEdit_,
-                   searchScopeCombo_, retainHistoryCheck_, startupPathEdit_, restoreSessionCheck_,
+    for (HWND c : {themeLabel_, themeCombo_, densityLabel_, densityCombo_, previewCheck_, previewSizeLabel_, previewSizeEdit_,
+                   searchScopeCombo_, retainHistoryCheck_, startupLabel_, startupPathEdit_, restoreSessionCheck_,
                    volumeList_, ruleList_, statusDetail_, addRuleButton_, excludeRuleCheck_, removeRuleButton_, moveUpButton_, moveDownButton_,
                    pauseAllCheck_, pauseResumeButton_, addToIndexingButton_,
                    categoryList_, addCategoryButton_, removeCategoryButton_,
@@ -537,8 +545,12 @@ void SettingsDialog::SwitchPage(int pageIndex) {
     // Show current page controls
     switch (pageIndex) {
         case 0: // General
+            if (themeLabel_) ShowWindow(themeLabel_, SW_SHOW);
             if (themeCombo_) ShowWindow(themeCombo_, SW_SHOW);
+            if (densityLabel_) ShowWindow(densityLabel_, SW_SHOW);
+            if (densityCombo_) ShowWindow(densityCombo_, SW_SHOW);
             if (previewCheck_) ShowWindow(previewCheck_, SW_SHOW);
+            if (previewSizeLabel_) ShowWindow(previewSizeLabel_, SW_SHOW);
             if (previewSizeEdit_) ShowWindow(previewSizeEdit_, SW_SHOW);
             break;
         case 1: // Search
@@ -546,6 +558,7 @@ void SettingsDialog::SwitchPage(int pageIndex) {
             if (retainHistoryCheck_) ShowWindow(retainHistoryCheck_, SW_SHOW);
             break;
         case 2: // Navigation
+            if (startupLabel_) ShowWindow(startupLabel_, SW_SHOW);
             if (startupPathEdit_) ShowWindow(startupPathEdit_, SW_SHOW);
             if (restoreSessionCheck_) ShowWindow(restoreSessionCheck_, SW_SHOW);
             break;

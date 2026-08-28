@@ -116,6 +116,8 @@ void CommandPalette::Reposition() {
     const int editHeight = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + 6.0f));
     SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, SWP_SHOWWINDOW);
     SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width, height - editHeight - Scaled(2), SWP_SHOWWINDOW);
+    BringWindowToTop(edit_);
+    BringWindowToTop(list_);
 }
 
 void CommandPalette::RefreshResults() {

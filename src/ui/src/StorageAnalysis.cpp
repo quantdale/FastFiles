@@ -31,6 +31,7 @@ constexpr int kOverviewListId = 7211;
 constexpr int kCategoryFilterId = 7212;
 constexpr UINT_PTR kStorageButtonSubclassBase = 0x5340;
 constexpr UINT_PTR kRadioSubclassBase = 0x5346;
+constexpr UINT_PTR kStatusSubclassId = 0x5350;
 constexpr size_t kStorageRadioCount = kStorageModeCount;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
@@ -364,6 +365,9 @@ StorageAnalysis::~StorageAnalysis() {
                                  kRadioSubclassBase + static_cast<UINT_PTR>(i));
         }
     }
+    if (status_ != nullptr) {
+        RemoveWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId);
+    }
     uiaEvents_.Clear();
     if (uiaState_) uiaState_->alive = false;
     uiaState_.reset();
@@ -519,6 +523,57 @@ LRESULT CALLBACK StorageAnalysis::RadioSubclassProc(HWND hwnd, UINT message, WPA
     return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
+LRESULT CALLBACK StorageAnalysis::StatusSubclassProc(HWND hwnd, UINT message, WPARAM wParam,
+                                                     LPARAM lParam, UINT_PTR subclassId,
+                                                     DWORD_PTR refData) {
+    auto* self = reinterpret_cast<StorageAnalysis*>(refData);
+    if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
+    switch (message) {
+        case WM_PAINT: {
+            PAINTSTRUCT paint{};
+            const HDC dc = BeginPaint(hwnd, &paint);
+            if (dc != nullptr) {
+                RECT rect{};
+                GetClientRect(hwnd, &rect);
+                const UiTheme theme = GetUiTheme(self->darkTheme_);
+                const bool highContrast = UiSystemHighContrast();
+                const COLORREF fill = highContrast ? GetSysColor(COLOR_BTNFACE) : ToColorRef(theme.background);
+                const COLORREF text = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.textSecondary);
+                HBRUSH brush = CreateSolidBrush(fill);
+                if (brush != nullptr) {
+                    FillRect(dc, &rect, brush);
+                    DeleteObject(brush);
+                }
+                wchar_t label[256]{};
+                GetWindowTextW(hwnd, label, static_cast<int>(std::size(label)));
+                SetBkMode(dc, TRANSPARENT);
+                SetTextColor(dc, text);
+                HFONT font = reinterpret_cast<HFONT>(SendMessageW(hwnd, WM_GETFONT, 0, 0));
+                if (font == nullptr) font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+                HFONT oldFont = static_cast<HFONT>(SelectObject(dc, font));
+                DrawTextW(dc, label, -1, &rect,
+                          DT_SINGLELINE | DT_VCENTER | DT_RIGHT | DT_NOPREFIX | DT_END_ELLIPSIS);
+                SelectObject(dc, oldFont);
+            }
+            EndPaint(hwnd, &paint);
+            return 0;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_SETTEXT: {
+            const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return result;
+        }
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, StatusSubclassProc, subclassId);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
+}
+
 bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
                                  std::function<void(const std::wstring& path, bool isDirectory)> navigate,
                                  std::function<void()> close,
@@ -574,6 +629,7 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         SetWindowSubclass(radios[i], RadioSubclassProc, kRadioSubclassBase + static_cast<UINT_PTR>(i),
                           reinterpret_cast<DWORD_PTR>(this));
     }
+    SetWindowSubclass(status_, StatusSubclassProc, kStatusSubclassId, reinterpret_cast<DWORD_PTR>(this));
 
     const wchar_t* columns[] = {L"Name", L"Type", L"Size", L"Subtree Size", L"% of Parent", L"% of Volume", L"Modified", L"Size on Disk"};
     const int widths[] = {260, 80, 100, 120, 100, 100, 145, 120};
@@ -1620,8 +1676,9 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     ApplyNativeExplorerTheme(list_, dark);
     ApplyNativeExplorerTheme(overview_, dark);
     ApplyNativeExplorerTheme(categoryFilter_, dark, NativeExplorerTheme::Combo);
-    ApplyNativeExplorerTheme(listHeader_, dark);
-    ApplyNativeExplorerTheme(overviewHeader_, dark);
+    // Header visual styles swallow NM_CUSTOMDRAW; owner-draw paints tokens.
+    DisableNativeWindowTheme(listHeader_);
+    DisableNativeWindowTheme(overviewHeader_);
     for (HWND list : {list_, overview_}) {
         if (list == nullptr) continue;
         ListView_SetBkColor(list, ffui::ToColorRef(theme.background));
@@ -1638,6 +1695,7 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     for (HWND control : {back_, up_}) {
         if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
     }
+    if (status_ != nullptr) InvalidateRect(status_, nullptr, FALSE);
 }
 
 bool StorageAnalysis::HandleListHeaderCustomDraw(LPARAM lParam, LRESULT* result) {
@@ -1651,9 +1709,17 @@ bool StorageAnalysis::HandleListHeaderCustomDraw(LPARAM lParam, LRESULT* result)
     if (ffui::UiSystemHighContrast()) return false;
     const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
     switch (draw->dwDrawStage) {
-        case CDDS_PREPAINT:
+        case CDDS_PREPAINT: {
+            RECT headerRc{};
+            GetClientRect(draw->hdr.hwndFrom, &headerRc);
+            HBRUSH backgroundBrush = CreateSolidBrush(ffui::ToColorRef(theme.surfaceSubtle));
+            if (backgroundBrush != nullptr) {
+                FillRect(draw->hdc, &headerRc, backgroundBrush);
+                DeleteObject(backgroundBrush);
+            }
             *result = CDRF_NOTIFYITEMDRAW;
             return true;
+        }
         case CDDS_ITEMPREPAINT: {
             wchar_t text[160]{};
             HDITEMW column{};

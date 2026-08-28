@@ -105,6 +105,8 @@ private:
                                                       UINT_PTR subclassId, DWORD_PTR refData);
     static LRESULT CALLBACK RadioSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                               UINT_PTR subclassId, DWORD_PTR refData);
+    static LRESULT CALLBACK StatusSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                               UINT_PTR subclassId, DWORD_PTR refData);
     bool SelectRadioFromUia(HWND radio);
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> UiaRadioFixupProvider(HWND radio);
 

@@ -1,0 +1,259 @@
+{
+  "schema": "fastfiles.visual-capture.v1",
+  "hostId": "local-interactive-windows",
+  "startedUtc": "2026-08-28T23:04:03.4430069Z",
+  "finishedUtc": "2026-08-28T23:05:00.6197831Z",
+  "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+  "captures": [
+    {
+      "scenarioId": "home-default",
+      "expectedState": "New-tab default is Home; sidebar Home is present",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": null,
+      "imageHash": "",
+      "captureMethod": null,
+      "privacyRedactions": null,
+      "assertionResult": {
+        "pass": false,
+        "evidence": {
+          "Pass": false,
+          "Found": [],
+          "Missing": [
+            "Home",
+            "1: Home"
+          ]
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:24.9918340Z",
+      "status": "FAIL",
+      "reason": "{\"Pass\":false,\"Found\":[],\"Missing\":[\"Home\",\"1: Home\"]}",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "browse-column-view",
+      "expectedState": "Column View on a sandbox folder",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "browse-column-view.png",
+      "imageHash": "5622117f49d3ce2c8d841174ded4b83867ce816953004dedf37f5507bbebad05",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:31.9961339Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "home-from-command",
+      "expectedState": "Home restored through the command palette",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "home-from-command.png",
+      "imageHash": "b3485337fac6e407b36a11e5a34f9e0c7da9fd407ceb3525ad06f5a8e062b88b",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787958273,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:34.6654546Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "fast-search-idle",
+      "expectedState": "Fast Search workspace with idle empty state; Filters present; no Filters expansion",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "fast-search-idle.png",
+      "imageHash": "1e060ba91d797252dc580ded68187cf35bfd226fc5807f24fe8f2f29a6c32d11",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'search' activated commandId='search.focus'; selected='Search'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=search.focus\",\"state\":\"{\\\"timestamp\\\":1787958276,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"1001\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":55600,\"popupClasses\":[]}",
+          "Ui": {
+            "Pass": true,
+            "Found": [
+              "Filters",
+              "Search.Results",
+              "7101"
+            ],
+            "Missing": []
+          }
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:37.4312928Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "storage-overview",
+      "expectedState": "Storage Analysis workspace with Overview mode",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "storage-overview.png",
+      "imageHash": "d0064036732cf3c95cfb43300f85f2c96d591d15b0c964451c63d7df66b5da03",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1787958282,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:44.0771907Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "settings-general",
+      "expectedState": "Settings dialog on the General page",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 620,
+      "paneMode": "dialog",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "settings-general.png",
+      "imageHash": "cc5321ee106b9281725eae9405d3c3750faee2e9dcd75f973089d7a0beadb7fd",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "settings opened through the command palette"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:48.7576716Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "command-palette",
+      "expectedState": "Command palette edit 6301 is visible over the shell",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "command-palette.png",
+      "imageHash": "c1745110efe4f79e046f1ec917b36105dd24f956885cb94bfef98b389db34a1d",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette edit present"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:53.2569856Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "home-narrow",
+      "expectedState": "Home remains usable at 800px width",
+      "fixtureId": "sandbox-home",
+      "theme": "Light",
+      "width": 800,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "home-narrow.png",
+      "imageHash": "89e4cb83aa4c19894a613c3c38186072945e2ab83db28f7cb7bd01ade15f77fb",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787958295,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+        }
+      },
+      "timestampUtc": "2026-08-28T23:04:57.3329011Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    },
+    {
+      "scenarioId": "home-dark",
+      "expectedState": "Home after F9 theme toggle",
+      "fixtureId": "sandbox-home",
+      "theme": "Dark",
+      "width": 1280,
+      "paneMode": "single",
+      "dpiScale": 100,
+      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "screenshotPath": "home-dark.png",
+      "imageHash": "481b8314ee3f137e88996b03f4906aee8822ce75931889d391e621d3f5c7f17b",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
+      "assertionResult": {
+        "pass": true,
+        "evidence": {
+          "Pass": true,
+          "Found": [
+            "Home"
+          ],
+          "Missing": []
+        }
+      },
+      "timestampUtc": "2026-08-28T23:05:00.5145065Z",
+      "status": "PASS",
+      "reason": "",
+      "duplicateOf": "",
+      "duplicateReason": ""
+    }
+  ]
+}

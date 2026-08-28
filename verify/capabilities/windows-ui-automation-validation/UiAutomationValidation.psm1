@@ -4643,4 +4643,4 @@ function Invoke-UiAutomationValidationCapability {
     }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry

@@ -1,5 +1,24 @@
 # Fast Files — Agent Workstate
 
+## Final product-completion campaign — interactive visual catalog (2026-08-29)
+
+- Resume derived: `origin/main` = `de6db26`. Hosted CI `33216905107` SUCCESS.
+  Untracked HANDOFF preserved. Authenticode pins remain all-zero placeholders;
+  production signing was not attempted.
+- Ran `verify/visual/Invoke-VisualCatalog.ps1` against debug-diagnostic
+  FastFiles on an interactive 1920x1080 desktop. DWM CopyFromScreen captures
+  live in `openspec/changes/final-product-completion-and-production-readiness/evidence/visual-catalog/`.
+- Catalog-driven product fixes: Settings `SwitchPage` now hides labels and the
+  Density combo; `Show` reapplies the active page; dialog erase uses the theme
+  brush. Storage status STATIC is owner-painted (no white slab).
+- Remaining visual: Storage SysHeader32 chrome, Settings tab remainder, palette
+  overlay can sit under Storage listviews. `home-default` UIA Name lookup is
+  racy; later Home captures are the evidence.
+
+NEXT EXACT ACTION: Debug-build FastFiles, focused CTest, commit catalog
+driver + Settings/Storage fixes + evidence, push without force, inspect
+hosted CI for the exact SHA.
+
 ## Final product-completion campaign — Comfortable density follow-through (2026-08-29)
 
 - Resume derived: `origin/main` = `d21bc23`, hosted CI `33202519685` SUCCESS
