@@ -5,8 +5,8 @@
 - The session began from `af43727` after a fast-forward-only pull on `main`;
   the only pre-existing local change remains the untracked
   `docs/agent/HANDOFF_12H_2026-08-27.md`, which is preserved. No autonomous
-  intake run exists. Local `HEAD` is implementation commit
-  `ceffa009ef566edfc9895c363a68fdd005ddc0fa`; `origin/main` is
+  intake run exists. Local `HEAD` is synchronized candidate
+  `bcd16f7165ffe32cbaab20cf123d3cf24ddcb85a`; `origin/main` is
   `2a3841ceef1b0b99f533ed3bf46d7a63096cc114` until the next explicit
   push/reconciliation.
 - Hosted run `33129228485` passed exact SHA
@@ -86,10 +86,9 @@
   diagnostic-policy checks pass. The latest live UIA result above remains the
   authoritative UIA outcome.
 
-NEXT EXACT ACTION: synchronize the queued OpenSpec tasks, lifecycle evidence,
-progress/audit/prompt docs, and this checkpoint; then run the final committed-
-tree qualification, push the complete candidate, and inspect hosted CI for
-that exact final SHA.
+NEXT EXACT ACTION: run the final committed-tree/release-candidate qualification
+on the synchronized candidate, push it after reconciliation, and inspect
+hosted CI and retained release evidence for that exact final SHA.
 
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 
