@@ -5,71 +5,39 @@
 - The session began from `af43727` after a fast-forward-only pull on `main`;
   the only pre-existing local change remains the untracked
   `docs/agent/HANDOFF_12H_2026-08-27.md`, which is preserved. No autonomous
-  intake run exists. Local `HEAD` is synchronized candidate
-  `bcd16f7165ffe32cbaab20cf123d3cf24ddcb85a`; `origin/main` is
-  `2a3841ceef1b0b99f533ed3bf46d7a63096cc114` until the next explicit
-  push/reconciliation.
-- Hosted run `33129228485` passed exact SHA
-  `2a3841ceef1b0b99f533ed3bf46d7a63096cc114` across all six jobs, including
-  ASAN protocol/IPC/lifecycle, Debug, release-test, Analyze, hygiene, and
-  unsigned release qualification. Its release artifact contains exactly two
-  non-empty JSON files (2,286 and 1,080 bytes), both bound to that SHA. The
-  artifact is explicitly `unsigned-validation`/`productionReady=false`, all
-  version paths are relative, pin sources are redacted, and no annotations
-  were returned.
-- Implementation baseline `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`
-  (tree `64eb812771966279e332d8ec253394548fd2b7a1`) adds the guarded,
-  named MFT/USN/RebuildAll/reconciliation fault seam, fail-closed rebuild
-  completion semantics, durable/projection retention, and deterministic
-  retry/repeated-failure/Close-Open coverage. The status Git-evidence
-  snapshot is a control-plane performance fix required for truthful status
-  evaluation; hosted ASAN and release-readiness definitions use the same
-  three protocol/IPC/lifecycle targets.
-- Final local validation on that implementation tree: Debug CTest 86/86
-  (441.23s), release-test CTest 86/86 (442.47s), Analyze 88/88 warning-clean,
-  ASAN 3/3 (113.76s), strict OpenSpec 76/76, verifier build 9/9, exact-tree
-  qualification PASS with nine checks, policy/status/doctor/provenance gates
-  PASS, and `git diff --check` PASS.
-- Hosted run `33122565103` passed the exact baseline SHA: hygiene, Debug,
-  release-test, Analyze, ASAN protocol/IPC/lifecycle 3/3, and unsigned
-  release qualification. The old `@v4` artifact action emitted its Node 20
-  deprecation warning; the follow-up action update is recorded below.
-- The active rule-pruning ledger is now 22/22 checked and its lifecycle entry
-  is completed with the evidence record
-  `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md`.
-- Handoff commit `0583790c3ac1ca477b6d26e3b8603d975b3b69ae` and exact hosted run
-  `33124312993` reproduced the release retention gap: all six jobs passed but
-  no `release-qualification-*` artifact existed, only project-status evidence.
-  Commit `030bd1721b60bf191a7a7529984a0755f4d5ee2a` added deterministic,
-  workflow-owned retention; exact hosted run `33126152267` passed and emitted
-  the two expected non-empty JSON files bound to that SHA.
-- Commit `cff3659c4ef6f095734aebc6b1e620ed87b8588f` moved both artifact uploads
-  to `actions/upload-artifact@v6`. Exact hosted run `33127448038` passed all
-  six jobs and reported a non-empty 2,428-byte release artifact. Inspection
-  then found absolute CI paths in its otherwise safe-looking metadata.
-- Commit `967546a849cbb46c6fd491fd65929fef8ddeb520` fixes that newly reproduced
-  issue: candidate version evidence is rewritten to kit-relative paths and
-  `Get-SafePinState` redacts path-valued pin sources. Its regression assertions
-  cover candidate and retained provenance metadata. Commit
-  `c132721b1385fff097fee73dbd8d061262c035ad` separately rejects an active
-  lifecycle entry with zero unchecked task lines; its focused project-status
-  test passed locally.
-- Fresh correctness audit confirmed a material cold-reload defect: the
-  projection rebuild discarded `Store::ForEachEntry` failure, could clear the
-  cold marker, and could expose a partial resident volume. Commit
-  `ceffa009ef566edfc9895c363a68fdd005ddc0fa`
-  makes rebuild status explicit, removes partial rows, retains the cold retry
-  marker, propagates failed rule enumeration, and makes snapshot export fail
-  closed. New projection recovery coverage and the dependent engine pipeline
-  test pass.
-- `Test-ReleaseTooling.ps1` first failed only against stale/incomplete default
-  `build/release` input. A fresh `build/release-test` build followed by the
-  same suite passed with `Failures: 0`.
+  intake run exists. The reconciled implementation candidate is
+  `faca10e728160ebb60fe1148b5721f14d057ec42`; after the push and fetch,
+  local `HEAD == origin/main` at that SHA and the tracked tree is clean.
+- The implementation lineage is `f65b3bfc` (guarded fault/reconciliation
+  seams), `030bd172`/`cff3659c`/`967546a8` (retained release evidence,
+  artifact-v6 upload, and metadata redaction), `c132721b` (active-ledger
+  guard), `ceffa009` (fail-closed projection cold reload), `bcd16f71`
+  (synchronized tasks/evidence/docs and verifier hardening), and the
+  synchronized candidate `faca10e7`.
+- The material cold-reload defect was fixed: failed `Store::ForEachEntry`
+  streams now remove partial projection rows, retain the cold retry marker,
+  return failure, propagate failed rule enumeration, and make snapshot export
+  fail closed. The projection recovery and dependent engine-pipeline tests
+  cover the failure, retry, and successful reopen path.
+- Exact committed-tree local validation passed: clean release-test candidate
+  configure/build `[355/355]`, full release-test CTest `86/86`, release
+  candidate qualification `Failures: 0`, exact-tree qualification `8/8`,
+  strict OpenSpec `76/76`, focused truth slice `4/4`, Analyze warning-clean,
+  and ASAN protocol/IPC/lifecycle `3/3`. The release artifact checks passed
+  with relative metadata paths, redacted pin sources, deterministic archive
+  output, and missing-signature rejection.
+- Hosted run `33143422878` passed exact SHA
+  `faca10e728160ebb60fe1148b5721f14d057ec42` across all six jobs: hygiene,
+  Analyze, Debug, ASAN protocol/IPC/lifecycle, release-test, and unsigned
+  release qualification. The retained release artifact is non-empty and
+  SHA-bound; its manifest/provenance classify the candidate as
+  `unsigned-validation` with `productionReady=false`, no absolute metadata
+  paths, and redacted signing-pin sources. All six hosted check runs returned
+  zero annotations.
 - External production signing/pins, privileged MFT/USN operation, clean-host,
   guest/provider, and physical-display evidence remain unavailable and are
-  not claimed. Older `2/2` ASAN references in historical checkpoints are
-  explicitly historical; the current authority is the three-target hosted
-  ASAN slice.
+  not claimed. Older ASAN references in historical checkpoints are explicitly
+  historical; the current authority is the three-target hosted ASAN slice.
 - Live UIA follow-up: the diagnostic build completed cleanly (`[82/82]`). The
   verifier was corrected for the omitted search fixture, duplicate palette
   toggles, persistent-host scope selection, separate Win32 helper type guards,
@@ -82,13 +50,14 @@
   is explicitly recorded as external.
 - Truth-surface checks after synchronization: UIA driver headless tests and
   scenario-selection tests pass; the focused CTest status/doc-drift/
-  projection/engine slice is 4/4; strict OpenSpec is 76/76; source-marker and
-  diagnostic-policy checks pass. The latest live UIA result above remains the
-  authoritative UIA outcome.
+  projection/engine slice is `4/4`; source-marker and diagnostic-policy
+  checks pass. The latest live UIA result above remains the authoritative UIA
+  outcome.
 
-NEXT EXACT ACTION: run the final committed-tree/release-candidate qualification
-on the synchronized candidate, push it after reconciliation, and inspect
-hosted CI and retained release evidence for that exact final SHA.
+NEXT EXACT ACTION: no further implementation action is warranted in this
+slice. On the next resume, derive the current hosted result from the live
+SHA; the next substantive frontier is the externally constrained UIA/provider
+journey and production signing/privileged clean-host evidence.
 
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 
