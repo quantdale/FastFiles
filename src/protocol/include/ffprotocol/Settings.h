@@ -7,6 +7,7 @@
 namespace ffprotocol {
 
 enum class ThemePreference { Light, Dark, FollowSystem };
+enum class DensityPreference { Compact, Comfortable };
 
 struct DirectoryRule {
     std::wstring path;
@@ -25,6 +26,7 @@ struct Settings {
     std::wstring defaultSearchScope = L"Everywhere";
     bool retainSearchHistory = true;
     ThemePreference theme = ThemePreference::FollowSystem;
+    DensityPreference density = DensityPreference::Compact;
     std::wstring startupLocation = L"This PC";
     bool restorePreviousSession = true;
     bool previewEnabled = true;

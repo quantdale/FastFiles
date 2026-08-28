@@ -51,7 +51,7 @@ constexpr float kHomeNarrowMaxWidth = 480.0f;  // viewport < this => single colu
 constexpr float kHomeWideMinWidth = 1100.0f;   // viewport >= this => wide content cap
 constexpr float kHomeMinColumnWidth = 220.0f;  // 2-col needs two columns of >= this
 constexpr int kHomeMaxItems = 200;             // defensive total-item cap
-constexpr int kHomeActionCount = 4;            // quick actions: New Tab/Search/Open Path/Settings
+constexpr int kHomeActionCount = 5;            // New Tab/Search/Analyze Storage/Open Path/Settings
 
 enum class HomeSectionKind {
     Pinned = 0,

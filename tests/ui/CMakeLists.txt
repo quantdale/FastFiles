@@ -45,6 +45,10 @@ add_executable(ffhome_layout_tests test_home_layout.cpp)
 target_include_directories(ffhome_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffhome_layout_tests COMMAND ffhome_layout_tests)
 
+add_executable(ffsidebar_destinations_tests test_sidebar_destinations.cpp)
+target_include_directories(ffsidebar_destinations_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffsidebar_destinations_tests COMMAND ffsidebar_destinations_tests)
+
 add_executable(ffcolumn_hit_test_tests test_column_hit_test.cpp)
 target_include_directories(ffcolumn_hit_test_tests PRIVATE
     ../../src/ui/src ../../src/ui/include ../../src/protocol/include

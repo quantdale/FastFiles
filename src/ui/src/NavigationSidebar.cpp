@@ -2,6 +2,7 @@
 #include "UiComponents.h"
 #include "QuickActions.h"
 #include "ffui/DisplayPath.h"
+#include "ffui/SidebarDestinations.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -24,11 +25,15 @@ constexpr UINT kBookmarkMoveDown = 4;
 constexpr UINT kKnownFolderRetry = 5;
 // ui-v3 sidebar: collapsed-rail tooltip ids live outside the row-id space.
 constexpr UINT_PTR kToolRailHome = 0x10000;
+constexpr UINT_PTR kToolRailSearch = 0x10002;
+constexpr UINT_PTR kToolRailStorage = 0x10003;
 constexpr UINT_PTR kToolRailExpand = 0x10001;
 // ui-v3 sidebar: Segoe MDL2 Assets glyphs -- the same family NavigationChrome
 // and ColumnView already standardize on for command/navigation icons.
 constexpr wchar_t kGlyphHome = L'\uE80F';
 constexpr wchar_t kGlyphFolder = L'\uE8B7';
+constexpr wchar_t kGlyphSearch = L'\uE721';
+constexpr wchar_t kGlyphStorage = L'\uE9D2';
 
 // Scale a DIP metric to physical pixels for Win32 control layout. Exact
 // int/float overloads so theme-token floats and literal ints never convert
@@ -210,17 +215,24 @@ void DrawFocusRing(HDC dc, const RECT& rect, int radius, COLORREF color) {
 // kTargetMinSize pointer-target floor.
 struct RailLayout {
     RECT home{};
+    RECT search{};
+    RECT storage{};
     RECT expand{};
 };
 
 RailLayout ComputeRailLayout(const RECT& client) {
     const int side = Scaled(UiMetrics::kTargetMinSize);
+    const int gap = Scaled(UiMetrics::kSpaceXs);
     const int x = (std::max)(0, static_cast<int>(((client.right - client.left) - side) / 2));
-    const int homeTop = Scaled(UiMetrics::kSpaceS);
-    const RailLayout rail{
-        RECT{x, homeTop, x + side, homeTop + side},
-        RECT{x, homeTop + side + Scaled(UiMetrics::kSpaceXs), x + side,
-             homeTop + side * 2 + Scaled(UiMetrics::kSpaceXs)}};
+    int y = Scaled(UiMetrics::kSpaceS);
+    RailLayout rail;
+    rail.home = RECT{x, y, x + side, y + side};
+    y += side + gap;
+    rail.search = RECT{x, y, x + side, y + side};
+    y += side + gap;
+    rail.storage = RECT{x, y, x + side, y + side};
+    y += side + gap;
+    rail.expand = RECT{x, y, x + side, y + side};
     return rail;
 }
 } // namespace
@@ -287,6 +299,12 @@ void NavigationSidebar::SetFocusedRow(int row) {
     InvalidateRect(window_, nullptr, FALSE);
 }
 
+void NavigationSidebar::SetActiveWorkspace(ActiveWorkspace workspace) {
+    if (activeWorkspace_ == workspace) return;
+    activeWorkspace_ = workspace;
+    if (window_) InvalidateRect(window_, nullptr, FALSE);
+}
+
 int NavigationSidebar::ItemHeightPx() const {
     return Scaled(GetUiDensity(gUiDensityProfile).rowHeight);
 }
@@ -304,10 +322,13 @@ int NavigationSidebar::HitTestRow(const POINT& point) const {
 
 bool NavigationSidebar::IsRowCurrent(const Row& row) const {
     if (!workspace_) return false;
+    if (activeWorkspace_ == ActiveWorkspace::Search) return row.search;
+    if (activeWorkspace_ == ActiveWorkspace::Storage) return row.storage;
     // quick-access-home 5.1: the Home row is current whenever the active
     // context is Home (its path is empty, so the path match below would
     // otherwise never select it).
     if (row.home) return workspace_->ActiveContext().isHomeLocation;
+    if (row.search || row.storage) return false;
     if (row.path.empty()) return false;
     const auto normalized = [](const std::wstring& value) -> std::wstring {
         std::wstring result = value;
@@ -326,7 +347,7 @@ void NavigationSidebar::ActivateRow(int index, bool openInNewTab) {
     if (index < 0 || index >= static_cast<int>(rows_.size())) return;
     const Row& row = rows_[static_cast<size_t>(index)];
     if (row.kind != RowKind::Item || !navigate_) return;
-    navigate_({row.path, row.label, openInNewTab, row.home});
+    navigate_({row.path, row.label, openInNewTab, row.home, row.search, row.storage});
     InvalidateRect(window_, nullptr, FALSE);
 }
 
@@ -348,29 +369,46 @@ void NavigationSidebar::RebuildRows() {
     hoveredRow_ = -1;
     pressedRow_ = -1;
     if (!workspace_ || workspace_->State().sidebarCollapsed) return;
-    const auto addSection = [this](int section, const wchar_t* label) {
-        rows_.push_back({RowKind::Section, section, 0, {}, std::wstring(label), {}});
-    };
-    const auto addItems = [this](int section, const std::vector<Bookmark>& items) {
-        for (size_t index = 0; index < items.size(); ++index) {
-            rows_.push_back({RowKind::Item, section, index, {}, items[index].displayName, items[index].path});
-        }
-    };
-    // quick-access-home 5.1: a single Home entry precedes the Drives section.
-    // It has no section header (section -1), no leading indentation, and no
-    // filesystem path -- Home is a distinct navigation kind, not a folder.
-    rows_.push_back({RowKind::Item, -1, 0, {}, L"Home", {}, true});
     const auto& state = workspace_->State();
-    addSection(0, L"Drives");
-    if (!state.drivesCollapsed) {
-        std::vector<Bookmark> drives;
-        for (const auto& path : NavigationWorkspace::EnumerateDrives()) drives.push_back({path, path});
-        addItems(0, drives);
+    SidebarDestinationInput input;
+    input.drivesCollapsed = state.drivesCollapsed;
+    input.knownFoldersCollapsed = state.knownFoldersCollapsed;
+    input.bookmarksCollapsed = state.bookmarksCollapsed;
+    for (const auto& path : NavigationWorkspace::EnumerateDrives()) input.drives.push_back({path, path});
+    for (const auto& folder : workspace_->EnumerateKnownFolders()) {
+        input.knownFolders.push_back({folder.path, folder.displayName});
     }
-    addSection(1, L"Known Folders");
-    if (!state.knownFoldersCollapsed) addItems(1, workspace_->EnumerateKnownFolders());
-    addSection(2, L"Bookmarks");
-    if (!state.bookmarksCollapsed) addItems(2, state.bookmarks);
+    for (const auto& bookmark : state.bookmarks) {
+        input.bookmarks.push_back({bookmark.path, bookmark.displayName});
+    }
+    const auto destinations = BuildSidebarDestinations(input);
+    size_t driveIndex = 0;
+    size_t knownIndex = 0;
+    size_t bookmarkIndex = 0;
+    for (const auto& destination : destinations) {
+        Row row{};
+        row.label = destination.label;
+        row.path = destination.path;
+        row.home = destination.kind == SidebarDestinationKind::Home;
+        row.search = destination.kind == SidebarDestinationKind::Search;
+        row.storage = destination.kind == SidebarDestinationKind::Storage;
+        if (destination.kind == SidebarDestinationKind::Section) {
+            row.kind = RowKind::Section;
+            if (destination.label == L"Drives") row.section = 0;
+            else if (destination.label == L"Known Folders") row.section = 1;
+            else row.section = 2;
+        } else {
+            row.kind = RowKind::Item;
+            row.section = row.home || row.search || row.storage ? -1
+                          : destination.kind == SidebarDestinationKind::Drive        ? 0
+                          : destination.kind == SidebarDestinationKind::KnownFolder ? 1
+                                                                                    : 2;
+            if (destination.kind == SidebarDestinationKind::Drive) row.item = driveIndex++;
+            else if (destination.kind == SidebarDestinationKind::KnownFolder) row.item = knownIndex++;
+            else if (destination.kind == SidebarDestinationKind::Bookmark) row.item = bookmarkIndex++;
+        }
+        rows_.push_back(std::move(row));
+    }
 }
 
 void NavigationSidebar::EnsureFonts() {
@@ -409,6 +447,8 @@ void NavigationSidebar::EnsureFonts() {
     // and degrade to icon-less rows instead of tofu.
     glyphsHome_ = glyphsAvailable_ && GlyphMapped(kGlyphHome);
     glyphsFolder_ = glyphsAvailable_ && GlyphMapped(kGlyphFolder);
+    glyphsSearch_ = glyphsAvailable_ && GlyphMapped(kGlyphSearch);
+    glyphsStorage_ = glyphsAvailable_ && GlyphMapped(kGlyphStorage);
     if (tooltip_ != nullptr) SendMessageW(tooltip_, WM_SETFONT, reinterpret_cast<WPARAM>(bodyFont_), FALSE);
 }
 
@@ -493,6 +533,8 @@ void NavigationSidebar::RefreshTools(const RECT& client) {
     if (collapsed) {
         const RailLayout rail = ComputeRailLayout(client);
         addTool(kToolRailHome, rail.home);
+        addTool(kToolRailSearch, rail.search);
+        addTool(kToolRailStorage, rail.storage);
         addTool(kToolRailExpand, rail.expand);
     } else {
         for (size_t index = 0; index < rows_.size(); ++index) {
@@ -515,28 +557,35 @@ void NavigationSidebar::DrawRail(HDC dc, const RECT& client, const UiTheme& them
                                  COLORREF background) {
     const RailLayout rail = ComputeRailLayout(client);
     const int radius = Scaled(UiMetrics::kRadiusSmall);
-    const RECT* rects[2] = {&rail.home, &rail.expand};
-    const RailHit hits[2] = {RailHit::Home, RailHit::Expand};
-    for (int button = 0; button < 2; ++button) {
+    const RECT* rects[4] = {&rail.home, &rail.search, &rail.storage, &rail.expand};
+    const RailHit hits[4] = {RailHit::Home, RailHit::Search, RailHit::Storage, RailHit::Expand};
+    const wchar_t glyphs[4] = {kGlyphHome, kGlyphSearch, kGlyphStorage, 0};
+    const bool mapped[4] = {glyphsHome_, glyphsSearch_, glyphsStorage_, false};
+    for (int button = 0; button < 4; ++button) {
         UiVisualState state = UiVisualState::Rest;
         if (pressedRail_ == hits[button]) state = UiVisualState::Pressed;
         else if (hoveredRail_ == hits[button]) state = UiVisualState::Hover;
+        else if ((hits[button] == RailHit::Search && activeWorkspace_ == ActiveWorkspace::Search) ||
+                 (hits[button] == RailHit::Storage && activeWorkspace_ == ActiveWorkspace::Storage) ||
+                 (hits[button] == RailHit::Home && activeWorkspace_ != ActiveWorkspace::Search &&
+                  activeWorkspace_ != ActiveWorkspace::Storage && workspace_ &&
+                  workspace_->ActiveContext().isHomeLocation)) {
+            state = UiVisualState::SelectedUnfocused;
+        }
         const NavPaint paint = ResolveNavPaint(theme, state, highContrast, background);
         if (paint.hasFill) UiGdiRoundedRect(dc, *rects[button], paint.fill, radius);
-        if (hits[button] == RailHit::Home) {
-            if (glyphsAvailable_) {
-                if (HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_))) {
-                    SetBkMode(dc, TRANSPARENT);
-                    SetTextColor(dc, paint.text);
-                    RECT glyphRect = *rects[button];
-                    DrawTextW(dc, &kGlyphHome, 1, &glyphRect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
-                    SelectObject(dc, previous);
-                }
-            }
-        } else {
+        if (hits[button] == RailHit::Expand) {
             const POINT center{(rects[button]->left + rects[button]->right) / 2,
                                (rects[button]->top + rects[button]->bottom) / 2};
             DrawChevron(dc, center, Scaled(4), /*expanded=*/false, paint.text);
+        } else if (mapped[button]) {
+            if (HFONT previous = static_cast<HFONT>(SelectObject(dc, glyphFont_))) {
+                SetBkMode(dc, TRANSPARENT);
+                SetTextColor(dc, paint.text);
+                RECT glyphRect = *rects[button];
+                DrawTextW(dc, &glyphs[button], 1, &glyphRect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
+                SelectObject(dc, previous);
+            }
         }
     }
 }
@@ -597,7 +646,7 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
         } else {
             // quick-access-home 5.1: the Home row has an empty path but is a
             // real, navigable destination -- never render it unavailable.
-            const bool unavailable = row.path.empty() && !row.home;
+            const bool unavailable = row.path.empty() && !row.home && !row.search && !row.storage;
             const bool pressed = static_cast<int>(index) == pressedRow_;
             const bool hovered = static_cast<int>(index) == hoveredRow_;
             const bool selected = IsRowCurrent(row);
@@ -628,8 +677,14 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
             } else {
                 // ui-v3 hardening: per-glyph coverage guard — draw only glyphs
                 // this font actually maps; never tofu.
-                const wchar_t glyph = row.home ? kGlyphHome : kGlyphFolder;
-                const bool mapped = row.home ? glyphsHome_ : glyphsFolder_;
+                const wchar_t glyph = row.home      ? kGlyphHome
+                                      : row.search  ? kGlyphSearch
+                                      : row.storage ? kGlyphStorage
+                                                    : kGlyphFolder;
+                const bool mapped = row.home      ? glyphsHome_
+                                    : row.search  ? glyphsSearch_
+                                    : row.storage ? glyphsStorage_
+                                                  : glyphsFolder_;
                 HFONT previous =
                     mapped ? static_cast<HFONT>(SelectObject(dc, glyphFont_)) : nullptr;
                 if (previous != nullptr) {
@@ -662,6 +717,8 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
 NavigationSidebar::RailHit NavigationSidebar::HitTestRail(const POINT& point, const RECT& client) const {
     const RailLayout rail = ComputeRailLayout(client);
     if (PtInRect(&rail.home, point)) return RailHit::Home;
+    if (PtInRect(&rail.search, point)) return RailHit::Search;
+    if (PtInRect(&rail.storage, point)) return RailHit::Storage;
     if (PtInRect(&rail.expand, point)) return RailHit::Expand;
     return RailHit::None;
 }
@@ -736,12 +793,21 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                 RECT client{};
                 GetClientRect(hwnd, &client);
                 const RailHit hit = HitTestRail(point, client);
-                if (hit == RailHit::Home) {
-                    // ui-v3 sidebar: the rail keeps the Home destination
-                    // reachable while collapsed (rows_ is empty here, so this
-                    // navigates directly).
+                if (hit == RailHit::Home || hit == RailHit::Search || hit == RailHit::Storage) {
                     if (navigate_) {
-                        navigate_({{}, L"Home", message == WM_MBUTTONDOWN, true});
+                        NavigationTarget target;
+                        target.openInNewTab = message == WM_MBUTTONDOWN;
+                        if (hit == RailHit::Home) {
+                            target.displayName = L"Home";
+                            target.isHome = true;
+                        } else if (hit == RailHit::Search) {
+                            target.displayName = L"Fast Search";
+                            target.isSearch = true;
+                        } else {
+                            target.displayName = L"Storage Analysis";
+                            target.isStorage = true;
+                        }
+                        navigate_(target);
                     }
                     InvalidateRect(window_, nullptr, FALSE);
                     return 0;
@@ -924,6 +990,10 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                 tooltipText_.clear();
                 if (info->hdr.idFrom == kToolRailHome) {
                     tooltipText_ = L"Home";
+                } else if (info->hdr.idFrom == kToolRailSearch) {
+                    tooltipText_ = L"Fast Search";
+                } else if (info->hdr.idFrom == kToolRailStorage) {
+                    tooltipText_ = L"Storage Analysis";
                 } else if (info->hdr.idFrom == kToolRailExpand) {
                     tooltipText_ = L"Expand sidebar";
                 } else if (info->hdr.idFrom < rows_.size()) {
@@ -934,7 +1004,9 @@ LRESULT NavigationSidebar::HandleMessage(HWND hwnd, UINT message, WPARAM wParam,
                         tooltipText_ = row.path.empty()
                             ? row.label
                             : ffui::NormalizePathDerivedDisplayLabel(row.label, row.path);
-                        if (row.path.empty() && !row.home) tooltipText_ += L" (unavailable)";
+                        if (row.path.empty() && !row.home && !row.search && !row.storage) {
+                            tooltipText_ += L" (unavailable)";
+                        }
                         if (!row.path.empty() && row.path != row.label) {
                             tooltipText_ += L"\n";
                             tooltipText_ += ffui::NormalizeDisplayPath(row.path);

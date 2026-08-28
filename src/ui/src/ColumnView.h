@@ -749,7 +749,7 @@ inline bool HomeItemFocusable(const ffui::HomeData& data, const ffui::HomeItemLa
                    item.indexInSection < static_cast<int>(data.knownFolders.size()) &&
                    !data.knownFolders[static_cast<size_t>(item.indexInSection)].path.empty();
         case ffui::HomeSectionKind::QuickActions:
-            return item.indexInSection >= 0 && item.indexInSection < 4;
+            return item.indexInSection >= 0 && item.indexInSection < ffui::kHomeActionCount;
     }
     return false;
 }
@@ -902,10 +902,12 @@ inline std::optional<ffui::HomeActivation> ComputeHomeActivation(const ffui::Hom
             activation.openInNewTab = openInNewTab;
             break;
         case ffui::HomeSectionKind::QuickActions: {
-            // quick-access-home 4.7: New Tab / Search / Open Path / Settings map
-            // to existing commands only (design D4).
+            // quick-access-home 4.7 / final-product-completion 5.1: New Tab /
+            // Search / Analyze Storage / Open Path / Settings map to existing
+            // commands only (design D4).
             static const wchar_t* kCommands[] = {
-                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
+                L"navigation.new-tab", L"search.focus", L"storage.analyze", L"navigation.focus-path",
+                L"app.settings"};
             activation.kind = ffui::HomeActionKind::QuickAction;
             activation.value = kCommands[found->indexInSection];
             break;

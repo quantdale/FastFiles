@@ -260,7 +260,8 @@ bool RegisterSearchCommands(CommandRegistry& registry, const BaselineHandlers& h
 
 bool RegisterStorageCommands(CommandRegistry& registry, const BaselineHandlers& handlers) {
     return RegisterOne(registry, handlers, L"storage.analyze", L"Analyze Storage", L"Storage", kAnySelection,
-                       ShortcutScope::Global);
+                       ShortcutScope::Global,
+                       KeyChord{'S', static_cast<uint8_t>(ModifierControl | ModifierShift)});
 }
 
 bool RegisterPropertiesCommands(CommandRegistry& registry, const BaselineHandlers& handlers) {
@@ -590,6 +591,7 @@ const wchar_t* CommandDisplayGlyph(const std::wstring& commandId) {
         {L"navigation.add-bookmark", L"\uE734"},     // FavoriteStar
         {L"selection.select-all", L"\uE73E"},        // CheckMark
         {L"search.focus", L"\uE721"},                // Search
+        {L"storage.analyze", L"\uE9D2"},             // Diagnostic / storage
         {L"app.settings", L"\uE713"},                // Setting
         {L"file.copy", L"\uE8C8"},                   // Copy
         {L"file.cut", L"\uE8C6"},                    // Cut

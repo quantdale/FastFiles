@@ -2137,9 +2137,10 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     break;
                 }
                 case HomeSectionKind::QuickActions: {
-                    static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Open Path", L"Settings"};
-                    static const wchar_t* kGlyphs[] = {L"\uE8A7", L"\uE721", L"\uE8B7", L"\uE713"};
-                    if (item.indexInSection >= 0 && item.indexInSection < 4) {
+                    static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Analyze Storage", L"Open Path",
+                                                       L"Settings"};
+                    static const wchar_t* kGlyphs[] = {L"\uE8A7", L"\uE721", L"\uE9D2", L"\uE8B7", L"\uE713"};
+                    if (item.indexInSection >= 0 && item.indexInSection < ffui::kHomeActionCount) {
                         primary = kLabels[item.indexInSection];
                         glyph = kGlyphs[item.indexInSection];
                     }
@@ -2538,10 +2539,12 @@ UiaHomeItemInfo ColumnView::UiaHomeItemInfoOf(int pane, int globalIndex) const {
             break;
         }
         case HomeSectionKind::QuickActions: {
-            static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Open Path", L"Settings"};
+            static const wchar_t* kLabels[] = {L"New Tab", L"Search", L"Analyze Storage", L"Open Path",
+                                               L"Settings"};
             static const wchar_t* kCommands[] = {
-                L"navigation.new-tab", L"search.focus", L"navigation.focus-path", L"app.settings"};
-            if (found->indexInSection >= 0 && found->indexInSection < 4) {
+                L"navigation.new-tab", L"search.focus", L"storage.analyze", L"navigation.focus-path",
+                L"app.settings"};
+            if (found->indexInSection >= 0 && found->indexInSection < ffui::kHomeActionCount) {
                 info.primary = kLabels[found->indexInSection];
                 info.value = kCommands[found->indexInSection];
             }

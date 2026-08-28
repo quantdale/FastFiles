@@ -586,8 +586,11 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     settings.vacuumIntervalHours = 48;
     settings.vacuumSizeGrowthPercent = 15;
     settings.indexing = {{L"C:\\", true, {{L"C:\\Work\\Private", false}}}};
+    settings.density = DensityPreference::Comfortable;
     Check(SaveSettings(settings), "settings are written as UTF-8 JSON");
     const Settings loaded = LoadSettings();
+    Check(loaded.density == DensityPreference::Comfortable,
+          "appearance density round-trips through JSON");
     Check(loaded.startupLocation == settings.startupLocation && loaded.defaultSearchScope == settings.defaultSearchScope,
           "escaped Windows and Unicode paths round-trip without accumulating backslashes");
     Check(loaded.vacuumIntervalHours == settings.vacuumIntervalHours &&
@@ -626,6 +629,8 @@ void TestSettingsUtf8RoundTripAndCorruptionRecovery() {
     Check(sectionFallback.theme == DefaultSettings().theme && sectionFallback.startupLocation == L"D:\\Valid"
               && !sectionFallback.restorePreviousSession,
           "an invalid section falls back independently without discarding valid sections");
+    Check(sectionFallback.density == DensityPreference::Compact,
+          "missing appearance density defaults Compact");
     const std::wstring settingsLog = std::wstring(uniquePath) + L"\\FastFiles\\logs\\settings.log";
     Check(GetFileAttributesW(settingsLog.c_str()) != INVALID_FILE_ATTRIBUTES,
           "section fallback writes a metadata-only diagnostic log entry");

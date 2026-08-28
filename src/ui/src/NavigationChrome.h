@@ -57,14 +57,17 @@ public:
     // typed so back/forward/new-tab/tab-switch can carry the Home kind.
     using NavigateHandler = std::function<void(const ffui::NavigationLocation&, bool restoreTabState)>;
     using BeforeTabChangeHandler = std::function<void()>;
+    using ToolCommandHandler = std::function<void(const std::wstring& commandId)>;
 
     ~NavigationChrome();
     bool Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate,
-                    BeforeTabChangeHandler beforeTabChange = {});
+                    BeforeTabChangeHandler beforeTabChange = {},
+                    ToolCommandHandler toolCommand = {});
     void Reposition();
     void Refresh();
     void FocusAddressBar();
     void SetDarkTheme(bool dark);
+    void SetSearchActive(bool active);
     bool Visible() const { return window_ != nullptr; }
 
 private:
@@ -99,6 +102,7 @@ private:
     // ui-v3 shell: shared icon-button presentation for Back/Forward/New Tab —
     // one family, hover/pressed/disabled/focus resolved identically.
     void DrawIconButton(const DRAWITEMSTRUCT* item, const wchar_t* glyph, bool mirrorGlyph);
+    void DrawSearchField(const DRAWITEMSTRUCT* item);
     void SetControlHover(HWND control, int controlId, bool hover);
     void SetControlPressed(HWND control, int controlId, bool pressed);
     void SetCloseHover(HWND hwnd, bool hover);
@@ -112,12 +116,16 @@ private:
     HWND window_ = nullptr;
     HWND back_ = nullptr;
     HWND forward_ = nullptr;
+    HWND up_ = nullptr;
     HWND drives_ = nullptr;
     HWND addressEdit_ = nullptr;
+    HWND search_ = nullptr;
     HWND newTab_ = nullptr;
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;
     BeforeTabChangeHandler beforeTabChange_;
+    ToolCommandHandler toolCommand_;
+    bool searchActive_ = false;
     std::vector<std::wstring> drivePaths_;
     std::vector<RECT> breadcrumbRects_;
     // ui-v3 shell: original breadcrumb index per painted rect; -1 marks the

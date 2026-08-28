@@ -157,6 +157,7 @@ private:
 
     // General page controls
     HWND themeCombo_ = nullptr;
+    HWND densityCombo_ = nullptr;
     HWND previewCheck_ = nullptr;
     HWND previewSizeEdit_ = nullptr;
 

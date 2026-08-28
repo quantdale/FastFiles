@@ -1,5 +1,29 @@
 # Fast Files — Agent Workstate
 
+## Final product-completion campaign — shell product map (2026-08-29)
+
+- Starting SHA (derived at resume): `3fa9fd44d5cbee68cdf07a6522e182a2de0a564b` =
+  `origin/main`, hosted CI run `33145596607` SUCCESS. Untracked
+  `docs/agent/HANDOFF_12H_2026-08-27.md` preserved. PR #6 remains superseded
+  (`docs/pr6-stabilization-reconciliation.md`); no unique code to port.
+- Opened OpenSpec `final-product-completion-and-production-readiness` (active
+  in `openspec/lifecycle.json`). Experience architecture: Browse / Home /
+  Fast Search / Storage Analysis as exclusive `contentRect` workspaces.
+- Implemented: sidebar product map (Home, Fast Search, Storage Analysis,
+  then Drives/Known Folders/Bookmarks); chrome tabs-on-top + Back/Forward/Up +
+  breadcrumb + Fast Search field (drive combo hidden; 72 DIP height preserved);
+  Compact/Comfortable density persisted as `appearance.density`; Home Analyze
+  Storage action (`kHomeActionCount` = 5); Ctrl+Shift+S for `storage.analyze`.
+- Debug CTest: 87/87 PASS (new `ffsidebar_destinations_tests`). Remaining in
+  this change: Search/Storage interior presentation (task 6), release-test /
+  Analyze / ASAN / OpenSpec / push / hosted CI (task 7).
+- External still: production signing/pins, privileged MFT/USN, live
+  foreground UIA host, administrative PR #6 close.
+
+NEXT EXACT ACTION: run release-test CTest + Analyze + ASAN slice, then
+commit/push this shell wave if those gates are green; continue task 6
+Search/Storage presentation if time remains.
+
 ## Completion-integrity campaign — cold-reload correctness + release evidence (2026-08-28)
 
 - The session began from `af43727` after a fast-forward-only pull on `main`;

@@ -12,12 +12,19 @@ constexpr int kBackId = 8201;
 constexpr int kForwardId = 8202;
 constexpr int kDriveId = 8203;
 constexpr int kNewTabId = 8204;
+constexpr int kUpId = 8205;
+constexpr int kSearchId = 8206;
 constexpr int kTabCloseBaseId = 8400;
 constexpr UINT WM_APP_ADDRESS_FOCUS_LOST = WM_APP + 52;
 constexpr int kChromeHeight = 72;
-// ui-v3 shell: shared layout constants for the navigation row so painting and
-// hit-testing never drift apart.
-constexpr int kAddressLeftDip = 78;
+// final-product-completion-and-production-readiness 3.1: tabs occupy the first
+// row; Back/Forward/Up + breadcrumb + Fast Search occupy the toolbar row.
+constexpr int kTabRowTopDip = 4;
+constexpr int kToolbarRowTopDip = 40;
+constexpr int kToolbarControlHeightDip = 28;
+constexpr int kAddressLeftDip = 110;
+constexpr int kSearchFieldWidthDip = 220;
+constexpr int kSearchFieldNarrowDip = 36;
 
 // Scale a DIP metric to physical pixels for Win32 control layout. Accepts a
 // float so themed corner radii (UiMetrics::kRadiusMedium) pass without a
@@ -79,11 +86,13 @@ std::wstring GetControlText(HWND hwnd) {
 NavigationChrome::~NavigationChrome() { Cleanup(); }
 
 bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, NavigateHandler navigate,
-                                  BeforeTabChangeHandler beforeTabChange) {
+                                  BeforeTabChangeHandler beforeTabChange,
+                                  ToolCommandHandler toolCommand) {
     owner_ = owner;
     workspace_ = workspace;
     navigate_ = std::move(navigate);
     beforeTabChange_ = std::move(beforeTabChange);
+    toolCommand_ = std::move(toolCommand);
     WNDCLASSW windowClass{};
     windowClass.lpfnWndProc = &NavigationChrome::WindowProcThunk;
     windowClass.hInstance = GetModuleHandleW(nullptr);
@@ -101,9 +110,14 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
                             0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
     forward_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kForwardId)), nullptr, nullptr);
-    drives_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST |
+    up_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                          0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
+    drives_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST |
                                  CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
                               0, 0, Scaled(140), Scaled(260), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDriveId)), nullptr, nullptr);
+    search_ = CreateWindowExW(0, L"BUTTON", L"Fast Search", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                              0, 0, Scaled(kSearchFieldWidthDip), Scaled(28), window_,
+                              reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSearchId)), nullptr, nullptr);
     newTab_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                               0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNewTabId)), nullptr, nullptr);
     // ui-v3 shell: the address edit is borderless — while editing, the
@@ -111,7 +125,7 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     // transformation of the breadcrumb, not a different subsystem.
     addressEdit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
                                    0, 0, Scaled(200), Scaled(28), window_, nullptr, nullptr, nullptr);
-    if (!back_ || !forward_ || !drives_ || !newTab_ || !addressEdit_) return false;
+    if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !newTab_ || !addressEdit_) return false;
     darkTheme_ = gUiDarkTheme;
     UpdateChromeBrush();
     mdl2Font_ = CreateFontW(-static_cast<int>(UiScale(14.0f)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -126,6 +140,8 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     // shared hover/pressed/focus resolution (no per-button system chrome).
     SetWindowSubclass(back_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(forward_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(up_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(search_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(newTab_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(addressEdit_, AddressEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     RebuildDrives();
@@ -139,20 +155,21 @@ void NavigationChrome::Reposition() {
     GetClientRect(owner_, &client);
     const int width = (std::max)(0L, client.right - client.left);
     SetWindowPos(window_, HWND_TOP, 0, 0, width, Scaled(kChromeHeight), SWP_NOACTIVATE | SWP_SHOWWINDOW);
-    // ui-v3 shell responsive state: below the narrow breakpoint the drive
-    // combo yields its permanent slot (drives stay reachable via Home/sidebar);
-    // controls degrade gracefully instead of clipping.
+    // Drives remain in the sidebar product map; the chrome trailing slot is Fast Search.
+    ShowWindow(drives_, SW_HIDE);
     const bool narrow = width < Scaled(620.0f);
-    ShowWindow(drives_, narrow ? SW_HIDE : SW_SHOW);
-    const int addressWidth = narrow ? (std::max)(Scaled(120), width - Scaled(150))
-                                    : (std::max)(Scaled(120), width - Scaled(250));
-    SetWindowPos(back_, HWND_TOP, Scaled(4), Scaled(5), Scaled(32), Scaled(28), SWP_NOACTIVATE);
-    SetWindowPos(forward_, HWND_TOP, Scaled(38), Scaled(5), Scaled(32), Scaled(28), SWP_NOACTIVATE);
-    SetWindowPos(addressEdit_, HWND_TOP, Scaled(kAddressLeftDip), Scaled(5), addressWidth, Scaled(28),
+    const int searchWidth = narrow ? Scaled(kSearchFieldNarrowDip) : Scaled(kSearchFieldWidthDip);
+    const int searchLeft = (std::max)(Scaled(kAddressLeftDip), width - searchWidth - Scaled(8));
+    const int addressWidth = (std::max)(Scaled(80), searchLeft - Scaled(kAddressLeftDip) - Scaled(8));
+    const int toolbarY = Scaled(kToolbarRowTopDip);
+    SetWindowPos(back_, HWND_TOP, Scaled(4), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
+    SetWindowPos(forward_, HWND_TOP, Scaled(38), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
+    SetWindowPos(up_, HWND_TOP, Scaled(72), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
+    SetWindowPos(addressEdit_, HWND_TOP, Scaled(kAddressLeftDip), toolbarY, addressWidth,
+                 Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
+    SetWindowPos(search_, HWND_TOP, searchLeft, toolbarY, searchWidth, Scaled(kToolbarControlHeightDip),
                  SWP_NOACTIVATE);
-    SetWindowPos(drives_, HWND_TOP, (std::max)(Scaled(80), width - Scaled(168)), Scaled(5), Scaled(164),
-                 Scaled(260), SWP_NOACTIVATE);
-    SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(41), Scaled(28),
+    SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(kTabRowTopDip), Scaled(28),
                  Scaled(27), SWP_NOACTIVATE);
     RepositionTabs();
     InvalidateRect(window_, nullptr, FALSE);
@@ -162,12 +179,20 @@ void NavigationChrome::Refresh() {
     if (!window_ || !workspace_) return;
     EnableWindow(back_, workspace_->CanGoBack());
     EnableWindow(forward_, workspace_->CanGoForward());
+    const auto& context = workspace_->ActiveContext();
+    EnableWindow(up_, !context.isHomeLocation && !context.currentPath.empty());
     RebuildTabs();
     RepositionTabs();
     if (!editing_) InvalidateRect(window_, nullptr, FALSE);
 }
 
 void NavigationChrome::FocusAddressBar() { BeginAddressEdit(); }
+
+void NavigationChrome::SetSearchActive(bool active) {
+    if (searchActive_ == active) return;
+    searchActive_ = active;
+    if (search_) InvalidateRect(search_, nullptr, FALSE);
+}
 
 void NavigationChrome::BeginAddressEdit() {
     if (editing_ || !workspace_) return;
@@ -311,8 +336,8 @@ void NavigationChrome::RepositionTabs() {
     int x = Scaled(4);
     for (size_t index = 0; index < tabButtons_.size(); ++index) {
         const int width = (std::max)(Scaled(64), (std::min)(Scaled(220), tabWidth - Scaled(4)));
-        SetWindowPos(tabButtons_[index], HWND_TOP, x, Scaled(41), width, Scaled(27), SWP_NOACTIVATE);
-        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + width - Scaled(24), Scaled(41), Scaled(24),
+        SetWindowPos(tabButtons_[index], HWND_TOP, x, Scaled(kTabRowTopDip), width, Scaled(27), SWP_NOACTIVATE);
+        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + width - Scaled(24), Scaled(kTabRowTopDip), Scaled(24),
                      Scaled(27), SWP_NOACTIVATE);
         x += width + Scaled(4);
     }
@@ -358,12 +383,20 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     };
     const int separatorWidth = Scaled(14);
     int x = Scaled(kAddressLeftDip);
-    const int rightLimit = static_cast<int>(client.right) - Scaled(8);
+    const int crumbTop = Scaled(kToolbarRowTopDip);
+    const int crumbBottom = crumbTop + Scaled(kToolbarControlHeightDip);
+    int rightLimit = static_cast<int>(client.right) - Scaled(8);
+    if (search_) {
+        RECT searchRect{};
+        GetWindowRect(search_, &searchRect);
+        MapWindowPoints(HWND_DESKTOP, window_, reinterpret_cast<POINT*>(&searchRect), 2);
+        rightLimit = (std::max)(x + Scaled(40), static_cast<int>(searchRect.left) - Scaled(8));
+    }
     std::vector<SegmentLayout> layout;
     layout.reserve(breadcrumbs.size());
     int totalWidth = 0;
     for (size_t index = 0; index < breadcrumbs.size(); ++index) {
-        RECT measured{x, 4, rightLimit, 34};
+        RECT measured{x, crumbTop, rightLimit, crumbBottom};
         DrawTextW(dc, breadcrumbs[index].label.c_str(), -1, &measured,
                   DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
         const int width = (std::max)(28L, measured.right - measured.left + Scaled(12));
@@ -409,7 +442,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
         if (entry.sourceIndex == SIZE_MAX) {
             // Collapsed-run placeholder: clickable, navigates to the deepest
             // hidden ancestor.
-            RECT segmentRect{x, 4, (std::min)(rightLimit, x + entry.width), 34};
+            RECT segmentRect{x, crumbTop, (std::min)(rightLimit, x + entry.width), crumbBottom};
             if (!collapsedTargetPath_.empty()) {
                 breadcrumbRects_.push_back(segmentRect);
                 breadcrumbIndices_.push_back(-1);
@@ -429,7 +462,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
             x = segmentRect.right;
         } else {
             const auto& segment = breadcrumbs[entry.sourceIndex];
-            RECT segmentRect{x, 4, (std::min)(rightLimit, x + entry.width), 34};
+            RECT segmentRect{x, crumbTop, (std::min)(rightLimit, x + entry.width), crumbBottom};
             const bool current = entry.sourceIndex + 1 == breadcrumbs.size();
             const bool clickable = !segment.path.empty() || segment.syntheticRoot;
             breadcrumbRects_.push_back(segmentRect);
@@ -451,7 +484,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
         if (position + 1 < layout.size() && x + separatorWidth < rightLimit) {
             // ui-v3 shell: quiet separators in tertiary text keep the path
             // readable without competing with segment labels.
-            RECT separator{x, 4, x + separatorWidth, 34};
+            RECT separator{x, crumbTop, x + separatorWidth, crumbBottom};
             DrawTextSegment(dc, L"›", separator,
                             highContrast ? GetSysColor(COLOR_GRAYTEXT)
                                          : ToColorRef(theme.textTertiary));
@@ -467,7 +500,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
         RECT editClient{};
         GetClientRect(addressEdit_, &editClient);
         MapWindowPoints(addressEdit_, window_, reinterpret_cast<POINT*>(&editClient), 2);
-        RECT field{editClient.left - Scaled(4), Scaled(4), editClient.right + Scaled(4), Scaled(34)};
+        RECT field{editClient.left - Scaled(4), crumbTop, editClient.right + Scaled(4), crumbBottom};
         DrawPill(dc, field,
                  highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceElevated),
                  Scaled(UiMetrics::kRadiusField));
@@ -486,7 +519,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     }
 
     if (!workspace_->ActiveContext().addressBarError.empty()) {
-        RECT error{Scaled(kAddressLeftDip), 30, client.right - 8, 40};
+        RECT error{Scaled(kAddressLeftDip), crumbBottom - Scaled(2), rightLimit, crumbBottom + Scaled(12)};
         DrawTextSegment(dc, workspace_->ActiveContext().addressBarError, error,
                         highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(theme.error));
     }
@@ -496,6 +529,62 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
                   highContrast ? GetSysColor(COLOR_WINDOWTEXT)
                                : CompositeOver(theme.dividerSubtle, theme.background));
     if (oldFont) SelectObject(dc, oldFont);
+}
+
+void NavigationChrome::DrawSearchField(const DRAWITEMSTRUCT* item) {
+    HDC dc = item->hDC;
+    const RECT& rect = item->rcItem;
+    const UiTheme theme = GetUiTheme(darkTheme_);
+    const bool highContrast = UiSystemHighContrast();
+    const bool hovered = static_cast<int>(item->CtlID) == hoverItemId_;
+    const bool pressed = static_cast<int>(item->CtlID) == pressedItemId_;
+    FillRectColor(dc, rect, highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background));
+    COLORREF fill = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceElevated);
+    if (searchActive_) {
+        fill = highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                            : CompositeOver(theme.selectionSoft, theme.surfaceElevated);
+    } else if (pressed) {
+        fill = highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                            : CompositeOver(theme.pressOverlay, theme.surfaceElevated);
+    } else if (hovered) {
+        fill = highContrast ? GetSysColor(COLOR_HIGHLIGHT)
+                            : CompositeOver(theme.hoverOverlay, theme.surfaceElevated);
+    }
+    DrawPill(dc, rect, fill, Scaled(UiMetrics::kRadiusField));
+    if ((item->itemState & ODS_FOCUS) != 0 || searchActive_) {
+        HRGN region = CreateRoundRectRgn(rect.left + 1, rect.top + 1, rect.right - 1, rect.bottom - 1,
+                                         Scaled(UiMetrics::kRadiusField), Scaled(UiMetrics::kRadiusField));
+        if (region) {
+            HBRUSH frame = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOWTEXT)
+                                                         : ToColorRef(theme.focusStroke));
+            if (frame) {
+                FrameRgn(dc, region, frame, 1, 1);
+                DeleteObject(frame);
+            }
+            DeleteObject(region);
+        }
+    }
+    COLORREF fg = highContrast
+        ? GetSysColor(searchActive_ ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT)
+        : ToColorRef(searchActive_ ? theme.text : theme.textSecondary);
+    HFONT oldFont = mdl2Font_ ? static_cast<HFONT>(SelectObject(dc, mdl2Font_)) : nullptr;
+    RECT glyphRect = rect;
+    glyphRect.left += Scaled(8);
+    glyphRect.right = glyphRect.left + Scaled(18);
+    const wchar_t glyph = L'\uE721';
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, fg);
+    DrawTextW(dc, &glyph, 1, &glyphRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
+    if (oldFont) SelectObject(dc, oldFont);
+    if (rect.right - rect.left > Scaled(48) && bodyFont_) {
+        oldFont = static_cast<HFONT>(SelectObject(dc, bodyFont_));
+        RECT textRect = rect;
+        textRect.left = glyphRect.right + Scaled(4);
+        textRect.right -= Scaled(8);
+        DrawTextW(dc, L"Fast Search", -1, &textRect,
+                  DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_NOPREFIX | DT_END_ELLIPSIS);
+        SelectObject(dc, oldFont);
+    }
 }
 
 void NavigationChrome::DrawIconButton(const DRAWITEMSTRUCT* item, const wchar_t* glyph,
@@ -728,6 +817,8 @@ void NavigationChrome::SetDarkTheme(bool dark) {
     InvalidateRect(window_, nullptr, FALSE);
     if (back_) InvalidateRect(back_, nullptr, FALSE);
     if (forward_) InvalidateRect(forward_, nullptr, FALSE);
+    if (up_) InvalidateRect(up_, nullptr, FALSE);
+    if (search_) InvalidateRect(search_, nullptr, FALSE);
     if (newTab_) InvalidateRect(newTab_, nullptr, FALSE);
     if (drives_) InvalidateRect(drives_, nullptr, FALSE);
     for (HWND tab : tabButtons_) InvalidateRect(tab, nullptr, FALSE);
@@ -920,8 +1011,17 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             }
             RECT client{};
             GetClientRect(hwnd, &client);
-            if (point.x >= Scaled(kAddressLeftDip) &&
-                point.x < (std::max)(Scaled(kAddressLeftDip), static_cast<int>(client.right) - Scaled(174))) {
+            int searchLeft = static_cast<int>(client.right) - Scaled(8);
+            if (search_) {
+                RECT searchRect{};
+                GetWindowRect(search_, &searchRect);
+                MapWindowPoints(HWND_DESKTOP, window_, reinterpret_cast<POINT*>(&searchRect), 2);
+                searchLeft = searchRect.left;
+            }
+            const int crumbTop = Scaled(kToolbarRowTopDip);
+            const int crumbBottom = crumbTop + Scaled(kToolbarControlHeightDip);
+            if (point.y >= crumbTop && point.y < crumbBottom &&
+                point.x >= Scaled(kAddressLeftDip) && point.x < searchLeft - Scaled(4)) {
                 BeginAddressEdit();
                 return 0;
             }
@@ -939,6 +1039,14 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             if (id == kForwardId && HIWORD(wParam) == BN_CLICKED && workspace_ && workspace_->GoForward()) {
                 const auto& context = workspace_->ActiveContext();
                 NavigateToLocation(ffui::LocationOf(context));
+                return 0;
+            }
+            if (id == kUpId && HIWORD(wParam) == BN_CLICKED && toolCommand_) {
+                toolCommand_(L"navigation.up");
+                return 0;
+            }
+            if (id == kSearchId && HIWORD(wParam) == BN_CLICKED && toolCommand_) {
+                toolCommand_(L"search.focus");
                 return 0;
             }
             if (id == kDriveId && HIWORD(wParam) == CBN_DROPDOWN) {
@@ -991,6 +1099,14 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 if (id == kForwardId) {
                     DrawIconButton(item, L"\uE72B", true);
+                    return TRUE;
+                }
+                if (id == kUpId) {
+                    DrawIconButton(item, L"\uE70E", false);
+                    return TRUE;
+                }
+                if (id == kSearchId) {
+                    DrawSearchField(item);
                     return TRUE;
                 }
                 if (id == kNewTabId) {

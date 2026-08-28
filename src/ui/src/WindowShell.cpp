@@ -227,7 +227,45 @@ void WindowShell::NavigateColumnViewTo(const std::wstring& path) {
     EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
 }
 
+void WindowShell::HideToolWorkspaces() {
+    searchPanel_.Hide();
+    storageAnalysis_.Hide();
+    navigationChrome_.SetSearchActive(false);
+    SyncWorkspaceChrome();
+}
+
+void WindowShell::OpenSearchWorkspace() {
+    storageAnalysis_.Hide();
+    searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_,
+                              CurrentShellLayout().contentRect);
+    navigationChrome_.SetSearchActive(true);
+    SyncWorkspaceChrome();
+    RequestRepaint();
+}
+
+void WindowShell::OpenStorageWorkspace() {
+    searchPanel_.Hide();
+    navigationChrome_.SetSearchActive(false);
+    const std::wstring scope = columnView_.ActivePanePath();
+    storageAnalysis_.ShowAndFocus(scope, engineActive_, CurrentShellLayout().contentRect);
+    SyncWorkspaceChrome();
+    RequestRepaint();
+}
+
+void WindowShell::SyncWorkspaceChrome() {
+    NavigationSidebar::ActiveWorkspace workspace = NavigationSidebar::ActiveWorkspace::Browse;
+    if (searchPanel_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Search;
+    else if (storageAnalysis_.Visible()) workspace = NavigationSidebar::ActiveWorkspace::Storage;
+    else if (navigationWorkspace_.ActiveContext().isHomeLocation) {
+        workspace = NavigationSidebar::ActiveWorkspace::Home;
+    }
+    navigationSidebar_.SetActiveWorkspace(workspace);
+    navigationSidebar_.Refresh();
+    navigationChrome_.Refresh();
+}
+
 void WindowShell::NavigateToLocation(const NavigationLocation& location) {
+    HideToolWorkspaces();
     // quick-access-home 5.4: Home and filesystem destinations take separate
     // model + view paths. `Navigate` no-ops when the model is already at the
     // target location, so callers that moved the model first (back/forward,
@@ -289,6 +327,7 @@ void WindowShell::SaveActiveTabViewState() {
 }
 
 void WindowShell::RestoreActiveTabViewState() {
+    HideToolWorkspaces();
     const bool dualPane = navigationWorkspace_.ActivePaneCount() == 2;
     columnView_.SetDualPane(dualPane);
     for (size_t pane = 0; pane < navigationWorkspace_.ActivePaneCount(); ++pane) {
@@ -495,6 +534,7 @@ bool WindowShell::InitializeCommands() {
                 const auto parentPath = ParentNavigationPath(columnView_.ActivePanePath());
                 if (parentPath.has_value()) {
                     if (parentPath->empty()) {
+                        HideToolWorkspaces();
                         navigationWorkspace_.Navigate(std::wstring{});
                         columnView_.NavigateToComputerRoot();
                         RefreshSelectionPresentation();
@@ -509,15 +549,9 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"navigation.refresh") {
                 columnView_.RefreshActiveColumn();
             } else if (commandId == L"search.focus") {
-                storageAnalysis_.Hide();
-                searchPanel_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_,
-                                           CurrentShellLayout().contentRect);
-                RequestRepaint();
+                OpenSearchWorkspace();
             } else if (commandId == L"storage.analyze") {
-                searchPanel_.Hide();
-                storageAnalysis_.ShowAndFocus(columnView_.ActivePanePath(), engineActive_,
-                                              CurrentShellLayout().contentRect);
-                RequestRepaint();
+                OpenStorageWorkspace();
             } else if (commandId == L"app.settings") {
                 DrawMenuBar(hwnd_);
                 settingsDialog_.Show();
@@ -928,8 +962,17 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             else NavigateToLocation(location);
             RefreshSelectionPresentation();
             RequestRepaint();
-        }, [this] { SaveActiveTabViewState(); })) return false;
+        }, [this] { SaveActiveTabViewState(); },
+        [this](const std::wstring& commandId) { InvokeCommand(commandId); })) return false;
     if (!navigationSidebar_.Initialize(hwnd_, &navigationWorkspace_, [this](const NavigationSidebar::NavigationTarget& target) {
+            if (target.isSearch) {
+                OpenSearchWorkspace();
+                return;
+            }
+            if (target.isStorage) {
+                OpenStorageWorkspace();
+                return;
+            }
             // quick-access-home 5.1: a Home target routes to Home navigation
             // (or a fresh Home tab on middle-click) before any filesystem
             // handling -- its path is empty and must not reach ShowUnavailableLocation.
@@ -948,6 +991,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 RequestRepaint();
                 return;
             }
+            HideToolWorkspaces();
             if (target.path.empty()) {
                 columnView_.ShowUnavailableLocation(target.displayName);
                 RefreshSelectionPresentation();
@@ -1005,8 +1049,11 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 // init); from Home there is no folder context to fabricate, so
                 // ShowAndFocus passes an empty path and the existing selection
                 // governs the scope.
+                storageAnalysis_.Hide();
                 searchPanel_.ShowAndFocus(L"", engineActive_, CurrentShellLayout().contentRect);
                 searchPanel_.SetQueryAndDispatch(activation.value);
+                navigationChrome_.SetSearchActive(true);
+                SyncWorkspaceChrome();
                 RefreshSelectionPresentation();
                 navigationChrome_.Refresh();
                 navigationSidebar_.Refresh();
@@ -1223,6 +1270,9 @@ void WindowShell::ApplyTheme() {
         (settings_.theme == ffprotocol::ThemePreference::FollowSystem && IsSystemDark());
     ffui::gUiDarkTheme = dark;
     darkTheme_ = dark;
+    ffui::gUiDensityProfile = settings_.density == ffprotocol::DensityPreference::Comfortable
+        ? ffui::UiDensityProfile::Comfortable
+        : ffui::UiDensityProfile::Compact;
     // Theme and device-loss both invalidate device-dependent resources; the
     // MarkDeviceDirty fan-out marks every surface dirty so each recreates its
     // brushes/text-formats lazily in its own paint path. settings-and-appearance

@@ -215,6 +215,17 @@
       "taskOverrides": []
     },
     {
+      "name": "final-product-completion-and-production-readiness",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/tasks.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
       "name": "completion-integrity-hardening-and-release-certification",
       "state": "active",
       "evidence": [

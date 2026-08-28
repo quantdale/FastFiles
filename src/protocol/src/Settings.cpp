@@ -179,6 +179,10 @@ std::wstring ThemeName(ThemePreference theme) {
     return theme == ThemePreference::Light ? L"Light" : theme == ThemePreference::Dark ? L"Dark" : L"Follow-System";
 }
 
+std::wstring DensityName(DensityPreference density) {
+    return density == DensityPreference::Comfortable ? L"Comfortable" : L"Compact";
+}
+
 } // namespace
 
 std::wstring SettingsPath() {
@@ -274,6 +278,11 @@ Settings LoadSettings(bool preserveCorruptFile) {
             else if (*theme == L"Follow-System") result.theme = ThemePreference::FollowSystem;
             else LogFallback(L"Invalid appearance section; appearance defaults loaded.");
         } else if (HasJsonField(text, L"theme")) LogFallback(L"Invalid appearance section; appearance defaults loaded.");
+        if (const auto density = ReadJsonString(text, L"density")) {
+            if (*density == L"Comfortable") result.density = DensityPreference::Comfortable;
+            else if (*density == L"Compact") result.density = DensityPreference::Compact;
+            else LogFallback(L"Invalid appearance density; Compact loaded.");
+        } else if (HasJsonField(text, L"density")) LogFallback(L"Invalid appearance density; Compact loaded.");
         if (const auto value = ReadJsonString(text, L"defaultSearchScope")) result.defaultSearchScope = *value;
         else if (HasJsonField(text, L"defaultSearchScope")) LogFallback(L"Invalid search section; search defaults loaded.");
         if (std::regex_search(text, match, std::wregex(LR"re("retainSearchHistory"\s*:\s*(true|false))re"))) result.retainSearchHistory = match[1] == L"true";
@@ -352,6 +361,7 @@ bool SaveSettings(const Settings& settings) {
     }
     file << L"]},\n  \"search\": {\"defaultSearchScope\":\"" << Escape(settings.defaultSearchScope) << L"\",\"retainSearchHistory\":" << (settings.retainSearchHistory ? L"true" : L"false")
          << L"},\n  \"appearance\": {\"theme\":\"" << ThemeName(settings.theme)
+         << L"\",\"density\":\"" << DensityName(settings.density)
          << L"\"},\n  \"navigation\": {\"startupLocation\":\"" << Escape(settings.startupLocation) << L"\",\"restorePreviousSession\":" << (settings.restorePreviousSession ? L"true" : L"false")
          << L"},\n  \"preview\": {\"previewEnabled\":" << (settings.previewEnabled ? L"true" : L"false") << L",\"maxAutoPreviewBytes\":" << settings.maxAutoPreviewBytes
          << L"},\n  \"maintenance\": {\"vacuumIntervalHours\":" << settings.vacuumIntervalHours

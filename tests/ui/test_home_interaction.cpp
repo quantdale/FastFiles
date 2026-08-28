@@ -105,9 +105,9 @@ int main() {
     input.knownFolderCount = 2;
     input.showActions = true;
     const ffui::HomeLayoutResult result = ComputeHomeLayout(input);
-    fftest::Check(result.totalItemCount == 12,
-                  "total item count sums all sections including the 4 quick actions");
-    fftest::Check(result.items.size() == 12u, "items vector size matches total item count");
+    fftest::Check(result.totalItemCount == 13,
+                  "total item count sums all sections including the 5 quick actions");
+    fftest::Check(result.items.size() == 13u, "items vector size matches total item count");
     bool ascending = true;
     for (size_t i = 0; i < result.items.size(); ++i) {
         if (result.items[i].globalIndex != static_cast<int>(i)) {
@@ -141,7 +141,7 @@ int main() {
 
     // 2-column layout: Pinned placeholder (global 0), Recent folders (1,2),
     // Recent searches (3), Common locations (4=Desktop, 5=Documents, 6=Downloads),
-    // Quick actions (7..10).
+    // Quick actions (7..11).
     ffui::HomeLayoutInput focusInput;
     focusInput.viewportWidth = 1280.0f;
     focusInput.pinnedCount = 1;
@@ -153,8 +153,8 @@ int main() {
     fftest::Check(focusLayout.columnCount == 2, "the focus-test layout is two columns");
 
     const std::vector<ffui::HomeFocusEntry> focusList = BuildHomeFocusList(focusLayout, data);
-    fftest::Check(focusList.size() == 11,
-                  "focus list has 9 items + 2 Clear stops (placeholder and unavailable folder skipped)");
+    fftest::Check(focusList.size() == 12,
+                  "focus list has 10 items + 2 Clear stops (placeholder and unavailable folder skipped)");
     fftest::Check(focusList[0] == ffui::HomeFocusEntry{ffui::HomeFocusTarget::ClearRecentFolders, -1},
                   "Clear Recent folders precedes its section's items");
     fftest::Check(focusList[3] == ffui::HomeFocusEntry{ffui::HomeFocusTarget::ClearRecentSearches, -1},
@@ -173,7 +173,7 @@ int main() {
     // Home/End and initial focus land on items only (never on a Clear stop).
     fftest::Check(HomeFirstFocusEntry(focusList) == ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 1},
                   "initial/Home focus selects the first item");
-    fftest::Check(HomeLastFocusEntry(focusList) == ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 10},
+    fftest::Check(HomeLastFocusEntry(focusList) == ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 11},
                   "End focus selects the last item");
 
     // Movement, 2 columns.
@@ -209,8 +209,8 @@ int main() {
     fftest::Check(move({ffui::HomeFocusTarget::Item, 4}, 1, 0) ==
                       ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 4},
                   "Right from Desktop stays put when the neighbor is unavailable");
-    fftest::Check(move({ffui::HomeFocusTarget::Item, 10}, 0, 1) ==
-                      ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 10},
+    fftest::Check(move({ffui::HomeFocusTarget::Item, 11}, 0, 1) ==
+                      ffui::HomeFocusEntry{ffui::HomeFocusTarget::Item, 11},
                   "Down from the last item clamps in place");
     fftest::Check(move({ffui::HomeFocusTarget::ClearRecentFolders, -1}, 1, 0) ==
                       ffui::HomeFocusEntry{ffui::HomeFocusTarget::ClearRecentFolders, -1},

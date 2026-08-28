@@ -406,18 +406,27 @@ void SettingsDialog::PopulateGeneralPage() {
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Follow System"));
+        CreateWindowExW(0, L"STATIC", L"Density:", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(66), Scaled(90), Scaled(20),
+                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        densityCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
+                                        WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(62), Scaled(200), Scaled(200),
+                                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Compact"));
+        SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Comfortable"));
         CreateWindowExW(0, L"STATIC", L"Automatic preview size limit (bytes):", WS_CHILD | WS_VISIBLE,
-                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(94), Scaled(240), Scaled(20),
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(126), Scaled(240), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
-                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(120), Scaled(200), Scaled(24),
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(152), Scaled(200), Scaled(24),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     if (!previewCheck_) {
         previewCheck_ = CreateWindowExW(0, L"BUTTON", L"Enable automatic preview",
                                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(60), Scaled(220), Scaled(20),
+                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(94), Scaled(220), Scaled(20),
                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
 
@@ -426,6 +435,8 @@ void SettingsDialog::PopulateGeneralPage() {
         if (settingsDraft_.theme == ffprotocol::ThemePreference::Light) themeIndex = 0;
         else if (settingsDraft_.theme == ffprotocol::ThemePreference::Dark) themeIndex = 1;
         SendMessageW(themeCombo_, CB_SETCURSEL, themeIndex, 0);
+        SendMessageW(densityCombo_, CB_SETCURSEL,
+                     settingsDraft_.density == ffprotocol::DensityPreference::Comfortable ? 1 : 0, 0);
         SendMessageW(previewCheck_, BM_SETCHECK, settingsDraft_.previewEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
         SetWindowTextW(previewSizeEdit_, std::to_wstring(settingsDraft_.maxAutoPreviewBytes).c_str());
     }
@@ -1140,6 +1151,11 @@ void SettingsDialog::SaveCurrentPage() {
             case 1: settingsDraft_.theme = ffprotocol::ThemePreference::Dark; break;
             case 2: settingsDraft_.theme = ffprotocol::ThemePreference::FollowSystem; break;
             default: break;
+        }
+        if (densityCombo_) {
+            settingsDraft_.density = SendMessageW(densityCombo_, CB_GETCURSEL, 0, 0) == 1
+                ? ffprotocol::DensityPreference::Comfortable
+                : ffprotocol::DensityPreference::Compact;
         }
         settingsDraft_.previewEnabled = SendMessageW(previewCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED;
         const std::wstring sizeText = GetWindowText(previewSizeEdit_);

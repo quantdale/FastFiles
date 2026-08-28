@@ -19,6 +19,10 @@ public:
         // quick-access-home 5.1: true when the target is the Home surface (its
         // path is empty; checked by the shell before the filesystem branches).
         bool isHome = false;
+        // final-product-completion-and-production-readiness 2.1: tool workspaces
+        // also have empty paths and must not be treated as This PC / unavailable.
+        bool isSearch = false;
+        bool isStorage = false;
     };
     using NavigateHandler = std::function<void(const NavigationTarget&)>;
 
@@ -36,12 +40,26 @@ public:
     // items without owning the row layout; -1 clears. The focus ring renders
     // independently of hover and selection.
     void SetFocusedRow(int row);
+    // final-product-completion-and-production-readiness 2.2: selected-state for
+    // Fast Search / Storage Analysis while those workspaces occupy contentRect.
+    enum class ActiveWorkspace { Browse, Home, Search, Storage };
+    void SetActiveWorkspace(ActiveWorkspace workspace);
 
 private:
     enum class RowKind { Section, Item };
-    struct Row { RowKind kind; int section; size_t item; RECT bounds{}; std::wstring label; std::wstring path; bool home = false; };
+    struct Row {
+        RowKind kind;
+        int section;
+        size_t item;
+        RECT bounds{};
+        std::wstring label;
+        std::wstring path;
+        bool home = false;
+        bool search = false;
+        bool storage = false;
+    };
     // ui-v3 sidebar: interactive targets of the collapsed icon rail.
-    enum class RailHit { None, Home, Expand };
+    enum class RailHit { None, Home, Search, Storage, Expand };
 
     static LRESULT CALLBACK WindowProcThunk(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -88,6 +106,9 @@ private:
     // tofu on builds where individual MDL2 codepoints are unmapped).
     bool glyphsHome_ = false;
     bool glyphsFolder_ = false;
+    bool glyphsSearch_ = false;
+    bool glyphsStorage_ = false;
+    ActiveWorkspace activeWorkspace_ = ActiveWorkspace::Browse;
     float fontScale_ = 0.0f;
     // ui-v3 sidebar: tooltip tools are (re)added after the next paint lays out
     // row rects; tooltipIds_ tracks what must be removed first.

@@ -80,6 +80,10 @@ private:
     void RefreshHomeData();
     void SaveActiveTabViewState();
     void RestoreActiveTabViewState();
+    void HideToolWorkspaces();
+    void OpenSearchWorkspace();
+    void OpenStorageWorkspace();
+    void SyncWorkspaceChrome();
     float NavigationViewportWidth() const;
     ffui::MainShellLayout CurrentShellLayout() const;
 

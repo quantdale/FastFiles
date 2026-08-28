@@ -64,6 +64,10 @@ void TestShortcutsAndPalette() {
     Check(shortcuts.FindByCommand(L"search.focus") != nullptr &&
           shortcuts.FindByCommand(L"search.focus")->scope == ffui::ShortcutScope::Global,
           "search binding is global");
+    Check(shortcuts.FindByCommand(L"storage.analyze") != nullptr &&
+          shortcuts.FindByCommand(L"storage.analyze")->scope == ffui::ShortcutScope::Global &&
+          ffui::FormatKeyChord(shortcuts.FindByCommand(L"storage.analyze")->chord) == L"Ctrl+Shift+S",
+          "storage analysis default shortcut is Ctrl+Shift+S");
     Check(ffui::FormatKeyChord(shortcuts.FindByCommand(L"app.command-palette")->chord) == L"Ctrl+Shift+P",
           "palette default shortcut is present");
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, false) == ffui::RebindResult::Conflict,
