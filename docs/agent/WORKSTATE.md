@@ -1,11 +1,14 @@
 # Fast Files — Agent Workstate
 
-## Completion-integrity campaign — release-evidence slice (2026-08-28)
+## Completion-integrity campaign — release evidence + ledger slice (2026-08-28)
 
 - The session began from `af43727` after a fast-forward-only pull on `main`;
-  the only pre-existing local change was the untracked
-  `docs/agent/HANDOFF_12H_2026-08-27.md`, which remains preserved. No
-  autonomous intake run exists.
+  the only pre-existing local change remains the untracked
+  `docs/agent/HANDOFF_12H_2026-08-27.md`, which is preserved. No autonomous
+  intake run exists. At this checkpoint, local `HEAD` is implementation
+  commit `967546a849cbb46c6fd491fd65929fef8ddeb520`; `origin/main` is still
+  the previously pushed `cff3659c4ef6f095734aebc6b1e620ed87b8588f` until the
+  next explicit push/reconciliation.
 - Implementation baseline `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`
   (tree `64eb812771966279e332d8ec253394548fd2b7a1`) adds the guarded,
   named MFT/USN/RebuildAll/reconciliation fault seam, fail-closed rebuild
@@ -19,32 +22,40 @@
   ASAN 3/3 (113.76s), strict OpenSpec 76/76, verifier build 9/9, exact-tree
   qualification PASS with nine checks, policy/status/doctor/provenance gates
   PASS, and `git diff --check` PASS.
-- The implementation was pushed without force. Hosted GitHub Actions run
-  `33122565103` completed successfully for the exact baseline SHA: hygiene,
-  Debug, release-test, Analyze, ASAN protocol/IPC/lifecycle 3/3, and unsigned
-  release qualification all passed. GitHub emitted only the existing
-  `actions/upload-artifact@v4` Node 20 deprecation warning.
+- Hosted run `33122565103` passed the exact baseline SHA: hygiene, Debug,
+  release-test, Analyze, ASAN protocol/IPC/lifecycle 3/3, and unsigned
+  release qualification. The old `@v4` artifact action emitted its Node 20
+  deprecation warning; the follow-up action update is recorded below.
 - The active rule-pruning ledger is now 22/22 checked and its lifecycle entry
   is completed with the evidence record
   `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md`.
-  The handoff metadata is intentionally anchored to the implementation SHA
-  and its hosted run; derive the later handoff commit and live CI state rather
-  than creating a self-referential workstate claim.
-- Handoff commit `0583790c3ac1ca477b6d26e3b8603d975b3b69ae` is the current
-  reconciled `main`/`origin/main` SHA. Its exact hosted run `33124312993`
-  passed all six jobs. The run's release qualification still retained no
-  `release-qualification-*` artifact: only the project-status artifact exists,
-  reproducing the queued FF-P2-01 producer/consumer path mismatch.
+- Handoff commit `0583790c3ac1ca477b6d26e3b8603d975b3b69ae` and exact hosted run
+  `33124312993` reproduced the release retention gap: all six jobs passed but
+  no `release-qualification-*` artifact existed, only project-status evidence.
+  Commit `030bd1721b60bf191a7a7529984a0755f4d5ee2a` added deterministic,
+  workflow-owned retention; exact hosted run `33126152267` passed and emitted
+  the two expected non-empty JSON files bound to that SHA.
+- Commit `cff3659c4ef6f095734aebc6b1e620ed87b8588f` moved both artifact uploads
+  to `actions/upload-artifact@v6`. Exact hosted run `33127448038` passed all
+  six jobs and reported a non-empty 2,428-byte release artifact. Inspection
+  then found absolute CI paths in its otherwise safe-looking metadata.
+- Commit `967546a849cbb46c6fd491fd65929fef8ddeb520` fixes that newly reproduced
+  issue: candidate version evidence is rewritten to kit-relative paths and
+  `Get-SafePinState` redacts path-valued pin sources. Its regression assertions
+  cover candidate and retained provenance metadata. Commit
+  `c132721b1385fff097fee73dbd8d061262c035ad` separately rejects an active
+  lifecycle entry with zero unchecked task lines; its focused project-status
+  test passed locally. Both commits are still ahead of `origin/main`.
 - External production signing/pins, privileged MFT/USN operation, clean-host,
   guest/provider, and physical-display evidence remain unavailable and are
-  not claimed. The queued completion-integrity campaign still owns release
-  artifact retention, action-warning cleanup, and the fresh post-fix audit.
+  not claimed. Older `2/2` ASAN references in historical checkpoints are
+  explicitly historical; the current authority is the three-target hosted
+  ASAN slice.
 
-NEXT EXACT ACTION: add deterministic workflow-owned safe manifest/provenance
-retention to `Test-ReleaseCandidate.ps1`, assert the exact retained files in
-the release qualification regression, update CI to upload those exact files
-with a non-empty-file failure, run focused release checks, and then record the
-result in the queued task/evidence surfaces.
+NEXT EXACT ACTION: run the clean focused release-candidate regression for
+`967546a` in the discovered Visual Studio environment, then push the pending
+commits, verify the exact hosted SHA/artifacts/annotations, and record the
+safe-metadata and empty-ledger evidence in the queued OpenSpec surfaces.
 
 ## Repository-wide optimization campaign checkpoint (2026-08-26)
 
