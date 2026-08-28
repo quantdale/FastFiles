@@ -553,8 +553,13 @@ bool WindowShell::InitializeCommands() {
             } else if (commandId == L"storage.analyze") {
                 OpenStorageWorkspace();
             } else if (commandId == L"app.settings") {
-                DrawMenuBar(hwnd_);
                 settingsDialog_.Show();
+            } else if (commandId == L"app.export-diagnostics") {
+                SendMessageW(hwnd_, WM_COMMAND, kMenuExportDiagnostics, 0);
+            } else if (commandId == L"app.forget-unavailable-drive") {
+                SendMessageW(hwnd_, WM_COMMAND, kMenuForgetUnavailableDrive, 0);
+            } else if (commandId == L"app.last-operation-errors") {
+                SendMessageW(hwnd_, WM_COMMAND, kMenuOperationDetails, 0);
             } else if (commandId == L"app.command-palette") {
                 commandPalette_.Show(CurrentCommandContext());
             } else if (commandId == L"navigation.focus-path") {
@@ -899,25 +904,10 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         return false;
     }
 
-    HMENU menu = CreateMenu();
-    HMENU settingsMenu = CreatePopupMenu();
-    AppendMenuW(settingsMenu, MF_STRING, kMenuThemeLight, L"Theme: Light");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuThemeDark, L"Theme: Dark");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuThemeSystem, L"Theme: Follow System");
-    AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(settingsMenu, MF_STRING, kMenuPreviewEnabled, L"Enable Preview Pane");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuPreview1Mb, L"Preview Limit: 1 MB");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuPreview16Mb, L"Preview Limit: 16 MB");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuPreview64Mb, L"Preview Limit: 64 MB");
-    AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(settingsMenu, MF_STRING, kMenuForgetUnavailableDrive, L"Forget Unavailable Drive…");
-    AppendMenuW(settingsMenu, MF_STRING, kMenuExportDiagnostics, L"Export Diagnostics Bundle…");
-    AppendMenuW(settingsMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(settingsMenu, MF_STRING, kMenuResetSettings, L"Reset Settings to Defaults");
-    AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(settingsMenu), L"Settings");
-    AppendMenuW(menu, MF_STRING | MF_GRAYED, kMenuOperationDetails, L"Last Operation Errors…");
-    SetMenu(hwnd_, menu);
-
+    // final-product-completion-and-production-readiness: no native menubar.
+    // Settings, diagnostics, and last-operation errors live in the Settings
+    // dialog, command palette, and chrome gear — native menus stayed
+    // system-light on dark D2D chrome.
     if (!renderer_.Initialize(hwnd_)) {
         return false;
     }
@@ -2314,8 +2304,6 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 SetWindowTextW(hwnd_, title.c_str());
                 lastOperationFailures_ = event->failures;
-                EnableMenuItem(GetMenu(hwnd_), kMenuOperationDetails,
-                               MF_BYCOMMAND | (lastOperationFailures_.empty() ? MF_GRAYED : MF_ENABLED));
                 fileOpProgress_ = std::clamp(static_cast<float>(event->percent) / 100.0f, 0.0f, 1.0f);
                 RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Completed || event->kind == FileOperationEventKind::Cancelled) {
@@ -2653,7 +2641,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                                                          : ffui::NormalizeDisplayPath(failure.path)) +
                                     std::wstring(L" — ") + error;
                     }
-                    if (!details.empty()) MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);
+                    if (!details.empty()) {
+                        MessageBoxW(hwnd_, details.c_str(), L"Last operation errors", MB_OK | MB_ICONERROR);
+                    } else {
+                        ShowStatusNotice(L"No recent file-operation errors.");
+                    }
                     return 0;
                 }
                 case kMenuExportDiagnostics: {

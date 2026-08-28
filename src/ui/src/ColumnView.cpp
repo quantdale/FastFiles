@@ -1538,6 +1538,7 @@ void ColumnView::SetDarkTheme(bool dark) {
         // ui-v3 column-view: shared-painter caches re-resolve on next paint.
         textTertiaryBrush_.Reset(); focusedColumnFillBrush_.Reset();
         rowBrushes_.Reset(); stateBrushes_.Reset();
+        textFormat_.Reset(); badgeTextFormat_.Reset(); glyphFormat_.Reset();
     }
 }
 
@@ -1679,6 +1680,14 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
         12.0f, L"en-us", &badgeTextFormat_);
+    dwriteFactory->CreateTextFormat(
+        L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL, ffui::UiMetrics::kIconSize, L"en-us", &glyphFormat_);
+    if (glyphFormat_) {
+        glyphFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        glyphFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        glyphFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    }
 
     resourcesCreated_ = true;
 }
@@ -2201,7 +2210,8 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 textX = x + 32.0f;
             } else if (!glyph.empty()) {
                 D2D1_RECT_F glyphRect = D2D1::RectF(x + 8.0f, y, x + 32.0f, y + h);
-                context->DrawText(glyph.c_str(), 1, textFormat_.Get(), glyphRect, textSecondaryBrush_.Get());
+                IDWriteTextFormat* format = glyphFormat_ ? glyphFormat_.Get() : textFormat_.Get();
+                context->DrawText(glyph.c_str(), 1, format, glyphRect, textSecondaryBrush_.Get());
                 textX = x + 32.0f;
             }
 

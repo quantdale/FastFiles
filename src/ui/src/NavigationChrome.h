@@ -120,6 +120,7 @@ private:
     HWND drives_ = nullptr;
     HWND addressEdit_ = nullptr;
     HWND search_ = nullptr;
+    HWND settings_ = nullptr;
     HWND newTab_ = nullptr;
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;

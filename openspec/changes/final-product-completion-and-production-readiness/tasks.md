@@ -34,12 +34,12 @@
 
 ## 6. Search and Storage presentation
 
-- [ ] 6.1 Search empty/degraded/scope chrome uses shared tokens; scope remains distinct from path.
-- [ ] 6.2 Storage toolbar/status consume the same component language as the shell.
+- [x] 6.1 Search empty/degraded/scope chrome uses shared tokens; scope remains distinct from path. — idle Fast Search empty state plus existing no-results/degraded copy; chrome search field vs address bar.
+- [x] 6.2 Storage toolbar/status consume the same component language as the shell. — Storage remains a content workspace; Settings gear and palette commands replace the unthemed native menubar.
 
 ## 7. Validation
 
-- [ ] 7.1 Focused UI/protocol/command/home tests.
+- [x] 7.1 Focused UI/protocol/command/home tests.
 - [ ] 7.2 Debug configure/build + full CTest.
 - [ ] 7.3 release-test configure/build + full CTest.
 - [ ] 7.4 Analyze warning-clean.

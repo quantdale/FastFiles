@@ -280,6 +280,9 @@ bool RegisterShellCommands(CommandRegistry& registry, const BaselineHandlers& ha
     ok = RegisterOne(registry, handlers, L"item.open-containing-folder", L"Open Containing Folder", L"Item", AppliesTo(SelectionKind::SingleFile), ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a single selected file") && ok;
     ok = RegisterOne(registry, handlers, L"item.open-terminal", L"Open Terminal Here", L"Item", SelectionKind::Empty | SelectionKind::SingleFolder, ShortcutScope::ActiveView, std::nullopt, {}, L"Requires a folder or an empty location") && ok;
     ok = RegisterOne(registry, handlers, L"app.settings", L"Settings", L"Application", kAnySelection, ShortcutScope::Global) && ok;
+    ok = RegisterOne(registry, handlers, L"app.export-diagnostics", L"Export Diagnostics Bundle", L"Application", kAnySelection, ShortcutScope::Global) && ok;
+    ok = RegisterOne(registry, handlers, L"app.forget-unavailable-drive", L"Forget Unavailable Drive", L"Application", kAnySelection, ShortcutScope::Global) && ok;
+    ok = RegisterOne(registry, handlers, L"app.last-operation-errors", L"Last Operation Errors", L"Application", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"app.command-palette", L"Open Command Palette", L"Application", kAnySelection, ShortcutScope::Global, KeyChord{'P', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     return ok;
 }
@@ -595,6 +598,9 @@ const wchar_t* CommandDisplayGlyph(const std::wstring& commandId) {
         {L"search.focus", L"\uE721"},                // Search
         {L"storage.analyze", L"\uE9D2"},             // Diagnostic / storage
         {L"app.settings", L"\uE713"},                // Setting
+        {L"app.export-diagnostics", L"\uE9F5"},      // Diagnostic
+        {L"app.forget-unavailable-drive", L"\uE74C"}, // LandDrive
+        {L"app.last-operation-errors", L"\uE783"},   // Error
         {L"file.copy", L"\uE8C8"},                   // Copy
         {L"file.cut", L"\uE8C6"},                    // Cut
         {L"file.paste", L"\uE77F"},                  // Paste

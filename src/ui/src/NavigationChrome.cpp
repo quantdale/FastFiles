@@ -14,6 +14,7 @@ constexpr int kDriveId = 8203;
 constexpr int kNewTabId = 8204;
 constexpr int kUpId = 8205;
 constexpr int kSearchId = 8206;
+constexpr int kSettingsId = 8207;
 constexpr int kTabCloseBaseId = 8400;
 constexpr UINT WM_APP_ADDRESS_FOCUS_LOST = WM_APP + 52;
 constexpr int kChromeHeight = 72;
@@ -118,6 +119,9 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     search_ = CreateWindowExW(0, L"BUTTON", L"Fast Search", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                               0, 0, Scaled(kSearchFieldWidthDip), Scaled(28), window_,
                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSearchId)), nullptr, nullptr);
+    settings_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
+                                0, 0, Scaled(28), Scaled(28), window_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsId)), nullptr, nullptr);
     newTab_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                               0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNewTabId)), nullptr, nullptr);
     // ui-v3 shell: the address edit is borderless — while editing, the
@@ -125,7 +129,7 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     // transformation of the breadcrumb, not a different subsystem.
     addressEdit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
                                    0, 0, Scaled(200), Scaled(28), window_, nullptr, nullptr, nullptr);
-    if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !newTab_ || !addressEdit_) return false;
+    if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !settings_ || !newTab_ || !addressEdit_) return false;
     darkTheme_ = gUiDarkTheme;
     UpdateChromeBrush();
     mdl2Font_ = CreateFontW(-static_cast<int>(UiScale(14.0f)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
@@ -142,6 +146,7 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     SetWindowSubclass(forward_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(up_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(search_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(settings_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(newTab_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(addressEdit_, AddressEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     RebuildDrives();
@@ -169,6 +174,8 @@ void NavigationChrome::Reposition() {
                  Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
     SetWindowPos(search_, HWND_TOP, searchLeft, toolbarY, searchWidth, Scaled(kToolbarControlHeightDip),
                  SWP_NOACTIVATE);
+    SetWindowPos(settings_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(66)), Scaled(kTabRowTopDip), Scaled(28),
+                 Scaled(27), SWP_NOACTIVATE);
     SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(kTabRowTopDip), Scaled(28),
                  Scaled(27), SWP_NOACTIVATE);
     RepositionTabs();
@@ -326,7 +333,7 @@ void NavigationChrome::RepositionTabs() {
     if (!window_) return;
     RECT client{};
     GetClientRect(window_, &client);
-    const int available = (std::max)(Scaled(80), static_cast<int>(client.right) - Scaled(42));
+    const int available = (std::max)(Scaled(80), static_cast<int>(client.right) - Scaled(74));
     // ui-v3 shell tab geometry: the close affordance lives inside the pill's
     // right edge; tabs shrink to a 64-DIP floor under pressure (excess tabs
     // clip rather than squeeze into unreadability).
@@ -819,6 +826,7 @@ void NavigationChrome::SetDarkTheme(bool dark) {
     if (forward_) InvalidateRect(forward_, nullptr, FALSE);
     if (up_) InvalidateRect(up_, nullptr, FALSE);
     if (search_) InvalidateRect(search_, nullptr, FALSE);
+    if (settings_) InvalidateRect(settings_, nullptr, FALSE);
     if (newTab_) InvalidateRect(newTab_, nullptr, FALSE);
     if (drives_) InvalidateRect(drives_, nullptr, FALSE);
     for (HWND tab : tabButtons_) InvalidateRect(tab, nullptr, FALSE);
@@ -1049,6 +1057,10 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 toolCommand_(L"search.focus");
                 return 0;
             }
+            if (id == kSettingsId && HIWORD(wParam) == BN_CLICKED && toolCommand_) {
+                toolCommand_(L"app.settings");
+                return 0;
+            }
             if (id == kDriveId && HIWORD(wParam) == CBN_DROPDOWN) {
                 // Refresh on open so drives attached/ejected after startup are
                 // reflected immediately (RebuildDrives preserves the selection).
@@ -1111,6 +1123,10 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 if (id == kNewTabId) {
                     DrawIconButton(item, L"\uE710", false);
+                    return TRUE;
+                }
+                if (id == kSettingsId) {
+                    DrawIconButton(item, L"\uE713", false);
                     return TRUE;
                 }
                 if (id >= kTabBaseId && id < kTabBaseId + static_cast<int>(tabButtons_.size())) {

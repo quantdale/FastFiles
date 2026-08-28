@@ -2018,8 +2018,7 @@ void SearchPanel::PaintClearQueryButton(HWND hwnd) {
 }
 
 bool SearchPanel::ShouldPaintListEmptyState() const {
-    return visible_ && list_ != nullptr && results_.empty() && query_ != nullptr &&
-           GetWindowTextLengthW(query_) > 0;
+    return visible_ && list_ != nullptr && results_.empty();
 }
 
 void SearchPanel::PaintListEmptyState(HWND hwnd) {
@@ -2037,14 +2036,19 @@ void SearchPanel::PaintListEmptyState(HWND hwnd) {
     DeleteObject(backgroundBrush);
     EnsureResultFonts();
 
-    // ui-v3 search: deliberate states, never blank — searching shows what is
-    // being searched; no-results explains scope/filters and offers recovery.
-    const wchar_t* title = statusKind_ == StatusKind::Searching ? L"Searching\u2026" : L"No matches";
+    // final-product-completion-and-production-readiness 6.1: idle / searching /
+    // no-results are never a blank owner-data rectangle.
+    const bool idle = query_ == nullptr || GetWindowTextLengthW(query_) == 0;
+    const wchar_t* title = statusKind_ == StatusKind::Searching ? L"Searching\u2026"
+                         : idle ? L"Fast Search" : L"No matches";
     std::wstring body;
     if (statusKind_ == StatusKind::Searching) {
         body = L"Looking in ";
         body += ScopeDisplayName();
         body += L"\u2026";
+    } else if (idle) {
+        body = L"Type a name, extension, or path. Indexed search is the default; "
+               L"change scope under Filters. Ctrl+F focuses this workspace.";
     } else {
         body = L"No files match";
         if (!currentPrimaryTerm_.empty()) {
@@ -2065,7 +2069,9 @@ void SearchPanel::PaintListEmptyState(HWND hwnd) {
         body += L" ";
         body += statusWarning_;
     }
-    body += L" Try a shorter name or widen the scope under Filters.";
+    if (!idle) {
+        body += L" Try a shorter name or widen the scope under Filters.";
+    }
 
     HFONT fallbackFont = reinterpret_cast<HFONT>(SendMessageW(list_, WM_GETFONT, 0, 0));
     if (fallbackFont == nullptr) fallbackFont = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));

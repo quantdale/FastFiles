@@ -173,6 +173,13 @@ void DrawChevron(HDC dc, POINT center, int halfWidth, bool expanded, COLORREF co
 
 // ui-v3 sidebar: non-color "unavailable" cue -- a slashed circle in the icon
 // slot, paired with disabled text so meaning never rides on color alone.
+void DrawFolderFallback(HDC dc, const RECT& slot, COLORREF color) {
+    const int pad = Scaled(UiMetrics::kSpaceXs);
+    const RECT body{slot.left + pad, slot.top + pad + Scaled(3), slot.right - pad, slot.bottom - pad};
+    if (body.right <= body.left || body.bottom <= body.top) return;
+    UiGdiRoundedRect(dc, body, color, Scaled(2));
+}
+
 void DrawUnavailableBadge(HDC dc, const RECT& slot, COLORREF color) {
     const int cx = (slot.left + slot.right) / 2;
     const int cy = (slot.top + slot.bottom) / 2;
@@ -694,6 +701,8 @@ void NavigationSidebar::Draw(HDC dc, const RECT& client) {
                     RECT glyphRect = slot;
                     DrawTextW(dc, &glyph, 1, &glyphRect, DT_SINGLELINE | DT_CENTER | DT_VCENTER | DT_NOPREFIX);
                     SelectObject(dc, previous);
+                } else {
+                    DrawFolderFallback(dc, slot, selected ? paint.text : textSecondary);
                 }
             }
             const int labelLeft = slot.right + Scaled(UiMetrics::kSpaceXs);
