@@ -12,22 +12,22 @@ jobs:
   prune:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete obsolete remote branches
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 1
+      - name: Delete remaining obsolete remote branches
         shell: bash
         run: |
-          set -euo pipefail
+          set +e
           branches=(
-            "overnight/release-closure-20260823"
-            "phase8/indexed-scale-production-readiness-20260824"
-            "phase9/nonblocking-indexed-read-plane-20260824"
-            "phase10/search-availability-convergence-20260824"
             "plan/repo-local-addons-2026-08-28"
             "stabilization/ship-ready-2026-08-23"
             "cleanup/branch-prune-20260829"
           )
+          failures=0
           for branch in "${branches[@]}"; do
             echo "Deleting ${branch}"
-            gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/git/refs/heads/${branch}"
+            git push origin --delete "${branch}" || failures=$((failures+1))
           done
+          exit "$failures"
