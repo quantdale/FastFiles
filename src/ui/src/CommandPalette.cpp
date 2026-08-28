@@ -56,7 +56,7 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteListId)), nullptr, nullptr);
     if (edit_ == nullptr || list_ == nullptr) return false;
     // Task 5.3 theming: Segoe UI 14 DIP body font for both controls plus a
-    // fixed owner-draw row height so items match the app's dense row metric.
+    // density-aware owner-draw row height (Compact matches kRowHeight).
     const UINT dpi = static_cast<UINT>(ffui::UiDpiScale() * 96.0f + 0.5f);
     const int fontSize = static_cast<int>(ffui::UiMetrics::kFontSizeBody);
     paletteFont_ = CreateFontW(-MulDiv(fontSize, static_cast<int>(dpi), 72), 0, 0, 0, FW_NORMAL,
@@ -66,16 +66,24 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
                                                : reinterpret_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
     SendMessageW(edit_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
-    SendMessageW(list_, LB_SETITEMHEIGHT, 0, static_cast<LPARAM>(Scaled(static_cast<int>(ffui::UiMetrics::kRowHeight))));
+    ApplyDensityMetrics();
     ApplyNativeExplorerTheme(edit_, ffui::gUiDarkTheme, NativeExplorerTheme::Combo);
     ApplyNativeExplorerTheme(list_, ffui::gUiDarkTheme);
     return true;
+}
+
+void CommandPalette::ApplyDensityMetrics() {
+    if (list_ == nullptr) return;
+    const UiDensity density = GetUiDensity(gUiDensityProfile);
+    SendMessageW(list_, LB_SETITEMHEIGHT, 0,
+                 static_cast<LPARAM>(Scaled(static_cast<int>(density.rowHeight))));
 }
 
 void CommandPalette::Show(CommandContext context) {
     context_ = context;
     visible_ = true;
     SetWindowTextW(edit_, L"");
+    ApplyDensityMetrics();
     Reposition();
     ShowWindow(edit_, SW_SHOW);
     ShowWindow(list_, SW_SHOW);
@@ -105,8 +113,9 @@ void CommandPalette::Reposition() {
     const int height = (std::min)(Scaled(360), (std::max)(Scaled(140), clientHeight - Scaled(80)));
     const int left = (client.right - width) / 2;
     const int top = (std::max)(Scaled(20), (clientHeight - height) / 4);
-    SetWindowPos(edit_, HWND_TOP, left, top, width, Scaled(30), SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, left, top + Scaled(32), width, height - Scaled(32), SWP_SHOWWINDOW);
+    const int editHeight = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + 6.0f));
+    SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, SWP_SHOWWINDOW);
+    SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width, height - editHeight - Scaled(2), SWP_SHOWWINDOW);
 }
 
 void CommandPalette::RefreshResults() {
@@ -175,7 +184,11 @@ bool CommandPalette::HandleOwnerCommand(WPARAM wParam, LPARAM lParam) {
 }
 
 void CommandPalette::SetDarkTheme(bool dark) {
-    if (darkTheme_ == dark) return;
+    ApplyDensityMetrics();
+    if (darkTheme_ == dark) {
+        if (visible_) Reposition();
+        return;
+    }
     darkTheme_ = dark;
     DeleteBrush(ctlEditBrush_);
     DeleteBrush(ctlListBrush_);
@@ -184,6 +197,7 @@ void CommandPalette::SetDarkTheme(bool dark) {
     ApplyNativeExplorerTheme(list_, dark);
     if (edit_ != nullptr) InvalidateRect(edit_, nullptr, FALSE);
     if (list_ != nullptr) InvalidateRect(list_, nullptr, FALSE);
+    if (visible_) Reposition();
 }
 
 bool CommandPalette::HandleDrawItem(LPARAM lParam) {

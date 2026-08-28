@@ -1,5 +1,23 @@
 # Fast Files — Agent Workstate
 
+## Final product-completion campaign — Comfortable density follow-through (2026-08-29)
+
+- Resume derived: `origin/main` = `d21bc23`, hosted CI `33202519685` SUCCESS
+  (all six jobs). Untracked `docs/agent/HANDOFF_12H_2026-08-27.md` preserved.
+- Product defect: Comfortable density painted taller Column View rows, but UIA
+  geometry, inline rename, context-menu anchor, command palette, and search
+  two-line rows still used Compact `kRowHeight`. Fix: `UiaBrowseRowHeightDip()`
+  + `BrowseRowHeight()` at those seams; palette/search apply density on
+  ApplyTheme even when the color theme is unchanged.
+- Task 7.8 recorded in `evidence/external-blockers.md`. Task 7.7 stays open
+  until this follow-up SHA is pushed and hosted CI is inspected.
+- External still: production signing/pins, privileged MFT/USN, live
+  foreground UIA, physical-display catalog, PR #6 admin close.
+
+NEXT EXACT ACTION: build Debug FastFiles + ffuia_geometry_tests +
+ffcolumn_hit_test_tests, then Debug/release-test CTest slice, commit, push
+without force, inspect hosted CI for the exact SHA.
+
 ## Final product-completion campaign — native chrome + Storage pills (2026-08-29)
 
 - Resume derived: `origin/main` = `3fa6796` (hosted CI `33199599604` SUCCESS).

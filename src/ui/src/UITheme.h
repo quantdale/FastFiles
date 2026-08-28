@@ -204,7 +204,7 @@ inline bool UiTypeSemibold(UiTypeRole role) {
 // UI-v3 density contract (docs/ui-improvement/02 §4). One coherent structure
 // so row height, command targets, icon size, and list rhythm never drift back
 // into unrelated per-file constants. Compact matches the shipped geometry.
-// The profile is not yet a user setting; surfaces consume GetUiDensity().
+// WindowShell::ApplyTheme publishes gUiDensityProfile from Settings.appearance.density.
 enum class UiDensityProfile { Compact, Comfortable };
 
 struct UiDensity {

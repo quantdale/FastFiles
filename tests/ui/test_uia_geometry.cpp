@@ -93,6 +93,23 @@ void TestOffscreenMath() {
           "partially visible row is not offscreen");
 }
 
+void TestComfortableDensityRowHeight() {
+    const auto previous = ffui::gUiDensityProfile;
+    ffui::gUiDensityProfile = ffui::UiDensityProfile::Comfortable;
+    const float row = ffui::UiaBrowseRowHeightDip();
+    Check(row == 34.0f, "Comfortable browse row height is 34 DIP");
+    const D2D1_RECT_F row0 = ffui::UiaItemRectDip(0, 0, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);
+    Check(row0.bottom - row0.top == row, "UIA item rect uses Comfortable row height");
+    const D2D1_RECT_F row1 = ffui::UiaItemRectDip(0, 1, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);
+    Check(row1.top == ffui::UiMetrics::kBadgeHeight + row, "Comfortable row 1 follows the density ramp");
+    Check(ffui::UiaMaxVerticalScrollDip(100, 600.0f) ==
+              100 * row - (600.0f - ffui::UiMetrics::kBadgeHeight),
+          "Comfortable vertical clamp uses density row height");
+    ffui::gUiDensityProfile = previous;
+    Check(ffui::UiaBrowseRowHeightDip() == ffui::UiMetrics::kRowHeight,
+          "restoring Compact returns the default row height");
+}
+
 void TestScrollClamps() {
     // 100 rows -> 2800 DIP content; viewport 600 -> max scroll 2228.
     Check(ffui::UiaMaxVerticalScrollDip(100, 600.0f) == 100 * ffui::UiMetrics::kRowHeight - (600.0f - ffui::UiMetrics::kBadgeHeight),
@@ -113,6 +130,7 @@ int main() {
     TestItemRectMath();
     TestScreenConversion();
     TestOffscreenMath();
+    TestComfortableDensityRowHeight();
     TestScrollClamps();
 
     if (FailureCount() != 0) {

@@ -40,6 +40,12 @@ inline D2D1_RECT_F UiaColumnRectDip(int column, float paneX, float paneWidth,
     return D2D1::RectF(x, UiMetrics::kBadgeHeight, x + UiMetrics::kColumnWidth, viewportHeight);
 }
 
+// Browse-row height in DIPs. Compact equals UiMetrics::kRowHeight; Comfortable
+// must match ColumnView::BrowseRowHeight() so BoundingRectangle agrees with paint.
+inline float UiaBrowseRowHeightDip() {
+    return GetUiDensity(gUiDensityProfile).rowHeight;
+}
+
 // Item row rect in viewport DIPs (the full row cell that is painted /
 // hit-tested).
 inline D2D1_RECT_F UiaItemRectDip(int column, int row, float paneX, float paneWidth,
@@ -47,9 +53,10 @@ inline D2D1_RECT_F UiaItemRectDip(int column, int row, float paneX, float paneWi
                                   float viewportHeight) {
     (void)paneWidth;       // row cells span the shared column width
     (void)viewportHeight;  // the rect is the row cell; clipping is IsOffscreen's job
+    const float rowHeight = UiaBrowseRowHeightDip();
     const float x = paneX + static_cast<float>(column) * UiMetrics::kColumnWidth - hScroll;
-    const float y = UiaContentTopDip(statusLineShown) + static_cast<float>(row) * UiMetrics::kRowHeight - vScroll;
-    return D2D1::RectF(x, y, x + UiMetrics::kColumnWidth, y + UiMetrics::kRowHeight);
+    const float y = UiaContentTopDip(statusLineShown) + static_cast<float>(row) * rowHeight - vScroll;
+    return D2D1::RectF(x, y, x + UiMetrics::kColumnWidth, y + rowHeight);
 }
 
 // Home item rect in viewport DIPs (Home layout rect + badge band - scroll).
@@ -111,7 +118,7 @@ inline float UiaMaxHorizontalScrollDip(int columnCount, float paneWidth) {
 // EnsureFocusedItemVisible (focused column's item count drives the clamp).
 inline float UiaMaxVerticalScrollDip(int focusedColumnItemCount, float viewportHeight) {
     const float visibleHeight = (std::max)(0.0f, viewportHeight - UiMetrics::kBadgeHeight);
-    return (std::max)(0.0f, static_cast<float>(focusedColumnItemCount) * UiMetrics::kRowHeight - visibleHeight);
+    return (std::max)(0.0f, static_cast<float>(focusedColumnItemCount) * UiaBrowseRowHeightDip() - visibleHeight);
 }
 
 // Vertical scroll clamp for Home panes (layout content height drives it).

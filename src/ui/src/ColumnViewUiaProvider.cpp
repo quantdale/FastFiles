@@ -466,7 +466,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
             const bool statusLine = info.status == UiaColumnStatus::Loading;
             const float vScroll = surface_->UiaVerticalScroll(pane);
             const float contentTop = UiaContentTopDip(statusLine);
-            const int row = static_cast<int>((yDip - contentTop + vScroll) / UiMetrics::kRowHeight);
+            const int row = static_cast<int>((yDip - contentTop + vScroll) / UiaBrowseRowHeightDip());
             if (row >= 0 && row < info.itemCount) {
                 const D2D1_RECT_F itemRect = UiaItemRectDip(
                     column, row, static_cast<float>(pane) * paneWidth, paneWidth, hScroll, vScroll,
@@ -1420,7 +1420,7 @@ STDMETHODIMP PaneUiaProvider::get_VerticalViewSize(double* retVal) noexcept {
     } else {
         const int column = surface->UiaFocusedColumn(pane_);
         if (column < 0 || column >= surface->UiaColumnCount(pane_)) return S_OK;
-        contentHeight = static_cast<float>(surface->UiaColumnInfoOf(pane_, column).itemCount) * UiMetrics::kRowHeight;
+        contentHeight = static_cast<float>(surface->UiaColumnInfoOf(pane_, column).itemCount) * UiaBrowseRowHeightDip();
     }
     if (contentHeight <= 0.0f) return S_OK;
     *retVal = static_cast<double>((std::min)(100.0, visibleHeight / contentHeight * 100.0));

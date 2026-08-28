@@ -79,8 +79,6 @@ constexpr float kFiltersToggleWidthDip = 64.0f;               // chevron + label
 constexpr float kFiltersToggleGapDip = UiMetrics::kSpaceS;    // gap between the toggle and the first chip
 constexpr float kComboDropdownHeightPx = 300.0f; // closed height is font-driven
 constexpr float kSpaceClearArrowMarginDip = 20.0f; // keeps the affordance clear of the combo arrow
-// ui-v3 search: two-line result rows (name primary, location/metadata caption).
-constexpr float kResultRowHeightDip = 38.0f;
 // ui-v3 search: filter-bar hit regions.
 constexpr int kChipNone = -1;
 // ui-v3 search: the disclosure pill became a real child button; only the
@@ -893,6 +891,7 @@ void SearchPanel::SetDarkTheme(bool dark) {
     // theme change cannot leave stale colors cached in the DC render target.
     searchResourcesReady_ = false;
     lastSearchDpi_ = -1.0f;
+    EnsureRowMetrics();
 }
 
 void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
@@ -2254,7 +2253,9 @@ void SearchPanel::EnsureResultFonts() {
 // derives its row height from the small image list, so a one-entry image list
 // at the row height sets it without touching virtualization.
 void SearchPanel::EnsureRowMetrics() {
-    const int desired = Scaled(kResultRowHeightDip);
+    // Two-line result rows: density row height plus a fixed second-line band
+    // so Compact stays ~38 DIP and Comfortable scales with browse rows.
+    const int desired = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).rowHeight + 10.0f));
     if (resultListImages_ != nullptr && desired == resultListRowHeightPx_) return;
     ReleaseListImageList();
     if (desired <= 0) return;

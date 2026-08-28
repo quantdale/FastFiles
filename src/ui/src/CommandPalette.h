@@ -31,6 +31,7 @@ public:
 private:
     void RefreshResults();
     void ExecuteSelected();
+    void ApplyDensityMetrics();
 
     HWND owner_ = nullptr;
     HWND edit_ = nullptr;

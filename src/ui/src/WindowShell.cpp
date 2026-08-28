@@ -765,11 +765,13 @@ void WindowShell::BeginInlineRename(const std::wstring& path) {
                                                  columnView_.FocusedColumnIndex() * ColumnView::kColumnWidth -
                                                  paneScroll + 24.0f));
     const int itemIndex = (std::max)(0, columnView_.FocusedItemIndex());
+    const float rowHeight = BrowseRowHeight();
     const int y = static_cast<int>(ffui::UiScale(shellLayout.contentRect.top +
-                                                 ColumnView::kBadgeHeight + itemIndex * ColumnView::kRowHeight -
+                                                 ColumnView::kBadgeHeight + static_cast<float>(itemIndex) * rowHeight -
                                                  verticalScroll));
+    const int editHeight = Scaled(static_cast<int>(ffui::GetUiDensity(ffui::gUiDensityProfile).controlHeight));
     inlineRename_ = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", std::filesystem::path(path).filename().c_str(),
-                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, Scaled(205), Scaled(24), hwnd_,
+                                    WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL, x, y, Scaled(205), editHeight, hwnd_,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(7201)), nullptr, nullptr);
     if (inlineRename_ == nullptr) {
         inlineRenamePath_.clear();
@@ -2543,11 +2545,12 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 const auto shellLayout = CurrentShellLayout();
                 const int column = columnView_.FocusedColumnIndex();
                 const int item = columnView_.FocusedItemIndex();
+                const float rowHeight = BrowseRowHeight();
                 point = {static_cast<LONG>(ffui::UiScale(shellLayout.contentRect.left +
                                                         column * ColumnView::kColumnWidth - scrollOffset_ + 24.0f)),
                          static_cast<LONG>(ffui::UiScale(shellLayout.contentRect.top +
                                                         ColumnView::kBadgeHeight +
-                                                        (std::max)(0, item) * ColumnView::kRowHeight + ColumnView::kRowHeight))};
+                                                        static_cast<float>((std::max)(0, item)) * rowHeight + rowHeight))};
                 ClientToScreen(hwnd_, &point);
             }
             if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() != StorageAnalysis::ViewMode::Treemap) {

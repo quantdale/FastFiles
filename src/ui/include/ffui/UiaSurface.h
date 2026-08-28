@@ -15,7 +15,7 @@
 // marked screen/physical. Rows follow the render math:
 //   columnX  = paneX + column * kColumnWidth - horizontalScroll
 //   contentTop = kBadgeHeight + (statusLine ? 24 : 0)
-//   itemY    = contentTop + row * kRowHeight - verticalScroll
+//   itemY    = contentTop + row * BrowseRowHeight() - verticalScroll
 // The renderer applies the same formulas (ColumnView::Render); the provider
 // layer owns the DIP->physical->screen conversion (UiaGeometry.h).
 

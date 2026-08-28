@@ -158,5 +158,24 @@ int main() {
               "pane-1 centers stay consistent while the status banner is visible");
     }
 
+    {
+        const auto previous = ffui::gUiDensityProfile;
+        ffui::gUiDensityProfile = ffui::UiDensityProfile::Comfortable;
+        const float comfortableRow = ffui::BrowseRowHeight();
+        Check(comfortableRow == 34.0f, "Comfortable hit-test uses the 34 DIP row height");
+        const auto comfortable = ComputeColumnHitTest(
+            D2D1::Point2F(12.0f, badge + 2.0f * comfortableRow + 1.0f),
+            0.0f, 0.0f, 0.0f, width, false, 0);
+        Check(comfortable.columnIndex == 0 && comfortable.itemIndex == 2,
+              "Comfortable row 2 still hit-tests to item 2");
+        const D2D1_RECT_F rect = ffui::UiaItemRectDip(0, 2, 0.0f, width, 0.0f, 0.0f, false, 600.0f);
+        const auto fromUia = ComputeColumnHitTest(
+            D2D1::Point2F((rect.left + rect.right) / 2.0f, (rect.top + rect.bottom) / 2.0f),
+            0.0f, 0.0f, 0.0f, width, false, 0);
+        Check(fromUia.columnIndex == 0 && fromUia.itemIndex == 2,
+              "Comfortable UIA item rect and hit-test agree on the same row");
+        ffui::gUiDensityProfile = previous;
+    }
+
     return failures == 0 ? 0 : 1;
 }
