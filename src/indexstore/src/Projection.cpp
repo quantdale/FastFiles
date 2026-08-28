@@ -302,12 +302,11 @@ bool Projection::ReloadEvictedVolume(Store& store, const VolumeRowId volumeRowId
     ++coldReloadCount_;
     const auto metadata = store.GetVolumeMetadata(volumeRowId);
     if (!metadata.has_value()) {
-        evictedVolumes_.erase(volumeRowId);
         ++coldReloadFailedCount_;
         return false;
     }
-    RebuildVolumeFromStore(store, volumeRowId, metadata->entryCount);
-    const bool reloaded = !NeedsReload(volumeRowId);
+    const bool rebuilt = RebuildVolumeFromStore(store, volumeRowId, metadata->entryCount);
+    const bool reloaded = rebuilt && !NeedsReload(volumeRowId);
     if (!reloaded) ++coldReloadFailedCount_;
     return reloaded;
 }
@@ -799,7 +798,7 @@ Projection::PathResult Projection::ReconstructPathUntil(
     return result;
 }
 
-void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
+bool Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount) {
     const bool wasEnforcingMemoryLimit = enforcingMemoryLimit_;
     enforcingMemoryLimit_ = false;
     bool volumePresent = false;
@@ -814,11 +813,26 @@ void Projection::RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, u
     denseIterationOrderValid_ = false;
     filenameIndexValid_ = false;
     Reserve(EntryCount() + expectedEntryCount);
-    store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) { Upsert(volumeRowId, record); });
+    const bool streamed = store.ForEachEntry(volumeRowId, [&](const EntryRecord& record) {
+        Upsert(volumeRowId, record);
+    });
+    if (!streamed) {
+        // completion-integrity-hardening-and-release-certification 4.1.2:
+        // a failed durable read may have delivered a prefix of the rows. Do
+        // not expose that prefix as a resident volume; retain the cold marker
+        // so a later rebuild can retry from the durable source.
+        RemoveVolume(volumeRowId);
+        CompactStorage();
+        evictedVolumes_.insert(volumeRowId);
+        enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
+        EnforceMemoryLimit();
+        return false;
+    }
     CompactEntriesForIterationOrder();
     RebuildFilenameIndex();
     enforcingMemoryLimit_ = wasEnforcingMemoryLimit;
     EnforceMemoryLimit();
+    return !NeedsReload(volumeRowId);
 }
 
 } // namespace ffindexstore

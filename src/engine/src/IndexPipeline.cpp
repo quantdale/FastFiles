@@ -535,8 +535,8 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         for (const auto& meta : store_.GetAllVolumes()) {
-            projection_.RebuildVolumeFromStore(store_, meta.rowId, meta.entryCount);
-            bool rebuildSucceeded = true;
+            bool rebuildSucceeded =
+                projection_.RebuildVolumeFromStore(store_, meta.rowId, meta.entryCount);
             // zero-touch-autonomous-engineering (subtree gating): after the
             // projection is rebuilt from the durable store (parent chains
             // fully present), prune any excluded subtrees from store +
@@ -544,14 +544,19 @@ void IndexPipeline::RebuildAll(const VolumeRebuiltCallback& onVolumeRebuilt) {
             // This mirrors the ingestion prune and the reconciliation catch-
             // all, ensuring rules are honored on every equivalent ingestion
             // path (initial scan, USN deltas, reconciliation, rebuild).
-            if (volumeRules_.find(meta.rowId) != volumeRules_.end()) {
+            if (rebuildSucceeded && volumeRules_.find(meta.rowId) != volumeRules_.end()) {
                 std::vector<ffindexstore::EntryChange> ruleExcluded;
-                store_.ForEachEntry(meta.rowId, [&](const ffindexstore::EntryRecord& record) {
+                const bool ruleReadSucceeded = store_.ForEachEntry(meta.rowId, [&](const ffindexstore::EntryRecord& record) {
                     if (!IsEntryIncludedLocked(meta.rowId, record.id)) {
                         ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, record});
                     }
                 });
-                if (!ruleExcluded.empty()) {
+                if (!ruleReadSucceeded) {
+                    // completion-integrity-hardening-and-release-certification 4.1.2:
+                    // a failed second durable read cannot be treated as a
+                    // complete rule-prune pass, even if it yielded a prefix.
+                    rebuildSucceeded = false;
+                } else if (!ruleExcluded.empty()) {
 #ifdef FF_INDEX_PIPELINE_TESTING
                     const bool injectedFailure = ShouldInjectSecondaryPruningFailureLocked(
                         SecondaryPruningBoundary::RebuildRulePrune, meta.rowId, ruleExcluded);
@@ -982,7 +987,7 @@ void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {
 std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirectorySnapshot(
     ffindexstore::VolumeRowId id, const std::wstring& rootPathPrefix) {
     std::lock_guard<std::mutex> lock(mutex_);
-    projection_.ReloadEvictedVolume(store_, id);
+    if (!projection_.ReloadEvictedVolume(store_, id)) return {};
     std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {
@@ -1063,7 +1068,7 @@ std::map<std::wstring, ffprotocol::SnapshotDirectory> IndexPipeline::ExportDirec
     // evicts the current largest key (map's rbegin), so final size never
     // exceeds maxDirectories and total work is O(D log max) not O(D log D).
     std::lock_guard<std::mutex> lock(mutex_);
-    projection_.ReloadEvictedVolume(store_, id);
+    if (!projection_.ReloadEvictedVolume(store_, id)) return {};
     std::map<std::wstring, ffprotocol::SnapshotDirectory> result;
     projection_.ForEachEntry([&](const ffindexstore::EntryKey& key, const ffindexstore::ProjectionEntry& entry) {
         if (key.volumeRowId != id || (entry.attributes & kFileAttributeDirectory) == 0) {

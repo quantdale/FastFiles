@@ -438,6 +438,54 @@ void TestProjectionEvictsLruAndReloadsFromStore() {
     std::filesystem::remove(dbPath.string() + "-shm");
 }
 
+// completion-integrity-hardening-and-release-certification 4.1.2: a durable
+// stream failure must not be reported as a successful rebuild or leave a
+// readable partial volume behind; reopening the store must make the cold
+// volume retryable.
+void TestProjectionRebuildFailureIsColdAndRetryable() {
+    const auto dbPath = std::filesystem::temp_directory_path() /
+        ("ffindexstore_projection_rebuild_failure_" + std::to_string(GetCurrentProcessId()) + ".db");
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+
+    Store store;
+    Check(store.Open(dbPath.string()), "rebuild failure fixture store opens");
+    VolumeKey key;
+    key.serialNumber = 86420;
+    const auto volume = store.GetOrCreateVolume(key);
+    Check(volume.has_value(), "rebuild failure fixture volume is created");
+    if (!volume.has_value()) return;
+    Check(store.ApplyBatch(*volume, {
+        {EntryChangeKind::Upsert, MakeEntry(5, 5, u"C:", 0x10)},
+        {EntryChangeKind::Upsert, MakeEntry(100, 5, u"durable.txt")},
+    }), "rebuild failure fixture rows are durable");
+
+    Projection projection;
+    Check(projection.RebuildVolumeFromStore(store, *volume, store.CountEntries(*volume)),
+          "initial rebuild succeeds before the failure is introduced");
+    Check(projection.Find(*volume, FileId{100, 0}) != nullptr,
+          "initial rebuild exposes the durable fixture row");
+
+    store.Close();
+    Check(!projection.RebuildVolumeFromStore(store, *volume, 2),
+          "rebuild reports a closed durable store instead of succeeding with a partial result");
+    Check(projection.NeedsReload(*volume), "failed rebuild retains a cold retry marker");
+    Check(projection.Find(*volume, FileId{100, 0}) == nullptr,
+          "failed rebuild removes any partial or stale resident rows");
+
+    Check(store.Open(dbPath.string()), "rebuild failure fixture store reopens");
+    Check(projection.ReloadEvictedVolume(store, *volume),
+          "cold rebuild retries successfully after the durable store reopens");
+    Check(!projection.NeedsReload(*volume) && projection.Find(*volume, FileId{100, 0}) != nullptr,
+          "successful retry restores the durable row and clears the cold marker");
+
+    store.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath.string() + "-wal");
+    std::filesystem::remove(dbPath.string() + "-shm");
+}
+
 void TestProjectionMemoryPressureSignal() {
     Projection proj;
     proj.Upsert(1, MakeEntry(5, 5, u"C:", 0x10));
@@ -625,6 +673,7 @@ int main() {
     TestManyDistinctParentsDoNotStallGrowth();
     TestFilenameTrigramCandidatesTrackMutations();
     TestProjectionEvictsLruAndReloadsFromStore();
+    TestProjectionRebuildFailureIsColdAndRetryable();
     TestProjectionMemoryPressureSignal();
     TestProjectionMemoryDiagnostics();
     TestProjectionMemoryLimitRunsAtBatchBoundary();

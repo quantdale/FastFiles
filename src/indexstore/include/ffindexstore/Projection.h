@@ -207,10 +207,12 @@ public:
 
     // task 3.1: rebuilds this volume's portion of the projection from the
     // durable store in a single streaming pass, interning names and
-    // building the parent->children index as rows arrive.
+    // building the parent->children index as rows arrive. Returns false when
+    // the durable stream fails; the volume is left cold with no partial
+    // projection so callers cannot publish an incomplete rebuild.
     // expectedEntryCount pre-sizes allocations (task 2.5/D4); the caller
     // gets this from Store::GetVolumeMetadata(...)->entryCount.
-    void RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount);
+    bool RebuildVolumeFromStore(Store& store, VolumeRowId volumeRowId, uint64_t expectedEntryCount);
 
     size_t EntryCount() const noexcept { return idToIndex_.size(); }
     const NamePool& Names() const noexcept { return namePool_; }
