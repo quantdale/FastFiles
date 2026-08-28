@@ -70,6 +70,11 @@ void TestShortcutsAndPalette() {
           "storage analysis default shortcut is Ctrl+Shift+S");
     Check(ffui::FormatKeyChord(shortcuts.FindByCommand(L"app.command-palette")->chord) == L"Ctrl+Shift+P",
           "palette default shortcut is present");
+    Check(ffui::FormatKeyChord(shortcuts.FindByCommand(L"navigation.home")->chord) == L"Alt+Home",
+          "Home shortcut formats as Alt+Home rather than Alt+Key 36");
+    Check(registry.Find(L"navigation.toggle-column-view") != nullptr &&
+              registry.Find(L"navigation.toggle-column-view")->displayName == L"Toggle Dual Pane",
+          "legacy toggle-column-view id is an honest dual-pane alias");
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, false) == ffui::RebindResult::Conflict,
           "conflicting rebind is rejected");
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, true) == ffui::RebindResult::Applied,
@@ -211,7 +216,6 @@ void TestBaselinePaletteCoverage() {
         {L"item.open-terminal", L"Open Terminal Here", ffui::SelectionKind::SingleFolder},
         {L"search.focus", L"Search", ffui::SelectionKind::Empty},
         {L"storage.analyze", L"Analyze Storage", ffui::SelectionKind::Empty},
-        {L"navigation.toggle-column-view", L"Toggle Column View", ffui::SelectionKind::Empty},
         {L"navigation.toggle-dual-pane", L"Toggle Dual Pane", ffui::SelectionKind::Empty},
         {L"navigation.refresh", L"Refresh", ffui::SelectionKind::Empty},
         {L"app.settings", L"Settings", ffui::SelectionKind::Empty},
@@ -220,8 +224,11 @@ void TestBaselinePaletteCoverage() {
     for (const BaselineCase& testCase : cases) {
         const ffui::CommandContext context{testCase.kind, false};
         const auto results = ffui::SearchCommands(registry, shortcuts, context, testCase.query);
-        Check(!results.empty() && results.front().command->commandId == testCase.id,
-              "palette discovers the baseline command by name");
+        const bool discovered = !results.empty() &&
+            (results.front().command->commandId == testCase.id ||
+             (std::wstring(testCase.id) == L"navigation.toggle-dual-pane" &&
+              results.front().command->commandId == L"navigation.toggle-column-view"));
+        Check(discovered, "palette discovers the baseline command by name");
         const bool invoked = registry.Invoke(testCase.id, context, {});
         Check(invoked, "baseline command is invocable");
         Check(invocations == 1 && lastCommand == testCase.id, "invocation reaches the registered handler");

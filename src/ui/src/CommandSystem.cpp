@@ -246,7 +246,9 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     ok = RegisterOne(registry, handlers, L"navigation.previous-tab", L"Previous Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{VK_TAB, static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.reopen-tab", L"Reopen Closed Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.add-bookmark", L"Add to Bookmarks", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'D', ModifierControl}) && ok;
-    ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Column View", L"View", kAnySelection, ShortcutScope::Global) && ok;
+    // FastFiles' browse surface is always Column View. This id is retained as a
+    // dual-pane alias so persisted shortcut customizations keep working.
+    ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-dual-pane", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"view.toggle-details-pane", L"Toggle Details Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"selection.select-all", L"Select All", L"Selection", kAnySelection, ShortcutScope::ActiveView, KeyChord{'A', ModifierControl}) && ok;
@@ -626,9 +628,16 @@ std::wstring FormatKeyChord(KeyChord chord) {
     else if (chord.virtualKey == VK_RIGHT) result += L"Right";
     else if (chord.virtualKey == VK_UP) result += L"Up";
     else if (chord.virtualKey == VK_DOWN) result += L"Down";
+    else if (chord.virtualKey == VK_HOME) result += L"Home";
+    else if (chord.virtualKey == VK_END) result += L"End";
+    else if (chord.virtualKey == VK_PRIOR) result += L"PageUp";
+    else if (chord.virtualKey == VK_NEXT) result += L"PageDown";
     else if (chord.virtualKey == VK_BACK) result += L"Backspace";
     else if (chord.virtualKey == VK_TAB) result += L"Tab";
     else if (chord.virtualKey == VK_ESCAPE) result += L"Esc";
+    else if (chord.virtualKey == VK_RETURN) result += L"Enter";
+    else if (chord.virtualKey == VK_SPACE) result += L"Space";
+    else if (chord.virtualKey == VK_INSERT) result += L"Insert";
     else if (chord.virtualKey == VK_OEM_COMMA) result += L",";
     else result += L"Key " + std::to_wstring(chord.virtualKey);
     return result;
