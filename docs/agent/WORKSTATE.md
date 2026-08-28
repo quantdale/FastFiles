@@ -6,8 +6,10 @@
   the only pre-existing local change remains the untracked
   `docs/agent/HANDOFF_12H_2026-08-27.md`, which is preserved. No autonomous
   intake run exists. The reconciled implementation candidate is
-  `faca10e728160ebb60fe1148b5721f14d057ec42`; after the push and fetch,
-  local `HEAD == origin/main` at that SHA and the tracked tree is clean.
+  `faca10e728160ebb60fe1148b5721f14d057ec42`; later checkpoint-only commits
+  may sit on top of that immutable implementation baseline. Live branch,
+  `HEAD`, `origin/main`, and dirty state must be derived from Git at resume;
+  this file deliberately does not assert its own containing SHA.
 - The implementation lineage is `f65b3bfc` (guarded fault/reconciliation
   seams), `030bd172`/`cff3659c`/`967546a8` (retained release evidence,
   artifact-v6 upload, and metadata redaction), `c132721b` (active-ledger
