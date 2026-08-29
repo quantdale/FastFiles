@@ -57,16 +57,26 @@ namespace FfUiaCom {
     public static extern IntPtr PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr hWnd);
+    [DllImport("user32.dll")]
+    public static extern int GetDlgCtrlID(IntPtr hWnd);
     public static bool SetSelection(IntPtr cb, int index) {
       if (cb == IntPtr.Zero) return false;
       const uint CB_SETCURSEL = 0x014E;
       const uint WM_COMMAND = 0x0111;
+      const int CBN_SELCHANGE = 1;
       IntPtr parent = GetParent(cb);
       if (parent == IntPtr.Zero) return false;
       // Control identifier of the combo = its child id within the parent.
-      int ctrlId = (int)SendMessage(cb, 0x0129 /*WM_GETCONTROLID*/, IntPtr.Zero, IntPtr.Zero);
+      // GetDlgCtrlID is the documented way to read it. This previously sent
+      // 0x0129 as "WM_GETCONTROLID"; no such message exists -- 0x0129 is
+      // WM_QUERYUISTATE, so the id was UI state flags. The notification then
+      // carried a wrong control id, the app ignored it, and the selection was
+      // later re-synced away from the harness's CB_SETCURSEL while this
+      // function still reported success.
+      int ctrlId = GetDlgCtrlID(cb);
+      if (ctrlId == 0) return false;
       SendMessage(cb, CB_SETCURSEL, new IntPtr(index), IntPtr.Zero);
-      IntPtr wp = new IntPtr((1 << 16) | (ctrlId & 0xFFFF));
+      IntPtr wp = new IntPtr((CBN_SELCHANGE << 16) | (ctrlId & 0xFFFF));
       PostMessage(parent, WM_COMMAND, wp, cb);
       return true;
     }

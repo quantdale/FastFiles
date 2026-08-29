@@ -1956,7 +1956,7 @@ function Set-UiaSearchFixtureScope {
             }
             Start-Sleep -Milliseconds 150
         }
-        Write-Verbose "Set-UiaSearchFixtureScope: scope combo settled on '$lastName' (applied=$selectionApplied)"
+        Write-Warning "Set-UiaSearchFixtureScope: scope combo settled on '$lastName' (applied=$selectionApplied)"
         return $false
     } catch { return $false }
 }
