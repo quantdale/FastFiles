@@ -1941,10 +1941,23 @@ function Set-UiaSearchFixtureScope {
                 $selectionApplied = Set-UiaComboSelectionHwnd -MainWindowHandle $mainHwnd -ControlId 7102 -Index 0
             }
         }
-        Start-Sleep -Milliseconds 700
-        $combo = Get-UiaSearchScopeComboById -Driver $Driver -ProcessId $ProcessId -FromElement $Main
-        if (-not $combo) { return $false }
-        return ([string](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'Name')) -match '^Current Folder'
+        # Selecting the scope replaces the combo's UIA fragment, so both the
+        # reacquisition and the label update land asynchronously. Poll the
+        # observable condition instead of sleeping a fixed interval and
+        # checking once -- the single-shot check raced the update and reported
+        # a scope failure for a combo that had in fact been set correctly.
+        $deadline = [DateTime]::UtcNow.AddMilliseconds(4000)
+        $lastName = '<combo-not-reacquired>'
+        while ([DateTime]::UtcNow -lt $deadline) {
+            $combo = Get-UiaSearchScopeComboById -Driver $Driver -ProcessId $ProcessId -FromElement $Main
+            if ($combo) {
+                $lastName = [string](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'Name')
+                if ($lastName -match '^Current Folder') { return $true }
+            }
+            Start-Sleep -Milliseconds 150
+        }
+        Write-Verbose "Set-UiaSearchFixtureScope: scope combo settled on '$lastName' (applied=$selectionApplied)"
+        return $false
     } catch { return $false }
 }
 
