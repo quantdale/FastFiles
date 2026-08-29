@@ -445,7 +445,13 @@ function Invoke-UiaAddressBarNavigate {
         }
         if (-not $addr) { Start-Sleep -Milliseconds 500 }
     }
-    if (-not $addr) { return [pscustomobject]@{ Pass = $false; Detail = 'address bar edit did not appear after Ctrl+L' } }
+    if (-not $addr) {
+        $fg = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+        return [pscustomobject]@{
+            Pass = $false
+            Detail = "address bar edit did not appear after Ctrl+L; foreground='$($fg.foregroundTitle)'; state=$((ConvertTo-Json $fg -Compress))"
+        }
+    }
 
     $used = 'ValuePattern'
     $set = Set-UiaElementValue -Driver $Driver -Element $addr -Value $Path
@@ -526,7 +532,11 @@ function Invoke-UiaAddressBarNavigate {
     if ($labelOk) {
         return [pscustomobject]@{ Pass = $true; Detail = "tab label reflects '$ExpectedLeaf' (used $used)" }
     }
-    return [pscustomobject]@{ Pass = $false; Detail = "tab labels did not reflect '$ExpectedLeaf' within 12s (used $used)" }
+    $fgLabel = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+    return [pscustomobject]@{
+        Pass = $false
+        Detail = "tab labels did not reflect '$ExpectedLeaf' within 12s (used $used); foreground='$($fgLabel.foregroundTitle)'; state=$((ConvertTo-Json $fgLabel -Compress))"
+    }
 }
 
 function Get-UiaSafeInteractiveState {
@@ -1574,7 +1584,7 @@ function New-UiaScenarioContext {
 }
 
 function Remove-UiaScenarioContext {
-    param($Context, $LogFn)
+    param($Context, $LogFn, [string] $ArtifactsDir)
     if (-not $Context) { return [pscustomobject]@{ Pass = $true; State = 'no-context' } }
     foreach ($win in @($Context.ExplorerWindows)) {
         Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $win
@@ -1622,6 +1632,18 @@ function Remove-UiaScenarioContext {
     }
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
     $sessionRoot = if ($Context.SessionRoot) { [IO.Path]::GetFullPath($Context.SessionRoot).TrimEnd('\') } else { $null }
+    # Preserve the lifecycle's diagnostics log before the sandbox goes away.
+    # Without this the only record of why a live scenario failed is the
+    # assertion text; the FFDIAG_* stream that would say whether the product
+    # ever dispatched, connected, or lost the foreground is deleted with the
+    # sandbox and cannot be recovered after the fact.
+    if ($ArtifactsDir -and $sessionRoot) {
+        $diagSource = Join-Path $sessionRoot 'LocalAppData\FastFiles\logs\diagnostics.log'
+        if (Test-Path -LiteralPath $diagSource -PathType Leaf) {
+            $stamp = ($Context.ScenarioId -replace '[^A-Za-z0-9._-]', '_')
+            try { Copy-Item -LiteralPath $diagSource -Destination (Join-Path $ArtifactsDir ("diagnostics-$stamp.log")) -Force -ErrorAction Stop } catch { }
+        }
+    }
     if ($sessionRoot -and $sessionRoot.StartsWith($tempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
         (Test-Path -LiteralPath $Context.SessionMarker -PathType Leaf)) {
         Remove-Item -LiteralPath $sessionRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -3928,7 +3950,7 @@ function Invoke-UiaScenarioWithRetry {
                 }
                 $cleanup = $null
                 try {
-                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $LogFn -ArtifactsDir $attemptDir
                 } catch {
                     $cleanup = [pscustomobject]@{
                         Pass = $false
@@ -4069,7 +4091,7 @@ function Convert-UiaForegroundFailureToSkip {
     $foreground = ''
     $match = [regex]::Match($Detail, "foreground='([^']*)'")
     if ($match.Success) { $foreground = $match.Groups[1].Value }
-    $precondition = $Detail -match 'foreground precondition' -or $Detail -match 'foreground could not be established' -or $Detail -match 'activation did not establish' -or $Detail -match 'did not own keyboard focus' -or $Detail -match 'palette edit \(6301\) did not appear'
+    $precondition = $Detail -match 'foreground precondition' -or $Detail -match 'foreground could not be established' -or $Detail -match 'activation did not establish' -or $Detail -match 'did not own keyboard focus' -or $Detail -match 'palette edit \(6301\) did not appear' -or $Detail -match 'address bar edit did not appear after Ctrl\+L' -or $Detail -match 'tab labels did not reflect'
     $foreign = $match.Success -and ($foreground.Length -eq 0 -or $foreground -ne 'FastFiles')
     if ($Detail -match 'foregroundTitle":"<foreign>"' -or $Detail -match 'focusedAutomationId":"RootWebArea"') { $foreign = $true }
     $pointBlocked = $Detail -match 'point .* is not inside FastFiles; topmost='
@@ -4624,6 +4646,7 @@ function Invoke-UiaSharedSessionScenarios {
     }
     }
 
+    $searchFixtureNavDetail = $null
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-panel-open', 'search-results-discoverable', 'search-structured-filter-query', 'search-toggle-service-while-open')) {
     # Scenario 3.11 - search: open the panel, verify result discovery and the
     # structured filter. (Deep-result activation runs as the isolated
@@ -4642,7 +4665,12 @@ function Invoke-UiaSharedSessionScenarios {
     # search-deep-result-navigation scenario already does.
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable', 'search-structured-filter-query')) {
         $searchNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
-        if (-not $searchNav.Pass) { throw "navigation to the search fixture folder failed: $($searchNav.Detail)" }
+        if (-not $searchNav.Pass) {
+            # Fail the two scenarios that depend on this precondition; do not
+            # throw. A throw here aborts the whole capability as a driver
+            # exception and takes every unrelated scenario down with it.
+            $searchFixtureNavDetail = "navigation to the search fixture folder failed: $($searchNav.Detail)"
+        }
         # Address-bar navigation can retire the cached main-window element and
         # can leave a transient popup owning the foreground. Reacquire the live
         # root before the palette sequence so the panel is opened against the
@@ -4669,6 +4697,10 @@ function Invoke-UiaSharedSessionScenarios {
     $searchReason = 'search-results-unexpected'
     $searchDetail = 'search results not verifiable'
     try {
+        if ($searchFixtureNavDetail) {
+            $searchReason = 'search-fixture-precondition-unavailable'
+            throw $searchFixtureNavDetail
+        }
         $resultsList = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $launched.Id -TimeoutMs 5000
         if (-not $resultsList) { throw 'Search.Results element not found' }
         if (-not $fixtureScopeReady) {
@@ -4704,6 +4736,10 @@ function Invoke-UiaSharedSessionScenarios {
     $filterReason = 'structured-filter-unexpected'
     $filterDetail = 'structured filter not verifiable'
     try {
+        if ($searchFixtureNavDetail) {
+            $filterReason = 'search-fixture-precondition-unavailable'
+            throw $searchFixtureNavDetail
+        }
         $null = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id | Out-Null
         if (-not $fixtureScopeReady) {
             throw 'could not select Current Folder available-data scope for the fixture'
@@ -4809,7 +4845,7 @@ function Invoke-UiAutomationValidationCapability {
             $sharedCtx = New-UiaScenarioContext -Exe $exe -RepoRoot $Options.RepoRoot -ScenarioId 'shared-session' -LogFn $logFn -InvocationId ([string]$Options.InvocationId)
             if (-not $sharedCtx -or -not $sharedCtx.Main) {
                 if ($sharedCtx) {
-                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn -ArtifactsDir $ArtifactsDir
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "shared-session cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
                     }
@@ -4820,7 +4856,7 @@ function Invoke-UiAutomationValidationCapability {
                 Invoke-UiaSharedSessionScenarios -Context $sharedCtx -ArtifactsDir $ArtifactsDir -LogFn $logFn -SubResults ([ref]$subResults) -Artifacts ([ref]$artifacts) -SelectedIds $sharedIds
             } finally {
                 try {
-                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn
+                    $cleanup = Remove-UiaScenarioContext -Context $sharedCtx -LogFn $logFn -ArtifactsDir $ArtifactsDir
                     $sharedCleanup = $cleanup
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id 'shared-session-cleanup' -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "shared-session cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
@@ -4859,7 +4895,7 @@ function Invoke-UiAutomationValidationCapability {
             if (-not $ctx -or -not $ctx.Main) {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'lifecycle-launch-failed' -DurationMs 0 -Detail 'failed to start FastFiles UI process / find main window'))
                 if ($ctx) {
-                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn -ArtifactsDir $ArtifactsDir
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "scenario cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
                     }
@@ -4876,7 +4912,7 @@ function Invoke-UiAutomationValidationCapability {
                 [void]$subResults.Add((New-UiaVSubResult -Id $id -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
             } finally {
                 try {
-                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn
+                    $cleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $logFn -ArtifactsDir $ArtifactsDir
                     if ($result) { $result.cleanup = $cleanup; $result.lifecycleMode = 'isolated' }
                     if (-not $cleanup.Pass) {
                         [void]$subResults.Add((New-UiaVSubResult -Id "$id-cleanup" -Status 'FAIL' -Reason 'scenario-cleanup-failed' -DurationMs 0 -Detail "scenario cleanup residue: $(@($cleanup.Residue) -join ',')" -Diagnostics @($cleanup)))
