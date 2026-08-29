@@ -1461,12 +1461,31 @@ function Position-UiaExplorerBesideFastFiles {
 # APPDATA tree, awaits the main window and the engine-connected signal, and
 # returns a context object. Teardown closes session-owned Explorer windows,
 # terminates the app, and removes only the marked session tree.
+# Root for disposable UIA session sandboxes.
+#
+# Deliberately NOT %TEMP%. The column view browses the whole path chain down
+# to the fixture, so a fixture under %TEMP% puts the user's real temp
+# directory in that chain and re-enumerates it on every snapshot refresh. On
+# this host that is ~25,500 entries: a failing run re-enumerated 1,273,036
+# directory entries against 286,090 for a passing one, and the constant column
+# rebuilds retire UIA elements mid-query, which surfaces as FindAll throwing
+# UIA_E_ELEMENTNOTAVAILABLE with an empty message. A shallow root keeps the
+# browsed chain small and keeps personal temp contents out of the evidence.
+function Get-UiaSessionsRoot {
+    if ($env:FASTFILES_UIA_SESSIONS_ROOT) {
+        return [IO.Path]::GetFullPath($env:FASTFILES_UIA_SESSIONS_ROOT).TrimEnd('')
+    }
+    $base = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [IO.Path]::GetTempPath() }
+    return [IO.Path]::GetFullPath((Join-Path $base 'FastFilesUiaSessions')).TrimEnd('')
+}
+
 function New-UiaSessionSandbox {
     param([Parameter(Mandatory)] [string] $ScenarioId, [string] $InvocationId = 'unbound')
-    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    $sessionsRoot = Get-UiaSessionsRoot
+    New-Item -ItemType Directory -Path $sessionsRoot -Force | Out-Null
     $safeId = $ScenarioId -replace '[^A-Za-z0-9-]', '-'
     $safeInvocation = ([string]$InvocationId) -replace '[^A-Za-z0-9-]', '-'
-    $sessionRoot = Join-Path $tempRoot ("FastFiles-Uia-$safeId-$safeInvocation-" + [guid]::NewGuid().ToString('N'))
+    $sessionRoot = Join-Path $sessionsRoot ("FastFiles-Uia-$safeId-$safeInvocation-" + [guid]::NewGuid().ToString('N'))
     $localAppData = Join-Path $sessionRoot 'LocalAppData'
     $appData = Join-Path $sessionRoot 'AppData'
     $fixtureRoot = Join-Path $sessionRoot 'Fixtures'
@@ -1630,7 +1649,7 @@ function Remove-UiaScenarioContext {
             $cleanupFailures += 'engine-pipe-residue'
         }
     }
-    $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    $sessionsRoot = Get-UiaSessionsRoot
     $sessionRoot = if ($Context.SessionRoot) { [IO.Path]::GetFullPath($Context.SessionRoot).TrimEnd('\') } else { $null }
     # Preserve the lifecycle's diagnostics log before the sandbox goes away.
     # Without this the only record of why a live scenario failed is the
@@ -1644,7 +1663,7 @@ function Remove-UiaScenarioContext {
             try { Copy-Item -LiteralPath $diagSource -Destination (Join-Path $ArtifactsDir ("diagnostics-$stamp.log")) -Force -ErrorAction Stop } catch { }
         }
     }
-    if ($sessionRoot -and $sessionRoot.StartsWith($tempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
+    if ($sessionRoot -and $sessionRoot.StartsWith($sessionsRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
         (Test-Path -LiteralPath $Context.SessionMarker -PathType Leaf)) {
         Remove-Item -LiteralPath $sessionRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
