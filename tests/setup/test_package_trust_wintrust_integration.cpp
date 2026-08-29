@@ -3,7 +3,7 @@
 // Proves the final RFC3161-timestamped detached-CMS package-manifest format
 // through the native installer verifier against a disposable, non-production
 // signer installed into CurrentUser\Root (via PackageTrustFixture.ps1's
-// `certutil -user -f -addstore Root`).
+// silent CERT_STORE_PROV_SYSTEM_REGISTRY write).
 //
 // This is not part of ordinary FastFiles development; see AGENTS.md "Normal
 // FastFiles development". It is never part of the default CTest suite: it is

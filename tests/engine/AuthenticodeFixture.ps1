@@ -130,6 +130,76 @@ function Remove-PrivateKeyForCertificate {
     catch { throw 'AUTHENTICODE_FIXTURE_PRIVATE_KEY_DELETE_FAILED' }
 }
 
+if (-not ('FfSilentUserRoot' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+
+public static class FfSilentUserRoot
+{
+    // CERT_STORE_PROV_REG on the HKCU Root key writes the encoded certificate
+    // without Crypt32's "install this CA?" UI. certutil -addstore and
+    // X509Store.Add hang on that dialog when stdout is redirected.
+    const int CERT_STORE_PROV_REG = 4;
+    const uint X509_ASN_ENCODING = 0x00000001;
+    const uint PKCS_7_ASN_ENCODING = 0x00010000;
+    const uint CERT_STORE_ADD_REPLACE_EXISTING = 3;
+    const uint KEY_ALL_ACCESS = 0xF003F;
+    static readonly IntPtr HKEY_CURRENT_USER = new IntPtr(unchecked((int)0x80000001));
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern int RegOpenKeyEx(IntPtr hKey, string lpSubKey, uint ulOptions, uint samDesired, out IntPtr phkResult);
+    [DllImport("advapi32.dll")]
+    static extern int RegCloseKey(IntPtr hKey);
+    [DllImport("crypt32.dll", SetLastError = true)]
+    static extern IntPtr CertOpenStore(IntPtr lpszStoreProvider, uint dwMsgAndCertEncodingType,
+        IntPtr hCryptProv, uint dwFlags, IntPtr pvPara);
+    [DllImport("crypt32.dll", SetLastError = true)]
+    static extern bool CertCloseStore(IntPtr hCertStore, uint dwFlags);
+    [DllImport("crypt32.dll", SetLastError = true)]
+    static extern bool CertAddEncodedCertificateToStore(IntPtr hCertStore, uint dwCertEncodingType,
+        byte[] pbCertEncoded, uint cbCertEncoded, uint dwAddDisposition, IntPtr ppCertContext);
+
+    public static void AddEncoded(byte[] encoded)
+    {
+        if (encoded == null || encoded.Length == 0) throw new ArgumentException("encoded");
+        IntPtr hKey;
+        int rc = RegOpenKeyEx(HKEY_CURRENT_USER, "Software\\Microsoft\\SystemCertificates\\Root", 0, KEY_ALL_ACCESS, out hKey);
+        if (rc != 0) throw new Win32Exception(rc, "RegOpenKeyEx CurrentUser Root");
+        try
+        {
+            IntPtr store = CertOpenStore(new IntPtr(CERT_STORE_PROV_REG), 0, IntPtr.Zero, 0, hKey);
+            if (store == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "CertOpenStore REG Root");
+            try
+            {
+                if (!CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING,
+                    encoded, (uint)encoded.Length, CERT_STORE_ADD_REPLACE_EXISTING, IntPtr.Zero))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "CertAddEncodedCertificateToStore");
+                }
+            }
+            finally { CertCloseStore(store, 0); }
+        }
+        finally { RegCloseKey(hKey); }
+    }
+}
+'@
+}
+
+function Test-ProtectedRootMembership {
+    param([Parameter(Mandatory)] [string] $Thumbprint)
+
+    $normalized = ($Thumbprint -replace '[\s-]', '').ToUpperInvariant()
+    if ($normalized -notmatch '^[0-9A-F]{40}$') { return $false }
+    $path = 'HKCU:\Software\Microsoft\SystemCertificates\Root\ProtectedRoots'
+    if (-not (Test-Path -LiteralPath $path)) { return $false }
+    $blob = (Get-ItemProperty -LiteralPath $path).Certificates
+    if ($null -eq $blob -or $blob.Length -lt 20) { return $false }
+    $hay = [BitConverter]::ToString([byte[]]$blob) -replace '-', ''
+    return $hay.Contains($normalized)
+}
+
 function Add-CertificateToCurrentUserRoot {
     param([Parameter(Mandatory)] [Security.Cryptography.X509Certificates.X509Certificate2] $Certificate)
 
@@ -137,17 +207,26 @@ function Add-CertificateToCurrentUserRoot {
     if (Test-CurrentUserRootCertificate -Thumbprint $thumbprint) {
         throw 'AUTHENTICODE_FIXTURE_ROOT_ALREADY_TRUSTED'
     }
-    $certificatePath = Get-RootCertificateTempPath -Thumbprint $thumbprint
     try {
-        [IO.File]::WriteAllBytes($certificatePath, $Certificate.RawData)
-        Invoke-CertUtil -Arguments @('-user', '-f', '-addstore', 'Root', $certificatePath)
+        [FfSilentUserRoot]::AddEncoded($Certificate.RawData)
     } catch {
         throw ('AUTHENTICODE_FIXTURE_ROOT_INSTALL_FAILED: ' + $_.Exception.Message)
-    } finally {
-        if ([IO.File]::Exists($certificatePath)) { [IO.File]::Delete($certificatePath) }
+    }
+    $rootKey = 'HKCU:\Software\Microsoft\SystemCertificates\Root\Certificates\' + $thumbprint
+    $caKey = 'HKCU:\Software\Microsoft\SystemCertificates\CA\Certificates\' + $thumbprint
+    if (-not (Test-Path -LiteralPath $rootKey) -and (Test-Path -LiteralPath $caKey)) {
+        Copy-Item -LiteralPath $caKey -Destination $rootKey -Recurse -Force
     }
     if (-not (Test-CurrentUserRootCertificate -Thumbprint $thumbprint)) {
         throw 'AUTHENTICODE_FIXTURE_ROOT_INSTALL_FAILED'
+    }
+    # Crypt32 only trusts CurrentUser roots listed in ProtectedRoots. That
+    # list is ACL-protected; certutil/X509Store.Add update it through a GUI
+    # confirmation that hangs when the fixture has no desktop. Fail closed
+    # with a stable reason instead of a 30s certutil timeout then WinTrust
+    # CERT_E_UNTRUSTEDROOT.
+    if (-not (Test-ProtectedRootMembership -Thumbprint $thumbprint)) {
+        throw 'AUTHENTICODE_FIXTURE_PROTECTEDROOTS_UI_REQUIRED'
     }
 }
 

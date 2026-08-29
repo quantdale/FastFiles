@@ -14,6 +14,7 @@ ci-status/
 # Build artifact output.
 dist/
 *.obj
+*.pdb
 __pycache__/
 *.pyc
 

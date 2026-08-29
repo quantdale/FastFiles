@@ -2,8 +2,9 @@
 //
 // This is not part of ordinary FastFiles development. It exercises the real
 // production WinTrust decision against a disposable, non-production signer
-// installed into CurrentUser\Root (via AuthenticodeFixture.ps1's
-// `certutil -user -f -addstore Root`), covering:
+// installed into CurrentUser\Root (via AuthenticodeFixture.ps1's silent
+// CERT_STORE_PROV_REG write of HKCU Root; certutil/X509Store.Add prompt and
+// hang when stdout is redirected), covering:
 //   * a trusted signer is accepted before its embedded validity expires;
 //   * the identical signed PE bytes are rejected by WinTrust after the
 //     signer's certificate transitions to expired (Authenticode longevity);
