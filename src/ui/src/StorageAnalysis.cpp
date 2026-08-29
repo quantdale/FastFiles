@@ -1,9 +1,11 @@
 #include "StorageAnalysis.h"
 
+#include "NativeChrome.h"
 #include "TreemapView.h"
 #include "UiComponents.h"
 #include "UITheme.h"
 #include "Util.h"
+#include "ffui/NativeOverlayLayout.h"
 #include "ffui/StorageLayout.h"
 #include "ffui/StorageRadioState.h"
 #include "ffui/SnapshotAggregate.h"
@@ -654,10 +656,10 @@ bool StorageAnalysis::Initialize(HWND owner, EngineClient* engine,
         ListView_InsertColumn(overview_, i, &column);
     }
     ListView_SetExtendedListViewStyle(overview_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
-    // ui-v3 hardening: themed header custom-draw targets (captured after the
-    // column inserts so the SysHeader32 children exist).
-    listHeader_ = ListView_GetHeader(list_);
-    overviewHeader_ = ListView_GetHeader(overview_);
+    // SysHeader32 NM_CUSTOMDRAW is delivered to the ListView, not the shell
+    // owner. Subclass the headers and owner-paint tokens after columns exist.
+    AttachThemedListHeader(list_);
+    AttachThemedListHeader(overview_);
     PopulateCategoryFilter();
 
     // Wire the treemap into the storage panel so it renders the current folder
@@ -826,14 +828,13 @@ void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {
         return static_cast<int>(std::lround(ffui::UiScale(dip)));
     };
     const auto layout = ffui::ComputeStorageSurfaceLayout(surfaceRect);
-    constexpr UINT kLayoutFlags = SWP_NOACTIVATE;
-    const auto place = [scaledDip, kLayoutFlags](HWND control, const ShellLayoutRect& rect) {
+    const auto place = [scaledDip](HWND control, const ShellLayoutRect& rect) {
         const int left = scaledDip(rect.left);
         const int top = scaledDip(rect.top);
         const int right = scaledDip(rect.right);
         const int bottom = scaledDip(rect.bottom);
-        SetWindowPos(control, HWND_TOP, left, top, (std::max)(0, right - left),
-                     (std::max)(0, bottom - top), kLayoutFlags);
+        SetWindowPos(control, nullptr, left, top, (std::max)(0, right - left),
+                     (std::max)(0, bottom - top), kNativeWorkspaceLayoutFlags);
     };
     place(back_, layout.buttons[0]);
     place(up_, layout.buttons[1]);
@@ -853,7 +854,10 @@ void StorageAnalysis::ApplyModeVisibility() {
     const auto apply = [this](HWND control, StorageControl semanticControl) {
         if (control == nullptr) return;
         const bool show = visible_ && StorageControlVisible(viewMode_, semanticControl);
-        ShowWindow(control, show ? SW_SHOW : SW_HIDE);
+        // ShowWindow(SW_SHOW) raises z-order and would cover the command palette.
+        SetWindowPos(control, nullptr, 0, 0, 0, 0,
+                     kNativeWorkspaceLayoutFlags | SWP_NOMOVE | SWP_NOSIZE |
+                         (show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     };
 
     apply(back_, StorageControl::Back);
@@ -1676,18 +1680,14 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
     ApplyNativeExplorerTheme(list_, dark);
     ApplyNativeExplorerTheme(overview_, dark);
     ApplyNativeExplorerTheme(categoryFilter_, dark, NativeExplorerTheme::Combo);
-    // Header visual styles swallow NM_CUSTOMDRAW; owner-draw paints tokens.
-    DisableNativeWindowTheme(listHeader_);
-    DisableNativeWindowTheme(overviewHeader_);
+    AttachThemedListHeader(list_);
+    AttachThemedListHeader(overview_);
     for (HWND list : {list_, overview_}) {
         if (list == nullptr) continue;
         ListView_SetBkColor(list, ffui::ToColorRef(theme.background));
         ListView_SetTextColor(list, ffui::ToColorRef(theme.text));
         ListView_SetTextBkColor(list, ffui::ToColorRef(theme.background));
         InvalidateRect(list, nullptr, FALSE);
-    }
-    for (HWND header : {listHeader_, overviewHeader_}) {
-        if (header != nullptr) InvalidateRect(header, nullptr, TRUE);
     }
     for (HWND control : {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
         if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
@@ -1696,64 +1696,6 @@ void StorageAnalysis::SetDarkTheme(bool dark) {
         if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
     }
     if (status_ != nullptr) InvalidateRect(status_, nullptr, FALSE);
-}
-
-bool StorageAnalysis::HandleListHeaderCustomDraw(LPARAM lParam, LRESULT* result) {
-    if (result == nullptr) return false;
-    auto* draw = reinterpret_cast<NMCUSTOMDRAW*>(lParam);
-    if (draw == nullptr || draw->hdr.code != NM_CUSTOMDRAW ||
-        (draw->hdr.hwndFrom != listHeader_ && draw->hdr.hwndFrom != overviewHeader_)) {
-        return false;
-    }
-    // High Contrast keeps the native system-colors header.
-    if (ffui::UiSystemHighContrast()) return false;
-    const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
-    switch (draw->dwDrawStage) {
-        case CDDS_PREPAINT: {
-            RECT headerRc{};
-            GetClientRect(draw->hdr.hwndFrom, &headerRc);
-            HBRUSH backgroundBrush = CreateSolidBrush(ffui::ToColorRef(theme.surfaceSubtle));
-            if (backgroundBrush != nullptr) {
-                FillRect(draw->hdc, &headerRc, backgroundBrush);
-                DeleteObject(backgroundBrush);
-            }
-            *result = CDRF_NOTIFYITEMDRAW;
-            return true;
-        }
-        case CDDS_ITEMPREPAINT: {
-            wchar_t text[160]{};
-            HDITEMW column{};
-            column.mask = HDI_TEXT;
-            column.pszText = text;
-            column.cchTextMax = static_cast<int>(sizeof(text) / sizeof(text[0]));
-            SendMessageW(draw->hdr.hwndFrom, HDM_GETITEMW, draw->dwItemSpec,
-                         reinterpret_cast<LPARAM>(&column));
-            COLORREF background = ffui::ToColorRef(theme.surfaceSubtle);
-            HBRUSH backgroundBrush = CreateSolidBrush(background);
-            if (backgroundBrush != nullptr) {
-                FillRect(draw->hdc, &draw->rc, backgroundBrush);
-                DeleteObject(backgroundBrush);
-            }
-            const int scale = std::max(1, Scaled(1));
-            RECT divider = draw->rc;
-            divider.top = divider.bottom - scale;
-            HBRUSH dividerBrush = CreateSolidBrush(ffui::ToColorRef(theme.border));
-            if (dividerBrush != nullptr) {
-                FillRect(draw->hdc, &divider, dividerBrush);
-                DeleteObject(dividerBrush);
-            }
-            SetBkMode(draw->hdc, TRANSPARENT);
-            SetTextColor(draw->hdc, ffui::ToColorRef(theme.textSecondary));
-            RECT textRect = draw->rc;
-            textRect.left += 8 * scale;
-            DrawTextW(draw->hdc, text, -1, &textRect,
-                      DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
-            *result = CDRF_SKIPDEFAULT;
-            return true;
-        }
-        default:
-            return false;
-    }
 }
 
 bool StorageAnalysis::HandleContextMenu(WPARAM /*wParam*/, LPARAM lParam) {

@@ -1,13 +1,18 @@
 #include "CommandPalette.h"
 #include "UITheme.h"
 #include "UiComponents.h"
+#include "ffui/NativeOverlayLayout.h"
 
 #include <algorithm>
+#include <commctrl.h>
 
 namespace ffui {
 namespace {
 constexpr int kPaletteEditId = 6301;
 constexpr int kPaletteListId = 6302;
+constexpr int kPaletteDimmerId = 6300;
+constexpr UINT_PTR kPaletteDimmerSubclassId = 0xFF7A1E01;
+constexpr BYTE kPaletteDimmerAlpha = 120;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -41,6 +46,10 @@ CommandPalette::~CommandPalette() {
         DeleteObject(paletteFont_);
         paletteFont_ = nullptr;
     }
+    if (dimmer_ != nullptr) {
+        RemoveWindowSubclass(dimmer_, DimmerSubclassProc, kPaletteDimmerSubclassId);
+        dimmer_ = nullptr;
+    }
 }
 
 bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, const ShortcutMap* shortcuts,
@@ -49,6 +58,22 @@ bool CommandPalette::Initialize(HWND owner, const CommandRegistry* registry, con
     registry_ = registry;
     shortcuts_ = shortcuts;
     execute_ = std::move(execute);
+    dimmer_ = CreateWindowExW(WS_EX_LAYERED | WS_EX_NOACTIVATE, L"STATIC", L"",
+                              WS_CHILD | SS_NOTIFY,
+                              0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteDimmerId)),
+                              nullptr, nullptr);
+    if (dimmer_ == nullptr) {
+        dimmer_ = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | SS_NOTIFY,
+                                  0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteDimmerId)),
+                                  nullptr, nullptr);
+    }
+    if (dimmer_ != nullptr) {
+        if ((GetWindowLongW(dimmer_, GWL_EXSTYLE) & WS_EX_LAYERED) != 0) {
+            SetLayeredWindowAttributes(dimmer_, 0, kPaletteDimmerAlpha, LWA_ALPHA);
+        }
+        SetWindowSubclass(dimmer_, DimmerSubclassProc, kPaletteDimmerSubclassId,
+                          reinterpret_cast<DWORD_PTR>(this));
+    }
     edit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL,
                             0, 0, 0, 0, owner_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kPaletteEditId)), nullptr, nullptr);
     list_ = CreateWindowExW(0, L"LISTBOX", L"",
@@ -85,8 +110,6 @@ void CommandPalette::Show(CommandContext context) {
     SetWindowTextW(edit_, L"");
     ApplyDensityMetrics();
     Reposition();
-    ShowWindow(edit_, SW_SHOW);
-    ShowWindow(list_, SW_SHOW);
     RefreshResults();
     SetFocus(edit_);
 }
@@ -94,9 +117,29 @@ void CommandPalette::Show(CommandContext context) {
 void CommandPalette::Hide() {
     if (!visible_) return;
     visible_ = false;
+    if (dimmer_ != nullptr) ShowWindow(dimmer_, SW_HIDE);
     ShowWindow(edit_, SW_HIDE);
     ShowWindow(list_, SW_HIDE);
     SetFocus(owner_);
+}
+
+LRESULT CALLBACK CommandPalette::DimmerSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
+                                                    UINT_PTR subclassId, DWORD_PTR refData) {
+    if (subclassId != kPaletteDimmerSubclassId) {
+        return DefSubclassProc(hwnd, message, wParam, lParam);
+    }
+    auto* self = reinterpret_cast<CommandPalette*>(refData);
+    if (message == WM_LBUTTONDOWN || message == WM_RBUTTONDOWN) {
+        if (self != nullptr) self->Hide();
+        return 0;
+    }
+    if (message == WM_ERASEBKGND) {
+        RECT client{};
+        GetClientRect(hwnd, &client);
+        FillRect(reinterpret_cast<HDC>(wParam), &client, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+        return 1;
+    }
+    return DefSubclassProc(hwnd, message, wParam, lParam);
 }
 
 void CommandPalette::Reposition() {
@@ -114,10 +157,14 @@ void CommandPalette::Reposition() {
     const int left = (client.right - width) / 2;
     const int top = (std::max)(Scaled(20), (clientHeight - height) / 4);
     const int editHeight = Scaled(static_cast<int>(GetUiDensity(gUiDensityProfile).controlHeight + 6.0f));
-    SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, SWP_SHOWWINDOW);
-    SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width, height - editHeight - Scaled(2), SWP_SHOWWINDOW);
-    BringWindowToTop(edit_);
-    BringWindowToTop(list_);
+    const bool showDimmer = dimmer_ != nullptr && !UiSystemHighContrast();
+    if (dimmer_ != nullptr) {
+        SetWindowPos(dimmer_, HWND_TOP, 0, 0, clientWidth, clientHeight,
+                     showDimmer ? kPaletteOverlayLayoutFlags : (SWP_NOACTIVATE | SWP_HIDEWINDOW));
+    }
+    SetWindowPos(edit_, HWND_TOP, left, top, width, editHeight, kPaletteOverlayLayoutFlags);
+    SetWindowPos(list_, HWND_TOP, left, top + editHeight + Scaled(2), width,
+                 height - editHeight - Scaled(2), kPaletteOverlayLayoutFlags);
 }
 
 void CommandPalette::RefreshResults() {

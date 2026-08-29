@@ -7,6 +7,7 @@
 // UiAnimation.cpp (SystemParametersInfo + easing math) is compiled in.
 
 #include "IconCache.h"
+#include "NativeChromePaint.h"
 #include "UiAnimation.h"
 #include "UiComponents.h"
 #include "UiStyle.h"
@@ -243,6 +244,34 @@ void TestNativeExplorerThemeNullHwnd() {
     ApplyNativeExplorerTheme(nullptr, false, kind);
     Check(kind == NativeExplorerTheme::Combo, "combo theme kind is preserved across a null-HWND apply");
 }
+
+void TestNativeHeaderAndTabPalettes() {
+    using namespace ffui;
+    for (const bool dark : {false, true}) {
+        const NativeHeaderPalette header = ResolveNativeHeaderPalette(dark, false);
+        const NativeTabPalette tab = ResolveNativeTabPalette(dark, false);
+        Check(!header.useSystemHeader, "tokenized header is used outside High Contrast");
+        Check(!tab.useSystemTab, "tokenized tab strip is used outside High Contrast");
+        Check(header.background == ToColorRef(GetUiTheme(dark).surfaceSubtle),
+              "header fill uses surfaceSubtle");
+        Check(header.text == ToColorRef(GetUiTheme(dark).textSecondary),
+              "header text uses textSecondary");
+        Check(tab.stripBackground == ToColorRef(GetUiTheme(dark).background),
+              "tab remainder uses the dialog/shell background");
+        Check(tab.selectedFill == ToColorRef(GetUiTheme(dark).surfaceElevated),
+              "selected tab uses surfaceElevated");
+        Check(tab.unselectedText == ToColorRef(GetUiTheme(dark).textSecondary),
+              "unselected tab text uses textSecondary");
+        Check(tab.accentBar == ToColorRef(GetUiTheme(dark).accent),
+              "selected tab accent bar uses the accent token");
+        Check(header.background != header.text, "header text contrasts with its fill");
+        Check(tab.stripBackground != tab.selectedText, "selected tab text contrasts with the strip");
+    }
+    const NativeHeaderPalette hcHeader = ResolveNativeHeaderPalette(true, true);
+    const NativeTabPalette hcTab = ResolveNativeTabPalette(true, true);
+    Check(hcHeader.useSystemHeader, "High Contrast keeps the system header");
+    Check(hcTab.useSystemTab, "High Contrast keeps the system tab control");
+}
 } // namespace
 
 int main() {
@@ -254,6 +283,7 @@ int main() {
     TestFloatAnimationSnap();
     TestIconCacheHeaderApi();
     TestNativeExplorerThemeNullHwnd();
+    TestNativeHeaderAndTabPalettes();
     TestThemeContrast();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

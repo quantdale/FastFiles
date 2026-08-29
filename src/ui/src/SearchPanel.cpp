@@ -9,6 +9,7 @@
 #include "Util.h"
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D7: shared Size-on-Disk wording
 #include "ffui/DisplayPath.h"
+#include "ffui/NativeOverlayLayout.h"
 #include "ffui/SearchTabOrder.h" // ui-v3 search a11y hardening: headless Tab-order seam
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 #include "UiaProviderBase.h" // ui-v3 search a11y hardening: shared COM provider foundation
@@ -936,9 +937,8 @@ void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
         const int pxTop = scaledDip(rect.top);
         const int pxRight = scaledDip(rect.right);
         const int pxHeight = Scaled(heightDip);
-        SetWindowPos(control, HWND_TOP, pxLeft, pxTop, (std::max)(0, pxRight - pxLeft), pxHeight,
-                     show ? SWP_NOACTIVATE | SWP_SHOWWINDOW : SWP_NOACTIVATE);
-        if (!show) ShowWindow(control, SW_HIDE);
+        SetWindowPos(control, nullptr, pxLeft, pxTop, (std::max)(0, pxRight - pxLeft), pxHeight,
+                     kNativeWorkspaceLayoutFlags | (show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
     };
 
     // Combo parents keep their historical 300-DIP dropdown height; the closed
@@ -958,10 +958,10 @@ void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
         const int fieldRight = scaledDip(queryRect.right);
         const int fieldTop = scaledDip(queryRect.top);
         const int fieldBottom = scaledDip(queryRect.bottom);
-        SetWindowPos(clearQuery_, HWND_TOP,
+        SetWindowPos(clearQuery_, nullptr,
                      (std::max)(scaledDip(queryRect.left), fieldRight - buttonPx - Scaled(kSpaceClearArrowMarginDip)),
                      fieldTop + (std::max)(0, (fieldBottom - fieldTop) - buttonPx) / 2,
-                     buttonPx, buttonPx, SWP_NOACTIVATE);
+                     buttonPx, buttonPx, kNativeWorkspaceLayoutFlags);
     }
 
     // Expanded filter row(s). Wide packs one row; the narrow fallback keeps a

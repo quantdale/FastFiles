@@ -1947,10 +1947,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             renderer_.Resize(width, height);
             navigationChrome_.Reposition();
             navigationSidebar_.Reposition();
-            commandPalette_.Reposition();
             const auto shellLayout = CurrentShellLayout();
             searchPanel_.Reposition(shellLayout.contentRect);
             storageAnalysis_.Reposition(shellLayout.contentRect);
+            // Palette last so its HWND_TOP overlay stays above Search/Storage.
+            commandPalette_.Reposition();
             RequestRepaint();
             return 0;
         }
@@ -1972,10 +1973,10 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                              static_cast<UINT>((std::max)(0L, clientAfterDpi.bottom - clientAfterDpi.top)));
             navigationChrome_.Reposition();
             navigationSidebar_.Reposition();
-            commandPalette_.Reposition();
             const auto shellLayout = CurrentShellLayout();
             searchPanel_.Reposition(shellLayout.contentRect);
             storageAnalysis_.Reposition(shellLayout.contentRect);
+            commandPalette_.Reposition();
             // Type icons are bitmap-resolution-dependent; drop the cached
             // bitmaps so they re-resolve at the new DPI scale on the next paint.
             if (iconCache_) {
@@ -2128,8 +2129,6 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return DefWindowProcW(hwnd, message, wParam, lParam);
 
         case WM_NOTIFY: {
-            LRESULT headerCdrf = 0;
-            if (storageAnalysis_.HandleListHeaderCustomDraw(lParam, &headerCdrf)) return headerCdrf;
             if (searchPanel_.HandleNotify(lParam)) return 0;
             if (storageAnalysis_.HandleNotify(lParam)) return 0;
             return DefWindowProcW(hwnd, message, wParam, lParam);

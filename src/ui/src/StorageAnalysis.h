@@ -56,11 +56,6 @@ public:
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     bool HandleDrawItem(LPARAM lParam);
     bool HandleNotify(LPARAM lParam);
-    // ui-v3 hardening: NM_CUSTOMDRAW for the overview/drill-down list headers
-    // so dark mode never shows system-white SysHeader32 bands. Writes the
-    // CDRF_* value the WM_NOTIFY handler must return; false keeps the native
-    // header (High Contrast or non-header notifications).
-    bool HandleListHeaderCustomDraw(LPARAM lParam, LRESULT* result);
     bool HandleContextMenu(WPARAM wParam, LPARAM lParam);
     bool HandleCompletion(LPARAM lParam);
     bool HandleTreemapCompletion(LPARAM lParam);
@@ -174,9 +169,6 @@ private:
 
     HWND owner_ = nullptr;
     HWND list_ = nullptr;
-    // ui-v3 hardening: themed custom-draw targets for the two report lists.
-    HWND listHeader_ = nullptr;
-    HWND overviewHeader_ = nullptr;
     HWND overview_ = nullptr;
     HWND categoryFilter_ = nullptr; // storage-analysis 5.4: category filter combo
     HWND status_ = nullptr;

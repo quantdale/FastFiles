@@ -1,15 +1,18 @@
 #include "SettingsDialog.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <commctrl.h>
 #include <filesystem>
 #include <memory>
 #include <shlwapi.h>
 
 #include "EngineClient.h"
+#include "NativeChrome.h"
 #include "UITheme.h"
 #include "UiComponents.h"
 #include "ffprotocol/IndexHealth.h"
+#include "ffui/SettingsPages.h"
 
 #pragma comment(lib, "shlwapi.lib")
 
@@ -194,7 +197,7 @@ void SettingsDialog::SetDarkTheme(bool dark) {
 
 void SettingsDialog::ApplyNativeControlThemes() {
     const bool dark = darkTheme_;
-    ApplyNativeExplorerTheme(tabControl_, dark);
+    AttachThemedTabControl(tabControl_);
     ApplyNativeExplorerTheme(volumeList_, dark);
     ApplyNativeExplorerTheme(ruleList_, dark);
     ApplyNativeExplorerTheme(categoryList_, dark);
@@ -212,6 +215,7 @@ void SettingsDialog::ApplyNativeControlThemes() {
         ListView_SetBkColor(list, ToColorRef(theme.background));
         ListView_SetTextColor(list, ToColorRef(theme.text));
         ListView_SetTextBkColor(list, ToColorRef(theme.background));
+        AttachThemedListHeader(list);
     }
 }
 
@@ -396,9 +400,9 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             break;
         }
         // §5.4: themed backgrounds/text for the dialog + statics/edits/list-
-        // boxes so dark mode never produces blinding-white chrome. Buttons and
-        // the tab control stay stock (documented trade-off; the dialog surface,
-        // statics, edit fields, and listview/listbox bodies are themed here).
+        // boxes so dark mode never produces blinding-white chrome. The tab
+        // strip is owner-painted (AttachThemedTabControl) so the unused remainder
+        // matches the dialog background.
         case WM_ERASEBKGND: {
             RECT client{};
             GetClientRect(hwnd, &client);
@@ -532,60 +536,50 @@ void SettingsDialog::PopulateNavigationPage() {
 }
 
 void SettingsDialog::SwitchPage(int pageIndex) {
-    // Hide all page-specific controls
-    for (HWND c : {themeLabel_, themeCombo_, densityLabel_, densityCombo_, previewCheck_, previewSizeLabel_, previewSizeEdit_,
-                   searchScopeCombo_, retainHistoryCheck_, startupLabel_, startupPathEdit_, restoreSessionCheck_,
-                   volumeList_, ruleList_, statusDetail_, addRuleButton_, excludeRuleCheck_, removeRuleButton_, moveUpButton_, moveDownButton_,
-                   pauseAllCheck_, pauseResumeButton_, addToIndexingButton_,
-                   categoryList_, addCategoryButton_, removeCategoryButton_,
-                   shortcutList_, resetShortcutsButton_}) {
-        if (c) ShowWindow(c, SW_HIDE);
-    }
-    
-    // Show current page controls
-    switch (pageIndex) {
-        case 0: // General
-            if (themeLabel_) ShowWindow(themeLabel_, SW_SHOW);
-            if (themeCombo_) ShowWindow(themeCombo_, SW_SHOW);
-            if (densityLabel_) ShowWindow(densityLabel_, SW_SHOW);
-            if (densityCombo_) ShowWindow(densityCombo_, SW_SHOW);
-            if (previewCheck_) ShowWindow(previewCheck_, SW_SHOW);
-            if (previewSizeLabel_) ShowWindow(previewSizeLabel_, SW_SHOW);
-            if (previewSizeEdit_) ShowWindow(previewSizeEdit_, SW_SHOW);
-            break;
-        case 1: // Search
-            if (searchScopeCombo_) ShowWindow(searchScopeCombo_, SW_SHOW);
-            if (retainHistoryCheck_) ShowWindow(retainHistoryCheck_, SW_SHOW);
-            break;
-        case 2: // Navigation
-            if (startupLabel_) ShowWindow(startupLabel_, SW_SHOW);
-            if (startupPathEdit_) ShowWindow(startupPathEdit_, SW_SHOW);
-            if (restoreSessionCheck_) ShowWindow(restoreSessionCheck_, SW_SHOW);
-            break;
-        case 3: // Indexing
-            if (volumeList_) ShowWindow(volumeList_, SW_SHOW);
-            if (statusDetail_) ShowWindow(statusDetail_, SW_SHOW);
-            if (addRuleButton_) ShowWindow(addRuleButton_, SW_SHOW);
-            if (removeRuleButton_) ShowWindow(removeRuleButton_, SW_SHOW);
-            if (moveUpButton_) ShowWindow(moveUpButton_, SW_SHOW);
-            if (moveDownButton_) ShowWindow(moveDownButton_, SW_SHOW);
-            if (pauseAllCheck_) ShowWindow(pauseAllCheck_, SW_SHOW);
-            if (pauseResumeButton_) ShowWindow(pauseResumeButton_, SW_SHOW);
-            if (addToIndexingButton_) ShowWindow(addToIndexingButton_, SW_SHOW);
-            UpdateVolumeList();
-            RefreshVolumeStatuses();
-            break;
-        case 4: // Storage
-            if (categoryList_) ShowWindow(categoryList_, SW_SHOW);
-            if (addCategoryButton_) ShowWindow(addCategoryButton_, SW_SHOW);
-            if (removeCategoryButton_) ShowWindow(removeCategoryButton_, SW_SHOW);
-            PopulateStoragePage();
-            break;
-        case 5: // Shortcuts
-            if (shortcutList_) ShowWindow(shortcutList_, SW_SHOW);
-            if (resetShortcutsButton_) ShowWindow(resetShortcutsButton_, SW_SHOW);
-            PopulateShortcutsPage();
-            break;
+    // Membership is the headless SettingsPages seam so hide-all cannot drop
+    // Indexing rule chrome (rule list + exclude checkbox) or other controls.
+    const std::uint32_t visible = SettingsPageVisibleControls(pageIndex);
+    const auto apply = [visible](HWND hwnd, std::uint32_t flag) {
+        if (hwnd != nullptr) {
+            ShowWindow(hwnd, (visible & flag) != 0 ? SW_SHOW : SW_HIDE);
+        }
+    };
+    apply(themeLabel_, kSettingsThemeLabel);
+    apply(themeCombo_, kSettingsThemeCombo);
+    apply(densityLabel_, kSettingsDensityLabel);
+    apply(densityCombo_, kSettingsDensityCombo);
+    apply(previewCheck_, kSettingsPreviewCheck);
+    apply(previewSizeLabel_, kSettingsPreviewSizeLabel);
+    apply(previewSizeEdit_, kSettingsPreviewSizeEdit);
+    apply(searchScopeCombo_, kSettingsSearchScope);
+    apply(retainHistoryCheck_, kSettingsRetainHistory);
+    apply(startupLabel_, kSettingsStartupLabel);
+    apply(startupPathEdit_, kSettingsStartupPath);
+    apply(restoreSessionCheck_, kSettingsRestoreSession);
+    apply(volumeList_, kSettingsVolumeList);
+    apply(ruleList_, kSettingsRuleList);
+    apply(statusDetail_, kSettingsStatusDetail);
+    apply(addRuleButton_, kSettingsAddRule);
+    apply(excludeRuleCheck_, kSettingsExcludeRule);
+    apply(removeRuleButton_, kSettingsRemoveRule);
+    apply(moveUpButton_, kSettingsMoveUp);
+    apply(moveDownButton_, kSettingsMoveDown);
+    apply(pauseAllCheck_, kSettingsPauseAll);
+    apply(pauseResumeButton_, kSettingsPauseResume);
+    apply(addToIndexingButton_, kSettingsAddToIndexing);
+    apply(categoryList_, kSettingsCategoryList);
+    apply(addCategoryButton_, kSettingsAddCategory);
+    apply(removeCategoryButton_, kSettingsRemoveCategory);
+    apply(shortcutList_, kSettingsShortcutList);
+    apply(resetShortcutsButton_, kSettingsResetShortcuts);
+
+    if (pageIndex == 3) {
+        UpdateVolumeList();
+        RefreshVolumeStatuses();
+    } else if (pageIndex == 4) {
+        PopulateStoragePage();
+    } else if (pageIndex == 5) {
+        PopulateShortcutsPage();
     }
 }
 
