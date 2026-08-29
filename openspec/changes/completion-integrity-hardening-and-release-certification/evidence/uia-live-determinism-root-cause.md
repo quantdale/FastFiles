@@ -165,3 +165,80 @@ corroborating performance signal, and a clean batch.
 currently exposes `ListItem` children. A transient UIA read failure therefore
 skips a scenario on a fully engine-connected host under a reason that is not
 what was observed. Not yet fixed.
+
+## Repeatability measurement (2026-08-30)
+
+Raw per-run records: `uia-search-20run.jsonl`, `uia-full-capability-runs.jsonl`.
+Each record carries the per-scenario status set, per-lifecycle cleanup/residue,
+duration, and run tree, so a drifting SKIP set is visible rather than hidden
+behind a green top-line result.
+
+### `search` scenario group — 20 consecutive isolated lifecycles
+
+| Metric | Result |
+| --- | --- |
+| Top-level status | 20/20 PASS, 0 FAIL |
+| Exit codes | 20/20 zero |
+| Cleanup | clean on every lifecycle, residue empty |
+| Duration | 64-77s |
+| Distinct scenario-status sets | 2 |
+
+**This does not yet satisfy the 20-consecutive-clean requirement.** Run 10
+recorded `search-allocated-size = SKIPPED:engine-connect-unavailable`, and that
+skip is currently unexplained at root-cause level:
+
+* the reason is accurate this time — it came from `$Context.ReadyReason`
+  (`engine-connect-not-observed`), not from the `Test-UiaEngineServingData`
+  predicate criticised above;
+* the retained diagnostics log for that lifecycle contains **zero**
+  `FFDIAG_ENGINE_CONNECT_SUCCEEDED` records across its full 21s span, where a
+  passing lifecycle logs exactly one — so the UI/Engine handshake genuinely
+  never completed rather than merely being observed late;
+* the lifecycle logged `FFDIAG_ENGINE_STATUS_CHANGED engine-started`,
+  `FFDIAG_ENGINE_LAUNCHED`, and then
+  `FFDIAG_UI_SNAPSHOT_READ_FAILED state=snapshot-generation-remap-failed`;
+* the interleaved `FFDIAG_ENGINE_CONNECT_FAILED
+  privileged-connection-disconnected/service-not-running` records are the
+  expected degraded-mode privileged path (pins are placeholders) and are
+  present in passing runs too, so they are not the discriminator.
+
+A ~1-in-20 UI/Engine startup handshake miss accompanied by
+`snapshot-generation-remap-failed` is a real anomaly. It is recorded here
+rather than waved through: the acceptance criterion is twenty consecutive
+lifecycles with no *unexplained* product or harness result, and this one is
+unexplained. The count is not claimed.
+
+### Full capability — 3 consecutive lifecycles
+
+| Run | Result | Failing scenarios |
+| --- | --- | --- |
+| 1 | PASS | — |
+| 2 | FAIL | `drag-out-to-explorer` |
+| 3 | FAIL | `drag-out-to-explorer`, `treemap-readability-click-precision` |
+
+Both failures are in the pointer-input family (synthetic mouse against a live
+interactive desktop). The search family passed in all three.
+
+The obvious harness explanation was checked and does **not** hold: the drop
+point is taken from Explorer's `listview`/`ShellView` centre after waiting for
+a stable rect, not from the window rect, and the reported geometry is
+internally consistent (`explorerRect` is `x,y,width,height`, and the drop point
+falls inside it). What the diagnostics show is a `Static` covering the view at
+drop time — once titled with the target path, once `Cut && Paste` — with
+`fg='FastFiles'`, i.e. no foreground theft. That is Explorer chrome or a menu
+overlaying the drop target, not a mis-computed point.
+
+n=3 is too thin to classify the pointer-input family as the
+`ship-ready-ui-ux-hardening-convergence` 6.2 "Explorer-assisted boundary where
+actually available" external boundary, and it is deliberately **not** so
+classified here. Excluding it from the required set on this evidence would be
+defining the requirement around its failure.
+
+### Invalidated records
+
+An operator error ran two batches concurrently against the same desktop. The
+capability correctly refused 18 runs with
+`HARNESS_ERROR / stale-build-process-before-run` because a previous lifecycle's
+UI process was still alive. Those 18 records measured nothing and are excluded
+from every count above; they are preserved unmodified in
+`build/uia-20run.polluted.jsonl` rather than deleted.
