@@ -12,6 +12,7 @@
 #include "ffui/NativeOverlayLayout.h"
 #include "ffui/SearchTabOrder.h" // ui-v3 search a11y hardening: headless Tab-order seam
 #include "ffui/SearchFiltersDisclosure.h"
+#include "ffui/SearchSnapshotRefresh.h"
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
 #include "SearchButtonUiaProvider.h"
 #include "UiaHostQuery.h"
@@ -50,15 +51,16 @@ constexpr UINT kDebounceMilliseconds = 125;
 // and arms this timer, so a burst of recorded queries costs one write.
 constexpr UINT_PTR kHistorySaveTimer = 7108;
 constexpr UINT kHistorySaveCoalesceMilliseconds = 1500;
-// Minimum interval between snapshot-generation-triggered re-dispatches while
-// the panel is open; faster generations only mark a pending refresh.
-constexpr UINT kSnapshotRefreshIntervalMs = 2000;
 constexpr size_t kMaxUiSearchResults = 10000;
 
 // ui-v3 search: indeterminate progress cue while a query runs. The timer is
 // armed only for the duration of the search (UpdateStatus) and killed on
 // completion/hide — no idle animation ever runs.
 constexpr UINT_PTR kProgressTimer = 7109;
+// Services a snapshot refresh that DecideSearchSnapshotRefresh coalesced away
+// while the panel stayed visible. The rate-limit interval itself lives with
+// that decision in ffui/SearchSnapshotRefresh.h.
+constexpr UINT_PTR kSnapshotRefreshTimer = 7111;
 constexpr UINT kProgressTimerMilliseconds = 33;
 constexpr float kProgressSweepSeconds = 1.4f;
 // ui-v3 search: query-first surface geometry (DIP). Collapsed rows reclaim
@@ -599,6 +601,7 @@ SearchPanel::~SearchPanel() {
     KillTimer(owner_, kDebounceTimer);
     KillTimer(owner_, kHistorySaveTimer);
     KillTimer(owner_, kProgressTimer);
+    KillTimer(owner_, kSnapshotRefreshTimer);
     // Flush a coalesced history save that never fired; teardown is the one
     // place a synchronous write is acceptable (the UI thread is going away).
     if (historyDirty_) {
@@ -796,6 +799,8 @@ void SearchPanel::Hide() {
     KillTimer(owner_, kDebounceTimer);
     // ui-v3 search: no progress animation while hidden.
     KillTimer(owner_, kProgressTimer);
+    // The pending flag survives; ShowAndFocus consumes it on reopen.
+    KillTimer(owner_, kSnapshotRefreshTimer);
     // The coalesced history-save timer keeps running so a recorded query is
     // flushed even after the panel hides.
     for (HWND control : {query_, filterBar_, clearQuery_, list_, clearHistory_}) ShowWindow(control, SW_HIDE);
@@ -997,6 +1002,13 @@ bool SearchPanel::HandleTimer(UINT_PTR timerId) {
         progressPhase_ += static_cast<float>(kProgressTimerMilliseconds) / 1000.0f / kProgressSweepSeconds;
         if (progressPhase_ >= 1.0f) progressPhase_ -= 1.0f;
         if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+        return true;
+    }
+    if (timerId == kSnapshotRefreshTimer) {
+        KillTimer(owner_, kSnapshotRefreshTimer);
+        if (visible_ && snapshotRefreshPending_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
+            Dispatch(false);
+        }
         return true;
     }
     if (!visible_ || timerId != kDebounceTimer) return false;
@@ -2289,12 +2301,21 @@ void SearchPanel::OnSnapshotUpdated() {
     // coalesced: within the refresh interval only a pending flag is set and
     // the refresh happens on the next debounce/visibility change. Suppress
     // history writes: this is a data refresh, not a new query execution.
-    if (visible_ && query_ != nullptr && GetWindowTextLengthW(query_) > 0) {
+    {
         const auto now = std::chrono::steady_clock::now();
-        if (now - lastSnapshotRefresh_ >= std::chrono::milliseconds(kSnapshotRefreshIntervalMs)) {
+        const auto sinceLast = static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - lastSnapshotRefresh_).count());
+        const auto decision = ffui::DecideSearchSnapshotRefresh(
+            visible_, query_ != nullptr && GetWindowTextLengthW(query_) > 0, sinceLast);
+        if (decision.action == ffui::SearchSnapshotRefreshAction::DispatchNow) {
             Dispatch(false);
-        } else {
+        } else if (decision.action == ffui::SearchSnapshotRefreshAction::Defer) {
+            // Arm a timer to service the coalesced refresh. Without it the
+            // pending flag is only consumed by ShowAndFocus, so a generation
+            // published within the interval left a visible panel showing
+            // stale results until the user retyped or reopened the panel.
             snapshotRefreshPending_ = true;
+            SetTimer(owner_, kSnapshotRefreshTimer, decision.deferMs, nullptr);
         }
     }
 }
