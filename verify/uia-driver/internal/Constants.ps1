@@ -38,7 +38,7 @@ $script:UiaEventIdResolver = @{
 # Pattern names this driver dispatches on (live + mock). ScrollItem and
 # ItemContainer are the standard virtualization/scroll-into-view capabilities
 # exposed by the FastFiles UIA providers (semantic-uia-core-surfaces).
-$script:UiaPatternNames = @('Invoke','SelectionItem','Selection','Scroll','ScrollItem','ItemContainer','Value','Window','Drag')
+$script:UiaPatternNames = @('Invoke','SelectionItem','Selection','Scroll','ScrollItem','ItemContainer','Value','Window','Drag','ExpandCollapse')
 
 # VK codes for SendInput keyboard fallback.
 $script:UiaVkMap = @{

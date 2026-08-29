@@ -53,6 +53,13 @@ function Invoke-Fixture {
     param($RunContext, $Fingerprint, [string]$ArtifactsDir, [hashtable]$Options)
     $mode = [string]$Options.FixtureMode
     if ($mode -eq 'timeout') { Start-Sleep -Seconds 35 }
+    if ($mode -eq 'crash') { throw 'simulated capability crash' }
+    if ($mode -eq 'cancel') {
+        return [pscustomobject]@{
+            Status = 'FAIL'; Reason = 'capability-cancelled'; Classification = 'CANCELLED'; Summary = 'cancelled'; Artifacts = @();
+            SubResults = @([pscustomobject]@{ id = 'fixture-scenario'; status = 'FAIL'; classification = 'CANCELLED'; reason = 'capability-cancelled'; detail = 'cancelled'; durationMs = 1; diagnostics = @() })
+        }
+    }
     if ($mode -eq 'multi') {
         [pscustomobject]@{ Status = 'PASS'; Reason = $null; Summary = 'first'; Artifacts = @(); SubResults = @() }
         [pscustomobject]@{ Status = 'PASS'; Reason = $null; Summary = 'second'; Artifacts = @(); SubResults = @() }
@@ -141,8 +148,31 @@ Export-ModuleMember -Function Test-FixtureAvailability, Invoke-Fixture, Get-Fixt
             [pscustomobject]@{ scenarioId = 'skip-one'; status = 'SKIPPED'; classification = 'BLOCKED_ENVIRONMENT'; reason = 'interactive-foreground-unavailable'; detail = 'desktop boundary' }
         )
     Check ($opaqueFailure.status -eq 'FAIL' -and $opaqueFailure.classification -eq 'HARNESS_ERROR' -and $opaqueFailure.reason -eq 'capability-failed-without-attributed-cause' -and $opaqueFailure.summary -match 'scenario-failed' -and $opaqueFailure.primaryFailure.declaredReason -eq 'scenario-failed') 'zero-failure child counters cannot hide an attributed capability failure'
+    $liveUiaOpaque = Resolve-VerificationOutcome -DeclaredStatus FAIL -DeclaredReason 'scenario-failed' -DeclaredClassification 'ASSERTION_FAILURE' -DeclaredSummary '23 passed, 6 skipped, 0 failed' `
+        -SubResults @(
+            [pscustomobject]@{ scenarioId = 'pass-one'; status = 'PASS'; classification = 'PASS'; detail = 'ok' }
+            [pscustomobject]@{ scenarioId = 'skip-one'; status = 'SKIPPED'; classification = 'BLOCKED_ENVIRONMENT'; reason = 'interactive-foreground-unavailable'; detail = 'desktop boundary' }
+        )
+    Check ($liveUiaOpaque.status -eq 'FAIL' -and $liveUiaOpaque.classification -eq 'HARNESS_ERROR' -and $liveUiaOpaque.reason -eq 'capability-failed-without-attributed-cause' -and $liveUiaOpaque.primaryFailure.declaredReason -eq 'scenario-failed') 'live UIA FAIL+ASSERTION_FAILURE+scenario-failed with zero child failures is a harness error, not an attributed product assertion'
     $environmentSkip = Resolve-VerificationRunOutcome -CapabilityEnvelopes @([pscustomobject]@{ capabilityId = 'uia'; status = 'SKIPPED'; classification = 'BLOCKED_ENVIRONMENT'; reason = 'interactive-foreground-unavailable'; summary = 'desktop unavailable' })
     Check ($environmentSkip.status -eq 'SKIPPED' -and $environmentSkip.classification -eq 'BLOCKED_ENVIRONMENT' -and $environmentSkip.reason -eq 'interactive-foreground-unavailable') 'all-skipped environment capability preserves its truthful top-level boundary'
+    $cancelledChild = Resolve-VerificationOutcome -DeclaredStatus FAIL -DeclaredReason 'capability-cancelled' -DeclaredClassification 'CANCELLED' -DeclaredSummary 'cancelled at worker' -SubResults @(
+        [pscustomobject]@{ scenarioId = 'worker'; status = 'FAIL'; classification = 'CANCELLED'; reason = 'capability-cancelled'; detail = 'cancelled' }
+    )
+    Check ($cancelledChild.status -eq 'FAIL' -and $cancelledChild.classification -eq 'CANCELLED' -and $cancelledChild.reason -eq 'capability-cancelled') 'child cancellation is CANCELLED, not an assertion failure'
+    $cancelledBare = Resolve-VerificationOutcome -DeclaredStatus FAIL -DeclaredReason 'capability-cancelled' -DeclaredClassification 'CANCELLED' -DeclaredSummary 'cancelled at capability' -SubResults @()
+    Check ($cancelledBare.status -eq 'FAIL' -and $cancelledBare.classification -eq 'CANCELLED' -and $cancelledBare.reason -eq 'capability-cancelled') 'explicit capability-level CANCELLED is retained without fabricating a child assertion'
+    $unknownCap = Resolve-VerificationRunOutcome -RunFailures @([pscustomobject]@{ status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'unknown-capability'; summary = 'Unknown or rejected capability id(s): does-not-exist.' })
+    Check ($unknownCap.status -eq 'FAIL' -and $unknownCap.classification -eq 'HARNESS_ERROR' -and $unknownCap.reason -eq 'unknown-capability') 'unknown capability is a harness failure, not SKIPPED'
+    Check ((Get-VerificationExitCode -Envelopes @($unknownCap)) -eq 3) 'unknown capability projects to harness exit 3'
+    Check ((Get-VerificationExitCode -Envelopes @([pscustomobject]@{ status = 'FAIL'; classification = 'TIMEOUT'; reason = 'capability-timeout' })) -eq 1) 'TIMEOUT projects to FAIL exit 1'
+    Check ((Get-VerificationExitCode -Envelopes @([pscustomobject]@{ status = 'FAIL'; classification = 'CANCELLED'; reason = 'capability-cancelled' })) -eq 1) 'CANCELLED projects to FAIL exit 1'
+    $providerUnavailable = Resolve-VerificationRunOutcome -RunFailures @([pscustomobject]@{ status = 'SKIPPED'; classification = 'REQUIRED-BUT-UNAVAILABLE'; reason = 'provider-preflight-unavailable'; summary = 'requested provider is not ready' })
+    Check ($providerUnavailable.status -eq 'SKIPPED' -and $providerUnavailable.classification -eq 'REQUIRED-BUT-UNAVAILABLE' -and $providerUnavailable.reason -eq 'provider-preflight-unavailable') 'provider preflight unavailable stays SKIPPED, not FAIL'
+    $malformedComposition = Resolve-VerificationOutcome -DeclaredStatus FAIL -DeclaredReason 'malformed-capability-output' -DeclaredClassification 'HARNESS_ERROR' -DeclaredSummary 'worker candidate identity or protocol mismatch' -SubResults @(
+        [pscustomobject]@{ scenarioId = 'capability-worker'; status = 'FAIL'; classification = 'HARNESS_ERROR'; reason = 'malformed-capability-output'; detail = 'invalid candidate' }
+    )
+    Check ($malformedComposition.status -eq 'FAIL' -and $malformedComposition.classification -eq 'HARNESS_ERROR' -and $malformedComposition.reason -eq 'malformed-capability-output') 'malformed capability output is HARNESS_ERROR'
 
     $sameSecondOne = New-VerificationRun -VerifyRoot $fixtureRoot -Change 'same-second'
     $sameSecondTwo = New-VerificationRun -VerifyRoot $fixtureRoot -Change 'same-second'
@@ -170,7 +200,9 @@ Export-ModuleMember -Function Test-FixtureAvailability, Invoke-Fixture, Get-Fixt
                 @{ Name = 'multi'; Mode = 'multi'; Status = 'FAIL'; Classification = 'HARNESS_ERROR'; Label = 'multiple worker results are harness failure' },
                 @{ Name = 'missing'; Mode = 'missing'; Status = 'FAIL'; Classification = 'HARNESS_ERROR'; Label = 'missing worker result is harness failure' },
                 @{ Name = 'badstatus'; Mode = 'badstatus'; Status = 'FAIL'; Classification = 'HARNESS_ERROR'; Label = 'unsupported result status is harness failure' },
-                @{ Name = 'timeout'; Mode = 'timeout'; Status = 'FAIL'; Classification = 'TIMEOUT'; Label = 'worker timeout is terminal TIMEOUT' }
+                @{ Name = 'timeout'; Mode = 'timeout'; Status = 'FAIL'; Classification = 'TIMEOUT'; Label = 'worker timeout is terminal TIMEOUT' },
+                @{ Name = 'crash'; Mode = 'crash'; Status = 'FAIL'; Classification = 'HARNESS_ERROR'; Label = 'worker crash is terminal HARNESS_ERROR' },
+                @{ Name = 'cancel'; Mode = 'cancel'; Status = 'FAIL'; Classification = 'CANCELLED'; Label = 'worker cancellation is terminal CANCELLED' }
             )) {
                 $context = New-FixtureRunContext -Name $case.Name
                 $envelope = Invoke-Capability -Capability $capability -RunContext $context -Fingerprint $fingerprint -Options @{ FixtureMode = $case.Mode }

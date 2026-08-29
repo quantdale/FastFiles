@@ -88,6 +88,7 @@ private:
     ffui::MainShellLayout CurrentShellLayout() const;
 
     HWND hwnd_ = nullptr;
+    bool uiaReady_ = false;
     Renderer renderer_;
     // Owns the bounded type-icon cache; the column view resolves icons through
     // it (SetIconCache) and the shell repaints on WM_APP_ICON_READY. Created in

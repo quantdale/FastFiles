@@ -201,6 +201,62 @@ try {
     Check ($ex.PatternName -eq 'Invoke') 'exception carries pattern name'
 }
 
+Write-Host "== ExpandCollapse + Filters disclosure (completion-integrity 4.5.2) =="
+$filtersTree = Join-Path $repo 'verify\uia-driver\tests\recorded-trees\search-filters-disclosure.json'
+$filtersDriver = New-UiaDriver -Provider mock -TimeoutMs 1000
+$null = Import-UiaRecordedTree -Driver $filtersDriver -Path $filtersTree
+$filtersBtn = Find-UiaElement -Driver $filtersDriver -AutomationId 'Search.Filters'
+Check ($null -ne $filtersBtn) 'Search.Filters is discoverable by AutomationId'
+Check (Test-UiaPatternAvailable -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse') 'Filters overlay exposes ExpandCollapse'
+$collapsedState = Invoke-UiaPattern -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'GetState'
+Check ($collapsedState -eq 'Collapsed') 'recorded Filters disclosure starts Collapsed'
+$null = Invoke-UiaPattern -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'Expand'
+$expandedState = Invoke-UiaPattern -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'GetState'
+Check ($expandedState -eq 'Expanded') 'ExpandCollapse.Expand is idempotent state, not a toggle'
+$null = Invoke-UiaPattern -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'Expand'
+$stillExpanded = Invoke-UiaPattern -Driver $filtersDriver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'GetState'
+Check ($stillExpanded -eq 'Expanded') 'second Expand leaves an expanded disclosure expanded'
+$filtersRec = Get-UiaMockRecord -Driver $filtersDriver -Element $filtersBtn
+$expandCalls = @($filtersRec.patternCalls | Where-Object { $_.pattern -eq 'ExpandCollapse' -and $_.method -eq 'Expand' })
+$invokeCalls = @($filtersRec.patternCalls | Where-Object { $_.pattern -eq 'Invoke' })
+Check ($expandCalls.Count -eq 2) 'Expand was recorded twice and never inverted the state'
+Check ($invokeCalls.Count -eq 0) 'Filters Expand path does not fall back to Invoke toggle'
+
+Import-Module $validationPath -Force
+$validationModule = Get-Module UiAutomationValidation
+$collapsedDriver = New-UiaDriver -Provider mock -TimeoutMs 1000
+$null = Import-UiaRecordedTree -Driver $collapsedDriver -Path $filtersTree
+$main = $collapsedDriver.Root
+$opened = & $validationModule { param($driver, $main, $pid)
+    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $pid -TimeoutMs 2000
+} $collapsedDriver $main 4242
+Check ($opened.Pass) "Expand-UiaSearchFilters passes on ExpandCollapse; detail=$($opened.Detail)"
+$openedBtn = Find-UiaElement -Driver $collapsedDriver -AutomationId 'Search.Filters'
+$openedRec = Get-UiaMockRecord -Driver $collapsedDriver -Element $openedBtn
+$openedExpand = @($openedRec.patternCalls | Where-Object { $_.pattern -eq 'ExpandCollapse' -and $_.method -eq 'Expand' })
+$openedInvoke = @($openedRec.patternCalls | Where-Object { $_.pattern -eq 'Invoke' })
+Check ($openedExpand.Count -eq 1) 'capability Expand-UiaSearchFilters posts Expand once'
+Check ($openedInvoke.Count -eq 0) 'capability Expand-UiaSearchFilters does not toggle via Invoke'
+$already = & $validationModule { param($driver, $main, $pid)
+    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $pid -TimeoutMs 1000
+} $collapsedDriver $main 4242
+Check ($already.Pass) 'already-expanded Filters disclosure is a no-op success'
+$afterRec = Get-UiaMockRecord -Driver $collapsedDriver -Element $openedBtn
+$afterExpand = @($afterRec.patternCalls | Where-Object { $_.pattern -eq 'ExpandCollapse' -and $_.method -eq 'Expand' })
+Check ($afterExpand.Count -eq 1) 'already-expanded rerun does not post a second Expand'
+$startFn = Get-Command Start-UiaFastFiles -ErrorAction SilentlyContinue
+if (-not $startFn) {
+    $startFn = & $validationModule { Get-Command Start-UiaFastFiles }
+}
+$startSrc = if ($startFn) { $startFn.ScriptBlock.ToString() } else { '' }
+Check ($startSrc -match 'WindowStyle Normal') 'Start-UiaFastFiles forces WindowStyle Normal so hidden workers cannot launch FastFiles hidden'
+$querySet = & $validationModule { param($driver, $main, $pid)
+    Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $pid -Query 'alloc'
+} $collapsedDriver $main 4242
+Check ($querySet.Pass) "Set-UiaSearchQuery targets AutomationId 7101; detail=$($querySet.Detail)"
+$queryRec = Get-UiaMockRecord -Driver $collapsedDriver -Element (Find-UiaElement -Driver $collapsedDriver -AutomationId '7101')
+Check ($queryRec.value -eq 'alloc') 'Set-UiaSearchQuery ValuePattern write is the query combo, not the scope combo'
+
 Write-Host "== timeout + fail-clearly contract (2.2/2.4) =="
 $timedOut = $false
 try {
@@ -311,6 +367,9 @@ $modReset = Reset-UiaModifierKeys -Driver $mock -NoSend
 Check ($modReset.kind -eq 'modifier-reset' -and $modReset.released -contains 0x11 -and $modReset.released -contains 0x5B) 'modifier reset lists ctrl and win key-up vks'
 $state = Get-UiaInteractiveState -Driver $mock -ProcessId 4242
 Check ($state.PSObject.Properties['TimestampUtc'] -ne $null -and $state.Windows.Count -eq 0) 'interactive state envelope is safe on mock drivers'
+Check (-not (Test-UiaInputBlockingPopup -ClassName 'tooltips_class32')) 'tooltips do not block search-close / address-bar navigation'
+Check (-not (Test-UiaInputBlockingPopup -ClassName 'SysShadow')) 'SysShadow does not block search-close / address-bar navigation'
+Check (Test-UiaInputBlockingPopup -ClassName 'ComboLBox') 'combo dropdowns still block keyboard input'
 $fgProbe = Test-UiaForegroundWindow -Driver $mock -Element $mock.Root
 Check ($fgProbe -eq $true) 'foreground ownership probe is safe on mock drivers'
 $topAt = Get-UiaTopmostWindowAt -Driver $mock -X 100 -Y 100

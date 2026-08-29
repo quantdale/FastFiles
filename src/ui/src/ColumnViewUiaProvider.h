@@ -449,6 +449,7 @@ public:
     // are constructed; null while the storage panel is absent.
     TreemapUiaSurface* TreemapSurface() const noexcept { return treemapSurface_; }
     void SetTreemapSurface(TreemapUiaSurface* treemapSurface);
+    void EnsureHostProvider() noexcept;
 
     // Event sink entry point (registered as the view's UiaEventRouter sink).
     static void SinkThunk(const UiaEventNotification& notification, void* context);

@@ -63,6 +63,7 @@ function Get-UiaPattern {
             'ItemContainer' { return $Element.GetCurrentPattern([System.Windows.Automation.ItemContainerPattern]::Pattern) }
             'Value' { return $Element.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern) }
             'Window' { return $Element.GetCurrentPattern([System.Windows.Automation.WindowPattern]::Pattern) }
+            'ExpandCollapse' { return $Element.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern) }
             'Drag' {
                 throw [UiaPatternNotSupportedException]::new(
                     "DragPattern is not exposed by this host's UIAutomationClient; use Send-UiaMouseInput with programmatic filesystem verification", 'Drag')
@@ -93,6 +94,7 @@ function Invoke-UiaPattern {
             'Scroll' { $Method = 'Scroll' }
             'Value' { $Method = 'SetValue' }
             'Window' { $Method = 'Close' }
+            'ExpandCollapse' { $Method = 'Expand' }
             default { $Method = 'Invoke' }
         }
     }
@@ -115,6 +117,13 @@ function Invoke-UiaPattern {
                 $record.value = [string]$Arguments[0]
             }
             if ($Method -eq 'GetValue') { return $(if ($null -ne $record.PSObject.Properties['value']) { [string]$record.value } else { '' }) }
+        }
+        if ($PatternName -eq 'ExpandCollapse') {
+            if ($Method -eq 'Expand') { $record.expandCollapseState = 'Expanded' }
+            if ($Method -eq 'Collapse') { $record.expandCollapseState = 'Collapsed' }
+            if ($Method -eq 'GetState') {
+                return $(if ($record.expandCollapseState) { [string]$record.expandCollapseState } else { 'Collapsed' })
+            }
         }
         foreach ($ev in @($Driver.Events)) {
             if (($PatternName -eq 'Invoke' -and $ev.eventName -eq 'Invoked') -or
@@ -204,6 +213,14 @@ function Invoke-UiaPattern {
                     return $pattern.WaitForInputIdle([int]$Arguments[0])
                 }
                 default { throw "Window pattern has no method '$Method'" }
+            }
+        }
+        'ExpandCollapse' {
+            switch ($Method) {
+                'Expand' { $pattern.Expand(); return $true }
+                'Collapse' { $pattern.Collapse(); return $true }
+                'GetState' { return [string]$pattern.Current.ExpandCollapseState }
+                default { throw "ExpandCollapse pattern has no method '$Method'" }
             }
         }
         default {

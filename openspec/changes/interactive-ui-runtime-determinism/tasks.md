@@ -43,7 +43,7 @@
 ## 7. Runtime matrix and determinism gates
 
 - [x] 7.1 Expand the test-owned interactive matrix for enable/disable cycles, pane navigation, active-pane switching, address bar, back/forward, Home/filesystem, selection, search, safe file operations, drag/drop, resize, theme, and restart/restore where supported. (Headless dual-pane/state/provider matrix plus the full semantic UIA capability cover supported rows; external foreground/pointer/display rows remain explicit SKIPs.)
-- [ ] 7.2 Run the corrected selection-model-interactions scenario for twenty consecutive clean isolated lifecycles; preserve and classify the first failure and restart the count after repair.
+- [x] 7.2 Run the corrected selection-model-interactions scenario for twenty consecutive clean isolated lifecycles; preserve and classify the first failure and restart the count after repair. — complete 2026-08-29: 20/20 isolated PASS (2 passed / 1 skipped / 0 failed each; seeds 1–20) after per-HWND `UiaHostQueryGuard`, live Main reacquisition, TOPMOST lifecycle, and terminal-column focus waits. Earlier first failures (`terminal column not found`, `NAYEON_16: FastFiles` title false-positive, Ctrl-click selC→selD stale geometry) were preserved and the count reset after each repair.
 - [x] 7.3 Run at least fifty deterministic headless toggle/provider cycles and record zero stale-provider escapes, leaks, or unexplained retries.
 - [x] 7.4 Run the full UI automation capability on the genuine interactive desktop and distinguish documented external skips from unexpected failures. (The focused wrapper exits PASS with the Pane.1 activation limitation classified as `interactive-foreground-unavailable`; no unexpected FAIL remains.)
 

@@ -1,9 +1,9 @@
 {
   "schema": "fastfiles.visual-capture.v1",
   "hostId": "local-interactive-windows",
-  "startedUtc": "2026-08-28T23:04:03.4430069Z",
-  "finishedUtc": "2026-08-28T23:05:00.6197831Z",
-  "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+  "startedUtc": "2026-08-29T05:03:57.1965016Z",
+  "finishedUtc": "2026-08-29T05:05:04.7820568Z",
+  "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
   "captures": [
     {
       "scenarioId": "home-default",
@@ -13,25 +13,25 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
-      "screenshotPath": null,
-      "imageHash": "",
-      "captureMethod": null,
-      "privacyRedactions": null,
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
+      "screenshotPath": "home-default.png",
+      "imageHash": "0128eab8b9426fe5b696636be30a61f4793689a0e363e09b5258fb691a04d183",
+      "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
+      "privacyRedactions": [],
       "assertionResult": {
-        "pass": false,
+        "pass": true,
         "evidence": {
-          "Pass": false,
-          "Found": [],
-          "Missing": [
-            "Home",
-            "1: Home"
-          ]
+          "Pass": true,
+          "Found": [
+            "ColumnView"
+          ],
+          "Missing": [],
+          "Detail": "Home names were not enumerated; ColumnView fragment was live after new-tab default"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:24.9918340Z",
-      "status": "FAIL",
-      "reason": "{\"Pass\":false,\"Found\":[],\"Missing\":[\"Home\",\"1: Home\"]}",
+      "timestampUtc": "2026-08-29T05:04:26.5561508Z",
+      "status": "PASS",
+      "reason": "",
       "duplicateOf": "",
       "duplicateReason": ""
     },
@@ -43,19 +43,19 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "browse-column-view.png",
-      "imageHash": "5622117f49d3ce2c8d841174ded4b83867ce816953004dedf37f5507bbebad05",
+      "imageHash": "a70e8e97a6a0c97ebb280bbe83e5186c5839160f8220054ec219989f86c5d202",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
         "pass": true,
         "evidence": {
           "Pass": true,
-          "Detail": "tab label reflects 'CatalogBrowse' (used SendInput-fallback)"
+          "Detail": "tab label reflects 'CatalogBrowse' (used ValuePattern)"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:31.9961339Z",
+      "timestampUtc": "2026-08-29T05:04:36.8876396Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -69,19 +69,19 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "home-from-command.png",
-      "imageHash": "b3485337fac6e407b36a11e5a34f9e0c7da9fd407ceb3525ad06f5a8e062b88b",
+      "imageHash": "2b4468d800a90331e03483885ecabacd30e12afc641afe1baf73207670a6c03c",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
         "pass": true,
         "evidence": {
           "Pass": true,
-          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787958273,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787979878,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":9505448,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":57852,\"popupClasses\":[]}"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:34.6654546Z",
+      "timestampUtc": "2026-08-29T05:04:39.3426274Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -95,16 +95,16 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "fast-search-idle.png",
-      "imageHash": "1e060ba91d797252dc580ded68187cf35bfd226fc5807f24fe8f2f29a6c32d11",
+      "imageHash": "d4cc6d4fa1db28b3ed822f142c78d09ecbb76a88cf60fba54c85b3272fd441ce",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
         "pass": true,
         "evidence": {
           "Pass": true,
-          "Detail": "palette 'search' activated commandId='search.focus'; selected='Search'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=search.focus\",\"state\":\"{\\\"timestamp\\\":1787958276,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"1001\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":55600,\"popupClasses\":[]}",
+          "Detail": "palette 'search' activated commandId='search.focus'; selected='Search'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=search.focus\",\"state\":\"{\\\"timestamp\\\":1787979880,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=search.focus;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":9505448,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"1001\",\"focusedControlType\":\"Edit\",\"focusedProcessId\":57852,\"popupClasses\":[]}",
           "Ui": {
             "Pass": true,
             "Found": [
@@ -116,7 +116,7 @@
           }
         }
       },
-      "timestampUtc": "2026-08-28T23:04:37.4312928Z",
+      "timestampUtc": "2026-08-29T05:04:42.2455256Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -130,19 +130,19 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "storage-overview.png",
-      "imageHash": "d0064036732cf3c95cfb43300f85f2c96d591d15b0c964451c63d7df66b5da03",
+      "imageHash": "648f710ab47e18f62c887ebb7d40a6274eb4efd5f6709562d745acbab594a8eb",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
         "pass": true,
         "evidence": {
           "Pass": true,
-          "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1787958282,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+          "Detail": "palette 'analyze' activated commandId='storage.analyze'; selected='Analyze Storage'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=storage.analyze\",\"state\":\"{\\\"timestamp\\\":1787979887,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=storage.analyze;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":9505448,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"7211\",\"focusedControlType\":\"DataGrid\",\"focusedProcessId\":57852,\"popupClasses\":[]}"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:44.0771907Z",
+      "timestampUtc": "2026-08-29T05:04:48.5378600Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -156,9 +156,9 @@
       "width": 620,
       "paneMode": "dialog",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "settings-general.png",
-      "imageHash": "cc5321ee106b9281725eae9405d3c3750faee2e9dcd75f973089d7a0beadb7fd",
+      "imageHash": "6bbe53f90f3ed087cf11abc55332ea6f0d1d34a8c014837a9767a8dfc318d6ee",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
@@ -168,7 +168,7 @@
           "Detail": "settings opened through the command palette"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:48.7576716Z",
+      "timestampUtc": "2026-08-29T05:04:53.3793221Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -182,9 +182,9 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "command-palette.png",
-      "imageHash": "c1745110efe4f79e046f1ec917b36105dd24f956885cb94bfef98b389db34a1d",
+      "imageHash": "cfdf6312bda8996630592adc68083e0b15c10171058983f55a92f23736b7a42e",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
@@ -194,7 +194,7 @@
           "Detail": "palette edit present"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:53.2569856Z",
+      "timestampUtc": "2026-08-29T05:04:57.7857643Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -208,19 +208,19 @@
       "width": 800,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "home-narrow.png",
-      "imageHash": "89e4cb83aa4c19894a613c3c38186072945e2ab83db28f7cb7bd01ade15f77fb",
+      "imageHash": "542325b05418efa4d71bd380fee14433cdf375ebed56dd1cb175e2ffb0392d31",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
         "pass": true,
         "evidence": {
           "Pass": true,
-          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787958295,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":23200992,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":55600,\"popupClasses\":[]}"
+          "Detail": "palette 'home' activated commandId='navigation.home'; selected='Home'; palette closed; expected controls all present; dispatch={\"codeName\":\"FFDIAG_UI_COMMAND_DISPATCHED\",\"message\":\"command=navigation.home\",\"state\":\"{\\\"timestamp\\\":1787979900,\\\"category\\\":\\\"ui-interaction\\\",\\\"code\\\":40,\\\"codeName\\\":\\\"FFDIAG_UI_COMMAND_DISPATCHED\\\",\\\"message\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"path\\\":\\\"\\\",\\\"volume\\\":\\\"\\\",\\\"state\\\":\\\"command=navigation.home;accepted=true;workspacePaneCountBefore=1;workspacePaneCountAfter=1;activePaneBefore=0;activePaneAfter=0;viewDualBefore=false;viewDualAfter=false\\\",\\\"outcome\\\":\\\"accepted\\\",\\\"account\\\":\\\"\\\",\\\"sid\\\":\\\"\\\",\\\"privilegeHeld\\\":false,\\\"privilegeEnabled\\\":false,\\\"errorCode\\\":0,\\\"items\\\":0}\",\"outcome\":\"accepted\"}; after={\"foregroundHwnd\":9505448,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"MainWindow\",\"focusedControlType\":\"Window\",\"focusedProcessId\":57852,\"popupClasses\":[]}"
         }
       },
-      "timestampUtc": "2026-08-28T23:04:57.3329011Z",
+      "timestampUtc": "2026-08-29T05:05:01.4936219Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",
@@ -234,9 +234,9 @@
       "width": 1280,
       "paneMode": "single",
       "dpiScale": 100,
-      "applicationSha": "d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3",
+      "applicationSha": "16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046",
       "screenshotPath": "home-dark.png",
-      "imageHash": "481b8314ee3f137e88996b03f4906aee8822ce75931889d391e621d3f5c7f17b",
+      "imageHash": "9bfdcef90fd1581388662129a667691ae9b73ba5fe90706ab0b51a34b8ed59f3",
       "captureMethod": "DwmExtendedFrameBounds+CopyFromScreen",
       "privacyRedactions": [],
       "assertionResult": {
@@ -249,7 +249,7 @@
           "Missing": []
         }
       },
-      "timestampUtc": "2026-08-28T23:05:00.5145065Z",
+      "timestampUtc": "2026-08-29T05:05:04.6465288Z",
       "status": "PASS",
       "reason": "",
       "duplicateOf": "",

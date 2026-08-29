@@ -6,12 +6,14 @@
 
 #include "ColumnViewUiaProvider.h"
 #include "SearchUiaProvider.h"
+#include "UiaHostQuery.h"
 #include "UiaTestSurface.h"
 
 #include <algorithm>
 #include <set>
 #include <string>
 #include <vector>
+#include <windows.h>
 
 #include "../TestSupport.h"
 #include "UiaTestHelpers.h"
@@ -1096,6 +1098,140 @@ void TestStatusOffscreenTracksScroll() {
           "scrolled-out status text reports IsOffscreen=true");
 }
 
+struct HostCtorProbe {
+    int getObjectCount = 0;
+    int hostQueryFallthrough = 0;
+};
+
+LRESULT CALLBACK HostCtorProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId) {
+        auto* probe = reinterpret_cast<HostCtorProbe*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (probe != nullptr) {
+            probe->getObjectCount++;
+            if (ffui::UiaHostQueryGuard::Active()) {
+                probe->hostQueryFallthrough++;
+                return DefWindowProcW(hwnd, message, wParam, lParam);
+            }
+        }
+        return 0;
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+void TestHostProviderNotConstructedDuringProviderCtor() {
+    HostCtorProbe probe;
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc = HostCtorProc;
+    windowClass.hInstance = GetModuleHandleW(nullptr);
+    windowClass.lpszClassName = L"FfUiaHostCtorProbe";
+    RegisterClassW(&windowClass);
+    HWND hwnd = CreateWindowExW(0, windowClass.lpszClassName, L"probe", WS_OVERLAPPEDWINDOW, 0, 0, 80, 60,
+                                nullptr, nullptr, windowClass.hInstance, nullptr);
+    Check(hwnd != nullptr, "probe HWND for host-provider construction");
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&probe));
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    {
+        ffui::ColumnViewUiaProvider root(state, &surface, hwnd);
+        Check(probe.getObjectCount == 0,
+              "ColumnViewUiaProvider construction does not re-enter WM_GETOBJECT via UiaHostProviderFromHwnd");
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> host;
+        Check(SUCCEEDED(root.get_HostRawElementProvider(&host)), "lazy get_HostRawElementProvider succeeds");
+        VARIANT className{};
+        VariantInit(&className);
+        Check(SUCCEEDED(root.GetPropertyValue(UIA_ClassNamePropertyId, &className)),
+              "ClassName is answered from the HWND without host recursion");
+        Check(className.vt == VT_BSTR && className.bstrVal != nullptr &&
+                  wcscmp(className.bstrVal, L"FfUiaHostCtorProbe") == 0,
+              "ClassName matches the probe window class");
+        VariantClear(&className);
+        VARIANT processId{};
+        VariantInit(&processId);
+        Check(SUCCEEDED(root.GetPropertyValue(UIA_ProcessIdPropertyId, &processId)) &&
+                  processId.vt == VT_I4 && processId.lVal == static_cast<LONG>(GetCurrentProcessId()),
+              "ProcessId is the hosting process");
+        VariantClear(&processId);
+    }
+    DestroyWindow(hwnd);
+    UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
+}
+
+LRESULT CALLBACK RecursingHostProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId) {
+        auto* provider =
+            reinterpret_cast<IRawElementProviderSimple*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (provider != nullptr) {
+            return UiaReturnRawElementProvider(hwnd, wParam, lParam, provider);
+        }
+        return 0;
+    }
+    return DefWindowProcW(hwnd, message, wParam, lParam);
+}
+
+void TestCustomGetObjectDoesNotRecurseOnIdentityProperties() {
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc = RecursingHostProc;
+    windowClass.hInstance = GetModuleHandleW(nullptr);
+    windowClass.lpszClassName = L"FfUiaRecurseHostProbe";
+    RegisterClassW(&windowClass);
+    HWND hwnd = CreateWindowExW(0, windowClass.lpszClassName, L"FastFiles", WS_OVERLAPPEDWINDOW, 0, 0, 80, 60,
+                                nullptr, nullptr, windowClass.hInstance, nullptr);
+    Check(hwnd != nullptr, "recurse-probe HWND created");
+    auto surface = MakeSinglePaneSurface();
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    auto* root = new ffui::ColumnViewUiaProvider(state, &surface, hwnd);
+    SetWindowLongPtrW(hwnd, GWLP_USERDATA,
+                      reinterpret_cast<LONG_PTR>(static_cast<IRawElementProviderSimple*>(root)));
+    VARIANT className{};
+    VariantInit(&className);
+    Check(SUCCEEDED(root->GetPropertyValue(UIA_ClassNamePropertyId, &className)),
+          "identity GetPropertyValue survives a GETOBJECT handler that returns the custom root");
+    Check(className.vt == VT_BSTR && className.bstrVal != nullptr &&
+              wcscmp(className.bstrVal, L"FfUiaRecurseHostProbe") == 0,
+          "ClassName still comes from GetClassNameW");
+    VariantClear(&className);
+    UiaRect bounds{};
+    Check(SUCCEEDED(root->get_BoundingRectangle(&bounds)),
+          "get_BoundingRectangle does not recurse through a self host");
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> host;
+    Check(SUCCEEDED(root->get_HostRawElementProvider(&host)),
+          "get_HostRawElementProvider does not overflow when GETOBJECT returns this root");
+    VARIANT help{};
+    VariantInit(&help);
+    Check(SUCCEEDED(root->GetPropertyValue(UIA_HelpTextPropertyId, &help)),
+          "non-identity property does not recurse through a self host");
+    VariantClear(&help);
+    {
+        ffui::UiaHostQueryGuard nested;
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> nestedHost;
+        Check(SUCCEEDED(root->get_HostRawElementProvider(&nestedHost)) && nestedHost == nullptr,
+              "get_HostRawElementProvider is a no-op while a host query is already on the stack");
+    }
+    DestroyWindow(hwnd);
+    root->Release();
+    UnregisterClassW(windowClass.lpszClassName, windowClass.hInstance);
+}
+
+void TestHostQueryGuardIsPerHwnd() {
+    Check(!ffui::UiaHostQueryGuard::Active(), "host query guard starts empty");
+    const HWND queried = reinterpret_cast<HWND>(static_cast<ULONG_PTR>(0x100));
+    const HWND other = reinterpret_cast<HWND>(static_cast<ULONG_PTR>(0x200));
+    {
+        ffui::UiaHostQueryGuard guard(queried);
+        Check(ffui::UiaHostQueryGuard::Active(), "named host query is visible");
+        Check(ffui::UiaHostQueryGuard::Active(queried), "queried HWND is blocked");
+        Check(!ffui::UiaHostQueryGuard::Active(other),
+              "unrelated HWND is not blocked by another window's host query");
+    }
+    Check(!ffui::UiaHostQueryGuard::Active() && !ffui::UiaHostQueryGuard::Active(queried),
+          "host query guard is empty after the named guard is destroyed");
+    {
+        ffui::UiaHostQueryGuard global;
+        Check(ffui::UiaHostQueryGuard::Active(queried) && ffui::UiaHostQueryGuard::Active(other),
+              "default-constructed guard still blocks every HWND");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1122,6 +1258,9 @@ int main() {
     TestFindItemByPropertyForeignStartAfter();
     TestPaneHasKeyboardFocusProjection();
     TestStatusOffscreenTracksScroll();
+    TestHostProviderNotConstructedDuringProviderCtor();
+    TestCustomGetObjectDoesNotRecurseOnIdentityProperties();
+    TestHostQueryGuardIsPerHwnd();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffcolumnview_uia_tests: %d check(s) failed\n", FailureCount());

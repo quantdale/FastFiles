@@ -1,4 +1,5 @@
 #include "SearchUiaProvider.h"
+#include "UiaHostQuery.h"
 
 #include "ffui/SearchResultMetadata.h" // indexed-search-allocated-size D9: shared Size-on-Disk wording
 #include <algorithm>
@@ -148,9 +149,9 @@ size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
 
 SearchUiaProvider::SearchUiaProvider(UiaOwnerStatePtr state, UiaSurface* surface, HWND listHwnd)
     : UiaProviderBase(std::move(state)), surface_(surface), listHwnd_(listHwnd) {
-    if (listHwnd_ != nullptr && IsWindow(listHwnd_)) {
-        UiaHostProviderFromHwnd(listHwnd_, &hostProvider_);
-    }
+    // Lazy-init the HWND host in get_HostRawElementProvider. Construction
+    // runs from WM_GETOBJECT; UiaHostProviderFromHwnd here re-enters the
+    // subclass and overflows the stack.
 }
 
 SearchUiaProvider::~SearchUiaProvider() = default;
@@ -159,8 +160,17 @@ STDMETHODIMP SearchUiaProvider::get_HostRawElementProvider(IRawElementProviderSi
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
     if (!Alive()) return S_OK;
+    if (UiaHostQueryGuard::Active(listHwnd_)) return S_OK;
     // Fragment root: expose the HWND host provider so UIA merges this custom
     // element with the list's default provider instead of replacing it.
+    if (hostProvider_ == nullptr && listHwnd_ != nullptr && IsWindow(listHwnd_)) {
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> host;
+        UiaHostQueryGuard guard(listHwnd_);
+        UiaHostProviderFromHwnd(listHwnd_, &host);
+        if (host && host.Get() != static_cast<IRawElementProviderSimple*>(this)) {
+            hostProvider_ = std::move(host);
+        }
+    }
     if (hostProvider_ != nullptr) {
         *retVal = hostProvider_.Get();
         (*retVal)->AddRef();
@@ -212,6 +222,10 @@ STDMETHODIMP SearchUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARIANT*
         default:
             break;
     }
+    if (hostProvider_ == nullptr && listHwnd_ != nullptr && IsWindow(listHwnd_)) {
+        UiaHostQueryGuard guard(listHwnd_);
+        UiaHostProviderFromHwnd(listHwnd_, &hostProvider_);
+    }
     if (hostProvider_ != nullptr) {
         return hostProvider_->GetPropertyValue(propertyId, retVal);
     }
@@ -243,6 +257,10 @@ STDMETHODIMP SearchUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept {
 STDMETHODIMP SearchUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
+    if (hostProvider_ == nullptr && listHwnd_ != nullptr && IsWindow(listHwnd_)) {
+        UiaHostQueryGuard guard(listHwnd_);
+        UiaHostProviderFromHwnd(listHwnd_, &hostProvider_);
+    }
     if (hostProvider_ != nullptr) {
         Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
         if (SUCCEEDED(hostProvider_.As(&fragment))) {

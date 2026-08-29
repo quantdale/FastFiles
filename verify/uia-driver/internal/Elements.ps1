@@ -165,6 +165,7 @@ function Get-UiaElementProperty {
             'RuntimeId' { return @($Element.GetRuntimeId()) }
             'IsEnabled' { return $Element.Current.IsEnabled }
             'IsOffscreen' { return $Element.Current.IsOffscreen }
+            'HasKeyboardFocus' { return $Element.Current.HasKeyboardFocus }
             'BoundingRectangle' {
                 $rect = $Element.Current.BoundingRectangle
                 return [pscustomobject]@{ x = [int]$rect.X; y = [int]$rect.Y; width = [int]$rect.Width; height = [int]$rect.Height }

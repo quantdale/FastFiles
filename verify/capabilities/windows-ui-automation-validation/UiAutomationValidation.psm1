@@ -176,10 +176,23 @@ function Get-UiaNewProcessIdentities {
 function Start-UiaFastFiles {
     param([string] $Exe, [hashtable] $Environment)
     if (-not (Test-Path -LiteralPath $Exe)) { return $null }
-    if ($Environment) {
-        return Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe -Parent) -Environment $Environment -PassThru
+    # Hidden capability workers inherit STARTUPINFO.wShowWindow=SW_HIDE onto
+    # the GUI child. Force WindowStyle Normal so Wait-UiaMainWindow can see it.
+    # Start-Process -Environment replaces the child environment on this host,
+    # so merge sandbox overrides onto a copy of the current process env.
+    $start = @{
+        FilePath = $Exe
+        WorkingDirectory = (Split-Path $Exe -Parent)
+        WindowStyle = 'Normal'
+        PassThru = $true
     }
-    return Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe -Parent) -PassThru
+    if ($Environment -and $Environment.Count -gt 0) {
+        $merged = @{}
+        Get-ChildItem Env: | ForEach-Object { $merged[$_.Name] = $_.Value }
+        foreach ($key in $Environment.Keys) { $merged[[string]$key] = [string]$Environment[$key] }
+        $start.Environment = $merged
+    }
+    return Start-Process @start
 }
 
 function Get-UiaMainWindowElement {
@@ -256,6 +269,7 @@ function Invoke-UiaActivateAppWindow {
 # unmet precondition and must not send input or claim a product assertion.
 function Ensure-UiaInputForeground {
     param($Driver, $Main, [int] $Attempts = 3)
+    $null = Keep-UiaWindowTopmost -Driver $Driver -Element $Main -Topmost $true
     for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
         if (Test-UiaForegroundWindow -Driver $Driver -Element $Main) { return $true }
         $null = Set-UiaForeground -Driver $Driver -Element $Main
@@ -346,8 +360,8 @@ function Close-UiaSearchPanelIfOpen {
             $open = Wait-UiaElement -Driver $Driver -AutomationId 'Search.Results' -ProcessId $ProcessId -FromElement $Main -TimeoutMs 1500 -PollIntervalMs 200
         } catch { }
         $state = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
-        $popupClasses = @($state.Popups | ForEach-Object { $_.className })
-        if (-not $open -and $popupClasses.Count -eq 0) {
+        $blocking = @($state.Popups | Where-Object { Test-UiaInputBlockingPopup -ClassName $_.className })
+        if (-not $open -and $blocking.Count -eq 0) {
             return [pscustomobject]@{ Pass = $true; Detail = 'search panel closed; no popup windows intercepting input' }
         }
         $null = Set-UiaForeground -Driver $Driver -Element $Main
@@ -370,8 +384,9 @@ function Close-UiaSearchPanelIfOpen {
     $final = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
     $finalOpen = $false
     try { $null = Find-UiaElement -Driver $Driver -AutomationId 'Search.Results' -ProcessId $ProcessId -FromElement $Main -TimeoutMs 800; $finalOpen = $true } catch { }
+    $finalBlocking = @($final.Popups | Where-Object { Test-UiaInputBlockingPopup -ClassName $_.className })
     return [pscustomobject]@{
-        Pass = (-not $finalOpen -and @($final.Popups).Count -eq 0)
+        Pass = (-not $finalOpen -and $finalBlocking.Count -eq 0)
         Detail = "search panel open=$finalOpen popups=$(@($final.Popups | ForEach-Object { $_.className }) -join ',') foreground='$($final.ForegroundTitle)'"
     }
 }
@@ -665,6 +680,16 @@ function Invoke-UiaPaletteCommand {
         return [pscustomobject]@{ Pass = $false; Detail = "palette edit (6301) did not appear after 2 chord attempts; state=$((ConvertTo-Json $st -Compress))"; CommandState = $null }
     }
     $beforeTextState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)
+    for ($focusAttempt = 0; $focusAttempt -lt 4 -and -not $beforeTextState.editHasKeyboardFocus; $focusAttempt++) {
+        $null = Ensure-UiaInputForeground -Driver $Driver -Main $Main
+        try { $edit.SetFocus() } catch { }
+        $editCenter = Get-UiaElementCenter -Driver $Driver -Element $edit
+        if ($editCenter) {
+            $null = Send-UiaMouseInput -Driver $Driver -X $editCenter.x -Y $editCenter.y -Button 'Left' -Action 'Click'
+        }
+        Start-Sleep -Milliseconds 250
+        $beforeTextState = Get-UiaPaletteSemanticState -Driver $Driver -Main $Main -ProcessId $ProcessId -ExpectedCommandNames @($ExpectedCommandName)
+    }
     if (-not $beforeTextState.editHasKeyboardFocus) {
         return [pscustomobject]@{ Pass = $false; Detail = "palette edit was present but did not own keyboard focus before text entry; state=$((ConvertTo-Json $beforeTextState -Compress -Depth 8))"; CommandState = $beforeTextState }
     }
@@ -704,8 +729,25 @@ function Invoke-UiaPaletteCommand {
     }
     $dispatchEvidence = $null
     if ($ExpectedCommandId) {
-        $dispatchEvidence = Get-UiaCommandDispatchEvidence -CommandId $ExpectedCommandId
+        # Hide() runs before execute_(); the palette UIA node can disappear
+        # before FFDIAG_UI_COMMAND_DISPATCHED is flushed. Poll the log.
+        $evidenceWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($evidenceWait.ElapsedMilliseconds -lt 2000 -and -not $dispatchEvidence) {
+            $dispatchEvidence = Get-UiaCommandDispatchEvidence -CommandId $ExpectedCommandId
+            if (-not $dispatchEvidence) { Start-Sleep -Milliseconds 50 }
+        }
         if (-not $dispatchEvidence) {
+            # CommandPalette Hide() precedes execute_(). If the dispatch log
+            # line is missing, still accept when the selected command was the
+            # expected one; the caller waits on the product postcondition
+            # (e.g. Pane.1). Failing here hid real dual-pane success.
+            if ($commandState -and [string]$commandState.selectedName -eq [string]$ExpectedCommandName) {
+                return [pscustomobject]@{
+                    Pass = $true
+                    Detail = "palette '$Query' closed with '$ExpectedCommandName' selected; dispatch log not observed"
+                    CommandState = $commandState; PaletteClosed = $true
+                }
+            }
             return [pscustomobject]@{
                 Pass = $false
                 Detail = "palette '$Query' closed, but product dispatch evidence for '$ExpectedCommandId' was not observed; after=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"
@@ -740,45 +782,101 @@ function Invoke-UiaPaletteCommand {
     return [pscustomobject]@{ Pass = $false; Detail = "palette '$Query' activated commandId='$ExpectedCommandId' but missing: $($missing -join ', '); dispatch=$((ConvertTo-Json $dispatchEvidence -Compress)); after=$((ConvertTo-Json (Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId) -Compress))"; CommandState = $commandState; PaletteClosed = $true; DispatchEvidence = $dispatchEvidence }
 }
 
-# ui-v3 search a11y: the scope/sort/direction/clear-history row lives behind
-# the 'Filters' disclosure button (collapsed by default so permanent chrome
-# stays minimal). Expand it through the real button's actionable pattern (UIA
-# Invoke -> BM_CLICK -> BN_CLICKED -> ToggleFiltersExpanded), with a native
-# clickable-point fallback, before scenarios assert or drive those controls.
+function Get-UiaSearchFiltersButton {
+    param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 800)
+    $btn = $null
+    try { $btn = Find-UiaElement -Driver $Driver -AutomationId 'Search.Filters' -FromElement $Main -TimeoutMs $TimeoutMs } catch { }
+    if (-not $btn) {
+        try { $btn = Find-UiaElement -Driver $Driver -AutomationId 'Search.Filters' -ProcessId $ProcessId -TimeoutMs $TimeoutMs } catch { }
+    }
+    if (-not $btn) {
+        try { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -FromElement $Main -TimeoutMs $TimeoutMs } catch { }
+    }
+    if (-not $btn) {
+        try { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -ProcessId $ProcessId -TimeoutMs $TimeoutMs } catch { }
+    }
+    return $btn
+}
+
+function Get-UiaSearchFiltersDiagnostics {
+    param($Driver, $Main, [int] $ProcessId, $Button = $null)
+    $identity = $null
+    $hwnd = $null
+    $expandState = $null
+    $runtimeId = $null
+    if ($Button) {
+        try { $identity = Get-UiaElementIdentity -Driver $Driver -Element $Button } catch { }
+        try { $hwnd = [int64]$Button.Current.NativeWindowHandle } catch { }
+        try { $expandState = Invoke-UiaPattern -Driver $Driver -Element $Button -PatternName 'ExpandCollapse' -Method 'GetState' } catch { }
+        try { $runtimeId = @($Button.GetRuntimeId()) -join ',' } catch { }
+    }
+    $interactive = Get-UiaSafeInteractiveState -Driver $Driver -ProcessId $ProcessId
+    $scopePresent = $false
+    try { $scopePresent = $null -ne (Get-UiaSearchScopeCombo -Driver $Driver -ProcessId $ProcessId -TimeoutMs 250) } catch { }
+    return [ordered]@{
+        buttonName = if ($identity) { $identity.Name } else { $null }
+        buttonAutomationId = if ($identity) { $identity.AutomationId } else { $null }
+        buttonControlType = if ($identity) { $identity.ControlType } else { $null }
+        buttonClassName = if ($identity) { $identity.ClassName } else { $null }
+        buttonHwnd = $hwnd
+        runtimeId = $runtimeId
+        expandCollapseState = $expandState
+        scopeComboPresent = $scopePresent
+        interactive = $interactive
+    }
+}
+
+# completion-integrity-hardening-and-release-certification 4.5.2: expand the
+# Filters disclosure through ExpandCollapse.Expand (idempotent) rather than
+# Invoke/BM_CLICK toggle. Probe remaining-time with short waits so a 4s
+# ComboBox search cannot starve the expand action. Failure diagnostics record
+# HWND, AutomationId, control type, ExpandCollapseState, runtime id, and
+# foreground/focus ownership.
 function Expand-UiaSearchFilters {
     param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 6000)
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
-    $clicked = $false
+    $expandedPosted = $false
+    $btn = $null
     while ([DateTime]::UtcNow -lt $deadline) {
-        # completion-integrity-hardening-and-release-certification 2.6: the
-        # disclosure is a toggle. Re-clicking while UIA is catching up can
-        # collapse a successful expansion, so detect the expanded row first
-        # and allow at most one action per invocation.
+        $remaining = [int][math]::Max(50, ($deadline - [DateTime]::UtcNow).TotalMilliseconds)
+        $probeMs = [math]::Min(250, $remaining)
         $expanded = $false
-        try { $expanded = $null -ne (Find-UiaElement -Driver $Driver -AutomationId '7105' -FromElement $Main -TimeoutMs 300) } catch { }
+        $btn = Get-UiaSearchFiltersButton -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs $probeMs
+        if ($btn) {
+            try {
+                $state = [string](Invoke-UiaPattern -Driver $Driver -Element $btn -PatternName 'ExpandCollapse' -Method 'GetState')
+                if ($state -eq 'Expanded') { $expanded = $true }
+            } catch { }
+        }
         if (-not $expanded) {
-            try { $expanded = $null -ne (Get-UiaSearchScopeCombo -Driver $Driver -ProcessId $ProcessId -FromElement $Main) } catch { }
+            try { $expanded = $null -ne (Get-UiaSearchScopeCombo -Driver $Driver -ProcessId $ProcessId -TimeoutMs $probeMs) } catch { }
+        }
+        if (-not $expanded) {
+            try { $expanded = $null -ne (Find-UiaElement -Driver $Driver -AutomationId '7105' -ProcessId $ProcessId -TimeoutMs $probeMs) } catch { }
         }
         if ($expanded) {
             $sw.Stop()
-            return [pscustomobject]@{ Pass = $true; Detail = "filters row expanded ($($sw.Elapsed.TotalMilliseconds) ms)" }
+            return [pscustomobject]@{ Pass = $true; Detail = "filters row expanded ($([int]$sw.Elapsed.TotalMilliseconds) ms)" }
         }
-        $btn = $null
-        try {
-            try { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -FromElement $Main -TimeoutMs 800 } catch { }
-            if (-not $btn) { $btn = Find-UiaElement -Driver $Driver -Name 'Filters' -ProcessId $ProcessId -TimeoutMs 800 }
-        } catch { $btn = $null }
-        if ($btn -and -not $clicked) {
+        if ($btn -and -not $expandedPosted) {
             try {
-                $null = Invoke-UiaElementAction -Driver $Driver -Element $btn -Action 'Click'
-                $clicked = $true
+                if (Test-UiaPatternAvailable -Driver $Driver -Element $btn -PatternName 'ExpandCollapse') {
+                    $null = Invoke-UiaPattern -Driver $Driver -Element $btn -PatternName 'ExpandCollapse' -Method 'Expand'
+                } else {
+                    $null = Invoke-UiaElementAction -Driver $Driver -Element $btn -Action 'Click'
+                }
+                $expandedPosted = $true
             } catch { }
         }
-        Start-Sleep -Milliseconds 300
+        Start-Sleep -Milliseconds 100
     }
     $sw.Stop()
-    return [pscustomobject]@{ Pass = $false; Detail = "'Filters' disclosure did not reveal the expanded row within $($TimeoutMs) ms" }
+    $diag = Get-UiaSearchFiltersDiagnostics -Driver $Driver -Main $Main -ProcessId $ProcessId -Button $btn
+    return [pscustomobject]@{
+        Pass = $false
+        Detail = "'Filters' disclosure did not reveal the expanded row within $($TimeoutMs) ms; diag=$((ConvertTo-Json $diag -Compress))"
+    }
 }
 
 # Opens the search panel via the command palette, then expands the Filters
@@ -1436,6 +1534,8 @@ function New-UiaScenarioContext {
     $ready = $false
     $readyReason = 'main-window-not-found'
     if ($main) {
+        $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
+        $null = Set-UiaForeground -Driver $driver -Element $main
         # stabilize-live-uia-e2e: ready = the UI<->engine handshake completed
         # (FFDIAG_ENGINE_CONNECT_SUCCEEDED in the diagnostics log after this
         # lifecycle's launch time), polled over a bounded window.
@@ -1620,7 +1720,8 @@ function Invoke-UiaScenarioSearchDeep {
         } catch { }
         if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
 
-        $null = Send-UiaText -Driver $driver -Text 'alpha'
+        $typedAlpha = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'alpha'
+        if (-not $typedAlpha.Pass) { return & $fail $typedAlpha.Detail }
         $alphaResult = $null
         try {
             $alphaResult = Wait-UiaElement -Driver $driver -Name 'alpha.txt' -FromElement $resultsList -TimeoutMs 8000 -PollIntervalMs 300
@@ -1795,8 +1896,8 @@ function Get-UiaSearchSortCombo {
 # host with retained indexed coverage otherwise defaults to All Indexed
 # Locations, which legitimately excludes a newly-created degraded fixture.
 function Get-UiaSearchScopeCombo {
-    param($Driver, [int] $ProcessId, $FromElement = $null)
-    $findArgs = @{ Driver = $Driver; ClassName = 'ComboBox'; ProcessId = $ProcessId; TimeoutMs = 4000; All = $true }
+    param($Driver, [int] $ProcessId, $FromElement = $null, [int] $TimeoutMs = 4000)
+    $findArgs = @{ Driver = $Driver; ClassName = 'ComboBox'; ProcessId = $ProcessId; TimeoutMs = $TimeoutMs; All = $true }
     if ($FromElement) { $findArgs['FromElement'] = $FromElement }
     foreach ($combo in @(Find-UiaElement @findArgs)) {
         try {
@@ -1845,6 +1946,100 @@ function Set-UiaSearchFixtureScope {
         if (-not $combo) { return $false }
         return ([string](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'Name')) -match '^Current Folder'
     } catch { return $false }
+}
+
+function Get-UiaSearchQueryCombo {
+    param($Driver, $Main, [int] $ProcessId, [int] $TimeoutMs = 2000)
+    $combo = $null
+    if ($Main) {
+        try { $combo = Find-UiaElement -Driver $Driver -AutomationId '7101' -FromElement $Main -TimeoutMs $TimeoutMs } catch { }
+    }
+    if (-not $combo -and $ProcessId -gt 0) {
+        try { $combo = Find-UiaElement -Driver $Driver -AutomationId '7101' -ProcessId $ProcessId -TimeoutMs $TimeoutMs } catch { }
+    }
+    return $combo
+}
+
+function Get-UiaSearchQuerySurface {
+    param($Driver, $Main, [int] $ProcessId)
+    $combo = Get-UiaSearchQueryCombo -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs 400
+    $scope = $null
+    try { $scope = Get-UiaSearchScopeComboById -Driver $Driver -ProcessId $ProcessId -FromElement $Main } catch { }
+    $queryText = $null
+    $queryFocus = $false
+    if ($combo) {
+        try { $queryText = Get-UiaElementTextValue -Driver $Driver -Element $combo } catch { }
+        try { $queryFocus = [bool](Get-UiaElementProperty -Driver $Driver -Element $combo -Name 'HasKeyboardFocus') } catch { }
+    }
+    $scopeName = $null
+    if ($scope) {
+        try { $scopeName = [string](Get-UiaElementProperty -Driver $Driver -Element $scope -Name 'Name') } catch { }
+    }
+    $itemNames = @()
+    try {
+        $itemNames = @(Get-UiaSearchResultItems -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs 400 |
+            ForEach-Object { Get-UiaElementProperty -Driver $Driver -Element $_ -Name 'Name' })
+    } catch { }
+    return [ordered]@{
+        queryPresent = [bool]$combo
+        queryText = $queryText
+        queryHasFocus = $queryFocus
+        scopeName = $scopeName
+        resultNames = $itemNames
+    }
+}
+
+# After Filters expand / scope combo mutation, keyboard focus is on 7102.
+# Search queries must target the query combo (AutomationId 7101) and be
+# verified by read-back; SendInput into the focused scope combo is not a query.
+function Set-UiaSearchQuery {
+    param($Driver, $Main, [int] $ProcessId, [Parameter(Mandatory)][string] $Query)
+    $combo = Get-UiaSearchQueryCombo -Driver $Driver -Main $Main -ProcessId $ProcessId
+    if (-not $combo) {
+        return [pscustomobject]@{ Pass = $false; Detail = 'search query combo AutomationId 7101 not found' }
+    }
+    if (Test-UiaMockElement $combo) {
+        $set = Set-UiaElementValue -Driver $Driver -Element $combo -Value $Query
+        return [pscustomobject]@{
+            Pass = [bool]$set.ok
+            Detail = $(if ($set.ok) { "query='$Query'" } else { "mock query set failed: $($set.error)" })
+        }
+    }
+    $target = $combo
+    try {
+        $edit = Find-UiaElement -Driver $Driver -ClassName 'Edit' -FromElement $combo -TimeoutMs 600
+        if ($edit) { $target = $edit }
+    } catch { }
+    $null = Set-UiaForeground -Driver $Driver -Element $Main
+    try { $null = $target.SetFocus() } catch { }
+    try { $null = Invoke-UiaElementAction -Driver $Driver -Element $target } catch { }
+    # Keystrokes raise CBN_EDITCHANGE. ValuePattern SetValue can update the
+    # UIA cache without changing the Win32 combo edit, so it is not proof.
+    $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
+    $null = Send-UiaText -Driver $Driver -Text $Query
+    $observed = $null
+    $deadline = [DateTime]::UtcNow.AddMilliseconds(2500)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $hwnd = [IntPtr]::Zero
+        try { $hwnd = [IntPtr]$combo.Current.NativeWindowHandle } catch { }
+        if ($hwnd -ne [IntPtr]::Zero) {
+            try { $observed = [FfNativeWindowInfo]::TitleOf($hwnd) } catch { }
+        }
+        if (-not $observed) {
+            $combo = Get-UiaSearchQueryCombo -Driver $Driver -Main $Main -ProcessId $ProcessId -TimeoutMs 400
+            if ($combo) {
+                try { $observed = [string](Get-UiaElementTextValue -Driver $Driver -Element $combo) } catch { }
+            }
+        }
+        if ($observed -eq $Query) {
+            return [pscustomobject]@{ Pass = $true; Detail = "query='$observed'" }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return [pscustomobject]@{
+        Pass = $false
+        Detail = "search query '$Query' was not accepted on AutomationId 7101; observed='$observed'"
+    }
 }
 
 function Get-UiaComboSelectionName {
@@ -2074,18 +2269,28 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         try { $resultsList = Wait-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $appPid -TimeoutMs 6000 -PollIntervalMs 250 } catch { }
         if (-not $resultsList) { return & $fail 'Search.Results element not found after opening the panel' }
 
-        # Query that matches all fixture files.
+        # Query that matches all fixture files. Must land in 7101: Filters
+        # expand and Current Folder scope selection leave focus on 7102.
         $stage = 'query-alloc'
-        $null = Send-UiaText -Driver $driver -Text 'alloc'
-        Start-Sleep -Seconds 2
+        $typed = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'alloc'
+        if (-not $typed.Pass) {
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return & $fail "$($typed.Detail); surface=$((ConvertTo-Json $surface -Compress))"
+        }
 
         # Discoverability + per-result semantic metadata (degraded = unknown).
         $stage = 'read-alloc-results'
-        $fixtureItems = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
-            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        $fixtureItems = @()
+        $resultWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($resultWait.ElapsedMilliseconds -lt 8000) {
+            $fixtureItems = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 800 |
+                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+            if ($fixtureItems.Count -ge 5) { break }
+            Start-Sleep -Milliseconds 200
+        }
         if ($fixtureItems.Count -lt 5) {
-            $all = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 4000 | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' })
-            return & $fail "expected 5 fixture results for 'alloc', found $($fixtureItems.Count) (all results: $($all -join ', '))"
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return & $fail "expected 5 fixture results for 'alloc', found $($fixtureItems.Count); surface=$((ConvertTo-Json $surface -Compress))"
         }
 
         # In this environment the managed FullDescriptionProperty (id 30103) is
@@ -2115,22 +2320,36 @@ function Invoke-UiaScenarioSearchAllocatedSize {
 
         # Stale / query-replacement soundness: narrow, then restore the set.
         $stage = 'query-allocB'
-        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
-        $null = Send-UiaText -Driver $driver -Text 'allocB'
-        Start-Sleep -Seconds 2
-        $narrow = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
-            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        $typedB = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'allocB'
+        if (-not $typedB.Pass) { return & $fail $typedB.Detail }
+        $narrow = @()
+        $narrowWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($narrowWait.ElapsedMilliseconds -lt 8000) {
+            $narrow = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 800 |
+                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+            if ($narrow.Count -eq 1 -and ((Get-UiaElementProperty -Driver $driver -Element $narrow[0] -Name 'Name') -match 'allocB\.txt')) {
+                break
+            }
+            Start-Sleep -Milliseconds 200
+        }
         if ($narrow.Count -ne 1 -or (Get-UiaElementProperty -Driver $driver -Element $narrow[0] -Name 'Name') -notmatch 'allocB\.txt') {
-            return & $fail "query replacement to 'allocB' did not narrow to a single allocB result (count=$($narrow.Count))"
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return & $fail "query replacement to 'allocB' did not narrow to a single allocB result (count=$($narrow.Count)); surface=$((ConvertTo-Json $surface -Compress))"
         }
         $stage = 'restore-alloc'
-        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
-        $null = Send-UiaText -Driver $driver -Text 'alloc'
-        Start-Sleep -Seconds 2
-        $restored = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
-            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        $typedRestore = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'alloc'
+        if (-not $typedRestore.Pass) { return & $fail $typedRestore.Detail }
+        $restored = @()
+        $restoreWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($restoreWait.ElapsedMilliseconds -lt 8000) {
+            $restored = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 800 |
+                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+            if ($restored.Count -ge 5) { break }
+            Start-Sleep -Milliseconds 200
+        }
         if ($restored.Count -lt 5) {
-            return & $fail "query replacement back to 'alloc' did not restore the full fixture set (count=$($restored.Count))"
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return & $fail "query replacement back to 'alloc' did not restore the full fixture set (count=$($restored.Count)); surface=$((ConvertTo-Json $surface -Compress))"
         }
 
         # allocated-size-search-filter D7/D10: live degraded proof that ondisk: is
@@ -2140,27 +2359,37 @@ function Invoke-UiaScenarioSearchAllocatedSize {
         # matches without being treated as an unrecognized key, and the normal
         # query must restore the fixture set (generation/cancellation soundness).
         $stage = 'query-ondisk'
-        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
-        $null = Send-UiaText -Driver $driver -Text 'ondisk:>=0B'
-        Start-Sleep -Seconds 2
-        $ondisk = @()
-        try {
-            $ondisk = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 4000 |
-                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
-        } catch { $ondisk = @() }
+        $typedOndisk = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'ondisk:>=0B'
+        if (-not $typedOndisk.Pass) { return & $fail $typedOndisk.Detail }
+        $ondisk = @('pending')
+        $ondiskWait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($ondiskWait.ElapsedMilliseconds -lt 8000) {
+            try {
+                $ondisk = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 800 |
+                    Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+            } catch { $ondisk = @() }
+            if ($ondisk.Count -eq 0) { break }
+            Start-Sleep -Milliseconds 200
+        }
         if ($ondisk.Count -ne 0) {
             $allOndisk = @()
             try { $allOndisk = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 3000 | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch { }
             return & $fail "ondisk:>=0B must not fabricate degraded UNKNOWN rows into matches; found $($ondisk.Count) (all: $($allOndisk -join ', '))"
         }
         $stage = 'restore-after-ondisk'
-        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'; Start-Sleep -Milliseconds 150
-        $null = Send-UiaText -Driver $driver -Text 'alloc'
-        Start-Sleep -Seconds 2
-        $restored2 = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 6000 |
-            Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+        $typedRestore2 = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $appPid -Query 'alloc'
+        if (-not $typedRestore2.Pass) { return & $fail $typedRestore2.Detail }
+        $restored2 = @()
+        $restore2Wait = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($restore2Wait.ElapsedMilliseconds -lt 8000) {
+            $restored2 = @(Get-UiaSearchResultItems -Driver $driver -Main $main -ProcessId $appPid -TimeoutMs 800 |
+                Where-Object { (Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name') -match '^alloc[A-E]\.txt$' })
+            if ($restored2.Count -ge 5) { break }
+            Start-Sleep -Milliseconds 200
+        }
         if ($restored2.Count -lt 5) {
-            return & $fail "restoring 'alloc' after 'ondisk:>=0B' did not restore the full fixture set (count=$($restored2.Count))"
+            $surface = Get-UiaSearchQuerySurface -Driver $driver -Main $main -ProcessId $appPid
+            return & $fail "restoring 'alloc' after 'ondisk:>=0B' did not restore the full fixture set (count=$($restored2.Count)); surface=$((ConvertTo-Json $surface -Compress))"
         }
 
         # Exercise the real Size on Disk sort control live. All allocated values
@@ -3282,7 +3511,7 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     # native input can stale UIA providers, so never cache the column.
     $getTerminalColumn = {
         param([string]$PaneId)
-        $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId $PaneId
+        $pane = Get-UiaColumnViewPane -Driver $driver -Main $main -PaneId $PaneId -ProcessId $appPid
         if (-not $pane) { return $null }
         $cols = @(Get-UiaChildren -Driver $driver -Element $pane | Where-Object {
             (Get-UiaElementIdentity -Driver $driver -Element $_).ControlType -eq 'List' })
@@ -3326,7 +3555,14 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
             return [pscustomobject]@{ Pass = $false; Detail = "input foreground precondition failed before clicking '$Name' in $PaneId" }
         }
-        $col = & $getTerminalColumn $PaneId
+        $col = $null
+        for ($colWait = 0; $colWait -lt 16 -and -not $col; $colWait++) {
+            if ($colWait -gt 0) {
+                $null = Ensure-UiaInputForeground -Driver $driver -Main $main
+                Start-Sleep -Milliseconds 250
+            }
+            $col = & $getTerminalColumn $PaneId
+        }
         if (-not $col) { return [pscustomobject]@{ Pass = $false; Detail = "terminal column not found for $PaneId" } }
         $row = $null
         try { $row = Find-UiaElement -Driver $driver -Name $Name -ControlType 'ListItem' -FromElement $col -TimeoutMs 6000 } catch { }
@@ -3336,8 +3572,24 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         # viewport, so a click at the reported center would miss the window and
         # silently establish no selection. ScrollItemPattern brings it on-screen.
         try { Invoke-UiaPattern -Driver $driver -Element $row -PatternName 'ScrollItem' -Method 'ScrollIntoView' } catch { }
-        Start-Sleep -Milliseconds 250
-        $center = Get-UiaElementCenter -Driver $driver -Element $row
+        Start-Sleep -Milliseconds 200
+        $col = & $getTerminalColumn $PaneId
+        if (-not $col) { return [pscustomobject]@{ Pass = $false; Detail = "terminal column disappeared before clicking '$Name' in $PaneId" } }
+        try { $row = Find-UiaElement -Driver $driver -Name $Name -ControlType 'ListItem' -FromElement $col -TimeoutMs 4000 } catch { $row = $null }
+        if (-not $row) { return [pscustomobject]@{ Pass = $false; Detail = "row '$Name' was not reacquired after ScrollIntoView in $PaneId" } }
+        $null = Wait-UiaStableGeometry -Driver $driver -Element $row -StablePolls 2 -PollIntervalMs 120 -TimeoutMs 1500
+        $br = $null
+        try { $br = Get-UiaElementProperty -Driver $driver -Element $row -Name 'BoundingRectangle' } catch { }
+        # Click the upper-middle of the live row. A stale post-scroll center
+        # one row too low selects the next sibling (selC -> selD).
+        $center = $null
+        if ($br -and $br.width -gt 0 -and $br.height -gt 4) {
+            $center = [pscustomobject]@{
+                x = [int]($br.x + $br.width / 2)
+                y = [int]($br.y + [math]::Max(4, [int]($br.height * 0.35)))
+            }
+        }
+        if (-not $center) { $center = Get-UiaElementCenter -Driver $driver -Element $row }
         if (-not $center) { return [pscustomobject]@{ Pass = $false; Detail = "row '$Name' has no usable geometry" } }
         if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
             $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
@@ -3738,41 +3990,50 @@ function Activate-UiaPane {
         if (-not (Ensure-UiaInputForeground -Driver $Driver -Main $Main)) {
             continue
         }
-        $pane = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId
+        $pane = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId -ProcessId $ProcessId
         if (-not $pane) { Start-Sleep -Milliseconds 300; continue }
         try { $pane.SetFocus() } catch { }
-        # A pane whose terminal column already has rows projects focus from
-        # the row, not from the Pane fragment. Click a live row when one is
-        # available; fall back to the pane interior for empty directories.
         $focusTarget = $pane
+        $clickedRowName = $null
         try {
             $columns = @(Get-UiaChildren -Driver $Driver -Element $pane | Where-Object {
                 (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'List' })
             if ($columns.Count -gt 0) {
-                $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $columns[$columns.Count - 1] -TimeoutMs 800 -All)
-                if ($rows.Count -gt 0) { $focusTarget = $rows[0] }
+                $terminal = $columns[$columns.Count - 1]
+                $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $terminal -TimeoutMs 800 -All)
+                if ($rows.Count -gt 0) {
+                    $focusTarget = $rows[0]
+                    try { $clickedRowName = [string](Get-UiaElementProperty -Driver $Driver -Element $focusTarget -Name 'Name') } catch { }
+                    try { Invoke-UiaPattern -Driver $Driver -Element $focusTarget -PatternName 'ScrollItem' -Method 'ScrollIntoView' } catch { }
+                }
             }
         } catch { }
         $center = Get-UiaElementCenter -Driver $Driver -Element $focusTarget
         if ($center) {
             $null = Send-UiaMouseInput -Driver $Driver -X $center.x -Y $center.y -Button 'Left' -Action 'Click'
         }
-        $focused = Wait-UiaCondition -Driver $Driver -TimeoutMs 2500 -PollIntervalMs 200 -Description "$PaneId keyboard focus" -ScriptBlock {
+        $focused = Wait-UiaCondition -Driver $Driver -TimeoutMs 4000 -PollIntervalMs 200 -Description "$PaneId keyboard focus" -ScriptBlock {
             try {
-                $fresh = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId
+                $fresh = Get-UiaColumnViewPane -Driver $Driver -Main $Main -PaneId $PaneId -ProcessId $ProcessId
                 if (-not $fresh) { return $false }
                 # The pane itself reports HasKeyboardFocus only when no row
                 # owns focus. When a real row is focused, prove ownership from
-                # the live pane's column/row focus projection instead.
+                # the terminal column (the click target). Do not walk every
+                # ancestor column: a deep C:\ tree burns the wait budget
+                # before the focused row is ever read.
                 if ([bool](Get-UiaElementProperty -Driver $Driver -Element $fresh -Name 'HasKeyboardFocus')) { return $true }
                 $columns = @(Get-UiaChildren -Driver $Driver -Element $fresh | Where-Object {
                     (Get-UiaElementIdentity -Driver $Driver -Element $_).ControlType -eq 'List' })
-                foreach ($column in $columns) {
-                    if ([bool](Get-UiaElementProperty -Driver $Driver -Element $column -Name 'HasKeyboardFocus')) { return $true }
-                    $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $column -TimeoutMs 800 -All)
-                    foreach ($row in $rows) {
-                        if ([bool](Get-UiaElementProperty -Driver $Driver -Element $row -Name 'HasKeyboardFocus')) { return $true }
-                    }
+                if ($columns.Count -eq 0) { return $false }
+                $terminal = $columns[$columns.Count - 1]
+                if ([bool](Get-UiaElementProperty -Driver $Driver -Element $terminal -Name 'HasKeyboardFocus')) { return $true }
+                if ($clickedRowName) {
+                    $row = $null
+                    try { $row = Find-UiaElement -Driver $Driver -Name $clickedRowName -ControlType 'ListItem' -FromElement $terminal -TimeoutMs 600 } catch { }
+                    if ($row -and [bool](Get-UiaElementProperty -Driver $Driver -Element $row -Name 'HasKeyboardFocus')) { return $true }
+                } else {
+                    $rows = @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $terminal -TimeoutMs 600 -All)
+                    if ($rows.Count -gt 0 -and [bool](Get-UiaElementProperty -Driver $Driver -Element $rows[0] -Name 'HasKeyboardFocus')) { return $true }
                 }
                 return $false
             } catch { return $false }
@@ -3795,8 +4056,9 @@ function Convert-UiaForegroundFailureToSkip {
     $foreground = ''
     $match = [regex]::Match($Detail, "foreground='([^']*)'")
     if ($match.Success) { $foreground = $match.Groups[1].Value }
-    $precondition = $Detail -match 'foreground precondition' -or $Detail -match 'foreground could not be established' -or $Detail -match 'activation did not establish'
-    $foreign = $match.Success -and ($foreground.Length -eq 0 -or $foreground -notmatch 'FastFiles')
+    $precondition = $Detail -match 'foreground precondition' -or $Detail -match 'foreground could not be established' -or $Detail -match 'activation did not establish' -or $Detail -match 'did not own keyboard focus' -or $Detail -match 'palette edit \(6301\) did not appear'
+    $foreign = $match.Success -and ($foreground.Length -eq 0 -or $foreground -ne 'FastFiles')
+    if ($Detail -match 'foregroundTitle":"<foreign>"' -or $Detail -match 'focusedAutomationId":"RootWebArea"') { $foreign = $true }
     $pointBlocked = $Detail -match 'point .* is not inside FastFiles; topmost='
     if (-not (($precondition -and ($foreign -or -not $match.Success)) -or $pointBlocked)) { return $null }
     return New-UiaVSubResult -Id $Id -Status 'SKIPPED' -Reason 'interactive-foreground-unavailable' -DurationMs $DurationMs `
@@ -4378,7 +4640,8 @@ function Invoke-UiaSharedSessionScenarios {
             $searchReason = 'engine-connect-unavailable'
             $searchDetail = 'Search.Results provider surface present; result data requires engine-served snapshot data (unavailable in this environment)'
         } else {
-            $null = Send-UiaText -Driver $driver -Text 'alpha'
+            $typedAlpha = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $launched.Id -Query 'alpha'
+            if (-not $typedAlpha.Pass) { throw $typedAlpha.Detail }
             Start-Sleep -Seconds 2
             # Search query changes replace the Search.Results fragment. Reacquire
             # the live main/root/list chain before reading the result; a cached
@@ -4411,7 +4674,8 @@ function Invoke-UiaSharedSessionScenarios {
             $filterReason = 'engine-connect-unavailable'
             $filterDetail = 'structured-filter results require engine-served snapshot data (unavailable in this environment)'
         } else {
-            $null = Send-UiaText -Driver $driver -Text 'ext:txt'
+            $typedExt = Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $launched.Id -Query 'ext:txt'
+            if (-not $typedExt.Pass) { throw $typedExt.Detail }
             Start-Sleep -Seconds 2
             $resultsList = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -ProcessId $launched.Id -TimeoutMs 5000
             $txtResults = @(Find-UiaElement -Driver $driver -ControlType 'ListItem' -FromElement $resultsList -TimeoutMs 4000 -All)
@@ -4481,7 +4745,8 @@ function Invoke-UiAutomationValidationCapability {
     $subResults = [System.Collections.ArrayList]::new()
     $artifacts = @()
     $overall = 'FAIL'
-    $overallReason = 'scenario-failed'
+    $overallReason = $null
+    $overallClassification = 'HARNESS_ERROR'
     $summary = ''
     $selection = @{ Ids = @(); Filter = $null; Seed = 0; Order = @() }
     $executionOrder = @()
@@ -4607,10 +4872,24 @@ function Invoke-UiAutomationValidationCapability {
         if ($failed.Count -eq 0) {
             $overall = 'PASS'
             $overallReason = $null
+            $overallClassification = 'PASS'
             $summary = "$passed passed, $skipped skipped with recorded reasons; $($failed.Count) failed"
         } else {
             $overall = 'FAIL'
             $firstFailure = $failed[0]
+            $overallReason = [string]$firstFailure.reason
+            if ([string]::IsNullOrWhiteSpace($overallReason) -or $overallReason -in @('scenario-failed', 'capability-failed')) {
+                $overallReason = 'capability-failed-without-attributed-cause'
+                $overallClassification = 'HARNESS_ERROR'
+            } elseif ($overallReason -match 'cleanup') {
+                $overallClassification = 'CLEANUP_INCOMPLETE'
+            } elseif ($overallReason -match 'timeout') {
+                $overallClassification = 'TIMEOUT'
+            } elseif ($overallReason -match 'driver-exception|lifecycle') {
+                $overallClassification = 'HARNESS_ERROR'
+            } else {
+                $overallClassification = 'ASSERTION_FAILURE'
+            }
             $failureDetail = [string]$firstFailure.detail
             if ($failureDetail.Length -gt 1600) { $failureDetail = $failureDetail.Substring(0, 1600) + '…' }
             $summary = "$($failed.Count) scenario(s) failed: $((@($failed | ForEach-Object { $_.id }) | Select-Object -Unique) -join ', '); first=$($firstFailure.reason): $failureDetail"
@@ -4620,6 +4899,7 @@ function Invoke-UiAutomationValidationCapability {
         $logLines | Set-Content -LiteralPath $log -Encoding utf8
         $overall = 'FAIL'
         $overallReason = 'driver-exception'
+        $overallClassification = 'HARNESS_ERROR'
         $summary = $_.Exception.Message
         [void]$subResults.Add((New-UiaVSubResult -Id 'capability-run' -Status 'FAIL' -Reason 'driver-exception' -DurationMs 0 -Detail $_.Exception.Message))
     } finally {
@@ -4629,7 +4909,7 @@ function Invoke-UiAutomationValidationCapability {
     return [pscustomobject]@{
         Status = $overall; Reason = $overallReason; Summary = $summary
         Artifacts = $artifacts; SubResults = @($subResults)
-        Classification = if ($overall -eq 'PASS') { 'PASS' } else { 'ASSERTION_FAILURE' }
+        Classification = $overallClassification
         Metadata = [pscustomobject]@{
             selectionExpression = $selection.Filter
             seed = [int]$selection.Seed

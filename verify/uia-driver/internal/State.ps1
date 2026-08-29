@@ -64,6 +64,13 @@ public static class FfNativeWindowInfo
         return SetWindowPos(hWnd, (IntPtr)0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
 
+    public static bool KeepTopmost(IntPtr hWnd, bool topmost)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        IntPtr insertAfter = topmost ? new IntPtr(-1) : new IntPtr(-2);
+        return SetWindowPos(hWnd, insertAfter, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+
     public static IntPtr[] TopLevelWindows()
     {
         var list = new List<IntPtr>();
@@ -147,6 +154,16 @@ public static class FfNativeWindowInfo
 $script:UiaPopupSuspectClasses = @(
     'ComboLBox', '#32768', 'tooltips_class32', 'DropShadow',
     'Windows.UI.Core.CoreWindow', 'PopupHost', 'SysShadow')
+
+# Combo dropdowns and menus swallow SendInput. Tooltips and drop shadows are
+# owned top-level windows of FastFiles but they do not take keyboard focus.
+$script:UiaInputBlockingPopupClasses = @(
+    'ComboLBox', '#32768', 'Windows.UI.Core.CoreWindow', 'PopupHost')
+
+function Test-UiaInputBlockingPopup {
+    param([string] $ClassName)
+    return $script:UiaInputBlockingPopupClasses -contains $ClassName
+}
 
 function Get-UiaInteractiveState {
     <#
@@ -516,6 +533,23 @@ function Bring-UiaWindowToTop {
     try {
         $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
         return [FfNativeWindowInfo]::BringToTop($hwnd)
+    } catch {
+        return $false
+    }
+}
+
+function Keep-UiaWindowTopmost {
+    <#
+        Hold a real top-level window above other top-level windows for the
+        duration of an owned UIA lifecycle. Interactive host windows whose
+        titles happen to contain "FastFiles" otherwise steal the foreground
+        lock mid-scenario. Mock -> $false.
+    #>
+    param($Driver, $Element, [bool] $Topmost = $true)
+    if (Test-UiaMockElement $Element) { return $false }
+    try {
+        $hwnd = [IntPtr]$Element.Current.NativeWindowHandle
+        return [FfNativeWindowInfo]::KeepTopmost($hwnd, $Topmost)
     } catch {
         return $false
     }

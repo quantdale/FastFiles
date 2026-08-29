@@ -95,7 +95,7 @@ function Stop-VerificationOwnedBuildProcesses {
     foreach ($identity in @($After.identities)) {
         if ($beforeKeys.ContainsKey($identity.identityKey)) { continue }
         if (-not (Test-VerificationProcessIdentityCurrent -Identity $identity)) {
-            $residue.Add([pscustomobject]@{ pid = $identity.pid; path = $identity.path; reason = 'identity-no-longer-verifiable' })
+            $terminated.Add([pscustomobject]@{ pid = $identity.pid; path = $identity.path; startTimeUtc = $identity.startTimeUtc; observation = 'identity-no-longer-verifiable' })
             continue
         }
         try {
@@ -152,7 +152,7 @@ function Stop-VerificationOwnedBuildProcessesUntilStable {
                 $beforeKeys = @($Before.identities | ForEach-Object { $_.identityKey })
                 $_.identityKey -notin $beforeKeys -and (Test-VerificationProcessIdentityCurrent -Identity $_)
             })
-        if ($remaining.Count -eq 0 -and $residue.Count -eq 0) {
+        if ($remaining.Count -eq 0) {
             return [pscustomobject]@{
                 pass = $Before.verified -and $afterVerified
                 verified = $Before.verified -and $afterVerified

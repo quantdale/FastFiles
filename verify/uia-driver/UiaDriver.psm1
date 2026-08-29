@@ -85,12 +85,12 @@ function New-UiaDriver {
 }
 
 Export-ModuleMember -Function `
-    Get-UiaDriverAvailability, New-UiaDriver, Import-UiaRecordedTree, New-UiaMockElement, Get-UiaMockRecord, `
+    Get-UiaDriverAvailability, New-UiaDriver, Import-UiaRecordedTree, New-UiaMockElement, Get-UiaMockRecord, Test-UiaMockElement, `
     Get-UiaRootElement, Find-UiaElement, Find-UiaDirectChild, Wait-UiaDirectChild, Get-UiaChildren, Get-UiaParent, `
     Get-UiaElementProperty, Get-UiaElementRuntimeId, Get-UiaElementIdentity, `
     Get-UiaPattern, Invoke-UiaPattern, Test-UiaPatternAvailable, Invoke-UiaElementAction, `
     Get-UiaClickablePoint, Send-UiaInput, Send-UiaMouseInput, Send-UiaMouseDrag, Send-UiaText, Set-UiaForeground, `
     Register-UiaEvent, Wait-UiaEvent, Unregister-UiaEvent, `
     Wait-UiaCondition, Wait-UiaElement, Wait-UiaElementGone, `
-    Get-UiaInteractiveState, Reset-UiaModifierKeys, Test-UiaForegroundWindow, Get-UiaTopmostWindowAt, Test-UiaPointInWindow, Wait-UiaStableRect, Set-UiaElementValue, Get-UiaElementTextValue, Get-UiaExplorerWindow, Set-UiaWindowPosition, Bring-UiaWindowToTop, `
+    Get-UiaInteractiveState, Test-UiaInputBlockingPopup, Reset-UiaModifierKeys, Test-UiaForegroundWindow, Get-UiaTopmostWindowAt, Test-UiaPointInWindow, Wait-UiaStableRect, Set-UiaElementValue, Get-UiaElementTextValue, Get-UiaExplorerWindow, Set-UiaWindowPosition, Bring-UiaWindowToTop, Keep-UiaWindowTopmost, `
     Get-UiaTreeDump, Export-UiaTreeDump, New-UiaTargetNotFoundError

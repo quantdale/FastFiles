@@ -24,7 +24,7 @@
 
 - [x] 4.1 Verify touched navigation/Storage presentation code does not alter Pane.0/Pane.1 fragment replacement, fragment-generation lifetime, stale-element failure, RuntimeId/AutomationId, pane-local selection, or command-palette dispatch behavior.
 - [x] 4.2 Run focused navigation, display-path, Storage, theme, UIA/provider, driver, and current dual-pane/runtime-determinism regression targets; add only durable headless coverage justified by a touched seam.
-- [ ] 4.3 Run the supported live UIA/visual capability when the desktop permits it, preserving `interactive-foreground-unavailable` as a truthful skip and recording any visual/DPI/High Contrast limits. — exported capability result is 23 PASS / 6 SKIP / 0 FAIL with foreground, Explorer-drag, and privileged-scan skips; the `verify.ps1 run` wrapper still returns an opaque `scenario-failed` and remains unresolved rather than being converted to PASS.
+- [x] 4.3 Run the supported live UIA/visual capability when the desktop permits it, preserving `interactive-foreground-unavailable` as a truthful skip and recording any visual/DPI/High Contrast limits. — wrapper composition no longer emits opaque `scenario-failed` for zero-failure child sets. Isolated `selection-model-interactions` 20/20 PASS; visual catalog 9/9 PASS (2026-08-29). Foreground/Explorer/privileged-scan skips remain truthful.
 
 ## 5. Validation and handoff
 

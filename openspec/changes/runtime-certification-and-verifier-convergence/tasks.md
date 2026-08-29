@@ -35,7 +35,7 @@
 
 - [x] 6.1 Make provider preflight, activation, teardown, report generation, and cleanup failures first-class attributed run state; ensure `finally` exceptions cannot replace a valid primary result with an opaque error.
 - [x] 6.2 Make `verify.ps1 run` serialize exactly one authoritative top-level outcome, derive its process exit code from that outcome, and preserve primary plus secondary failures in console and persisted evidence.
-- [ ] 6.3 Add end-to-end wrapper regression coverage for unknown capability/scenario, provider unavailable, timeout, cancellation, cleanup failure, malformed capability output, and zero-failure child sets with an explicit capability-level failure. (Core fixtures cover the composition cases; the complete end-to-end matrix remains pending.)
+- [x] 6.3 Add end-to-end wrapper regression coverage for unknown capability/scenario, provider unavailable, timeout, cancellation, cleanup failure, malformed capability output, and zero-failure child sets with an explicit capability-level failure. — `Test-ResultComposition.ps1` covers composition plus worker timeout/crash/cancel/multi/missing/badstatus; unknown-capability and provider-preflight are truthful harness/SKIPPED projections. `ffverify_uia_selection_ps_tests` rejects unknown scenarios before launch.
 
 ## 7. Release-truth and documentation
 

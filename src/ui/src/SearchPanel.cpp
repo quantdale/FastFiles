@@ -11,7 +11,10 @@
 #include "ffui/DisplayPath.h"
 #include "ffui/NativeOverlayLayout.h"
 #include "ffui/SearchTabOrder.h" // ui-v3 search a11y hardening: headless Tab-order seam
+#include "ffui/SearchFiltersDisclosure.h"
 #include "SearchUiaProvider.h" // semantic-uia-core-surfaces 4.2
+#include "SearchButtonUiaProvider.h"
+#include "UiaHostQuery.h"
 #include "UiaProviderBase.h" // ui-v3 search a11y hardening: shared COM provider foundation
 
 #include <array>
@@ -40,7 +43,7 @@ constexpr int kClearHistoryId = 7105;
 constexpr int kSortDirectionId = 7107;
 // ui-v3 search a11y: the Filters disclosure is a real button so it stays in
 // the UIA tree (and keyboard order) even while the row it reveals is hidden.
-constexpr int kFiltersToggleId = 7110;
+constexpr int kFiltersToggleId = kSearchFiltersControlId;
 constexpr UINT_PTR kDebounceTimer = 7106;
 constexpr UINT kDebounceMilliseconds = 125;
 // Coalesces search-history disk flushes: recording only marks the store dirty
@@ -345,9 +348,11 @@ LRESULT CALLBACK SearchEditProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM l
         InvalidateRect(hwnd, nullptr, FALSE);
         return result;
     }
-    if (message == WM_SETTEXT || message == WM_CLEAR || message == WM_CUT || message == WM_PASTE) {
+    if (message == WM_SETTEXT || message == WM_CLEAR || message == WM_CUT || message == WM_PASTE ||
+        message == EM_REPLACESEL) {
         const LRESULT result = DefSubclassProc(hwnd, message, wParam, lParam);
         InvalidateRect(hwnd, nullptr, FALSE);
+        if (self != nullptr) self->ArmQueryDebounce();
         return result;
     }
     // ui-v3 hardening: keyboard-driven text changes repaint the native edit
@@ -461,13 +466,26 @@ LRESULT CALLBACK ButtonHoverProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
     if (self != nullptr && message == WM_MOUSELEAVE) {
         self->SetButtonHot(hwnd, false);
     }
-    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr) {
-        Microsoft::WRL::ComPtr<IRawElementProviderSimple> fixup = self->UiaButtonFixupProvider(hwnd);
-        if (fixup != nullptr) {
-            return UiaReturnRawElementProvider(hwnd, wParam, lParam, fixup.Get());
+    if (self != nullptr && message == WM_APP_SEARCH_FILTERS_SET_EXPANDED) {
+        self->SetFiltersExpanded(wParam != 0);
+        return 0;
+    }
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr &&
+        self->Visible()) {
+        static thread_local int serving = 0;
+        if (serving > 0 || UiaHostQueryGuard::Active(hwnd)) {
+            return DefSubclassProc(hwnd, message, wParam, lParam);
         }
-        // Provider unavailable: fall through so the native MSAA/UIA fallback
-        // answers instead of swallowing the query.
+        ++serving;
+        Microsoft::WRL::ComPtr<IRawElementProviderSimple> fixup = self->UiaButtonFixupProvider(hwnd);
+        LRESULT result = 0;
+        if (fixup != nullptr) {
+            result = UiaReturnRawElementProvider(hwnd, wParam, lParam, fixup.Get());
+        } else {
+            result = DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+        --serving;
+        return result;
     }
     if (self != nullptr && message == WM_KEYDOWN && wParam == VK_TAB) {
         const bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -493,98 +511,6 @@ std::wstring FormatFileTime(uint64_t ticks) {
     swprintf_s(text, L"%04u-%02u-%02u %02u:%02u", time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute);
     return text;
 }
-
-constexpr HRESULT kElementNotAvailable = UIA_E_ELEMENTNOTAVAILABLE;
-
-// ui-v3 search a11y hardening: property/pattern fixup for the panel's
-// owner-draw push buttons (Filters disclosure, sort direction, clear history).
-// Under the custom fragment root these HWNDs fall through to UIA's default
-// MSAA proxy, which reports them as ControlType=Pane without an Invoke
-// pattern and with IsKeyboardFocusable=false -- contradicting what they are
-// (real push buttons) and locking keyboard/assistive-tech users out of the
-// Filters disclosure. This provider keeps the default HWND host provider as
-// its fallback (get_HostRawElementProvider -> UiaHostProviderFromHwnd), so
-// tree shape, geometry, runtime id, navigation, and every property/pattern we
-// do not override keep coming from the host bridge while ControlType, Invoke,
-// and keyboard-focusability come from here. Lifetime follows the panel's
-// shared UiaOwnerState token: once the panel dies, calls fail with
-// UIA_E_ELEMENTNOTAVAILABLE instead of dereferencing a stale HWND.
-class SearchButtonInvokeProvider final : public UiaProviderBase, public IInvokeProvider {
-public:
-    SearchButtonInvokeProvider(UiaOwnerStatePtr state, HWND button)
-        : UiaProviderBase(std::move(state)), button_(button) {}
-
-    FFUIA_QI_BEGIN()
-        FFUIA_QI_ENTRY(IID_IInvokeProvider, IInvokeProvider)
-    FFUIA_QI_END()
-    FFUIA_REFCOUNT()
-
-    // IRawElementProviderSimple overrides.
-    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override {
-        if (retVal == nullptr) return E_POINTER;
-        *retVal = nullptr;
-        if (!Alive()) return kElementNotAvailable;
-        return UiaHostProviderFromHwnd(button_, retVal);
-    }
-    STDMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* retVal) noexcept override {
-        if (retVal == nullptr) return E_POINTER;
-        VariantInit(retVal);
-        if (!Alive() || button_ == nullptr || !IsWindow(button_)) return kElementNotAvailable;
-        switch (propertyId) {
-            case UIA_ControlTypePropertyId:
-                SetVariantInt(retVal, UIA_ButtonControlTypeId);
-                return S_OK;
-            case UIA_NamePropertyId: {
-                wchar_t text[128]{};
-                GetWindowTextW(button_, text, static_cast<int>(std::size(text)));
-                SetVariantString(retVal, text);
-                return S_OK;
-            }
-            case UIA_IsKeyboardFocusablePropertyId:
-                // Honest: Tab traversal reaches this button through the
-                // panel's explicit focus cycle (ffui::SearchTabOrder).
-                SetVariantBool(retVal, true);
-                return S_OK;
-            case UIA_IsEnabledPropertyId:
-                SetVariantBool(retVal, IsWindowEnabled(button_) != FALSE);
-                return S_OK;
-            case UIA_HasKeyboardFocusPropertyId:
-                SetVariantBool(retVal, GetFocus() == button_);
-                return S_OK;
-            case UIA_IsOffscreenPropertyId:
-                SetVariantBool(retVal, IsWindowVisible(button_) == FALSE);
-                return S_OK;
-            default:
-                break;
-        }
-        SetVariantEmpty(retVal); // fall back to the host provider
-        return S_OK;
-    }
-    STDMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** retVal) noexcept override {
-        if (retVal == nullptr) return E_POINTER;
-        *retVal = nullptr;
-        if (!Alive()) return kElementNotAvailable;
-        if (patternId == UIA_InvokePatternId) {
-            *retVal = static_cast<IInvokeProvider*>(this);
-            static_cast<IRawElementProviderSimple*>(this)->AddRef();
-            return S_OK;
-        }
-        return UiaProviderBase::GetPatternProvider(patternId, retVal); // host supplies the rest
-    }
-
-    // IInvokeProvider: route through BM_CLICK exactly like a native press so
-    // BN_CLICKED -> HandleOwnerCommand runs on the UI thread. Post, never
-    // send: UIA invokes arrive on a UIAutomationCore worker thread and must
-    // never block it against the UI thread (same posture as treemap Invoke).
-    STDMETHODIMP Invoke() noexcept override {
-        if (!Alive() || button_ == nullptr || !IsWindow(button_)) return kElementNotAvailable;
-        PostMessageW(button_, BM_CLICK, 0, 0);
-        return S_OK;
-    }
-
-private:
-    HWND button_;
-};
 
 // semantic-uia-core-surfaces 4.2: the result list's subclassed window
 // procedure. WM_GETOBJECT (UiaRootObjectId) returns the search fragment
@@ -613,16 +539,26 @@ LRESULT CALLBACK ComboKeyProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPa
 LRESULT CALLBACK SearchListProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,
                                 UINT_PTR subclassId, DWORD_PTR refData) {
     auto* self = reinterpret_cast<SearchPanel*>(refData);
-    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr) {
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId && self != nullptr &&
+        self->Visible()) {
+        static thread_local int serving = 0;
+        if (serving > 0 || UiaHostQueryGuard::Active(hwnd)) {
+            return DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+        ++serving;
+        LRESULT result = 0;
         Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> root = self->UiaRootProvider(hwnd);
         if (root != nullptr) {
             Microsoft::WRL::ComPtr<IRawElementProviderSimple> simple;
             if (SUCCEEDED(root.As(&simple)) && simple != nullptr) {
-                return UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
+                result = UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
             }
         }
-        // Provider unavailable: fall through to DefSubclassProc so the native
-        // MSAA/UIA fallback answers instead of swallowing the query.
+        if (result == 0) {
+            result = DefSubclassProc(hwnd, message, wParam, lParam);
+        }
+        --serving;
+        return result;
     }
     if (self != nullptr) {
         // ui-v3 search: deliberate state surface while there is nothing to
@@ -992,19 +928,24 @@ void SearchPanel::Reposition(const ShellLayoutRect& surfaceRect) {
     UpdateClearAffordance(); // visibility follows the freshly placed geometry
 }
 
+void SearchPanel::ArmQueryDebounce() {
+    if (!visible_ || updatingHistory_) return;
+    UpdateClearAffordance();
+    const auto token = resultGate_.Begin(sourceEpoch_);
+    generation_ = token.request;
+    currentGeneration_ = generation_;
+    currentSourceEpoch_ = sourceEpoch_;
+    KillTimer(owner_, kDebounceTimer);
+    SetTimer(owner_, kDebounceTimer, kDebounceMilliseconds, nullptr);
+    UpdateStatus(L"Waiting for typing to pause…");
+}
+
 bool SearchPanel::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     if (!visible_) return false;
     const int id = LOWORD(wParam), notification = HIWORD(wParam);
     if (id == kQueryId && notification == CBN_EDITCHANGE) {
         UpdateClearAffordance(); // ui-v3 search: clear affordance follows text
-        if (updatingHistory_) return true;
-        const auto token = resultGate_.Begin(sourceEpoch_);
-        generation_ = token.request;
-        currentGeneration_ = generation_;
-        currentSourceEpoch_ = sourceEpoch_;
-        KillTimer(owner_, kDebounceTimer);
-        SetTimer(owner_, kDebounceTimer, kDebounceMilliseconds, nullptr);
-        UpdateStatus(L"Waiting for typing to pause…");
+        ArmQueryDebounce();
         return true;
     }
     if (id == kScopeId && notification == CBN_SELCHANGE) {
@@ -2161,14 +2102,20 @@ void SearchPanel::HandleFilterBarClick(LPARAM lParam) {
     }
 }
 
-void SearchPanel::ToggleFiltersExpanded() {
-    filtersExpanded_ = !filtersExpanded_;
+void SearchPanel::SetFiltersExpanded(bool expanded) {
+    if (filtersExpanded_ == expanded) return;
+    filtersExpanded_ = expanded;
     if (filterBar_) InvalidateRect(filterBar_, nullptr, FALSE);
+    if (filtersToggle_) InvalidateRect(filtersToggle_, nullptr, FALSE);
     if (visible_) Reposition(lastSurfaceRect_);
     // ui-v3 search a11y/query-first: after a disclosure toggle (mouse or UIA
     // invoke), typing continues in the query field -- the panel's primary
     // surface -- instead of stranding focus on the toggle button.
     if (visible_ && queryEdit_ != nullptr) SetFocus(queryEdit_);
+}
+
+void SearchPanel::ToggleFiltersExpanded() {
+    SetFiltersExpanded(!filtersExpanded_);
 }
 
 void SearchPanel::SetButtonHot(HWND source, bool hot) {
@@ -2739,11 +2686,20 @@ void SearchPanel::NotifyUia(const UiaEventNotification& notification) {
     uiaEvents_.Notify(notification);
 }
 
-// ui-v3 search a11y hardening: see SearchButtonInvokeProvider above. The
-// provider shares the panel's owner-lifetime token so it dies with the panel.
+// completion-integrity-hardening-and-release-certification 4.5.2: Filters
+// uses SearchButtonUiaProvider so ExpandCollapse is idempotent (Expand never
+// toggles a successful expansion back to collapsed) and AutomationId is
+// Search.Filters rather than an empty overlay property.
 Microsoft::WRL::ComPtr<IRawElementProviderSimple> SearchPanel::UiaButtonFixupProvider(HWND button) {
     if (!uiaState_) uiaState_ = std::make_shared<UiaOwnerState>();
-    return Microsoft::WRL::ComPtr<IRawElementProviderSimple>(new SearchButtonInvokeProvider(uiaState_, button));
+    const SearchButtonKind kind = button == filtersToggle_ ? SearchButtonKind::FiltersDisclosure
+                                                           : SearchButtonKind::InvokeOnly;
+    std::function<bool()> expandedReader;
+    if (kind == SearchButtonKind::FiltersDisclosure) {
+        expandedReader = [this]() { return filtersExpanded_; };
+    }
+    return Microsoft::WRL::ComPtr<IRawElementProviderSimple>(
+        new SearchButtonUiaProvider(uiaState_, button, kind, std::move(expandedReader)));
 }
 
 // ui-v3 search a11y hardening: explicit Tab traversal. Maps the focused HWND

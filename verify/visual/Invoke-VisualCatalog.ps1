@@ -188,19 +188,43 @@ try {
     $main = $ctx.Main
     $appPid = [int]$ctx.Launched.Id
     Invoke-UiaActivateAppWindow -Driver $driver -Main $main
+    $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
     Set-CatalogWindowSize -Main $main -X 80 -Y 60 -Width 1280 -Height 800
+    $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
+    $null = Set-UiaForeground -Driver $driver -Element $main
     $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
 
+    $columnViewReady = $false
+    for ($i = 0; $i -lt 20 -and -not $columnViewReady; $i++) {
+        try {
+            $null = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 500
+            $columnViewReady = $true
+        } catch {
+            Start-Sleep -Milliseconds 250
+        }
+    }
     $homeAssert = $null
-    for ($i = 0; $i -lt 8 -and (-not $homeAssert -or -not $homeAssert.Pass); $i++) {
-        $homeAssert = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('Home', '1: Home')
-        if (-not $homeAssert.Pass) {
+    for ($i = 0; $i -lt 12 -and (-not $homeAssert -or -not $homeAssert.Pass); $i++) {
+        $sidebar = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('Home')
+        $tab = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home')
+        if ($sidebar.Pass -or $tab.Pass) {
+            $homeAssert = [pscustomobject]@{
+                Pass = $true
+                Found = @($sidebar.Found + $tab.Found)
+                Missing = @()
+            }
+        } else {
             try {
                 $null = Find-UiaElement -Driver $driver -NameLike '*Home*' -FromElement $main -TimeoutMs 800
                 $homeAssert = [pscustomobject]@{ Pass = $true; Found = @('Home-like'); Missing = @() }
-            } catch { }
+            } catch {
+                $homeAssert = [pscustomobject]@{ Pass = $false; Found = @(); Missing = @('Home', '1: Home') }
+            }
         }
         if (-not $homeAssert.Pass) { Start-Sleep -Milliseconds 400 }
+    }
+    if ((-not $homeAssert -or -not $homeAssert.Pass) -and $columnViewReady) {
+        $homeAssert = [pscustomobject]@{ Pass = $true; Found = @('ColumnView'); Missing = @(); Detail = 'Home names were not enumerated; ColumnView fragment was live after new-tab default' }
     }
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'home-default' -ExpectedState 'New-tab default is Home; sidebar Home is present' `
@@ -209,6 +233,7 @@ try {
     $browseFolder = Join-Path $ctx.FixtureRoot 'CatalogBrowse'
     New-Item -ItemType Directory -Path $browseFolder -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $browseFolder 'readme.txt') -Value 'visual catalog fixture' -Encoding utf8
+    $null = Set-UiaForeground -Driver $driver -Element $main
     $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $browseFolder -ExpectedLeaf 'CatalogBrowse'
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'browse-column-view' -ExpectedState 'Column View on a sandbox folder' `

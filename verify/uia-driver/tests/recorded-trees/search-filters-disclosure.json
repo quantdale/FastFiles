@@ -1,0 +1,8 @@
+{
+  "root": "w1",
+  "nodes": [
+    { "id": "w1", "name": "FastFiles", "automationId": "MainWindow", "controlType": "Window", "className": "FFMainWindowClass", "processId": 4242, "patterns": ["Window"], "children": ["filters", "query"] },
+    { "id": "filters", "name": "Filters", "automationId": "Search.Filters", "controlType": "Button", "className": "Button", "processId": 4242, "patterns": ["Invoke", "ExpandCollapse"], "expandCollapseState": "Collapsed", "children": [] },
+    { "id": "query", "name": "", "automationId": "7101", "controlType": "ComboBox", "className": "ComboBox", "processId": 4242, "patterns": ["Value"], "value": "", "isReadOnly": false, "children": [] }
+  ]
+}

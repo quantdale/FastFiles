@@ -9,6 +9,7 @@
 #include "ffui/StorageLayout.h"
 #include "ffui/StorageRadioState.h"
 #include "ffui/SnapshotAggregate.h"
+#include "UiaHostQuery.h"
 #include "ffsearch/Path.h"
 
 #include <commctrl.h>
@@ -262,6 +263,7 @@ public:
         if (retVal == nullptr) return E_POINTER;
         *retVal = nullptr;
         if (!Alive() || radio_ == nullptr || !IsWindow(radio_)) return UIA_E_ELEMENTNOTAVAILABLE;
+        UiaHostQueryGuard guard(radio_);
         return UiaHostProviderFromHwnd(radio_, retVal);
     }
 
@@ -337,6 +339,7 @@ public:
         if (retVal == nullptr) return E_POINTER;
         *retVal = nullptr;
         if (!Alive() || owner_ == nullptr || owner_->owner_ == nullptr) return UIA_E_ELEMENTNOTAVAILABLE;
+        UiaHostQueryGuard guard(owner_->owner_);
         return UiaHostProviderFromHwnd(owner_->owner_, retVal);
     }
 
@@ -440,7 +443,8 @@ LRESULT CALLBACK StorageAnalysis::RadioSubclassProc(HWND hwnd, UINT message, WPA
     auto* self = reinterpret_cast<StorageAnalysis*>(refData);
     if (self == nullptr) return DefSubclassProc(hwnd, message, wParam, lParam);
 
-    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId) {
+    if (message == WM_GETOBJECT && static_cast<LONG>(lParam) == UiaRootObjectId &&
+        !UiaHostQueryGuard::Active(hwnd)) {
         Microsoft::WRL::ComPtr<IRawElementProviderSimple> fixup = self->UiaRadioFixupProvider(hwnd);
         if (fixup != nullptr) {
             return UiaReturnRawElementProvider(hwnd, wParam, lParam, fixup.Get());

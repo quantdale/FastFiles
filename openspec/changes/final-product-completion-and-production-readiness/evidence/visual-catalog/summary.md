@@ -1,12 +1,12 @@
 # FastFiles deterministic visual capture
 
-- Application SHA-256: d367a23611705f67e2044e6a03cc3c39de0bcfb4dd5814ae5c9f43412a0855b3
-- Started (UTC): 2026-08-28T23:04:03.4430069Z
-- Finished (UTC): 2026-08-28T23:05:00.6197831Z
+- Application SHA-256: 16f322e34d317089686c2b48dfffdc235121ec51a44aaed85a7762f42482f046
+- Started (UTC): 2026-08-29T05:03:57.1965016Z
+- Finished (UTC): 2026-08-29T05:05:04.7820568Z
 
 | Scenario | Theme | Width | Pane | Status | Assertion | Image | Reason |
 | --- | --- | ---: | --- | --- | --- | --- | --- |
-| home-default | Light | 1280 | single | FAIL | FAIL |  | {"Pass":false,"Found":[],"Missing":["Home","1: Home"]} |
+| home-default | Light | 1280 | single | PASS | PASS | home-default.png |  |
 | browse-column-view | Light | 1280 | single | PASS | PASS | browse-column-view.png |  |
 | home-from-command | Light | 1280 | single | PASS | PASS | home-from-command.png |  |
 | fast-search-idle | Light | 1280 | single | PASS | PASS | fast-search-idle.png |  |

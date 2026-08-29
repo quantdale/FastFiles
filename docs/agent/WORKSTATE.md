@@ -1,5 +1,78 @@
 # Fast Files — Agent Workstate
 
+## Final product-closure campaign — selection-model 20-run COMPLETE (2026-08-29)
+
+- Resume derived: `main` HEAD `9fd67ea`. Working tree dirty with UIA host-query,
+  Filters disclosure, verifier composition, per-HWND host-query guard, and
+  harness foreground/click repairs. Do not treat older checkpoints as live Git.
+- **20/20 consecutive isolated `selection-model-interactions` PASS** (each
+  wrapper 2 passed / 1 skipped / 0 failed, exit 0). Seeds 1–20. Run trees
+  `20260829-043516` through `20260829-045630`. `consecutiveClean=20`.
+- Product: per-HWND `UiaHostQueryGuard` (GETOBJECT no longer holds a
+  process-wide guard). Harness: live Main reacquisition, TOPMOST for owned
+  lifecycle, exact title `FastFiles` for foreign-foreground skip (not
+  substring — `NAYEON_16: FastFiles` is a browser tab), terminal-column-only
+  pane-focus wait, post-ScrollIntoView row reacquire + upper-middle click.
+- First failures preserved and count reset: run-4 `terminal column not found`
+  (`20260829-035556`); palette RootWebArea; Pane.1 HasKeyboardFocus with
+  foreign title; Ctrl-click selC→selD stale geometry. Do not use
+  `SelectionItem.Select` in `Activate-UiaPane` (leaked selA into Pane.1).
+- OpenSpec `interactive-ui-runtime-determinism` 7.2 checked.
+
+- Visual catalog 9/9 PASS (DWM CopyFromScreen) after waiting for ColumnView.
+- Verifier composition CTest PASS including timeout/crash/cancel/malformed.
+- Opt-in WinTrust: `CurrentUser\Root` OpenFlags.ReadWrite succeeded; 3/3
+  privileged-trust tests FAIL on fixture generate/sign; residue-clean. Guest
+  OS unavailable (4MB FastFiles-Matrix.vhdx, no Windows Sandbox).
+- Classification: LOCALLY COMPLETE — EXTERNAL PRODUCTION CERTIFICATION
+  PENDING (placeholder Authenticode pins, privileged MFT/USN, production
+  signer, guest/clean-host).
+
+NEXT EXACT ACTION: `git diff --check`, commit session-owned files, push
+`main` without force, do not wait on CI. Do not claim production-signed
+readiness.
+
+## Final product-closure campaign — UIA launch overflow (2026-08-29)
+
+- Resume derived: `main` HEAD `9fd67ea`. Working tree dirty with UIA host-query
+  / Filters disclosure / verifier composition work. Do not treat older
+  checkpoints in this file as live Git truth.
+- Wrapper composition is implemented: opaque `scenario-failed` is no longer a
+  wrapper reason when a child has a real classification. Focused
+  `ffverify_result_composition_ps_tests` + UIA driver mock ExpandCollapse
+  tests are in the tree.
+- Product: `SearchButtonUiaProvider` (Invoke + Filters ExpandCollapse,
+  AutomationId `Search.Filters`), `UiaHostQueryGuard` in one TU,
+  HWND identity properties (Name/ClassName/ProcessId/NativeWindowHandle)
+  answered without forwarding through a self host, `EnsureHostProvider`
+  no-ops while a host query is on the stack, Filters overlay only while
+  Search is visible, `uiaReady_` skips custom GETOBJECT until Initialize
+  finishes. Harness `Start-UiaFastFiles` merges sandbox env onto inherited
+  `Env:` (`Start-Process -Environment` replaces the child env on this host)
+  and uses `WindowStyle Normal`.
+- Native stack (sampled UI thread, no UIA attach) of the 3–6s
+  `STATUS_STACK_OVERFLOW`: `ThemedHeaderSubclassProc` (NativeChrome.h:186)
+  → `DisableNativeWindowTheme` → `SetWindowTheme` → `SendMessage(WM_THEMECHANGED)`
+  → same subclass. Same loop on Settings tab chrome. Captured in
+  scratch `sampled-stacks.txt` sample t=313ms. HEAD UI had this defect.
+- Fix: `DisableNativeWindowTheme` thread_local re-entry guard. Regression:
+  `ffnative_header_theme_tests` (nested WM_THEMECHANGED). Two consecutive
+  debug FastFiles launches stayed alive 12s each (`both-alive=True`).
+- Isolated `search-allocated-size` now PASS (wrapper 3/0/0) on
+  `20260829-031903`. Launch, Filters expand, Current Folder scope, query
+  delivery, and Search.Results enumeration all succeeded.
+- 0-result root cause: after Filters/scope, SendInput landed off the query
+  combo; UIA ValuePattern SetValue could cache `alloc` without WM_SETTEXT /
+  CBN_EDITCHANGE so Dispatch never ran. Fix: `Set-UiaSearchQuery` targets
+  AutomationId 7101 with keystrokes; `SearchEditProc` arms debounce on
+  WM_SETTEXT/EM_REPLACESEL; result waits poll until the set matches the new
+  query (not the first non-empty list). Tooltips/SysShadow no longer block
+  address-bar navigation.
+
+NEXT EXACT ACTION: keep Filters/search live evidence; run a second isolated
+`search-allocated-size` only if needed, then selection-model 20-run. Do not
+claim production-signed readiness.
+
 ## Native chrome + Settings page-membership campaign (2026-08-29)
 
 - Resume derived: `origin/main` = `746b2b3`. Hosted CI `33221305265` SUCCESS

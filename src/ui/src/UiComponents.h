@@ -444,7 +444,16 @@ inline void DisableNativeWindowTheme(HWND hwnd) {
     if (setWindowTheme == nullptr) {
         return;
     }
+    // SetWindowTheme sends WM_THEMECHANGED to the same HWND. The owner-paint
+    // header/tab subclasses re-apply this empty theme on that message; without
+    // a re-entry guard that recurses until STATUS_STACK_OVERFLOW.
+    static thread_local int depth = 0;
+    if (depth > 0) {
+        return;
+    }
+    ++depth;
     setWindowTheme(hwnd, L"", L"");
+    --depth;
 }
 
 }  // namespace ffui

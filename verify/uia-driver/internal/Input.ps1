@@ -77,6 +77,39 @@ public static class FfNativeInput
     [DllImport("user32.dll")]
     public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
+    [DllImport("user32.dll")]
+    public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    public static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    public const uint SWP_NOSIZE = 0x0001;
+    public const uint SWP_NOMOVE = 0x0002;
+
+    // Attach to the current foreground thread, pulse HWND_TOPMOST, then
+    // SetForegroundWindow. A background automation host otherwise loses the
+    // Win32 foreground lock to an interactive browser/document.
+    public static bool ForceForeground(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        IntPtr fg = GetForegroundWindow();
+        uint fgPid = 0, ourPid = 0;
+        uint fgTid = fg != IntPtr.Zero ? GetWindowThreadProcessId(fg, out fgPid) : 0;
+        uint ourTid = GetWindowThreadProcessId(hWnd, out ourPid);
+        bool attached = false;
+        if (fgTid != 0 && ourTid != 0 && fgTid != ourTid)
+            attached = AttachThreadInput(ourTid, fgTid, true);
+        ShowWindow(hWnd, 9);
+        SetWindowPos(hWnd, new IntPtr(-1), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+        BringWindowToTop(hWnd);
+        bool ok = SetForegroundWindow(hWnd);
+        if (attached) AttachThreadInput(ourTid, fgTid, false);
+        return ok || GetForegroundWindow() == hWnd;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct INPUT
     {
@@ -227,6 +260,7 @@ function Set-UiaForeground {
         # activates the window's menu bar on menu-bearing windows, which swallows
         # the next chord; ESC dismisses it.
         for ($i = 0; $i -lt 5; $i++) {
+            $null = [FfNativeInput]::ForceForeground($hwnd)
             $null = [FfNativeInput]::ShowWindow($hwnd, 9)      # SW_RESTORE (unminimize)
             $null = [FfNativeInput]::SetForegroundWindow($hwnd)
             $null = [FfNativeInput]::KeyDown(0x12)             # ALT down/up releases the lock

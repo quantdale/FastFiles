@@ -28,8 +28,10 @@ add_executable(FastFiles WIN32
   src/UiAnimation.cpp
   src/IconCache.cpp
   src/UiaProviderBase.cpp
+  src/UiaHostQuery.cpp
   src/ColumnViewUiaProvider.cpp
   src/SearchUiaProvider.cpp
+  src/SearchButtonUiaProvider.cpp
   src/TreemapUiaProvider.cpp
 )
 
@@ -39,6 +41,11 @@ target_include_directories(FastFiles PRIVATE include)
 # PerMonitorV2, and longPathAware declarations.  Disable MSVC's automatic
 # second manifest resource so the linker does not emit a duplicate RT_MANIFEST.
 target_link_options(FastFiles PRIVATE "/MANIFEST:NO")
+# Debug HandleMessage + in-process UIA host queries nest a very large
+# unoptimized frame; the default 1 MiB stack overflows (STATUS_STACK_OVERFLOW)
+# a few seconds after launch when a UIA client attaches. 8 MiB matches the
+# headroom used by other Direct2D shells without changing frame layout.
+target_link_options(FastFiles PRIVATE "/STACK:8388608")
 
 fastfiles_add_version_resource(FastFiles "FastFiles.exe" "FastFiles desktop shell")
 

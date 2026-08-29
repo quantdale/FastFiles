@@ -105,6 +105,8 @@ public:
     void HandleListMouseLeave();
     void SetButtonHot(HWND source, bool hot);
     void ToggleFiltersExpanded();
+    void SetFiltersExpanded(bool expanded);
+    bool FiltersExpanded() const { return filtersExpanded_; }
     void ClearQueryText();
     // ui-v3 search: the row-height image list is owned by the panel, not the
     // ListView; released on WM_NCDESTROY of the list or panel teardown,
@@ -114,6 +116,9 @@ public:
     // WM_SETFOCUS/WM_KILLFOCUS and read by PaintSearchEdit to draw the focus
     // treatment. Public because the subclass proc is a free function.
     bool searchEditFocused_ = false;
+    // UIA ValuePattern / WM_SETTEXT changes the edit without CBN_EDITCHANGE.
+    // Same debounce path as a keystroke; no-op while updatingHistory_.
+    void ArmQueryDebounce();
 
 private:
     enum class StatusKind { Info, Searching, NoResults };

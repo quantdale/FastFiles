@@ -1,4 +1,5 @@
 #include "ColumnViewUiaProvider.h"
+#include "UiaHostQuery.h"
 
 #include "ffprotocol/Diagnostics.h"
 
@@ -179,9 +180,10 @@ ColumnViewUiaProvider::ColumnViewUiaProvider(UiaOwnerStatePtr state, UiaSurface*
                                              TreemapUiaSurface* treemapSurface)
     : UiaProviderBase(std::move(state)), surface_(surface),
       fragmentState_(std::make_shared<UiaOwnerState>()), treemapSurface_(treemapSurface), hwnd_(hwnd) {
-    if (hwnd_ != nullptr && IsWindow(hwnd_)) {
-        UiaHostProviderFromHwnd(hwnd_, &hostProvider_);
-    }
+    // Do not call UiaHostProviderFromHwnd here. This constructor runs from
+    // WM_GETOBJECT; querying the host HWND re-enters WM_GETOBJECT while
+    // uiaProvider_ is still null and overflows the stack. Lazy-init in
+    // get_HostRawElementProvider, which UI Automation guards against reentry.
     // semantic-treemap-uia 30.x: subscribe to the treemap semantic events.
     // The controller raises standard UIA events for structure/property
     // changes and invalidates the provider cache (see HandleNotification).
@@ -238,6 +240,30 @@ STDMETHODIMP ColumnViewUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARI
         case UIA_AutomationIdPropertyId:
             SetVariantString(retVal, L"MainWindow");
             return S_OK;
+        case UIA_NamePropertyId: {
+            if (hwnd_ != nullptr && IsWindow(hwnd_)) {
+                wchar_t title[256]{};
+                GetWindowTextW(hwnd_, title, static_cast<int>(std::size(title)));
+                SetVariantString(retVal, title);
+            }
+            return S_OK;
+        }
+        case UIA_ClassNamePropertyId: {
+            if (hwnd_ != nullptr && IsWindow(hwnd_)) {
+                wchar_t className[256]{};
+                GetClassNameW(hwnd_, className, static_cast<int>(std::size(className)));
+                SetVariantString(retVal, className);
+            }
+            return S_OK;
+        }
+        case UIA_ProcessIdPropertyId:
+            SetVariantIntProperty(retVal, static_cast<int32_t>(GetCurrentProcessId()));
+            return S_OK;
+        case UIA_NativeWindowHandlePropertyId:
+            if (hwnd_ != nullptr) {
+                SetVariantIntProperty(retVal, HandleToLong(hwnd_));
+            }
+            return S_OK;
         case UIA_IsKeyboardFocusablePropertyId:
             SetVariantBool(retVal, true);
             return S_OK;
@@ -257,21 +283,35 @@ STDMETHODIMP ColumnViewUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARI
         default:
             break;
     }
-    // Defer window-level properties (Name, bounds, class, process, ...) to
-    // the host provider so they stay live with the window.
-    if (hostProvider_ != nullptr) {
+    if (UiaHostQueryGuard::Active(hwnd_)) return S_OK;
+    EnsureHostProvider();
+    if (hostProvider_ != nullptr &&
+        hostProvider_.Get() != static_cast<IRawElementProviderSimple*>(this)) {
+        UiaHostQueryGuard guard(hwnd_);
         return hostProvider_->GetPropertyValue(propertyId, retVal);
     }
     return S_OK;
+}
+
+void ColumnViewUiaProvider::EnsureHostProvider() noexcept {
+    if (hostProvider_ != nullptr || hwnd_ == nullptr || !IsWindow(hwnd_)) return;
+    if (UiaHostQueryGuard::Active(hwnd_)) return;
+    UiaHostQueryGuard guard(hwnd_);
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> host;
+    if (FAILED(UiaHostProviderFromHwnd(hwnd_, &host)) || host == nullptr) return;
+    if (host.Get() == static_cast<IRawElementProviderSimple*>(this)) return;
+    hostProvider_ = std::move(host);
 }
 
 STDMETHODIMP ColumnViewUiaProvider::get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     *retVal = nullptr;
     if (!Alive()) return S_OK;
+    if (UiaHostQueryGuard::Active(hwnd_)) return S_OK;
     // Fragment root: expose the HWND host provider so UIA merges this custom
     // element with the window's default provider instead of replacing it
     // (keeps native child controls and window properties reachable).
+    EnsureHostProvider();
     if (hostProvider_ != nullptr) {
         *retVal = hostProvider_.Get();
         (*retVal)->AddRef();

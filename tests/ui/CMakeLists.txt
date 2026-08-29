@@ -132,14 +132,16 @@ add_test(NAME ffshortcut_routing_tests COMMAND ffshortcut_routing_tests)
 # the test targets; the seam headers come from src/ui/src + include.
 set(FFUIA_PROVIDER_SOURCES
     ../../src/ui/src/UiaProviderBase.cpp
+    ../../src/ui/src/UiaHostQuery.cpp
     ../../src/ui/src/ColumnViewUiaProvider.cpp
     ../../src/ui/src/SearchUiaProvider.cpp
+    ../../src/ui/src/SearchButtonUiaProvider.cpp
     ../../src/ui/src/TreemapUiaProvider.cpp
     ../../src/protocol/src/Diagnostics.cpp)
 set(FFUIA_TEST_INCLUDES
     .. ../../src/ui/src ../../src/ui/include ../../src/protocol/include
     ../../src/ipc/include ../../src/setup/include ../../src/search/include)
-set(FFUIA_TEST_LIBS ole32 oleaut32 uiautomationcore)
+set(FFUIA_TEST_LIBS ole32 oleaut32 uiautomationcore user32)
 
 add_executable(ffcolumnview_uia_tests test_columnview_uia.cpp ${FFUIA_PROVIDER_SOURCES})
 target_include_directories(ffcolumnview_uia_tests PRIVATE ${FFUIA_TEST_INCLUDES})
@@ -169,6 +171,16 @@ set_tests_properties(ffdrop_destination_tests PROPERTIES TIMEOUT 120)
 add_executable(ffdrop_feedback_tests test_drop_feedback.cpp)
 target_include_directories(ffdrop_feedback_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffdrop_feedback_tests COMMAND ffdrop_feedback_tests)
+
+# completion-integrity-hardening-and-release-certification 4.5.2: Filters
+# disclosure AutomationId / expand-collapse mapping, header-only.
+add_executable(ffsearch_filters_disclosure_tests test_search_filters_disclosure.cpp)
+target_include_directories(ffsearch_filters_disclosure_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffsearch_filters_disclosure_tests COMMAND ffsearch_filters_disclosure_tests)
+
+add_executable(ffgui_show_command_tests test_gui_show_command.cpp)
+target_include_directories(ffgui_show_command_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffgui_show_command_tests COMMAND ffgui_show_command_tests)
 
 # ui-v3 search a11y hardening: Search panel keyboard focus-order seam.
 # Header-only, renderer-free; pins the collapsed/expanded Tab and Shift+Tab
@@ -211,10 +223,15 @@ target_include_directories(ffui_style_tests PRIVATE ../../src/ui/include ../../s
 target_link_libraries(ffui_style_tests PRIVATE d2d1 dwrite windowscodecs)
 add_test(NAME ffui_style_tests COMMAND ffui_style_tests)
 
+add_executable(ffnative_header_theme_tests test_native_header_theme.cpp)
+target_include_directories(ffnative_header_theme_tests PRIVATE .. ../../src/ui/src ../../src/ui/include)
+target_link_libraries(ffnative_header_theme_tests PRIVATE comctl32 uxtheme user32)
+add_test(NAME ffnative_header_theme_tests COMMAND ffnative_header_theme_tests)
+
 # indexed-search-allocated-size D7: pure headless test for the shared Size-on-Disk
 # wording helper (no renderer/UI deps, mirrors fftreemap_metadata_tests).
 add_executable(ffsearch_metadata_tests test_search_metadata.cpp)
 target_include_directories(ffsearch_metadata_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffsearch_metadata_tests COMMAND ffsearch_metadata_tests)
-set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests ffsettings_pages_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests ffsearch_filters_disclosure_tests ffgui_show_command_tests ffsettings_pages_tests ffnative_header_theme_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)

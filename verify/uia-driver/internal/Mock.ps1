@@ -36,6 +36,7 @@ function Import-UiaRecordedTree {
             boundingRectangle = $(if ($node.PSObject.Properties['boundingRectangle']) { $node.boundingRectangle } else { $null })
             value = $(if ($node.PSObject.Properties['value']) { [string]$node.value } else { $null })
             isReadOnly = $(if ($node.PSObject.Properties['isReadOnly']) { $node.isReadOnly } else { $false })
+            expandCollapseState = $(if ($node.PSObject.Properties['expandCollapseState']) { [string]$node.expandCollapseState } else { $null })
             children = @(if ($node.PSObject.Properties['children']) { $node.children } else { @() })
         }
     }
@@ -82,6 +83,7 @@ function Get-UiaMockProperty {
         'RuntimeId' { return @($rec.runtimeId) }
         'IsEnabled' { return $rec.isEnabled }
         'IsOffscreen' { return $rec.isOffscreen }
+        'HasKeyboardFocus' { return $(if ($rec.PSObject.Properties['hasKeyboardFocus']) { [bool]$rec.hasKeyboardFocus } else { $false }) }
         'SupportedPatterns' { return $rec.patterns }
         'BoundingRectangle' { return $rec.boundingRectangle }
         'ClickablePoint' { return $rec.clickablePoint }

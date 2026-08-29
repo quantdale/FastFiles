@@ -4,12 +4,15 @@
 // behavior).
 
 #include "SearchUiaProvider.h"
+#include "SearchButtonUiaProvider.h"
 #include "ColumnViewUiaProvider.h"
 #include "SearchPanel.h" // stabilize-live-uia-e2e: activation marshal predicate
 #include "UiaTestSurface.h"
+#include "ffui/SearchFiltersDisclosure.h"
 
 #include <algorithm>
 #include <string>
+#include <windows.h>
 
 #include "../TestSupport.h"
 #include "UiaTestHelpers.h"
@@ -356,6 +359,78 @@ void TestSearchFindItemForeignStartAfter() {
     VariantClear(&name);
 }
 
+void TestSearchFiltersDisclosureProvider() {
+    // Real HWND overlay: Expand is idempotent (does not post a collapse) and
+    // AutomationId is Search.Filters. Posted messages prove the UIA worker
+    // marshals through WM_APP_SEARCH_FILTERS_SET_EXPANDED rather than toggle.
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = DefWindowProcW;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"FfSearchFiltersDisclosureHost";
+    RegisterClassW(&wc);
+    HWND host = CreateWindowExW(0, wc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                                wc.hInstance, nullptr);
+    Check(host != nullptr, "message-only host window for Filters button");
+    HWND button = CreateWindowExW(0, L"BUTTON", L"Filters", WS_CHILD | WS_VISIBLE, 0, 0, 80, 24, host,
+                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(ffui::kSearchFiltersControlId)),
+                                  wc.hInstance, nullptr);
+    Check(button != nullptr, "Filters button HWND");
+
+    bool expanded = false;
+    auto state = std::make_shared<ffui::UiaOwnerState>();
+    auto provider = Microsoft::WRL::ComPtr<ffui::SearchButtonUiaProvider>(new ffui::SearchButtonUiaProvider(
+        state, button, ffui::SearchButtonKind::FiltersDisclosure, [&expanded]() { return expanded; }));
+
+    IRawElementProviderSimple* simple = static_cast<IRawElementProviderSimple*>(provider.Get());
+    Check(GetControlType(simple) == UIA_ButtonControlTypeId, "Filters overlay is a Button");
+    Check(GetName(simple) == L"Filters", "Filters overlay Name");
+    Check(GetStringProperty(simple, UIA_AutomationIdPropertyId) == ffui::kSearchFiltersAutomationId,
+          "Filters overlay AutomationId is Search.Filters");
+
+    Microsoft::WRL::ComPtr<IUnknown> pattern;
+    Check(SUCCEEDED(provider->GetPatternProvider(UIA_ExpandCollapsePatternId, &pattern)) && pattern != nullptr,
+          "Filters overlay exposes ExpandCollapse");
+    Microsoft::WRL::ComPtr<IExpandCollapseProvider> disclosure;
+    Check(SUCCEEDED(pattern.As(&disclosure)) && disclosure != nullptr, "ExpandCollapse QI");
+    ExpandCollapseState collapseState = ExpandCollapseState_LeafNode;
+    Check(SUCCEEDED(disclosure->get_ExpandCollapseState(&collapseState)) &&
+              collapseState == ExpandCollapseState_Collapsed,
+          "initial ExpandCollapseState is Collapsed");
+
+    Check(SUCCEEDED(disclosure->Expand()), "Expand posts the set-expanded message");
+    MSG msg{};
+    bool postedExpand = false;
+    while (PeekMessageW(&msg, button, ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED,
+                        ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED, PM_REMOVE)) {
+        postedExpand = msg.wParam == 1;
+    }
+    Check(postedExpand, "collapsed Expand posts WPARAM=1");
+    expanded = true;
+    Check(SUCCEEDED(disclosure->get_ExpandCollapseState(&collapseState)) &&
+              collapseState == ExpandCollapseState_Expanded,
+          "reader-backed ExpandCollapseState is Expanded");
+
+    Check(SUCCEEDED(disclosure->Expand()), "Expand on an already-expanded disclosure is a no-op");
+    bool postedAgain = false;
+    while (PeekMessageW(&msg, button, ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED,
+                        ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED, PM_REMOVE)) {
+        postedAgain = true;
+    }
+    Check(!postedAgain, "already-expanded Expand does not toggle via a second post");
+
+    Check(SUCCEEDED(disclosure->Collapse()), "Collapse posts the set-collapsed message");
+    bool postedCollapse = false;
+    while (PeekMessageW(&msg, button, ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED,
+                        ffui::WM_APP_SEARCH_FILTERS_SET_EXPANDED, PM_REMOVE)) {
+        postedCollapse = msg.wParam == 0;
+    }
+    Check(postedCollapse, "expanded Collapse posts WPARAM=0");
+
+    DestroyWindow(button);
+    DestroyWindow(host);
+    UnregisterClassW(wc.lpszClassName, wc.hInstance);
+}
+
 } // namespace
 
 int main() {
@@ -378,6 +453,7 @@ int main() {
     TestSearchAllocatedStaleAndReplacement();
     TestSearchSpacingWordAndHostProvider();
     TestSearchFindItemForeignStartAfter();
+    TestSearchFiltersDisclosureProvider();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "ffsearch_uia_tests: %d check(s) failed\n", FailureCount());

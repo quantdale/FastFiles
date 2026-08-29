@@ -8,6 +8,7 @@
 #include "ffprotocol/Diagnostics.h"
 #include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
 #include "ffui/DisplayPath.h"
+#include "UiaHostQuery.h"
 
 #include <commctrl.h>
 #include <commdlg.h>
@@ -1207,6 +1208,7 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         }
     });
 
+    uiaReady_ = true;
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
     UpdatePreviewLimitMenuChecks();
@@ -1991,15 +1993,22 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         // provider request with its fragment root (design D2).
         case WM_GETOBJECT: {
             if (static_cast<LONG>(lParam) == UiaRootObjectId) {
+                static thread_local int serving = 0;
+                if (!uiaReady_ || serving > 0 || UiaHostQueryGuard::Active(hwnd)) {
+                    return DefWindowProcW(hwnd, message, wParam, lParam);
+                }
+                ++serving;
+                LRESULT result = 0;
                 Microsoft::WRL::ComPtr<IRawElementProviderFragmentRoot> root =
                     columnView_.UiaRootProvider(hwnd);
                 if (root != nullptr) {
                     Microsoft::WRL::ComPtr<IRawElementProviderSimple> simple;
                     if (SUCCEEDED(root.As(&simple)) && simple != nullptr) {
-                        return UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
+                        result = UiaReturnRawElementProvider(hwnd, wParam, lParam, simple.Get());
                     }
                 }
-                return 0;
+                --serving;
+                return result;
             }
             return DefWindowProcW(hwnd, message, wParam, lParam);
         }

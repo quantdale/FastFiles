@@ -205,17 +205,19 @@ function Resolve-VerificationOutcome {
 
     if ($DeclaredStatus -eq 'FAIL' -and $failures.Count -eq 0) {
         $hasExplicitClassification = -not [string]::IsNullOrWhiteSpace($DeclaredClassification)
-        $declaredClassification = if ($hasExplicitClassification) {
+        $opaqueDeclared = [string]::IsNullOrWhiteSpace($DeclaredReason) -or
+            $DeclaredReason -in @('scenario-failed', 'capability-failed')
+        $declaredClassification = if ($hasExplicitClassification -and -not $opaqueDeclared) {
             Get-VerificationClassification -Status 'FAIL' -Reason $DeclaredReason -ExplicitClassification $DeclaredClassification
         } else {
             'HARNESS_ERROR'
         }
-        $failureReason = if ($hasExplicitClassification -and $DeclaredReason) {
+        $failureReason = if ($hasExplicitClassification -and $DeclaredReason -and -not $opaqueDeclared) {
             $DeclaredReason
         } else {
             'capability-failed-without-attributed-cause'
         }
-        $failureSummary = if (-not $hasExplicitClassification -and $DeclaredReason) {
+        $failureSummary = if ($opaqueDeclared -or -not $hasExplicitClassification) {
             "declared: $DeclaredReason$(if ($DeclaredSummary) { "; $DeclaredSummary" })"
         } else {
             $DeclaredSummary
