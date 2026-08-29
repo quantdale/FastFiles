@@ -4303,9 +4303,15 @@ function Invoke-UiaSharedSessionScenarios {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
     }
 
+    # The guard proves the fixture tree reached the browsed snapshot before the
+    # search scenarios run. It must name what the *terminal* column actually
+    # holds: navigation above targets $scratch, whose only child is SubFolder.
+    # alpha.txt lives one level deeper in $folder and is verified after the
+    # re-navigation to SubFolder below (and by the deep-search scenario, which
+    # navigates to $folder before probing for it).
     if ($nav.Pass -and (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable', 'search-structured-filter-query'))) {
-        $fixtureItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $launched.Id -Name 'alpha.txt' -PaneId 'Pane.0' -TimeoutMs 20000
-        if (-not $fixtureItem) { throw 'alpha.txt fixture was not visible in the browsed snapshot before search' }
+        $fixtureItem = Find-UiaTerminalColumnItem -Driver $driver -Main $main -ProcessId $launched.Id -Name 'SubFolder' -PaneId 'Pane.0' -TimeoutMs 20000
+        if (-not $fixtureItem) { throw 'SubFolder fixture was not visible in the browsed snapshot before search' }
     }
 
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('column-populated-and-selected-item-in-tree')) {
@@ -4612,6 +4618,26 @@ function Invoke-UiaSharedSessionScenarios {
     # completion-integrity-hardening-and-release-certification 2.6: do not
     # toggle the palette here; Open-UiaSearchPanel owns the single
     # foreground-safe open/dispatch sequence.
+    #
+    # Set-UiaSearchFixtureScope below selects "Current Folder", which the
+    # product defines as non-recursive ("Current Folder + Subfolders" is a
+    # separate scope). alpha.txt lives in $folder, so the browsed folder must
+    # be $folder and not its $scratch parent when the query runs -- otherwise
+    # an empty result set is the product behaving correctly. Establish that
+    # precondition explicitly rather than inheriting whatever location the
+    # preceding scenarios happened to leave behind, matching what the isolated
+    # search-deep-result-navigation scenario already does.
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable', 'search-structured-filter-query')) {
+        $searchNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
+        if (-not $searchNav.Pass) { throw "navigation to the search fixture folder failed: $($searchNav.Detail)" }
+        # Address-bar navigation can retire the cached main-window element and
+        # can leave a transient popup owning the foreground. Reacquire the live
+        # root before the palette sequence so the panel is opened against the
+        # real window rather than a stale or foreign fragment.
+        $mainAfterNav = Get-UiaMainWindowElement -Driver $driver -ProcessId $launched.Id
+        if ($mainAfterNav) { $main = $mainAfterNav }
+        $null = Set-UiaForeground -Driver $driver -Element $main
+    }
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $sp = Open-UiaSearchPanel -Driver $driver -Main $main -ProcessId $launched.Id
     $sw.Stop()
