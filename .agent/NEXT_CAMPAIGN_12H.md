@@ -57,9 +57,25 @@ qualified and inspected at its own exact hosted SHA.
 
 The live UIA verifier has been hardened for fixture readiness, palette
 sequencing, persistent-host scope selection, separate Win32 helper guards, and
-single-shot Filters disclosure. The latest focused run remains blocked at the
-Filters disclosure, so 4.5.1–4.5.3 and the dependent final UIA gate are not
-checked. Do not convert this host-boundary result into a product PASS; the
+single-shot Filters disclosure.
+
+**Superseded 2026-08-30 — the Filters disclosure was never the blocker.** The
+shared-session pre-search guard probed the terminal column for `alpha.txt`
+immediately after navigating to `$scratch`, where that file cannot appear (it
+lives in `$scratch\SubFolder`). The guard used `throw`, aborting the whole
+capability as `HARNESS_ERROR / driver-exception` before any of the 20 scenarios
+ran. Every earlier "blocked at the Filters disclosure" observation was reading
+a symptom of that abort. With the guard corrected, `search-panel-open`,
+`search-deep-result-navigation` and `search-allocated-size` all pass. Do not
+re-chase the Filters disclosure; see
+`openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md`.
+
+4.5.1–4.5.3 and the dependent final UIA gate remain unchecked, but for
+different reasons: those tasks span preview/properties, file operations, dual
+pane, Unicode, long names and narrow/wide layouts that have not been
+exercised, and two live items remain open — a ~1-in-20 UI/Engine startup
+handshake miss, and pointer-input (drag/click) instability characterised only
+at n=3. Do not convert this host-boundary result into a product PASS; the
 exact next frontier is final committed-tree/release/hosted qualification while
 preserving the external UIA and production-certification boundaries.
 
