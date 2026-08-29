@@ -1,5 +1,32 @@
 # Fast Files — Agent Workstate
 
+## Native chrome + Settings page-membership campaign (2026-08-29)
+
+- Resume derived: `origin/main` = `746b2b3`. Hosted CI `33221305265` SUCCESS
+  for that SHA. Working tree was clean before this wave. Public GitHub API
+  shows PR #6 is **closed** (draft, not merged); it is no longer an
+  administrative close item.
+- Catalog evidence at `3d45aaf` still showed three live product defects:
+  Storage SysHeader32 kept classic 3D chrome because ListView never forwards
+  header NM_CUSTOMDRAW to the shell; Settings tab remainder stayed system-
+  light; command palette sat under later-created Storage/Search lists.
+- P1: Settings `SwitchPage` hid `ruleList_` / `excludeRuleCheck_` and never
+  showed them on Indexing. Membership is now the headless `SettingsPages`
+  seam.
+- P2 fixes: owner-paint SysHeader32/TabCtrl via subclassed WM_PAINT;
+  Search/Storage layout uses `SWP_NOZORDER`; palette dimmer + HWND_TOP overlay.
+- Focused Debug: `ffsettings_pages_tests` + `ffui_style_tests` PASS. Full
+  Debug CTest **88/88 PASS** (new `ffsettings_pages_tests`). release-test
+  CTest **88/88 PASS**. Analyze warning-clean. ASAN protocol/IPC/lifecycle
+  **3/3 PASS**. OpenSpec `--all --strict` **77/77**. source-marker PASS,
+  diagnostic-policy Failures: 0, `ffdoc_drift_tests` PASS, `git diff --check`
+  clean.
+- External still: production signing/pins, privileged MFT/USN, live Filters
+  UIA journey, physical-display recapture of the new chrome, guest/provider.
+
+NEXT EXACT ACTION: commit this wave, push `main` without force, inspect
+hosted CI for the exact SHA. Do not claim production-signed readiness.
+
 ## Final product-completion campaign — interactive visual catalog (2026-08-29)
 
 - Resume derived: `origin/main` = `de6db26`. Hosted CI `33216905107` SUCCESS.

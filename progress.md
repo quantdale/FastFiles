@@ -1,5 +1,20 @@
 # FastFiles — Project Status
 
+## Current native-chrome and Settings-page campaign — 2026-08-29
+
+Live `main` at campaign start was `746b2b33d4028f069a47897ce7e9759606cc62b9`
+(hosted run `33221305265` SUCCESS). Public GitHub API reports PR #6 closed
+without merge; it is historical superseded evidence, not an open
+administrative task.
+
+The interactive visual catalog exposed remaining native chrome defects and a
+real Settings Indexing-page regression: `SwitchPage` hid the rule list and
+Exclude-rule checkbox and never restored them. This wave owner-paints
+SysHeader32/TabCtrl, keeps Search/Storage layout from raising over the
+command palette, and drives Settings page membership from a headless seam.
+Debug CTest is 88/88 after adding `ffsettings_pages_tests`. Production
+signing, privileged MFT/USN, and live Filters UIA remain external.
+
 ## Current completion-integrity checkpoint — 2026-08-28
 
 The current implementation candidate is `ceffa009ef566edfc9895c363a68fdd005ddc0fa`.

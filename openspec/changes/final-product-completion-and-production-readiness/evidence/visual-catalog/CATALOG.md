@@ -18,9 +18,9 @@ See `summary.md` and `manifest.json` for the machine record.
 | Home | PASS (`home-from-command`, `home-narrow`, `home-dark`) | Product map, quick actions, degraded badge. `home-default` UIA Name lookup at first paint is racy; the later Home captures are the evidence. |
 | Column View | PASS | Breadcrumb, columns, details pane, degraded badge. |
 | Fast Search | PASS | Idle empty state, query field, browsed-snapshot chip. Tab label stays on the last filesystem/Home identity (workspace is not a fake path). |
-| Storage Analysis | PASS with remaining header chrome | Segmented Overview pill and themed status line. SysHeader32 still uses unthemed item glyphs after visual-style disable. |
-| Settings | PASS after product fix | General page only; Theme + Density; dark client. Tab strip still has a native light remainder to the right of the last tab. |
-| Command palette | Semantic PASS, visual miss over Storage | AutomationId 6301 appears; the overlay can sit under Storage listviews. Reopen from Home to photograph the overlay. |
+| Storage Analysis | PASS with remaining header chrome at capture time | Segmented Overview pill and themed status line. Capture-time SysHeader32 used unthemed item glyphs; a later product fix owner-paints headers (recapture still pending). |
+| Settings | PASS after product fix | General page only; Theme + Density; dark client. Capture-time tab strip had a native light remainder; a later product fix owner-paints the strip (recapture still pending). |
+| Command palette | Semantic PASS, visual miss over Storage at capture time | AutomationId 6301 appears. Capture-time overlay sat under Storage listviews; a later product fix raises a dimmer + HWND_TOP overlay and stops Search/Storage layout from stealing z-order (recapture still pending). |
 
 ## Product fixes landed from this catalog
 
@@ -34,4 +34,4 @@ See `summary.md` and `manifest.json` for the machine record.
 - Privileged MFT/USN
 - Live Filters UIA journey
 - High Contrast / 150% DPI matrix
-- Administrative close of PR #6
+- Physical-display recapture of the post-fix header/tab/palette chrome

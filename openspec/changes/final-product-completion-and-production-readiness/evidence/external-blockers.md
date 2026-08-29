@@ -28,7 +28,8 @@ desktop.
 ## PR #6
 
 Superseded by mainline work (`docs/pr6-stabilization-reconciliation.md`).
-Administrative close of the GitHub PR is not a local product change.
+Public GitHub API reports the pull request **closed** (draft, not merged) as
+of 2026-08-29. It is historical evidence, not an open administrative task.
 
 ## Historical hosted CI (pre-density-follow-up)
 
