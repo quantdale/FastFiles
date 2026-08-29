@@ -37,5 +37,5 @@
 
 ## 6. Intentionally external/deferred prerequisites
 
-- [ ] 6.1 Close or supersede draft PR #6 through authenticated GitHub administration after the mainline campaign is pushed. (External; not a local product blocker.)
+- [x] 6.1 Close or supersede draft PR #6 through authenticated GitHub administration after the mainline campaign is pushed. (External; not a local product blocker.) **Done — verified 2026-08-30:** `gh pr view 6` reports `state=CLOSED`, `closedAt=2026-08-28T23:39:03Z`, `mergedAt=null` for "stabilization: ship-ready UI/UX and product hardening". The administrative action this task required has already occurred; it is no longer an outstanding external prerequisite.
 - [ ] 6.2 Run production signing-pin, signed-install, elevated clean-host MFT/USN, trust-store, guest/VM, and foreground-controllable repeated UIA evidence only under their explicitly authorized environments. (External; never satisfied by weakening ordinary development validation.)
