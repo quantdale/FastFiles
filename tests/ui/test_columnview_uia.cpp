@@ -1128,6 +1128,9 @@ void TestHostProviderNotConstructedDuringProviderCtor() {
     HWND hwnd = CreateWindowExW(0, windowClass.lpszClassName, L"probe", WS_OVERLAPPEDWINDOW, 0, 0, 80, 60,
                                 nullptr, nullptr, windowClass.hInstance, nullptr);
     Check(hwnd != nullptr, "probe HWND for host-provider construction");
+    if (hwnd == nullptr) {
+        return;
+    }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&probe));
     auto surface = MakeSinglePaneSurface();
     auto state = std::make_shared<ffui::UiaOwnerState>();
@@ -1177,6 +1180,9 @@ void TestCustomGetObjectDoesNotRecurseOnIdentityProperties() {
     HWND hwnd = CreateWindowExW(0, windowClass.lpszClassName, L"FastFiles", WS_OVERLAPPEDWINDOW, 0, 0, 80, 60,
                                 nullptr, nullptr, windowClass.hInstance, nullptr);
     Check(hwnd != nullptr, "recurse-probe HWND created");
+    if (hwnd == nullptr) {
+        return;
+    }
     auto surface = MakeSinglePaneSurface();
     auto state = std::make_shared<ffui::UiaOwnerState>();
     auto* root = new ffui::ColumnViewUiaProvider(state, &surface, hwnd);

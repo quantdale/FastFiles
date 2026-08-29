@@ -371,10 +371,17 @@ void TestSearchFiltersDisclosureProvider() {
     HWND host = CreateWindowExW(0, wc.lpszClassName, L"", WS_POPUP, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
                                 wc.hInstance, nullptr);
     Check(host != nullptr, "message-only host window for Filters button");
+    if (host == nullptr) {
+        return;
+    }
     HWND button = CreateWindowExW(0, L"BUTTON", L"Filters", WS_CHILD | WS_VISIBLE, 0, 0, 80, 24, host,
                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(ffui::kSearchFiltersControlId)),
                                   wc.hInstance, nullptr);
     Check(button != nullptr, "Filters button HWND");
+    if (button == nullptr) {
+        DestroyWindow(host);
+        return;
+    }
 
     bool expanded = false;
     auto state = std::make_shared<ffui::UiaOwnerState>();
