@@ -119,6 +119,11 @@ private:
     std::vector<std::wstring> clipboardPaths_;
     std::vector<FileOperationFailure> lastOperationFailures_;
     bool clipboardIsCut_ = false;
+    // GetClipboardSequenceNumber binds the app-local cut fallback to the exact
+    // clipboard publication made by FastFiles. If a clipboard manager strips
+    // Preferred DropEffect, a same-sequence path list still preserves Cut;
+    // an external clipboard replacement can never inherit that move intent.
+    DWORD clipboardSequenceNumber_ = 0;
     bool dragArmed_ = false;
     POINT dragOrigin_{};
     HWND inlineRename_ = nullptr;

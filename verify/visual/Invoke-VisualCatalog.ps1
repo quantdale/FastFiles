@@ -33,6 +33,7 @@ if (-not $OutputRoot) {
 
 Import-Module (Join-Path $repo 'verify\uia-driver\UiaDriver.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repo 'verify\capabilities\windows-ui-automation-validation\UiAutomationValidation.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $repo 'verify\capabilities\windows-ui-automation-validation\UiAutomationWin32.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $repo 'verify\visual\VisualCapture.psm1') -Force -DisableNameChecking
 
 if (-not ('FfVisualWindowPos' -as [type])) {
@@ -45,6 +46,21 @@ public static class FfVisualWindowPos
     public static extern bool SetWindowPos(IntPtr hWnd, IntPtr insertAfter, int x, int y, int cx, int cy, uint flags);
     public const uint SWP_NOZORDER = 0x0004;
     public const uint SWP_SHOWWINDOW = 0x0040;
+}
+'@
+}
+
+if (-not ('FfVisualSettingsNative' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+public static class FfVisualSettingsNative
+{
+    [DllImport("user32.dll", EntryPoint = "SendMessageW")]
+    public static extern IntPtr SendMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    public const uint CB_SETCURSEL = 0x014E;
 }
 '@
 }
@@ -71,7 +87,21 @@ function Set-CatalogWindowSize {
 
 function Get-CatalogRedactions {
     param($Driver, $Main, [int] $ProcessId)
-    $rects = @()
+    $rects = [System.Collections.Generic.List[object]]::new()
+    $seen = @{}
+    $addElementRedaction = {
+        param($Element)
+        try {
+            $br = Get-UiaElementProperty -Driver $Driver -Element $Element -Name 'BoundingRectangle'
+            if ($br -and $br.width -gt 0 -and $br.height -gt 0) {
+                $key = "$($br.x),$($br.y),$($br.width),$($br.height)"
+                if (-not $seen.ContainsKey($key)) {
+                    $seen[$key] = $true
+                    [void]$rects.Add($br)
+                }
+            }
+        } catch { }
+    }
     try {
         $chrome = $null
         foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
@@ -82,13 +112,32 @@ function Get-CatalogRedactions {
             foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $chrome)) {
                 $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
                 if ($identity.ClassName -eq 'Edit') {
-                    $br = Get-UiaElementProperty -Driver $Driver -Element $child -Name 'BoundingRectangle'
-                    if ($br -and $br.width -gt 0) { $rects += $br }
+                    & $addElementRedaction $child
                 }
             }
         }
     } catch { }
-    return @($rects)
+    # Home and status surfaces can render recent or active filesystem paths as
+    # semantic Text elements outside the navigation chrome. Redact every
+    # UIA-visible drive/UNC path so committed visual evidence never captures a
+    # developer's account name or private folder structure.
+    foreach ($pattern in @('*:\*', '\\*\*')) {
+        try {
+            foreach ($element in @(Find-UiaElement -Driver $Driver -NameLike $pattern -FromElement $Main -TimeoutMs 1000 -All)) {
+                & $addElementRedaction $element
+            }
+        } catch { }
+    }
+    try {
+        foreach ($element in @(Find-UiaElement -Driver $Driver -ControlType 'ListItem' -FromElement $Main -TimeoutMs 1000 -All)) {
+            $helpText = ''
+            try { $helpText = [string](Get-UiaElementProperty -Driver $Driver -Element $element -Name 'HelpText') } catch { }
+            if ($helpText -like '*:\*' -or $helpText -like '\\*\*') {
+                & $addElementRedaction $element
+            }
+        }
+    } catch { }
+    return @($rects.ToArray())
 }
 
 function Test-CatalogNamed {
@@ -122,6 +171,33 @@ function Test-CatalogNamed {
         Found = $found
         Missing = $missing
     }
+}
+
+function Set-CatalogTheme {
+    param($Driver, [int] $ProcessId, [ValidateSet('Light', 'Dark')][string] $Theme)
+    $settings = $null
+    try { $settings = Find-UiaElement -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 2500 } catch { }
+    if (-not $settings) { throw 'settings dialog did not appear while selecting a visual theme' }
+    $combos = @(Find-UiaElement -Driver $Driver -ClassName 'ComboBox' -FromElement $settings -TimeoutMs 2000 -All)
+    if ($combos.Count -lt 1) { throw 'settings theme combo was not discoverable' }
+    $index = if ($Theme -eq 'Dark') { 1 } else { 0 }
+    $comboHwnd = [IntPtr]$combos[0].Current.NativeWindowHandle
+    $selectionResult = if ($comboHwnd -ne [IntPtr]::Zero) {
+        [FfVisualSettingsNative]::SendMessage($comboHwnd, [FfVisualSettingsNative]::CB_SETCURSEL,
+                                              [IntPtr]$index, [IntPtr]::Zero).ToInt64()
+    } else { -1 }
+    # The Settings dialog's theme combo intentionally has no child control id;
+    # its SaveCurrentPage path reads CB_GETCURSEL on OK, so a direct selection
+    # message is the semantic native-control operation available here.
+    if ($comboHwnd -eq [IntPtr]::Zero -or $selectionResult -lt 0) {
+        throw "could not select $Theme in the settings theme combo"
+    }
+    $ok = Find-UiaElement -Driver $Driver -AutomationId '1' -FromElement $settings -TimeoutMs 1500
+    if (-not $ok) { throw 'settings OK button was not discoverable while selecting a visual theme' }
+    $null = Invoke-UiaElementAction -Driver $Driver -Element $ok
+    $closed = Wait-UiaElementGone -Driver $Driver -ClassName 'FastFilesSettingsDialog' -ProcessId $ProcessId -TimeoutMs 3000 -PollIntervalMs 200
+    if (-not $closed) { throw "settings dialog did not close after selecting $Theme" }
+    Start-Sleep -Milliseconds 500
 }
 
 function Invoke-CatalogCapture {
@@ -194,6 +270,10 @@ try {
     $null = Set-UiaForeground -Driver $driver -Element $main
     $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
 
+    $null = Invoke-UiaOpenSettings -Driver $driver -Main $main -ProcessId $appPid
+    Set-CatalogTheme -Driver $driver -ProcessId $appPid -Theme 'Light'
+    $null = Set-UiaForeground -Driver $driver -Element $main
+
     $columnViewReady = $false
     for ($i = 0; $i -lt 20 -and -not $columnViewReady; $i++) {
         try {
@@ -203,31 +283,20 @@ try {
             Start-Sleep -Milliseconds 250
         }
     }
-    $homeAssert = $null
-    for ($i = 0; $i -lt 12 -and (-not $homeAssert -or -not $homeAssert.Pass); $i++) {
-        $sidebar = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('Home')
-        $tab = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home')
-        if ($sidebar.Pass -or $tab.Pass) {
-            $homeAssert = [pscustomobject]@{
-                Pass = $true
-                Found = @($sidebar.Found + $tab.Found)
-                Missing = @()
-            }
-        } else {
-            try {
-                $null = Find-UiaElement -Driver $driver -NameLike '*Home*' -FromElement $main -TimeoutMs 800
-                $homeAssert = [pscustomobject]@{ Pass = $true; Found = @('Home-like'); Missing = @() }
-            } catch {
-                $homeAssert = [pscustomobject]@{ Pass = $false; Found = @(); Missing = @('Home', '1: Home') }
-            }
-        }
-        if (-not $homeAssert.Pass) { Start-Sleep -Milliseconds 400 }
-    }
-    if ((-not $homeAssert -or -not $homeAssert.Pass) -and $columnViewReady) {
-        $homeAssert = [pscustomobject]@{ Pass = $true; Found = @('ColumnView'); Missing = @(); Detail = 'Home names were not enumerated; ColumnView fragment was live after new-tab default' }
+    # Startup may intentionally restore This PC from the user's workspace
+    # setting. Establish Home through the real command before capturing it;
+    # accepting a merely-live ColumnView here would produce a false-green
+    # "Home default" image.
+    $homeCmd = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'home' `
+        -ExpectedNames @('Home') -ExpectedCommandName 'Home' -ExpectedCommandId 'navigation.home'
+    $homeSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home') -AutomationIds @('Pane.0.Home')
+    $homeAssert = [pscustomobject]@{
+        Pass = [bool]$homeCmd.Pass -and [bool]$homeSurface.Pass
+        Command = $homeCmd
+        Surface = $homeSurface
     }
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
-        -ScenarioId 'home-default' -ExpectedState 'New-tab default is Home; sidebar Home is present' `
+        -ScenarioId 'home-default' -ExpectedState 'Home surface activated through the real Home command' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion $homeAssert
 
     $browseFolder = Join-Path $ctx.FixtureRoot 'CatalogBrowse'
@@ -236,15 +305,46 @@ try {
     $null = Set-UiaForeground -Driver $driver -Element $main
     $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $browseFolder -ExpectedLeaf 'CatalogBrowse'
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
-        -ScenarioId 'browse-column-view' -ExpectedState 'Column View on a sandbox folder' `
+        -ScenarioId 'browse-column-view' -ExpectedState 'Column View on a sandbox folder with details pane open' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion ([pscustomobject]@{ Pass = [bool]$nav.Pass; Detail = $nav.Detail })
+
+    Set-CatalogWindowSize -Main $main -X 80 -Y 60 -Width 1600 -Height 800
+    $wideHome = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'home' `
+        -ExpectedNames @('Home') -ExpectedCommandName 'Home' -ExpectedCommandId 'navigation.home'
+    $wideHomeSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home') -AutomationIds @('Pane.0.Home')
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'home-wide' -ExpectedState 'Home remains usable at 1600px width' `
+        -Theme 'Light' -Width 1600 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$wideHome.Pass -and [bool]$wideHomeSurface.Pass; Command = $wideHome; Surface = $wideHomeSurface })
+
+    Set-CatalogWindowSize -Main $main -X 80 -Y 60 -Width 1280 -Height 800
+    $navAgain = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $browseFolder -ExpectedLeaf 'CatalogBrowse'
+    $detailsOff = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'details' `
+        -ExpectedNames @() -ExpectedCommandName 'Toggle Details Pane' -ExpectedCommandId 'view.toggle-details-pane'
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'details-closed' -ExpectedState 'Column View with the details pane closed' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$navAgain.Pass -and [bool]$detailsOff.Pass; Navigation = $navAgain; Command = $detailsOff })
+    $detailsOn = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'details' `
+        -ExpectedNames @() -ExpectedCommandName 'Toggle Details Pane' -ExpectedCommandId 'view.toggle-details-pane'
+
+    $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' `
+        -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+    $dualSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -AutomationIds @('Pane.0', 'Pane.1')
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'dual-pane' -ExpectedState 'Dual-pane Column View with two semantic pane roots' `
+        -Theme 'Light' -Width 1280 -PaneMode 'dual' `
+        -Assertion ([pscustomobject]@{ Pass = [bool]$dual.Pass -and [bool]$dualSurface.Pass; Command = $dual; Surface = $dualSurface })
+    $single = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' `
+        -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
 
     $homeCmd = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'home' `
         -ExpectedNames @('Home') -ExpectedCommandName 'Home' -ExpectedCommandId 'navigation.home'
+    $homeSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home') -AutomationIds @('Pane.0.Home')
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'home-from-command' -ExpectedState 'Home restored through the command palette' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
-        -Assertion ([pscustomobject]@{ Pass = [bool]$homeCmd.Pass; Detail = $homeCmd.Detail })
+        -Assertion ([pscustomobject]@{ Pass = [bool]$homeCmd.Pass -and [bool]$homeSurface.Pass; Command = $homeCmd; Surface = $homeSurface })
 
     $search = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'search' `
         -ExpectedNames @('Filters') -ExpectedCommandName 'Search' -ExpectedCommandId 'search.focus'
@@ -257,6 +357,25 @@ try {
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'fast-search-idle' -ExpectedState 'Fast Search workspace with idle empty state; Filters present; no Filters expansion' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion $searchAssert
+
+    $filtersButton = $null
+    $filterState = $null
+    $filtersExpanded = $false
+    try {
+        $filtersButton = Find-UiaElement -Driver $driver -AutomationId 'Search.Filters' -FromElement $main -TimeoutMs 2000
+        $filterState = Invoke-UiaPattern -Driver $driver -Element $filtersButton -PatternName 'ExpandCollapse' -Method 'GetState'
+        if ($filterState -eq 'Collapsed') {
+            $null = Invoke-UiaPattern -Driver $driver -Element $filtersButton -PatternName 'ExpandCollapse' -Method 'Expand'
+            Start-Sleep -Milliseconds 300
+            $filtersButton = Find-UiaElement -Driver $driver -AutomationId 'Search.Filters' -FromElement $main -TimeoutMs 2000
+            $filterState = Invoke-UiaPattern -Driver $driver -Element $filtersButton -PatternName 'ExpandCollapse' -Method 'GetState'
+        }
+        $filtersExpanded = $filterState -eq 'Expanded'
+    } catch { }
+    Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
+        -ScenarioId 'search-filters-expanded' -ExpectedState 'Fast Search with the Filters disclosure expanded' `
+        -Theme 'Light' -Width 1280 -PaneMode 'single' `
+        -Assertion ([pscustomobject]@{ Pass = $filtersExpanded; Detail = "ExpandCollapse state='$filterState'" })
     $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
 
     $storage = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' `
@@ -291,17 +410,18 @@ try {
     $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 4000
     $narrowHome = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'home' `
         -ExpectedNames @('Home') -ExpectedCommandName 'Home' -ExpectedCommandId 'navigation.home'
+    $narrowSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home') -AutomationIds @('Pane.0.Home')
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'home-narrow' -ExpectedState 'Home remains usable at 800px width' `
         -Theme 'Light' -Width 800 -PaneMode 'single' `
-        -Assertion ([pscustomobject]@{ Pass = [bool]$narrowHome.Pass; Detail = $narrowHome.Detail })
+        -Assertion ([pscustomobject]@{ Pass = [bool]$narrowHome.Pass -and [bool]$narrowSurface.Pass; Command = $narrowHome; Surface = $narrowSurface })
 
     Set-CatalogWindowSize -Main $main -X 80 -Y 60 -Width 1280 -Height 800
+    $null = Invoke-UiaOpenSettings -Driver $driver -Main $main -ProcessId $appPid
+    Set-CatalogTheme -Driver $driver -ProcessId $appPid -Theme 'Dark'
     Invoke-UiaActivateAppWindow -Driver $driver -Main $main
-    $null = Send-UiaInput -Driver $driver -Keys '{F9}'
-    Start-Sleep -Milliseconds 700
     $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 4000
-    $darkHome = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('Home')
+    $darkHome = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -Names @('1: Home') -AutomationIds @('Pane.0.Home')
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'home-dark' -ExpectedState 'Home after F9 theme toggle' `
         -Theme 'Dark' -Width 1280 -PaneMode 'single' -Assertion $darkHome

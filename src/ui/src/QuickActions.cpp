@@ -243,6 +243,21 @@ std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
     return paths;
 }
 
+bool CanUseLocalCutClipboardFallback(const std::vector<std::wstring>& clipboardPaths,
+                                     const std::vector<std::wstring>& localPaths,
+                                     bool externalCut, bool localCut,
+                                     DWORD currentSequenceNumber,
+                                     DWORD localSequenceNumber) noexcept {
+    if (externalCut || !localCut || currentSequenceNumber == 0 ||
+        currentSequenceNumber != localSequenceNumber || clipboardPaths.size() != localPaths.size()) {
+        return false;
+    }
+    for (size_t index = 0; index < clipboardPaths.size(); ++index) {
+        if (_wcsicmp(clipboardPaths[index].c_str(), localPaths[index].c_str()) != 0) return false;
+    }
+    return true;
+}
+
 bool HasFilesOnClipboard(HWND owner) {
     if (!TryOpenClipboard(owner)) return false;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;

@@ -2985,6 +2985,16 @@ function Invoke-UiaScenarioDragOut {
             try { $stillFree = Test-UiaPointInWindow -Driver $driver -Element $win -X $dst.x -Y $dst.y } catch { }
             $boundPid = $null
             try { $boundPid = [int]$win.Current.ProcessId } catch { }
+            if (-not $stillFree -and $top -and [string]$top.Class -match 'TeraCopy') {
+                # A third-party shell paste window can be created by the
+                # Explorer drop handler after the OLE drag starts. It owns the
+                # screen point, so the destination postcondition is not a
+                # valid product-drag observation; preserve it as an explicit
+                # environment boundary rather than an assertion failure.
+                return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' `
+                    -Reason 'interactive-drop-target-obstructed' -DurationMs $sw.Elapsed.TotalMilliseconds `
+                    -Detail "BLOCKED_ENVIRONMENT: third-party drop overlay '$($top.Class)' covered the bound Explorer point (pid=$($top.Pid)); destination was not observable"
+            }
             return & $fail "destination\draggable.txt was not created after $dragAttempts drag attempt(s) (source item '$($sourceIdentity.Name)', operation=$operation, src=$($src.x),$($src.y) dst=$($dst.x),$($dst.y) explorerRect=$($winRectDiag.x),$($winRectDiag.y),$($winRectDiag.width),$($winRectDiag.height) dropPoint=$topDesc dropPointInBoundWinAtFail=$stillFree boundWinPid=$boundPid fg='$($st.ForegroundTitle)')"
         }
         $sw.Stop()

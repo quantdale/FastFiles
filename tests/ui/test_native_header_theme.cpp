@@ -30,6 +30,10 @@ int main() {
     ffui::AttachThemedListHeader(list);
     HWND header = ListView_GetHeader(list);
     Check(header != nullptr && IsWindow(header), "list header exists after attach");
+    if (header == nullptr || IsWindow(header) == FALSE) {
+        DestroyWindow(list);
+        return 1;
+    }
 
     SendMessageW(header, WM_THEMECHANGED, 0, 0);
     SendMessageW(header, WM_THEMECHANGED, 0, 0);

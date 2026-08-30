@@ -17,6 +17,14 @@ bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bo
 // returned flag is true when the source requested a move/cut operation.
 std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut);
 bool HasFilesOnClipboard(HWND owner);
+// A clipboard manager may preserve CF_HDROP but remove Preferred DropEffect.
+// The shell can recover the app's own cut intent only when the clipboard
+// sequence and path list still match the publication made by FastFiles.
+bool CanUseLocalCutClipboardFallback(const std::vector<std::wstring>& clipboardPaths,
+                                     const std::vector<std::wstring>& localPaths,
+                                     bool externalCut, bool localCut,
+                                     DWORD currentSequenceNumber,
+                                     DWORD localSequenceNumber) noexcept;
 std::vector<std::wstring> PathsRelativeTo(const std::vector<std::wstring>& paths,
                                           const std::wstring& base, bool& usedAbsoluteFallback);
 bool OpenWithDefaultApplication(HWND owner, const std::wstring& path);

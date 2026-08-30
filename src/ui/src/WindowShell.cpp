@@ -401,7 +401,8 @@ bool WindowShell::InitializeCommands() {
                 // is temporarily owned by another process, but publish the
                 // normal shell format whenever possible so Explorer and other
                 // file managers can paste this selection.
-                CopyFilesToClipboard(hwnd_, paths, clipboardIsCut_);
+                const bool published = CopyFilesToClipboard(hwnd_, paths, clipboardIsCut_);
+                clipboardSequenceNumber_ = published ? GetClipboardSequenceNumber() : 0;
             } else if (commandId == L"file.paste") {
                 const std::wstring destination = columnView_.ActivePanePath();
                 // The shell clipboard is authoritative: read it fresh at paste
@@ -411,7 +412,15 @@ bool WindowShell::InitializeCommands() {
                 // it must never shadow fresher clipboard content.
                 bool externalCut = false;
                 std::vector<std::wstring> pathsToPaste = ReadFilesFromClipboard(hwnd_, externalCut);
-                bool cut = externalCut;
+                // Preferred DropEffect is the interoperable source of truth,
+                // but clipboard managers are allowed to preserve CF_HDROP and
+                // drop that auxiliary format. Recover the app's own Cut only
+                // while the sequence number and path list still match; this
+                // cannot turn a later external clipboard copy into a move.
+                const bool localClipboardCut = CanUseLocalCutClipboardFallback(
+                    pathsToPaste, clipboardPaths_, externalCut, clipboardIsCut_,
+                    GetClipboardSequenceNumber(), clipboardSequenceNumber_);
+                bool cut = externalCut || localClipboardCut;
                 if (pathsToPaste.empty() && !clipboardPaths_.empty()) {
                     pathsToPaste = clipboardPaths_;
                     cut = clipboardIsCut_;
@@ -425,6 +434,7 @@ bool WindowShell::InitializeCommands() {
                             // a second paste cannot duplicate the operation.
                             clipboardPaths_.clear();
                             clipboardIsCut_ = false;
+                            clipboardSequenceNumber_ = 0;
                             if (OpenClipboard(hwnd_)) {
                                 EmptyClipboard();
                                 CloseClipboard();
@@ -2375,6 +2385,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         }
 
         case WM_LBUTTONDOWN: {
+            // Custom-rendered content handles the click itself and therefore
+            // does not reach DefWindowProc's default focus activation. Keep
+            // keyboard commands (F2, Delete, Enter, and pane shortcuts)
+            // owned by the shell after a real pointer selection.
+            SetFocus(hwnd_);
             if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
                 // Treemap layout and hit-testing use DIPs, while WM mouse
                 // coordinates are physical pixels.  Convert at the same
@@ -2486,6 +2501,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_RBUTTONDOWN: {
+            SetFocus(hwnd_);
             const auto shellLayout = CurrentShellLayout();
             const float scale = CurrentDpiScale();
             D2D1_POINT_2F point = D2D1::Point2F(
