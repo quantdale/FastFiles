@@ -1,26 +1,34 @@
-# NEXT CAMPAIGN — FASTFILES
+# NEXT CAMPAIGN — FASTFILES (HISTORICAL)
 
-Status: **ACTIVE — 2026-08-28 hardening follow-on**
+Status: **ARCHIVED — FROZEN 2026-08-30**
 Repository: `quantdale/FastFiles`  
 Target-Branch: `main`  
 Audit-Baseline: `933528ed29c2deac583587bedf3259b8ee617f5d`  
 Audit: `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`  
-Active-OpenSpec: `completion-integrity-hardening-and-release-certification`
+Historical-OpenSpec: `completion-integrity-hardening-and-release-certification`
 Completed-Dependency: `rule-pruning-durability-and-reconciliation-failure-closure`
-Follow-On: `completion-integrity-hardening-and-release-certification`
+Historical-Follow-On: `completion-integrity-hardening-and-release-certification`
+
+## Archival notice
+
+This prompt is retained as a historical execution record and is not an active
+implementation instruction. FastFiles is locally complete with external
+production certification pending. Do not resume the dated work below unless a
+new reproducible P0/P1, regression, or authorized external certification input
+appears; the default next action is **none**.
 
 ## Mission
 
-The rule-pruning durability dependency is now truthfully complete at
+The rule-pruning durability dependency was truthfully completed at
 implementation SHA `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`, hosted run
-`33122565103`, and 22/22 checked tasks. Continue the active completion-
-integrity hardening campaign from its task ledger. Do not restart the completed
-indexed-search campaign or accept historical green CI as proof for new work.
+`33122565103`, and 22/22 checked tasks. The completion-integrity hardening
+campaign was subsequently executed and is retained here as historical record.
+Do not restart either completed campaign without a new current reproducer.
 
-Keep the final truth label **locally complete; external certification pending**
-until the follow-on work and its external boundaries are resolved honestly.
+The resulting truth label is **locally complete; external certification pending**;
+the remaining boundaries are recorded in the lifecycle and evidence files.
 
-## Live 2026-08-28 implementation checkpoint
+## Historical 2026-08-28 implementation checkpoint
 
 The active rule-pruning dependency is closed at `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` /
 run `33122565103`. The current cold-reload candidate is
@@ -70,7 +78,7 @@ Before product edits:
 
 Current source wins if HEAD moved after planning.
 
-## Required implementation sequence
+## Historical implementation sequence (completed)
 
 ### 1. Make secondary pruning failures explicitly targetable
 
@@ -159,7 +167,7 @@ Run narrow-to-broad on the repaired tree:
 
 A previously green SHA does not certify code changed after it.
 
-## Completion gate for the active change
+## Historical completion gate
 
 Mark `rule-pruning-durability-and-reconciliation-failure-closure` complete only when:
 
@@ -175,9 +183,9 @@ Mark `rule-pruning-durability-and-reconciliation-failure-closure` complete only 
 
 Do not check a task whose own evidence says pending/in-progress.
 
-## Continuation after active change
+## Historical continuation after the dependency closed
 
-Once the rule-pruning change is truthfully complete, immediately continue through:
+After the rule-pruning change was truthfully completed, the historical session continued through:
 
 `openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md`
 

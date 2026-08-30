@@ -438,7 +438,7 @@ function Get-ProjectStatusLifecycleModel {
                 foreach ($override in @($entry.taskOverrides)) {
                     if (-not (Test-ProjectStatusJsonObject -Value $override)) { [void]$structuralErrors.Add("openspec-lifecycle-task-override-not-object:$name"); continue }
                     $taskId = [string]$override.task
-                    if ($taskId -notmatch '^[0-9]+\.[0-9]+$') { [void]$structuralErrors.Add("openspec-lifecycle-task-id-invalid:$name/$taskId") }
+                    if ($taskId -notmatch '^[0-9]+(?:\.[0-9]+)+$') { [void]$structuralErrors.Add("openspec-lifecycle-task-id-invalid:$name/$taskId") }
                     if (-not $seenTasks.Add($taskId)) { [void]$structuralErrors.Add("openspec-lifecycle-task-duplicate:$name/$taskId") }
                     $disposition = [string]$override.disposition
                     if ($script:ProjectStatusTaskDispositions -notcontains $disposition) { [void]$structuralErrors.Add("openspec-lifecycle-disposition-invalid:$name/$taskId") }
@@ -482,9 +482,9 @@ function Get-ProjectStatusLifecycleModel {
             $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
             if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
                 foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
-                    if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+\.[0-9]+)\s+') {
+                    if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+(?:\.[0-9]+)+)\s+') {
                         [void]$declaredTaskIds.Add($Matches[1])
-                        if ($taskLine -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $openTaskCount++ }
+                        if ($taskLine -match '^\s*-\s+\[\s\]\s+[0-9]+(?:\.[0-9]+)+\s+') { $openTaskCount++ }
                     }
                 }
             }
@@ -510,7 +510,7 @@ function Get-ProjectStatusLifecycleModel {
                 $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
                 $hasOpenTask = $false
                 foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
-                    if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+\.[0-9]+\s+') { $hasOpenTask = $true; break }
+                    if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+(?:\.[0-9]+)+\s+') { $hasOpenTask = $true; break }
                 }
                 if ($hasOpenTask -and -not $seenNames.Contains($changeName)) { [void]$structuralErrors.Add("openspec-lifecycle-entry-missing:$changeName") }
             }
@@ -719,7 +719,7 @@ function Get-ProjectStatusOpenSpecFrontier {
         $lineNumber = 0
         foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
             $lineNumber++
-            if ($line -match '^\s*-\s+\[\s\]\s+([0-9]+\.[0-9]+)\s+(.*)$') {
+            if ($line -match '^\s*-\s+\[\s\]\s+([0-9]+(?:\.[0-9]+)+)\s+(.*)$') {
                 $taskId = $Matches[1]
                 $taskText = $Matches[2]
                 $safeSource = "openspec/changes/$changeName/tasks.md:$lineNumber"
@@ -752,7 +752,9 @@ function Get-ProjectStatusOpenSpecFrontier {
             }
         }
         if ($open.Count -gt 0) {
-            $orderedOpen = @($open | Sort-Object @{ Expression = { [int](($_.task -split '\.')[0]) } }, @{ Expression = { [int](($_.task -split '\.')[1]) } }, sourceLine)
+            $orderedOpen = @($open | Sort-Object @{ Expression = {
+                        ($_.task -split '\.' | ForEach-Object { '{0:D10}' -f [int]$_ }) -join '.'
+                    } }, sourceLine)
             $changes.Add([pscustomobject]@{
                 name = $changeName
                 tasksPath = "openspec/changes/$changeName/tasks.md"

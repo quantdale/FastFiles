@@ -100,9 +100,9 @@ Re-audit the live post-fix tree. Historical findings are hypotheses only.
 
 ### 4.5 UI/UX, accessibility, compatibility
 
-- [ ] 4.5.1 Trace Home -> browse -> deep navigation -> tabs/dual pane -> search -> preview/properties -> file operation -> settings/storage flows end-to-end.
-- [ ] 4.5.2 Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states.
-- [ ] 4.5.3 Validate degraded/indexed/offline/unavailable transitions and reconnect/restart behavior.
+- [ ] 4.5.1 Trace Home -> browse -> deep navigation -> tabs/dual pane -> search -> preview/properties -> file operation -> settings/storage flows end-to-end. — local component seams are covered; the single continuous foreground-owned journey remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive`).
+- [ ] 4.5.2 Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states. — headless semantics, 20/20 selection lifecycles, 20/20 search lifecycles, and 14/14 visual captures are recorded; the complete foreground/display matrix remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive`).
+- [ ] 4.5.3 Validate degraded/indexed/offline/unavailable transitions and reconnect/restart behavior. — local degraded/indexed/recovery seams and restart regressions are covered; the full clean foreground/elevated availability matrix remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive` + `clean-host` + `elevated`).
 - [x] 4.5.4 Treat physical-display/direct-render validation as external when the environment cannot provide it; do not substitute screenshots generated from a different path as PASS.
 
 ### 4.6 Build, dependencies, maintainability
@@ -155,7 +155,7 @@ On one committed candidate SHA, run at minimum:
 - [x] 6.12 unsigned release-candidate packaging/checksums/provenance; — `Test-ReleaseCandidate.ps1` PASS 0 failures on `0ad79a8` (manifest, provenance, SHA256SUMS, deterministic archive)
 - [x] 6.13 verify release evidence retention paths are populated; — retained `candidate-manifest.json`/`provenance.json` non-empty, SHA-bound to `0ad79a8`, redacted pin paths
 - [x] 6.14 representative large-index/search performance sanity; — `ffengine_bench_large_index_scalability` 100k: selective 0.59ms, moderate 48.95ms, broad 197ms, COLD broad 1801ms, largest published 1980421 rows
-- [ ] 6.15 major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/external-blockers.md`
+- [ ] 6.15 major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`
 - [x] 6.16 release-readiness report/composition with external blockers classified, never fabricated; — `ReleaseReadiness.ps1` reports `BLOCKED_EXTERNAL` for signing/pins/privileged/clean-host, artifact integrity FAIL is expected without production artifact (unsigned validation is PASS)
 - [x] 6.17 `git diff --check`, clean worktree, no accidental secrets/debug outputs; — `git diff --check` PASS, `git status` clean on `0ad79a8`, no TODO/FIXME/HACK in product sources
 - [x] 6.18 push without force, confirm local HEAD == origin/main; — `94a4830cb799a459844e7af421257fd525b82116` (ledger fix) pushed, `0ad79a8caeab30f6c129c0f285279d1508b62c48` (product) also 0/0; `git rev-list HEAD...origin/main` 0/0

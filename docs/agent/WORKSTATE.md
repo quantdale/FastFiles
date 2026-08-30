@@ -1,5 +1,49 @@
 # Fast Files — Agent Workstate
 
+## Repository freeze / truth-convergence pass — COMPLETE (observed 2026-08-30)
+
+- Objective: reconcile repository code, evidence, OpenSpec task ledgers,
+  lifecycle state, status tooling, WORKSTATE/progress, and campaign prompts;
+  no product feature or speculative campaign was started.
+- Live state at pass start: `main`, HEAD and `origin/main` were
+  `d1e9c0ba2875419cd632964aacb3dc9849f2d54f`, ahead/behind `0/0`, clean after
+  `git fetch origin --prune`. Hosted CI for that observed tip was run
+  `33296255140`, 6/6 SUCCESS. These are historical observations; derive live
+  branch, HEAD, origin parity, dirty state, and hosted state from Git/GitHub at
+  resume rather than from this file.
+- Lifecycle reconciliation: `interactive-ui-runtime-determinism` is now
+  `completed`; its checked 7.2 and 20/20 consecutive isolated
+  `selection-model-interactions` evidence are no longer overridden as blocked.
+  `ship-ready-ui-ux-hardening-convergence` retains only its genuine external
+  6.2 prerequisite; stale checked-task overrides for 4.3 and 6.1 were removed.
+  The checked runtime 6.3 override was also removed.
+- The status collector and lifecycle schema now recognize dotted numeric task
+  IDs at any depth. The previously invisible open tasks
+  `close-independent-validation-gaps/4.2.2` and
+  `completion-integrity-hardening-and-release-certification/4.5.1–4.5.3` are
+  counted and have explicit lifecycle dispositions.
+- Completion-integrity 4.5.1–4.5.3 remain unchecked but are explicitly
+  `mixed` (`local` component evidence plus interactive/clean-host/elevated
+  external closure) in `evidence/final-ui-journey-disposition.md`. Task 6.15
+  remains precisely `external` / `BLOCKED_ENVIRONMENT`; it does not hide local
+  keyboard, provider, search, or focus defects.
+- Final ledger projection at this checkpoint: 25 raw unchecked tasks across
+  seven changes, 0 active-local tasks, 0 lifecycle errors, and no active
+  lifecycle entry. Remaining external categories are production-signing,
+  elevated, clean-host, external-provider, and interactive; historical failure
+  evidence remains retained.
+- Validation after the metadata changes: strict OpenSpec `77/77` PASS;
+  CTest truth slice (`ffdoc_drift_tests`, `ffdoc_truth_fixture_tests`,
+  `ffsource_provenance_fixture_tests`, `ffproject_status_ps_tests`) `4/4`
+  PASS; release-readiness frontier/status generation PASS with lifecycle
+  `PASS`, raw `25`, active-local `0`, and no ambiguous tasks; `git diff --check`
+  PASS. The release frontier is `SKIPPED` only because no release report was
+  selected, not because lifecycle integrity failed.
+- Final classification: **LOCALLY COMPLETE — EXTERNAL PRODUCTION
+  CERTIFICATION PENDING**. No campaign is active. NEXT EXACT ACTION: **none**
+  unless a new reproducible P0/P1, regression, or authorized external
+  certification input appears.
+
 ## Certification wave — clipboard/focus/visual-catalog + hosted-ANALYZE fix — COMPLETE 2026-08-30
 
 - Resume derived: `main` HEAD `a610bea2e24a71199a1d3e28efd25aa59ab523a6` (hosted run `33286497275` 5/6 SUCCESS, analyze **FAIL** `C6387` in `test_native_header_theme.cpp`). Working tree dirty with QuickActions clipboard fallback, WindowShell focus, native header guard, UIA TeraCopy skip, visual-catalog redaction. Branch `main`, `origin/main` = `a610bea`, 0 ahead/0 behind before wave; after wave product `0ad79a8caeab30f6c129c0f285279d1508b62c48` (rebased onto `0920f17`/`6949889` ONBOARDING commits) and ledger `94a4830cb799a459844e7af421257fd525b82116` (lifecycle fix), `origin/main` = `94a4830`, 0/0, clean worktree, `git diff --check` PASS.

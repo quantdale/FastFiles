@@ -11,7 +11,28 @@
         { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "2.3",
+          "disposition": "external",
+          "categories": ["external-provider", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "2.4",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        }
+      ]
     },
     {
       "name": "close-independent-validation-gaps",
@@ -21,25 +42,91 @@
         { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
       ],
       "supersededBy": null,
-      "taskOverrides": []
-    },
-    {
-      "name": "interactive-ui-runtime-determinism",
-      "state": "external-evidence-only",
-      "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism/tasks.md" }
-      ],
-      "supersededBy": null,
       "taskOverrides": [
         {
-          "task": "7.2",
+          "task": "4.2.2",
+          "disposition": "external",
+          "categories": ["production-signing", "interactive"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md" },
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/privileged-trust-protectedroots-boundary.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.2",
+          "disposition": "mixed",
+          "categories": ["production-signing", "local", "interactive"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md" },
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.5",
+          "disposition": "external",
+          "categories": ["production-signing", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.6",
+          "disposition": "external",
+          "categories": ["elevated"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.7",
+          "disposition": "external",
+          "categories": ["elevated"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.8",
+          "disposition": "external",
+          "categories": ["clean-host", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "5.1",
           "disposition": "external",
           "categories": ["interactive"],
           "status": "BLOCKED_ENVIRONMENT",
-          "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }]
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
         }
       ]
+    },
+    {
+      "name": "interactive-ui-runtime-determinism",
+      "state": "completed",
+      "evidence": [
+        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
+        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism/evidence/implementation-and-validation.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     },
     {
       "name": "nonblocking-indexed-read-plane",
@@ -62,7 +149,38 @@
         { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "5.1",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "5.2",
+          "disposition": "external",
+          "categories": ["production-signing", "clean-host", "elevated"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "5.3",
+          "disposition": "external",
+          "categories": ["external-provider", "interactive"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        }
+      ]
     },
     {
       "name": "real-user-dogfooding-release-engineering",
@@ -86,7 +204,6 @@
       "taskOverrides": [
         { "task": "1.3", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
         { "task": "5.3", "disposition": "external", "categories": ["external-provider"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "6.3", "disposition": "external", "categories": ["external-provider"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
         { "task": "7.2", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
         { "task": "8.2", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
         { "task": "8.3", "disposition": "external", "categories": ["clean-host", "interactive", "elevated"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [
@@ -104,8 +221,6 @@
       ],
       "supersededBy": null,
       "taskOverrides": [
-        { "task": "4.3", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "6.1", "disposition": "external", "categories": ["administrative"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
         { "task": "6.2", "disposition": "external", "categories": ["production-signing", "external-provider", "clean-host", "interactive", "elevated"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] }
       ]
     },
@@ -117,7 +232,38 @@
         { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" }
       ],
       "supersededBy": null,
-      "taskOverrides": []
+      "taskOverrides": [
+        {
+          "task": "6.3",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "6.4",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "6.6",
+          "disposition": "external",
+          "categories": ["external-provider"],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        }
+      ]
     },
     {
       "name": "openspec-frontier-lifecycle-truthfulness",
@@ -237,6 +383,7 @@
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md" },
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md" },
         { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/release-and-truth-surface-validation.md" },
+        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
         { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
         { "kind": "git-commit", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48" },
         { "kind": "hosted-run", "runId": "33294518606", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48", "record": "docs/agent/WORKSTATE.md" }
@@ -244,11 +391,45 @@
       "supersededBy": null,
       "taskOverrides": [
         {
+          "task": "4.5.1",
+          "disposition": "mixed",
+          "categories": ["interactive", "local"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.5.2",
+          "disposition": "mixed",
+          "categories": ["interactive", "local"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
+          "task": "4.5.3",
+          "disposition": "mixed",
+          "categories": ["interactive", "local", "clean-host", "elevated"],
+          "status": "BLOCKED_ENVIRONMENT",
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
+        },
+        {
           "task": "6.15",
           "disposition": "external",
           "categories": ["interactive"],
           "status": "BLOCKED_ENVIRONMENT",
-          "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }]
+          "evidence": [
+            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md" },
+            { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md" },
+            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+          ]
         }
       ]
     }

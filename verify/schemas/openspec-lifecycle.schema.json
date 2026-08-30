@@ -36,7 +36,7 @@
               "type": "object",
               "required": ["task", "disposition", "categories", "status", "evidence"],
               "properties": {
-                "task": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+$" },
+                "task": { "type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)+$" },
                 "disposition": { "type": "string", "enum": ["active", "external", "historical", "superseded", "mixed"] },
                 "categories": {
                   "type": "array",

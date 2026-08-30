@@ -110,3 +110,15 @@ The final state is therefore intended to be **locally complete; external
 certification pending** only after the local final gates and exact final
 commit's hosted CI/release artifact are inspected; the live UIA journey is a
 separate open host/provider boundary until then.
+
+## Subsequent freeze reconciliation — 2026-08-30
+
+The candidate and live-verifier observations above are historical to the
+2026-08-28/29 implementation wave. Later evidence closed the local
+completion-gate work: the product baseline `0ad79a8` and ledger baseline
+`94a4830` each have 6/6 hosted CI success, the refreshed visual catalog is
+14/14, selection-model-interactions is 20/20 consecutive isolated PASS, and
+the Search group is 20/20 with a stable all-PASS scenario set. The remaining
+foreground/Explorer/display and production-signing/privileged/provider gates
+are explicitly represented by task-level lifecycle overrides; no historical
+failure is erased or promoted to a local product failure.

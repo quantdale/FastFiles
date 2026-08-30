@@ -1,14 +1,44 @@
 # FastFiles — Project Status
 
+## Repository freeze — observed 2026-08-30
+
+FastFiles is **LOCALLY COMPLETE — EXTERNAL PRODUCTION CERTIFICATION PENDING**.
+At the start of this truth-convergence pass, Git observed `main` and
+`origin/main` at `d1e9c0ba2875419cd632964aacb3dc9849f2d54f`, ahead/behind `0/0`,
+with a clean worktree. That is a historical checkpoint for this pass; derive
+the live branch, HEAD, origin parity, dirty state, and hosted state from Git
+and GitHub at every resume.
+
+The most recently certified product baseline is `0ad79a8caeab30f6c129c0f285279d1508b62c48`
+(hosted run `33294518606` SUCCESS); the most recently certified ledger baseline
+is `94a4830cb799a459844e7af421257fd525b82116` (hosted run `33295510209`
+SUCCESS). The pre-freeze tip's hosted run `33296255140` was also 6/6 SUCCESS.
+These are immutable evidence references, not a self-referential live-SHA claim.
+
+The lifecycle model now represents 25 unchecked tasks across seven changes,
+each with an explicit task-level disposition and evidence, including the
+previously invisible nested IDs `4.2.2` and `4.5.1–4.5.3`. Active-local tasks
+are `0`; the remaining open work is mixed local/external UI composition or
+genuinely external signing, privileged, clean-host, provider, and interactive
+certification. No implementation campaign is active. The default next action
+is **none** unless a new reproducible P0/P1, regression, or authorized external
+certification input appears.
+
+Affected truth checks are green: strict OpenSpec `77/77`, the CTest truth slice
+(`ffdoc_drift_tests`, `ffdoc_truth_fixture_tests`,
+`ffsource_provenance_fixture_tests`, `ffproject_status_ps_tests`) `4/4`,
+release-frontier/status generation, and `git diff --check`. Product code was
+not changed in this freeze pass.
+
 ## Certification wave — clipboard/focus/visual-catalog + hosted-ANALYZE repair — 2026-08-30
 
-Live `main` is `94a4830cb799a459844e7af421257fd525b82116` (ledger sync; product `0ad79a8caeab30f6c129c0f285279d1508b62c48` hosted run `33294518606` **SUCCESS** 6/6 and ledger `94a4830` hosted run `33295510209` **SUCCESS** 6/6: debug, release-test, analyze, asan-protocol-ipc-lifecycle, unsigned-release-candidate-qualification, hygiene). Predecessor `a610bea` run `33286497275` was 5/6 with **analyze FAIL** `C6387` in `test_native_header_theme.cpp:34` (`SendMessageW` with possibly null `header`); the guard `if (header==nullptr||!IsWindow(header)) {DestroyWindow(list);return 1;}` closes it and the new SHAs are warning-clean (`cmake --preset analyze` 384/384, hosted analyze SUCCESS). Exact final SHA `94a4830` verified via `gh api .../commits/94a4830/check-runs` (6/6 success) and `verify.ps1 status` lifecycle PASS / active local 0 / worktree clean.
+The most recently certified ledger baseline was `94a4830cb799a459844e7af421257fd525b82116` (product `0ad79a8caeab30f6c129c0f285279d1508b62c48`, hosted runs `33294518606` and `33295510209`, both **SUCCESS** 6/6: debug, release-test, analyze, asan-protocol-ipc-lifecycle, unsigned-release-candidate-qualification, hygiene). Predecessor `a610bea` run `33286497275` was 5/6 with **analyze FAIL** `C6387` in `test_native_header_theme.cpp:34` (`SendMessageW` with possibly null `header`); the guard `if (header==nullptr||!IsWindow(header)) {DestroyWindow(list);return 1;}` closes it and the new SHAs are warning-clean (`cmake --preset analyze` 384/384, hosted analyze SUCCESS). The exact SHA and hosted state described here are historical certification evidence.
 
 Product hardening: `QuickActions` clipboard cut now bound to `GetClipboardSequenceNumber` + exact path list (`CanUseLocalCutClipboardFallback`, new `ffquick_actions_tests`); `WindowShell` `WM_LBUTTONDOWN`/`WM_RBUTTONDOWN` `SetFocus` keeps keyboard ownership; UIA `drag-out-to-explorer` returns `SKIPPED` `interactive-drop-target-obstructed` when `TeraCopy` overlay covers the drop point instead of a false product `scenario-failed`; visual catalog `Invoke-VisualCatalog.ps1` now themes via `CB_SETCURSEL`, redacts every UIA-visible `*:\*` / `\\*\*` path (including `ListItem HelpText`) with deduplicated rects, establishes Home via real `navigation.home` (`Pane.0.Home`), and adds `home-wide`/`details-closed`/`dual-pane`/`search-filters-expanded` — 14/14 captures PASS with redacted host paths (`manifest.json` + 4 new PNGs). Debug CTest **94/94** and release-test **94/94** (including `ffquick_actions_tests`), ASAN **3/3**, OpenSpec **77/77**, `ffdoc_drift`/`ffdoc_truth_fixture`/`ffsource_provenance`/`ffproject_status` PASS, `check_source_markers`/`check_diagnostic_policy` PASS, `Invoke-ExactTreeQualification` **8/8**, `Test-ReleaseCandidate` **0 failures** (deterministic archive, SHA-bound provenance, redacted pins), `ffengine_bench_large_index_scalability` 100k selective 0.59ms / broad 197ms sanitary. Production signing/pins, privileged MFT/USN, clean-host, guest/provider, and full live foreground `6.15` remain `BLOCKED_EXTERNAL`/`BLOCKED_ENVIRONMENT` and are never fabricated as PASS.
 
-## Current native-chrome and Settings-page campaign — 2026-08-29
+## Historical native-chrome and Settings-page campaign — 2026-08-29
 
-Live `main` at campaign start was `746b2b33d4028f069a47897ce7e9759606cc62b9`
+At the start of that historical campaign, Git observed `main` at `746b2b33d4028f069a47897ce7e9759606cc62b9`
 (hosted run `33221305265` SUCCESS). Public GitHub API reports PR #6 closed
 without merge; it is historical superseded evidence, not an open
 administrative task.
@@ -21,7 +51,7 @@ command palette, and drives Settings page membership from a headless seam.
 Debug CTest is 88/88 after adding `ffsettings_pages_tests`. Production
 signing, privileged MFT/USN, and live Filters UIA remain external.
 
-## Current completion-integrity checkpoint — 2026-08-28
+## Historical completion-integrity checkpoint — 2026-08-28
 
 The current implementation candidate is `ceffa009ef566edfc9895c363a68fdd005ddc0fa`.
 It closes the confirmed cold-reload integrity defect: failed durable projection
@@ -39,16 +69,16 @@ qualification, clean detached release-candidate qualification, and the
 security, and lifecycle truth-surface audits found no additional material
 local defect.
 
-The diagnostic UIA build is clean, and the verifier now supplies the shared
-search fixture, selects Current Folder on persistent hosts, isolates Win32
-helper type guards, and avoids repeated disclosure toggles. A prior isolated
-allocated-size scenario passed, but the latest focused run still stopped at
-the Filters disclosure; this host-sensitive semantic boundary is not claimed
-as a product PASS. The UIA journey tasks and final release gates remain open
-until a live run is certified or the provider/foreground limitation is
-explicitly classified as external. Production signing/pins, privileged
-MFT/USN, clean-host, guest/provider, and physical-display evidence likewise
-remain external.
+At that checkpoint, the diagnostic UIA build was clean, and the verifier
+supplied the shared search fixture, selected Current Folder on persistent
+hosts, isolated Win32 helper type guards, and avoided repeated disclosure
+toggles. A prior isolated allocated-size scenario passed, but the latest
+focused run still stopped at the Filters disclosure; that historical
+observation is superseded by the later root-cause and repeatability evidence.
+The remaining UIA journey composition and final release gates are now
+explicitly classified in the lifecycle as mixed/external where their
+foreground, provider, signing, clean-host, guest/provider, or physical-display
+prerequisites remain unavailable.
 
 ## Completed rule-pruning durability closure
 
@@ -65,10 +95,10 @@ committed-tree qualification and hosted GitHub Actions run `33122565103`.
 Debug and release-test CTest passed 86/86, Analyze was warning-clean, and the
 authoritative ASAN protocol/IPC/lifecycle slice passed 3/3. Production
 signing, privileged clean-host, guest/provider, and physical-display evidence
-remain external. The active follow-on is
-`completion-integrity-hardening-and-release-certification`; its release
-artifact-retention and action-runtime maintenance tasks remain separate from
-this completed dependency.
+remain external. The follow-on
+`completion-integrity-hardening-and-release-certification` was subsequently
+executed; its release-artifact retention and action-runtime maintenance work
+remain historical evidence for this completed dependency.
 
 ## Completed repository truth-surface and doc-drift convergence campaign
 

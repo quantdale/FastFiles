@@ -51,6 +51,7 @@ try {
         'external-interactive' = @('- [ ] 9.1 Run the UIA visual matrix on the interactive desktop.')
         'external-elevated' = @('- [ ] 10.1 Run elevated service validation.')
         'external-clean-host' = @('- [ ] 11.1 Run on a clean supported Windows host.')
+        'nested-external' = @('- [ ] 12.3.4 Validate the snapshot-restorable Hyper-V guest.')
     }
     foreach ($change in $fixtureTasks.GetEnumerator()) {
         $changeDir = Join-Path $fixtureChangesRoot $change.Key
@@ -64,6 +65,7 @@ try {
     $fixtureOverrideAdmin = [pscustomobject]@{ task = '3.1'; disposition = 'historical'; categories = @('administrative'); status = 'PASS'; evidence = @(& $fixtureEvidence 'completed-administrative') }
     $fixtureOverrideLocal = [pscustomobject]@{ task = '5.1'; disposition = 'active'; categories = @('local'); status = 'SKIPPED'; evidence = @(& $fixtureEvidence 'explicit-local') }
     $fixtureOverrideMixed = [pscustomobject]@{ task = '6.1'; disposition = 'mixed'; categories = @('local', 'production-signing'); status = 'REQUIRED-BUT-UNAVAILABLE'; evidence = @(& $fixtureEvidence 'mixed-work') }
+    $fixtureOverrideNested = [pscustomobject]@{ task = '12.3.4'; disposition = 'external'; categories = @('external-provider'); status = 'REQUIRED-BUT-UNAVAILABLE'; evidence = @(& $fixtureEvidence 'nested-external') }
     $fixtureEntries = @(
         [pscustomobject]@{ name = 'active-local'; state = 'active'; evidence = @(& $fixtureEvidence 'active-local'); supersededBy = $null; taskOverrides = @() }
         [pscustomobject]@{ name = 'completed-external'; state = 'completed'; evidence = @(& $fixtureEvidence 'completed-external'); supersededBy = $null; taskOverrides = @() }
@@ -77,14 +79,16 @@ try {
         [pscustomobject]@{ name = 'external-interactive'; state = 'active'; evidence = @(& $fixtureEvidence 'external-interactive'); supersededBy = $null; taskOverrides = @() }
         [pscustomobject]@{ name = 'external-elevated'; state = 'active'; evidence = @(& $fixtureEvidence 'external-elevated'); supersededBy = $null; taskOverrides = @() }
         [pscustomobject]@{ name = 'external-clean-host'; state = 'active'; evidence = @(& $fixtureEvidence 'external-clean-host'); supersededBy = $null; taskOverrides = @() }
+        [pscustomobject]@{ name = 'nested-external'; state = 'external-evidence-only'; evidence = @(& $fixtureEvidence 'nested-external'); supersededBy = $null; taskOverrides = @($fixtureOverrideNested) }
     )
     $fixtureLifecycle = [pscustomobject]@{ schemaVersion = 2; kind = 'fastfiles-openspec-lifecycle'; changes = $fixtureEntries }
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Value ($fixtureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
     $fixtureFrontier = Get-ProjectStatusOpenSpecFrontier -RepoRoot $fixtureRoot
     $fixtureProjection = Get-ProjectStatusFrontierProjection -OpenSpec $fixtureFrontier
-    Check ($fixtureFrontier.status -eq 'PASS' -and $fixtureFrontier.totalOpenTasks -eq 12) 'lifecycle fixture parses the complete raw unchecked inventory'
+    Check ($fixtureFrontier.status -eq 'PASS' -and $fixtureFrontier.totalOpenTasks -eq 13) 'lifecycle fixture parses the complete raw unchecked inventory, including nested task IDs'
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].taskDisposition -eq 'active' -and @($fixtureFrontier.changes | Where-Object { $_.name -eq 'active-local' }).openTasks[0].classificationConfidence -eq 'low') 'active local task remains local with low-confidence fallback provenance'
     Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'completed-external' }).openTasks[0].taskDisposition -eq 'external' -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'completed-external' }).Count -eq 1) 'completed external task stays visible in a blocked bucket, not local-open'
+    Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'nested-external' }).openTasks[0].task -eq '12.3.4' -and @($fixtureProjection.providerBlocked | Where-Object { $_.change -eq 'nested-external' }).Count -eq 1) 'nested task override is lifecycle-visible and remains provider-blocked'
     Check (@($fixtureProjection.historicalOpen | Where-Object { $_.change -eq 'completed-administrative' }).Count -eq 1) 'later-satisfied administrative task stays historical when its old checkbox remains open'
     Check (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' }).Count -eq 1 -and (@($fixtureProjection.supersededOpen | Where-Object { $_.change -eq 'superseded-old' })[0].evidence[0].kind -eq 'repository-path')) 'superseded task preserves typed evidence and avoids local-open'
     Check (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' }).Count -eq 1 -and (@($fixtureProjection.localOpen | Where-Object { $_.change -eq 'explicit-local' })[0].classificationSource -eq 'explicit-lifecycle-metadata')) 'explicit metadata wins over misleading signing/interactive prose'

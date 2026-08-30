@@ -130,3 +130,14 @@ matrix, guest/provider evidence, or production engine-lifetime change was
 attempted. These remain external prerequisites under repository policy. The
 live foreground/physical-layout skips are evidence boundaries, not product
 passes manufactured by retrying or by replacing UIA with OCR/pixels.
+
+## Subsequent completion evidence — 2026-08-29/30
+
+The earlier selection-run limitation above was superseded by the corrected
+isolated campaign recorded in
+`openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-search-20run-postfix.jsonl`:
+`selection-model-interactions` completed 20/20 consecutive isolated lifecycles
+with 2 PASS, 1 explicit environment SKIP, and 0 FAIL per lifecycle. The
+current task ledger and lifecycle therefore treat task 7.2 as completed. The
+remaining full foreground/physical-display limitations are retained as
+external evidence boundaries and do not reopen this completed change.

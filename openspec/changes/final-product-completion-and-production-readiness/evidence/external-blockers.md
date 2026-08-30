@@ -19,11 +19,13 @@ authorized elevated host.
 
 ## Live foreground UIA
 
-Headless UIA provider tests pass. Live semantic journeys (including Filters
-disclosure) remain host-sensitive; previous foreground runs failed at that
-boundary without a product-code diagnosis. Physical-display screenshot
-catalog and DPI/High Contrast visual matrix also require an interactive
-desktop.
+Headless UIA provider tests pass, and the corrected Search/Filters and
+selection runs are recorded separately as 20/20 isolated PASS evidence. The
+remaining full live foreground/Explorer journey is host-sensitive: physical
+foreground ownership, pointer/drop-target composition, and broader
+display/DPI/High Contrast coverage require an appropriate interactive desktop.
+The earlier Filters-disclosure diagnosis is historical and is not a current
+local blocker.
 
 ## PR #6
 

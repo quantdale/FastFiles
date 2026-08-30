@@ -1,16 +1,25 @@
-# FASTFILES — 12-HOUR COMPLETION INTEGRITY + HARDENING CAMPAIGN
+# FASTFILES — 12-HOUR COMPLETION INTEGRITY + HARDENING CAMPAIGN (HISTORICAL)
 
-Status: **ACTIVE — 2026-08-28 hardening follow-on**
+Status: **ARCHIVED — FROZEN 2026-08-30**
 Repository: `quantdale/FastFiles`  
 Target-Branch: `main`  
 Audit-Baseline: `933528ed29c2deac583587bedf3259b8ee617f5d`  
 Audit-Evidence: `docs/agent/DEEP_AUDIT_2026-08-28_FASTFILES.md`  
 Baseline-Hosted-CI: run `33095061127` = **SUCCESS**  
 Completed-Dependency: `openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/`
-Active-OpenSpec: `openspec/changes/completion-integrity-hardening-and-release-certification/`
-Queued-Umbrella: `openspec/changes/completion-integrity-hardening-and-release-certification/`
+Historical-OpenSpec: `openspec/changes/completion-integrity-hardening-and-release-certification/`
+Historical-Umbrella: `openspec/changes/completion-integrity-hardening-and-release-certification/`
 
-## 0. Authoritative 2026-08-28 override
+## Archival notice
+
+This file records a completed historical campaign and is not an execution
+prompt. FastFiles has no active local development frontier. Do not launch a new
+campaign from the instructions below. The default next action is **none —
+repository locally complete; await a new reproducible P0/P1, a reported
+regression, or authorized external production-certification inputs**. Reopen a
+bounded campaign only after one of those inputs is actually present.
+
+## 0. Historical 2026-08-28 override
 
 This file supersedes the older 2026-08-27 campaign ordering.
 
@@ -18,14 +27,13 @@ The previous baseline problem (stale project-status hard-coding and indexed-sear
 
 The exact audited SHA `933528ed...` has green hosted CI, including Debug/release-test full CTest, Analyze, strict OpenSpec/policy/status, exact-tree qualification, an ASAN protocol/IPC slice, and unsigned release-candidate qualification.
 
-However, source/test/task review found **green-CI false confidence** in the currently active rule-pruning change. Therefore the next session is a **combined Implementation + Hardening campaign**, with a narrow correctness repair first and broad hardening/certification second.
+At that time, source/test/task review found **green-CI false confidence** in the rule-pruning change. The subsequent session executed the combined implementation and hardening campaign, with the narrow correctness repair first.
 
 Wave 1 is now complete: implementation SHA
 `f65b3bfc770587b4f28f3fa49f3da68faa4142a3`, exact-tree qualification PASS, and
 hosted run `33122565103` SUCCESS with the authoritative ASAN protocol/IPC/
-lifecycle 3/3 slice. The active frontier is now the completion-integrity
-follow-on; the findings below are the audit baseline and remain useful only
-where they still reproduce on the live tree.
+lifecycle 3/3 slice. The findings below are the historical audit baseline and
+remain useful only where they still reproduce on a future tree.
 
 Read in this order:
 
@@ -39,7 +47,7 @@ Read in this order:
 
 Current source after pulling always outranks stale line numbers or planner assumptions.
 
-## Current live checkpoint — 2026-08-28
+## Historical live checkpoint — 2026-08-28
 
 The rule-pruning dependency remains complete at `f65b3bfc770587b4f28f3fa49f3da68faa4142a3` /
 run `33122565103`. Subsequent truth-surface and release-evidence repairs are
@@ -52,8 +60,9 @@ The predecessor hosted run `33129228485` for `2a3841ceef1b0b99f533ed3bf46d7a6309
 passed all six jobs and retained two non-empty safe release JSON files. Local
 Debug/release-test suites are 86/86, Analyze is warning-clean, ASAN is 3/3,
 release tooling and clean-candidate qualification pass, and the benchmark
-shows bounded cold reload/eviction behavior. The final candidate must still be
-qualified and inspected at its own exact hosted SHA.
+shows bounded cold reload/eviction behavior. The final candidate was
+subsequently qualified and inspected at its own exact hosted SHA; the remaining
+external gates are retained in the current lifecycle.
 
 The live UIA verifier has been hardened for fixture readiness, palette
 sequencing, persistent-host scope selection, separate Win32 helper guards, and
@@ -153,7 +162,7 @@ Do not:
 - hard-code an AI harness/model into product behavior;
 - create a broad architecture rewrite when a bounded repair exists.
 
-## 3. Mandatory intake
+## 3. Historical mandatory intake
 
 At session start:
 
@@ -165,7 +174,9 @@ At session start:
 6. enumerate current active-local OpenSpec tasks and ensure the reopened rule-pruning ledger is visible;
 7. preserve user/parallel work and reconcile rather than overwrite.
 
-If this planner commit series itself is the only delta from the audit baseline, treat the new audit/OpenSpec/control-plane files as planning truth and continue with the first product-code dependency.
+If this planner commit series had been the only delta from the audit baseline,
+the new audit/OpenSpec/control-plane files were to be treated as planning
+truth; that historical dependency sequence has since completed.
 
 ## 4. Confirmed blockers from the audit
 
@@ -223,11 +234,11 @@ The repository also has `ffipc_listener_lifecycle_tests`, while recent evidence 
 
 The rule-pruning design calls the fault injector test-only, but current `IndexPipeline` exposes it unconditionally. Encapsulate/guard it if feasible without distorting production or test architecture.
 
-## 5. Wave 1 — close rule-pruning durability correctly
+## 5. Historical Wave 1 — close rule-pruning durability correctly
 
 This wave is mandatory before broad hardening.
 
-Use the reopened active task ledger as the executable checklist.
+The reopened ledger was the executable checklist for this historical wave.
 
 Required engineering outcomes:
 
@@ -246,7 +257,7 @@ Required engineering outcomes:
 
 If implementation reveals that the written fail-closed contract is wrong, stop and revise proposal/design/spec with evidence before changing semantics. Do not silently reinterpret the requirement.
 
-## 6. Wave 2 — assurance/control-plane hardening
+## 6. Historical Wave 2 — assurance/control-plane hardening
 
 After Wave 1:
 
@@ -259,9 +270,9 @@ After Wave 1:
 
 The objective is not more process for its own sake. The objective is that future green status means what it says.
 
-## 7. Wave 3 — CI, release, sanitizer evidence
+## 7. Historical Wave 3 — CI, release, sanitizer evidence
 
-Execute the queued OpenSpec tasks:
+The queued OpenSpec tasks were executed during the historical campaign:
 
 1. fix release candidate producer/upload path mismatch;
 2. add a regression that successful qualification yields retainable safe manifest/provenance;
@@ -273,7 +284,7 @@ Execute the queued OpenSpec tasks:
 
 Do not upload secrets/signing material.
 
-## 8. Wave 4 — fresh post-fix repository-wide adversarial audit
+## 8. Historical Wave 4 — fresh post-fix repository-wide adversarial audit
 
 Do not merely reread the 2026-08-28 findings. Re-enumerate the post-fix tree.
 
@@ -365,7 +376,7 @@ Physical-display/direct-render requirements remain external if unavailable.
 
 Check clean checkout, presets/targets, install/package paths, dependency inventory, source markers, docs truth, support matrix, release notes/templates, and operational diagnostics.
 
-## 9. Newly found defects
+## 9. Historical newly found defects
 
 For each material new finding:
 
@@ -382,7 +393,7 @@ For each material new finding:
 
 A confirmed P0/P1 interrupts lower-priority work. Do not leave a known high-severity regression to continue checklist completion.
 
-## 10. Wave 5 — final release certification
+## 10. Historical Wave 5 — final release certification
 
 Before declaring local completion, run one coherent exact-tree gate:
 
