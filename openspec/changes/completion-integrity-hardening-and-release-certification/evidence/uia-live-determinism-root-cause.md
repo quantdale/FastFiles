@@ -183,30 +183,24 @@ behind a green top-line result.
 | Duration | 64-77s |
 | Distinct scenario-status sets | 2 |
 
-**This does not yet satisfy the 20-consecutive-clean requirement.** Run 10
-recorded `search-allocated-size = SKIPPED:engine-connect-unavailable`, and that
-skip is currently unexplained at root-cause level:
+**Run 10 recorded `search-allocated-size = SKIPPED:engine-connect-unavailable`.**
+That skip was recorded here as an unexplained ~1-in-20 "UI/Engine startup
+handshake miss". It has since been root-caused, and the original reading was
+wrong. See *Root cause of the run-10 skip* below. The corrected statement is:
+the `search` group reached 20/20 with one lifecycle whose readiness signal was
+destroyed by a defect in the diagnostics log writer, not by a failed handshake.
 
-* the reason is accurate this time — it came from `$Context.ReadyReason`
-  (`engine-connect-not-observed`), not from the `Test-UiaEngineServingData`
-  predicate criticised above;
-* the retained diagnostics log for that lifecycle contains **zero**
-  `FFDIAG_ENGINE_CONNECT_SUCCEEDED` records across its full 21s span, where a
-  passing lifecycle logs exactly one — so the UI/Engine handshake genuinely
-  never completed rather than merely being observed late;
-* the lifecycle logged `FFDIAG_ENGINE_STATUS_CHANGED engine-started`,
-  `FFDIAG_ENGINE_LAUNCHED`, and then
-  `FFDIAG_UI_SNAPSHOT_READ_FAILED state=snapshot-generation-remap-failed`;
-* the interleaved `FFDIAG_ENGINE_CONNECT_FAILED
-  privileged-connection-disconnected/service-not-running` records are the
-  expected degraded-mode privileged path (pins are placeholders) and are
-  present in passing runs too, so they are not the discriminator.
+The claim previously recorded here -
 
-A ~1-in-20 UI/Engine startup handshake miss accompanied by
-`snapshot-generation-remap-failed` is a real anomaly. It is recorded here
-rather than waved through: the acceptance criterion is twenty consecutive
-lifecycles with no *unexplained* product or harness result, and this one is
-unexplained. The count is not claimed.
+> the retained diagnostics log for that lifecycle contains zero
+> `FFDIAG_ENGINE_CONNECT_SUCCEEDED` records ... so the UI/Engine handshake
+> genuinely never completed rather than merely being observed late
+
+- was **not supported by the data it cited**. It is a process-attribution
+conclusion drawn from a log that carried no process attribution. The absence of
+a record in a shared, multi-process, non-atomically-appended file does not
+establish that the event never occurred. Retained for the record because this
+campaign's subject is exactly this class of overstated evidence.
 
 ### Full capability — 3 consecutive lifecycles
 
@@ -233,6 +227,102 @@ n=3 is too thin to classify the pointer-input family as the
 actually available" external boundary, and it is deliberately **not** so
 classified here. Excluding it from the required set on this evidence would be
 defining the requirement around its failure.
+
+## Root cause of the run-10 skip - the diagnostics log lost the record
+
+Date: 2026-08-30. This supersedes the "unexplained handshake miss" reading above.
+
+### What the evidence actually shows
+
+Each UIA lifecycle runs in its own disposable sandbox with its own
+`LOCALAPPDATA`, so a lifecycle's `diagnostics.log` is written only by the
+processes that lifecycle launched (`New-UiaSessionSandbox` creates a fresh
+GUID-named root per scenario). A straggler from the previous lifecycle writes
+to its own, already-deleted, sandbox - it cannot appear here.
+
+Run 10's `search-allocated-size` log contains
+`FFDIAG_UI_SNAPSHOT_READ_FAILED state=snapshot-generation-remap-failed`. That
+state has exactly one emitter, `EngineClient::ReaderLoop`, and `ReaderLoop`
+runs only after `ConnectAndSubscribe` has published the pipe - which happens
+immediately *before* `AppendDiagnostic(FFDIAG_ENGINE_CONNECT_SUCCEEDED)`, on
+the same thread.
+
+So the handshake completed and the record was **written and then destroyed**.
+
+### The defect
+
+`ffprotocol::AppendDiagnostic` appended through `std::wofstream` opened with
+`std::ios::app`, which appends by seeking to end-of-file and writing at that
+offset. That is atomic only *within* one process, where `LogMutex` serialises
+it. The UI, the engine it launches, and the service all append to the same
+file. Two processes that resolve the same end offset overwrite each other.
+
+Direct physical evidence, measured across the 121 retained lifecycle logs in
+`verify/runs/`:
+
+| Measurement | Result |
+| --- | ---: |
+| Records written | 25,927 |
+| Orphaned record tails (a record's head overwritten) | 35 |
+| Lifecycles missing `FFDIAG_ENGINE_CONNECT_SUCCEEDED` | 1 of 121 |
+
+Every orphan has the same shape: a UI record's head clobbered by an engine
+record written at the same offset, leaving the UI record's tail stranded as its
+own line. For example, a `FFDIAG_UI_DIRECTORY_REQUEST_SENT` record (UI)
+partially overwritten by a `FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED` record
+(engine):
+
+```
+1788033665 ... codeName=FFDIAG_ENGINE_DIRECTORY_REQUEST_RECEIVED path=<sandbox>
+-directory-request-sent outcome= account= sid= privilegeHeld=0 ... items=0
+```
+
+The single lifecycle missing `CONNECT_SUCCEEDED` is run 10 - the only one of
+121 - and its loss window is the moment the just-launched engine emits its
+first record, which is exactly when the UI writes `CONNECT_SUCCEEDED`.
+
+The harness uses that one record as its engine-readiness signal, so it
+correctly reported `engine-connect-not-observed` for a handshake that had in
+fact completed. The observation was accurate; the record it depended on had
+been destroyed by another process's concurrent append.
+
+### Fixes
+
+* `AppendDiagnostic` now opens with `FILE_APPEND_DATA` (deliberately *without*
+  `FILE_WRITE_DATA`) and writes each whole record with a single `WriteFile`.
+  The filesystem then chooses the offset under its own lock, so an append is
+  atomic against every other process. `LogMutex` is retained for intra-process
+  ordering.
+* Records are encoded explicitly as UTF-8. The previous wide stream narrowed
+  through the "C" locale, which fails the entire record as soon as a path
+  contains a non-ASCII character - silently, because every call site discards
+  `AppendDiagnostic`'s return value. `ExportDiagnosticBundle` decodes with the
+  matching code page.
+* Every record now carries `pid`, `tid` and `epochMs` (append-only trailing
+  fields in text, new keys in JSON). A shared multi-process log with no process
+  attribution and one-second resolution is why this took two sessions to
+  root-cause: the decisive question was always "which process wrote this", and
+  the log could not answer it.
+* `EngineClient::ConnectAndSubscribe`'s one silent `return false` - taken when
+  a completed handshake is superseded or shutdown has begun - now records
+  `engine-connect-superseded` / `engine-connect-stopping`, logged outside the
+  writer critical section. A silent return there was indistinguishable in the
+  log from a connect that never finished.
+
+### Coverage
+
+`ffprotocol_diagnostics_concurrency_tests` spawns four real writer processes
+appending 250 varying-length records each. A single-process thread test cannot
+reproduce the defect, because `LogMutex` already serialises threads.
+
+Reverting `AppendDiagnostic` to the previous implementation and rebuilding
+fails three of its checks - torn records, lost records, and per-writer record
+loss - so the coverage pins the defect rather than describing the fix.
+
+### What was *not* changed
+
+The harness's 20 s readiness budget was left exactly as it was. Widening it
+would have produced a green 20-run that proved nothing.
 
 ### Invalidated records
 

@@ -15,6 +15,11 @@
 namespace ffprotocol {
 namespace {
 
+// A record must reach the file in one WriteFile call for the append to be
+// atomic. Every field is bounded far below this; a record that somehow is
+// not is dropped rather than torn across two writes.
+constexpr size_t kMaximumRecordBytes = 60 * 1024;
+
 std::mutex& LogMutex() {
     static std::mutex mutex;
     return mutex;
@@ -72,6 +77,24 @@ std::wstring JsonEscape(const std::wstring& value) {
                 }
                 break;
         }
+    }
+    return result;
+}
+
+// The diagnostics log is written by more than one process (UI, engine,
+// service). Encode explicitly as UTF-8 rather than letting a wide stream
+// narrow through the "C" locale, which fails the whole record -- silently,
+// because every caller discards the return value -- as soon as a path
+// contains a non-ASCII character.
+std::string NarrowUtf8(const std::wstring& value) {
+    if (value.empty()) return {};
+    const int needed = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                                           nullptr, 0, nullptr, nullptr);
+    if (needed <= 0) return {};
+    std::string result(static_cast<size_t>(needed), '\0');
+    if (WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), needed,
+                            nullptr, nullptr) != needed) {
+        return {};
     }
     return result;
 }
@@ -142,7 +165,15 @@ std::wstring DiagnosticLogPath() {
 }
 
 std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFormat format) {
-    const auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    // One time point for both fields: the leading seconds token is the
+    // stable, externally-parsed identity, and epochMs resolves ordering
+    // between records that share a second.
+    const auto capturedAt = std::chrono::system_clock::now();
+    const auto now = std::chrono::system_clock::to_time_t(capturedAt);
+    const long long epochMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(capturedAt.time_since_epoch()).count();
+    const unsigned long processId = GetCurrentProcessId();
+    const unsigned long threadId = GetCurrentThreadId();
     const auto message = !event.state.empty() ? event.state
         : (!event.outcome.empty() ? event.outcome : L"diagnostic");
     std::wostringstream output;
@@ -176,6 +207,11 @@ std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFo
             output << L",\"signatureThumbprint\":\""
                    << JsonEscape(event.signatureThumbprint) << L"\"";
         }
+        // Appended last so existing key lookups are unaffected. Process and
+        // thread identity are what make a multi-process log attributable.
+        output << L",\"pid\":" << processId
+               << L",\"tid\":" << threadId
+               << L",\"epochMs\":" << epochMs;
         output << L"}";
         return output.str();
     }
@@ -207,6 +243,8 @@ std::wstring SerializeDiagnosticEvent(const DiagnosticEvent& event, DiagnosticFo
     if (!event.signatureThumbprint.empty()) {
         output << L" signatureThumbprint=" << SafeField(event.signatureThumbprint);
     }
+    // Append-only trailing fields: substring-based consumers are unaffected.
+    output << L" pid=" << processId << L" tid=" << threadId << L" epochMs=" << epochMs;
     return output.str();
 }
 
@@ -216,12 +254,32 @@ bool AppendDiagnostic(const DiagnosticEvent& event, DiagnosticFormat format) {
     std::error_code error;
     std::filesystem::create_directories(std::filesystem::path(path).parent_path(), error);
     if (error) return false;
+
+    const std::string record = NarrowUtf8(SerializeDiagnosticEvent(event, format) + L"\n");
+    if (record.empty() || record.size() > kMaximumRecordBytes) return false;
+
     std::lock_guard lock(LogMutex());
-    std::wofstream output(path, std::ios::app);
-    if (!output) return false;
-    output << SerializeDiagnosticEvent(event, format) << L"\n";
-    output.flush();
-    return static_cast<bool>(output);
+    // The UI, engine and service all append to this one file. A wide stream
+    // opened with std::ios::app appends by seeking to end-of-file and then
+    // writing at that offset, which is atomic only within a single process
+    // (LogMutex). Two processes that resolve the same end offset overwrite
+    // each other, so records were silently destroyed -- observed as orphaned
+    // record tails in retained logs, and as a lost
+    // FFDIAG_ENGINE_CONNECT_SUCCEEDED when a just-launched engine's first
+    // record collided with it.
+    //
+    // FILE_APPEND_DATA *without* FILE_WRITE_DATA makes the filesystem pick
+    // the offset under its own lock, so one WriteFile of a whole record is
+    // atomic against every other appender. LogMutex is kept for
+    // intra-process ordering.
+    const HANDLE file = CreateFileW(path.c_str(), FILE_APPEND_DATA,
+                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                    OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    const BOOL wrote = WriteFile(file, record.data(), static_cast<DWORD>(record.size()), &written, nullptr);
+    CloseHandle(file);
+    return wrote != FALSE && written == record.size();
 }
 
 namespace {
@@ -403,16 +461,15 @@ bool ExportDiagnosticBundle(const std::wstring& destinationPath, bool includeLit
         return false;
     }
 
-    // The log is written via std::wofstream under the "C" locale, which on
-    // MSVC narrows each wchar_t to one char; the on-disk bytes are ASCII.
-    // Convert the whole buffer once (CP_ACP round-trips ASCII exactly) and
-    // split on L'\n'.
+    // AppendDiagnostic writes UTF-8. Decode with the matching code page so a
+    // non-ASCII path is summarised correctly instead of as mojibake; UTF-8
+    // round-trips the ASCII-only records written before this change.
     std::wstring text;
     if (!bytes.empty()) {
-        const int needed = MultiByteToWideChar(CP_ACP, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
+        const int needed = MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), nullptr, 0);
         if (needed > 0) {
             text.resize(static_cast<size_t>(needed));
-            MultiByteToWideChar(CP_ACP, 0, bytes.data(), static_cast<int>(bytes.size()), text.data(), needed);
+            MultiByteToWideChar(CP_UTF8, 0, bytes.data(), static_cast<int>(bytes.size()), text.data(), needed);
         }
     }
 

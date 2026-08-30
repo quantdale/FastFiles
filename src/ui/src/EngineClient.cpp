@@ -344,18 +344,29 @@ bool EngineClient::ConnectAndSubscribe() {
         return fail(L"engine-connect-snapshot-map-failed", error);
     }
 
+    bool stopping = false;
+    bool superseded = false;
     {
         std::lock_guard<std::mutex> lock(writeMutex_);
         // Stop() may race a slow handshake. Do not publish a newly-connected
         // handle after shutdown has begun, and never replace a live handle
         // behind the writer's back.
         std::lock_guard<std::mutex> stateLock(pipeStateMutex_);
-        if (!running_.load() || pipe_ != nullptr) {
-            if (connectingPipe_ == pipe) connectingPipe_.reset();
-            return false;
+        stopping = !running_.load();
+        superseded = !stopping && pipe_ != nullptr;
+        if (!stopping && !superseded) {
+            pipe_ = pipe;
         }
-        pipe_ = pipe;
         if (connectingPipe_ == pipe) connectingPipe_.reset();
+    }
+    if (stopping || superseded) {
+        // Never leave this outcome unrecorded: it is the one path that
+        // discards an otherwise completed handshake, and a silent return is
+        // indistinguishable in the log from a connect that never finished.
+        // Logged outside the critical section so diagnostic file I/O never
+        // runs under the writer lock.
+        return fail(superseded ? L"engine-connect-superseded" : L"engine-connect-stopping",
+                    ERROR_OPERATION_ABORTED);
     }
     announcedGeneration_ = header.generationId;
     // Wake the invalidation worker after the control pipe becomes usable. Any
