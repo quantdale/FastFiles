@@ -1,5 +1,15 @@
 # Fast Files — Agent Workstate
 
+## Recovery artifact audit and safe cleanup — COMPLETE (2026-08-30)
+
+- Canonical reconciliation at audit start: `main`, `HEAD == origin/main == 7f0b9da1ccf169e268855fb3936f651f58153c16`, clean, `0/0` ahead/behind.
+- The parent inventory found exactly one backup directory and four loose FastFiles recovery files. Backup `HEAD` (`52d33da`) is an ancestor of canonical `main`; all backup refs are reachable from canonical history, and 15 dangling checkpoint commits contain no file blob absent from canonical history.
+- The WIP patch is a valid 78-file Git diff snapshot: old/new blob IDs and numstat match the backup worktree. All WIP blobs and all 72 meaningful non-ignored untracked files are preserved in canonical history/current paths; the remaining nine untracked files are generated `.obj` outputs or a one-off report writer whose output is already preserved.
+- No staged changes, unique actionable source/tests/docs/configuration, credentials, or repository history were found. Five dangling blobs were superseded old guidance/configuration/proposal versions. `RECOVERED_FASTFILES_ARTIFACTS.md` was not needed.
+- The four loose files and the backup directory were sent to the Windows Recycle Bin using exact paths; the parent now retains only canonical `FastFiles\`. Protected backup `verify/runs`, `verify/baselines`, and `verify/.signing` contents were not inspected per repository rule; Recycle Bin retention keeps this cleanup reversible.
+
+NEXT EXACT ACTION: none for this cleanup slice.
+
 ## Repository freeze / truth-convergence pass — COMPLETE (observed 2026-08-30)
 
 - Objective: reconcile repository code, evidence, OpenSpec task ledgers,
