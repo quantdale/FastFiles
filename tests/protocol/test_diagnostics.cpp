@@ -6,6 +6,7 @@
 #include <windows.h>
 
 #include "ffprotocol/Diagnostics.h"
+#include "ffprotocol/UiProtocol.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -45,6 +46,21 @@ int main() {
     Check(contents.find(L"path=C:\\private\\folder") != std::wstring::npos, "path metadata is logged");
     Check(contents.find(L"access-denied") != std::wstring::npos, "state metadata is logged");
     Check(contents.find(L"secret file contents") == std::wstring::npos, "file contents are not accepted by the event shape");
+
+    // A record is written by one WriteFile so the cross-process append stays
+    // atomic, which means an over-long record is dropped. The size cap must
+    // therefore sit above the largest legitimate record, or a long-path
+    // diagnostic disappears with no trace -- every caller discards this
+    // return value. kMaxPathLengthChars costs up to 3 UTF-8 bytes per code
+    // unit, and up to 6 once JSON-escaped.
+    ffprotocol::DiagnosticEvent longPathEvent = event;
+    longPathEvent.path.assign(ffprotocol::kMaxPathLengthChars, L'é');
+    Check(ffprotocol::AppendDiagnostic(longPathEvent),
+          "a maximum-length path diagnostic is still recorded");
+    Check(ffprotocol::AppendDiagnostic(longPathEvent, ffprotocol::DiagnosticFormat::Json),
+          "a maximum-length path diagnostic is still recorded in JSON form");
+    Check(ffprotocol::SerializeDiagnosticEvent(longPathEvent).find(longPathEvent.path) != std::wstring::npos,
+          "the maximum-length path survives serialization unabridged");
 
     ffprotocol::DiagnosticEvent jsonEvent = event;
     jsonEvent.state = L"quoted \"message\"\nwith control";

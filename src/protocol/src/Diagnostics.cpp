@@ -15,10 +15,17 @@
 namespace ffprotocol {
 namespace {
 
-// A record must reach the file in one WriteFile call for the append to be
-// atomic. Every field is bounded far below this; a record that somehow is
-// not is dropped rather than torn across two writes.
-constexpr size_t kMaximumRecordBytes = 60 * 1024;
+// A record must reach the file in one WriteFile call for the append to stay
+// atomic, so an over-long record is dropped rather than torn across two
+// writes. This bound is deliberately unreachable for any legitimate record:
+// the largest field is a path, capped at kMaxPathLengthChars (32,767), which
+// costs at most 3 UTF-8 bytes per UTF-16 code unit (~98 KB), or 6 bytes per
+// unit once JSON-escaped as \uXXXX (~197 KB). One mebibyte leaves ~5x
+// headroom over that worst case, so the drop path is a backstop against a
+// corrupt event -- never a size a real diagnostic can reach. A smaller cap
+// would silently discard long-path diagnostics, because every caller
+// discards this function's return value.
+constexpr size_t kMaximumRecordBytes = 1024 * 1024;
 
 std::mutex& LogMutex() {
     static std::mutex mutex;

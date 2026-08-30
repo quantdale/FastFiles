@@ -293,6 +293,14 @@ been destroyed by another process's concurrent append.
   The filesystem then chooses the offset under its own lock, so an append is
   atomic against every other process. `LogMutex` is retained for intra-process
   ordering.
+* Because a record must reach the file in one `WriteFile` for the append to
+  stay atomic, an over-long record is dropped. The cap is set above the
+  largest legitimate record (a `kMaxPathLengthChars` path costs up to ~98 KB
+  in UTF-8, ~197 KB JSON-escaped; the cap is 1 MiB), so the drop path is a
+  backstop that no real diagnostic can reach. An earlier 60 KB cap in this
+  same change would have silently discarded long-path diagnostics -- the very
+  failure shape being removed. `ffprotocol_diagnostics_tests` now appends a
+  maximum-length path in both formats and fails against that smaller cap.
 * Records are encoded explicitly as UTF-8. The previous wide stream narrowed
   through the "C" locale, which fails the entire record as soon as a path
   contains a non-ASCII character - silently, because every call site discards
