@@ -48,9 +48,11 @@ Run the repository's pinned bootstrap, not an improvised dependency upgrade:
 
 ```powershell
 cmake --version
+ninja --version
 cl
 npm --version
-# Configure using the repository's supported CMake preset/build procedure from README/CMakePresets.json
+cmake --preset debug
+cmake --build --preset debug
 ```
 
 FastFiles has privileged/unprivileged process boundaries. Never bypass the service/engine/UI architecture or release signature checks just to make a new machine convenient.
@@ -65,10 +67,13 @@ The editor is optional; the language servers are not. Agents should have diagnos
 ## 6. Baseline verification
 
 ```powershell
-cmake --preset <supported-preset>
-cmake --build --preset <supported-build-preset>
-ctest --preset <supported-test-preset>
-# Then run the repository's documented FastFiles verification scripts for the current campaign.
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+# Use release-test for optimized unsigned regression/performance work:
+cmake --preset release-test
+cmake --build --preset release-test
+ctest --preset release-test
 ```
 
 A fresh machine is considered **development-ready** only when the applicable non-external gates above pass. Hardware/device/signing/account gates may remain explicitly blocked if the repository already classifies them that way.
