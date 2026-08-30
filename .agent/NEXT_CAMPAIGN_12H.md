@@ -70,14 +70,31 @@ a symptom of that abort. With the guard corrected, `search-panel-open`,
 re-chase the Filters disclosure; see
 `openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md`.
 
-4.5.1–4.5.3 and the dependent final UIA gate remain unchecked, but for
-different reasons: those tasks span preview/properties, file operations, dual
-pane, Unicode, long names and narrow/wide layouts that have not been
-exercised, and two live items remain open — a ~1-in-20 UI/Engine startup
-handshake miss, and pointer-input (drag/click) instability characterised only
-at n=3. Do not convert this host-boundary result into a product PASS; the
-exact next frontier is final committed-tree/release/hosted qualification while
-preserving the external UIA and production-certification boundaries.
+4.5.1–4.5.3 and the dependent final UIA gate remain unchecked: those tasks
+span preview/properties, file operations, dual pane, Unicode, long names and
+narrow/wide layouts that have not been exercised. Do not convert this
+host-boundary result into a product PASS; the exact next frontier is final
+committed-tree/release/hosted qualification while preserving the external UIA
+and production-certification boundaries.
+
+**The ~1-in-20 UI/Engine startup handshake miss is closed (2026-08-30, commit
+`51a594a`).** It was never a handshake miss. `ffprotocol::AppendDiagnostic`
+appended through a wide stream in `std::ios::app` mode, which seeks to
+end-of-file and writes at that offset — atomic only within one process. The
+UI, its engine and the service all append to the same file, so concurrent
+records overwrote each other: 35 orphaned record tails in 25,927 retained
+records, and one lifecycle whose `FFDIAG_ENGINE_CONNECT_SUCCEEDED` — the
+harness's readiness signal — was destroyed by the just-launched engine's first
+append. Appends are now atomic (`FILE_APPEND_DATA` + one `WriteFile`),
+UTF-8-encoded, and carry `pid`/`tid`/`epochMs`. Post-fix: 20/20 with a single
+scenario-status set, and 0 orphans in 12,285 records where ~16.6 were expected
+(p ~ 6e-8). Evidence:
+`openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md`.
+
+**Pointer-input (drag/click) instability remains open**, characterised only at
+n=3, and is deliberately *not* classified as the `ship-ready-ui-ux-hardening-convergence`
+6.2 external Explorer-assisted boundary — that would define the requirement
+around its failure.
 
 ## 1. Mission
 

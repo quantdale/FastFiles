@@ -324,6 +324,41 @@ loss - so the coverage pins the defect rather than describing the fix.
 The harness's 20 s readiness budget was left exactly as it was. Widening it
 would have produced a green 20-run that proved nothing.
 
+### Post-fix certification — 20 consecutive isolated lifecycles
+
+Raw per-run records: `uia-search-20run-postfix.jsonl`. Run against the
+`debug-diagnostic` tree at commit `51a594a`.
+
+| Metric | Pre-fix batch | Post-fix batch |
+| --- | --- | --- |
+| Top-level status | 20/20 PASS | 20/20 PASS |
+| Exit codes | 20/20 zero | 20/20 zero |
+| Distinct scenario-status sets | 2 | **1** |
+| Non-PASS scenario results | 1 (`search-allocated-size` SKIPPED) | **0** |
+| Cleanup / residue | clean / empty | clean / empty |
+| Duration | 64-77s | 60-96s (96s is the first, cold-cache run) |
+
+The drifting SKIP set is gone: all twenty lifecycles produced the identical
+seven-scenario all-PASS set, so the count is not resting on a green top-line
+result hiding a varying skip.
+
+**The load-bearing evidence is not the 20/20.** A 1-in-121 event failing to
+recur in 20 runs would be weak on its own. The direct measurement is the
+orphaned-record signature in the logs those runs produced:
+
+| Measurement | Pre-fix corpus | Post-fix batch |
+| --- | ---: | ---: |
+| Lifecycle logs | 121 | 60 |
+| Records written | 25,927 | 12,285 |
+| Orphaned record tails | 35 (0.135%) | **0** |
+| Lifecycles missing `FFDIAG_ENGINE_CONNECT_SUCCEEDED` | 1 | **0** |
+| Records carrying `pid`/`tid`/`epochMs` | 0 | 12,285 (100%) |
+| Distinct writer pids attributed | not recorded | 116 |
+
+At the pre-fix rate, 12,285 records would be expected to contain ~16.6 orphans.
+Observing zero has probability ~6.3e-8 if the mechanism were unchanged. That,
+not the run count, is what establishes the repair.
+
 ### Invalidated records
 
 An operator error ran two batches concurrently against the same desktop. The
