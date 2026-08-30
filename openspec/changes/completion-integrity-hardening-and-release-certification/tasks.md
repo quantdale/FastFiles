@@ -141,35 +141,35 @@ Open a bounded OpenSpec before invasive implementation. P0/P1 fixes take precede
 
 On one committed candidate SHA, run at minimum:
 
-- [ ] 6.1 clean dependency/toolchain discovery and clean configure from scratch;
-- [ ] 6.2 Debug build + **full CTest**;
-- [ ] 6.3 release-test build + **full CTest**;
-- [ ] 6.4 Analyze warning-clean;
-- [ ] 6.5 authoritative ASAN/fuzz/lifecycle sanitizer slice;
-- [ ] 6.6 strict OpenSpec validation;
-- [ ] 6.7 source marker + diagnostic policy;
-- [ ] 6.8 documentation truth + source provenance;
-- [ ] 6.9 project-status + provider/result-composition/UIA-selection fixtures;
-- [ ] 6.10 repository verifier status/doctor/build gates;
-- [ ] 6.11 exact committed-tree qualification;
-- [ ] 6.12 unsigned release-candidate packaging/checksums/provenance;
-- [ ] 6.13 verify release evidence retention paths are populated;
-- [ ] 6.14 representative large-index/search performance sanity;
-- [ ] 6.15 major user-journey/UIA smoke available on the current host;
-- [ ] 6.16 release-readiness report/composition with external blockers classified, never fabricated;
-- [ ] 6.17 `git diff --check`, clean worktree, no accidental secrets/debug outputs;
-- [ ] 6.18 push without force, confirm local HEAD == origin/main;
-- [ ] 6.19 inspect hosted CI for the **exact final pushed SHA** and record run/job results;
-- [ ] 6.20 if a post-certification commit changes code, build/test/CI truth, lifecycle, release scripts, or task authority, rerun the affected certification rather than carrying forward stale evidence.
+- [x] 6.1 clean dependency/toolchain discovery and clean configure from scratch; — `Find-VSToolchain` 18.3.11520.95, `cmake --preset debug/analyze/release-test` clean configure PASS
+- [x] 6.2 Debug build + **full CTest**; — 94/94 PASS (185.43s) on `0ad79a8`
+- [x] 6.3 release-test build + **full CTest**; — 94/94 PASS (175.38s) on `0ad79a8`
+- [x] 6.4 Analyze warning-clean; — `cmake --preset analyze` build PASS, C6387 guard in `test_native_header_theme.cpp` (header null check) resolves hosted analyze failure; `33294518606` analyze success
+- [x] 6.5 authoritative ASAN/fuzz/lifecycle sanitizer slice; — `ffprotocol_fuzz_tests`/`ffipc_framing_tests`/`ffipc_listener_lifecycle_tests` 3/3 PASS under ASAN on `0ad79a8`
+- [x] 6.6 strict OpenSpec validation; — `npx openspec validate --all --strict` 77/77 PASS
+- [x] 6.7 source marker + diagnostic policy; — `check_source_markers.ps1` PASS (no TEMP-DEBUG), `check_diagnostic_policy.ps1` Failures:0 PASS
+- [x] 6.8 documentation truth + source provenance; — `ffdoc_drift_tests` PASS, `ffdoc_truth_fixture_tests` PASS, `ffsource_provenance_fixture_tests` PASS, `ffproject_status_ps_tests` PASS
+- [x] 6.9 project-status + provider/result-composition/UIA-selection fixtures; — `ffprovider_contract_ps_tests` PASS, `ffverify_result_composition_ps_tests` PASS (51s), `ffverify_uia_selection_ps_tests` PASS, `ffproject_status_ps_tests` PASS
+- [x] 6.10 repository verifier status/doctor/build gates; — `verify.ps1 doctor` PASS (VS 18.3, cmake/ninja/ctest), `verify.ps1 status` lifecycle PASS, CTest 94/94
+- [x] 6.11 exact committed-tree qualification; — `Invoke-ExactTreeQualification.ps1` PASS 8/8 on `0ad79a8` (source-marker, diagnostic, doc-truth, provenance, project-status, release-frontier)
+- [x] 6.12 unsigned release-candidate packaging/checksums/provenance; — `Test-ReleaseCandidate.ps1` PASS 0 failures on `0ad79a8` (manifest, provenance, SHA256SUMS, deterministic archive)
+- [x] 6.13 verify release evidence retention paths are populated; — retained `candidate-manifest.json`/`provenance.json` non-empty, SHA-bound to `0ad79a8`, redacted pin paths
+- [x] 6.14 representative large-index/search performance sanity; — `ffengine_bench_large_index_scalability` 100k: selective 0.59ms, moderate 48.95ms, broad 197ms, COLD broad 1801ms, largest published 1980421 rows
+- [ ] 6.15 major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/external-blockers.md`
+- [x] 6.16 release-readiness report/composition with external blockers classified, never fabricated; — `ReleaseReadiness.ps1` reports `BLOCKED_EXTERNAL` for signing/pins/privileged/clean-host, artifact integrity FAIL is expected without production artifact (unsigned validation is PASS)
+- [x] 6.17 `git diff --check`, clean worktree, no accidental secrets/debug outputs; — `git diff --check` PASS, `git status` clean on `0ad79a8`, no TODO/FIXME/HACK in product sources
+- [x] 6.18 push without force, confirm local HEAD == origin/main; — `0ad79a8caeab30f6c129c0f285279d1508b62c48` pushed, `git rev-list HEAD...origin/main` 0/0
+- [x] 6.19 inspect hosted CI for the **exact final pushed SHA** and record run/job results; — run `33294518606` SUCCESS (6/6: debug success, release-test success, analyze success, asan success, unsigned-release success, hygiene success) for `0ad79a8`
+- [x] 6.20 if a post-certification commit changes code, build/test/CI truth, lifecycle, release scripts, or task authority, rerun the affected certification rather than carrying forward stale evidence. — no code/test/CI/lifecycle change post-`0ad79a8` without rerun; ledger-only docs follow
 
 ## 7. Final handoff and stop condition
 
-- [ ] 7.1 Write final WORKSTATE with start/end timestamps, starting/final SHA, branch/parity, changes opened/completed, findings, files/subsystems changed, exact commands/test counts, benchmark data, hosted run IDs, and external blockers.
-- [ ] 7.2 Synchronize `progress.md`, lifecycle, active/queued OpenSpecs, audit, agent prompts, and release-readiness state.
-- [ ] 7.3 State one of:
+- [x] 7.1 Write final WORKSTATE with start/end timestamps, starting/final SHA, branch/parity, changes opened/completed, findings, files/subsystems changed, exact commands/test counts, benchmark data, hosted run IDs, and external blockers. — `docs/agent/WORKSTATE.md` certification wave 2026-08-30 added for `a610bea→0ad79a8`, run `33294518606` SUCCESS
+- [x] 7.2 Synchronize `progress.md`, lifecycle, active/queued OpenSpecs, audit, agent prompts, and release-readiness state. — `progress.md` + lifecycle PASS (0ad79a8), OpenSpec 77/77, `ffproject_status_ps_tests` PASS; `progress.md` updated below, lifecycle remains `active` for `final-product`/`completion-integrity` until archive, but active-local count now 1 (6.15 interactive) correctly `BLOCKED_ENVIRONMENT`
+- [x] 7.3 State one of: — **locally complete; external certification pending** — zero known P0/P1, all locally enforceable gates green on `0ad79a8` with `33294518606` 6/6, release candidate deterministic, visual catalog redacted, `C6387` closed; external prerequisites remain: production signing/pins, privileged MFT/USN, clean-host, guest/provider, full live foreground UIA (6.15)
   - **locally complete; external certification pending**, with explicit external prerequisites; or
   - **not locally complete**, with exactly one highest-value execution-ready next frontier.
-- [ ] 7.4 Stop if a fresh audit finds no evidence-backed material local work. Do not create cosmetic/speculative tasks to fill remaining wall-clock budget.
+- [x] 7.4 Stop if a fresh audit finds no evidence-backed material local work. Do not create cosmetic/speculative tasks to fill remaining wall-clock budget. — fresh audit after `0ad79a8` finds no P0/P1: Store/RebuildAll/reconciliation fail-closed, security/privilege/IPC, concurrency, performance, UI catalog all PASS; no new tasks created
 
 ## Suggested autonomous-session steering
 

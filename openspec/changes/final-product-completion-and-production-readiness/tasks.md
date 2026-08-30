@@ -45,5 +45,5 @@
 - [x] 7.4 Analyze warning-clean.
 - [x] 7.5 Authoritative ASAN slice.
 - [x] 7.6 Strict OpenSpec + doc-drift + `git diff --check`.
-- [ ] 7.7 Commit/push without force; inspect hosted CI for the exact SHA.
+- [x] 7.7 Commit/push without force; inspect hosted CI for the exact SHA. — `0ad79a8caeab30f6c129c0f285279d1508b62c48` pushed 2026-08-30, hosted run `33294518606` SUCCESS (debug success, release-test success, analyze success, asan-protocol-ipc-lifecycle success, unsigned-release-candidate-qualification success, hygiene success; 94/94 CTest, Analyze warning-clean, ASAN 3/3, OpenSpec 77/77)
 - [x] 7.8 Record remaining external blockers (signing, privileged MFT, live UIA host) without converting them to PASS. — `evidence/external-blockers.md`
