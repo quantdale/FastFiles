@@ -60,6 +60,7 @@ A framework migration may be evaluated later only if measured UI engineering cos
 | [`04-implementation-and-migration-plan.md`](04-implementation-and-migration-plan.md) | Phased future implementation sequence, file ownership map, dependencies, risk controls, and acceptance gates. |
 | [`05-validation-accessibility-and-metrics.md`](05-validation-accessibility-and-metrics.md) | Visual QA, keyboard/UIA/Narrator validation, DPI/theme matrix, usability studies, and measurable success criteria. |
 | [`06-research-references.md`](06-research-references.md) | Primary-source Windows/W3C research and repository evidence used to shape the plan. |
+| [`07-visual-intelligence-autonomous-design.md`](07-visual-intelligence-autonomous-design.md) | Future visual-intelligence architecture: perceptual regression, vision-model critique, Component Gallery, autonomous design workflow, optional Mobbin integration, privacy, and visual release gates. |
 
 ## Executive priorities
 
@@ -68,6 +69,8 @@ A framework migration may be evaluated later only if measured UI engineering cos
 Before changing styling again, create a deterministic baseline of the current app at representative states and dimensions. The repository already has strong UIA infrastructure; use it to drive screenshots for Home, browsing, selection, dual pane, search, empty/error states, preview, storage analysis, settings, conflict dialogs, and file-operation progress.
 
 This matters because the prior appearance work is marked complete, yet the product is still perceived as visually poor. That means implementation checkboxes are no longer an adequate proxy for design quality.
+
+The next evolution of this priority is defined in [`07-visual-intelligence-autonomous-design.md`](07-visual-intelligence-autonomous-design.md): connect the existing deterministic screenshot capability to perceptual regression, structured vision-model review, before/after closure, and an autonomous reference-driven design workflow.
 
 ### P0 — Fix the shell hierarchy
 
