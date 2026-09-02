@@ -27,6 +27,7 @@ add_executable(FastFiles WIN32
   src/UiStyle.cpp
   src/UiAnimation.cpp
   src/IconCache.cpp
+  src/Gallery.cpp
   src/UiaProviderBase.cpp
   src/UiaHostQuery.cpp
   src/ColumnViewUiaProvider.cpp

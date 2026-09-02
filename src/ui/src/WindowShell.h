@@ -23,6 +23,7 @@
 #include "NavigationSidebar.h"
 #include "StorageAnalysis.h"
 #include "SettingsDialog.h"
+#include "Gallery.h"
 #include "IconCache.h"
 #include "UiAnimation.h"
 #include "UiStyle.h"
@@ -176,6 +177,7 @@ private:
     // viewport receives the reclaimed width; narrow windows may still
     // collapse it to a disclosure rail via DetailsLayout.
     bool detailsPaneVisible_ = true;
+    bool galleryMode_ = false;
     bool frameRendered_ = false;
     bool crossFadeActive_ = false;
     uint64_t crossFadeStartMs_ = 0;

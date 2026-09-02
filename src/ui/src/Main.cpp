@@ -10,9 +10,16 @@
 
 #include "ffprotocol/Diagnostics.h"
 #include "ffsetup/PinnedSignatures.h"
+#include "Gallery.h"
 #include "WindowShell.h"
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ LPWSTR, _In_ int showCommand) {
+    // Gallery is debug-only: refuse in release even if the flag is present.
+    if (ffui::IsGalleryRequested() && !ffui::IsGalleryAllowed()) {
+        std::fwprintf(stderr, L"FastFiles: --gallery is only available in debug builds.\n");
+        return 1;
+    }
+
 #ifndef _DEBUG
     if (!ffsetup::ArePinnedSignaturesConfigured()) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,

@@ -909,8 +909,10 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
         return false;
     }
 
+    galleryMode_ = ffui::IsGalleryAllowed();
+    const wchar_t* windowTitle = galleryMode_ ? L"FastFiles \u2014 Gallery (debug)" : L"FastFiles";
     hwnd_ = CreateWindowExW(
-        0, kWindowClassName, L"FastFiles", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+        0, kWindowClassName, windowTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1024, 640,
         nullptr, nullptr, instance, this);
     if (hwnd_ == nullptr) {
@@ -1457,7 +1459,34 @@ void WindowShell::Render() {
 
     context->SetTransform(D2D1::Matrix3x2F::Translation(shellLayout.contentRect.left,
                                                         shellLayout.contentRect.top));
-    if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+    if (galleryMode_) {
+        RECT gClient{};
+        GetClientRect(hwnd_, &gClient);
+        const D2D1_RECT_F galleryRect = D2D1::RectF(0.0f, 0.0f,
+            static_cast<float>((std::max)(0L, gClient.right - gClient.left)),
+            static_cast<float>((std::max)(0L, gClient.bottom - gClient.top)));
+        if (!detailsTextBrush_) {
+            context->CreateSolidColorBrush(ffui::GetUiTheme(ffui::gUiDarkTheme).text, &detailsTextBrush_);
+        }
+        if (!detailsBrush_) {
+            context->CreateSolidColorBrush(ffui::GetUiTheme(ffui::gUiDarkTheme).textSecondary, &detailsBrush_);
+        }
+        if (!detailsTextFormat_) {
+            renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"en-us", &detailsTextFormat_);
+        }
+        if (!previewTextFormat_) {
+            renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 18.0f, L"en-us", &previewTextFormat_);
+        }
+        if (!detailsCaptionFormat_) {
+            renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &detailsCaptionFormat_);
+        }
+        ffui::RenderGallery(context, detailsTextBrush_.Get(), detailsBrush_.Get(),
+            previewTextFormat_.Get(), detailsTextFormat_.Get(), detailsCaptionFormat_.Get(),
+            galleryRect, ffui::gUiDarkTheme, CurrentDpiScale());
+    } else if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
         storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize,
                                        shellLayout.contentRect.left,
                                        shellLayout.contentRect.top);
