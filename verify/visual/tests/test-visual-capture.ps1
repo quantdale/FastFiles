@@ -67,7 +67,7 @@ try {
     }
     Check $assertionGateRejected 'capture refuses a failed semantic post-condition before touching the window'
 
-    $record = Add-VisualScenarioResult -Run $run -ScenarioId 'first' -ExpectedState 'controlled state' -FixtureId 'fixture-1' -Theme 'Light' -Width 1280 -PaneMode 'single' -DpiScale 100 -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ state = 'active' }) -ScreenshotPath $firstPath -ImageHash $first.Hash
+    $record = Add-VisualScenarioResult -Run $run -ScenarioId 'first' -ExpectedState 'controlled state' -FixtureId 'fixture-1' -Theme 'Light' -Width 1280 -PaneMode 'single' -DpiScalePercent 100 -ObservedDpi 96 -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ state = 'active' }) -ScreenshotPath $firstPath -ImageHash $first.Hash
     Check ($record.captureMethod -eq 'DwmExtendedFrameBounds+CopyFromScreen') 'manifest record declares the canonical capture method'
     Check ($record.screenshotPath -eq 'first.png' -and $record.assertionResult.pass) 'manifest record stores a relative screenshot and passing assertion'
 
@@ -75,7 +75,7 @@ try {
     $manifest = Get-Content -LiteralPath $written.Manifest -Raw | ConvertFrom-Json
     Check ($manifest.schema -eq 'fastfiles.visual-capture.v1') 'manifest schema is versioned'
     Check (@($manifest.captures).Count -eq 1) 'manifest contains the recorded scenario'
-    Check ((Get-Content -LiteralPath $written.Summary -Raw) -like '*| Scenario | Theme | Width | Pane | Status | Assertion | Image | Reason |*') 'readable Markdown summary is written'
+    Check ((Get-Content -LiteralPath $written.Summary -Raw) -like '*| Scenario | Theme | Width | Pane | DPI | Status | Assertion | Image | Reason |*') 'readable Markdown summary is written'
 } finally {
     if (Test-Path -LiteralPath $root) {
         Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue

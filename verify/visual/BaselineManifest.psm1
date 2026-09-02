@@ -57,7 +57,12 @@ function Add-BaselineEntry {
         [switch] $Force
     )
     if (-not (Test-Path -LiteralPath $ImagePath -PathType Leaf)) { throw "baseline image not found: $ImagePath" }
-    if ($SourceCommit -notmatch '^[0-9a-f]{40}$') { throw "SourceCommit must be 40-char hex, got '$SourceCommit'" }
+    if ($SourceCommit -notmatch '^[0-9a-f]{40}$' -or $SourceCommit -match '^0+$') {
+        throw "SourceCommit must be a real (non-zero) 40-char hex commit, got '$SourceCommit'"
+    }
+    if ($SourceTree -and ($SourceTree -notmatch '^[0-9a-f]{40}$' -or $SourceTree -match '^0+$')) {
+        throw "SourceTree must be empty or a real (non-zero) 40-char hex tree, got '$SourceTree'"
+    }
     $key = Get-BaselineEnvironmentKey -ScenarioId $ScenarioId -Theme $Theme -Density $Density -Dpi $Dpi -ViewportWidth $ViewportWidth -ViewportHeight $ViewportHeight -PaneMode $PaneMode
     $existing = @($Manifest.entries | Where-Object { $_.environmentKey -eq $key })
     if ($existing.Count -gt 0 -and -not $Force) {
@@ -77,7 +82,9 @@ function Add-BaselineEntry {
     }
 
     $entry = [ordered]@{
-        baselineId = "$ScenarioId@$Theme/${ViewportWidth}x${ViewportHeight}/$PaneMode"
+        # baselineId carries the FULL environment identity: two entries that
+        # differ only in density/DPI must never share an ID.
+        baselineId = "$ScenarioId@$Theme/$Density/${Dpi}dpi/${ViewportWidth}x${ViewportHeight}/$PaneMode"
         environmentKey = $key
         scenarioId = $ScenarioId
         theme = $Theme
@@ -126,11 +133,23 @@ function Test-BaselineManifest {
     if (-not $Manifest.schemaVersion) { [void]$errors.Add('schemaVersion required') }
     if ($null -eq $Manifest.entries) { [void]$errors.Add('entries array required') }
     $seenKeys = @{}
+    $seenIds = @{}
     foreach ($entry in @($Manifest.entries)) {
         if (-not $entry.baselineId) { [void]$errors.Add('entry missing baselineId') }
         if (-not $entry.environmentKey) { [void]$errors.Add("entry $($entry.baselineId) missing environmentKey") }
-        if ($entry.screenshotHash -and $entry.screenshotHash -notmatch '^[0-9a-f]{64}$') { [void]$errors.Add("entry $($entry.baselineId) has invalid screenshotHash") }
-        if ($entry.sourceCommit -and $entry.sourceCommit -notmatch '^[0-9a-f]{40}$') { [void]$errors.Add("entry $($entry.baselineId) has invalid sourceCommit") }
+        if ($entry.screenshotHash -and ($entry.screenshotHash -notmatch '^[0-9a-f]{64}$' -or $entry.screenshotHash -match '^0+$')) {
+            [void]$errors.Add("entry $($entry.baselineId) has invalid screenshotHash")
+        }
+        if ($entry.sourceCommit -and ($entry.sourceCommit -notmatch '^[0-9a-f]{40}$' -or $entry.sourceCommit -match '^0+$')) {
+            [void]$errors.Add("entry $($entry.baselineId) has invalid sourceCommit")
+        }
+        if ($entry.sourceTree -and ($entry.sourceTree -notmatch '^[0-9a-f]{40}$' -or $entry.sourceTree -match '^0+$')) {
+            [void]$errors.Add("entry $($entry.baselineId) has invalid sourceTree")
+        }
+        if ($entry.baselineId) {
+            if ($seenIds.ContainsKey($entry.baselineId)) { [void]$errors.Add("duplicate baselineId '$($entry.baselineId)'") }
+            else { $seenIds[$entry.baselineId] = $true }
+        }
         if ($entry.environmentKey) {
             if ($seenKeys.ContainsKey($entry.environmentKey)) { [void]$errors.Add("duplicate environmentKey '$($entry.environmentKey)'") }
             else { $seenKeys[$entry.environmentKey] = $true }

@@ -2,12 +2,23 @@
 #include <shellapi.h>
 #include "UITheme.h"
 #include "UiStyle.h"
+#include "UiComponents.h"
 #include <wrl/client.h>
 
 #include <algorithm>
 #include <cwctype>
+#include <cwchar>
 
 namespace ffui {
+
+// Draws a null-terminated literal with its exact length. Hardcoded DrawTextW
+// counts drift from the literal (truncation or over-read), so every gallery
+// label goes through this helper.
+inline void DrawGalleryText(ID2D1DeviceContext* context, const wchar_t* text, IDWriteTextFormat* format,
+                            const D2D1_RECT_F& rect, ID2D1Brush* brush) {
+    if (!context || !text || !format || !brush) return;
+    context->DrawTextW(text, static_cast<UINT32>(wcslen(text)), format, rect, brush);
+}
 
 bool IsGalleryRequested() {
     int argc = 0;
@@ -36,14 +47,13 @@ bool IsGalleryAllowed() {
 
 std::vector<GallerySection> GallerySections() {
     return {
-        {L"Buttons", L"Primary, secondary, and icon buttons in rest/hover/pressed/disabled states.", {L"Rest", L"Hover", L"Pressed", L"Disabled", L"Focused"}},
-        {L"Navigation / Sidebar", L"Sidebar items, breadcrumbs, and tab affordances.", {L"Default", L"Selected", L"Hover", L"Focused"}},
-        {L"Search & Filters", L"Search field, filter chips, and empty/loading/error states.", {L"Empty", L"Populated", L"Loading", L"Error", L"Filtered"}},
-        {L"Rows & Selection", L"File rows with selection, focus, and hover states.", {L"Rest", L"Hover", L"Selected", L"Selected+Focused", L"Disabled"}},
-        {L"Cards & Empty States", L"Cards, empty placeholders, and status banners.", {L"Card", L"Empty", L"Loading", L"Error"}},
-        {L"Settings Controls", L"Toggles, combos, and settings rows.", {L"On", L"Off", L"Disabled", L"Focused"}},
-        {L"Storage Controls", L"Segmented control and storage analysis affordances.", {L"Overview", L"Drilldown", L"Treemap"}},
-        {L"Command Palette", L"Palette input and result rows.", {L"Idle", L"Query", L"Results", L"No Results"}},
+        {L"Buttons & Commands", L"Primary, secondary, and icon buttons in rest/hover/pressed/disabled states.", {L"Primary", L"Hover", L"Secondary", L"Disabled"}},
+        {L"Semantic Status Chips", L"Semantic status indicators for engine, indexing, and health.", {L"Active", L"Degraded", L"Error", L"Info"}},
+        {L"Navigation & Sidebar", L"Sidebar destinations with active marker and hover overlays.", {L"Active (Home)", L"Rest (Browse)", L"Hover (Search)"}},
+        {L"Progress & Operations", L"Determinate and indeterminate progress indicators.", {L"Determinate 65%", L"Indeterminate"}},
+        {L"Data Rows & Selection", L"Data rows with tokenized selection, soft selection, and keyboard focus.", {L"Rest", L"Hover", L"Selected Focused", L"Selected Unfocused"}},
+        {L"Drop Target Affordance", L"Shape and stroke affordance for drag-and-drop targets.", {L"Drop Target"}},
+        {L"State Panels & Placeholders", L"Centered empty, loading, or error presentation with actionable recovery.", {L"Empty State"}},
     };
 }
 
@@ -62,8 +72,9 @@ void RenderGallery(ID2D1DeviceContext* context, ID2D1SolidColorBrush* textBrush,
     if (!context || !textBrush || !titleFormat || !bodyFormat) return;
 
     const UiTheme theme = GetUiTheme(dark);
+    const bool highContrast = UiSystemHighContrast();
     const float padding = 24.0f;
-    const float sectionGap = 20.0f;
+    const float sectionGap = 16.0f;
     const float itemGap = 8.0f;
 
     // Background
@@ -71,24 +82,23 @@ void RenderGallery(ID2D1DeviceContext* context, ID2D1SolidColorBrush* textBrush,
     context->CreateSolidColorBrush(theme.background, &bgBrush);
     context->FillRectangle(clientRect, bgBrush.Get());
 
-    // Title area
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> accentBrush;
-    context->CreateSolidColorBrush(theme.accent, &accentBrush);
+    UiBrushCache brushes;
 
     float y = clientRect.top + padding;
 
     // Header
     {
         D2D1_RECT_F headerRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + 32.0f);
-        context->DrawTextW(L"FastFiles Component Gallery  (debug only)", 42, titleFormat, headerRect, textBrush);
+        DrawGalleryText(context, L"FastFiles Component Gallery  (debug only)", titleFormat, headerRect, textBrush);
         y += 36.0f;
-        D2D1_RECT_F descRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + 20.0f);
+
         if (captionFormat) {
             Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> secBrush;
             context->CreateSolidColorBrush(theme.textSecondary, &secBrush);
-            context->DrawTextW(L"Deterministic showcase of production components — theme/density/geometry matrix.", 70, captionFormat, descRect, secBrush.Get());
+            D2D1_RECT_F descRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + 20.0f);
+            DrawGalleryText(context, L"Deterministic showcase of production components — theme/density/geometry matrix.", captionFormat, descRect, secBrush.Get());
         }
-        y += 28.0f;
+        y += 24.0f;
 
         // Divider
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush;
@@ -97,110 +107,241 @@ void RenderGallery(ID2D1DeviceContext* context, ID2D1SolidColorBrush* textBrush,
         y += sectionGap;
     }
 
-    const auto sections = GallerySections();
-    for (size_t si = 0; si < sections.size(); ++si) {
-        const auto& section = sections[si];
-        if (y + 80.0f > clientRect.bottom - padding) break; // clip, don't overflow
+    const float availableWidth = (clientRect.right - clientRect.left) - 2.0f * padding;
+    const bool twoColumn = availableWidth >= 900.0f;
+    const float colGap = 24.0f;
+    const float colWidth = twoColumn ? (availableWidth - colGap) * 0.5f : availableWidth;
 
-        // Section title
-        D2D1_RECT_F titleRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + 22.0f);
-        context->DrawTextW(section.title.c_str(), (UINT32)section.title.size(), bodyFormat, titleRect, textBrush);
-        y += 22.0f;
+    const float col1Left = clientRect.left + padding;
+    const float col1Right = col1Left + colWidth;
+    const float col2Left = twoColumn ? (col1Right + colGap) : col1Left;
+    const float col2Right = col2Left + colWidth;
 
-        // Description
-        if (captionFormat) {
-            D2D1_RECT_F capRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + 16.0f);
-            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> secBrush;
-            context->CreateSolidColorBrush(theme.textSecondary, &secBrush);
-            context->DrawTextW(section.description.c_str(), (UINT32)section.description.size(), captionFormat, capRect, secBrush.Get());
-            y += 16.0f + itemGap;
+    float y1 = y;
+    float y2 = twoColumn ? y : y;
+
+    // --- Column 1: Buttons, Status Chips, Navigation, Progress ---
+
+    // 1. Buttons
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col1Left, y1, col1Right, y1 + 22.0f);
+        DrawGalleryText(context, L"Buttons & Commands", bodyFormat, tRect, textBrush);
+        y1 += 26.0f;
+
+        const float btnW = std::min(110.0f, (colWidth - 3.0f * itemGap) / 4.0f);
+        const float btnH = 30.0f;
+        float bx = col1Left;
+
+        DrawUiTextButton(context, D2D1::RectF(bx, y1, bx + btnW, y1 + btnH),
+                         bodyFormat, L"Primary", /*primary=*/true, UiVisualState::Rest, theme, highContrast, &brushes);
+        bx += btnW + itemGap;
+
+        DrawUiTextButton(context, D2D1::RectF(bx, y1, bx + btnW, y1 + btnH),
+                         bodyFormat, L"Hover", /*primary=*/true, UiVisualState::Hover, theme, highContrast, &brushes);
+        bx += btnW + itemGap;
+
+        DrawUiTextButton(context, D2D1::RectF(bx, y1, bx + btnW, y1 + btnH),
+                         bodyFormat, L"Secondary", /*primary=*/false, UiVisualState::Rest, theme, highContrast, &brushes);
+        bx += btnW + itemGap;
+
+        DrawUiTextButton(context, D2D1::RectF(bx, y1, bx + btnW, y1 + btnH),
+                         bodyFormat, L"Disabled", /*primary=*/false, UiVisualState::Disabled, theme, highContrast, &brushes);
+
+        y1 += btnH + sectionGap;
+    }
+
+    // 2. Status Chips
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col1Left, y1, col1Right, y1 + 22.0f);
+        DrawGalleryText(context, L"Semantic Status Chips", bodyFormat, tRect, textBrush);
+        y1 += 26.0f;
+
+        const float chipW = std::min(90.0f, (colWidth - 3.0f * itemGap) / 4.0f);
+        const float chipH = 24.0f;
+        float cx = col1Left;
+        IDWriteTextFormat* chipFormat = captionFormat ? captionFormat : bodyFormat;
+
+        DrawUiStatusChip(context, D2D1::RectF(cx, y1, cx + chipW, y1 + chipH), chipFormat, L"Active", UiChipKind::Active, theme, highContrast, &brushes);
+        cx += chipW + itemGap;
+
+        DrawUiStatusChip(context, D2D1::RectF(cx, y1, cx + chipW, y1 + chipH), chipFormat, L"Degraded", UiChipKind::Degraded, theme, highContrast, &brushes);
+        cx += chipW + itemGap;
+
+        DrawUiStatusChip(context, D2D1::RectF(cx, y1, cx + chipW, y1 + chipH), chipFormat, L"Error", UiChipKind::Error, theme, highContrast, &brushes);
+        cx += chipW + itemGap;
+
+        DrawUiStatusChip(context, D2D1::RectF(cx, y1, cx + chipW, y1 + chipH), chipFormat, L"Info", UiChipKind::Info, theme, highContrast, &brushes);
+
+        y1 += chipH + sectionGap;
+    }
+
+    // 3. Navigation Items
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col1Left, y1, col1Right, y1 + 22.0f);
+        DrawGalleryText(context, L"Navigation & Sidebar", bodyFormat, tRect, textBrush);
+        y1 += 26.0f;
+
+        const float navH = 32.0f;
+        IDWriteTextFormat* glyphFmt = captionFormat ? captionFormat : bodyFormat;
+
+        DrawUiNavItem(context, D2D1::RectF(col1Left, y1, col1Right, y1 + navH),
+                      bodyFormat, L"Home", glyphFmt, L"\uE80F", /*active=*/true, UiVisualState::Rest, theme, highContrast, &brushes);
+        y1 += navH + 4.0f;
+
+        DrawUiNavItem(context, D2D1::RectF(col1Left, y1, col1Right, y1 + navH),
+                      bodyFormat, L"Browse Folders", glyphFmt, L"\uE8B7", /*active=*/false, UiVisualState::Rest, theme, highContrast, &brushes);
+        y1 += navH + 4.0f;
+
+        DrawUiNavItem(context, D2D1::RectF(col1Left, y1, col1Right, y1 + navH),
+                      bodyFormat, L"Fast Search", glyphFmt, L"\uE721", /*active=*/false, UiVisualState::Hover, theme, highContrast, &brushes);
+        y1 += navH + sectionGap;
+    }
+
+    // 4. Progress Surfaces
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col1Left, y1, col1Right, y1 + 22.0f);
+        DrawGalleryText(context, L"Progress & Operations", bodyFormat, tRect, textBrush);
+        y1 += 26.0f;
+
+        const float progH = 6.0f;
+        DrawUiProgressSurface(context, D2D1::RectF(col1Left, y1, col1Right, y1 + progH), 0.65f, 0.0f, theme, highContrast, &brushes);
+        y1 += progH + 10.0f;
+
+        DrawUiProgressSurface(context, D2D1::RectF(col1Left, y1, col1Right, y1 + progH), -1.0f, 0.35f, theme, highContrast, &brushes);
+        y1 += progH + sectionGap;
+    }
+
+    if (!twoColumn) {
+        y2 = y1;
+    }
+
+    // --- Column 2: Rows & Selection, Drop Target, State Panel ---
+
+    // 5. Data Rows & Selection
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"Data Rows & Selection States", bodyFormat, tRect, textBrush);
+        y2 += 26.0f;
+
+        const float rowH = 28.0f;
+        const float radius = UiMetrics::kRadiusSmall;
+
+        // Row 1: Rest
+        {
+            D2D1_RECT_F rRect = D2D1::RectF(col2Left, y2, col2Right, y2 + rowH);
+            DrawUiStateFill(context, rRect, ResolveUiRowPalette(theme, UiVisualState::Rest, highContrast), radius, &brushes);
+            UiDrawTextAt(context, bodyFormat, L"Default row (Rest)", col2Left + 12.0f, y2, y2 + rowH, textBrush);
+            y2 += rowH + 4.0f;
         }
 
-        // State chips - rendered as rounded rects using production metrics
-        float x = clientRect.left + padding;
-        for (const auto& state : section.states) {
-            const float chipWidth = 90.0f;
-            const float chipHeight = 28.0f;
-            if (x + chipWidth > clientRect.right - padding) break;
+        // Row 2: Hover
+        {
+            D2D1_RECT_F rRect = D2D1::RectF(col2Left, y2, col2Right, y2 + rowH);
+            DrawUiStateFill(context, rRect, ResolveUiRowPalette(theme, UiVisualState::Hover, highContrast), radius, &brushes);
+            UiDrawTextAt(context, bodyFormat, L"Hovered row (Hover)", col2Left + 12.0f, y2, y2 + rowH, textBrush);
+            y2 += rowH + 4.0f;
+        }
 
-            D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(D2D1::RectF(x, y, x + chipWidth, y + chipHeight),
-                                                     UiMetrics::kRadiusSmall, UiMetrics::kRadiusSmall);
-            // Alternate fill for visual variety using theme tokens
-            bool isSelected = (state == L"Selected" || state == L"Pressed" || state == L"Selected+Focused");
-            if (isSelected) {
-                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selBrush;
-                context->CreateSolidColorBrush(theme.accent, &selBrush);
-                context->FillRoundedRectangle(rr, selBrush.Get());
-            } else {
-                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> surfBrush;
-                context->CreateSolidColorBrush(theme.surfaceElevated, &surfBrush);
-                context->FillRoundedRectangle(rr, surfBrush.Get());
-                Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> bdBrush;
-                context->CreateSolidColorBrush(theme.border, &bdBrush);
-                context->DrawRoundedRectangle(rr, bdBrush.Get(), 1.0f);
-            }
-
-            D2D1_RECT_F labelRect = D2D1::RectF(x, y, x + chipWidth, y + chipHeight);
-            ID2D1SolidColorBrush* labelBrush = isSelected ? textBrush : textBrush;
-            // For selected chips, use textOnAccent for contrast
+        // Row 3: Selected Focused
+        {
+            D2D1_RECT_F rRect = D2D1::RectF(col2Left, y2, col2Right, y2 + rowH);
+            DrawUiStateFill(context, rRect, ResolveUiRowPalette(theme, UiVisualState::SelectedFocused, highContrast), radius, &brushes);
+            DrawUiFocusIndicator(context, rRect, theme, highContrast, radius, &brushes);
             Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> onAccentBrush;
-            ID2D1SolidColorBrush* effectiveBrush = labelBrush;
-            if (isSelected) {
-                context->CreateSolidColorBrush(theme.textOnAccent, &onAccentBrush);
-                effectiveBrush = onAccentBrush.Get();
-            }
-            // Center text: use caption format
-            if (captionFormat) {
-                // Simple: just draw; centering via text alignment set on format
-                context->DrawTextW(state.c_str(), (UINT32)state.size(), captionFormat, labelRect, effectiveBrush);
-            }
-
-            x += chipWidth + itemGap;
-        }
-        y += 32.0f + itemGap;
-
-        // Row preview for row-oriented sections
-        if (section.title == L"Rows & Selection" || section.title == L"Search & Filters") {
-            for (int row = 0; row < 3; ++row) {
-                const float rowH = 28.0f;
-                D2D1_RECT_F rowRect = D2D1::RectF(clientRect.left + padding, y, clientRect.right - padding, y + rowH);
-                bool hover = (row == 1);
-                bool selected = (row == 2);
-                if (selected) {
-                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selBrush;
-                    context->CreateSolidColorBrush(theme.selectionSoft, &selBrush);
-                    context->FillRectangle(rowRect, selBrush.Get());
-                } else if (hover) {
-                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hovBrush;
-                    context->CreateSolidColorBrush(theme.hoverOverlay, &hovBrush);
-                    context->FillRectangle(rowRect, hovBrush.Get());
-                }
-                // Row label
-                std::wstring rowLabel = L"  " + section.title + L" row " + std::to_wstring(row + 1);
-                if (captionFormat) {
-                    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> secBrush;
-                    context->CreateSolidColorBrush(theme.textSecondary, &secBrush);
-                    context->DrawTextW(rowLabel.c_str(), (UINT32)rowLabel.size(), captionFormat, rowRect, secBrush.Get());
-                }
-                y += rowH + 2.0f;
-            }
-            y += itemGap;
+            context->CreateSolidColorBrush(theme.textOnAccent, &onAccentBrush);
+            UiDrawTextAt(context, bodyFormat, L"Active selection (Selected + Focused)", col2Left + 12.0f, y2, y2 + rowH, onAccentBrush.Get());
+            y2 += rowH + 4.0f;
         }
 
-        y += 4.0f;
+        // Row 4: Selected Unfocused
+        {
+            D2D1_RECT_F rRect = D2D1::RectF(col2Left, y2, col2Right, y2 + rowH);
+            DrawUiStateFill(context, rRect, ResolveUiRowPalette(theme, UiVisualState::SelectedUnfocused, highContrast), radius, &brushes);
+            UiDrawTextAt(context, bodyFormat, L"Soft selection (Selected + Unfocused)", col2Left + 12.0f, y2, y2 + rowH, textBrush);
+            y2 += rowH + sectionGap;
+        }
+    }
+
+    // 6. Drop Target Affordance
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"Drop Target Affordance", bodyFormat, tRect, textBrush);
+        y2 += 26.0f;
+
+        const float dropH = 48.0f;
+        D2D1_RECT_F dropRect = D2D1::RectF(col2Left, y2, col2Right, y2 + dropH);
+        DrawUiDropTargetEmphasis(context, dropRect, theme, highContrast, UiMetrics::kRadiusMedium, &brushes);
+        UiDrawTextCentered(context, bodyFormat, L"Drop files here to copy or move", dropRect, textBrush);
+        y2 += dropH + sectionGap;
+    }
+
+    // 7. State Panel (Empty State)
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"State Panels & Placeholders", bodyFormat, tRect, textBrush);
+        y2 += 26.0f;
+
+        const float panelH = 64.0f;
+        D2D1_RECT_F panelRect = D2D1::RectF(col2Left, y2, col2Right, y2 + panelH);
+        DrawUiStatePanel(context, panelRect, bodyFormat, L"No Items Found",
+                         captionFormat ? captionFormat : bodyFormat,
+                         L"Try changing filters or searching another folder.",
+                         theme, highContrast, &brushes);
+        y2 += panelH + sectionGap;
     }
 
     // Footer note
-    if (captionFormat && y + 20.0f < clientRect.bottom) {
-        D2D1_RECT_F footerRect = D2D1::RectF(clientRect.left + padding, clientRect.bottom - 20.0f, clientRect.right - padding, clientRect.bottom - 4.0f);
+    const float maxY = std::max(y1, y2);
+    if (captionFormat && maxY + 20.0f < clientRect.bottom) {
+        D2D1_RECT_F footerRect = D2D1::RectF(clientRect.left + padding, clientRect.bottom - 24.0f, clientRect.right - padding, clientRect.bottom - 4.0f);
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> secBrush;
         context->CreateSolidColorBrush(theme.textSecondary, &secBrush);
-        context->DrawTextW(L"Gallery is debug-only and not available in release builds.", 58, captionFormat, footerRect, secBrush.Get());
+        DrawGalleryText(context, L"Gallery is debug-only and compiled out in production builds.", captionFormat, footerRect, secBrush.Get());
     }
 }
 
-int GalleryHitTest([[maybe_unused]] D2D1_POINT_2F point, [[maybe_unused]] const D2D1_RECT_F& clientRect) {
-    // Deterministic: gallery has no interactive hit targets in this version.
+int GalleryHitTest(D2D1_POINT_2F point, const D2D1_RECT_F& clientRect) {
+    if (point.x < clientRect.left || point.x > clientRect.right ||
+        point.y < clientRect.top || point.y > clientRect.bottom) {
+        return -1;
+    }
+
+    const float padding = 24.0f;
+    const float startY = clientRect.top + padding + 36.0f + 24.0f + 16.0f; // After header
+    if (point.y < startY) {
+        return -1; // In header area
+    }
+
+    const float availableWidth = (clientRect.right - clientRect.left) - 2.0f * padding;
+    const bool twoColumn = availableWidth >= 900.0f;
+    const float colGap = 24.0f;
+    const float colWidth = twoColumn ? (availableWidth - colGap) * 0.5f : availableWidth;
+
+    const float col1Left = clientRect.left + padding;
+    const float col1Right = col1Left + colWidth;
+    const float col2Left = twoColumn ? (col1Right + colGap) : col1Left;
+    const float col2Right = col2Left + colWidth;
+
+    if (point.x >= col1Left && point.x <= col1Right) {
+        // In column 1
+        float y = startY;
+        if (point.y >= y && point.y < y + 60.0f) return 0; // Buttons
+        y += 60.0f + 16.0f;
+        if (point.y >= y && point.y < y + 54.0f) return 1; // Chips
+        y += 54.0f + 16.0f;
+        if (point.y >= y && point.y < y + 130.0f) return 2; // Nav
+        y += 130.0f + 16.0f;
+        if (point.y >= y && point.y < y + 60.0f) return 3; // Progress
+    } else if (twoColumn && point.x >= col2Left && point.x <= col2Right) {
+        // In column 2
+        float y = startY;
+        if (point.y >= y && point.y < y + 150.0f) return 4; // Rows & Selection
+        y += 150.0f + 16.0f;
+        if (point.y >= y && point.y < y + 80.0f) return 5; // Drop target
+        y += 80.0f + 16.0f;
+        if (point.y >= y && point.y < y + 90.0f) return 6; // State panel
+    }
+
     return -1;
 }
 

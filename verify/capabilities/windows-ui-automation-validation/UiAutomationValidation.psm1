@@ -174,7 +174,7 @@ function Get-UiaNewProcessIdentities {
 }
 
 function Start-UiaFastFiles {
-    param([string] $Exe, [hashtable] $Environment)
+    param([string] $Exe, [hashtable] $Environment, [string[]] $ArgumentList = @())
     if (-not (Test-Path -LiteralPath $Exe)) { return $null }
     # Hidden capability workers inherit STARTUPINFO.wShowWindow=SW_HIDE onto
     # the GUI child. Force WindowStyle Normal so Wait-UiaMainWindow can see it.
@@ -185,6 +185,9 @@ function Start-UiaFastFiles {
         WorkingDirectory = (Split-Path $Exe -Parent)
         WindowStyle = 'Normal'
         PassThru = $true
+    }
+    if ($ArgumentList -and $ArgumentList.Count -gt 0) {
+        $start.ArgumentList = $ArgumentList
     }
     if ($Environment -and $Environment.Count -gt 0) {
         $merged = @{}
@@ -1518,7 +1521,7 @@ function Wait-UiaMainWindow {
 }
 
 function New-UiaScenarioContext {
-    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn, [string] $InvocationId = 'unbound')
+    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn, [string] $InvocationId = 'unbound', [string[]] $ArgumentList = @())
     # Snapshot before launch. Existing repo-build processes are evidence, not
     # implicit cleanup targets: the engine is intentionally persistent and a
     # same-name process may belong to another test or installation.
@@ -1526,7 +1529,7 @@ function New-UiaScenarioContext {
     $pipeBefore = Test-UiaEnginePipePresent
     $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId -InvocationId $InvocationId
     $script:UiaActiveLocalAppData = Join-Path $sandbox.SessionRoot 'LocalAppData'
-    $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
+    $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment -ArgumentList $ArgumentList
     if (-not $launched) {
         Remove-Item -LiteralPath $sandbox.SessionRoot -Recurse -Force -ErrorAction SilentlyContinue
         $script:UiaActiveLocalAppData = $null
@@ -1550,7 +1553,7 @@ function New-UiaScenarioContext {
         }
         $firstStop = Stop-UiaOwnedProcessIdentity -Identity $launchedIdentity -RepoRoot $RepoRoot
         & $LogFn "[$ScenarioId] initial UI cleanup before bounded launch recovery: $($firstStop.State)"
-        $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment
+        $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment -ArgumentList $ArgumentList
         if ($launched) {
             $launchedIdentity = Get-UiaProcessIdentity -Process $launched -RepoRoot $RepoRoot
             if ($launchedIdentity) { [void]$ownedProcesses.Add($launchedIdentity) }
@@ -5027,4 +5030,90 @@ function Invoke-UiAutomationValidationCapability {
     }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry
+# Promoted from the scratch core-smoke runner (10 live scenarios): launch,
+# Home activation, address-bar navigation, dual-pane toggle, search with
+# Filters, Storage analysis, Settings dialog, and command palette. Requires
+# an interactive desktop; callers must classify non-interactive hosts as
+# BLOCKED_ENVIRONMENT instead of running this. Returns per-check results;
+# never exits the host process.
+function Invoke-UiaCoreSmoke {
+    param(
+        [Parameter(Mandatory)][string] $Exe,
+        [string] $RepoRoot = '',
+        [string] $ScenarioId = 'core-smoke'
+    )
+    $capRoot = Split-Path -Parent $PSScriptRoot
+    $driverModule = Join-Path $capRoot '..\uia-driver\UiaDriver.psm1'
+    $win32Module = Join-Path $PSScriptRoot 'UiAutomationWin32.psm1'
+    foreach ($modulePath in @($driverModule, $win32Module)) {
+        $resolved = try { (Resolve-Path -LiteralPath $modulePath -ErrorAction Stop).Path } catch { $null }
+        if ($resolved) { Import-Module $resolved -Global -DisableNameChecking -ErrorAction SilentlyContinue }
+    }
+    if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
+    $checks = [System.Collections.Generic.List[object]]::new()
+    $addCheck = {
+        param([string]$Name, [bool]$Pass, [string]$Detail)
+        [void]$checks.Add([pscustomobject]@{ Name = $Name; Pass = $Pass; Detail = $Detail })
+    }
+    $avail = Get-UiaDriverAvailability
+    if (-not $avail.Available) {
+        & $addCheck 'driver-availability' $false $avail.Reason
+        return [pscustomobject]@{ Checks = @($checks); Passed = 0; Failed = 1 }
+    }
+    & $addCheck 'driver-availability' $true 'UIA driver available'
+    $ctx = $null
+    try {
+        $quietLog = { param($m) }
+        $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId $ScenarioId -LogFn $quietLog
+        if (-not $ctx -or -not $ctx.Main) { throw 'main window did not appear' }
+        $driver = $ctx.Driver; $main = $ctx.Main; $appPid = [int]$ctx.Launched.Id
+        & $addCheck 'launch-main-window' $true "pid=$appPid"
+        Invoke-UiaActivateAppWindow -Driver $driver -Main $main
+        $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
+        $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
+        $homeResult = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'home' -ExpectedNames @('Home') -ExpectedCommandName 'Home' -ExpectedCommandId 'navigation.home'
+        $homeSurface = $false
+        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.0.Home' -FromElement $main -TimeoutMs 2000; $homeSurface = $true } catch {}
+        & $addCheck 'home-activation' ([bool]$homeResult.Pass -and $homeSurface) "cmd=$($homeResult.Pass) surface=$homeSurface"
+        $folder = Join-Path $ctx.FixtureRoot 'SmokeBrowse'
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $folder 'hello.txt') -Value 'core smoke' -Encoding utf8
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $folder -ExpectedLeaf 'SmokeBrowse'
+        & $addCheck 'address-bar-navigate' ([bool]$nav.Pass) ([string]$nav.Detail)
+        $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+        $dualSurface = $false
+        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 2000; $dualSurface = $true } catch {}
+        & $addCheck 'dual-pane-toggle' ([bool]$dual.Pass -and $dualSurface) "cmd=$($dual.Pass) pane1=$dualSurface"
+        $null = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+        $search = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'search' -ExpectedNames @('Filters') -ExpectedCommandName 'Search' -ExpectedCommandId 'search.focus'
+        $filters = $false
+        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Search.Filters' -FromElement $main -TimeoutMs 2000; $filters = $true } catch {}
+        & $addCheck 'search-open-filters' ([bool]$search.Pass -and $filters) "cmd=$($search.Pass) filters=$filters"
+        $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
+        $storage = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Overview') -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
+        & $addCheck 'storage-analysis-open' ([bool]$storage.Pass) ([string]$storage.Detail)
+        $settings = Invoke-UiaOpenSettings -Driver $driver -Main $main -ProcessId $appPid
+        $settingsEl = $false
+        try { $null = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $appPid -TimeoutMs 2000; $settingsEl = $true } catch {}
+        & $addCheck 'settings-open' ([bool]$settings.Pass -and $settingsEl) "opened=$($settings.Pass) dialog=$settingsEl"
+        $null = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $main
+        Invoke-UiaActivateAppWindow -Driver $driver -Main $main
+        $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
+        $palette = $false
+        $sw = [Diagnostics.Stopwatch]::StartNew()
+        while (-not $palette -and $sw.ElapsedMilliseconds -lt 3000) {
+            try { $null = Find-UiaElement -Driver $driver -AutomationId '6301' -FromElement $main -TimeoutMs 400; $palette = $true } catch {}
+        }
+        & $addCheck 'command-palette' $palette 'palette edit 6301 visible'
+        $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
+        Start-Sleep -Milliseconds 300
+    } catch {
+        & $addCheck 'lifecycle' $false $_.Exception.Message
+    } finally {
+        if ($ctx) { $null = Remove-UiaScenarioContext -Context $ctx -LogFn { param($m) } }
+    }
+    $failed = @($checks | Where-Object { -not $_.Pass }).Count
+    return [pscustomobject]@{ Checks = @($checks); Passed = ($checks.Count - $failed); Failed = $failed }
+}
+
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke

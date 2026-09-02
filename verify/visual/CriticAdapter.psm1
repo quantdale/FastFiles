@@ -77,6 +77,84 @@ function Invoke-FakeCritic {
     return @($f)
 }
 
+function New-VisualCriticStatusFinding {
+    param(
+        [Parameter(Mandatory)][string]$FindingId,
+        [Parameter(Mandatory)][string]$Surface,
+        [Parameter(Mandatory)][string]$ObservedProblem,
+        [Parameter(Mandatory)][string]$ExpectedRule
+    )
+    return New-VisualFinding -FindingId $FindingId -Severity suggestion -Confidence 0.0 `
+        -Surface $Surface -Category layout -ObservedProblem $ObservedProblem `
+        -ExpectedRule $ExpectedRule -RequiresHumanTasteDecision $true -RegressionCandidate $false
+}
+
+function Get-VisualCriticInvoker {
+    param([hashtable]$Context, [scriptblock]$Invoker)
+    if ($null -ne $Invoker) { return $Invoker }
+    if ($Context -and $Context.ContainsKey('Invoker') -and $Context['Invoker'] -is [scriptblock]) {
+        return [scriptblock]$Context['Invoker']
+    }
+    return $null
+}
+
+function Test-VisualCriticProviderState {
+    param(
+        [ValidateSet('fake','real')][string]$Provider = 'fake',
+        [hashtable]$Context = @{},
+        [scriptblock]$Invoker
+    )
+    if ($Provider -eq 'fake') {
+        return [pscustomobject]@{
+            State = 'Available'
+            Provider = 'fake'
+            Reason = 'deterministic fixture-driven FakeCritic'
+            Configured = $true
+            AdapterAvailable = $true
+            CanSubmit = $false
+        }
+    }
+    $keyPresent = -not [string]::IsNullOrWhiteSpace([string]$env:FASTFILES_VISION_PROVIDER_KEY)
+    $endpointValue = [string]$env:FASTFILES_VISION_PROVIDER_ENDPOINT
+    $endpointPresent = -not [string]::IsNullOrWhiteSpace($endpointValue)
+    if (-not $keyPresent -and -not $endpointPresent) {
+        return [pscustomobject]@{
+            State = 'BlockedEnvironment'; Provider = 'real'
+            Reason = 'BLOCKED_ENVIRONMENT: no vision provider configured'
+            Configured = $false; AdapterAvailable = $false; CanSubmit = $false
+        }
+    }
+    if (-not $keyPresent -or -not $endpointPresent) {
+        return [pscustomobject]@{
+            State = 'Misconfigured'; Provider = 'real'
+            Reason = 'MISCONFIGURED: provider key and endpoint must be supplied together'
+            Configured = $false; AdapterAvailable = $false; CanSubmit = $false
+        }
+    }
+    $endpoint = $null
+    try { $endpoint = [Uri]$endpointValue } catch { }
+    if ($null -eq $endpoint -or -not $endpoint.IsAbsoluteUri -or $endpoint.Scheme -notin @('http','https')) {
+        return [pscustomobject]@{
+            State = 'Misconfigured'; Provider = 'real'
+            Reason = 'MISCONFIGURED: provider endpoint must be an absolute HTTP(S) URI'
+            Configured = $false; AdapterAvailable = $false; CanSubmit = $false
+        }
+    }
+    $effectiveInvoker = Get-VisualCriticInvoker -Context $Context -Invoker $Invoker
+    if ($null -eq $effectiveInvoker) {
+        return [pscustomobject]@{
+            State = 'NotImplemented'; Provider = 'real'
+            Reason = 'NOT_IMPLEMENTED: no real provider adapter is registered'
+            Configured = $true; AdapterAvailable = $false; CanSubmit = $false
+        }
+    }
+    return [pscustomobject]@{
+        State = 'Available'; Provider = 'real'
+        Reason = 'credentials and an explicit provider adapter are configured'
+        Configured = $true; AdapterAvailable = $true; CanSubmit = $true
+    }
+}
+
 function Invoke-VisualCritic {
     param(
         [Parameter(Mandatory)][string]$ImagePath,
@@ -86,55 +164,57 @@ function Invoke-VisualCritic {
     )
     if ($Provider -eq 'fake') {
         $findings = Invoke-FakeCritic -ImagePath $ImagePath -Surface $Surface -ExpectedState $Context['ExpectedState']
-        # Validate every finding before returning
         foreach ($f in @($findings)) {
             $v = Test-VisualFinding -Finding $f
             if (-not $v.Valid) { throw "critic returned invalid finding '$($f.findingId)': $($v.Errors -join '; ')" }
         }
-        return $findings
+        return @($findings)
     }
 
-    # Real provider seam - check opt-in
-    $providerAvailable = $false
-    $providerKey = $env:FASTFILES_VISION_PROVIDER_KEY
-    $providerEndpoint = $env:FASTFILES_VISION_PROVIDER_ENDPOINT
-    if ($providerKey -and $providerEndpoint) { $providerAvailable = $true }
-
-    if (-not $providerAvailable) {
-        # BLOCKED_ENVIRONMENT: no vision provider configured - not a failure
-        $f = New-VisualFinding -FindingId 'BLOCKED-001' -Severity suggestion -Confidence 0.0 `
-            -Surface $Surface -Category layout `
-            -ObservedProblem 'BLOCKED_ENVIRONMENT: no vision provider configured (set FASTFILES_VISION_PROVIDER_KEY/ENDPOINT to enable)' `
-            -ExpectedRule 'n/a - provider unavailable' `
-            -RequiresHumanTasteDecision $true -RegressionCandidate $false
-        return @($f)
+    $invoker = Get-VisualCriticInvoker -Context $Context -Invoker $null
+    $state = Test-VisualCriticProviderState -Provider real -Context $Context -Invoker $invoker
+    switch ($state.State) {
+        'BlockedEnvironment' {
+            return @(New-VisualCriticStatusFinding -FindingId 'BLOCKED-001' -Surface $Surface `
+                -ObservedProblem $state.Reason -ExpectedRule 'n/a - provider unavailable')
+        }
+        'Misconfigured' {
+            return @(New-VisualCriticStatusFinding -FindingId 'MISCONFIGURED-001' -Surface $Surface `
+                -ObservedProblem $state.Reason -ExpectedRule 'n/a - provider configuration is invalid')
+        }
+        'NotImplemented' {
+            return @(New-VisualCriticStatusFinding -FindingId 'NOT-IMPLEMENTED-001' -Surface $Surface `
+                -ObservedProblem $state.Reason -ExpectedRule 'n/a - provider adapter is unavailable')
+        }
     }
-
-    # Provider configured but we do not implement real network calls in this module
-    # without explicit provider SDK. This is the "provider error" vs "success" seam.
-    # In a future implementation, this would call the provider and validate the response.
+    $privacyApproved = $Context -and $Context['ExternalReviewAllowed'] -eq $true `
+        -and $Context['RedactionPerformed'] -eq $true `
+        -and [string]$Context['PrivacyClassification'] -eq 'sanitized'
+    if (-not $privacyApproved) {
+        return @(New-VisualCriticStatusFinding -FindingId 'PRIVACY-REJECTED-001' -Surface $Surface `
+            -ObservedProblem 'PRIVACY_REJECTED: external review requires a sanitized artifact and explicit approval' `
+            -ExpectedRule 'raw host paths and user data must never leave the local verification boundary')
+    }
+    if (-not (Test-Path -LiteralPath $ImagePath -PathType Leaf)) {
+        return @(New-VisualCriticStatusFinding -FindingId 'PROVIDER-ERROR-001' -Surface $Surface `
+            -ObservedProblem "provider error: image not found: $ImagePath" `
+            -ExpectedRule 'provider input must be a readable captured artifact')
+    }
     try {
-        # Placeholder for real provider invocation - currently returns unavailable
-        throw "real vision provider not yet implemented in this environment"
+        $rawFindings = @(& $invoker $ImagePath $Surface $Context)
+        $normalized = [System.Collections.Generic.List[object]]::new()
+        foreach ($raw in $rawFindings) {
+            $finding = ConvertTo-VisualFinding -Raw $raw
+            $validation = Test-VisualFinding -Finding $finding
+            if (-not $validation.Valid) { throw "provider returned invalid finding: $($validation.Errors -join '; ')" }
+            [void]$normalized.Add($finding)
+        }
+        return @($normalized)
     } catch {
-        $f = New-VisualFinding -FindingId 'PROVIDER-ERROR-001' -Severity suggestion -Confidence 0.0 `
-            -Surface $Surface -Category layout `
-            -ObservedProblem "provider error: $($_.Exception.Message)" `
-            -ExpectedRule 'n/a - provider invocation failed' `
-            -RequiresHumanTasteDecision $true -RegressionCandidate $false
-        return @($f)
+        return @(New-VisualCriticStatusFinding -FindingId 'PROVIDER-ERROR-001' -Surface $Surface `
+            -ObservedProblem "PROVIDER_ERROR: $($_.Exception.Message)" `
+            -ExpectedRule 'provider responses must be available and schema-valid')
     }
-}
-
-function Test-VisualCriticProviderState {
-    param([ValidateSet('fake','real')][string]$Provider = 'fake')
-    if ($Provider -eq 'fake') {
-        return [pscustomobject]@{ State = 'Available'; Provider = 'fake'; Reason = 'deterministic fixture-driven FakeCritic' }
-    }
-    if ($env:FASTFILES_VISION_PROVIDER_KEY -and $env:FASTFILES_VISION_PROVIDER_ENDPOINT) {
-        return [pscustomobject]@{ State = 'Available'; Provider = 'real'; Reason = 'credentials configured' }
-    }
-    return [pscustomobject]@{ State = 'BlockedEnvironment'; Provider = 'real'; Reason = 'BLOCKED_ENVIRONMENT: no vision provider configured' }
 }
 
 Export-ModuleMember -Function Invoke-FakeCritic, Invoke-VisualCritic, Test-VisualCriticProviderState

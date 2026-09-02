@@ -861,7 +861,7 @@ function Invoke-UiVisualValidationCapability {
                     $intentionalDuplicateReason = if ($scenario.ContainsKey('DuplicateReason')) { [string]$scenario.DuplicateReason } else { $result.DuplicateReason }
                     $expectedDuplicateOf = if ($scenario.ContainsKey('ExpectedDuplicateOf')) { [string]$scenario.ExpectedDuplicateOf } else { $result.ExpectedDuplicateOf }
                     $capture = Capture-VisualWindow -Run $run -Element $context.Main -ScenarioId $scenario.Id -AssertionPass $true -IntentionalDuplicateReason $intentionalDuplicateReason -ExpectedDuplicateOf $expectedDuplicateOf -PrivacyTheme ([string]$scenario.Theme) -PrivacyRectangles @($result.PrivacyRectangles)
-                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScale ([int]$scenario.Dpi) -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ action = $result.Evidence; geometry = $sizeResult.Evidence; capture = $capture.Bounds }) -ScreenshotPath $capture.Path -ImageHash $capture.Hash -DuplicateOf $capture.DuplicateOf -DuplicateReason $capture.DuplicateReason -PrivacyRedactions @($capture.PrivacyRedactions)
+                    $record = Add-VisualScenarioResult -Run $run -ScenarioId $scenario.Id -ExpectedState $scenario.Expected -FixtureId $fixtureId -Theme $scenario.Theme -Width ([int]$scenario.Width) -PaneMode $scenario.Pane -DpiScalePercent ([int]$scenario.Dpi) -ObservedDpi ([int]$capture.Bounds.Dpi) -Status 'PASS' -AssertionPass $true -AssertionEvidence ([pscustomobject]@{ action = $result.Evidence; geometry = $sizeResult.Evidence; capture = $capture.Bounds }) -ScreenshotPath $capture.Path -ImageHash $capture.Hash -DuplicateOf $capture.DuplicateOf -DuplicateReason $capture.DuplicateReason -PrivacyRedactions @($capture.PrivacyRedactions)
                     [void]$subResults.Add([pscustomobject]@{ id = $scenario.Id; status = 'PASS'; reason = $null; detail = $result.Evidence })
                 }
             } catch {
@@ -884,6 +884,7 @@ function Invoke-UiVisualValidationCapability {
         $summary = Write-VisualCaptureRun -Run $run
         $log | Set-Content -LiteralPath $logPath -Encoding utf8
         [void]$artifacts.Add([pscustomobject]@{ path = $summary.Manifest; type = 'visual-manifest' })
+        if ($summary.ManifestV2) { [void]$artifacts.Add([pscustomobject]@{ path = $summary.ManifestV2; type = 'visual-evidence-v2-manifest' }) }
         [void]$artifacts.Add([pscustomobject]@{ path = $summary.Summary; type = 'visual-summary' })
         [void]$artifacts.Add([pscustomobject]@{ path = $logPath; type = 'run-log' })
     }
@@ -896,12 +897,65 @@ function Invoke-UiVisualValidationCapability {
     $skippedCount = @($subResults | Where-Object { $_.status -eq 'SKIPPED' }).Count
     $failedCount = $failed.Count
     $summaryText = "$passedCount captures passed; $skippedCount skipped/blocked; $failedCount failed"
+
+    # Visual release classification with independent legs
+    $classificationModule = Join-Path $repoRoot 'verify\visual\VisualReleaseClassification.psm1'
+    if (Test-Path -LiteralPath $classificationModule) {
+        Import-Module $classificationModule -Force -DisableNameChecking
+        # Legs are measured independently and never collapsed: a leg that did
+        # not run is BLOCKED, never inferred from another leg. In particular
+        # VISUAL_REVIEW_BLOCKED must not read as functional failure, and a
+        # functional failure must not be hidden by a passing visual leg.
+        $funcLeg = if ($overall -eq 'PASS') { 'PASS' } else { 'FAIL' }
+        $accessLeg = 'BLOCKED'
+        $accessEvidence = 'no dedicated accessibility checks (roles, names, focus visibility, contrast) executed in this capability run'
+        if ($failedCount -gt 0) {
+            $regressLeg = 'FAIL'
+            $regressEvidence = "$failedCount visual scenario(s) failed; $passedCount captures passed"
+        } elseif ($passedCount -gt 0) {
+            $regressLeg = 'PASS'
+            $regressEvidence = "$passedCount DWM captures passed semantic postconditions with duplicate-image protection"
+        } else {
+            $regressLeg = 'BLOCKED'
+            $regressEvidence = 'no visual captures completed; every scenario blocked or skipped'
+        }
+        $reviewLeg = 'BLOCKED'
+        $reviewEvidence = 'deterministic capture matrix only; no vision-critic review executed (FakeCritic cannot produce review PASS)'
+        $gitCommit = try { ((& git -C $repoRoot rev-parse HEAD 2>$null) | Out-String).Trim() } catch { '' }
+        if ($gitCommit -notmatch '^[0-9a-f]{40}$') { $gitCommit = '' }
+        $releaseClassification = New-VisualReleaseClassification `
+            -Functional $funcLeg `
+            -Accessibility $accessLeg `
+            -VisualRegression $regressLeg `
+            -VisualReview $reviewLeg `
+            -Commit $gitCommit `
+            -FunctionalEvidence "$passedCount passed / $failedCount failed / $skippedCount skipped" `
+            -AccessibilityEvidence $accessEvidence `
+            -VisualRegressionEvidence $regressEvidence `
+            -VisualReviewEvidence $reviewEvidence `
+            -Notes $summaryText
+        $classificationPath = Join-Path $ArtifactsDir 'release-classification.json'
+        $releaseClassification | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $classificationPath -Encoding utf8
+        [void]$artifacts.Add([pscustomobject]@{ path = $classificationPath; type = 'visual-release-classification' })
+    }
+
+    $legs = $null
+    if (Test-Path variable:releaseClassification) {
+        $legs = [pscustomobject]@{
+            Functional = $releaseClassification.functional
+            Accessibility = $releaseClassification.accessibility
+            VisualRegression = $releaseClassification.visualRegression
+            VisualReview = $releaseClassification.visualReview
+            ClassificationPath = $classificationPath
+        }
+    }
     return [pscustomobject]@{
         Status = $overall
         Reason = $overallReason
         Summary = $summaryText
         Artifacts = @($artifacts)
         SubResults = @($subResults)
+        ClassificationLegs = $legs
     }
 }
 

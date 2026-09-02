@@ -248,5 +248,13 @@ add_test(NAME ffnative_header_theme_tests COMMAND ffnative_header_theme_tests)
 add_executable(ffsearch_metadata_tests test_search_metadata.cpp)
 target_include_directories(ffsearch_metadata_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffsearch_metadata_tests COMMAND ffsearch_metadata_tests)
+
+# Visual intelligence autopilot: deterministic component gallery lifecycle,
+# gating, section enumeration, geometry, and hit-testing regression tests.
+add_executable(ffgallery_tests test_gallery.cpp ../../src/ui/src/Gallery.cpp)
+target_include_directories(ffgallery_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+target_link_libraries(ffgallery_tests PRIVATE d2d1 dwrite shell32 ole32 user32)
+add_test(NAME ffgallery_tests COMMAND ffgallery_tests)
+set_tests_properties(ffgallery_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(fftreemap_layout_tests fftreemap_filter_tests fftreemap_metadata_tests fftreemap_uia_tests ffui_style_tests ffui_icon_lru_tests ffstorage_percentage_tests ffdetails_layout_tests ffshell_layout_tests ffhome_layout_tests ffcolumn_hit_test_tests ffhome_interaction_tests ffsnapshot_aggregate_tests ffdetails_aggregate_state_tests ffselection_identity_tests ffsnapshot_freshness_tests ffasync_result_gate_tests ffstorage_visibility_tests ffstorage_radio_state_tests ffdisplay_path_tests ffshortcut_routing_tests ffquick_actions_tests ffengine_status_tests ffui_text_encoding_tests ffsearch_metadata_tests ffdrop_feedback_tests ffsearch_tab_order_tests ffsearch_filters_disclosure_tests ffsearch_snapshot_refresh_tests ffgui_show_command_tests ffsettings_pages_tests ffnative_header_theme_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_discovery_tests ffcolumnview_uia_tests ffhome_uia_tests ffsearch_uia_tests ffuia_geometry_tests ffuia_events_tests PROPERTIES TIMEOUT 120)

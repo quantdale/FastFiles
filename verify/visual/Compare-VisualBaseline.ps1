@@ -28,6 +28,19 @@ $ErrorActionPreference = 'Stop'
     and document them; narrowing to find regressions is encouraged.
 #>
 
+if ([double]::IsNaN($Threshold) -or [double]::IsInfinity($Threshold) -or $Threshold -lt 0 -or $Threshold -gt 1) {
+    throw "Threshold must be finite and in [0,1], got $Threshold"
+}
+if ([double]::IsNaN($PerPixelTolerance) -or [double]::IsInfinity($PerPixelTolerance) -or $PerPixelTolerance -lt 0 -or $PerPixelTolerance -gt 1) {
+    throw "PerPixelTolerance must be finite and in [0,1], got $PerPixelTolerance"
+}
+if ($DiffOutputPath) {
+    $diffParent = Split-Path -Parent $DiffOutputPath
+    if ($diffParent -and -not (Test-Path -LiteralPath $diffParent -PathType Container)) {
+        New-Item -ItemType Directory -Path $diffParent -Force | Out-Null
+    }
+}
+
 if (-not (Test-Path -LiteralPath $BaselinePath -PathType Leaf)) { throw "baseline not found: $BaselinePath" }
 if (-not (Test-Path -LiteralPath $CurrentPath -PathType Leaf)) { throw "current not found: $CurrentPath" }
 
@@ -35,6 +48,7 @@ $baselineHash = (Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash
 $currentHash = (Get-FileHash -LiteralPath $CurrentPath -Algorithm SHA256).Hash.ToLowerInvariant()
 $isIdentical = $baselineHash -eq $currentHash
 
+$maximumPixels = [int64]64 * 1000 * 1000
 # Try to load as images for dimension + pixel comparison
 Add-Type -AssemblyName System.Drawing
 
@@ -120,6 +134,13 @@ if ($baselineInfo.Width -ne $currentInfo.Width -or $baselineInfo.Height -ne $cur
     return [pscustomobject]$result
 }
 
+$pixelCount = [int64]$baselineInfo.Width * [int64]$baselineInfo.Height
+if ($pixelCount -gt $maximumPixels) {
+    $baselineInfo.Image.Dispose()
+    $currentInfo.Image.Dispose()
+    throw "image dimensions exceed comparator safety limit of $maximumPixels pixels"
+}
+
 # Identical hash fast path - dimensions already equal
 if ($isIdentical) {
     $result = [ordered]@{
@@ -134,7 +155,7 @@ if ($isIdentical) {
         baselineHeight = $baselineInfo.Height
         currentWidth = $currentInfo.Width
         currentHeight = $currentInfo.Height
-        totalPixels = $baselineInfo.Width * $baselineInfo.Height
+        totalPixels = [int64]$baselineInfo.Width * [int64]$baselineInfo.Height
         changedPixels = 0
         diffPercent = 0.0
         meanNormalizedDiff = 0.0
@@ -150,7 +171,7 @@ if ($isIdentical) {
 # Pixel comparison
 $width = $baselineInfo.Width
 $height = $baselineInfo.Height
-$totalPixels = $width * $height
+$totalPixels = [int64]$width * [int64]$height
 
 # Convert to bitmaps for pixel access
 function To-Bitmap {
@@ -169,17 +190,17 @@ $changedPixels = 0
 $sumNorm = 0.0
 $maxNorm = 0.0
 
-# Ensure 32bpp for consistent comparison
 function Ensure-32bpp {
     param([System.Drawing.Bitmap]$Bmp)
-    if ($Bmp.PixelFormat -eq [System.Drawing.Imaging.PixelFormat]::Format32bppArgb -or
-        $Bmp.PixelFormat -eq [System.Drawing.Imaging.PixelFormat]::Format32bppPArgb) {
-        return $Bmp
-    }
     $converted = [System.Drawing.Bitmap]::new($Bmp.Width, $Bmp.Height, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
     $g = [System.Drawing.Graphics]::FromImage($converted)
-    try { $g.DrawImage($Bmp, 0, 0) } finally { $g.Dispose() }
-    $Bmp.Dispose()
+    try {
+        $g.CompositingMode = [System.Drawing.Drawing2D.CompositingMode]::SourceCopy
+        $g.DrawImageUnscaled($Bmp, 0, 0)
+    } finally {
+        $g.Dispose()
+        $Bmp.Dispose()
+    }
     return $converted
 }
 
@@ -187,8 +208,18 @@ $bmpBase = Ensure-32bpp -Bmp $bmpBase
 $bmpCurr = Ensure-32bpp -Bmp $bmpCurr
 
 $rect = [System.Drawing.Rectangle]::new(0, 0, $width, $height)
-$baseData = $bmpBase.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-$currData = $bmpCurr.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+$baseData = $null
+$currData = $null
+try {
+    $baseData = $bmpBase.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $currData = $bmpCurr.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+} catch {
+    if ($baseData) { $bmpBase.UnlockBits($baseData) }
+    if ($currData) { $bmpCurr.UnlockBits($currData) }
+    $bmpBase.Dispose()
+    $bmpCurr.Dispose()
+    throw
+}
 
 # Allocate diff map bitmap if requested
 $diffBmp = $null
@@ -198,12 +229,16 @@ if ($DiffOutputPath) {
     $diffBmp.MakeTransparent()
 }
 
+$loopFailed = $false
 try {
-    $stride = $baseData.Stride
+    $baseStride = [int]$baseData.Stride
+    $currStride = [int]$currData.Stride
+    $rowBytes = [int]($width * 4)
     for ($y = 0; $y -lt $height; $y++) {
-        $baseRow = [IntPtr]::Add($baseData.Scan0, $y * $stride)
-        $currRow = [IntPtr]::Add($currData.Scan0, $y * $stride)
-        $rowBytes = $width * 4
+        $baseRowIndex = if ($baseStride -ge 0) { $y } else { $height - 1 - $y }
+        $currRowIndex = if ($currStride -ge 0) { $y } else { $height - 1 - $y }
+        $baseRow = [IntPtr]::Add($baseData.Scan0, [int]($baseRowIndex * [Math]::Abs($baseStride)))
+        $currRow = [IntPtr]::Add($currData.Scan0, [int]($currRowIndex * [Math]::Abs($currStride)))
         $baseBytes = [byte[]]::new($rowBytes)
         $currBytes = [byte[]]::new($rowBytes)
         [System.Runtime.InteropServices.Marshal]::Copy($baseRow, $baseBytes, 0, $rowBytes)
@@ -212,10 +247,14 @@ try {
             $o = $x * 4
             $bB = $baseBytes[$o]; $gB = $baseBytes[$o+1]; $rB = $baseBytes[$o+2]; $aB = $baseBytes[$o+3]
             $bC = $currBytes[$o]; $gC = $currBytes[$o+1]; $rC = $currBytes[$o+2]; $aC = $currBytes[$o+3]
-            $dr = [Math]::Abs([int]$rB - [int]$rC)
-            $dg = [Math]::Abs([int]$gB - [int]$gC)
-            $db = [Math]::Abs([int]$bB - [int]$bC)
-            $da = [Math]::Abs([int]$aB - [int]$aC)
+            # Compare the visible (alpha-weighted) color. RGB in a fully
+            # transparent pixel is not part of the rendered image.
+            $baseAlpha = [double]$aB / 255.0
+            $currAlpha = [double]$aC / 255.0
+            $dr = [Math]::Abs(([double]$rB * $baseAlpha) - ([double]$rC * $currAlpha))
+            $dg = [Math]::Abs(([double]$gB * $baseAlpha) - ([double]$gC * $currAlpha))
+            $db = [Math]::Abs(([double]$bB * $baseAlpha) - ([double]$bC * $currAlpha))
+            $da = [Math]::Abs([double]$aB - [double]$aC)
             $norm = ([Math]::Max([Math]::Max($dr, $dg), [Math]::Max($db, $da * 0.5))) / 255.0
             if ($norm -gt $maxNorm) { $maxNorm = $norm }
             $sumNorm += $norm
@@ -226,9 +265,17 @@ try {
             }
         }
     }
+} catch {
+    $loopFailed = $true
+    throw
 } finally {
-    $bmpBase.UnlockBits($baseData)
-    $bmpCurr.UnlockBits($currData)
+    if ($baseData) { $bmpBase.UnlockBits($baseData) }
+    if ($currData) { $bmpCurr.UnlockBits($currData) }
+    if ($loopFailed) {
+        if ($diffBmp) { $diffBmp.Dispose() }
+        $bmpBase.Dispose()
+        $bmpCurr.Dispose()
+    }
 }
 
 $diffPercent = if ($totalPixels -gt 0) { [double]$changedPixels / [double]$totalPixels } else { 1.0 }

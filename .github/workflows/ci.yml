@@ -150,6 +150,15 @@ jobs:
           git diff --check
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Visual intelligence contract tests
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path verify/visual/tests/*.ps1 | ForEach-Object {
+            Write-Host "Running $($_.Name)..."
+            & $_.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Visual contract test $($_.Name) failed" }
+          }
+
       - name: Exact committed-tree qualification
         shell: pwsh
         run: |

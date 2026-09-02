@@ -41,9 +41,26 @@ try {
     $e2=Add-BaselineEntry -Manifest $manifest -ScenarioId 'home-default' -ImagePath $imgPath -SourceCommit $commit -Theme dark -ViewportWidth 1280 -ViewportHeight 800 -BaselineRoot $tmp
     Check ($manifest.entries.Count -eq 2) 'different theme is distinct entry'
 
-    # Get-BaselineEntry filtering
+    # baselineId carries the full environment identity: density/DPI variants
+    # must never share an ID.
+    $e3=Add-BaselineEntry -Manifest $manifest -ScenarioId 'home-default' -ImagePath $imgPath -SourceCommit $commit -Theme light -Density compact -Dpi 96 -ViewportWidth 1280 -ViewportHeight 800 -BaselineRoot $tmp
+    Check ($e3.baselineId -ne $e1.baselineId -and $manifest.entries.Count -eq 3) 'density variant gets a distinct baselineId'
+    $e4=Add-BaselineEntry -Manifest $manifest -ScenarioId 'home-default' -ImagePath $imgPath -SourceCommit $commit -Theme light -Density comfortable -Dpi 144 -ViewportWidth 1280 -ViewportHeight 800 -BaselineRoot $tmp
+    Check ($e4.baselineId -ne $e1.baselineId -and $manifest.entries.Count -eq 4) 'DPI variant gets a distinct baselineId'
+
+    # Zero-SHA provenance is rejected at the door, for commit and tree.
+    $zeroFails=$false; try{ $null=Add-BaselineEntry -Manifest $manifest -ScenarioId 'zero-commit' -ImagePath $imgPath -SourceCommit ('0'*40) -Theme light -BaselineRoot $tmp } catch{ $zeroFails=$true }
+    Check $zeroFails 'all-zero SourceCommit rejected'
+    $treeFails=$false; try{ $null=Add-BaselineEntry -Manifest $manifest -ScenarioId 'bad-tree' -ImagePath $imgPath -SourceCommit $commit -SourceTree 'not-a-tree' -Theme light -BaselineRoot $tmp } catch{ $treeFails=$true }
+    Check $treeFails 'malformed SourceTree rejected'
+    $zeroTreeFails=$false; try{ $null=Add-BaselineEntry -Manifest $manifest -ScenarioId 'zero-tree' -ImagePath $imgPath -SourceCommit $commit -SourceTree ('0'*40) -Theme light -BaselineRoot $tmp } catch{ $zeroTreeFails=$true }
+    Check $zeroTreeFails 'all-zero SourceTree rejected'
+
+    # Get-BaselineEntry filtering (theme alone now matches density/DPI variants)
     $lightEntries=Get-BaselineEntry -Manifest $manifest -ScenarioId 'home-default' -Theme light
-    Check ($lightEntries.Count -eq 1 -and $lightEntries[0].theme -eq 'light') 'filter by theme'
+    Check ($lightEntries.Count -eq 3) 'theme filter returns all density/DPI variants'
+    $exactEntries=Get-BaselineEntry -Manifest $manifest -ScenarioId 'home-default' -Theme light -Density compact -Dpi 96
+    Check ($exactEntries.Count -eq 1 -and $exactEntries[0].density -eq 'compact') 'full environment filter selects one entry'
 
     # Sanitized paths: absolute without BaselineRoot should fail
     $absFails=$false; try{ $null=Add-BaselineEntry -Manifest $manifest -ScenarioId 'new-scenario' -ImagePath $imgPath -SourceCommit $commit -Theme light } catch{ $absFails=$true }
@@ -53,10 +70,11 @@ try {
     $manifestPath=Join-Path $tmp 'manifest.json'
     Save-BaselineManifest -Manifest $manifest -Path $manifestPath
     $loaded=Load-BaselineManifest -Path $manifestPath
-    Check ($loaded.entries.Count -eq 2) 'save/load round-trip'
+    Check ($loaded.entries.Count -eq 4) 'save/load round-trip'
 
-    # Compare against baseline: identical image should pass
-    $compareResult=Compare-AgainstBaseline -Manifest $loaded -ScenarioId 'home-default' -CurrentImagePath $imgPath2 -Theme light -BaselineRoot $tmp -Threshold 0.01
+    # Compare against baseline: identical image should pass (fully qualified
+    # environment selects the exact entry among density/DPI variants)
+    $compareResult=Compare-AgainstBaseline -Manifest $loaded -ScenarioId 'home-default' -CurrentImagePath $imgPath2 -Theme light -Density comfortable -Dpi 96 -BaselineRoot $tmp -Threshold 0.01
     Check ($compareResult.Status -eq 'Pass') 'compare identical (after update) passes'
 
     # Missing baseline

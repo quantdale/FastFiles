@@ -84,14 +84,33 @@ function Test-VisualFinding {
 
 function ConvertTo-VisualFinding {
     param([Parameter(Mandatory)] $Raw)
-    # Normalize raw hashtable/pscustomobject to validated finding
-    $finding = New-VisualFinding -FindingId $Raw.findingId -Severity $Raw.severity -Confidence ([double]$Raw.confidence) `
-        -Surface $Raw.surface -Component $Raw.component -Category $Raw.category `
-        -ObservedProblem $Raw.observedProblem -ExpectedRule $Raw.expectedDesignRule `
-        -UserImpact $Raw.userImpact -SuggestedCorrection $Raw.suggestedCorrection `
-        -Evidence $Raw.evidence -RequiresHumanTasteDecision ([bool]$Raw.requiresHumanTasteDecision) `
-        -RegressionCandidate ([bool]$Raw.regressionCandidate)
-    if ($Raw.region) { $finding | Add-Member -NotePropertyName region -NotePropertyValue $Raw.region -Force }
+    # Optional fields are genuinely optional in provider responses; avoid
+    # strict-mode property access turning a valid minimal response into a
+    # provider error.
+    $get = {
+        param($obj, [string]$name)
+        if ($null -eq $obj) { return $null }
+        if ($obj -is [System.Collections.IDictionary]) {
+            if ($obj.Contains($name)) { return $obj[$name] }
+            return $null
+        }
+        $property = $obj.PSObject.Properties[$name]
+        if ($null -ne $property) { return $property.Value }
+        return $null
+    }
+    $finding = New-VisualFinding -FindingId ([string](& $get $Raw 'findingId')) `
+        -Severity ([string](& $get $Raw 'severity')) -Confidence ([double](& $get $Raw 'confidence')) `
+        -Surface ([string](& $get $Raw 'surface')) -Component ([string](& $get $Raw 'component')) `
+        -Category ([string](& $get $Raw 'category')) `
+        -ObservedProblem ([string](& $get $Raw 'observedProblem')) `
+        -ExpectedRule ([string](& $get $Raw 'expectedDesignRule')) `
+        -UserImpact ([string](& $get $Raw 'userImpact')) `
+        -SuggestedCorrection ([string](& $get $Raw 'suggestedCorrection')) `
+        -Evidence (& $get $Raw 'evidence') `
+        -RequiresHumanTasteDecision ([bool](& $get $Raw 'requiresHumanTasteDecision')) `
+        -RegressionCandidate ([bool](& $get $Raw 'regressionCandidate'))
+    $region = & $get $Raw 'region'
+    if ($region) { $finding | Add-Member -NotePropertyName region -NotePropertyValue $region -Force }
     return $finding
 }
 

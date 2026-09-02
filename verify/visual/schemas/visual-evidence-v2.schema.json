@@ -2,24 +2,73 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "FastFiles visual evidence v2",
   "type": "object",
-  "required": ["schemaVersion", "commit", "captureTimestamp", "surface", "theme", "viewport", "screenshotHash", "artifactProvenance"],
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "commit", "tree", "executableIdentity", "branch",
+    "sourceKind", "worktreeState", "provenanceState", "exactTreeBound",
+    "captureTimestamp", "surface", "semanticState", "theme", "density",
+    "dpi", "dpiScalePercent", "viewport", "paneMode", "fixtureId",
+    "captureMethod", "privacyRedactions", "screenshotHash",
+    "baselineIdentity", "diffResult", "criticResult", "artifactProvenance"
+  ],
   "properties": {
     "schemaVersion": { "type": "integer", "enum": [2] },
-    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-    "tree": { "type": "string" },
-    "executableIdentity": { "type": "string" },
+    "commit": { "type": ["string", "null"], "pattern": "^(?!0+$)[0-9a-f]{40}$", "description": "Real 40-hex Git commit; null only for unbound development evidence, never all-zeros." },
+    "tree": { "type": ["string", "null"], "pattern": "^(?!0+$)[0-9a-f]{40}$", "description": "Real 40-hex Git tree; null only for unbound development evidence, never all-zeros." },
+    "executableIdentity": { "type": "string", "minLength": 1 },
+    "branch": { "type": "string", "minLength": 1 },
+    "sourceKind": { "type": "string", "enum": ["git-commit", "detached-git-commit", "unbound"] },
+    "worktreeState": { "type": "string", "enum": ["clean", "dirty", "unbound"] },
+    "provenanceState": { "type": "string", "enum": ["exact-committed-tree", "dirty-development", "unbound-development"] },
+    "exactTreeBound": { "type": "boolean" },
     "captureTimestamp": { "type": "string", "format": "date-time" },
-    "surface": { "type": "string" },
+    "surface": { "type": "string", "minLength": 1 },
     "semanticState": { "type": "string" },
     "theme": { "type": "string", "enum": ["light", "dark", "system", "highContrast"] },
     "density": { "type": "string", "enum": ["compact", "comfortable"] },
-    "dpi": { "type": "integer" },
-    "viewport": { "type": "object", "required": ["width", "height"], "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
-    "privacyRedactions": { "type": "array", "items": { "type": "object" } },
-    "screenshotHash": { "type": "string" },
+    "dpi": { "type": "integer", "exclusiveMinimum": 0, "maximum": 1000, "description": "Observed device DPI from GetDpiForWindow (96 = 100%). Never a hardcoded scenario percentage." },
+    "dpiScalePercent": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000, "description": "Requested scenario scale percent (100 = 96 DPI). Compare against dpi to detect environment mismatch." },
+    "viewport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height"],
+      "properties": {
+        "width": { "type": "integer", "exclusiveMinimum": 0, "maximum": 100000 },
+        "height": { "type": "integer", "exclusiveMinimum": 0, "maximum": 100000 }
+      }
+    },
+    "paneMode": { "type": "string", "enum": ["single", "dual", "dialog"] },
+    "fixtureId": { "type": "string" },
+    "captureMethod": { "type": "string", "minLength": 1 },
+    "privacyRedactions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["x", "y", "width", "height", "reason"],
+        "properties": {
+          "x": { "type": "integer", "minimum": 0 },
+          "y": { "type": "integer", "minimum": 0 },
+          "width": { "type": "integer", "exclusiveMinimum": 0 },
+          "height": { "type": "integer", "exclusiveMinimum": 0 },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "screenshotHash": { "type": "string", "pattern": "^(?!0+$)[0-9a-f]{64}$" },
     "baselineIdentity": { "type": ["string", "null"] },
     "diffResult": { "type": ["object", "null"] },
     "criticResult": { "type": ["object", "null"] },
-    "artifactProvenance": { "type": "string" }
+    "artifactProvenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "scenarioId", "captureMethod", "screenshotHash"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "captureMethod": { "type": "string", "minLength": 1 },
+          "screenshotHash": { "type": "string", "pattern": "^(?!0+$)[0-9a-f]{64}$" }
+      }
+    }
   }
 }

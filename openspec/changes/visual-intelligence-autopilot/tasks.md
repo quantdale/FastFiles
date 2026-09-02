@@ -27,25 +27,26 @@
 
 ## 6. Native component gallery
 - [x] 6.1 Add debug surface `FastFiles --gallery` (shared components, theme/density geometry)
-- [x] 6.2 Capture gallery matrix via `Invoke-VisualCatalog -Gallery`
+- [x] 6.2 Capture real gallery image matrix via `Invoke-VisualCatalog -Gallery`; no placeholder records
 
 ## 7. Visual catalog expansion
-- [ ] 7.1 Audit existing 13-state catalog and expand to ~20+ states (dual-pane, focus, Unicode/emoji, DPI)
-- [ ] 7.2 Track supported/blocked/external per design matrix
+- [x] 7.1 Audit existing 13-state catalog and expand to ~20+ states (dual-pane, focus, Unicode/emoji, DPI)
+- [x] 7.2 Track supported/blocked/external per design matrix
 
 ## 8. Before/after closure
-- [x] 8.1 Implement packet generation (`verify/visual/New-VisualClosure.ps1`)
-- [ ] 8.2 Require before/after on shipped visual fix
+- [x] 8.1 Implement packet generation (`verify/visual/New-VisualClosure.ps1` with independent lanes, provenance, disposition)
+- [ ] 8.2 Require before/after on shipped visual fix (OPEN: broad search 2026-09-03 found no demonstrable product defect — status-strip rendering verified correct by measurement, catalog 20 scenarios show no objective defect; closure machinery proven on fixtures only)
 
 ## 9. Release classifications
 - [x] 9.1 Implement `verify/visual/VisualReleaseClassification.psm1`
-- [ ] 9.2 Wire into `verify.ps1` report (separate functional/accessibility/visual legs)
+- [x] 9.2 Wire into VisualValidation capability envelope + release-classification artifact (separate functional/accessibility/visual legs; unrun legs BLOCKED, never inferred)
 
 ## 10. Privacy + performance
-- [ ] 10.1 Enforce redaction before external critic, bounded retention, no per-frame model calls
+- [x] 10.1 Enforce redaction before external critic, bounded retention, no per-frame model calls
 
 ## 11. Smoke promotion
-- [ ] 11.1 Promote `build/_core_smoke.ps1` 10/10 scenarios into `verify/capabilities/windows-ui-automation-validation/`
+- [x] 11.1 Promote `build/_core_smoke.ps1` 10/10 scenarios into `verify/capabilities/windows-ui-automation-validation/`
+
 ## 12. CI integration
-- [ ] 12.1 Add schema/fixture/fake-critic gates (no flaky screenshot gate)
-- [ ] 12.2 Keep BLOCKED_ENVIRONMENT truthful where desktop not available
+- [x] 12.1 Add schema/fixture/fake-critic gates (no flaky screenshot gate)
+- [x] 12.2 Keep BLOCKED_ENVIRONMENT truthful where desktop not available
