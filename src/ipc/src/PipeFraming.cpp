@@ -158,7 +158,16 @@ bool ReadExactOverlapped(
 
             const DWORD waitResult = WaitForSingleObject(operation->event, WaitMilliseconds(deadline));
             if (waitResult != WAIT_OBJECT_0) {
-                return CollectCancelledOperation(pipeHandle, std::move(operation));
+                const bool timedOut = waitResult == WAIT_TIMEOUT;
+                CollectCancelledOperation(pipeHandle, std::move(operation));
+                if (timedOut) {
+                    // A deadline expiry is not a disconnect: overlapped
+                    // readers that re-arm a bounded wait distinguish the two
+                    // via the last error so an idle-but-connected peer is
+                    // never torn down as if the pipe had closed.
+                    SetLastError(ERROR_TIMEOUT);
+                }
+                return false;
             }
             if (!GetOverlappedResult(pipeHandle, &operation->overlapped, &bytesRead, FALSE)) {
                 return false;
@@ -220,7 +229,14 @@ bool WriteExactOverlapped(HANDLE pipeHandle, const void* buffer, uint32_t size,
             }
             const DWORD waitResult = WaitForSingleObject(operation->event, WaitMilliseconds(deadline));
             if (waitResult != WAIT_OBJECT_0) {
-                return CollectCancelledOperation(pipeHandle, std::move(operation));
+                const bool timedOut = waitResult == WAIT_TIMEOUT;
+                CollectCancelledOperation(pipeHandle, std::move(operation));
+                if (timedOut) {
+                    // Mirror the read path: a write deadline expiry is a
+                    // bounded-operation timeout, not a generic I/O error.
+                    SetLastError(ERROR_TIMEOUT);
+                }
+                return false;
             }
             if (!GetOverlappedResult(pipeHandle, &operation->overlapped, &bytesWritten, FALSE)) {
                 return false;

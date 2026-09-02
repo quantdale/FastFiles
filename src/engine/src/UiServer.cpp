@@ -36,6 +36,13 @@ void DefaultPipeCanceller(HANDLE pipe) {
     }
 }
 
+// Bounded read slice for each connection's frame reader. UiServer::Stop()
+// cancels the pending read as its fast path; the slice bounds the worst case
+// where the connection thread re-arms a fresh read just after that
+// cancellation, so Stop()'s listener join and connection-gate wait can never
+// block forever on an uncancelled, unclosed pipe read.
+constexpr std::chrono::milliseconds kConnectionReadSlice{250};
+
 ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& result) {
     ffprotocol::SnapshotDirectory directory;
     directory.status = static_cast<ffprotocol::DirectoryEnumerationStatus>(result.status);
@@ -453,14 +460,14 @@ bool UiServer::Start(DWORD sessionId) {
                          [this, connectionGate](HANDLE pipe) {
                              {
                                  std::lock_guard<std::mutex> lock(connectionGate->mutex);
-                                 if (connectionGate->stopping) {
+                                 if (connectionGate->stopping.load(std::memory_order_acquire)) {
                                      CloseHandle(pipe);
                                      return;
                                  }
                                  ++connectionGate->active;
                              }
                              ConnectionRegistration registration{connectionGate};
-                             HandleConnection(pipe);
+                             HandleConnection(pipe, connectionGate);
                          })) {
         running_ = false;
         snapshot_.Stop();
@@ -484,7 +491,7 @@ void UiServer::Stop() {
     const auto connectionGate = connectionGate_;
     if (connectionGate != nullptr) {
         std::lock_guard<std::mutex> lock(connectionGate->mutex);
-        connectionGate->stopping = true;
+        connectionGate->stopping.store(true, std::memory_order_release);
     }
 
     // Cancel before joining watcher callbacks. A callback may already be in
@@ -989,7 +996,7 @@ bool UiServer::HandleRequestIndexedSearch(const ClientConnectionPtr& client,
     return true;
 }
 
-void UiServer::HandleConnection(HANDLE pipe) {
+void UiServer::HandleConnection(HANDLE pipe, const std::shared_ptr<ConnectionGate>& connectionGate) {
     std::shared_ptr<SearchCoordinator> searchCoordinator;
     {
         std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
@@ -1000,11 +1007,28 @@ void UiServer::HandleConnection(HANDLE pipe) {
     bool subscribed = false;
 
     for (;;) {
+        // Re-arm gate: once UiServer::Stop() has marked the gate stopping,
+        // never issue another overlapped read. Without this, a connection
+        // thread between frames when CancelIoEx runs re-arms an infinite read
+        // on a still-open handle and Stop()'s join/gate wait blocks forever.
+        if (connectionGate->stopping.load(std::memory_order_acquire)) {
+            break;
+        }
         const auto readPipe = client->Pipe();
         if (!readPipe) break;
         auto frame = ffipc::ReadFrameOverlapped(
-            readPipe->handle, std::chrono::steady_clock::time_point::max());
+            readPipe->handle, std::chrono::steady_clock::now() + kConnectionReadSlice);
         if (!frame) {
+            if (connectionGate->stopping.load(std::memory_order_acquire)) {
+                break; // Stop() cancelled the read; shutdown is in progress
+            }
+            // A bounded-slice expiry is not a disconnect: an idle-but-
+            // connected client must stay connected, so re-arm the read. Any
+            // other failure (broken pipe, protocol violation, cancel) exits
+            // the loop and reaches the normal disconnect path.
+            if (GetLastError() == ERROR_TIMEOUT) {
+                continue;
+            }
             break;
         }
         auto messageType = ffprotocol::ToUiMessageType(frame->header.messageType);

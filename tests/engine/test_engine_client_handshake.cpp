@@ -4,6 +4,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -580,11 +581,206 @@ void TestFolderAggregateCallbacksFailOnDisconnect() {
     if (connectOverlapped.hEvent != nullptr) CloseHandle(connectOverlapped.hEvent);
 }
 
+// Shutdown-termination regression: EngineClient::Stop() must return even when
+// the reader re-arms its overlapped read after Stop()'s cancellations have
+// already run. The reader is forced into exactly that window by blocking
+// inside the NewGeneration callback: Stop() runs while the reader is between
+// frames (every cancellation is a no-op), then the callback is released and
+// the reader would re-issue an unbounded read on a still-open pipe whose peer
+// never closes -- deadlocking the management-thread join. The bounded re-arm
+// plus the running_ gate makes Stop() return promptly.
+void TestClientStopTerminatesWhenReaderReArmsDuringShutdown() {
+    wchar_t tempPath[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, tempPath) != 0, "stop-termination temporary path is available");
+    const auto root = std::filesystem::path(tempPath) /
+        (L"FastFiles-stop-termination-" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(std::filesystem::create_directories(root, error), "stop-termination fixture directory is created");
+
+    DWORD sessionId = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
+
+    ffengine::UiServer server;
+    const bool serverStarted = server.Start(sessionId);
+    Check(serverStarted, "stop-termination UI server starts");
+    if (!serverStarted) {
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    struct State {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool connected = false;
+        bool callbackEntered = false;
+    } state;
+    struct Gate {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool release = false;
+    } gate;
+
+    ffui::EngineClient client;
+    client.Start(
+        [&state, &gate](uint64_t) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                state.callbackEntered = true;
+            }
+            state.condition.notify_all();
+            std::unique_lock<std::mutex> lock(gate.mutex);
+            gate.condition.wait(lock, [&gate] { return gate.release; });
+        },
+        [&state](ffui::EngineConnectionState connectionState, bool) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                if (connectionState == ffui::EngineConnectionState::Connected) {
+                    state.connected = true;
+                }
+            }
+            state.condition.notify_all();
+        },
+        [&state](const std::wstring&, ffprotocol::DirectoryErrorReason) {});
+
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        Check(state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.connected; }),
+              "stop-termination client connects");
+    }
+    client.RequestDirectory(root.wstring());
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        Check(state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.callbackEntered; }),
+              "stop-termination reader enters the generation callback");
+    }
+
+    std::thread stoper([&client] { client.Stop(); });
+    Sleep(200);
+    {
+        std::lock_guard<std::mutex> lock(gate.mutex);
+        gate.release = true;
+    }
+    gate.condition.notify_all();
+
+    const bool stopCompleted = WaitForSingleObject(stoper.native_handle(), 15000) == WAIT_OBJECT_0;
+    if (stopCompleted) {
+        stoper.join();
+        Check(true, "EngineClient::Stop() terminates with the reader between frames");
+    } else {
+        Check(false, "EngineClient::Stop() terminates with the reader between frames");
+        std::_Exit(EXIT_FAILURE);
+    }
+
+    server.Stop();
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "stop-termination fixture is removed");
+}
+
+// Shutdown-termination regression on the server side: UiServer::Stop() must
+// return even when the connection thread re-arms its overlapped read after
+// Stop()'s cancellations have already run. The connection thread is forced
+// into that window by blocking inside the request handler (onActivity); the
+// client stays connected, so a re-armed unbounded read would never complete
+// on its own. The bounded re-arm plus the connection-gate stop mark makes
+// Stop() return promptly.
+void TestServerStopTerminatesWhenConnectionThreadReArmsDuringShutdown() {
+    wchar_t tempPath[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, tempPath) != 0, "server-stop-termination temporary path is available");
+    const auto root = std::filesystem::path(tempPath) /
+        (L"FastFiles-server-stop-termination-" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    Check(std::filesystem::create_directories(root, error), "server-stop-termination fixture directory is created");
+
+    DWORD sessionId = 0;
+    ProcessIdToSessionId(GetCurrentProcessId(), &sessionId);
+
+    struct Gate {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool activityEntered = false;
+        bool release = false;
+    } gate;
+
+    ffengine::UiServer server;
+    server.onActivity = [&gate] {
+        {
+            std::lock_guard<std::mutex> lock(gate.mutex);
+            gate.activityEntered = true;
+        }
+        gate.condition.notify_all();
+        std::unique_lock<std::mutex> lock(gate.mutex);
+        gate.condition.wait(lock, [&gate] { return gate.release; });
+    };
+    const bool serverStarted = server.Start(sessionId);
+    Check(serverStarted, "server-stop-termination UI server starts");
+    if (!serverStarted) {
+        std::filesystem::remove_all(root, error);
+        return;
+    }
+
+    struct State {
+        std::mutex mutex;
+        std::condition_variable condition;
+        bool connected = false;
+    } state;
+    ffui::EngineClient client;
+    client.Start(
+        [&state](uint64_t) {},
+        [&state](ffui::EngineConnectionState connectionState, bool) {
+            {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                if (connectionState == ffui::EngineConnectionState::Connected) {
+                    state.connected = true;
+                }
+            }
+            state.condition.notify_all();
+        },
+        [&state](const std::wstring&, ffprotocol::DirectoryErrorReason) {});
+    {
+        std::unique_lock<std::mutex> lock(state.mutex);
+        Check(state.condition.wait_for(lock, kWaitDeadline, [&state] { return state.connected; }),
+              "server-stop-termination client connects");
+    }
+    client.RequestDirectory(root.wstring());
+    {
+        std::unique_lock<std::mutex> lock(gate.mutex);
+        Check(gate.condition.wait_for(lock, kWaitDeadline, [&gate] { return gate.activityEntered; }),
+              "server-stop-termination connection thread enters the request handler");
+    }
+
+    std::thread stoper([&server, &client] {
+        server.Stop();
+        client.Stop();
+    });
+    Sleep(200);
+    {
+        std::lock_guard<std::mutex> lock(gate.mutex);
+        gate.release = true;
+    }
+    gate.condition.notify_all();
+
+    const bool stopCompleted = WaitForSingleObject(stoper.native_handle(), 15000) == WAIT_OBJECT_0;
+    if (stopCompleted) {
+        stoper.join();
+        Check(true, "UiServer::Stop() terminates with the connection thread between frames");
+    } else {
+        Check(false, "UiServer::Stop() terminates with the connection thread between frames");
+        std::_Exit(EXIT_FAILURE);
+    }
+
+    std::filesystem::remove_all(root, error);
+    Check(!std::filesystem::exists(root), "server-stop-termination fixture is removed");
+}
+
 } // namespace
 
 int main() {
     TestEngineClientUiServerHandshake();
     TestFilesystemMutationConvergesThroughPublishedSnapshot();
     TestFolderAggregateCallbacksFailOnDisconnect();
+    TestClientStopTerminatesWhenReaderReArmsDuringShutdown();
+    TestServerStopTerminatesWhenConnectionThreadReArmsDuringShutdown();
     return FailureCount() == 0 ? 0 : 1;
 }

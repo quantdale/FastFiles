@@ -20,6 +20,11 @@ using ffprotocol::UiMessageType;
 constexpr std::chrono::milliseconds kReconnectDelay{2000};
 constexpr std::chrono::milliseconds kHandshakeTimeout{5000};
 constexpr std::chrono::milliseconds kPipeWriteTimeout{5000};
+// Bounded read slice for the connection reader. Stop() cancels the pending
+// read as its fast path; the slice bounds the worst case where the reader
+// re-arms a fresh read just after that cancellation, so managementThread_.
+// join() can never wait forever on an uncancelled, unclosed pipe read.
+constexpr std::chrono::milliseconds kReaderReadSlice{250};
 // recovery-degraded-browsing D2: at most this many connect attempts per
 // cycle (~10 s at the 2 s cadence) before the explicit Unavailable state.
 constexpr int kMaxConnectAttempts = 5;
@@ -388,8 +393,29 @@ void EngineClient::ReaderLoop() {
     }
     if (!pipe) return;
     for (;;) {
-        auto parsed = ffipc::ReadFrameOverlapped(pipe->handle, std::chrono::steady_clock::time_point::max());
-        if (!parsed) break;
+        // Re-arm gate: once Stop() has cleared running_, never issue another
+        // overlapped read. Without this, a reader between frames when
+        // CancelIoEx runs re-arms an infinite read on a still-open handle and
+        // Stop()'s join blocks forever (the read is only unblocked by a peer
+        // close that never happens during shutdown).
+        if (!running_.load(std::memory_order_acquire)) {
+            break;
+        }
+        auto parsed = ffipc::ReadFrameOverlapped(
+            pipe->handle, std::chrono::steady_clock::now() + kReaderReadSlice);
+        if (!parsed) {
+            if (!running_.load(std::memory_order_acquire)) {
+                break; // Stop() cancelled the read; shutdown is in progress
+            }
+            // A bounded-slice expiry is not a disconnect: an idle-but-
+            // connected engine must stay connected, so re-arm the read.
+            // Any other failure (broken pipe, protocol violation, cancel)
+            // exits the loop and reaches the normal reconnect path.
+            if (GetLastError() == ERROR_TIMEOUT) {
+                continue;
+            }
+            break;
+        }
         ffipc::ReceivedFrame frame = std::move(*parsed);
         auto messageType = ffprotocol::ToUiMessageType(frame.header.messageType);
         if (!messageType) {

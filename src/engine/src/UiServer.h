@@ -186,7 +186,9 @@ private:
 
         std::mutex mutex;
         std::condition_variable condition;
-        bool stopping = false;
+        // Atomic so HandleConnection can observe the stop mark from its own
+        // loop without taking the gate mutex on every re-armed read.
+        std::atomic<bool> stopping{false};
         size_t active = 0;
     };
 
@@ -250,7 +252,7 @@ private:
 
     using ClientConnectionPtr = std::shared_ptr<ClientConnection>;
 
-    void HandleConnection(HANDLE pipe);
+    void HandleConnection(HANDLE pipe, const std::shared_ptr<ConnectionGate>& connectionGate);
     void HandleRequestDirectory(const ClientConnectionPtr& client, const std::wstring& path);
     void HandleRequestFolderAggregate(const ClientConnectionPtr& client, const std::vector<uint8_t>& framePayload);
     bool HandleRequestIndexedSearch(const ClientConnectionPtr& client, const std::vector<uint8_t>& framePayload);
