@@ -440,6 +440,198 @@ void TestManyFramesRoundTripDeterministically() {
     Check(receivedCount == kFrameCount, "every burst frame is received exactly once");
 }
 
+// IPC framing/shutdown correctness: timeout before any byte is distinguishable
+// from partial-frame timeout. A clean idle timeout must be Timeout, while a
+// timeout after consuming part of the header must be reported as Disconnected
+// (framing lost) and must not be silently retried as a fresh frame.
+void TestTimeoutBeforeAnyByteIsDistinguishable() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "idle-timeout pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffipc::ReceivedFrame out{};
+    const auto status = ffipc::ReadFrameOverlappedDetailed(
+        pipe.server, nullptr, std::chrono::steady_clock::now() + std::chrono::milliseconds(100), &out);
+    Check(status == ffipc::FrameReadStatus::Timeout, "idle timeout before any byte is Timeout");
+    Check(GetLastError() == ERROR_TIMEOUT, "idle timeout sets ERROR_TIMEOUT");
+    // After an idle timeout, the pipe is still at a frame boundary: a full
+    // frame written afterwards must round-trip correctly.
+    const uint32_t sentinel = 0xAABBCCDDu;
+    Check(ffipc::WriteFrame(pipe.client,
+              static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), &sentinel, sizeof(sentinel)),
+          "post-idle frame is written");
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, std::chrono::steady_clock::now() + std::chrono::seconds(2));
+    Check(received.has_value() && received->payload.size() == sizeof(sentinel), "post-idle frame is read intact");
+}
+
+void TestPartialHeaderTimeoutIsFramingError() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "partial-header detailed pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffprotocol::FrameHeader header{};
+    header.totalLength = sizeof(header);
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    Check(WriteFile(pipe.client, &header, sizeof(header) - 2, &written, nullptr) != FALSE
+              && written == sizeof(header) - 2,
+          "partial header (header-2) is delivered");
+    ffipc::ReceivedFrame out{};
+    const auto status = ffipc::ReadFrameOverlappedDetailed(
+        pipe.server, nullptr, std::chrono::steady_clock::now() + std::chrono::milliseconds(100), &out);
+    Check(status == ffipc::FrameReadStatus::Disconnected, "partial-header timeout is Disconnected, not Timeout");
+    Check(GetLastError() == ERROR_OPERATION_ABORTED, "partial-header timeout sets ABORTED");
+    // The pipe is now framing-desynced; a subsequent full frame must NOT be
+    // parsed as valid by a naive retry. The caller must discard the pipe.
+    // We prove the next read does NOT yield a valid frame with the expected
+    // sentinel if the caller naively retries on the same pipe.
+    DWORD remaining = 0;
+    WriteFile(pipe.client, reinterpret_cast<const uint8_t*>(&header) + sizeof(header) - 2, 2, &remaining, nullptr);
+    const uint32_t sentinel = 0x11223344u;
+    ffipc::WriteFrame(pipe.client,
+        static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat), &sentinel, sizeof(sentinel));
+    const auto second = ffipc::ReadFrameOverlapped(
+        pipe.server, std::chrono::steady_clock::now() + std::chrono::milliseconds(200));
+    // Either the second read fails (framing lost) or it returns a corrupted
+    // frame, but it must NOT silently produce the expected sentinel payload.
+    const bool correctlyNotSentinel = !second.has_value()
+        || second->payload.size() != sizeof(sentinel)
+        || std::memcmp(second->payload.data(), &sentinel, sizeof(sentinel)) != 0;
+    Check(correctlyNotSentinel, "retry after partial header does not silently yield the next frame intact");
+}
+
+void TestPartialPayloadTimeoutIsFramingError() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "partial-payload pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + 64);
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    Check(WriteFile(pipe.client, &header, sizeof(header), &written, nullptr) != FALSE
+              && written == sizeof(header), "payload-test header is delivered");
+    std::vector<uint8_t> partial(10, 0x5A);
+    Check(WriteFile(pipe.client, partial.data(), static_cast<DWORD>(partial.size()), &written, nullptr) != FALSE
+              && written == partial.size(), "partial payload is delivered");
+    ffipc::ReceivedFrame out{};
+    const auto status = ffipc::ReadFrameOverlappedDetailed(
+        pipe.server, nullptr, std::chrono::steady_clock::now() + std::chrono::milliseconds(100), &out);
+    Check(status == ffipc::FrameReadStatus::Disconnected, "partial payload timeout is Disconnected");
+}
+
+void TestMultiShortReadFrameReconstructsWithDelays() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "multi-short-read pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    const size_t payloadSize = 512;
+    std::vector<uint8_t> payload(payloadSize);
+    for (size_t i = 0; i < payload.size(); ++i) payload[i] = static_cast<uint8_t>(i % 251);
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + payloadSize);
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch);
+    std::thread writer([&] {
+        DWORD w = 0;
+        // Send header in two chunks with delay.
+        WriteFile(pipe.client, &header, 3, &w, nullptr);
+        Sleep(10);
+        WriteFile(pipe.client, reinterpret_cast<const uint8_t*>(&header) + 3, sizeof(header) - 3, &w, nullptr);
+        Sleep(10);
+        size_t off = 0;
+        while (off < payloadSize) {
+            const size_t chunk = (std::min)(static_cast<size_t>(13), payloadSize - off);
+            WriteFile(pipe.client, payload.data() + off, static_cast<DWORD>(chunk), &w, nullptr);
+            off += chunk;
+            if (off < payloadSize) Sleep(5);
+        }
+    });
+    const auto received = ffipc::ReadFrameOverlapped(
+        pipe.server, std::chrono::steady_clock::now() + std::chrono::seconds(5));
+    writer.join();
+    Check(received.has_value(), "multi-short-read frame eventually completes");
+    Check(received && received->payload == payload, "multi-short-read payload matches");
+}
+
+void TestMalformedFrameIsNotTimeout() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "malformed detailed pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffprotocol::FrameHeader header{};
+    header.totalLength = ffprotocol::kMaxFrameSize + 1;
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    WriteFile(pipe.client, &header, sizeof(header), &written, nullptr);
+    ffipc::ReceivedFrame out{};
+    const auto status = ffipc::ReadFrameOverlappedDetailed(
+        pipe.server, nullptr, std::chrono::steady_clock::now() + std::chrono::seconds(2), &out);
+    Check(status == ffipc::FrameReadStatus::InvalidFrame, "oversized header is InvalidFrame");
+    Check(GetLastError() == ERROR_INVALID_DATA, "malformed frame sets INVALID_DATA not TIMEOUT");
+}
+
+void TestShutdownWhileIdleReadPending() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "shutdown-idle pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    HANDLE shutdownEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    Check(shutdownEvent != nullptr, "shutdown event is created");
+    ffipc::ReceivedFrame out{};
+    std::thread reader([&] {
+        const auto status = ffipc::ReadFrameOverlappedDetailed(
+            pipe.server, shutdownEvent, std::chrono::steady_clock::time_point::max(), &out);
+        Check(status == ffipc::FrameReadStatus::Cancelled, "idle shutdown yields Cancelled");
+    });
+    Sleep(100);
+    SetEvent(shutdownEvent);
+    CancelIoEx(pipe.server, nullptr);
+    reader.join();
+    CloseHandle(shutdownEvent);
+}
+
+void TestShutdownDuringPartialHeader() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "shutdown-partial-header pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffprotocol::FrameHeader header{};
+    header.totalLength = sizeof(header) + 32;
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    WriteFile(pipe.client, &header, 3, &written, nullptr);
+    HANDLE shutdownEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    ffipc::ReceivedFrame out{};
+    std::thread reader([&] {
+        const auto status = ffipc::ReadFrameOverlappedDetailed(
+            pipe.server, shutdownEvent, std::chrono::steady_clock::time_point::max(), &out);
+        Check(status == ffipc::FrameReadStatus::Cancelled, "shutdown during partial header yields Cancelled");
+    });
+    Sleep(100);
+    SetEvent(shutdownEvent);
+    CancelIoEx(pipe.server, nullptr);
+    reader.join();
+    CloseHandle(shutdownEvent);
+}
+
+void TestPeerDisconnectDuringHeader() {
+    NamedPipePair pipe = MakeOverlappedNamedPipe();
+    Check(pipe.server != nullptr && pipe.client != nullptr, "peer-disconnect-header pipe is connected");
+    if (pipe.server == nullptr || pipe.client == nullptr) return;
+    ffprotocol::FrameHeader header{};
+    header.totalLength = sizeof(header) + 16;
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    DWORD written = 0;
+    WriteFile(pipe.client, &header, sizeof(header), &written, nullptr);
+    CloseHandle(pipe.client);
+    pipe.client = nullptr;
+    ffipc::ReceivedFrame out{};
+    const auto status = ffipc::ReadFrameOverlappedDetailed(
+        pipe.server, nullptr, std::chrono::steady_clock::now() + std::chrono::seconds(2), &out);
+    Check(status == ffipc::FrameReadStatus::Disconnected, "peer disconnect during payload yields Disconnected");
+    Check(GetLastError() == ERROR_BROKEN_PIPE, "peer disconnect sets BROKEN_PIPE");
+}
+
 } // namespace
 
 int main() {
@@ -456,5 +648,13 @@ int main() {
     TestSynchronousReadReturnsOnBrokenPipe();
     TestBackToBackFramesAreDelimited();
     TestManyFramesRoundTripDeterministically();
+    TestTimeoutBeforeAnyByteIsDistinguishable();
+    TestPartialHeaderTimeoutIsFramingError();
+    TestPartialPayloadTimeoutIsFramingError();
+    TestMultiShortReadFrameReconstructsWithDelays();
+    TestMalformedFrameIsNotTimeout();
+    TestShutdownWhileIdleReadPending();
+    TestShutdownDuringPartialHeader();
+    TestPeerDisconnectDuringHeader();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

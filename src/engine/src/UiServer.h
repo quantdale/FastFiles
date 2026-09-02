@@ -183,12 +183,20 @@ private:
                 condition.notify_all();
             }
         }
+        ~ConnectionGate() {
+            if (shutdownEvent != nullptr && shutdownEvent != INVALID_HANDLE_VALUE) {
+                CloseHandle(shutdownEvent);
+            }
+        }
 
         std::mutex mutex;
         std::condition_variable condition;
         // Atomic so HandleConnection can observe the stop mark from its own
         // loop without taking the gate mutex on every re-armed read.
         std::atomic<bool> stopping{false};
+        // Manual-reset event signaled in Stop() to wake HandleConnection's
+        // shutdown-aware read without polling.
+        HANDLE shutdownEvent{nullptr};
         size_t active = 0;
     };
 

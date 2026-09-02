@@ -36,12 +36,6 @@ void DefaultPipeCanceller(HANDLE pipe) {
     }
 }
 
-// Bounded read slice for each connection's frame reader. UiServer::Stop()
-// cancels the pending read as its fast path; the slice bounds the worst case
-// where the connection thread re-arms a fresh read just after that
-// cancellation, so Stop()'s listener join and connection-gate wait can never
-// block forever on an uncancelled, unclosed pipe read.
-constexpr std::chrono::milliseconds kConnectionReadSlice{250};
 
 ffprotocol::SnapshotDirectory ToSnapshotDirectory(const EnumerationResult& result) {
     ffprotocol::SnapshotDirectory directory;
@@ -430,6 +424,11 @@ UiServer::~UiServer() {
 
 bool UiServer::Start(DWORD sessionId) {
     connectionGate_ = std::make_shared<ConnectionGate>();
+    connectionGate_->shutdownEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (connectionGate_->shutdownEvent == nullptr) {
+        connectionGate_.reset();
+        return false;
+    }
     {
         std::lock_guard<std::mutex> lock(searchCoordinatorMutex_);
         searchCoordinator_ = std::make_shared<SearchCoordinator>();
@@ -490,8 +489,13 @@ void UiServer::Stop() {
     if (searchCoordinator != nullptr) searchCoordinator->Stop();
     const auto connectionGate = connectionGate_;
     if (connectionGate != nullptr) {
-        std::lock_guard<std::mutex> lock(connectionGate->mutex);
-        connectionGate->stopping.store(true, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(connectionGate->mutex);
+            connectionGate->stopping.store(true, std::memory_order_release);
+        }
+        if (connectionGate->shutdownEvent != nullptr) {
+            SetEvent(connectionGate->shutdownEvent);
+        }
     }
 
     // Cancel before joining watcher callbacks. A callback may already be in
@@ -1007,30 +1011,28 @@ void UiServer::HandleConnection(HANDLE pipe, const std::shared_ptr<ConnectionGat
     bool subscribed = false;
 
     for (;;) {
-        // Re-arm gate: once UiServer::Stop() has marked the gate stopping,
-        // never issue another overlapped read. Without this, a connection
-        // thread between frames when CancelIoEx runs re-arms an infinite read
-        // on a still-open handle and Stop()'s join/gate wait blocks forever.
         if (connectionGate->stopping.load(std::memory_order_acquire)) {
             break;
         }
         const auto readPipe = client->Pipe();
         if (!readPipe) break;
-        auto frame = ffipc::ReadFrameOverlapped(
-            readPipe->handle, std::chrono::steady_clock::now() + kConnectionReadSlice);
-        if (!frame) {
-            if (connectionGate->stopping.load(std::memory_order_acquire)) {
-                break; // Stop() cancelled the read; shutdown is in progress
-            }
-            // A bounded-slice expiry is not a disconnect: an idle-but-
-            // connected client must stay connected, so re-arm the read. Any
-            // other failure (broken pipe, protocol violation, cancel) exits
-            // the loop and reaches the normal disconnect path.
-            if (GetLastError() == ERROR_TIMEOUT) {
-                continue;
+        // Shutdown-aware blocking: no polling slice. The reader blocks on
+        // INFINITE and is woken only by real I/O or the gate's shutdownEvent.
+        // This preserves framing across any deadline expiry because no
+        // partial-frame re-arm occurs.
+        ffipc::ReceivedFrame frameStorage;
+        const ffipc::FrameReadStatus readStatus = ffipc::ReadFrameOverlappedDetailed(
+            readPipe->handle, connectionGate->shutdownEvent,
+            std::chrono::steady_clock::time_point::max(), &frameStorage);
+        if (readStatus != ffipc::FrameReadStatus::Success) {
+            if (readStatus == ffipc::FrameReadStatus::Cancelled
+                || connectionGate->stopping.load(std::memory_order_acquire)) {
+                break;
             }
             break;
         }
+        auto frame = std::optional<ffipc::ReceivedFrame>(std::move(frameStorage));
+        if (!frame) break;
         auto messageType = ffprotocol::ToUiMessageType(frame->header.messageType);
         if (!messageType) {
             break; // unrecognized message type: protocol violation

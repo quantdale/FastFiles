@@ -157,6 +157,7 @@ private:
     std::thread managementThread_;
     std::thread invalidationThread_;
     std::atomic<bool> running_{false};
+    HANDLE shutdownEvent_{nullptr};
     // recovery-degraded-browsing D2: parked-wait state for the bounded
     // connect cycle (RetryConnect wakes it).
     std::atomic<bool> retryRequested_{false};

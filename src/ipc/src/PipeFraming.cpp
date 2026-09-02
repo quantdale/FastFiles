@@ -90,6 +90,14 @@ DWORD WaitMilliseconds(const std::chrono::steady_clock::time_point deadline) noe
     return static_cast<DWORD>((std::min)(remaining, static_cast<long long>(INFINITE - 1)));
 }
 
+DWORD WaitForOperation(HANDLE operationEvent, HANDLE shutdownEvent, DWORD timeoutMs) noexcept {
+    if (shutdownEvent == nullptr || shutdownEvent == INVALID_HANDLE_VALUE) {
+        return WaitForSingleObject(operationEvent, timeoutMs);
+    }
+    HANDLE handles[2] = {operationEvent, shutdownEvent};
+    return WaitForMultipleObjects(2, handles, FALSE, timeoutMs);
+}
+
 bool CollectCancelledOperation(HANDLE pipeHandle, std::unique_ptr<OverlappedOperation> operation) noexcept {
     CancelIoEx(pipeHandle, &operation->overlapped);
     const DWORD waitResult = WaitForSingleObject(
@@ -125,25 +133,33 @@ bool ReadExact(HANDLE pipeHandle, void* buffer, uint32_t size) noexcept {
     return true;
 }
 
-bool ReadExactOverlapped(
-    HANDLE pipeHandle, void* buffer, uint32_t size,
-    const std::chrono::steady_clock::time_point deadline) noexcept {
+bool ReadExactOverlappedInternal(
+    HANDLE pipeHandle, void* buffer, uint32_t size, HANDLE shutdownEvent,
+    const std::chrono::steady_clock::time_point deadline, FrameReadStatus* outStatus) noexcept {
     ReapQuarantinedOperations();
     uint8_t* cursor = static_cast<uint8_t*>(buffer);
     uint32_t remaining = size;
+    const uint32_t initialSize = size;
     while (remaining > 0) {
         std::unique_ptr<OverlappedOperation> operation;
         try {
             operation = std::make_unique<OverlappedOperation>();
         } catch (...) {
+            if (outStatus) *outStatus = FrameReadStatus::ResourceFailure;
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
             return false;
         }
         operation->event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-        if (operation->event == nullptr) return false;
+        if (operation->event == nullptr) {
+            if (outStatus) *outStatus = FrameReadStatus::ResourceFailure;
+            return false;
+        }
         operation->overlapped.hEvent = operation->event;
         try {
             operation->buffer.resize(remaining);
         } catch (...) {
+            if (outStatus) *outStatus = FrameReadStatus::ResourceFailure;
+            SetLastError(ERROR_NOT_ENOUGH_MEMORY);
             return false;
         }
 
@@ -153,27 +169,55 @@ bool ReadExactOverlapped(
         if (!completed) {
             const DWORD error = GetLastError();
             if (error != ERROR_IO_PENDING) {
-                return false;
-            }
-
-            const DWORD waitResult = WaitForSingleObject(operation->event, WaitMilliseconds(deadline));
-            if (waitResult != WAIT_OBJECT_0) {
-                const bool timedOut = waitResult == WAIT_TIMEOUT;
-                CollectCancelledOperation(pipeHandle, std::move(operation));
-                if (timedOut) {
-                    // A deadline expiry is not a disconnect: overlapped
-                    // readers that re-arm a bounded wait distinguish the two
-                    // via the last error so an idle-but-connected peer is
-                    // never torn down as if the pipe had closed.
-                    SetLastError(ERROR_TIMEOUT);
+                if (outStatus) {
+                    *outStatus = (error == ERROR_BROKEN_PIPE || error == ERROR_PIPE_NOT_CONNECTED)
+                        ? FrameReadStatus::Disconnected
+                        : FrameReadStatus::IoError;
                 }
                 return false;
             }
-            if (!GetOverlappedResult(pipeHandle, &operation->overlapped, &bytesRead, FALSE)) {
+
+            const DWORD waitResult = WaitForOperation(operation->event, shutdownEvent, WaitMilliseconds(deadline));
+            if (waitResult == WAIT_OBJECT_0) {
+                if (!GetOverlappedResult(pipeHandle, &operation->overlapped, &bytesRead, FALSE)) {
+                    const DWORD resultError = GetLastError();
+                    if (outStatus) {
+                        if (resultError == ERROR_OPERATION_ABORTED) *outStatus = FrameReadStatus::Cancelled;
+                        else if (resultError == ERROR_BROKEN_PIPE) *outStatus = FrameReadStatus::Disconnected;
+                        else *outStatus = FrameReadStatus::IoError;
+                    }
+                    return false;
+                }
+            } else if (waitResult == WAIT_OBJECT_0 + 1) {
+                CollectCancelledOperation(pipeHandle, std::move(operation));
+                if (outStatus) *outStatus = FrameReadStatus::Cancelled;
+                SetLastError(ERROR_OPERATION_ABORTED);
+                return false;
+            } else if (waitResult == WAIT_TIMEOUT) {
+                CollectCancelledOperation(pipeHandle, std::move(operation));
+                // Partial consumption before timeout is a framing desync
+                // hazard. Treat it as a connection-level failure rather
+                // than a retriable idle expiry so callers do not re-parse
+                // half a header as a new frame.
+                const bool hadPartialBytes = remaining != initialSize;
+                // Also true if we already consumed some bytes in a prior
+                // iteration of this ReadExact (remaining != initialSize) or
+                // the caller will track header vs payload separately.
+                if (outStatus) {
+                    *outStatus = hadPartialBytes ? FrameReadStatus::Disconnected : FrameReadStatus::Timeout;
+                }
+                SetLastError(hadPartialBytes ? ERROR_OPERATION_ABORTED : ERROR_TIMEOUT);
+                return false;
+            } else {
+                CollectCancelledOperation(pipeHandle, std::move(operation));
+                if (outStatus) *outStatus = FrameReadStatus::IoError;
+                SetLastError(ERROR_IO_DEVICE);
                 return false;
             }
         }
         if (bytesRead == 0) {
+            if (outStatus) *outStatus = FrameReadStatus::Disconnected;
+            SetLastError(ERROR_BROKEN_PIPE);
             return false;
         }
         std::memcpy(cursor, operation->buffer.data(), bytesRead);
@@ -181,7 +225,14 @@ bool ReadExactOverlapped(
         remaining -= bytesRead;
         CloseOperationEvent(*operation);
     }
+    if (outStatus) *outStatus = FrameReadStatus::Success;
     return true;
+}
+
+bool ReadExactOverlapped(
+    HANDLE pipeHandle, void* buffer, uint32_t size,
+    const std::chrono::steady_clock::time_point deadline) noexcept {
+    return ReadExactOverlappedInternal(pipeHandle, buffer, size, nullptr, deadline, nullptr);
 }
 
 bool WriteExact(HANDLE pipeHandle, const void* buffer, uint32_t size) noexcept {
@@ -292,28 +343,69 @@ std::optional<ReceivedFrame> ReadFrame(HANDLE pipeHandle) noexcept {
     return frame;
 }
 
-std::optional<ReceivedFrame> ReadFrameOverlapped(
-    HANDLE pipeHandle, const std::chrono::steady_clock::time_point deadline) noexcept {
+FrameReadStatus ReadFrameOverlappedDetailed(
+    HANDLE pipeHandle, HANDLE shutdownEvent,
+    const std::chrono::steady_clock::time_point deadline, ReceivedFrame* outFrame) noexcept {
+    if (outFrame == nullptr) {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FrameReadStatus::ResourceFailure;
+    }
+    FrameReadStatus headerStatus = FrameReadStatus::Success;
     ffprotocol::FrameHeader header{};
-    if (!ReadExactOverlapped(pipeHandle, &header, sizeof(header), deadline)) {
-        return std::nullopt;
+    if (!ReadExactOverlappedInternal(pipeHandle, &header, sizeof(header), shutdownEvent, deadline, &headerStatus)) {
+        if (headerStatus == FrameReadStatus::Timeout) SetLastError(ERROR_TIMEOUT);
+        else if (headerStatus == FrameReadStatus::Cancelled) SetLastError(ERROR_OPERATION_ABORTED);
+        else if (headerStatus == FrameReadStatus::Disconnected) {
+            const DWORD last = GetLastError();
+            if (last == ERROR_TIMEOUT) SetLastError(ERROR_OPERATION_ABORTED);
+            if (GetLastError() == 0 || GetLastError() == ERROR_SUCCESS) SetLastError(ERROR_BROKEN_PIPE);
+        }
+        return headerStatus;
     }
     if (!ffprotocol::IsFrameLengthValid(header.totalLength) || header.structVersion != ffprotocol::kCurrentStructVersion) {
-        return std::nullopt;
+        SetLastError(ERROR_INVALID_DATA);
+        return FrameReadStatus::InvalidFrame;
     }
-
     ReceivedFrame frame;
     frame.header = header;
     const uint32_t payloadSize = header.totalLength - static_cast<uint32_t>(sizeof(header));
     try {
         frame.payload.resize(payloadSize);
     } catch (...) {
-        return std::nullopt;
+        SetLastError(ERROR_NOT_ENOUGH_MEMORY);
+        return FrameReadStatus::ResourceFailure;
     }
-    if (payloadSize > 0 && !ReadExactOverlapped(pipeHandle, frame.payload.data(), payloadSize, deadline)) {
-        return std::nullopt;
+    if (payloadSize > 0) {
+        FrameReadStatus payloadStatus = FrameReadStatus::Success;
+        if (!ReadExactOverlappedInternal(pipeHandle, frame.payload.data(), payloadSize, shutdownEvent, deadline, &payloadStatus)) {
+            if (payloadStatus == FrameReadStatus::Timeout) {
+                // Payload timeout after header already consumed => framing
+                // is lost. Treat as disconnect so caller cannot retry as if
+                // at a fresh frame boundary.
+                SetLastError(ERROR_OPERATION_ABORTED);
+                return FrameReadStatus::Disconnected;
+            }
+            if (payloadStatus == FrameReadStatus::Cancelled) SetLastError(ERROR_OPERATION_ABORTED);
+            return payloadStatus;
+        }
     }
-    return frame;
+    *outFrame = std::move(frame);
+    SetLastError(ERROR_SUCCESS);
+    return FrameReadStatus::Success;
+}
+
+std::optional<ReceivedFrame> ReadFrameOverlapped(
+    HANDLE pipeHandle, HANDLE shutdownEvent,
+    const std::chrono::steady_clock::time_point deadline) noexcept {
+    ReceivedFrame frame;
+    const FrameReadStatus status = ReadFrameOverlappedDetailed(pipeHandle, shutdownEvent, deadline, &frame);
+    if (status == FrameReadStatus::Success) return frame;
+    return std::nullopt;
+}
+
+std::optional<ReceivedFrame> ReadFrameOverlapped(
+    HANDLE pipeHandle, const std::chrono::steady_clock::time_point deadline) noexcept {
+    return ReadFrameOverlapped(pipeHandle, nullptr, deadline);
 }
 
 bool WriteFrame(HANDLE pipeHandle, uint16_t messageType, const void* payload, uint32_t payloadSize) noexcept {

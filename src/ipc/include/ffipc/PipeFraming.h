@@ -33,6 +33,20 @@ struct ReceivedFrame {
 // pipe I/O error or clean disconnect.
 std::optional<ReceivedFrame> ReadFrame(HANDLE pipeHandle) noexcept;
 
+// Explicit per-frame result classification. Idle expiry (deadline hit before
+// any byte of the frame was consumed) is distinguishable from provider
+// cancellation (Stop()/CancelIoEx), disconnect, malformed framing, and
+// generic I/O failure without relying on stale thread-local GetLastError().
+enum class FrameReadStatus : uint8_t {
+    Success = 0,
+    Timeout,
+    Cancelled,
+    Disconnected,
+    InvalidFrame,
+    IoError,
+    ResourceFailure,
+};
+
 // Reads one frame from a FILE_FLAG_OVERLAPPED pipe. The read is issued with
 // ReadFile and completed from an explicit event; the absolute deadline bounds
 // a frame header or payload that never arrives. Cancellation is collected for
@@ -42,6 +56,24 @@ std::optional<ReceivedFrame> ReadFrame(HANDLE pipeHandle) noexcept;
 // event handle referenced by the kernel.
 std::optional<ReceivedFrame> ReadFrameOverlapped(
     HANDLE pipeHandle, std::chrono::steady_clock::time_point deadline) noexcept;
+
+// Shutdown-aware variant. Waits on both the overlapped completion event and
+// `shutdownEvent` (manual-reset, signaled by Stop()). An idle-but-connected
+// peer never needs a periodic deadline to make Stop() join promptly; the
+// reader blocks on INFINITE (deadline==max) and is woken by the shutdown
+// event via WaitForMultipleObjects. This preserves byte-stream framing
+// across partial-header/payload timeouts because no spurious per-slice retry
+// re-parses a half-consumed frame.
+std::optional<ReceivedFrame> ReadFrameOverlapped(
+    HANDLE pipeHandle, HANDLE shutdownEvent,
+    std::chrono::steady_clock::time_point deadline) noexcept;
+
+// Structured result wrapper. Sets LastError consistently (TIMEOUT / ABORTED /
+// BROKEN_PIPE / INVALID_DATA / etc.) for backwards-compat callers that
+// still inspect GetLastError(), but callers should prefer `status`.
+FrameReadStatus ReadFrameOverlappedDetailed(
+    HANDLE pipeHandle, HANDLE shutdownEvent,
+    std::chrono::steady_clock::time_point deadline, ReceivedFrame* outFrame) noexcept;
 
 // Writes a complete frame (header + payload) to a synchronous pipe handle.
 // payloadSize must match what `messageType` implies; this function does

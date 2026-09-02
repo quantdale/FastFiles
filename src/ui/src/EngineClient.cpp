@@ -20,11 +20,6 @@ using ffprotocol::UiMessageType;
 constexpr std::chrono::milliseconds kReconnectDelay{2000};
 constexpr std::chrono::milliseconds kHandshakeTimeout{5000};
 constexpr std::chrono::milliseconds kPipeWriteTimeout{5000};
-// Bounded read slice for the connection reader. Stop() cancels the pending
-// read as its fast path; the slice bounds the worst case where the reader
-// re-arms a fresh read just after that cancellation, so managementThread_.
-// join() can never wait forever on an uncancelled, unclosed pipe read.
-constexpr std::chrono::milliseconds kReaderReadSlice{250};
 // recovery-degraded-browsing D2: at most this many connect attempts per
 // cycle (~10 s at the 2 s cadence) before the explicit Unavailable state.
 constexpr int kMaxConnectAttempts = 5;
@@ -387,33 +382,34 @@ bool EngineClient::ConnectAndSubscribe() {
 
 void EngineClient::ReaderLoop() {
     PipePtr pipe;
+    HANDLE localShutdownEvent = nullptr;
     {
         std::lock_guard<std::mutex> lock(pipeStateMutex_);
         pipe = pipe_;
+        localShutdownEvent = shutdownEvent_;
     }
     if (!pipe) return;
     for (;;) {
-        // Re-arm gate: once Stop() has cleared running_, never issue another
-        // overlapped read. Without this, a reader between frames when
-        // CancelIoEx runs re-arms an infinite read on a still-open handle and
-        // Stop()'s join blocks forever (the read is only unblocked by a peer
-        // close that never happens during shutdown).
         if (!running_.load(std::memory_order_acquire)) {
             break;
         }
-        auto parsed = ffipc::ReadFrameOverlapped(
-            pipe->handle, std::chrono::steady_clock::now() + kReaderReadSlice);
+        // Shutdown-aware blocking: wait INFINITE for either frame completion
+        // or shutdownEvent. This eliminates the 250 ms polling slice that
+        // could expire mid-frame and corrupt byte-stream framing on retry.
+        ffipc::ReceivedFrame frameOut;
+        const ffipc::FrameReadStatus status = ffipc::ReadFrameOverlappedDetailed(
+            pipe->handle, localShutdownEvent, std::chrono::steady_clock::time_point::max(), &frameOut);
+        if (status != ffipc::FrameReadStatus::Success) {
+            if (!running_.load(std::memory_order_acquire) || status == ffipc::FrameReadStatus::Cancelled) {
+                break;
+            }
+            // Timeout cannot occur with INFINITE deadline; defensive: if it
+            // ever does, it means pre-consumption failure already mapped to
+            // Disconnected, so do not silently re-arm.
+            break;
+        }
+        auto parsed = std::optional<ffipc::ReceivedFrame>(std::move(frameOut));
         if (!parsed) {
-            if (!running_.load(std::memory_order_acquire)) {
-                break; // Stop() cancelled the read; shutdown is in progress
-            }
-            // A bounded-slice expiry is not a disconnect: an idle-but-
-            // connected engine must stay connected, so re-arm the read.
-            // Any other failure (broken pipe, protocol violation, cancel)
-            // exits the loop and reaches the normal reconnect path.
-            if (GetLastError() == ERROR_TIMEOUT) {
-                continue;
-            }
             break;
         }
         ffipc::ReceivedFrame frame = std::move(*parsed);
@@ -461,10 +457,10 @@ void EngineClient::ReaderLoop() {
                 if (frame.payload.size() != sizeof(ffprotocol::EngineStatusPayload)) {
                     break;
                 }
-                ffprotocol::EngineStatusPayload status{};
-                std::memcpy(&status, frame.payload.data(), sizeof(status));
+                ffprotocol::EngineStatusPayload engineStatus{};
+                std::memcpy(&engineStatus, frame.payload.data(), sizeof(engineStatus));
                 SetConnectionState(EngineConnectionState::Connected,
-                                   status.status == ffprotocol::PrivilegedPathStatus::Active);
+                                   engineStatus.status == ffprotocol::PrivilegedPathStatus::Active);
                 break;
             }
 
@@ -795,6 +791,10 @@ void EngineClient::Start(GenerationCallback onNewGeneration, StatusCallback onSt
     swprintf(pipeName, std::size(pipeName), ffsetup::kUiCtrlPipeNameFormat, sessionId);
     enginePipeName_ = pipeName;
 
+    if (shutdownEvent_ != nullptr) {
+        CloseHandle(shutdownEvent_);
+    }
+    shutdownEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     running_ = true;
     managementThread_ = std::thread(&EngineClient::ManagementLoop, this);
     invalidationThread_ = std::thread(&EngineClient::InvalidationLoop, this);
@@ -805,6 +805,9 @@ void EngineClient::Stop() {
         return;
     }
     running_ = false;
+    if (shutdownEvent_ != nullptr) {
+        SetEvent(shutdownEvent_);
+    }
     invalidationCv_.notify_all();
     retryCv_.notify_all();
 
@@ -833,6 +836,10 @@ void EngineClient::Stop() {
         invalidationThread_.join();
     }
     UnmapSnapshotSection();
+    if (shutdownEvent_ != nullptr) {
+        CloseHandle(shutdownEvent_);
+        shutdownEvent_ = nullptr;
+    }
 }
 
 void EngineClient::RequestDirectory(const std::wstring& path) {
