@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FastFiles visual finding",
+  "type": "object",
+  "required": ["findingId", "severity", "confidence", "surface", "category", "observedProblem", "expectedDesignRule"],
+  "properties": {
+    "findingId": { "type": "string" },
+    "severity": { "type": "string", "enum": ["blocker", "major", "moderate", "minor", "suggestion"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "surface": { "type": "string" },
+    "component": { "type": ["string", "null"] },
+    "region": { "type": ["object", "null"] },
+    "category": { "type": "string", "enum": ["clipping","overlap","alignment","spacing","hierarchy","density","typography","contrast","truncation","focus","selection","layout","iconography","stateInconsistency","emptyState","responsiveFailure","noise"] },
+    "observedProblem": { "type": "string" },
+    "expectedDesignRule": { "type": "string" },
+    "userImpact": { "type": "string" },
+    "suggestedCorrection": { "type": "string" },
+    "evidence": { "type": "object" },
+    "requiresHumanTasteDecision": { "type": "boolean" },
+    "regressionCandidate": { "type": "boolean" }
+  }
+}

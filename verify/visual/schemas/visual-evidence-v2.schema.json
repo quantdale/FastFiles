@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FastFiles visual evidence v2",
+  "type": "object",
+  "required": ["schemaVersion", "commit", "captureTimestamp", "surface", "theme", "viewport", "screenshotHash", "artifactProvenance"],
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [2] },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "tree": { "type": "string" },
+    "executableIdentity": { "type": "string" },
+    "captureTimestamp": { "type": "string", "format": "date-time" },
+    "surface": { "type": "string" },
+    "semanticState": { "type": "string" },
+    "theme": { "type": "string", "enum": ["light", "dark", "system", "highContrast"] },
+    "density": { "type": "string", "enum": ["compact", "comfortable"] },
+    "dpi": { "type": "integer" },
+    "viewport": { "type": "object", "required": ["width", "height"], "properties": { "width": { "type": "integer" }, "height": { "type": "integer" } } },
+    "privacyRedactions": { "type": "array", "items": { "type": "object" } },
+    "screenshotHash": { "type": "string" },
+    "baselineIdentity": { "type": ["string", "null"] },
+    "diffResult": { "type": ["object", "null"] },
+    "criticResult": { "type": ["object", "null"] },
+    "artifactProvenance": { "type": "string" }
+  }
+}

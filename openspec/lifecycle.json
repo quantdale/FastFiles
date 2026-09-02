@@ -432,6 +432,17 @@
           ]
         }
       ]
+    },
+    {
+      "name": "visual-intelligence-autopilot",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/tasks.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
