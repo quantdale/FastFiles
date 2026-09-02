@@ -11,7 +11,9 @@
 - Wave 6 (Verification Integration) — IMPLEMENTED+TESTED (dirty): classification legs measured independently in the VisualValidation envelope + `release-classification.json` (unrun legs BLOCKED); `Invoke-UiaCoreSmoke` promoted into `UiAutomationValidation.psm1` and exported (headless export/contract test + live 9/9 PASS on 2026-09-03); CI contract step runs all 10 visual suites headless; `Clear-VisualRunRetention` bounds tool-owned raw captures (14d default, foreign dirs never touched).
 - Wave 7 validation runs from this session: 10/10 visual contract suites PASS headless; full CTest/analyze/OpenSpec pending before push.
 
-NEXT EXACT ACTION: finish local validation (Debug + release-test CTest, Analyze, openspec --strict, drift slice), commit the dirty visual-intelligence wave, push without force, inspect exact-SHA hosted CI.
+Validation + hosted certification (2026-09-03): Debug 95/95 (incl. new `ffgallery_tests`), release-test 95/95, Analyze warning-clean (323 targets), 10/10 visual contract suites PASS headless, live `-Gallery` matrix 20 scenarios (18 TESTED incl. gallery 4 with brightness-proven labels, 1 honest FAIL on keyboard-focus duplicate guard, 1 explicit SKIPPED), live `Invoke-UiaCoreSmoke` 9/9, `openspec validate --all --strict` 78/78, `git diff --check` clean, endings normalized to CRLF. Committed `bb1adb5`, pushed without force, HEAD == origin/main, clean tree. Hosted run `33688952026` on exact SHA `bb1adb52c346900e53caf630063d59ce991264cf`: 6/6 SUCCESS (debug, release-test, analyze, asan-protocol-ipc-lifecycle, repository-hygiene-and-contracts, unsigned-release-candidate-qualification).
+
+NEXT EXACT ACTION: visual-intelligence-autopilot remains ACTIVE with one open local task — 8.2 (before/after closure on a shipped visual fix). Next session: hunt a demonstrable defect with image-observability (ASCII/pixel tooling in build/ff-*.py, gitignored), or hold for a reported P0/P1. Do not re-check completed boxes without new evidence.
 
 ## Hosted CI reliability — handshake shutdown-termination — COMPLETE 2026-09-02
 
