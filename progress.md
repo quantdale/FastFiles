@@ -1,5 +1,11 @@
 # FastFiles — Project Status
 
+## Hosted CI reliability — handshake shutdown-termination — 2026-09-02
+
+FastFiles encountered hosted CI run `33600403349` for SHA `5dcae7a` (docs-only tip) with **FAILURE** 5/6 — only `debug` failed (`ffengine_client_handshake_tests` `***Timeout 120.08 sec`, 93/94). Parent `a696e82` (run `33409445841`) had the same test pass in ~0.05 s with no code delta. The defect was a latent `ReadFrameOverlapped(..., time_point::max())` re-arm race: `EngineClient::ReaderLoop` and `UiServer::HandleConnection` could re-issue an unbounded read after `Stop()`'s `CancelIoEx` had already run (reader between frames inside a callback), deadlocking `managementThread_.join()` and the listener/connection-gate join.
+
+Repair at `90c7998` (`fix(ipc,ui,engine): bound shutdown-termination...`): `ffipc` now reports `ERROR_TIMEOUT` on deadline expiry, both readers are bounded to a 250 ms slice with a `running_`/`stopping` gate (`TIMEOUT` re-arms, disconnect breaks), `UiServer::ConnectionGate::stopping` is `atomic<bool>`, `HandleConnection` now takes the gate. Two deterministic regressions in `ffengine_client_handshake_tests` pin the mechanism against old code (`_Exit(1)` at 15 s) and pass with the fix. Validation on `90c7998` via VS 18 BuildTools 14.50.35717: Debug 94/94, release-test 94/94, Analyze warning-clean, ASAN 3/3, OpenSpec 77/77, drift 4/4, exact-tree qualification PASS. No `TIMEOUT 120` was raised. Hosted CI for `90c7998` must be 6/6 SUCCESS on the exact pushed SHA; Visual Intelligence remains queued and was not started. Production signing, privileged MFT/USN, clean-host, provider/guest remain external.
+
 ## Repository freeze — observed 2026-08-30
 
 FastFiles is **LOCALLY COMPLETE — EXTERNAL PRODUCTION CERTIFICATION PENDING**.

@@ -1,5 +1,35 @@
 # Fast Files — Agent Workstate
 
+## Hosted CI reliability — handshake shutdown-termination — COMPLETE 2026-09-02
+
+- Trigger: hosted CI run `33600403349` for SHA `5dcae7a5a8ed0599bb73489410114882d4d7254a` (docs-only tip) completed **FAILURE**: 5/6 SUCCESS, only `debug` failed. Build 384/384; CTest 93/94 with `ffengine_client_handshake_tests` `***Timeout 120.08 sec`. Parent SHA `a696e8242f545883a45af295ff333ba886067415` (run `33409445841`) had the same test pass in ~0.05s with no code delta — a latent nondeterministic lifecycle defect. No product code changed between those SHAs.
+- Reproduction: local 30× sequential runs masked the microsecond window (earlier 30× showed 0 hangs; later cross-process batches showed ~1/30-1/60). Deterministic instrumentation proves the mechanism rather than waving it away as a flake.
+- Root cause: `EngineClient::ReaderLoop` (`src/ui/src/EngineClient.cpp:383`) and `UiServer::HandleConnection` (`src/engine/src/UiServer.cpp:992`) blocked in `ReadFrameOverlapped(..., time_point::max())` — an unbounded overlapped read that can be re-armed **after** `Stop()`'s `CancelIoEx` has already run. If the reader is mid-frame-processing (client: inside `onNewGeneration` callback; server: inside `onActivity` handler) when every cancellation is a no-op, it re-issues a fresh infinite read on a still-open pipe whose peer never closes — deadlocking `managementThread_.join()` (client) and the listener join / connection-gate wait (server). The window is microseconds; CI hit it once in many runs.
+- Repair SHA: `90c7998e01e47688e77e6b24bce07beb1362fa15` (`fix(ipc,ui,engine): bound shutdown-termination for EngineClient/UiServer readers`)
+  * `src/ipc/src/PipeFraming.cpp`: on `WAIT_TIMEOUT` set `ERROR_TIMEOUT` so bounded readers distinguish idle expiry from disconnect/cancel. A `TIMEOUT` on `ReadExactOverlapped`/`WriteExactOverlapped` now carries `ERROR_TIMEOUT`; disconnect/cancel remain `ERROR_BROKEN_PIPE`/`ERROR_OPERATION_ABORTED`.
+  * `src/ui/src/EngineClient.cpp` (`ReaderLoop`): bound to a 250 ms slice (`kReaderReadSlice`) with a `running_` gate; `TIMEOUT` re-arms (`continue`), disconnect/cancel breaks; `Stop()` never waits more than one slice + grace. No `TIMEOUT 120` was increased.
+  * `src/engine/src/UiServer.h`/`src/engine/src/UiServer.cpp` (`ConnectionGate::stopping` → `atomic<bool>`, `HandleConnection` signature now carries the gate): bound to a 250 ms slice (`kConnectionReadSlice`) with the same re-arm logic; fix the narrow `CancelIoEx`-then-re-arm race that the old infinite read exposed. Both seams keep the fast `CancelIoEx` path; the slice is only the worst-case fallback.
+  * No test was deleted/skipped, no assertion weakened, no `TIMEOUT 120` raised.
+- Regression coverage (deterministic, fire against old code, pass with fix) in `tests/engine/test_engine_client_handshake.cpp:585` — still one CTest entry `ffengine_client_handshake_tests` (now 5 scenarios):
+  * `TestClientStopTerminatesWhenReaderReArmsDuringShutdown` — blocks the reader inside the generation callback, runs `Stop()` on a worker while between frames, releases after 200 ms; asserts `Stop()` returns within 15 s (`WaitForSingleObject` on the worker handle + `std::_Exit(EXIT_FAILURE)` on regression). Against unfixed code: `FAIL` at ~15 s, `_Exit(1)`; with fix: passes in ~0.6 s.
+  * `TestServerStopTerminatesWhenConnectionThreadReArmsDuringShutdown` — blocks the connection thread inside `onActivity`, runs `server.Stop()+client.Stop()` on a worker while between frames, same bounded assertion. Against unfixed code: `FAIL` at 15.37 s, exit 1; with fix: passes.
+  * Both pin the exact `re-arm-after-cancellation` mechanism. Cover success, malformed-input, recovery, and boundary shutdown cases where relevant.
+- Validation (on `90c7998`, VS 18 BuildTools 14.50.35717 — the host's `vswhere -latest` at this time is VS 2022 Community 17.14.3, but the authoritative toolchain is the 14.50 BuildTools devshell per the prior analyze-mismatch note):
+  * focused `ffengine_client_handshake_tests` **1/1 PASS** (0.96 s) with all 5 scenarios; single-run ~0.58-0.65 s.
+  * repeated focused runs: 30×/60×/100× fresh-process batches stable (earlier batches showed ~1/30-1/60 hangs before the fix; 0/80 and 0/100 after the S3-marker instrumented builds, 60+ with the clean fix also stable).
+  * Debug CTest **94/94 PASS** (586.68 s); release-test **94/94 PASS** (423.90 s).
+  * Analyze configure+build warning-clean via the VS 18 devshell (384 targets; earlier mismatch with VS 2022 shell noted in the Visual-intelligence section remains relevant).
+  * ASAN `ffprotocol_fuzz_tests` / `ffipc_framing_tests` / `ffipc_listener_lifecycle_tests` **3/3 PASS** (13.14 s + 0.65 s + 50.40 s).
+  * OpenSpec `npx openspec validate --all --strict` **77/77 PASS**.
+  * `verify/check_source_markers.ps1` PASS, `verify/check_diagnostic_policy.ps1` PASS (Failures: 0).
+  * `verify/qualification/Invoke-ExactTreeQualification.ps1` PASS 8/8 on the committed tree (exact committed-tree qualification, not the prior 5dcae7a baseline).
+  * `git diff --check` clean, line endings CRLF.
+- Pending hosted validation: `90c7998` is the new `HEAD`; `origin/main` still at `5dcae7a` until push. Hosted CI for `90c7998` must be inspected for **6/6 SUCCESS** on the exact pushed SHA. Local qualification was exactly on the committed tree with the VS 18 toolchain.
+- Production signing, privileged MFT/USN, clean/elevated-host, provider/guest and interactive evidence remain external and truthfully external (unchanged).
+- Visual Intelligence / UI Autopilot (`docs/ui-improvement/07-visual-intelligence-autonomous-design.md` + `docs/agent/VISUAL_INTELLIGENCE_HANDOFF_2026-08-31.md`) remains queued and was **NOT** started during this campaign, per the mission rule.
+
+NEXT EXACT ACTION: await hosted CI for `90c7998` (push + 6/6 SUCCESS); once green, FastFiles is ready for the queued Visual Intelligence campaign.
+
 ## Visual-intelligence campaign + full-suite/OpenSpec convergence — COMPLETE 2026-09-02
 
 - Resume derived: `main` HEAD `f3faa4a` was behind `origin/main` by 3 docs-only commits (`f27f7bf`, `9bd7624`, `a696e82` — visual-intelligence planning: `docs/ui-improvement/07-visual-intelligence-autonomous-design.md`, `docs/agent/VISUAL_INTELLIGENCE_HANDOFF_2026-08-31.md`). Fast-forwarded to `a696e82`; branch `main`, `origin/main` = `a696e82`, 0 ahead/0 behind, clean at start. Local `recovery/fast-files-20260809` lost its remote (`origin/recovery/...` pruned/gone) → skipped, not workable. Only workable remote branch: `origin/main`.
