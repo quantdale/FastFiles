@@ -1,4 +1,5 @@
 #include "Gallery.h"
+#include <shellapi.h>
 #include "UITheme.h"
 #include "UiStyle.h"
 #include <wrl/client.h>
