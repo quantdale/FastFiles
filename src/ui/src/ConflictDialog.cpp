@@ -334,6 +334,7 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
     }
     EnableWindow(owner, TRUE);
     SetForegroundWindow(owner);
+    SetFocus(owner);
     if (state.themeBrush) {
         DeleteObject(state.themeBrush);
         state.themeBrush = nullptr;

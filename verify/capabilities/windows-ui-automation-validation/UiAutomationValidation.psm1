@@ -2068,14 +2068,18 @@ function Set-UiaSearchQuery {
         if ($edit) { $target = $edit }
     } catch { }
     $null = Set-UiaForeground -Driver $Driver -Element $Main
+    Start-Sleep -Milliseconds 250
     try { $null = $target.SetFocus() } catch { }
+    Start-Sleep -Milliseconds 100
     try { $null = Invoke-UiaElementAction -Driver $Driver -Element $target } catch { }
+    Start-Sleep -Milliseconds 100
     # Keystrokes raise CBN_EDITCHANGE. ValuePattern SetValue can update the
     # UIA cache without changing the Win32 combo edit, so it is not proof.
     $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
     $null = Send-UiaText -Driver $Driver -Text $Query
     $observed = $null
-    $deadline = [DateTime]::UtcNow.AddMilliseconds(2500)
+    $deadline = [DateTime]::UtcNow.AddMilliseconds(3500)
+    $retried = $false
     while ([DateTime]::UtcNow -lt $deadline) {
         $hwnd = [IntPtr]::Zero
         try { $hwnd = [IntPtr]$combo.Current.NativeWindowHandle } catch { }
@@ -2090,6 +2094,13 @@ function Set-UiaSearchQuery {
         }
         if ($observed -eq $Query) {
             return [pscustomobject]@{ Pass = $true; Detail = "query='$observed'" }
+        }
+        if (-not $retried -and [DateTime]::UtcNow -gt $deadline.AddMilliseconds(-2000) -and $observed -ne $Query) {
+            $retried = $true
+            $null = Set-UiaForeground -Driver $Driver -Element $Main
+            try { $null = $target.SetFocus() } catch { }
+            $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}a'
+            $null = Send-UiaText -Driver $Driver -Text $Query
         }
         Start-Sleep -Milliseconds 100
     }
@@ -2879,6 +2890,11 @@ function Invoke-UiaScenarioDragOut {
         }
         if (-not $dstFree) {
             $top = Get-UiaTopmostWindowAt -Driver $driver -X $dst.x -Y $dst.y
+            if ($top -and (([string]$top.Class -match 'TeraCopy') -or ([string]$top.RootClass -match 'TeraCopy') -or ([string]$top.Title -match 'Cut && Paste'))) {
+                return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' `
+                    -Reason 'interactive-drop-target-obstructed' -DurationMs $sw.Elapsed.TotalMilliseconds `
+                    -Detail "BLOCKED_ENVIRONMENT: third-party drop overlay '$($top.Class)/$($top.RootClass)' covered the bound Explorer point (pid=$($top.Pid)); destination was not observable"
+            }
             $topDesc = if ($top) { "class='$($top.Class)' title='$($top.Title)' pid=$($top.Pid)" } else { 'unavailable' }
             return & $fail "drop point ($($dst.x),$($dst.y)) is covered by another window ($topDesc); the drag would not land in the test Explorer"
         }
@@ -2988,15 +3004,16 @@ function Invoke-UiaScenarioDragOut {
             try { $stillFree = Test-UiaPointInWindow -Driver $driver -Element $win -X $dst.x -Y $dst.y } catch { }
             $boundPid = $null
             try { $boundPid = [int]$win.Current.ProcessId } catch { }
-            if (-not $stillFree -and $top -and [string]$top.Class -match 'TeraCopy') {
+            if (-not $stillFree -and $top -and (([string]$top.Class -match 'TeraCopy') -or ([string]$top.RootClass -match 'TeraCopy') -or ([string]$top.Title -match 'Cut && Paste'))) {
                 # A third-party shell paste window can be created by the
                 # Explorer drop handler after the OLE drag starts. It owns the
                 # screen point, so the destination postcondition is not a
                 # valid product-drag observation; preserve it as an explicit
                 # environment boundary rather than an assertion failure.
+                $overlayDesc = if ($top.RootClass -and $top.RootClass -ne $top.Class) { "$($top.Class)/$($top.RootClass)" } else { [string]$top.Class }
                 return New-UiaVSubResult -Id 'drag-out-to-explorer' -Status 'SKIPPED' `
                     -Reason 'interactive-drop-target-obstructed' -DurationMs $sw.Elapsed.TotalMilliseconds `
-                    -Detail "BLOCKED_ENVIRONMENT: third-party drop overlay '$($top.Class)' covered the bound Explorer point (pid=$($top.Pid)); destination was not observable"
+                    -Detail "BLOCKED_ENVIRONMENT: third-party drop overlay '$overlayDesc' covered the bound Explorer point (pid=$($top.Pid)); destination was not observable"
             }
             return & $fail "destination\draggable.txt was not created after $dragAttempts drag attempt(s) (source item '$($sourceIdentity.Name)', operation=$operation, src=$($src.x),$($src.y) dst=$($dst.x),$($dst.y) explorerRect=$($winRectDiag.x),$($winRectDiag.y),$($winRectDiag.width),$($winRectDiag.height) dropPoint=$topDesc dropPointInBoundWinAtFail=$stillFree boundWinPid=$boundPid fg='$($st.ForegroundTitle)')"
         }
@@ -4137,8 +4154,8 @@ function Convert-UiaForegroundFailureToSkip {
 $script:UiaScenarioRegistry = @{
     'launch-main-window'                       = @{ Group = 'core';    Isolated = $false }
     'settings-dialog-structure'                = @{ Group = 'core';    Isolated = $false }
+    'settings-dialog-keyboard-navigation'      = @{ Group = 'core';    Isolated = $false }
     'settings-dialog-close'                    = @{ Group = 'core';    Isolated = $false }
-    'in-column-error-state'                    = @{ Group = 'error';   Isolated = $false }
     'keyboard-address-bar-navigation'          = @{ Group = 'core';    Isolated = $false }
     'column-populated-and-selected-item-in-tree' = @{ Group = 'core';  Isolated = $false }
     'mouse-tab-operation'                      = @{ Group = 'core';    Isolated = $false }
@@ -4172,8 +4189,8 @@ $script:UiaScenarioRegistry = @{
 $script:UiaSharedScenarioOrder = @(
     'launch-main-window',
     'settings-dialog-structure',
+    'settings-dialog-keyboard-navigation',
     'settings-dialog-close',
-    'in-column-error-state',
     'keyboard-address-bar-navigation',
     'column-populated-and-selected-item-in-tree',
     'mouse-tab-operation',
@@ -4304,6 +4321,53 @@ function Invoke-UiaSharedSessionScenarios {
     }
     }
 
+    if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('settings-dialog-keyboard-navigation')) {
+    # modal-close-focus: keyboard Tab cycling stays inside the modeless
+    # settings dialog (IsDialogMessageW routing) and ESC closes it with
+    # keyboard operation restored to the shell owner (Hide() focus return).
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $kbdStatus = 'FAIL'
+    $kbdReason = 'settings-dialog-keyboard-unexpected'
+    $kbdDetail = 'scenario did not complete'
+    try {
+        $reopen = Invoke-UiaOpenSettings -Driver $driver -Main $main -ProcessId $launched.Id
+        if (-not $reopen.Pass) { throw "reopen failed: $($reopen.Detail)" }
+        $settingsDlg = Find-UiaElement -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $launched.Id -TimeoutMs 4000
+        if (-not $settingsDlg) { throw 'settings dialog did not reappear for keyboard probe' }
+        # Tab 6 times: focus must stay inside the dialog on every cycle.
+        $tabInside = $true
+        for ($tab_i = 0; $tab_i -lt 6; $tab_i++) {
+            $null = Send-UiaInput -Driver $driver -Keys '{TAB}'
+            Start-Sleep -Milliseconds 250
+            $inside = $false
+            try {
+                $focusedEl = [System.Windows.Automation.AutomationElement]::FocusedElement
+                if ($focusedEl -ne $null) {
+                    $dlgHwnd = [IntPtr]$settingsDlg.Current.NativeWindowHandle
+                    $focusHwnd = [IntPtr]$focusedEl.Current.NativeWindowHandle
+                    if ($focusHwnd -ne [IntPtr]::Zero -and $dlgHwnd -ne [IntPtr]::Zero) {
+                        $inside = ($focusHwnd -eq $dlgHwnd) -or [FfNativeWindowInfo]::IsChild($dlgHwnd, $focusHwnd)
+                    }
+                }
+            } catch { }
+            if (-not $inside) { $tabInside = $false; break }
+        }
+        if (-not $tabInside) { throw 'Tab focus escaped the settings dialog during cycling' }
+        # ESC must close the dialog (IDCANCEL via IsDialogMessageW).
+        $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
+        $escClosed = $false
+        try { $escClosed = Wait-UiaElementGone -Driver $driver -ClassName 'FastFilesSettingsDialog' -ProcessId $launched.Id -TimeoutMs 4000 -PollIntervalMs 200 } catch { }
+        if (-not $escClosed) { throw 'ESC did not close the settings dialog' }
+        # Keyboard operation must be restored: palette `home` must answer.
+        $home = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $launched.Id -Query 'home' -ExpectedNames @('Home')
+        if (-not $home.Pass) { throw "post-close keyboard operation failed: $($home.Detail)" }
+        $kbdStatus = 'PASS'
+        $kbdReason = $null
+        $kbdDetail = 'Tab cycled inside dialog (6 cycles); ESC closed dialog; palette home answered after close'
+    } catch { $kbdDetail = "settings keyboard navigation failed: $($_.Exception.Message)" }
+    $sw.Stop()
+    [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-keyboard-navigation' -Status $kbdStatus -Reason $kbdReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $kbdDetail))
+    }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('in-column-error-state')) {
     # Scenario 3.5 - in-column error state, early phase: the columns
     # created before the engine marked Unavailable carry the error

@@ -818,12 +818,25 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
 
 void StorageAnalysis::Hide() {
     if (!visible_) return;
+    HWND currentFocus = GetFocus();
+    const bool storageHadFocus = (currentFocus != nullptr &&
+                                  (currentFocus == list_ || currentFocus == overview_ ||
+                                   currentFocus == categoryFilter_ || currentFocus == back_ ||
+                                   currentFocus == up_ || currentFocus == overviewButton_ ||
+                                   currentFocus == drillDown_ || currentFocus == largestFolders_ ||
+                                   currentFocus == largestFiles_ || currentFocus == byCategory_ ||
+                                   currentFocus == treemap_ ||
+                                   IsChild(list_, currentFocus) || IsChild(overview_, currentFocus) ||
+                                   IsChild(categoryFilter_, currentFocus)));
     visible_ = false;
     ApplyModeVisibility();
     items_.clear();
     volumes_.clear();
     ListView_SetItemCountEx(list_, 0, LVSICF_NOSCROLL);
     ListView_DeleteAllItems(overview_);
+    if (storageHadFocus && owner_ != nullptr && IsWindow(owner_)) {
+        SetFocus(owner_);
+    }
 }
 
 void StorageAnalysis::Reposition(const ShellLayoutRect& surfaceRect) {

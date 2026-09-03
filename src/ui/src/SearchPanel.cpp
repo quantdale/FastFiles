@@ -803,9 +803,20 @@ void SearchPanel::Hide() {
     KillTimer(owner_, kSnapshotRefreshTimer);
     // The coalesced history-save timer keeps running so a recorded query is
     // flushed even after the panel hides.
+    HWND currentFocus = GetFocus();
+    const bool searchHadFocus = (currentFocus != nullptr &&
+                                 (currentFocus == query_ || currentFocus == queryEdit_ ||
+                                  currentFocus == list_ || currentFocus == scope_ ||
+                                  currentFocus == sort_ || currentFocus == sortDirection_ ||
+                                  currentFocus == clearHistory_ || currentFocus == filtersToggle_ ||
+                                  IsChild(query_, currentFocus) || IsChild(list_, currentFocus) ||
+                                  IsChild(scope_, currentFocus) || IsChild(sort_, currentFocus)));
     for (HWND control : {query_, filterBar_, clearQuery_, list_, clearHistory_}) ShowWindow(control, SW_HIDE);
     for (HWND control : {scope_, sort_, sortDirection_}) ShowWindow(control, SW_HIDE);
     if (filtersToggle_ != nullptr) ShowWindow(filtersToggle_, SW_HIDE);
+    if (searchHadFocus && owner_ != nullptr && IsWindow(owner_)) {
+        SetFocus(owner_);
+    }
 }
 
 void SearchPanel::SetDarkTheme(bool dark) {

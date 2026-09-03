@@ -261,11 +261,16 @@ function Get-UiaTopmostWindowAt {
     try {
         $hwnd = [FfNativeWindowInfo]::WindowUnderPoint($X, $Y)
         if ($hwnd -eq [IntPtr]::Zero) { return $null }
+        $rootHwnd = [FfNativeWindowInfo]::GetAncestor($hwnd, 2) # GA_ROOT
+        if ($rootHwnd -eq [IntPtr]::Zero) { $rootHwnd = $hwnd }
         return [pscustomobject]@{
-            Hwnd  = $hwnd
-            Title = [FfNativeWindowInfo]::TitleOf($hwnd)
-            Class = [FfNativeWindowInfo]::ClassOf($hwnd)
-            Pid   = [FfNativeWindowInfo]::ProcessIdOf($hwnd)
+            Hwnd       = $hwnd
+            Title      = [FfNativeWindowInfo]::TitleOf($hwnd)
+            Class      = [FfNativeWindowInfo]::ClassOf($hwnd)
+            Pid        = [FfNativeWindowInfo]::ProcessIdOf($hwnd)
+            RootHwnd   = $rootHwnd
+            RootTitle  = [FfNativeWindowInfo]::TitleOf($rootHwnd)
+            RootClass  = [FfNativeWindowInfo]::ClassOf($rootHwnd)
         }
     } catch {
         return $null

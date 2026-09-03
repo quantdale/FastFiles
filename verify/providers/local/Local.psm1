@@ -66,6 +66,7 @@ function Invoke-LocalProviderActivate {
     param([Parameter(Mandatory)] [pscustomobject] $ProviderContext)
 
     [pscustomobject]@{
+        Ready = $true
         TargetIdentity = $ProviderContext.Fingerprint.TargetIdentity
         IsElevated = $ProviderContext.Fingerprint.IsElevated
         SessionId = $ProviderContext.Fingerprint.SessionId

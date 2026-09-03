@@ -13,6 +13,7 @@
 #include "UiComponents.h"
 #include "ffprotocol/IndexHealth.h"
 #include "ffui/SettingsPages.h"
+#include "ffui/DialogFocusReturn.h"
 
 #pragma comment(lib, "shlwapi.lib")
 
@@ -178,6 +179,11 @@ void SettingsDialog::Hide() {
     if (dialog_) {
         ShowWindow(dialog_, SW_HIDE);
         visible_ = false;
+        HWND target = ffui::DialogClosedFocusTarget(owner_, dialog_);
+        if (target != nullptr && IsWindow(target) != FALSE) {
+            SetForegroundWindow(target);
+            SetFocus(target);
+        }
     }
 }
 
@@ -252,6 +258,15 @@ HBRUSH SettingsDialog::ThemeControlColor(HDC hdc) {
 bool SettingsDialog::HandleMessage(MSG& msg) {
     if (!visible_ || !dialog_) return false;
     if (msg.hwnd == dialog_ || IsChild(dialog_, msg.hwnd)) {
+        if ((shortcutEdit_ != nullptr && (msg.hwnd == shortcutEdit_ || IsChild(shortcutEdit_, msg.hwnd))) ||
+            (categoryEdit_ != nullptr && (msg.hwnd == categoryEdit_ || IsChild(categoryEdit_, msg.hwnd)))) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+            return true;
+        }
+        if (IsDialogMessageW(dialog_, &msg)) {
+            return true;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
         return true;
@@ -422,10 +437,10 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
 void SettingsDialog::CreateControls(HWND hwnd) {
     (void)hwnd;
     // OK/Cancel buttons
-    CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
+    CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
                     Scaled(kDialogWidth) - Scaled(180), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
                     dialog_, reinterpret_cast<HMENU>(IDOK), GetModuleHandleW(nullptr), nullptr);
-    CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+    CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
                     Scaled(kDialogWidth) - Scaled(90), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
                     dialog_, reinterpret_cast<HMENU>(IDCANCEL), GetModuleHandleW(nullptr), nullptr);
 }

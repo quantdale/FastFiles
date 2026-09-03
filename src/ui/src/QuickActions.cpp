@@ -382,6 +382,7 @@ std::optional<std::wstring> PromptForLeafName(HWND owner, const std::wstring& ti
     }
     EnableWindow(owner, TRUE);
     SetForegroundWindow(owner);
+    SetFocus(owner);
     if (state.themeBrush != nullptr) DeleteObject(state.themeBrush);
     if (state.bodyFont != nullptr) DeleteObject(state.bodyFont);
     return state.result;

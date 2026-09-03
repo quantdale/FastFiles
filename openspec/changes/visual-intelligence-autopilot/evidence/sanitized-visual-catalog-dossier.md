@@ -30,13 +30,12 @@
 | `search-no-results` | Light | 1280x800 | 120 | 100.0 | sandbox-empty | SKIPPED | `none` | Dependent on non-empty query with 0 index matches; skipped honestly |
 
 ## Totals
-- **Total Scenarios Recorded**: 16
+- **Total Scenarios Recorded**: 16 (combined 20 visual scenarios across 16 product catalog scenarios plus 4 component gallery scenarios from separate `-Gallery` invocation)
 - **Passed**: 15
 - **Failed**: 0
 - **Skipped / Blocked**: 1 (`search-no-results`)
 - **Supported But Not Selected in This Pass**: Gallery matrix (`gallery-light`, `gallery-dark`, `gallery-narrow`, `gallery-wide` — covered in separate `-Gallery` invocation)
-- **Required But Unavailable on Host**: High-DPI physical display (125%, 150%, 200% — current host operates at single scale factor)
-
+- **Required But Unavailable on Host**: Dynamic multi-DPI display matrix (host observed at 120 DPI / 125% scale; nominal 100% unscaled [96 DPI], 150% [144 DPI], and 200% [192 DPI] physical displays unavailable in single-monitor environment)
 ## Verification
 - Pre-fix: `browse-keyboard-focus` resulted in `FAIL` due to unexpected duplicate image with `browse-column-view` (zero pixel delta caused by stranded focus).
 - Post-fix: `browse-keyboard-focus` resulted in `PASS` with 8,919 pixel delta localized to the newly focused/selected row, satisfying the duplicate-image guard and proving keyboard focus navigation without pointer interaction.

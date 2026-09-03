@@ -233,6 +233,7 @@ void WindowShell::HideToolWorkspaces() {
     storageAnalysis_.Hide();
     navigationChrome_.SetSearchActive(false);
     SyncWorkspaceChrome();
+    SetFocus(hwnd_);
 }
 
 void WindowShell::OpenSearchWorkspace() {
