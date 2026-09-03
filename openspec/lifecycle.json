@@ -443,7 +443,9 @@
         { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md" },
         { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/sanitized-visual-catalog-dossier.md" },
         { "kind": "git-commit", "sha": "d47063055859c4290c3f1a1f58e40edf06a962e6" },
-        { "kind": "git-commit", "sha": "cb2d96765a2bbfed430dc157519b83b528bb3925" }
+        { "kind": "git-commit", "sha": "cb2d96765a2bbfed430dc157519b83b528bb3925" },
+        { "kind": "git-commit", "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd" },
+        { "kind": "hosted-run", "runId": "33746740302", "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd", "record": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []

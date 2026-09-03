@@ -10,7 +10,8 @@
 - Tooling Hardening: Corrected clean-worktree detection in `verify/visual/New-VisualClosure.ps1` (`@(& git status)` array count instead of `$null -eq $porcelain`), ensuring clean checkouts evaluate to `exact-committed-tree`.
 - Retained Evidence: Recorded in `openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md` and sanitized dossier `openspec/changes/visual-intelligence-autopilot/evidence/sanitized-visual-catalog-dossier.md`.
 - Ledger & Lifecycle: `tasks.md` has 24/24 tasks checked; `lifecycle.json` transitioned `visual-intelligence-autopilot` to `completed` with authoritative evidence. `verify.ps1 status` reports 0 active local open tasks and lifecycle PASS.
-- Full Suite Validation: Debug CTest 96/96 PASS; release-test 96/96 PASS; ASAN protocol/IPC/lifecycle slice 3/3 PASS; visual contract suites 10/10 PASS; Analyze warning-clean; OpenSpec strict validation 78/78 PASS; check_source_markers.ps1 and check_diagnostic_policy.ps1 PASS (0 failures).
+- Full Suite Validation: Debug CTest 96/96 PASS; release-test 96/96 PASS; ASAN protocol/IPC/lifecycle slice 3/3 PASS; visual contract suites 10/10 PASS; Analyze warning-clean; OpenSpec strict validation 78/78 PASS; check_source_markers.ps1 and check_diagnostic_policy.ps1 PASS (0 failures); Exact-tree qualification PASS.
+- Hosted CI Certification (2026-09-03): Hosted run `33746740302` on exact SHA `f339a4895d4180314ba7e7573b196c103e91b2fd` completed **6/6 SUCCESS** (repository-hygiene-and-contracts 1m43s, asan-protocol-ipc-lifecycle 1m47s, unsigned-release-candidate-qualification 6m19s, analyze 13m55s, release-test 10m20s, debug 7m58s).
 
 NEXT EXACT ACTION: Repository locally complete; await external production certification inputs (production signing pins, privileged MFT/USN, clean-host/elevated/guest).
 ## Hosted CI reliability — handshake shutdown-termination — COMPLETE 2026-09-02

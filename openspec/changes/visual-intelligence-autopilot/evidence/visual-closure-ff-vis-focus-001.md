@@ -77,3 +77,8 @@ Closure packet location: `verify/runs/visual-closure/browse-keyboard-focus-20260
 - Catalog Harness Fix Commit: `cb2d96765a2bbfed430dc157519b83b528bb3925`
 - Disposition: `FIXED`
 - Task 8.2 status: Satisfied with live before/after closure packet and real shipped visual/product fix.
+
+## 7. Hosted CI Certification
+- Exact Commit SHA: `f339a4895d4180314ba7e7573b196c103e91b2fd`
+- Hosted Run ID: `33746740302`
+- Result: `6/6 SUCCESS` (all 6 jobs: repository-hygiene-and-contracts, asan-protocol-ipc-lifecycle, unsigned-release-candidate-qualification, analyze, release-test, debug)
