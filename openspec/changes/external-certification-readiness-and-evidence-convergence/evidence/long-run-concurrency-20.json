@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_index_pipeline_concurrency_tests",
+  "category": "concurrency",
+  "command": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\tests\\engine\\ffengine_index_pipeline_concurrency_tests.exe",
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "executableHash": "57bd3ecedd051c3b97b85357d766183de59203bc9033a4d78c9ee9995e9a31cd",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T21:01:36.3933825Z",
+  "endUtc": "2026-09-03T21:01:40.5961144Z",
+  "requestedIterations": 20,
+  "completedIterations": 20,
+  "passed": 20,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 185.31,
+  "medianDurationMs": 197.69,
+  "p95DurationMs": 290.08,
+  "maxDurationMs": 300.73,
+  "firstFailure": null,
+  "artifactHashes": {
+    "long-run-concurrency-20.json": "031e326ad92dc507dba48467b876d25f4076985519aaedce0a162d23eedbbfb1"
+  },
+  "disposition": "PASS"
+}

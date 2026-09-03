@@ -449,6 +449,23 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "external-certification-readiness-and-evidence-convergence",
+      "state": "completed",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/local-long-run-certification.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/long-run-summary.json" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/resource-soak-summary.json" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/external-frontier-summary.json" },
+        { "kind": "repository-path", "path": "verify/certification/external-frontier.json" },
+        { "kind": "repository-path", "path": "docs/certification/EXTERNAL_CERTIFICATION_RUNBOOK.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_ui_server_lifecycle_tests",
+  "category": "ipc-lifecycle",
+  "command": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\tests\\engine\\ffengine_ui_server_lifecycle_tests.exe",
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "executableHash": "1d849a3bf7e2c1f958e80fdf507ae3116990e61d9bfd67e76a43ba3430564a4a",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T20:59:07.3548941Z",
+  "endUtc": "2026-09-03T21:01:27.5870628Z",
+  "requestedIterations": 25,
+  "completedIterations": 25,
+  "passed": 25,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 5569.97,
+  "medianDurationMs": 5593.74,
+  "p95DurationMs": 5633.0,
+  "maxDurationMs": 5872.29,
+  "firstFailure": null,
+  "artifactHashes": {
+    "long-run-uiserver-25.json": "4e3815df4750b4ade707e287868952cedaec0f843c00e86bfb27a4ef3fbc2e35"
+  },
+  "disposition": "PASS"
+}

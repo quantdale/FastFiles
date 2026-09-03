@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffipc_framing_tests",
+  "category": "ipc-lifecycle",
+  "command": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\tests\\ipc\\ffipc_framing_tests.exe",
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "executableHash": "d6c79714d2537e01969855f74c6fb276d757a3b5e6e71bad46d0db2488ecffe0",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T20:54:05.0365494Z",
+  "endUtc": "2026-09-03T20:56:51.5652396Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 1629.61,
+  "medianDurationMs": 1643.05,
+  "p95DurationMs": 1788.18,
+  "maxDurationMs": 1986.82,
+  "firstFailure": null,
+  "artifactHashes": {
+    "long-run-framing-100.json": "465882e0790ef37650dda4e5851607fd38f5c9a0d4bc980f09160bc20f9f17bc"
+  },
+  "disposition": "PASS"
+}

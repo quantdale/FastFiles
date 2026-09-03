@@ -31,6 +31,14 @@ if ($Format -eq 'json') {
     Write-Host "Worktree dirty: $($status.git.dirty); CTest discovered: $($status.tests.discoveredCount)"
     Write-Host "OpenSpec unchecked tasks: $($status.openSpec.totalOpenTasks); active local open: $($status.openSpec.activeLocalOpenTasks); release candidate: $($status.release.classification)"
     Write-Host "OpenSpec lifecycle model: $($status.openSpec.lifecycle.status)"
+    $frontierPath = Join-Path $repoRoot 'verify\certification\external-frontier.json'
+    if (Test-Path -LiteralPath $frontierPath) {
+        $frontierJson = Get-Content -LiteralPath $frontierPath -Raw | ConvertFrom-Json
+        Write-Host "External certification frontier:"
+        foreach ($group in $frontierJson.summary.byFrontierGroup.PSObject.Properties) {
+            Write-Host "  $($group.Name): $($group.Value) tasks"
+        }
+    }
     $verificationNote = [string]$status.verification.status
     if ($status.verification.reason) { $verificationNote += " ($($status.verification.reason))" }
     if ($VerificationRunResultPath) { $verificationNote += "; qualification=$($status.verification.qualification)" }

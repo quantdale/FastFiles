@@ -1,0 +1,130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles External Lane Certification Result Schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "lane",
+    "status",
+    "commit",
+    "tree",
+    "exactTreeBound",
+    "environment",
+    "startUtc",
+    "endUtc",
+    "durationMs",
+    "checks",
+    "disposition"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "PARTIAL",
+        "BLOCKED_EXTERNAL",
+        "BLOCKED_ENVIRONMENT",
+        "BLOCKED_NOT_ELEVATED",
+        "BLOCKED_UNSUPPORTED_FILESYSTEM",
+        "BLOCKED_RAW_VOLUME_ACCESS",
+        "REQUIRED-BUT-UNAVAILABLE"
+      ]
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "BLOCKED_EXTERNAL",
+        "PARTIAL"
+      ]
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?!0{40})[0-9a-fA-F]{40}$"
+    },
+    "tree": {
+      "type": "string",
+      "pattern": "^(?!0{40})[0-9a-fA-F]{40}$"
+    },
+    "exactTreeBound": {
+      "type": "boolean"
+    },
+    "candidatePath": {
+      "type": ["string", "null"]
+    },
+    "candidateHash": {
+      "type": ["string", "null"],
+      "pattern": "^(?!0{64})[0-9a-fA-F]{64}$"
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "os",
+        "architecture"
+      ],
+      "properties": {
+        "os": { "type": "string" },
+        "architecture": { "type": "string" },
+        "computer": { "type": "string" },
+        "powershell": { "type": "string" },
+        "elevated": { "type": "boolean" }
+      }
+    },
+    "startUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "endUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "durationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["checkId", "status", "message"],
+        "properties": {
+          "checkId": { "type": "string" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PASS",
+              "FAIL",
+              "SKIPPED",
+              "BLOCKED_ENVIRONMENT",
+              "BLOCKED_NOT_ELEVATED",
+              "BLOCKED_UNSUPPORTED_FILESYSTEM",
+              "BLOCKED_RAW_VOLUME_ACCESS",
+              "REQUIRED-BUT-UNAVAILABLE"
+            ]
+          },
+          "message": { "type": "string" },
+          "details": { "type": ["object", "string", "null"] }
+        }
+      }
+    },
+    "failureReason": {
+      "type": ["string", "null"]
+    },
+    "details": {
+      "type": "object"
+    },
+    "artifactHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{64}$"
+      }
+    }
+  }
+}

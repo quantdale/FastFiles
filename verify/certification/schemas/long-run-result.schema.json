@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles Durable Long-Run Certification Result Schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "testId",
+    "category",
+    "command",
+    "commit",
+    "tree",
+    "exactTreeBound",
+    "environment",
+    "startUtc",
+    "endUtc",
+    "requestedIterations",
+    "completedIterations",
+    "passed",
+    "failed",
+    "timedOut",
+    "skipped",
+    "minDurationMs",
+    "medianDurationMs",
+    "p95DurationMs",
+    "maxDurationMs",
+    "firstFailure",
+    "artifactHashes",
+    "disposition"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "testId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "ipc-lifecycle",
+        "concurrency",
+        "application-lifecycle",
+        "uia",
+        "rapid-input",
+        "resource-stress"
+      ]
+    },
+    "command": {
+      "type": "string",
+      "minLength": 1
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^(?!0{40})[0-9a-fA-F]{40}$"
+    },
+    "tree": {
+      "type": "string",
+      "pattern": "^(?!0{40})[0-9a-fA-F]{40}$"
+    },
+    "exactTreeBound": {
+      "type": "boolean"
+    },
+    "executableHash": {
+      "type": ["string", "null"],
+      "pattern": "^(?!0{64})[0-9a-fA-F]{64}$"
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "os",
+        "architecture"
+      ],
+      "properties": {
+        "os": { "type": "string" },
+        "architecture": { "type": "string" },
+        "computer": { "type": "string" },
+        "powershell": { "type": "string" }
+      }
+    },
+    "startUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "endUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "requestedIterations": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "completedIterations": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "passed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "timedOut": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "minDurationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "medianDurationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "p95DurationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "maxDurationMs": {
+      "type": "number",
+      "minimum": 0
+    },
+    "firstFailure": {
+      "type": ["object", "null"],
+      "properties": {
+        "iteration": { "type": "integer", "minimum": 1 },
+        "error": { "type": "string" },
+        "exitCode": { "type": "integer" },
+        "stdoutTail": { "type": "string" },
+        "stderrTail": { "type": "string" }
+      }
+    },
+    "artifactHashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[0-9a-fA-F]{64}$"
+      }
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL",
+        "BLOCKED_ENVIRONMENT",
+        "TIMEOUT"
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffdialog_focus_return_tests",
+  "category": "uia",
+  "command": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\tests\\ui\\ffdialog_focus_return_tests.exe",
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "executableHash": "2571dcd3222db19cf794a3931cf6cb5a06418ab7c45bce7fbebabb3098df9dec",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T21:01:44.5393172Z",
+  "endUtc": "2026-09-03T21:01:51.0725081Z",
+  "requestedIterations": 50,
+  "completedIterations": 50,
+  "passed": 50,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 93.65,
+  "medianDurationMs": 109.67,
+  "p95DurationMs": 233.16,
+  "maxDurationMs": 263.93,
+  "firstFailure": null,
+  "artifactHashes": {
+    "long-run-dialog-focus-50.json": "6202080e56c93dda5703aa58f167d2ed82ee7ac7769f4717235814518cb2c826"
+  },
+  "disposition": "PASS"
+}

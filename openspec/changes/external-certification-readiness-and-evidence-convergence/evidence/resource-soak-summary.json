@@ -1,0 +1,146 @@
+{
+  "schemaVersion": 1,
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "targetExecutable": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\src\\ui\\FastFiles.exe",
+  "executableHash": "9240bcc749b6cfba0fee3ad6725a3d41d6e1e7e965918ad9f51cad62a9be3cc8",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T21:01:55.5452924Z",
+  "endUtc": "2026-09-03T21:06:56.1745282Z",
+  "durationSeconds": 300.38,
+  "sampleIntervalSeconds": 5,
+  "sampleCount": 57,
+  "fastFilesPid": 124240,
+  "enginePid": null,
+  "metrics": {
+    "workingSetBytes": {
+      "baseline": 13832192.0,
+      "minimum": 13832192.0,
+      "median": 66437120.0,
+      "maximum": 66920448.0,
+      "final": 66449408.0,
+      "trendRatePerSecond": 175168.8395
+    },
+    "privateBytes": {
+      "baseline": 2678784.0,
+      "minimum": 2678784.0,
+      "median": 62304256.0,
+      "maximum": 62742528.0,
+      "final": 62308352.0,
+      "trendRatePerSecond": 198513.7759
+    },
+    "handles": {
+      "baseline": 147.0,
+      "minimum": 147.0,
+      "median": 726.0,
+      "maximum": 742.0,
+      "final": 724.0,
+      "trendRatePerSecond": 1.9209
+    },
+    "threads": {
+      "baseline": 6.0,
+      "minimum": 6.0,
+      "median": 47.0,
+      "maximum": 54.0,
+      "final": 47.0,
+      "trendRatePerSecond": 0.1365
+    },
+    "gdiObjects": {
+      "baseline": 0.0,
+      "minimum": 0.0,
+      "median": 108.0,
+      "maximum": 109.0,
+      "final": 108.0,
+      "trendRatePerSecond": 0.3595
+    },
+    "userObjects": {
+      "baseline": 4.0,
+      "minimum": 4.0,
+      "median": 112.0,
+      "maximum": 112.0,
+      "final": 111.0,
+      "trendRatePerSecond": 0.3562
+    },
+    "cpuSeconds": {
+      "baseline": 0.03,
+      "minimum": 0.03,
+      "median": 1.41,
+      "maximum": 1.52,
+      "final": 1.52,
+      "trendRatePerSecond": 0.0049
+    }
+  },
+  "activityTransitions": [
+    {
+      "timestampUtc": "2026-09-03T21:01:56.0289564Z",
+      "activity": "navigation",
+      "success": true,
+      "details": "Simulated periodic UI activity: navigation at t=0.5s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:02:28.4301282Z",
+      "activity": "search",
+      "success": true,
+      "details": "Simulated periodic UI activity: search at t=32.9s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:02:55.4569394Z",
+      "activity": "settings",
+      "success": true,
+      "details": "Simulated periodic UI activity: settings at t=59.9s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:03:27.8060850Z",
+      "activity": "command-palette",
+      "success": true,
+      "details": "Simulated periodic UI activity: command-palette at t=92.2s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:04:27.1363850Z",
+      "activity": "dual-pane",
+      "success": true,
+      "details": "Simulated periodic UI activity: dual-pane at t=151.6s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:04:59.4785077Z",
+      "activity": "storage",
+      "success": true,
+      "details": "Simulated periodic UI activity: storage at t=183.9s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:05:26.4067976Z",
+      "activity": "navigation",
+      "success": true,
+      "details": "Simulated periodic UI activity: navigation at t=210.8s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:05:58.6889931Z",
+      "activity": "search",
+      "success": true,
+      "details": "Simulated periodic UI activity: search at t=243.1s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:06:25.5723423Z",
+      "activity": "settings",
+      "success": true,
+      "details": "Simulated periodic UI activity: settings at t=270s"
+    },
+    {
+      "timestampUtc": "2026-09-03T21:06:55.9421659Z",
+      "activity": "command-palette",
+      "success": true,
+      "details": "Simulated periodic UI activity: command-palette at t=300.4s"
+    }
+  ],
+  "disposition": "PASS",
+  "dispositionReason": null,
+  "artifactHashes": {
+    "resource-soak-summary.json": "ad9799fe50cd769555dd85c41838b8d31fcfddd3b7edf869c505fba93fedbe2d"
+  }
+}

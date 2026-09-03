@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_client_handshake_tests",
+  "category": "ipc-lifecycle",
+  "command": "D:\\Documents\\tryPython\\FastFiles\\build\\debug\\tests\\engine\\ffengine_client_handshake_tests.exe",
+  "commit": "c3c14fac57b343e9deeb793e4e6daf1aaca743b2",
+  "tree": "69f347a7c7cc66a11b320eecb0a40d1181c28434",
+  "exactTreeBound": false,
+  "executableHash": "0b156f22eaf2fe678a08087b80ce81eabebf2ca73ebd1231a692948de9296b1b",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-03T20:53:07.8547675Z",
+  "endUtc": "2026-09-03T20:54:00.0327943Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 489.43,
+  "medianDurationMs": 507.16,
+  "p95DurationMs": 629.76,
+  "maxDurationMs": 751.81,
+  "firstFailure": null,
+  "artifactHashes": {
+    "long-run-handshake-100.json": "f6d8873d57c49f830319ed352fb951d7f161323c5bb58e0d258ca71a116d90e7"
+  },
+  "disposition": "PASS"
+}

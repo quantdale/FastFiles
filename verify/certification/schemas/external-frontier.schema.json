@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FastFiles External Certification Frontier Schema",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "generatedAtUtc",
+    "summary",
+    "tasks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "enum": [1]
+    },
+    "generatedAtUtc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "totalTasks",
+        "byFrontierGroup",
+        "byStatus"
+      ],
+      "properties": {
+        "totalTasks": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "byFrontierGroup": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "byStatus": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "tasks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/frontierTask"
+      }
+    }
+  },
+  "definitions": {
+    "frontierTask": {
+      "type": "object",
+      "required": [
+        "change",
+        "taskId",
+        "description",
+        "frontierGroup",
+        "disposition",
+        "categories",
+        "status",
+        "requiredCapabilities",
+        "requiredCredentials",
+        "requiredPrivileges",
+        "requiredHostProperties",
+        "evidenceRequirements",
+        "executionCommand",
+        "resultSchema"
+      ],
+      "properties": {
+        "change": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^[0-9]+(?:\\.[0-9]+)+$"
+        },
+        "description": {
+          "type": "string"
+        },
+        "frontierGroup": {
+          "type": "string",
+          "enum": [
+            "production-signing",
+            "privileged-ntfs",
+            "clean-host",
+            "external-provider",
+            "physical-environment"
+          ]
+        },
+        "disposition": {
+          "type": "string",
+          "enum": [
+            "external",
+            "mixed"
+          ]
+        },
+        "categories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "BLOCKED_ENVIRONMENT",
+            "REQUIRED-BUT-UNAVAILABLE"
+          ]
+        },
+        "reason": {
+          "type": "string"
+        },
+        "nextAction": {
+          "type": "string"
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requiredCredentials": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requiredPrivileges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "requiredHostProperties": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "evidenceRequirements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "executionCommand": {
+          "type": "string"
+        },
+        "resultSchema": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

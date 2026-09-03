@@ -1,5 +1,25 @@
 # Fast Files — Agent Workstate
 
+## External certification readiness + durable stress evidence + clean-host execution pack campaign — COMPLETE 2026-09-04
+
+- Summary: Autonomous campaign converting FastFiles' remaining external/environment certification frontier into deterministic, one-shot, reproducible certification packages while strengthening durability of stress/soak evidence. 25 unchecked tasks across 7 changes fully audited, classified, and inventoried in `verify/certification/external-frontier.json` (production-signing: 5, privileged-ntfs: 2, clean-host: 3, external-provider: 8, physical-environment: 7).
+- Certification Architecture (`verify/certification/`):
+  - Schemas: `external-frontier.schema.json`, `long-run-result.schema.json`, `resource-soak-result.schema.json`, and `certification-result.schema.json`.
+  - Runners: `Invoke-LongRunCertification.ps1`, `Invoke-ResourceSoak.ps1`, `Invoke-CleanHostCertification.ps1`, `Invoke-PrivilegedNtfsCertification.ps1`, `Invoke-SigningCertification.ps1`, `Invoke-ProviderCertification.ps1`, and top-level orchestrator `Invoke-ExternalCertification.ps1`.
+  - Importer & Staleness: `Import-CertificationEvidence.ps1` with zero-SHA rejection, secret scanning, and lane-specific file staleness detection.
+  - Test Suite (`verify/certification/tests/run-all-tests.ps1`): 8/8 test suites PASS covering fail-closed behavior, exact-tree enforcement, secret rejection, and schema validation.
+- Durable Long-Run Stress Re-Execution:
+  - `ffengine_client_handshake_tests` ×100: 100/100 PASS (median 507.16ms, p95 629.76ms)
+  - `ffipc_framing_tests` ×100: 100/100 PASS (median 1643.05ms, p95 1788.18ms)
+  - `ffengine_ui_server_lifecycle_tests` ×25: 25/25 PASS (median 5593.74ms, p95 5633ms)
+  - `ffengine_index_pipeline_concurrency_tests` ×20: 20/20 PASS (median 197.69ms, p95 290.08ms)
+  - `ffdialog_focus_return_tests` ×50: 50/50 PASS (median 109.67ms, p95 233.16ms)
+  - 300-Second Resource Soak: 300.38s PASS (57 samples; baseline 13.19MB -> final 63.37MB; handles 147 -> 724; zero leaks/orphans; transitions across navigation, search, settings, command palette, dual pane, storage)
+  - Retained artifacts under `openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/`
+- Documentation: `docs/certification/EXTERNAL_CERTIFICATION_RUNBOOK.md` provides complete copy-pasteable operator guidance for clean-host, privileged NTFS, production signing, and external provider lanes.
+- OpenSpec & Lifecycle: OpenSpec strict validation 79/79 PASS; `verify.ps1 status` reports 25 unchecked / 0 active-local / lifecycle model PASS with detailed external frontier breakdown.
+- Product Code Freeze: Zero product C++ modifications; 100% frozen.
+
 ## Overnight Product Hardening — COMPLETE 2026-09-04 (hosted 6/6 SUCCESS run `33790239139` on parent SHA `6d81bff`; tip certification in final report)
 
 - Summary: Autonomous overnight campaign across dogfooding, keyboard/accessibility, reliability stress, IPC adversarial review, performance/soak, security audit, and release convergence. 8 defects found, root-caused, repaired, and regression-verified; full ledger in `docs/agent/DEFECT_LEDGER_OVERNIGHT_2026-09-04.md`.

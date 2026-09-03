@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "summary": {
+    "totalTasks": 25,
+    "byFrontierGroup": {
+      "physical-environment": 7,
+      "external-provider": 8,
+      "production-signing": 5,
+      "privileged-ntfs": 2,
+      "clean-host": 3
+    },
+    "byStatus": {
+      "BLOCKED_ENVIRONMENT": 10,
+      "REQUIRED-BUT-UNAVAILABLE": 15
+    }
+  },
+  "taskIds": [
+    "close-independent-validation-gaps/5.1",
+    "completion-integrity-hardening-and-release-certification/6.15",
+    "runtime-certification-and-verifier-convergence/1.3",
+    "runtime-certification-and-verifier-convergence/7.2",
+    "runtime-certification-and-verifier-convergence/8.2",
+    "autonomous-runtime-verification/2.3",
+    "autonomous-runtime-verification/2.4",
+    "phase8-release-readiness-convergence/5.1",
+    "phase8-release-readiness-convergence/5.3",
+    "runtime-certification-and-verifier-convergence/5.3",
+    "zero-touch-autonomous-engineering/6.3",
+    "zero-touch-autonomous-engineering/6.4",
+    "zero-touch-autonomous-engineering/6.6",
+    "close-independent-validation-gaps/4.2.2",
+    "close-independent-validation-gaps/4.5",
+    "phase8-release-readiness-convergence/5.2",
+    "ship-ready-ui-ux-hardening-convergence/6.2",
+    "close-independent-validation-gaps/4.6",
+    "close-independent-validation-gaps/4.7",
+    "close-independent-validation-gaps/4.8",
+    "runtime-certification-and-verifier-convergence/8.3",
+    "close-independent-validation-gaps/4.2",
+    "completion-integrity-hardening-and-release-certification/4.5.1",
+    "completion-integrity-hardening-and-release-certification/4.5.2",
+    "completion-integrity-hardening-and-release-certification/4.5.3"
+  ]
+}
