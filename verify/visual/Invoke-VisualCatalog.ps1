@@ -248,6 +248,113 @@ function Set-CatalogTheme {
     Start-Sleep -Milliseconds 500
 }
 
+# Reads the semantic keyboard/selection state of Pane.0's terminal (deepest)
+# column: every visible row with its UIA focus + SelectionItem state. Uses
+# only exported driver primitives (direct-child walks, never a cached
+# subtree) so stale providers cannot fake a transition.
+function Get-CatalogTerminalRowState {
+    param($Driver, $Main)
+    $result = [pscustomobject]@{
+        ColumnFound = $false
+        Rows = @()
+    }
+    try {
+        $group = $null
+        foreach ($child in @(Get-UiaChildren -Driver $Driver -Element $Main)) {
+            $identity = Get-UiaElementIdentity -Driver $Driver -Element $child
+            if ($identity.AutomationId -eq 'ColumnView') { $group = $child; break }
+        }
+        if (-not $group) { return $result }
+        foreach ($pane in @(Get-UiaChildren -Driver $Driver -Element $group)) {
+            $paneIdentity = Get-UiaElementIdentity -Driver $Driver -Element $pane
+            if ($paneIdentity.AutomationId -ne 'Pane.0') { continue }
+            $lists = @()
+            foreach ($list in @(Get-UiaChildren -Driver $Driver -Element $pane)) {
+                $listIdentity = Get-UiaElementIdentity -Driver $Driver -Element $list
+                if ($listIdentity.ControlType -eq 'List') { $lists += $list }
+            }
+            if ($lists.Count -eq 0) { return $result }
+            $terminal = $lists[$lists.Count - 1]
+            $rows = @()
+            foreach ($item in @(Get-UiaChildren -Driver $Driver -Element $terminal)) {
+                $itemIdentity = $null
+                $focused = $false
+                $selected = $false
+                try { $itemIdentity = Get-UiaElementIdentity -Driver $Driver -Element $item } catch { }
+                try { $focused = [bool](Get-UiaElementProperty -Driver $Driver -Element $item -Name 'HasKeyboardFocus') } catch { }
+                try { $selected = [bool](Invoke-UiaPattern -Driver $Driver -Element $item -PatternName 'SelectionItem' -Method 'GetSelection') } catch { }
+                $rows += [pscustomobject]@{
+                    Name = if ($itemIdentity) { [string]$itemIdentity.Name } else { '' }
+                    Focused = $focused
+                    Selected = $selected
+                }
+            }
+            $result.ColumnFound = $true
+            $result.Rows = @($rows)
+            return $result
+        }
+    } catch { }
+    return $result
+}
+
+# keyboard-focus-forensics FF-VIS-FOCUS-001: honest keyboard-focus scenario.
+# The old code sent {DOWN}, slept 300 ms, and hardcoded Pass=$true, so a
+# stranded-focus no-op captured a pixel-identical image and only the
+# duplicate-image guard told the truth. This flow proves the semantic
+# transition first (before -> input -> bounded poll -> after) and returns
+# Pass=$false with diagnostics when no row takes focus; the capture then
+# records FAIL instead of a fake PASS. Pixel change is enforced separately
+# by the duplicate-image guard (a real focus move must change pixels).
+function Invoke-CatalogKeyboardFocus {
+    param($Driver, $Main, [int] $ProcessId)
+    if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+        return [pscustomobject]@{
+            Pass = $false
+            Detail = 'FastFiles did not own the foreground before keyboard input; input delivery cannot be guaranteed'
+        }
+    }
+    $populated = Wait-UiaCondition -Driver $Driver -TimeoutMs 15000 -PollIntervalMs 500 `
+        -Description 'terminal browse column shows at least two selectable rows' -ScriptBlock {
+        $state = Get-CatalogTerminalRowState -Driver $Driver -Main $Main
+        if (-not $state.ColumnFound) { return $false }
+        $real = @($state.Rows | Where-Object { $_.Name -ne '' -and $_.Name -ne 'Refreshing…' })
+        return ($real.Count -ge 2)
+    }
+    if (-not $populated) {
+        $state = Get-CatalogTerminalRowState -Driver $Driver -Main $Main
+        return [pscustomobject]@{
+            Pass = $false
+            Detail = ('terminal column never populated with selectable rows; columnFound=' + $state.ColumnFound + '; rows=' + $state.Rows.Count)
+        }
+    }
+    $before = Get-CatalogTerminalRowState -Driver $Driver -Main $Main
+    $beforeFocused = @($before.Rows | Where-Object { $_.Focused } | ForEach-Object { $_.Name })
+    $null = Send-UiaInput -Driver $Driver -Keys '{DOWN}'
+    $moved = Wait-UiaCondition -Driver $Driver -TimeoutMs 5000 -PollIntervalMs 200 `
+        -Description 'a terminal-column row reports keyboard focus after DOWN' -ScriptBlock {
+        $state = Get-CatalogTerminalRowState -Driver $Driver -Main $Main
+        return (@($state.Rows | Where-Object { $_.Focused }).Count -gt 0)
+    }
+    $after = Get-CatalogTerminalRowState -Driver $Driver -Main $Main
+    $afterFocused = @($after.Rows | Where-Object { $_.Focused })
+    $ok = [bool]$moved -and ($afterFocused.Count -eq 1) -and [bool]$afterFocused[0].Selected `
+        -and (-not [string]::IsNullOrEmpty($afterFocused[0].Name))
+    if (-not $ok) {
+        return [pscustomobject]@{
+            Pass = $false
+            Detail = ('DOWN produced no valid focus transition; before=[' + ($beforeFocused -join ',') + ']; focusedCount=' + $afterFocused.Count)
+            Before = @($beforeFocused)
+            After = @($afterFocused)
+        }
+    }
+    return [pscustomobject]@{
+        Pass = $true
+        Detail = ('keyboard focus moved to row ''' + $afterFocused[0].Name + ''' (selected) via DOWN')
+        Before = @($beforeFocused)
+        After = @($afterFocused[0].Name)
+    }
+}
+
 function Invoke-CatalogCapture {
     param(
         $Run, $Driver, $Main, [int] $ProcessId,
@@ -371,12 +478,13 @@ try {
         -ScenarioId 'browse-column-view' -ExpectedState 'Column View on an international fixture folder with details pane open' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion ([pscustomobject]@{ Pass = [bool]$nav.Pass; Detail = $nav.Detail })
 
-    # Keyboard navigation & row focus state
-    $null = Send-UiaInput -Driver $driver -Keys '{DOWN}'
-    Start-Sleep -Milliseconds 300
+    # Keyboard navigation & row focus state (FF-VIS-FOCUS-001): the assertion
+    # proves the semantic focus transition; a hardcoded Pass would hide the
+    # stranded-focus no-op this scenario once shipped.
+    $focusAssert = Invoke-CatalogKeyboardFocus -Driver $driver -Main $main -ProcessId $appPid
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'browse-keyboard-focus' -ExpectedState 'Column View with keyboard-focused item row and selection focus ring' `
-        -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion ([pscustomobject]@{ Pass = $true; Detail = 'focused row via keyboard navigation' })
+        -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion $focusAssert
 
     # Empty folder state
     $navEmpty = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $emptySubfolder -ExpectedLeaf 'EmptyFolder'
