@@ -71,9 +71,9 @@ if ($commit -notmatch '^[0-9a-f]{40}$') { $commit = $null }
 $tree = try { ((& git -C $repo rev-parse 'HEAD^{tree}' 2>$null) | Out-String).Trim() } catch { '' }
 if ($tree -notmatch '^[0-9a-f]{40}$') { $tree = $null }
 $worktreeState = try {
-    $porcelain = (& git -C $repo status --porcelain=v1 --untracked-files=no 2>$null)
-    if ($LASTEXITCODE -ne 0 -or $null -eq $porcelain) { 'unbound' }
-    elseif (@($porcelain).Count -eq 0) { 'clean' } else { 'dirty' }
+    $porcelain = @(& git -C $repo status --porcelain=v1 --untracked-files=no 2>$null)
+    if ($LASTEXITCODE -ne 0) { 'unbound' }
+    elseif ($porcelain.Count -eq 0) { 'clean' } else { 'dirty' }
 } catch { 'unbound' }
 $provenanceState = if ($worktreeState -eq 'clean' -and $commit -and $tree) {
     'exact-committed-tree'

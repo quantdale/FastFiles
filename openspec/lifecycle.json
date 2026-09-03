@@ -435,11 +435,15 @@
     },
     {
       "name": "visual-intelligence-autopilot",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/tasks.md" }
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/tasks.md" },
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md" },
+        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/sanitized-visual-catalog-dossier.md" },
+        { "kind": "git-commit", "sha": "d47063055859c4290c3f1a1f58e40edf06a962e6" },
+        { "kind": "git-commit", "sha": "cb2d96765a2bbfed430dc157519b83b528bb3925" }
       ],
       "supersededBy": null,
       "taskOverrides": []

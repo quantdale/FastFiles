@@ -35,7 +35,7 @@
 
 ## 8. Before/after closure
 - [x] 8.1 Implement packet generation (`verify/visual/New-VisualClosure.ps1` with independent lanes, provenance, disposition)
-- [ ] 8.2 Require before/after on shipped visual fix (OPEN: broad search 2026-09-03 found no demonstrable product defect — status-strip rendering verified correct by measurement, catalog 20 scenarios show no objective defect; closure machinery proven on fixtures only)
+- [x] 8.2 Require before/after on shipped visual fix (CLOSED 2026-09-03: shipped product fix d470630 for FF-VIS-FOCUS-001 restores shell owner keyboard focus after address-bar edit; live before/after closure packet generated at verify/runs/visual-closure/browse-keyboard-focus-20260903-182912 with 5 independent lanes PASS, commit provenance cb2d967, and minimal-pair pixel proof)
 
 ## 9. Release classifications
 - [x] 9.1 Implement `verify/visual/VisualReleaseClassification.psm1`
