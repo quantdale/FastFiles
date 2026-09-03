@@ -1,4 +1,5 @@
 #include "NavigationChrome.h"
+#include "ffui/AddressBarFocus.h"
 #include "UITheme.h"
 
 #include <algorithm>
@@ -223,6 +224,11 @@ void NavigationChrome::CommitAddressEdit() {
         editing_ = false;
         ShowWindow(addressEdit_, SW_HIDE);
         NavigateTo(workspace_->ActiveContext().currentPath);
+        // keyboard-focus-forensics FF-VIS-FOCUS-001: hiding the focused edit
+        // strands keyboard focus on the chrome child (no WM_KEYDOWN routing),
+        // silently killing arrow/Enter/shortcut navigation until the user
+        // clicks content. Return focus to the shell owner that routes keys.
+        SetFocus(AddressEditClosedFocusTarget(owner_, window_));
         return;
     }
     InvalidateRect(window_, nullptr, FALSE);
@@ -239,7 +245,11 @@ void NavigationChrome::EndAddressEdit(bool restoreFocus) {
     workspace_->CancelAddressBarEdit();
     editing_ = false;
     ShowWindow(addressEdit_, SW_HIDE);
-    if (restoreFocus) SetFocus(window_);
+    // keyboard-focus-forensics FF-VIS-FOCUS-001: the chrome child has no
+    // WM_KEYDOWN routing, so restoring focus to it (instead of the shell
+    // owner) leaves keyboard navigation dead after Escape. See the seam
+    // contract in ffui/AddressBarFocus.h.
+    if (restoreFocus) SetFocus(AddressEditClosedFocusTarget(owner_, window_));
     InvalidateRect(window_, nullptr, FALSE);
 }
 
