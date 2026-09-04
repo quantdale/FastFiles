@@ -5180,4 +5180,169 @@ function Invoke-UiaCoreSmoke {
     return [pscustomobject]@{ Checks = @($checks); Passed = ($checks.Count - $failed); Failed = $failed }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke
+# visual-matrix: display-matrix storage ground truth. One self-contained pass:
+# browse-phase details-pane reservation dynamics (dual-pane + toggle with
+# measured Pane.0 width reservation/restore) and storage-phase treemap
+# % of parent numeric validation on a deterministic campaign fixture
+# (real drill-down via tile Invoke, real UIA FullDescription reads).
+# Product code is untouched; all assertions derive from observed UIA state.
+# Returns @{ Checks; Passed; Failed; Detail } mirroring Invoke-UiaCoreSmoke.
+function Invoke-UiaVisualMatrix {
+    param(
+        [Parameter(Mandatory)][string] $Exe,
+        [string] $RepoRoot = '',
+        [string] $ScenarioId = 'visual-matrix'
+    )
+    if (-not $RepoRoot) { $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
+    $checks = [System.Collections.Generic.List[object]]::new()
+    $addCheck = {
+        param([string]$Name, [bool]$Pass, [string]$Detail)
+        [void]$checks.Add([pscustomobject]@{ Name = $Name; Pass = $Pass; Detail = $Detail })
+    }
+    $detail = [ordered]@{}
+    $avail = Get-UiaDriverAvailability
+    if (-not $avail.Available) {
+        & $addCheck 'driver-availability' $false $avail.Reason
+        return [pscustomobject]@{ Checks = @($checks); Passed = 0; Failed = 1; Detail = $detail }
+    }
+    & $addCheck 'driver-availability' $true 'UIA driver available'
+    $ctx = $null
+    try {
+        $quietLog = { param($m) }
+        $ctx = New-UiaScenarioContext -Exe $Exe -RepoRoot $RepoRoot -ScenarioId $ScenarioId -LogFn $quietLog
+        if (-not $ctx -or -not $ctx.Main) { throw 'main window did not appear' }
+        $driver = $ctx.Driver; $main = $ctx.Main; $appPid = [int]$ctx.Launched.Id
+        & $addCheck 'launch-main-window' $true "pid=$appPid"
+        Invoke-UiaActivateAppWindow -Driver $driver -Main $main
+        $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
+        $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
+
+        # Deterministic fixture: 100 + 200 + 300 + Sub/400 = 1000 bytes,
+        # so top-level % of parent must read 10/20/30/40 and sum to 100.
+        $store = Join-Path $ctx.FixtureRoot 'MatrixStore'
+        $sub = Join-Path $store 'Sub'
+        New-Item -ItemType Directory -Path $sub -Force | Out-Null
+        [IO.File]::WriteAllBytes((Join-Path $store 'fileA.bin'), [byte[]]::new(100))
+        [IO.File]::WriteAllBytes((Join-Path $store 'fileB.bin'), [byte[]]::new(200))
+        [IO.File]::WriteAllBytes((Join-Path $store 'fileC.bin'), [byte[]]::new(300))
+        [IO.File]::WriteAllBytes((Join-Path $sub 'fileD.bin'), [byte[]]::new(400))
+
+        $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $store -ExpectedLeaf 'MatrixStore'
+        & $addCheck 'address-bar-navigate' ([bool]$nav.Pass) ([string]$nav.Detail)
+        if (-not $nav.Pass) { throw "navigate to MatrixStore failed: $($nav.Detail)" }
+
+        # --- Browse phase: dual-pane + details-pane reservation dynamics ---
+        $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+        $pane1On = $false
+        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 2000; $pane1On = $true } catch {}
+        & $addCheck 'dual-pane-enable' ([bool]$dual.Pass -and $pane1On) "cmd=$($dual.Pass) pane1=$pane1On"
+        $null = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+        $pane1Gone = $false
+        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 800 } catch { $pane1Gone = $true }
+        & $addCheck 'dual-pane-disable' $pane1Gone 'Pane.1 absent after disable'
+
+        # Details reservation: details pane starts visible; closing it must
+        # never shrink Pane.0 (monotonic release) and reopening must restore
+        # the exact width. Full-card magnitude is asserted only on windows
+        # wide enough to guarantee it at any supported scale.
+        $mainRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
+        $winW = [int]$mainRect.width
+        $detail['windowWidthPx'] = $winW
+        $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 2000
+        $wOpen = [int](Get-UiaElementProperty -Driver $driver -Element $pane0 -Name 'BoundingRectangle').width
+        $togOff = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'details pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Details Pane' -ExpectedCommandId 'view.toggle-details-pane'
+        & $addCheck 'details-toggle-dispatch' ([bool]$togOff.Pass) "toggle command dispatched: $($togOff.Detail)"
+        $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
+        $pane0b = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 2000
+        $wClosed = [int](Get-UiaElementProperty -Driver $driver -Element $pane0b -Name 'BoundingRectangle').width
+        $delta = $wClosed - $wOpen
+        $detail['pane0WidthDetailsOpenPx'] = $wOpen
+        $detail['pane0WidthDetailsClosedPx'] = $wClosed
+        # Closing details must never shrink the column viewport: the
+        # reservation is released (full 300-DIP card on wide windows,
+        # collapsed rail when narrow). Magnitude is asserted only where the
+        # window is wide enough to guarantee the full card at any supported
+        # scale (>=1600px implies >=720 DIP content at <=200%).
+        $monoOk = ($delta -ge 0)
+        & $addCheck 'details-monotonic' $monoOk "delta=${delta}px (closing details must not shrink columns)"
+        if ($winW -ge 1600) {
+            $wideOk = ($delta -ge 150) -and ($delta -le 600)
+            & $addCheck 'details-fullcard-wide' $wideOk "delta=${delta}px (expected 150..600 at ${winW}px)"
+        } else {
+            $detail['fullcardSkipped'] = "window ${winW}px < 1600px; rail regime delta=${delta}px recorded, magnitude not asserted"
+        }
+        $togOn = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'details pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Details Pane' -ExpectedCommandId 'view.toggle-details-pane'
+        $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
+        $pane0c = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 2000
+        $wRestored = [int](Get-UiaElementProperty -Driver $driver -Element $pane0c -Name 'BoundingRectangle').width
+        $restoreOk = [bool]$togOn.Pass -and ([Math]::Abs($wRestored - $wOpen) -le 5)
+        & $addCheck 'details-restore' $restoreOk "restored=${wRestored}px vs open=${wOpen}px"
+
+        # --- Storage phase: treemap % of parent ground truth + drill-down ---
+        $storage = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'analyze' -ExpectedNames @('Overview') -ExpectedCommandName 'Analyze Storage' -ExpectedCommandId 'storage.analyze'
+        & $addCheck 'storage-analysis-open' ([bool]$storage.Pass) ([string]$storage.Detail)
+        if (-not $storage.Pass) { throw "storage analysis did not open: $($storage.Detail)" }
+        $treemapRadio = Find-UiaElement -Driver $driver -Name 'Treemap' -FromElement $main -TimeoutMs 5000
+        $null = Invoke-UiaPattern -Driver $driver -Element $treemapRadio -PatternName 'SelectionItem'
+        $treemapGroup = Find-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -FromElement $main -TimeoutMs 20000
+        & $addCheck 'treemap-view' $true 'Treemap radio selected, Storage.Treemap group present'
+
+        $readPercents = {
+            param($tileNames)
+            $vals = [ordered]@{}
+            foreach ($tn in $tileNames) {
+                $tile = Wait-UiaElement -Driver $driver -Name $tn -ControlType 'DataItem' -FromElement $treemapGroup -TimeoutMs 20000
+                # Managed UIAutomationClient does not bind FullDescription here;
+                # the raw-COM reader is the proven path (see Get-UiaFullDescriptionRaw).
+                $fd = [string](Get-UiaFullDescriptionRaw -Element $tile)
+                $m = [regex]::Match($fd, '(?m)^% of parent:\s*([0-9.]+)%')
+                if (-not $m.Success) {
+                    $ident = ''
+                    try {
+                        $aid = [string](Get-UiaElementProperty -Driver $driver -Element $tile -Name 'AutomationId')
+                        $ct = [string](Get-UiaElementProperty -Driver $driver -Element $tile -Name 'ControlType')
+                        $br = Get-UiaElementProperty -Driver $driver -Element $tile -Name 'BoundingRectangle'
+                        $ident = "AutomationId=$aid ControlType=$ct rect=$($br.width)x$($br.height)@$($br.x),$($br.y)"
+                    } catch { $ident = "identity-read-failed: $($_.Exception.Message)" }
+                    $seen = @()
+                    try { $seen = @(Find-UiaElement -Driver $driver -NameLike '*' -FromElement $treemapGroup -TimeoutMs 3000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch {}
+                    throw "tile '$tn' has no parseable % of parent (FullDescription: $fd; $ident; siblings seen: $($seen -join '|'))"
+                }
+                $vals[$tn] = [double]$m.Groups[1].Value
+            }
+            return $vals
+        }
+        $top = & $readPercents @('fileA.bin', 'fileB.bin', 'fileC.bin', 'Sub')
+        $sum = 0.0; foreach ($v in $top.Values) { $sum += $v }
+        $sum = [Math]::Round($sum, 2)
+        $detail['topLevelPercents'] = ($top | ConvertTo-Json -Compress)
+        $detail['topLevelSum'] = $sum
+        $sumOk = [Math]::Abs($sum - 100.0) -le 2.0
+        & $addCheck 'percent-sum-top' $sumOk "sum=${sum}% (expected 100 +/- 2)"
+        $exactOk = ([Math]::Abs($top['fileA.bin'] - 10.0) -le 0.6) -and ([Math]::Abs($top['fileB.bin'] - 20.0) -le 0.6) -and ([Math]::Abs($top['fileC.bin'] - 30.0) -le 0.6) -and ([Math]::Abs($top['Sub'] - 40.0) -le 0.6)
+        & $addCheck 'percent-values-top' $exactOk "A=$($top['fileA.bin']) B=$($top['fileB.bin']) C=$($top['fileC.bin']) Sub=$($top['Sub'])"
+
+        # Real drill-down: Invoke the Sub tile, then fileD must read 100%.
+        $subTile = Wait-UiaElement -Driver $driver -Name 'Sub' -ControlType 'DataItem' -FromElement $treemapGroup -TimeoutMs 20000
+        $null = Invoke-UiaPattern -Driver $driver -Element $subTile -PatternName 'Invoke'
+        $fileDTile = Wait-UiaElement -Driver $driver -Name 'fileD.bin' -ControlType 'DataItem' -FromElement $main -TimeoutMs 20000
+        $fdD = [string](Get-UiaFullDescriptionRaw -Element $fileDTile)
+        $mD = [regex]::Match($fdD, '(?m)^% of parent:\s*([0-9.]+)%')
+        if (-not $mD.Success) { throw "drilled tile 'fileD.bin' has no parseable % of parent" }
+        $pctD = [double]$mD.Groups[1].Value
+        $detail['drilledPercent'] = $pctD
+        $helpD = [string](Get-UiaElementProperty -Driver $driver -Element $fileDTile -Name 'HelpText')
+        $scopeOk = $helpD -like '*Sub*'
+        & $addCheck 'drill-scope' $scopeOk "fileD HelpText under Sub: $helpD"
+        $drillOk = [Math]::Abs($pctD - 100.0) -le 0.5
+        & $addCheck 'percent-sum-drilled' $drillOk "fileD=${pctD}% (expected 100 +/- 0.5)"
+    } catch {
+        & $addCheck 'lifecycle' $false $_.Exception.Message
+    } finally {
+        if ($ctx) { $null = Remove-UiaScenarioContext -Context $ctx -LogFn { param($m) } }
+    }
+    $failed = @($checks | Where-Object { -not $_.Pass }).Count
+    return [pscustomobject]@{ Checks = @($checks); Passed = ($checks.Count - $failed); Failed = $failed; Detail = $detail }
+}
+
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke, Invoke-UiaVisualMatrix

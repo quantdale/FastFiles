@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('application-lifecycle', 'rapid-input', 'core-smoke')]
+    [ValidateSet('application-lifecycle', 'rapid-input', 'core-smoke', 'visual-matrix')]
     [string] $Scenario = 'core-smoke',
 
     [int] $Iterations = 0,
@@ -46,6 +46,7 @@ if ($Iterations -le 0) {
         'application-lifecycle' { $Iterations = 100 }
         'rapid-input'          { $Iterations = 50 }
         'core-smoke'           { $Iterations = 25 }
+        'visual-matrix'        { $Iterations = 25 }
     }
 }
 
@@ -259,11 +260,12 @@ if ($matrixDims.Count -eq 0) {
 
 # Capability advertisement: scenario-proven base plus matrix dimensions that
 # were requested AND realized. Unrealized or unrequested dims advertise nothing.
-# details-pane and storage-parent-percent are NEVER advertised: no scenario in
-# this runner asserts details-pane contents or %ofParent sums (tracked gap).
+# Only scenarios whose iterations explicitly assert a capability advertise it:
+# requesting PaneTopology=Dual never advertises dual-pane by itself.
 $scenarioCaps = switch ($Scenario) {
     'rapid-input' { @('uia-core-smoke', 'uia-keyboard-navigation', 'dual-pane') }
     'core-smoke' { @('uia-core-smoke', 'uia-keyboard-navigation', 'dual-pane') }
+    'visual-matrix' { @('uia-core-smoke', 'uia-keyboard-navigation', 'dual-pane', 'details-pane', 'storage-parent-percent') }
     default { @() }
 }
 $matrixCaps = @()
@@ -278,7 +280,6 @@ foreach ($perm in $displayMatrix) {
             'Contrast=HighContrast' { 'high-contrast' }
             'Viewport=Narrow' { 'window-narrow' }
             'Viewport=Wide' { 'window-wide' }
-            'PaneTopology=Dual' { if ($Scenario -ne 'application-lifecycle') { 'dual-pane' } }
             default { $null }
         }
     }
@@ -728,6 +729,47 @@ if ($Scenario -eq 'application-lifecycle') {
         } else {
             $failedCount++
             $failedChecks = @($smoke.Checks | Where-Object { -not $_.Pass } | ForEach-Object { "$($_.Name): $($_.Detail)" }) -join '; '
+            Write-Host "  Iteration $i/$Iterations FAIL: $failedChecks (${elapsedMs}ms)" -ForegroundColor Red
+            if ($null -eq $firstFailure) {
+                $firstFailure = [pscustomobject]@{
+                    iteration = $i
+                    error = $failedChecks
+                    exitCode = 0
+                    stdoutTail = ""
+                    stderrTail = ""
+                }
+            }
+            if (-not $ContinueOnFailure) { break }
+        }
+    }
+}
+elseif ($Scenario -eq 'visual-matrix') {
+    for ($i = 1; $i -le $Iterations; $i++) {
+        $iterSw = [System.Diagnostics.Stopwatch]::StartNew()
+        $matrix = Invoke-UiaVisualMatrix -Exe $targetExe -RepoRoot $RepoRoot -ScenarioId "visual-matrix-$i"
+        $iterSw.Stop()
+        $elapsedMs = [Math]::Round($iterSw.Elapsed.TotalMilliseconds, 2)
+        $durations.Add($elapsedMs)
+        $totalAssertions += $matrix.Checks.Count
+        $iterFailedChecks = @($matrix.Checks | Where-Object { -not $_.Pass })
+        $totalFailedAssertions += $iterFailedChecks.Count
+        $iterationLedger.Add([pscustomobject][ordered]@{
+            iteration = $i
+            pass = ($matrix.Failed -eq 0)
+            assertions = $matrix.Checks.Count
+            failedAssertions = $iterFailedChecks.Count
+            durationMs = $elapsedMs
+            failedCheck = (($iterFailedChecks | ForEach-Object { "$($_.Name): $($_.Detail)" }) -join '; ')
+            phases = [pscustomobject]$matrix.Detail
+        })
+        $semanticPostconditions = [pscustomobject]$matrix.Detail
+
+        if ($matrix.Failed -eq 0) {
+            $passedCount++
+            Write-Host "  Iteration $i/$Iterations PASS: $($matrix.Passed)/$($matrix.Checks.Count) checks (${elapsedMs}ms)" -ForegroundColor Green
+        } else {
+            $failedCount++
+            $failedChecks = @($matrix.Checks | Where-Object { -not $_.Pass } | ForEach-Object { "$($_.Name): $($_.Detail)" }) -join '; '
             Write-Host "  Iteration $i/$Iterations FAIL: $failedChecks (${elapsedMs}ms)" -ForegroundColor Red
             if ($null -eq $firstFailure) {
                 $firstFailure = [pscustomobject]@{

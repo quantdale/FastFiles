@@ -6,10 +6,11 @@
       "modes": {
         "core-smoke": ["uia-core-smoke", "uia-keyboard-navigation", "dual-pane"],
         "rapid-input": ["uia-core-smoke", "uia-keyboard-navigation", "dual-pane"],
+        "visual-matrix": ["uia-core-smoke", "uia-keyboard-navigation", "dual-pane", "details-pane", "storage-parent-percent"],
         "application-lifecycle": []
       },
       "matrixDimensions": ["visual-light-theme", "visual-dark-theme", "dpi-100", "dpi-150", "high-contrast", "window-narrow", "window-wide"],
-      "neverAdvertised": ["details-pane", "storage-parent-percent"]
+      "neverAdvertised": []
     },
     "Invoke-EnvironmentProviderCertification.ps1": {
       "modes": {

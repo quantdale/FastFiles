@@ -162,4 +162,52 @@ try {
     if (Test-Path -LiteralPath "$test6Json.sha256") { Remove-Item -LiteralPath "$test6Json.sha256" -Force -ErrorAction SilentlyContinue }
 }
 
+
+# Test 7: visual-matrix scenario proves details-pane and storage-parent-percent
+Write-Host "  Test 7: visual-matrix asserts reservation dynamics and treemap percent ground truth..."
+$uiaModule = Join-Path $RepoRoot 'verify\capabilities\windows-ui-automation-validation\UiAutomationValidation.psm1'
+$modText = Get-Content -LiteralPath $uiaModule -Raw
+if ($modText -notmatch 'function Invoke-UiaVisualMatrix') { throw "UiAutomationValidation.psm1 must define Invoke-UiaVisualMatrix" }
+# Treemap percent ground truth: FullDescription reads, top-level sum, exact values, drill-down.
+foreach ($required in @('% of parent:', 'percent-sum-top', 'percent-values-top', 'percent-sum-drilled', 'drill-scope', 'Get-UiaFullDescriptionRaw')) {
+    if ($modText -notmatch [regex]::Escape($required)) { throw "visual-matrix missing treemap ground-truth element: $required" }
+}
+# Details-pane reservation: dispatch + monotonic release + exact restore (+ wide magnitude).
+foreach ($required in @('details-toggle-dispatch', 'details-monotonic', 'details-restore', 'details-fullcard-wide', 'view.toggle-details-pane')) {
+    if ($modText -notmatch [regex]::Escape($required)) { throw "visual-matrix missing details-pane assertion: $required" }
+}
+# Runner wiring: scenario accepted, dispatched, and capability-advertised.
+foreach ($required in @("'visual-matrix'", 'Invoke-UiaVisualMatrix -Exe', "'details-pane'", "'storage-parent-percent'")) {
+    if ($uiaText -notmatch [regex]::Escape($required)) { throw "UIA runner missing visual-matrix wiring: $required" }
+}
+Write-Host "    PASS (visual-matrix function, percent/drill/details assertions, and runner wiring present)" -ForegroundColor Green
+
+# Test 8: Live visual-matrix run proves execution or reports clean BLOCKED_ENVIRONMENT
+Write-Host "  Test 8: Live visual-matrix run (1 iteration) yields proof fields or clean BLOCKED_ENVIRONMENT..."
+$test8Json = [IO.Path]::GetTempFileName()
+try {
+    $null = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $uiaRunner `
+        -Scenario visual-matrix `
+        -Iterations 1 `
+        -Preset debug `
+        -OutputPath $test8Json `
+        -RepoRoot $RepoRoot
+
+    if (-not (Test-Path -LiteralPath $test8Json)) { throw "UIA runner produced no output JSON" }
+    $json8 = Get-Content -LiteralPath $test8Json -Raw | ConvertFrom-Json
+    if ($null -eq $json8.cleanup) { throw "UIA result JSON must include a cleanup object in every mode" }
+    if ($null -eq $json8.displayMatrix) { throw "UIA result JSON must include the display matrix" }
+    if ($json8.disposition -eq 'BLOCKED_ENVIRONMENT') {
+        Write-Host "    PASS (Host cleanly classified BLOCKED_ENVIRONMENT with cleanup and matrix)" -ForegroundColor Green
+    } else {
+        if ($json8.capabilities -notcontains 'storage-parent-percent') { throw "visual-matrix PASS must advertise storage-parent-percent, got: $($json8.capabilities -join ',')" }
+        if ($json8.capabilities -notcontains 'details-pane') { throw "visual-matrix PASS must advertise details-pane, got: $($json8.capabilities -join ',')" }
+        if ($null -eq $json8.iterationLedger -or $json8.iterationLedger.Count -lt 1) { throw "Expected a per-iteration ledger entry" }
+        Write-Host "    PASS (Live run: $($json8.passed) passed / $($json8.failed) failed, caps=$($json8.capabilities -join ','))" -ForegroundColor Green
+    }
+} finally {
+    if (Test-Path -LiteralPath $test8Json) { Remove-Item -LiteralPath $test8Json -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$test8Json.sha256") { Remove-Item -LiteralPath "$test8Json.sha256" -Force -ErrorAction SilentlyContinue }
+}
+
 Write-Host "All Test-LongRunCertification tests PASSED!" -ForegroundColor Green
