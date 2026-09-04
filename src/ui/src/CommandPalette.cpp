@@ -2,6 +2,7 @@
 #include "UITheme.h"
 #include "UiComponents.h"
 #include "ffui/NativeOverlayLayout.h"
+#include "ffui/PaletteFocus.h"
 
 #include <algorithm>
 #include <commctrl.h>
@@ -111,7 +112,31 @@ void CommandPalette::Show(CommandContext context) {
     ApplyDensityMetrics();
     Reposition();
     RefreshResults();
+    // final-local-certification-closure FC-001: verified (not fire-and-forget)
+    // focus acquisition. Best-effort: when the owner is not yet foreground-
+    // active the OS may still refuse; callers must observe EditHasFocus() /
+    // PaletteFocusReady before entering text rather than assuming success.
+    EnsureEditFocus();
+}
+
+bool CommandPalette::EditHasFocus() const {
+    if (edit_ == nullptr) return false;
+    return PaletteEditOwnsFocus(edit_, GetFocus());
+}
+
+bool CommandPalette::EnsureEditFocus() {
+    if (edit_ == nullptr || IsWindow(edit_) == FALSE) return false;
+    if (EditHasFocus()) return true;
+    // The edit is shown with SWP_NOACTIVATE by design (the dimmer must not
+    // activate), so focus rests solely on this SetFocus. A single unverified
+    // call was the iteration-22 race: verify, then re-assert visibility and
+    // try once more to cover a first call that raced SetWindowPos.
+    if (IsWindowEnabled(edit_) == FALSE) return false;
     SetFocus(edit_);
+    if (EditHasFocus()) return true;
+    ShowWindow(edit_, SW_SHOW);
+    SetFocus(edit_);
+    return EditHasFocus();
 }
 
 void CommandPalette::Hide() {
@@ -120,7 +145,11 @@ void CommandPalette::Hide() {
     if (dimmer_ != nullptr) ShowWindow(dimmer_, SW_HIDE);
     ShowWindow(edit_, SW_HIDE);
     ShowWindow(list_, SW_HIDE);
-    SetFocus(owner_);
+    // Guard the focus return against a dead/null owner (never hand focus to
+    // a destroyed window); best-effort like Show().
+    if (owner_ != nullptr && IsWindow(owner_) != FALSE) {
+        SetFocus(owner_);
+    }
 }
 
 LRESULT CALLBACK CommandPalette::DimmerSubclassProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam,

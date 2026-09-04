@@ -17,6 +17,13 @@ public:
     void Show(CommandContext context);
     void Hide();
     bool Visible() const { return visible_; }
+    // final-local-certification-closure FC-001: verified focus acquisition.
+    // Show() calls EnsureEditFocus() best-effort; text entry (product or
+    // harness) may proceed only when EditHasFocus() / the PaletteFocusReady
+    // predicate holds. Returns false when the edit is missing or focus could
+    // not be verified, never claiming readiness that was not observed.
+    bool EnsureEditFocus();
+    bool EditHasFocus() const;
     bool HandleMessage(const MSG& message);
     bool HandleOwnerCommand(WPARAM wParam, LPARAM lParam);
     void SetDarkTheme(bool dark);

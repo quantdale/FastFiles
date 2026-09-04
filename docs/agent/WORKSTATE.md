@@ -1,5 +1,14 @@
 # Fast Files — Agent Workstate
 
+## Final local certification closure (FC-001..FC-009) — IN PROGRESS 2026-09-04
+
+- Frontier: narrow closure campaign on `external-certification-execution-engine-and-frontier-truthfulness` (tasks 6.3/7.1/7.2/7.3 still open, lifecycle `active`). Starting SHA `bae9ca2` (= origin/main).
+- Defect ledger: `docs/agent/FINAL_LOCAL_CERTIFICATION_CLOSURE_LEDGER_2026-09-04.md` — all 9 FC items forensically established against the exact tree.
+- FC-001 (rapid-input focus race, iteration 22) ROOT-CAUSED + PRODUCT-FIXED: `CommandPalette::Show()` fired one unchecked `SetFocus` at a `SWP_NOACTIVATE` child; now verified via `EnsureEditFocus()` + pure seam `ffui/PaletteFocus.h` (`PaletteEditOwnsFocus`/`PaletteFocusReady`), `Hide()` guarded vs dead owner, harness retry counts unchanged. Regression `tests/ui/test_palette_focus.cpp` (`ffpalette_focus_tests`, 98th CTest target) PASS. Full Debug CTest 98/98 PASS, full Debug build warning-clean. Post-fix 100x/200x rapid-input stress NOT yet run.
+- FC-002/003/004/007 CONFIRMED, NOT FIXED: Hyper-V guest channel unconditionally BLOCKED (no credential/channel machinery); MFT/USN default readers null (parser tests only); visual-matrix 5.1 NOT_IMPLEMENTED (no engine-connected UIA ctx, EX-009). FC-005/006 (frontier overstates readiness), FC-008 (campaign open), FC-009 (this file's stale `none locally` claim below vs open local tasks) all CONFIRMED.
+- NEXT EXACT ACTION: run post-fix rapid-input 100x+ stress; implement Hyper-V credential/channel machinery; implement native MFT/USN probe backends; resolve visual-matrix engine-connected ctx; then full ladder (Debug x3, release-test x2, Analyze, ASAN, cert/provider/NTFS/visual/OpenSpec/status), lifecycle completion, push + hosted CI on exact tip.
+- NOTE: historical sections below (including any `none locally` statement) are checkpoint evidence, superseded by this entry until the campaign genuinely closes.
+
 ## Certification truthfulness repair + exact-tree stress recertification + real soak validation campaign — COMPLETE 2026-09-04
 
 - Summary: Autonomous certification-integrity repair campaign eliminating 10 material evidence, fail-open, and truthfulness defects (CT-001 through CT-010) identified during independent repository review. Rebuilt long-run runner with strict CTest discovery and execution proof; redesigned resource soak engine around a 7-phase lifecycle with steady-state baseline, graceful shutdown verification, and residue checking; eliminated fake simulated activity; implemented real UIA long-run runner; separated vision provider and environment provider taxonomy; and regenerated authoritative exact-tree-bound stress and soak evidence.
