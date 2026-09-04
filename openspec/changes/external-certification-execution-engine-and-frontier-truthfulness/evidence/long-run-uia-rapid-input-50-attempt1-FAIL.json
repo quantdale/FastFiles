@@ -1,0 +1,374 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_rapid-input",
+  "category": "rapid-input",
+  "command": "build/debug/src/ui/FastFiles.exe",
+  "commit": "5049f4f9f96b86aa46a588cc540698699cf12558",
+  "tree": "9ef468efd39cdcd5b38357690153b5265e3a737f",
+  "exactTreeBound": true,
+  "executableHash": "89f105f9b867ad353207aa4970152f7ec3dce596e5998daba850411bb0a666aa",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T05:21:34.6971248Z",
+  "endUtc": "2026-09-04T05:26:30.2888694Z",
+  "requestedIterations": 50,
+  "completedIterations": 22,
+  "passed": 21,
+  "failed": 1,
+  "timedOut": 0,
+  "skipped": 0,
+  "totalIterations": 50,
+  "iterationLedger": [
+    {
+      "iteration": 1,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 13710.52,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 321.06,
+        "dual-pane-ms": 7374.41,
+        "search-filters-ms": 6014.02
+      }
+    },
+    {
+      "iteration": 2,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12617.8,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 308.67,
+        "dual-pane-ms": 6976.78,
+        "search-filters-ms": 5332.25
+      }
+    },
+    {
+      "iteration": 3,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12427.62,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 336.25,
+        "dual-pane-ms": 6821.96,
+        "search-filters-ms": 5269.3
+      }
+    },
+    {
+      "iteration": 4,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12578.99,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 311.91,
+        "dual-pane-ms": 6974.32,
+        "search-filters-ms": 5292.66
+      }
+    },
+    {
+      "iteration": 5,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12543.57,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 299.59,
+        "dual-pane-ms": 6808.89,
+        "search-filters-ms": 5434.99
+      }
+    },
+    {
+      "iteration": 6,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12314.91,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 278.57,
+        "dual-pane-ms": 6790.51,
+        "search-filters-ms": 5245.76
+      }
+    },
+    {
+      "iteration": 7,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12271.38,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 265.96,
+        "dual-pane-ms": 6766.7,
+        "search-filters-ms": 5238.64
+      }
+    },
+    {
+      "iteration": 8,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12373.15,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 285.12,
+        "dual-pane-ms": 6895.36,
+        "search-filters-ms": 5192.6
+      }
+    },
+    {
+      "iteration": 9,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12359.01,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 316.55,
+        "dual-pane-ms": 6826.95,
+        "search-filters-ms": 5215.46
+      }
+    },
+    {
+      "iteration": 10,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12482.14,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 277.04,
+        "dual-pane-ms": 6907.52,
+        "search-filters-ms": 5297.49
+      }
+    },
+    {
+      "iteration": 11,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12251.53,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 291.31,
+        "dual-pane-ms": 6718.32,
+        "search-filters-ms": 5241.78
+      }
+    },
+    {
+      "iteration": 12,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12467.58,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 302.95,
+        "dual-pane-ms": 6988.33,
+        "search-filters-ms": 5176.23
+      }
+    },
+    {
+      "iteration": 13,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12268.22,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 257.22,
+        "dual-pane-ms": 6842.57,
+        "search-filters-ms": 5168.37
+      }
+    },
+    {
+      "iteration": 14,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12267.35,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 260.75,
+        "dual-pane-ms": 6775.38,
+        "search-filters-ms": 5231.17
+      }
+    },
+    {
+      "iteration": 15,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12472.98,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 274.86,
+        "dual-pane-ms": 6812.33,
+        "search-filters-ms": 5385.73
+      }
+    },
+    {
+      "iteration": 16,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12476.39,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 290.67,
+        "dual-pane-ms": 6831.77,
+        "search-filters-ms": 5353.88
+      }
+    },
+    {
+      "iteration": 17,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12472.07,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 296.37,
+        "dual-pane-ms": 6912.67,
+        "search-filters-ms": 5262.97
+      }
+    },
+    {
+      "iteration": 18,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12444.65,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 272.15,
+        "dual-pane-ms": 6925.86,
+        "search-filters-ms": 5246.46
+      }
+    },
+    {
+      "iteration": 19,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12366.94,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 272.6,
+        "dual-pane-ms": 6786.3,
+        "search-filters-ms": 5308.0
+      }
+    },
+    {
+      "iteration": 20,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12358.76,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 274.6,
+        "dual-pane-ms": 6844.04,
+        "search-filters-ms": 5240.08
+      }
+    },
+    {
+      "iteration": 21,
+      "pass": true,
+      "assertions": 11,
+      "failedAssertions": 0,
+      "durationMs": 12401.54,
+      "failedCheck": "",
+      "phases": {
+        "command-palette-ms": 287.84,
+        "dual-pane-ms": 6853.11,
+        "search-filters-ms": 5260.55
+      }
+    },
+    {
+      "iteration": 22,
+      "pass": false,
+      "assertions": 7,
+      "failedAssertions": 1,
+      "durationMs": 10111.01,
+      "failedCheck": "Search panel did not open via palette: palette edit was present but did not own keyboard focus before text entry; state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":11602578,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":131152,\"popupClasses\":[]}}",
+      "phases": {
+        "command-palette-ms": 304.07,
+        "dual-pane-ms": 7084.42
+      }
+    }
+  ],
+  "phaseDurations": {
+    "setup-ms": 23464.26,
+    "teardown-ms": 73.42
+  },
+  "assertionCounts": {
+    "total": 238,
+    "failed": 1
+  },
+  "semanticPostconditions": {
+    "palette-opened": "PASS: command palette edit 6301 appeared after Ctrl+Shift+P",
+    "palette-closed": "PASS: command palette edit 6301 disappeared after Escape",
+    "dual-pane-command": "PASS: Toggle Dual Pane enable command dispatched",
+    "dual-pane-enabled": "PASS: pane count=2 with Pane.0 and Pane.1 both present after enable",
+    "single-pane-command": "PASS: Toggle Dual Pane disable command dispatched",
+    "single-pane-restored": "PASS: pane count=1 with Pane.0 present and Pane.1 absent after disable",
+    "search-opened": "FAIL: Search did not open via palette: palette edit was present but did not own keyboard focus before text entry; state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":11602578,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":131152,\"popupClasses\":[]}}"
+  },
+  "displayMatrix": [
+    {
+      "requested": {},
+      "observed": {
+        "Theme": "Dark",
+        "DpiPercent": 125,
+        "Contrast": "Unknown",
+        "Viewport": "Wide",
+        "PaneTopology": "Unmeasured",
+        "DetailsPane": "Unmeasured"
+      },
+      "realized": true,
+      "unrealizedFields": []
+    }
+  ],
+  "unrealizedDimensions": [],
+  "capabilities": [
+    "uia-core-smoke",
+    "uia-keyboard-navigation",
+    "dual-pane"
+  ],
+  "cleanup": {
+    "pass": true,
+    "status": "PASS",
+    "method": "Remove-UiaScenarioContext",
+    "residue": [],
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "minDurationMs": 10111.01,
+  "medianDurationMs": 12401.54,
+  "p95DurationMs": 12578.99,
+  "maxDurationMs": 13710.52,
+  "firstFailure": {
+    "iteration": 22,
+    "error": "Search panel did not open via palette: palette edit was present but did not own keyboard focus before text entry; state={\"editPresent\":false,\"editHasKeyboardFocus\":false,\"editTextPresent\":false,\"listPresent\":false,\"listEnabled\":false,\"listNativeHandle\":null,\"listVisible\":false,\"listItems\":[],\"selectedIndex\":-1,\"selectedName\":null,\"expectedMatches\":[],\"expectedNameLikeMatches\":[],\"interactive\":{\"foregroundHwnd\":11602578,\"foregroundTitle\":\"FastFiles\",\"focusedAutomationId\":\"\",\"focusedControlType\":\"Pane\",\"focusedProcessId\":131152,\"popupClasses\":[]}}",
+    "exitCode": 0,
+    "stdoutTail": "",
+    "stderrTail": "",
+    "assertions": 7,
+    "failedAssertions": 1
+  },
+  "artifactHashes": {},
+  "disposition": "FAIL",
+  "failureClassification": "INTERMITTENT_FOCUS_RACE: palette edit present, keyboard focus not acquired in 4 bounded retries at iteration 22; foreground remained FastFiles, no foreign popup; diagnostic 50x re-run 0 failures"
+}
