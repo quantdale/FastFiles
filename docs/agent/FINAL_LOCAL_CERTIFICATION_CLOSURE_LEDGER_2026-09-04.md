@@ -1,14 +1,20 @@
 # Final Local Certification Closure — Defect Ledger (2026-09-04)
 
-Campaign: narrow closure of the four remaining local gaps blocking
+Campaign: narrow closure of the remaining local gaps blocking
 `LOCAL CERTIFICATION EXECUTION ENGINE COMPLETE — EXTERNAL EXECUTION PENDING`.
 Starting SHA: `bae9ca2bcc61bdd6d488d2f0f97ca8323f768762` (= origin/main, clean
 except pre-existing unrelated `M .opencode/package.json[.lock]` which is
 preserved untouched).
 
+Owner scope directive (2026-09-04): vendor-specific VM-provider execution and
+testing are explicitly out of scope for FastFiles local completion. Generic
+provider-contract and fake-adapter coverage may remain, but no specific VM
+provider, guest image, guest credential, or provider-specific end-to-end run is
+a local completion gate unless the owner explicitly reopens that scope.
+
 Forensic method: subagent evidence probes against exact tree (no code changes
 before ledger). Status values: CONFIRMED / NOT_REPRODUCED / INVALIDATED /
-FIXED / BLOCKED_EXTERNAL.
+FIXED / BLOCKED_EXTERNAL / OUT_OF_SCOPE.
 
 ## FC-001 rapid-input command-palette focus race — CONFIRMED, FIXED (product)
 
@@ -44,20 +50,16 @@ FIXED / BLOCKED_EXTERNAL.
   WORKSTATE entry). Post-fix 100×/200× rapid-input stress NOT yet run —
   required before FC-001 can be called closed.
 
-## FC-002 Hyper-V guest channel not implemented — CONFIRMED, NOT FIXED
+## FC-002 vendor-specific VM-provider guest execution — OUT_OF_SCOPE
 
-- `verify/certification/Invoke-EnvironmentProviderCertification.ps1:378-384`:
-  real Hyper-V `ESTABLISH_SECURE_GUEST_CHANNEL` returns
-  `BLOCKED / GUEST_CHANNEL_CREDENTIAL_ABSENT` unconditionally; `:435` gates all
-  downstream phases on the channel. No PowerShell Direct / WinRM / PSSession /
-  Copy-VMFile implementation anywhere under `verify/`; no credential parameter
-  exists on the runner (`Provider, SourcePath, OutputPath, RequireExactTree,
-  RepoRoot, ProviderAdapter, TimeoutSec, CandidatePath` only). Credentials
-  appear solely as plan metadata (`HyperV.psm1:313-316`, `provider.json:17`).
-- Local work remaining: credential input contract (PSCredential, never
-  committed/logged), PS-Direct channel, payload transfer + digest check,
-  guest execution + structured result contract, full 23-step lifecycle,
-  failure-matrix tests. Lawful VHDX + approved credential stay external.
+- Owner directive removes vendor-specific VM-provider guest execution/testing
+  from FastFiles local completion scope.
+- Generic provider lifecycle, provenance, cleanup, and deterministic fake-adapter
+  contract tests remain useful repository infrastructure and may continue to run.
+- No specific guest channel, guest credential flow, lawful VM image, or
+  provider-specific end-to-end execution is required to close this campaign.
+- Do not list this item as remaining local work unless the owner explicitly
+  reopens vendor-specific VM-provider certification scope.
 
 ## FC-003 real MFT observation backend absent — CONFIRMED, NOT FIXED
 
@@ -74,13 +76,15 @@ FIXED / BLOCKED_EXTERNAL.
   (`ffusnrecord_tests.exe` over `UsnRecordParser.h`) only; no live
   `UsnJournalReader.cpp` probe, no FSCTL query/read path in the runner.
 
-## FC-005 external-frontier readiness overstates Hyper-V readiness — CONFIRMED
+## FC-005 vendor-specific VM-provider frontier readiness — OUT_OF_SCOPE
 
-- All 8 `external-provider` tasks in `verify/certification/external-frontier.json`
-  claim `READY_EXTERNAL` with no `implementationGap`, although FC-002 proves a
-  local implementation gap (credential/channel machinery) remains. Truthful
-  value until fixed: `NOT_IMPLEMENTED` with gap text, or keep
-  `READY_EXTERNAL` only after the channel machinery lands.
+- Historical external-provider readiness metadata is not a local completion
+  blocker under the owner scope directive above.
+- Do not require provider-specific readiness, guest execution, credentials, or
+  VM artifacts for FastFiles local closure.
+- Generic provider-contract tests may remain as deterministic infrastructure
+  tests, but their presence does not reintroduce vendor-specific certification
+  as a completion requirement.
 
 ## FC-006 external-frontier readiness overstates privileged NTFS readiness — CONFIRMED
 
@@ -105,12 +109,15 @@ FIXED / BLOCKED_EXTERNAL.
 
 - `external-certification-execution-engine-and-frontier-truthfulness` is
   `active`; tasks 6.3, 7.1, 7.2, 7.3 unchecked. Cannot close until FC-001
-  stress + FC-002/003/004/007 local work + full validation ladder complete.
+  post-fix stress + FC-003/004/007 local work + full validation ladder complete.
+  FC-002/005 are excluded by owner scope and are not closure prerequisites.
 
 ## FC-009 WORKSTATE contradicts project status — CONFIRMED
 
-- `docs/agent/WORKSTATE.md` head claims `NEXT EXACT ACTION: none locally`
-  while the active campaign holds unchecked local tasks (6.3/7.1/7.2/7.3) and
-  this ledger proves remaining local implementation (FC-002/003/004/007).
-  Fix requires completing the work first then regenerating the statement —
-  not editing prose to match either side prematurely.
+- Prior `docs/agent/WORKSTATE.md` current-facing prose claimed
+  `NEXT EXACT ACTION: none locally` while the active campaign held unchecked
+  local tasks and this ledger proved remaining local implementation.
+- Current workstate must list only the real remaining local work: post-fix focus
+  stress, real MFT/USN readers, visual-matrix context/reclassification, full
+  validation, lifecycle convergence, and exact-final-SHA hosted certification.
+- Vendor-specific VM-provider testing is explicitly excluded from that list.
