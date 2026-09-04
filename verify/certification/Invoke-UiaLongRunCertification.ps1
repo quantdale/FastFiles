@@ -850,6 +850,16 @@ if ((@($unrealizedDims).Count -gt 0) -and ($disposition -eq 'PASS')) {
     }
     Write-Host "  $matrixDetail" -ForegroundColor Yellow
 }
+# Proven-capabilities gate: the advertised set describes what executed
+# iterations actually proved. A visual-matrix run with zero fully-passed
+# iterations proved no end-to-end storage contract, so storage-parent-percent
+# (and details-pane, whose reservation proof lives in the same iterations)
+# must not appear on the artifact. Matches the non-interactive precedent of
+# capabilities=[] on BLOCKED_ENVIRONMENT.
+if (($Scenario -eq 'visual-matrix') -and ($passedCount -eq 0)) {
+    $runnerCapabilities = @($runnerCapabilities | Where-Object { $_ -notin @('details-pane', 'storage-parent-percent') })
+    Write-Host "  No fully-passed visual-matrix iteration: withholding details-pane/storage-parent-percent from advertised capabilities" -ForegroundColor Yellow
+}
 
 $artifactHashes = [ordered]@{}
 

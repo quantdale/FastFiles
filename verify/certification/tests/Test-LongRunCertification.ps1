@@ -192,13 +192,14 @@ try {
         -Preset debug `
         -OutputPath $test8Json `
         -RepoRoot $RepoRoot
-
     if (-not (Test-Path -LiteralPath $test8Json)) { throw "UIA runner produced no output JSON" }
     $json8 = Get-Content -LiteralPath $test8Json -Raw | ConvertFrom-Json
     if ($null -eq $json8.cleanup) { throw "UIA result JSON must include a cleanup object in every mode" }
     if ($null -eq $json8.displayMatrix) { throw "UIA result JSON must include the display matrix" }
     if ($json8.disposition -eq 'BLOCKED_ENVIRONMENT') {
-        Write-Host "    PASS (Host cleanly classified BLOCKED_ENVIRONMENT with cleanup and matrix)" -ForegroundColor Green
+        if ($json8.capabilities -contains 'storage-parent-percent') { throw "BLOCKED run must not advertise storage-parent-percent" }
+        if ($json8.capabilities -contains 'details-pane') { throw "BLOCKED run with zero passed iterations must not advertise details-pane" }
+        Write-Host "    PASS (Host cleanly classified BLOCKED_ENVIRONMENT with cleanup and matrix; unproven caps withheld)" -ForegroundColor Green
     } else {
         if ($json8.capabilities -notcontains 'storage-parent-percent') { throw "visual-matrix PASS must advertise storage-parent-percent, got: $($json8.capabilities -join ',')" }
         if ($json8.capabilities -notcontains 'details-pane') { throw "visual-matrix PASS must advertise details-pane, got: $($json8.capabilities -join ',')" }
