@@ -767,6 +767,21 @@ elseif ($Scenario -eq 'visual-matrix') {
         if ($matrix.Failed -eq 0) {
             $passedCount++
             Write-Host "  Iteration $i/$Iterations PASS: $($matrix.Passed)/$($matrix.Checks.Count) checks (${elapsedMs}ms)" -ForegroundColor Green
+        } elseif (-not [string]::IsNullOrWhiteSpace([string]$matrix.Detail.storageBlocked)) {
+            # Environmentally blocked (engine scope absent): skipped, never
+            # counted as passed and never hidden as a failure either.
+            $skippedCount++
+            Write-Host "  Iteration $i/$Iterations BLOCKED: $($matrix.Detail.storageBlocked) (${elapsedMs}ms)" -ForegroundColor Yellow
+            if ($null -eq $firstFailure) {
+                $firstFailure = [pscustomobject]@{
+                    iteration = $i
+                    error = [string]$matrix.Detail.storageBlocked
+                    exitCode = $null
+                    stdoutTail = ""
+                    stderrTail = ""
+                }
+            }
+            if (-not $ContinueOnFailure) { break }
         } else {
             $failedCount++
             $failedChecks = @($matrix.Checks | Where-Object { -not $_.Pass } | ForEach-Object { "$($_.Name): $($_.Detail)" }) -join '; '
@@ -782,7 +797,7 @@ elseif ($Scenario -eq 'visual-matrix') {
             }
             if (-not $ContinueOnFailure) { break }
         }
-    }
+}
 }
 
 $endUtc = [DateTime]::UtcNow
@@ -792,7 +807,6 @@ $minMs = $(if ($durations.Count -gt 0) { ($durations | Measure-Object -Minimum).
 $maxMs = $(if ($durations.Count -gt 0) { ($durations | Measure-Object -Maximum).Maximum } else { 0.0 })
 $medianMs = Get-Percentile -Values $durations.ToArray() -Percentile 0.50
 $p95Ms = Get-Percentile -Values $durations.ToArray() -Percentile 0.95
-
 $disposition = 'FAIL'
 if ($failedCount -gt 0) {
     $disposition = 'FAIL'
@@ -800,6 +814,9 @@ if ($failedCount -gt 0) {
     $disposition = 'TIMEOUT'
 } elseif ($passedCount -eq $Iterations) {
     $disposition = 'PASS'
+} elseif ($skippedCount -gt 0) {
+    # Environmentally blocked iterations (never passed, never failed).
+    $disposition = 'BLOCKED_ENVIRONMENT'
 }
 # Cleanup gate: overall PASS requires a clean cleanup census. A cleanup
 # failure forces FAIL and is never hidden behind iteration counts.

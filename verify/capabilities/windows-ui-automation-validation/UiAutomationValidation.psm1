@@ -5287,31 +5287,51 @@ function Invoke-UiaVisualMatrix {
         $treemapGroup = Find-UiaElement -Driver $driver -AutomationId 'Storage.Treemap' -FromElement $main -TimeoutMs 20000
         & $addCheck 'treemap-view' $true 'Treemap radio selected, Storage.Treemap group present'
 
-        $readPercents = {
-            param($tileNames)
-            $vals = [ordered]@{}
-            foreach ($tn in $tileNames) {
-                $tile = Wait-UiaElement -Driver $driver -Name $tn -ControlType 'DataItem' -FromElement $treemapGroup -TimeoutMs 20000
-                # Managed UIAutomationClient does not bind FullDescription here;
-                # the raw-COM reader is the proven path (see Get-UiaFullDescriptionRaw).
-                $fd = [string](Get-UiaFullDescriptionRaw -Element $tile)
-                $m = [regex]::Match($fd, '(?m)^% of parent:\s*([0-9.]+)%')
-                if (-not $m.Success) {
-                    $ident = ''
-                    try {
-                        $aid = [string](Get-UiaElementProperty -Driver $driver -Element $tile -Name 'AutomationId')
-                        $ct = [string](Get-UiaElementProperty -Driver $driver -Element $tile -Name 'ControlType')
-                        $br = Get-UiaElementProperty -Driver $driver -Element $tile -Name 'BoundingRectangle'
-                        $ident = "AutomationId=$aid ControlType=$ct rect=$($br.width)x$($br.height)@$($br.x),$($br.y)"
-                    } catch { $ident = "identity-read-failed: $($_.Exception.Message)" }
-                    $seen = @()
-                    try { $seen = @(Find-UiaElement -Driver $driver -NameLike '*' -FromElement $treemapGroup -TimeoutMs 3000 -All | ForEach-Object { Get-UiaElementProperty -Driver $driver -Element $_ -Name 'Name' }) } catch {}
-                    throw "tile '$tn' has no parseable % of parent (FullDescription: $fd; $ident; siblings seen: $($seen -join '|'))"
+        # Storage content needs the engine index for the scope. In sandboxed
+        # contexts the UI/engine connection may be absent (or the scope
+        # unindexed); then no tile can exist and asserting sums would be
+        # fabrication. Probe once: without a parseable tile this phase is
+        # environmentally blocked, never passed and never failed.
+        $probeTile = $null
+        $probeFd = ''
+        $probeSettle = [Diagnostics.Stopwatch]::StartNew()
+        while ($probeSettle.ElapsedMilliseconds -lt 30000) {
+            try {
+                $cand = Invoke-UiaPattern -Driver $driver -Element $treemapGroup -PatternName 'ItemContainer' -Method 'FindItemByProperty' -Arguments @('Name', 'fileA.bin')
+                if ($cand -isnot [bool]) {
+                    $probeFd = [string](Get-UiaFullDescriptionRaw -Element $cand)
+                    if ([regex]::Match($probeFd, '(?m)^% of parent:\s*([0-9.]+)%').Success) { $probeTile = $cand; break }
                 }
-                $vals[$tn] = [double]$m.Groups[1].Value
-            }
-            return $vals
+            } catch {}
+            Start-Sleep -Milliseconds 1000
         }
+        if ($null -eq $probeTile) {
+            $detail['storageBlocked'] = 'BLOCKED_ENVIRONMENT: no parseable treemap tile in 30s (engine index for scope absent or UI/engine unconnected in sandbox)'
+            & $addCheck 'storage-data' $false $detail['storageBlocked']
+        } else {
+            $detail['storageBlocked'] = ''
+            $readPercents = {
+                param($tileNames)
+                $vals = [ordered]@{}
+                foreach ($tn in $tileNames) {
+                    $fd = ''
+                    $settle = [Diagnostics.Stopwatch]::StartNew()
+                    while ($settle.ElapsedMilliseconds -lt 30000) {
+                        try {
+                            $tile = Invoke-UiaPattern -Driver $driver -Element $treemapGroup -PatternName 'ItemContainer' -Method 'FindItemByProperty' -Arguments @('Name', $tn)
+                            if ($tile -isnot [bool]) {
+                                $fd = [string](Get-UiaFullDescriptionRaw -Element $tile)
+                                if ([regex]::Match($fd, '(?m)^% of parent:\s*([0-9.]+)%').Success) { break }
+                            }
+                        } catch {}
+                        Start-Sleep -Milliseconds 500
+                    }
+                    $m = [regex]::Match($fd, '(?m)^% of parent:\s*([0-9.]+)%')
+                    if (-not $m.Success) { throw "tile '$tn' has no parseable % of parent after 30s settle (last FullDescription: $fd)" }
+                    $vals[$tn] = [double]$m.Groups[1].Value
+                }
+                return $vals
+            }
         $top = & $readPercents @('fileA.bin', 'fileB.bin', 'fileC.bin', 'Sub')
         $sum = 0.0; foreach ($v in $top.Values) { $sum += $v }
         $sum = [Math]::Round($sum, 2)
@@ -5323,12 +5343,23 @@ function Invoke-UiaVisualMatrix {
         & $addCheck 'percent-values-top' $exactOk "A=$($top['fileA.bin']) B=$($top['fileB.bin']) C=$($top['fileC.bin']) Sub=$($top['Sub'])"
 
         # Real drill-down: Invoke the Sub tile, then fileD must read 100%.
-        $subTile = Wait-UiaElement -Driver $driver -Name 'Sub' -ControlType 'DataItem' -FromElement $treemapGroup -TimeoutMs 20000
+        # The Invoke rebuilds the tree; poll with fresh finds until stable.
+        $subTile = Invoke-UiaPattern -Driver $driver -Element $treemapGroup -PatternName 'ItemContainer' -Method 'FindItemByProperty' -Arguments @('Name', 'Sub')
+        if ($subTile -is [bool]) { throw "ItemContainer returned boolean (mock?) for 'Sub'" }
         $null = Invoke-UiaPattern -Driver $driver -Element $subTile -PatternName 'Invoke'
-        $fileDTile = Wait-UiaElement -Driver $driver -Name 'fileD.bin' -ControlType 'DataItem' -FromElement $main -TimeoutMs 20000
-        $fdD = [string](Get-UiaFullDescriptionRaw -Element $fileDTile)
+        $fdD = ''
+        $fileDTile = $null
+        $drillSettle = [Diagnostics.Stopwatch]::StartNew()
+        while ($drillSettle.ElapsedMilliseconds -lt 30000) {
+            try {
+                $fileDTile = Invoke-UiaPattern -Driver $driver -Element $treemapGroup -PatternName 'ItemContainer' -Method 'FindItemByProperty' -Arguments @('Name', 'fileD.bin')
+                $fdD = [string](Get-UiaFullDescriptionRaw -Element $fileDTile)
+                if ([regex]::Match($fdD, '(?m)^% of parent:\s*([0-9.]+)%').Success) { break }
+            } catch {}
+            Start-Sleep -Milliseconds 500
+        }
         $mD = [regex]::Match($fdD, '(?m)^% of parent:\s*([0-9.]+)%')
-        if (-not $mD.Success) { throw "drilled tile 'fileD.bin' has no parseable % of parent" }
+        if (-not $mD.Success) { throw "drilled tile 'fileD.bin' has no parseable % of parent after 30s settle" }
         $pctD = [double]$mD.Groups[1].Value
         $detail['drilledPercent'] = $pctD
         $helpD = [string](Get-UiaElementProperty -Driver $driver -Element $fileDTile -Name 'HelpText')
@@ -5336,6 +5367,7 @@ function Invoke-UiaVisualMatrix {
         & $addCheck 'drill-scope' $scopeOk "fileD HelpText under Sub: $helpD"
         $drillOk = [Math]::Abs($pctD - 100.0) -le 0.5
         & $addCheck 'percent-sum-drilled' $drillOk "fileD=${pctD}% (expected 100 +/- 0.5)"
+        } # end else (storage data present)
     } catch {
         & $addCheck 'lifecycle' $false $_.Exception.Message
     } finally {

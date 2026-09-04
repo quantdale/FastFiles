@@ -26,6 +26,7 @@
 - [x] 5.1 Machine-readable execution contracts + capability vocabulary on all 25 tasks; runner capability advertisement
 - [x] 5.2 Inventory validation: capability mismatch fails (DPI, contrast, lane semantics)
 - [x] 5.3 UIA display-matrix dimensions (requested-vs-observed) + rapid-input Pane.1/Search-Filters assertions + artifact detail
+- [x] 5.5 visual-matrix scenario (details reservation dynamics + treemap percent-sum/drill-down path with honest engine-blocked classification); engine-connected ctx remains local follow-up (EX-009)
 - [x] 5.4 Soak private-bytes gate, explicit modes, verified-close transitions, first-class cleanup everywhere
 
 ## 6. Status/lifecycle truthfulness

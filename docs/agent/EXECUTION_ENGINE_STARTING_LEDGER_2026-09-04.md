@@ -28,6 +28,25 @@ Starting state re-derived live: branch `main`, HEAD `5316876585f27f223c699a165f4
 - **EX-005 UIA rapid-input overstatement**: dual-pane and Search/Filters semantic
   postconditions claimed stronger than explicitly asserted (Pane.1 existence,
   Filters disclosure contents) — under repair.
+## Sibling search results (2026-09-04, continued session)
+
+- **EX-009 Engine-dependent UIA surfaces unverifiable in sandboxed ctx**:
+  every `New-UiaScenarioContext` run logs `ready=False
+  (engine-connect-not-observed)`; the UI/engine pipe never connects in the
+  sandbox, and the persistent per-machine index covers neither campaign temp
+  paths nor (in practice here) ad-hoc scopes. Proven by 90s polls: drill-down
+  list and treemap tiles empty for both a sandbox fixture and the repo root.
+  Consequence: treemap `% of parent` sums cannot be asserted in ctx today.
+  `visual-matrix` implements the full assertion path but classifies missing
+  storage data as `BLOCKED_ENVIRONMENT` (skipped, never PASS/FAIL). Local
+  follow-up: engine-connected ctx or authorized indexed scope; product code
+  untouched (no product defect demonstrated — treemap provider logic is
+  covered by C++ headless tests).
+- **Phantom-foreground session condition**: an invisible `GameInputServiceWindow`
+  owned by a pwsh process intermittently holds the OS foreground slot while
+  `SetForegroundWindow` is refused for the healthy app window. Intermittent;
+  classified external interference per §31. Shared driver intentionally NOT
+  modified (unverifiable while the session refuses foreground).
 - **EX-006 Soak gaps**: no independent private-bytes gate; close-without-verification
   transitions possible — under repair.
 - **EX-007 Status truth**: `25 external / 0 active-local` assumes complete runners;
