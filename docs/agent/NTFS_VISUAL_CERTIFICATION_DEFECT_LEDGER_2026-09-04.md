@@ -32,7 +32,7 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
   (`ffmftparser_tests`, `ffusnrecord_tests`) touched production code.
   Raw-open alone correctly could not PASS, so the lane could never
   PASS even elevated.
-- Fix (commit `8b896f0`): new `fftest ntfs-observe` probe
+- Fix (commit `8b896f0`, rebased as `98375b0`): new `fftest ntfs-observe` probe
   (`src/fftest/src/NtfsObserve.{h,cpp}`, `ffntfsobserve` static lib)
   with `semantics` / `find` / `usn` modes reusing the exact production
   open sequence (GENERIC_READ + backup semantics),
@@ -87,7 +87,7 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
      engine, so sandboxes never connected at all.
   2. The matrix never browsed the fixture sub-scope, so its listing
      was absent from the snapshot.
-- Fix (commit `4bce753`): pure `ResolveDegradedTreemapTotals` helper
+- Fix (commit `4bce753`, rebased as `343d22e`): pure `ResolveDegradedTreemapTotals` helper
   (snapshot-aggregate fallback mirroring the storage list path;
   complete subtrees exact, missing descendants explicitly Partial);
   `BuildTree` resolves degraded dirs + `RecomputeTotals` before layout;
@@ -122,9 +122,10 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
 - All long-run artifacts record `exactTreeBound=false` SOLELY because
   of 2 pre-existing unrelated `.opencode` tooling files (plugin
   1.18.11 -> 1.18.27 bump, preserved untouched per repo policy).
-  Validated content is commit-bound (`8b896f0`, `4bce753`,
-  `4d94218`); FastFiles sources/tests/harness are byte-identical to
-  the validated runs. `-RequireExactTree` was attempted and correctly
+  Validated content is commit-bound (`8b896f0`/`98375b0`, `4bce753`/`343d22e`,
+  `4d94218`/`a8662a0`; the rebase touched docs only (empty `git diff`
+  on src/tests/harness), so all validation evidence transfers exactly.
+  `-RequireExactTree` was attempted and correctly
   refused. No unrelated work was staged, stashed, or reset.
 
 ## NV-011 soak handle-gate false positive — CONFIRMED, FIXED
@@ -142,7 +143,7 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
     so the full-window linear slope gate never faced step growth.
   - The transient palette miss cleared on re-run (12/12 activities).
 - Why existing tests missed it: prior soak evidence was idle-only.
-- Fix (commit `4d94218`, harness-owned scope): handle verdict gains a
+- Fix (commit `4d94218`, rebased as `a8662a0`, harness-owned scope): handle verdict gains a
   settled path (second-half median drift <= 25) alongside the unchanged
   fast path; runaway/late-onset shapes still FAIL (pinned). Test 7
   warmup 2 s (was 0 s): a zero-warmup 2 s window samples launch-settling
@@ -155,7 +156,7 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
 
 - Post-fix (fix itself in starting SHA `b3dffc5`) stress: rapid-input
   100/100 PASS, 1100/1100 assertions, median ~15.0 s, on commit
-  `4bce753`. Intermittent iteration-22 failure mode not observed.
+  `4bce753`/`343d22e`. Intermittent iteration-22 failure mode not observed.
   Reopen was justified: product code on the exact path changed.
 
 ## FC-002/FC-005 Hyper-V channel/readiness — RESOLVED, NO LOCAL WORK

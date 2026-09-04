@@ -4,11 +4,11 @@
 
 ## NTFS observer + visual-matrix closure + soak-gate repair campaign — COMPLETE 2026-09-04 (pending hosted CI on final tip)
 
-- Frontier: `external-certification-execution-engine-and-frontier-truthfulness` (tasks 7.1/7.2 checked this campaign; 6.3/7.3 close with the hosted-CI binding). HEAD `4d94218` (= origin/main after push; clean except pre-existing unrelated `M .opencode/package.json[.lock]`, preserved untouched).
+- Frontier: `external-certification-execution-engine-and-frontier-truthfulness` (tasks 7.1/7.2 checked this campaign; 6.3/7.3 close with the hosted-CI binding). HEAD `a8662a0` lineage (rebased onto upstream docs; code/harness byte-identical; origin/main after push; clean except pre-existing unrelated `M .opencode/package.json[.lock]`, preserved untouched).
 - Defect ledger: `docs/agent/NTFS_VISUAL_CERTIFICATION_DEFECT_LEDGER_2026-09-04.md` (NV-001..NV-011 + FC resolutions, all forensically established against the live tree).
-- NTFS observer (FC-003/FC-004, NV-002/005/006): `fftest ntfs-observe` (semantics/find/usn via production ioctls+parsers, read-only, 0 mutations) + runner semantics checks + observer-backed fixture confirmation + `mft/usn-observer-semantics` vocabulary (schema/manifest/frontier 4.6/4.7). Live non-admin proof: real open attempted, error 5, BLOCKED exit 2. Commit `8b896f0`.
-- Visual EX-009 (FC-007, NV-007): treemap degraded fallback + totals recompute + partial-known gating + matrix scope warmup + `-Preset debug-diagnostic`. Live: visual-matrix 2/2 x 14/14 PASS (10/20/30/40, drill 100%). Frontier 5.1 -> READY_EXTERNAL. Commit `4bce753`.
-- Soak gate (NV-011): settled-step allowance + Test 7 warmup; 600 s interactive soak PASS (12/12, drift=2, graceful, zero orphans); 20-cycle + 45-cycle probes prove bounded caches, no leak. Commit `4d94218`.
+- NTFS observer (FC-003/FC-004, NV-002/005/006): `fftest ntfs-observe` (semantics/find/usn via production ioctls+parsers, read-only, 0 mutations) + runner semantics checks + observer-backed fixture confirmation + `mft/usn-observer-semantics` vocabulary (schema/manifest/frontier 4.6/4.7). Live non-admin proof: real open attempted, error 5, BLOCKED exit 2. Commit `98375b0`.
+- Visual EX-009 (FC-007, NV-007): treemap degraded fallback + totals recompute + partial-known gating + matrix scope warmup + `-Preset debug-diagnostic`. Live: visual-matrix 2/2 x 14/14 PASS (10/20/30/40, drill 100%). Frontier 5.1 -> READY_EXTERNAL. Commit `343d22e`.
+- Soak gate (NV-011): settled-step allowance + Test 7 warmup; 600 s interactive soak PASS (12/12, drift=2, graceful, zero orphans); 20-cycle + 45-cycle probes prove bounded caches, no leak. Commit `a8662a0`.
 - FC-001: post-fix rapid-input 100/100 PASS (1100 assertions). FC-002/005: no Hyper-V build per §17 (fail-closed + declared credentials verified). NV-001/004/009 not reproduced; NV-003/010 no-change-needed/documented.
 - Validation on final content: Debug 99/99 x3; release-test 99/99 x2; Analyze PASS; ASAN 6/6; OpenSpec strict 81/81; markers/policy PASS; cert suites 10/10; handshake/framing 100/100 + UiServer 25/25; lifecycle 100/100; rapid 100/100; soak 600 s PASS. Artifacts exactTreeBound=false SOLELY from the 2 unrelated .opencode files (NV-010).
 - NEXT EXACT ACTION: push final tip, verify hosted CI green on the exact SHA, then register lifecycle completion (6.3) + close 7.3, push again, verify CI on the ultimate tip. Remaining frontier is external-only (elevated NTFS, physical display/DPI, provider/guest, production signing, clean-host).
@@ -31,7 +31,7 @@ Owner scope directive: vendor-specific VM-provider execution and testing are exp
 ### Remaining LOCAL work
 
 1. ~~Run post-fix rapid-input 100× minimum~~ DONE 2026-09-04: 100/100 PASS (see campaign head entry; FC-001 closed).
-2. ~~Implement real default MFT and USN observation backends~~ DONE 2026-09-04: `fftest ntfs-observe` + runner wiring (commit `8b896f0`, content-preserved through rebase; see ledger NV-002).
+2. ~~Implement real default MFT and USN observation backends~~ DONE 2026-09-04: `fftest ntfs-observe` + runner wiring (commit `98375b0`; see ledger NV-002).
 3. ~~Resolve visual-matrix task 5.1~~ DONE 2026-09-04: degraded treemap fallback + scope warmup + diagnostic preset; matrix 2/2 x 14/14 PASS; frontier 5.1 READY_EXTERNAL (see ledger NV-007).
 4. ~~Complete the validation ladder~~ DONE 2026-09-04: Debug 99/99 x3, release-test 99/99 x2, Analyze, ASAN 6/6, cert suites 10/10, IPC 100/100/25, UIA 100/100, soak 600 s PASS, OpenSpec 81/81, markers/policy green.
 5. Complete campaign tasks 6.3/7.3, reconcile lifecycle/current documentation, push normally, and bind successful hosted CI on the exact final tip. (7.1/7.2 checked; 6.3/7.3 close with CI.)
