@@ -10,9 +10,10 @@ runners validate prerequisites while their OpenSpec tasks require actual executi
 1. `Invoke-CleanHostCertification.ps1 -InstallCandidate` can record
    `Candidate installation verified in campaign sandbox` without invoking any
    installation, runtime, or uninstallation journey.
-2. `Invoke-EnvironmentProviderCertification.ps1` (Hyper-V) verifies module
-   availability, elevation, and guest-image shape — provider preflight, not provider
-   execution. No payload is transferred, executed, or collected.
+2. Environment-provider certification previously mixed provider preflight with
+   provider execution. The generic execution-state-machine and fake-adapter contracts
+   remain useful, but owner direction dated 2026-09-04 explicitly removes
+   vendor-specific VM-provider execution/testing from FastFiles local completion scope.
 3. `Invoke-PrivilegedNtfsCertification.ps1` opens `\\.\C:` and runs isolated parser
    unit tests — raw-volume open plus parser substitutes, not MFT/USN ground-truth
    validation against real retrieved records.
@@ -25,9 +26,20 @@ runners validate prerequisites while their OpenSpec tasks require actual executi
    Search/Filters postconditions stronger than the code explicitly enforces.
 6. `Invoke-ResourceSoak.ps1` has no independent private-bytes stability gate and
    allows close-without-verification activity transitions.
-7. Project status reports `25 external / 0 active-local`, which is only truthful if
-   every external task's runner is locally complete. Incomplete runners must remain
-   visible as local work (`NOT_IMPLEMENTED`), not collapse into external blockage.
+7. Project status reports external tasks separately from active local work; this is
+   truthful only when locally required runners are complete. Owner-excluded
+   vendor-specific VM-provider testing must not reappear as local completion work.
+
+## Owner Scope Directive — 2026-09-04
+
+Vendor-specific VM-provider execution and testing are **out of scope** for FastFiles
+local completion unless the owner explicitly reopens that scope. This includes
+provider-specific guest channels, guest credentials, guest images, provisioning,
+end-to-end guest execution, and provider-specific rollback certification.
+
+Generic provider lifecycle, provenance, cleanup, and deterministic fake-adapter
+contract tests may remain as repository infrastructure. They do not create a local
+completion requirement for a specific VM provider.
 
 ## What Changes
 
@@ -35,13 +47,13 @@ runners validate prerequisites while their OpenSpec tasks require actual executi
   PASS) vs installation-certification mode (real stage→launch→smoke→shutdown→remove
   journey with per-leg checks, fail-closed `BLOCKED_MISSING_INSTALLABLE_CANDIDATE`
   when no installer exists, destructive-operation guardrails).
-* **Provider execution state machine**: explicit 14-phase lifecycle
+* **Generic provider execution state machine**: explicit 14-phase lifecycle
   (DISCOVER→PREFLIGHT→PROVISION→ACTIVATE→WAIT_READY→CHANNEL→TRANSFER→EXECUTE→
   COLLECT_LOGS→COLLECT_RESULTS→PROVENANCE→ROLLBACK→CLEANUP→RESIDUE_CHECK) with
   per-phase timestamps/status/reason/identity/artifacts; preflight-only success never
   yields PASS; deterministic fake-provider fixture covering the full failure
-  permutation matrix; guest-result provenance binding (commit/tree/payload/candidate
-  digests, VM identity, command, counts, exit code, cleanup disposition).
+  permutation matrix; guest-result provenance binding where an external adapter is
+  supplied. Vendor-specific VM execution is owner-excluded from completion scope.
 * **Privileged NTFS ground-truth leg**: campaign-owned fixtures created through normal
   filesystem APIs, normal-filesystem truth captured, privileged/raw observation path
   compared field-by-field; raw-open alone cannot PASS; injectable seams for
@@ -49,30 +61,30 @@ runners validate prerequisites while their OpenSpec tasks require actual executi
 * **Signing audit completion**: candidate identity, chain, thumbprint-pin comparison,
   Authenticode, timestamp, negative mismatch tests, fail-closed `BLOCKED_EXTERNAL`
   without credentials; `production-signing` capability only on verified execution.
-* **Capability-aware frontier contract**: every external task declares machine-readable
-  required capabilities; every runner advertises provided capabilities; inventory
-  validation fails on mismatch (DPI task vs generic core-smoke, High Contrast vs
-  runner lacking contrast, etc.). UIA runner gains explicit requested-vs-observed
-  display-matrix dimensions.
+* **Capability-aware frontier contract**: every locally required external task declares
+  machine-readable required capabilities; every applicable runner advertises provided
+  capabilities; inventory validation fails on mismatch. UIA runner gains explicit
+  requested-vs-observed display-matrix dimensions.
 * **UIA/soak semantic tightening**: Pane.1 existence/absence assertions, explicit
   Search/Filters disclosure postconditions, enriched stress artifacts, separate
   private-bytes gate with documented threshold, explicit Idle/Interactive modes,
   verified-close activity transitions, first-class cleanup reporting everywhere.
 * **Status/lifecycle truthfulness**: three-state model (NOT_IMPLEMENTED /
-  READY_EXTERNAL / EXECUTED); project status surfaces locally-incomplete external
-  runners as active local work.
+  READY_EXTERNAL / EXECUTED) for in-scope certification work; owner-excluded
+  vendor-specific VM-provider testing is not a local completion gate.
 
 ## Impact
 
 * **Files**: `verify/certification/Invoke-*.ps1` runners, `verify/certification/tests/*`,
   `verify/certification/external-frontier.json` + schema, `verify/status/*`,
-  this change's tasks/evidence. Zero product-code changes expected.
+  this change's tasks/evidence. Product-code changes remain evidence-driven only.
 * **Safety**: no destructive host mutation; campaign-owned disposable dirs, synthetic
   fixtures, read-only raw access preserved.
 
 ## Non-Goals
 
-* Procuring production signer credentials, lawful Windows guest images, elevated
-  raw-volume hosts, or physical display labs — those stay genuinely external.
+* Vendor-specific VM-provider execution/testing; explicitly excluded by owner direction.
+* Procuring production signer credentials, elevated raw-volume hosts, or physical
+  display labs — those stay genuinely external.
 * Product-code refactoring without certification-run evidence of a product defect.
 * Rewriting historical evidence; corrective evidence supersedes, never edits history.
