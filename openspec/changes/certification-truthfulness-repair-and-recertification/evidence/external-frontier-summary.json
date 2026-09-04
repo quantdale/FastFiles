@@ -1,0 +1,909 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-09-04T02:30:00Z",
+  "summary": {
+    "totalTasks": 25,
+    "byFrontierGroup": {
+      "physical-environment": 7,
+      "external-provider": 8,
+      "production-signing": 5,
+      "privileged-ntfs": 2,
+      "clean-host": 3
+    },
+    "byStatus": {
+      "BLOCKED_ENVIRONMENT": 10,
+      "REQUIRED-BUT-UNAVAILABLE": 15
+    }
+  },
+  "tasks": [
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "5.1",
+      "description": "**[external / interactive Windows desktop]** Run the visual matrix for the M4/L7/L10/L1 and this change's surfaces: Light and Dark themes; 100% and 150% DPI; animations enabled and disabled; High Contrast where supported; narrow, normal, and wide window widths; details pane open and closed; single-pane and dual-pane behavior. Confirm no column content renders under the details pane at any width; confirm the \"% of Parent\" column values sum to 100% (within tolerance) in a real drill-down.",
+      "frontierGroup": "physical-environment",
+      "lane": "physical-display",
+      "disposition": "external",
+      "categories": [
+        "interactive"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "completion-integrity-hardening-and-release-certification",
+      "taskId": "6.15",
+      "description": "major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "external",
+      "categories": [
+        "interactive"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "runtime-certification-and-verifier-convergence",
+      "taskId": "1.3",
+      "description": "Measure clean focused and complete UIA executions and select a manifest-declared finite capability budget; document why the budget is sufficient for the supported matrix and how timeout evidence is collected.",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "external",
+      "categories": [
+        "interactive"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario application-lifecycle -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "runtime-certification-and-verifier-convergence",
+      "taskId": "7.2",
+      "description": "Add campaign evidence for root cause, result contract, repeatability/order matrix, final UIA outcome, validation ladder, hosted SHA/result, external prerequisites, and final Git handoff; preserve historical evidence unchanged. (Root cause, result contract, validation ladder, and external boundaries are recorded; final UIA/hosted/final-handoff evidence remains pending.)",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "external",
+      "categories": [
+        "interactive"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "runtime-certification-and-verifier-convergence",
+      "taskId": "8.2",
+      "description": "Run a bounded final repeatability/ordering/soak matrix with recorded seeds and classify every PASS, SKIP, BLOCKED, FAIL, timeout, and cleanup result without retry-until-green behavior.",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "external",
+      "categories": [
+        "interactive"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "autonomous-runtime-verification",
+      "taskId": "2.3",
+      "description": "Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end — not yet implementable; prerequisites re-audited 2026-08-03: the local provider is implemented and validated (§2.2) and this host is now elevated with hyper-v PASS in verify.ps1 doctor; a configured VM FastFiles-Matrix (Gen2, v12.0, Off) exists with a valid dynamic parent C:\\VMs\\FastFiles-Matrix.vhdx (64 GB) but holds no lawful guest OS.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image; requires an elevated or privileged validation context",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "autonomous-runtime-verification",
+      "taskId": "2.4",
+      "description": "Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree — blocked on 2.3 (re-audited 2026-08-03: VM exists but no guest OS; see 2.3).",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "phase8-release-readiness-convergence",
+      "taskId": "5.1",
+      "description": "Validate a real snapshot-restorable Windows provider with an authorized OS image, reachable secure guest channel, toolchain, and clean checkpoint.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "phase8-release-readiness-convergence",
+      "taskId": "5.3",
+      "description": "Execute the remaining physical DPI/monitor/High Contrast/interactive matrix and cross-provider equivalence; do not infer these from headless tests.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider",
+        "interactive"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image; requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "runtime-certification-and-verifier-convergence",
+      "taskId": "5.3",
+      "description": "Add supported-wrapper coverage for single scenarios, groups, mixed/isolated selections, seeded order permutations, back-to-back runs, interrupted-run recovery, Search/pane/degraded-engine transitions, and Explorer-assisted boundaries where available.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "zero-touch-autonomous-engineering",
+      "taskId": "6.3",
+      "description": "Build unattended-install config (`autounattend.xml`); create temp automation account; enable WinRM (HTTPS or credential-secured) or another secure channel — REQUIRED-BUT-UNAVAILABLE: no Windows guest can be provisioned (no install media / clean template). The autounattend authoring + account + WinRM channel are part of the guest provisioning flow that cannot run without a rightful guest.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "zero-touch-autonomous-engineering",
+      "taskId": "6.4",
+      "description": "Install VS Build Tools + Windows SDK + pwsh prerequisites in the guest; create a clean reference snapshot — REQUIRED-BUT-UNAVAILABLE: no guest to install into or snapshot.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "zero-touch-autonomous-engineering",
+      "taskId": "6.6",
+      "description": "Validate the same capability runs unchanged across `local` and the disposable VM; collect logs/artifacts back to the run tree — provider plumbing demonstrated (test-code-signing runs under both `-Provider local` and `-Provider hyperv`, exit 0), but the VM-gated execution against a real disposable guest is REQUIRED-BUT-UNAVAILABLE (no guest can be provisioned). Cross-provider runtime equivalence on a live guest cannot be validated until media is supplied.",
+      "frontierGroup": "external-provider",
+      "lane": "environment-provider",
+      "disposition": "external",
+      "categories": [
+        "external-provider"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an isolated/provider execution target or lawful source image",
+      "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
+      "requiredCapabilities": [
+        "external-environment-provider"
+      ],
+      "requiredCredentials": [
+        "provider-api-key-or-guest-credentials"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
+      ],
+      "evidenceRequirements": [
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.2.2",
+      "description": "**[external]** Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated. Do not satisfy this by weakening fail-closed pins. CurrentUser roots and ProtectedRoots list update requires an authorized interactive or provisioning context.",
+      "frontierGroup": "production-signing",
+      "lane": "production-signing",
+      "disposition": "external",
+      "categories": [
+        "production-signing",
+        "interactive"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires authorized production signing or trust evidence; requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
+      "requiredCapabilities": [
+        "production-signing-verification"
+      ],
+      "requiredCredentials": [
+        "authorized-code-signing-certificate-or-signed-candidate"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "trusted-root-chain"
+      ],
+      "evidenceRequirements": [
+        "authenticode-signature-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "unsigned-candidate-rejected"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.5",
+      "description": "**[external]** Signed privileged-path install and runtime validation under elevation: install signed service, start it, confirm connection-state transition to `Active` and privileged scan, and confirm degraded-mode fallback when the signed service is unavailable or handshake fails.",
+      "frontierGroup": "production-signing",
+      "lane": "production-signing",
+      "disposition": "external",
+      "categories": [
+        "production-signing",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires authorized production signing or trust evidence; requires an elevated or privileged validation context",
+      "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
+      "requiredCapabilities": [
+        "production-signing-verification"
+      ],
+      "requiredCredentials": [
+        "authorized-code-signing-certificate-or-signed-candidate"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "trusted-root-chain"
+      ],
+      "evidenceRequirements": [
+        "authenticode-signature-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "unsigned-candidate-rejected"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "phase8-release-readiness-convergence",
+      "taskId": "5.2",
+      "description": "Execute the signed privileged install/runtime and real MFT/USN validation with authorized production signer/pins on a clean supported host.",
+      "frontierGroup": "production-signing",
+      "lane": "production-signing",
+      "disposition": "external",
+      "categories": [
+        "production-signing",
+        "clean-host",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires authorized production signing or trust evidence; requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
+      "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
+      "requiredCapabilities": [
+        "production-signing-verification"
+      ],
+      "requiredCredentials": [
+        "authorized-code-signing-certificate-or-signed-candidate"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "trusted-root-chain"
+      ],
+      "evidenceRequirements": [
+        "authenticode-signature-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "unsigned-candidate-rejected"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "ship-ready-ui-ux-hardening-convergence",
+      "taskId": "6.2",
+      "description": "Run production signing-pin, signed-install, elevated clean-host MFT/USN, trust-store, guest/VM, and foreground-controllable repeated UIA evidence only under their explicitly authorized environments.",
+      "frontierGroup": "production-signing",
+      "lane": "production-signing",
+      "disposition": "external",
+      "categories": [
+        "production-signing",
+        "external-provider",
+        "clean-host",
+        "interactive",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires authorized production signing or trust evidence; requires an isolated/provider execution target or lawful source image; requires an uncontaminated supported Windows host; requires an attached interactive desktop or physical display configuration; requires an elevated or privileged validation context",
+      "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
+      "requiredCapabilities": [
+        "production-signing-verification"
+      ],
+      "requiredCredentials": [
+        "authorized-code-signing-certificate-or-signed-candidate"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "trusted-root-chain"
+      ],
+      "evidenceRequirements": [
+        "authenticode-signature-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "unsigned-candidate-rejected"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.6",
+      "description": "**[external]** End-to-end privileged scanning validation (real MFT/USN) against the documented supported volumes; record evidence.",
+      "frontierGroup": "privileged-ntfs",
+      "lane": "privileged-ntfs",
+      "disposition": "external",
+      "categories": [
+        "elevated"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an elevated or privileged validation context",
+      "nextAction": "Run the documented command with explicit elevation on a disposable or authorized host.",
+      "requiredCapabilities": [
+        "privileged-ntfs-mft-usn-access"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "elevated",
+        "SeBackupPrivilege",
+        "SeRestorePrivilege"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "ntfs-filesystem",
+        "raw-volume-access-enabled"
+      ],
+      "evidenceRequirements": [
+        "read-only-raw-mft-access",
+        "usn-journal-records-parsed",
+        "fixture-ground-truth-match"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.7",
+      "description": "**[external]** `fftest` privilege-diagnostics coverage against the running service; record evidence.",
+      "frontierGroup": "privileged-ntfs",
+      "lane": "privileged-ntfs",
+      "disposition": "external",
+      "categories": [
+        "elevated"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an elevated or privileged validation context",
+      "nextAction": "Run the documented command with explicit elevation on a disposable or authorized host.",
+      "requiredCapabilities": [
+        "privileged-ntfs-mft-usn-access"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "elevated",
+        "SeBackupPrivilege",
+        "SeRestorePrivilege"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "ntfs-filesystem",
+        "raw-volume-access-enabled"
+      ],
+      "evidenceRequirements": [
+        "read-only-raw-mft-access",
+        "usn-journal-records-parsed",
+        "fixture-ground-truth-match"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.8",
+      "description": "**[external]** Clean-host privilege-candidate matrix across the documented supported Windows environments; record as pending / `REQUIRED-BUT-UNAVAILABLE` with machine evidence until actually executed.",
+      "frontierGroup": "clean-host",
+      "lane": "clean-host",
+      "disposition": "external",
+      "categories": [
+        "clean-host",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
+      "nextAction": "Run on a clean supported Windows host and attach the task-specific evidence.",
+      "requiredCapabilities": [
+        "clean-host-installation-runtime"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "elevated"
+      ],
+      "requiredHostProperties": [
+        "uncontaminated-supported-windows-host",
+        "no-development-residue"
+      ],
+      "evidenceRequirements": [
+        "conflict-free-environment",
+        "clean-install-and-run",
+        "clean-uninstall-and-zero-residue"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "runtime-certification-and-verifier-convergence",
+      "taskId": "8.3",
+      "description": "Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification.",
+      "frontierGroup": "clean-host",
+      "lane": "clean-host",
+      "disposition": "external",
+      "categories": [
+        "clean-host",
+        "interactive",
+        "elevated"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires an uncontaminated supported Windows host; requires an attached interactive desktop or physical display configuration; requires an elevated or privileged validation context",
+      "nextAction": "Run on a clean supported Windows host and attach the task-specific evidence.",
+      "requiredCapabilities": [
+        "clean-host-installation-runtime"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "elevated"
+      ],
+      "requiredHostProperties": [
+        "uncontaminated-supported-windows-host",
+        "no-development-residue"
+      ],
+      "evidenceRequirements": [
+        "conflict-free-environment",
+        "clean-install-and-run",
+        "clean-uninstall-and-zero-residue"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "close-independent-validation-gaps",
+      "taskId": "4.2",
+      "description": "Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated.",
+      "frontierGroup": "production-signing",
+      "lane": "production-signing",
+      "disposition": "mixed",
+      "categories": [
+        "production-signing",
+        "local",
+        "interactive"
+      ],
+      "status": "REQUIRED-BUT-UNAVAILABLE",
+      "reason": "requires authorized production signing or trust evidence; locally actionable unless evidence proves otherwise; requires an attached interactive desktop or physical display configuration",
+      "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
+      "requiredCapabilities": [
+        "production-signing-verification"
+      ],
+      "requiredCredentials": [
+        "authorized-code-signing-certificate-or-signed-candidate"
+      ],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "windows-10-or-11",
+        "trusted-root-chain"
+      ],
+      "evidenceRequirements": [
+        "authenticode-signature-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "unsigned-candidate-rejected"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    },
+    {
+      "change": "completion-integrity-hardening-and-release-certification",
+      "taskId": "4.5.1",
+      "description": "Trace Home -> browse -> deep navigation -> tabs/dual pane -> search -> preview/properties -> file operation -> settings/storage flows end-to-end.",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "mixed",
+      "categories": [
+        "interactive",
+        "local"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "completion-integrity-hardening-and-release-certification",
+      "taskId": "4.5.2",
+      "description": "Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states.",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "mixed",
+      "categories": [
+        "interactive",
+        "local"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "interactive-desktop-display-matrix"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+    },
+    {
+      "change": "completion-integrity-hardening-and-release-certification",
+      "taskId": "4.5.3",
+      "description": "Validate degraded/indexed/offline/unavailable transitions and reconnect/restart behavior.",
+      "frontierGroup": "clean-host",
+      "lane": "clean-host",
+      "disposition": "mixed",
+      "categories": [
+        "interactive",
+        "local",
+        "clean-host",
+        "elevated"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise; requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
+      "nextAction": "Run the clean-host certification package in audit or live mode on an uncontaminated host.",
+      "requiredCapabilities": [
+        "clean-host-installation-runtime"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "elevated"
+      ],
+      "requiredHostProperties": [
+        "uncontaminated-supported-windows-host",
+        "no-development-residue"
+      ],
+      "evidenceRequirements": [
+        "conflict-free-environment",
+        "clean-install-and-run",
+        "clean-uninstall-and-zero-residue"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_index_pipeline_concurrency_tests",
+  "category": "concurrency",
+  "command": "build/debug/tests/engine/ffengine_index_pipeline_concurrency_tests.exe",
+  "commit": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb",
+  "tree": "01dae7925217684c945bcaf90d717fa4448b60c8",
+  "exactTreeBound": true,
+  "executableHash": "57bd3ecedd051c3b97b85357d766183de59203bc9033a4d78c9ee9995e9a31cd",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T02:50:35.5386852Z",
+  "endUtc": "2026-09-04T02:50:40.1723013Z",
+  "requestedIterations": 20,
+  "completedIterations": 20,
+  "passed": 20,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 195.48,
+  "medianDurationMs": 219.88,
+  "p95DurationMs": 302.87,
+  "maxDurationMs": 347.89,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

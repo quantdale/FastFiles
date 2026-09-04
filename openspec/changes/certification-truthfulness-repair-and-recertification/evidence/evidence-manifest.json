@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-09-04T03:22:33.0951778Z",
+  "directory": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence",
+  "artifactCount": 20,
+  "artifacts": {
+    "external-frontier-summary.json": {
+      "sha256": "e180fb72042737bb91333e209e9ff5519f2d304b0e4c8162b7050a7de5f97165",
+      "bytes": 40992,
+      "lastModifiedUtc": "2026-09-04T03:22:26.5945695Z"
+    },
+    "local-long-run-certification.md": {
+      "sha256": "7e513cd7661599f212f39c8783f91a997c8dffea635561d7fac38e08703851a1",
+      "bytes": 2328,
+      "lastModifiedUtc": "2026-09-04T03:22:33.0680287Z"
+    },
+    "long-run-application-lifecycle-100.json": {
+      "sha256": "fe8fda97bd94b62de538016460be9d824a149409dbebb5ad233c89bc37a625ad",
+      "bytes": 972,
+      "lastModifiedUtc": "2026-09-04T02:54:27.4618079Z"
+    },
+    "long-run-application-lifecycle-100.json.sha256": {
+      "sha256": "54f46edf8b5497dac6a76c150134e0798c9e71b68820cec1f720ee8a3774fba4",
+      "bytes": 107,
+      "lastModifiedUtc": "2026-09-04T02:54:27.4938968Z"
+    },
+    "long-run-concurrency-20.json": {
+      "sha256": "dcf410e1119448180d1b8b32223ab376d1bab6b3181b9ca8471b1f83cbc739dd",
+      "bytes": 1007,
+      "lastModifiedUtc": "2026-09-04T02:50:40.2527470Z"
+    },
+    "long-run-concurrency-20.json.sha256": {
+      "sha256": "0164f93250a7c0125a22f0bf2d0f5b765060fa8d71c7adfaa542f77c2daba8fd",
+      "bytes": 96,
+      "lastModifiedUtc": "2026-09-04T02:50:40.2663993Z"
+    },
+    "long-run-dialog-focus-50.json": {
+      "sha256": "6fa5fb98425cc956361f835f505324738f2eeaafbe47c6cb0a95c1f82254cd5d",
+      "bytes": 966,
+      "lastModifiedUtc": "2026-09-04T02:50:55.2111604Z"
+    },
+    "long-run-dialog-focus-50.json.sha256": {
+      "sha256": "826add089c7f7c7948b41c2185dcab846f4de15deb9f92c5b96731c0fd3198e1",
+      "bytes": 97,
+      "lastModifiedUtc": "2026-09-04T02:50:55.2283677Z"
+    },
+    "long-run-framing-100.json": {
+      "sha256": "0921f8f8b7fade0666108e78d4faa1399a4285da59a69d2a10f22aca492297a7",
+      "bytes": 969,
+      "lastModifiedUtc": "2026-09-04T02:47:59.3011178Z"
+    },
+    "long-run-framing-100.json.sha256": {
+      "sha256": "e6973ec319428a217a0b078b21432fae638bb96bf350dc94dd31f1e22e18d1b4",
+      "bytes": 93,
+      "lastModifiedUtc": "2026-09-04T02:47:59.3208225Z"
+    },
+    "long-run-handshake-100.json": {
+      "sha256": "b4ce72b510d1238788c81c7eb19d61330494fc8025821ecd7cb6cb74848cd345",
+      "bytes": 991,
+      "lastModifiedUtc": "2026-09-04T02:45:04.4292220Z"
+    },
+    "long-run-handshake-100.json.sha256": {
+      "sha256": "e43b751911734ad66c07a6f2531b9b1f14c17aa3d9c82400937c1c3c85d93bdc",
+      "bytes": 95,
+      "lastModifiedUtc": "2026-09-04T02:45:04.4461543Z"
+    },
+    "long-run-rapid-input-50.json": {
+      "sha256": "bd84f466de3e4e332c37f135a173f74a717ab36901ecb0cf9c9ccb800f53423b",
+      "bytes": 953,
+      "lastModifiedUtc": "2026-09-04T03:10:55.8469172Z"
+    },
+    "long-run-rapid-input-50.json.sha256": {
+      "sha256": "cea603ec7abcacd0c8c1283372b7a31afa0e50e34f2bd5945b41833d26c5731b",
+      "bytes": 96,
+      "lastModifiedUtc": "2026-09-04T03:10:55.8647299Z"
+    },
+    "long-run-summary.json": {
+      "sha256": "591a4252c9bda10d0a39754b2ca5714a56627ea2efe775ca394e3d363e17c987",
+      "bytes": 4100,
+      "lastModifiedUtc": "2026-09-04T03:22:33.0818878Z"
+    },
+    "long-run-uiserver-25.json": {
+      "sha256": "8fe25c485dcd85e41b499a7d795885589b0f3197baab2323ea9ca843ea60cf05",
+      "bytes": 999,
+      "lastModifiedUtc": "2026-09-04T02:50:29.0794260Z"
+    },
+    "long-run-uiserver-25.json.sha256": {
+      "sha256": "9fd4a9c2df4227001b103e7c1e3a26eaba0a3bcac9f101562df784f1007d54d3",
+      "bytes": 93,
+      "lastModifiedUtc": "2026-09-04T02:50:29.1000810Z"
+    },
+    "resource-soak-summary.json": {
+      "sha256": "3468ddf1f18120fd795f14d22a0c8657a274bdfa9238060ddff0ce0f1e49e962",
+      "bytes": 6012,
+      "lastModifiedUtc": "2026-09-04T03:21:31.4068503Z"
+    },
+    "resource-soak-summary.json.sha256": {
+      "sha256": "77b41b5540c1effc5aaff524153a2a20cd3dbbd27905063d2bba31a182276b96",
+      "bytes": 94,
+      "lastModifiedUtc": "2026-09-04T03:21:31.4265232Z"
+    },
+    "resource-soak-summary.md": {
+      "sha256": "d36f7cb453e9eaf6dd0091ef8be8453f5caff9208ab2f495a343f2c2136ec112",
+      "bytes": 1500,
+      "lastModifiedUtc": "2026-09-04T03:22:33.0257930Z"
+    }
+  }
+}

@@ -1,5 +1,25 @@
 # Fast Files — Agent Workstate
 
+## Certification truthfulness repair + exact-tree stress recertification + real soak validation campaign — COMPLETE 2026-09-04
+
+- Summary: Autonomous certification-integrity repair campaign eliminating 10 material evidence, fail-open, and truthfulness defects (CT-001 through CT-010) identified during independent repository review. Rebuilt long-run runner with strict CTest discovery and execution proof; redesigned resource soak engine around a 7-phase lifecycle with steady-state baseline, graceful shutdown verification, and residue checking; eliminated fake simulated activity; implemented real UIA long-run runner; separated vision provider and environment provider taxonomy; and regenerated authoritative exact-tree-bound stress and soak evidence.
+- Implementation Commit: ``67f06b5203241cf8c6384bc58173fc6eba9bf2fb`` (clean tree, exactTreeBound=true across all stress artifacts).
+- Defect Ledger (`docs/agent/CERTIFICATION_TRUTHFULNESS_DEFECT_LEDGER_2026-09-04.md`): All 10 defects (CT-001 to CT-010) confirmed, root-caused, repaired, and pinned by regression tests.
+- Test Suite (`verify/certification/tests/run-all-tests.ps1`): Expanded to 10/10 test suites PASS, covering zero-test target rejection, simulated activity prohibition, steady-state stability, command executability, lane semantic matching, sidecar integrity, and path traversal rejection.
+- Authoritative Exact-Tree Long-Run Stress Re-Execution:
+  - `ffengine_client_handshake_tests` ×100: 100/100 PASS (median 506.96ms, p95 626.94ms, exactTreeBound=True)
+  - `ffipc_framing_tests` ×100: 100/100 PASS (median 1652.39ms, p95 1819.83ms, exactTreeBound=True)
+  - `ffengine_ui_server_lifecycle_tests` ×25: 25/25 PASS (median 5632.28ms, p95 5682.28ms, exactTreeBound=True)
+  - `ffengine_index_pipeline_concurrency_tests` ×20: 20/20 PASS (median 219.88ms, p95 302.87ms, exactTreeBound=True)
+  - `ffdialog_focus_return_tests` ×50: 50/50 PASS (median 118.41ms, p95 203.82ms, exactTreeBound=True)
+  - `ffuia_application-lifecycle` ×100: 100/100 PASS (median 1897.52ms, p95 2707.62ms, exactTreeBound=True)
+  - `ffuia_rapid-input` ×50: 50/50 PASS (median 12616.77ms, p95 13898.75ms, exactTreeBound=True)
+  - 600-Second Semantic Resource Soak: 600.55s PASS (113 steady-state samples; steady-state WS baseline 86.48MB -> final 88.12MB, slope 2864 B/s; steady-state handles 521 -> 536, slope 0.025/s; graceful exit in 259ms; zero orphans; exactTreeBound=True)
+  - Retained artifacts under `openspec/changes/certification-truthfulness-repair-and-recertification/evidence/` with authoritative `evidence-manifest.json` and sidecar checksums.
+- External Frontier (`verify/certification/external-frontier.json`): All 25 external tasks re-audited and validated; nonexistent `ffuia_smoke_tests` replaced with real UIA commands; VM tasks separated from vision critic into `Invoke-EnvironmentProviderCertification.ps1`; command executability verified by automated contract test `Test-ExternalFrontierInventory.ps1`.
+- OpenSpec & Lifecycle: OpenSpec strict validation 80/80 PASS; `verify.ps1 status` reports 25 unchecked / 0 active-local / lifecycle model PASS with exact hosted run binding `33807003147` on parent SHA `7b4315e`.
+- Product Code Freeze: 100% frozen; zero product C++ modifications.
+
 ## External certification readiness + durable stress evidence + clean-host execution pack campaign — COMPLETE 2026-09-04
 
 - Summary: Autonomous campaign converting FastFiles' remaining external/environment certification frontier into deterministic, one-shot, reproducible certification packages while strengthening durability of stress/soak evidence. 25 unchecked tasks across 7 changes fully audited, classified, and inventoried in `verify/certification/external-frontier.json` (production-signing: 5, privileged-ntfs: 2, clean-host: 3, external-provider: 8, physical-environment: 7).

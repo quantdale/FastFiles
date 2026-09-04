@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_application-lifecycle",
+  "category": "application-lifecycle",
+  "command": "build/debug/src/ui/FastFiles.exe",
+  "commit": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb",
+  "tree": "01dae7925217684c945bcaf90d717fa4448b60c8",
+  "exactTreeBound": true,
+  "executableHash": "89f105f9b867ad353207aa4970152f7ec3dce596e5998daba850411bb0a666aa",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T02:51:04.8624013Z",
+  "endUtc": "2026-09-04T02:54:27.3624550Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 1539.42,
+  "medianDurationMs": 1897.52,
+  "p95DurationMs": 2707.62,
+  "maxDurationMs": 2889.05,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

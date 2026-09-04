@@ -1,0 +1,221 @@
+{
+  "schemaVersion": 1,
+  "commit": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb",
+  "tree": "01dae7925217684c945bcaf90d717fa4448b60c8",
+  "exactTreeBound": true,
+  "targetExecutable": "build/debug/src/ui/FastFiles.exe",
+  "executableHash": "89f105f9b867ad353207aa4970152f7ec3dce596e5998daba850411bb0a666aa",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5",
+    "interactive": true
+  },
+  "startUtc": "2026-09-04T03:11:13.4187092Z",
+  "endUtc": "2026-09-04T03:21:31.3111012Z",
+  "durationSeconds": 600.55,
+  "sampleIntervalSeconds": 5,
+  "sampleCount": 113,
+  "fastFilesPid": 68200,
+  "enginePid": null,
+  "engine": {
+    "observed": false,
+    "pid": null,
+    "reason": "Diagnostic mode runs UI process with in-proc/mock engine or on-demand connection"
+  },
+  "phases": {
+    "launchUtc": "2026-09-04T03:11:13.4187092Z",
+    "readyUtc": "2026-09-04T03:11:15.0766321Z",
+    "readyDurationMs": 1608.21,
+    "warmupDurationSeconds": 15,
+    "steadyStateBaselineUtc": "2026-09-04T03:11:30.1141202Z",
+    "measuredSoakEndUtc": "2026-09-04T03:21:30.6695820Z",
+    "shutdownUtc": "2026-09-04T03:21:30.6700349Z",
+    "exitUtc": "2026-09-04T03:21:30.9291249Z",
+    "shutdownMethod": "graceful",
+    "shutdownDurationMs": 259.01
+  },
+  "startupMetrics": {
+    "workingSetBytes": 3129344.0,
+    "privateBytes": 667648.0,
+    "handles": 40.0,
+    "threads": 1.0,
+    "gdiObjects": 0.0,
+    "userObjects": 1.0
+  },
+  "metrics": {
+    "workingSetBytes": {
+      "baseline": 90681344.0,
+      "minimum": 90681344.0,
+      "median": 92254208.0,
+      "maximum": 92450816.0,
+      "final": 92401664.0,
+      "trendRatePerSecond": 2864.5741,
+      "firstHalfMedian": 92000256.0,
+      "secondHalfMedian": 92368896.0,
+      "slope": 2864.5741
+    },
+    "privateBytes": {
+      "baseline": 71344128.0,
+      "minimum": 71135232.0,
+      "median": 71188480.0,
+      "maximum": 71389184.0,
+      "final": 71188480.0,
+      "trendRatePerSecond": -259.1758,
+      "firstHalfMedian": 71135232.0,
+      "secondHalfMedian": 71188480.0,
+      "slope": -259.1758
+    },
+    "handles": {
+      "baseline": 521.0,
+      "minimum": 521.0,
+      "median": 536.0,
+      "maximum": 544.0,
+      "final": 536.0,
+      "trendRatePerSecond": 0.025,
+      "firstHalfMedian": 536.0,
+      "secondHalfMedian": 536.0,
+      "slope": 0.025
+    },
+    "threads": {
+      "baseline": 19.0,
+      "minimum": 13.0,
+      "median": 14.0,
+      "maximum": 20.0,
+      "final": 14.0,
+      "trendRatePerSecond": -0.0083,
+      "firstHalfMedian": 13.0,
+      "secondHalfMedian": 14.0,
+      "slope": -0.0083
+    },
+    "gdiObjects": {
+      "baseline": 108.0,
+      "minimum": 108.0,
+      "median": 108.0,
+      "maximum": 108.0,
+      "final": 108.0,
+      "trendRatePerSecond": 0.0,
+      "firstHalfMedian": 108.0,
+      "secondHalfMedian": 108.0,
+      "slope": 0.0
+    },
+    "userObjects": {
+      "baseline": 107.0,
+      "minimum": 107.0,
+      "median": 109.0,
+      "maximum": 110.0,
+      "final": 109.0,
+      "trendRatePerSecond": 0.0033,
+      "firstHalfMedian": 108.0,
+      "secondHalfMedian": 109.0,
+      "slope": 0.0033
+    },
+    "cpuSeconds": {
+      "baseline": 0.69,
+      "minimum": 0.69,
+      "median": 0.83,
+      "maximum": 1.03,
+      "final": 1.03,
+      "trendRatePerSecond": 0.0006,
+      "firstHalfMedian": 0.77,
+      "secondHalfMedian": 0.92,
+      "slope": 0.0006
+    }
+  },
+  "steadyStateMetrics": {
+    "workingSetBytes": {
+      "baseline": 90681344.0,
+      "minimum": 90681344.0,
+      "median": 92254208.0,
+      "maximum": 92450816.0,
+      "final": 92401664.0,
+      "trendRatePerSecond": 2864.5741,
+      "firstHalfMedian": 92000256.0,
+      "secondHalfMedian": 92368896.0,
+      "slope": 2864.5741
+    },
+    "privateBytes": {
+      "baseline": 71344128.0,
+      "minimum": 71135232.0,
+      "median": 71188480.0,
+      "maximum": 71389184.0,
+      "final": 71188480.0,
+      "trendRatePerSecond": -259.1758,
+      "firstHalfMedian": 71135232.0,
+      "secondHalfMedian": 71188480.0,
+      "slope": -259.1758
+    },
+    "handles": {
+      "baseline": 521.0,
+      "minimum": 521.0,
+      "median": 536.0,
+      "maximum": 544.0,
+      "final": 536.0,
+      "trendRatePerSecond": 0.025,
+      "firstHalfMedian": 536.0,
+      "secondHalfMedian": 536.0,
+      "slope": 0.025
+    },
+    "threads": {
+      "baseline": 19.0,
+      "minimum": 13.0,
+      "median": 14.0,
+      "maximum": 20.0,
+      "final": 14.0,
+      "trendRatePerSecond": -0.0083,
+      "firstHalfMedian": 13.0,
+      "secondHalfMedian": 14.0,
+      "slope": -0.0083
+    },
+    "gdiObjects": {
+      "baseline": 108.0,
+      "minimum": 108.0,
+      "median": 108.0,
+      "maximum": 108.0,
+      "final": 108.0,
+      "trendRatePerSecond": 0.0,
+      "firstHalfMedian": 108.0,
+      "secondHalfMedian": 108.0,
+      "slope": 0.0
+    },
+    "userObjects": {
+      "baseline": 107.0,
+      "minimum": 107.0,
+      "median": 109.0,
+      "maximum": 110.0,
+      "final": 109.0,
+      "trendRatePerSecond": 0.0033,
+      "firstHalfMedian": 108.0,
+      "secondHalfMedian": 109.0,
+      "slope": 0.0033
+    },
+    "cpuSeconds": {
+      "baseline": 0.69,
+      "minimum": 0.69,
+      "median": 0.83,
+      "maximum": 1.03,
+      "final": 1.03,
+      "trendRatePerSecond": 0.0006,
+      "firstHalfMedian": 0.77,
+      "secondHalfMedian": 0.92,
+      "slope": 0.0006
+    }
+  },
+  "activityTransitions": [],
+  "residue": {
+    "clean": true,
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "stabilityLegs": {
+    "survival": "PASS",
+    "functionalActivity": "SKIPPED",
+    "resourceStability": "PASS",
+    "shutdown": "PASS",
+    "residue": "PASS"
+  },
+  "disposition": "PASS",
+  "dispositionReason": null,
+  "artifactHashes": {}
+}

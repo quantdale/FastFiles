@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_rapid-input",
+  "category": "rapid-input",
+  "command": "build/debug/src/ui/FastFiles.exe",
+  "commit": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb",
+  "tree": "01dae7925217684c945bcaf90d717fa4448b60c8",
+  "exactTreeBound": true,
+  "executableHash": "89f105f9b867ad353207aa4970152f7ec3dce596e5998daba850411bb0a666aa",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T02:59:54.0699321Z",
+  "endUtc": "2026-09-04T03:10:55.8104725Z",
+  "requestedIterations": 50,
+  "completedIterations": 50,
+  "passed": 50,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 12193.65,
+  "medianDurationMs": 12616.77,
+  "p95DurationMs": 13898.75,
+  "maxDurationMs": 14366.48,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}
