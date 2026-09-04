@@ -2,95 +2,58 @@
 
 ## Context
 
-FastFiles has completed product-level development, Visual Intelligence Autopilot, overnight hardening, and multi-preset CTest validation. The 25 remaining unchecked tasks in OpenSpec belong exclusively to the external frontier:
-1. Production code signing and pin tables (5 tasks);
-2. Privileged NTFS raw MFT/USN scanning (2 tasks);
-3. Clean-host installation, execution, and zero-residue cleanup (3 tasks);
-4. External environment providers (VM/Hyper-V, cloud, vision critic) (8 tasks);
-5. Physical multi-display, DPI, and interactive desktop matrices (7 tasks).
+FastFiles completed product-level development, Visual Intelligence Autopilot, overnight hardening, and multi-preset validation. The historical external frontier included production signing, privileged NTFS, clean-host qualification, external provider requirements, and physical display/interactive matrices.
 
-These tasks cannot be legitimately satisfied by development mocks, fake roots, or unprivileged non-interactive runners. However, having them exist only as blocked placeholders creates ambiguity. This design formalizes the external frontier into deterministic, one-shot certification tooling with durable evidence schemas and strict safety bounds.
+Owner scope directive (2026-09-04): vendor-specific VM-provider execution/testing is intentionally excluded from FastFiles local completion. Generic provider contracts and fake-adapter infrastructure may remain, but no provider-specific guest image, credential, channel, provisioning, or end-to-end VM execution is a completion requirement unless the owner explicitly reopens that scope.
 
 ## Decisions
 
 ### D1 — Authoritative Machine-Readable External Frontier
 
-All 25 unchecked tasks are inventoried in `verify/certification/external-frontier.json`, validated against `verify/certification/schemas/external-frontier.schema.json`. Each entry defines:
-- `change`, `taskId`, `description`, `frontierGroup`, `disposition`, `categories`, `status`, and `reason`;
-- `requiredCapabilities`, `requiredCredentials`, `requiredPrivileges`, and `requiredHostProperties`;
-- `evidenceRequirements`, `executionCommand`, and `resultSchema`.
-
-No task disposition is artificially altered to force `activeLocalOpenTasks = 0`. Instead, the inventory provides deterministic reproducibility for every task.
+External tasks are inventoried in `verify/certification/external-frontier.json` with task identity, frontier group, disposition, required capabilities/credentials/privileges/host properties, evidence requirements, execution command, and result schema. Current readiness must distinguish locally incomplete in-scope machinery from genuinely external prerequisites; owner-excluded vendor-specific VM work must not appear as local completion work.
 
 ### D2 — Durable Long-Run and Soak Evidence Schemas
 
-Stress and soak evidence is moved from informal prose in `WORKSTATE.md` to structured, exact-tree-bound JSON documents:
-- `long-run-result.schema.json`: Enforces non-negative counts, `passed <= completed`, no success with nonzero failures, exact Git commit and tree bindings, non-zero SHAs, timing percentiles (min, median, p95, max), and first-failure diagnostics.
-- `resource-soak-result.schema.json`: Records FastFiles and engine PIDs, working set, private bytes, handles, threads, GDI/USER objects, CPU metrics across periodic samples, linear trend rates, and activity transitions.
-- `certification-result.schema.json`: Unified envelope for lane runners reporting explicit status (`PASS`, `FAIL`, `BLOCKED_ENVIRONMENT`, `BLOCKED_NOT_ELEVATED`, `BLOCKED_UNSUPPORTED_FILESYSTEM`, `BLOCKED_RAW_VOLUME_ACCESS`, `REQUIRED-BUT-UNAVAILABLE`).
+Structured evidence records counts, timings, exact Git commit/tree provenance, executable hashes, resource metrics, and first-failure information. Evidence claiming committed provenance must fail closed on dirty trees or contradictory counts.
 
 ### D3 — Reusable Stress and Soak Runners
 
-- `Invoke-LongRunCertification.ps1`: Executes a designated test target repeatedly with per-iteration timeouts, stops on first genuine failure, computes timing statistics, captures Git provenance, rejects dirty exact-tree claims, and emits sanitized JSON.
-- `Invoke-ResourceSoak.ps1`: Launches FastFiles in diagnostic mode, samples performance counters via Win32 process queries, executes periodic UI activity transitions, computes summary statistics and drift rates, and ensures process tree cleanup.
+`Invoke-LongRunCertification.ps1` repeats a designated real test with bounded timeouts, stops on genuine failure, proves the target executed, computes timing statistics, and emits sanitized provenance-bound JSON.
+
+`Invoke-ResourceSoak.ps1` separates launch/readiness/warm-up from measured steady state, samples resource metrics, optionally executes real semantic UI activity, verifies graceful shutdown/residue, and never substitutes simulated activity for product execution.
 
 ### D4 — Clean-Host Certification Package
 
-`Invoke-CleanHostCertification.ps1` operates by default in **Audit Mode**:
-1. Verifies OS architecture, version, and privilege level;
-2. Audits for conflicts (existing processes, services, tasks, registry residue);
-3. Verifies unsigned or signed candidate hash and provenance;
-4. If `-InstallCandidate` is explicitly passed on a disposable host: installs the package, starts services/UI, exercises smoke checks, initiates clean shutdown, uninstalls, and audits that zero residue remains;
-5. Fails closed with `BLOCKED_ENVIRONMENT` if host conflicts exist, never performing blind destructive uninstallation.
+`Invoke-CleanHostCertification.ps1` separates audit-only readiness from actual candidate execution. Installation/runtime/uninstallation certification requires real execution proof and campaign-owned cleanup. Conflicting host state fails closed rather than triggering destructive cleanup of foreign state.
 
 ### D5 — Privileged NTFS Read-Only Certification Package
 
-`Invoke-PrivilegedNtfsCertification.ps1` strictly enforces read-only access to raw volume structures:
-1. Confirms process elevation (`SeBackupPrivilege`, `SeRestorePrivilege`);
-2. Confirms volume filesystem is NTFS;
-3. Validates read-only raw MFT opening (`\\.\<Drive>:`) and USN journal query;
-4. Creates isolated test fixtures in a dedicated campaign temporary directory to verify ground-truth path resolution and record parsing;
-5. Emits explicit blocked codes: `BLOCKED_NOT_ELEVATED`, `BLOCKED_UNSUPPORTED_FILESYSTEM`, `BLOCKED_RAW_VOLUME_ACCESS`;
-6. Never writes raw sectors or alters live volume metadata.
+`Invoke-PrivilegedNtfsCertification.ps1` enforces read-only raw-volume access, creates campaign fixtures through normal filesystem APIs, and compares real privileged MFT/USN observations against filesystem truth. Raw-open alone and parser-only tests cannot satisfy ground-truth certification.
 
 ### D6 — Production Signing Certification Package
 
-`Invoke-SigningCertification.ps1` evaluates release candidates against production trust policy without generating fake production credentials:
-1. Validates Authenticode signature integrity and timestamp;
-2. Validates certificate subject, chain, and signer thumbprint against expected pins;
-3. Verifies peer-image identity and hash matches;
-4. Rejects unsigned candidates and candidates with untrusted roots;
-5. Returns `REQUIRED-BUT-UNAVAILABLE` if production inputs or signing materials are absent; test PKI is explicitly classified as test PKI.
+`Invoke-SigningCertification.ps1` validates candidate identity, Authenticode integrity, chain/timestamp policy, and expected signer pins. Missing production inputs remain unavailable; test PKI cannot satisfy production certification.
 
 ### D7 — Real Vision Provider Certification Package
 
-`Invoke-ProviderCertification.ps1` provides an opt-in path for external vision critic evaluation:
-1. Inspects environment variables for provider configuration without echoing secrets;
-2. Submits sanitized, redacted evaluation images;
-3. Validates returned schema against visual finding specifications;
-4. Enforces that FakeCritic never satisfies a real-provider requirement (returns `REQUIRED-BUT-UNAVAILABLE` when unconfigured).
+`Invoke-ProviderCertification.ps1` is reserved for real external visual-review evidence over sanitized inputs. Fake critic/provider fixtures validate mechanics only and cannot satisfy real-provider requirements.
 
-### D8 — Top-Level Certification Orchestrator
+### D8 — Generic Environment-Provider Contract
 
-`Invoke-ExternalCertification.ps1` inspects host capabilities (elevation, OS, filesystem, desktop interactivity, configured providers, signing materials), executes applicable lane runners, and synthesizes an aggregate capability matrix:
-- Overall status: `PASS`, `PARTIAL`, `BLOCKED_EXTERNAL`, or `FAIL`.
-- Never reports `PASS` merely because unavailable lanes were skipped.
+The repository may retain a generic environment-provider lifecycle/state machine and deterministic fake-adapter tests covering phase ordering, provenance, cleanup, and failure classification. Under the owner scope directive, this generic infrastructure does not create a requirement to implement or execute any specific VM provider.
 
-### D9 — Evidence Import and Staleness Engine
+### D9 — Top-Level Certification Orchestrator
 
-`Import-CertificationEvidence.ps1` safely consumes external certification bundles:
-1. Validates JSON payload against the corresponding schema;
-2. Rejects zero SHAs, dirty trees, and contradictory iteration counts;
-3. Binds candidate Git commit, tree, and executable SHA-256;
-4. Enforces lane staleness rules:
-   - Signing evidence is invalidated if binaries, pin tables, or trust code change;
-   - Privileged NTFS evidence is invalidated if parser or volume access code changes;
-   - Clean-host evidence is invalidated if installer or packaging manifests change;
-   - Provider evidence is invalidated if critic adapters or finding schemas change.
+`Invoke-ExternalCertification.ps1` inspects in-scope host capabilities and synthesizes PASS/PARTIAL/BLOCKED_EXTERNAL/FAIL without “success by skip.” Owner-excluded vendor-specific VM lanes are not local completion gates.
+
+### D10 — Evidence Import and Staleness
+
+`Import-CertificationEvidence.ps1` validates schema/provenance/integrity, rejects contradictory or stale evidence, scans for secrets, and applies lane-specific staleness rules for signing, privileged NTFS, clean-host, and visual-provider evidence.
 
 ## Safety and Security Invariants
 
-1. **No Secret Leakage**: Runner outputs and committed JSON artifacts must never contain passwords, API keys, private keys, or PFX material.
-2. **No Host Corruption**: Scripts must never delete foreign files, kill foreign processes, or clear machine-wide event logs.
-3. **No Fake Passes**: Mocks and test PKI verify script execution mechanics only; external task states remain `BLOCKED_ENVIRONMENT` or `REQUIRED-BUT-UNAVAILABLE` until real credentials/environments execute them.
-4. **Exact-Tree Binding**: Evidence claiming committed status must match `git rev-parse HEAD` and `git write-tree` on a clean worktree.
+1. **No Secret Leakage** — evidence must not contain passwords, API keys, private keys, or credential material.
+2. **No Host Corruption** — do not delete foreign files, kill unrelated processes, mutate unrelated system state, or write raw disk sectors.
+3. **No Fake Passes** — mocks and test PKI validate mechanics only; unavailable in-scope external work remains blocked.
+4. **Exact-Tree Binding** — authoritative retained evidence must match the intended clean committed source/tree and executable hashes.
+5. **Owner Scope Wins** — vendor-specific VM-provider testing remains excluded unless explicitly re-enabled by the owner.
