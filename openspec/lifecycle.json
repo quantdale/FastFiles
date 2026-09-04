@@ -482,7 +482,8 @@
         { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/resource-soak-summary.json" },
         { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/evidence-manifest.json" },
         { "kind": "repository-path", "path": "docs/agent/CERTIFICATION_TRUTHFULNESS_DEFECT_LEDGER_2026-09-04.md" },
-        { "kind": "git-commit", "sha": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb" }
+        { "kind": "git-commit", "sha": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb" },
+        { "kind": "hosted-run", "runId": "33833816000", "sha": "f635cc5327e10d6305c499278a7d8a291acd9be6", "record": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/local-long-run-certification.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []

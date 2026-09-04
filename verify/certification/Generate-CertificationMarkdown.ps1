@@ -123,6 +123,13 @@ if ($longRunFiles.Count -gt 0) {
             sha256 = $sha
         })
     }
+    $hostedRunLine = $null
+    $longRunMdPath = Join-Path $EvidenceDirectory "local-long-run-certification.md"
+    if (Test-Path -LiteralPath $longRunMdPath) {
+        $existingLines = Get-Content -LiteralPath $longRunMdPath
+        $hostedRunLine = $existingLines | Where-Object { $_ -match 'Hosted CI Run' } | Select-Object -First 1
+    }
+    $hostedRunInsert = if ($hostedRunLine) { "`n$hostedRunLine" } else { "" }
 
     $longRunMd = @"
 # Local Long-Run Certification Evidence
@@ -130,8 +137,7 @@ if ($longRunFiles.Count -gt 0) {
 - **Commit**: ``$firstCommit``
 - **Tree**: ``$firstTree``
 - **Exact-Tree Binding**: $firstExact
-- **Execution Strategy**: Re-executed under hardened ``Invoke-LongRunCertification.ps1`` and ``Invoke-UiaLongRunCertification.ps1``
-
+- **Execution Strategy**: Re-executed under hardened ``Invoke-LongRunCertification.ps1`` and ``Invoke-UiaLongRunCertification.ps1``$hostedRunInsert
 ## Representative Stress Re-Execution Results
 
 | Test ID | Command / Target | Iterations | PASS | FAIL | Timeout | Median (ms) | P95 (ms) | Disposition | Artifact SHA-256 |

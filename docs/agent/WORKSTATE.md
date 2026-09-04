@@ -17,7 +17,8 @@
   - 600-Second Semantic Resource Soak: 600.55s PASS (113 steady-state samples; steady-state WS baseline 86.48MB -> final 88.12MB, slope 2864 B/s; steady-state handles 521 -> 536, slope 0.025/s; graceful exit in 259ms; zero orphans; exactTreeBound=True)
   - Retained artifacts under `openspec/changes/certification-truthfulness-repair-and-recertification/evidence/` with authoritative `evidence-manifest.json` and sidecar checksums.
 - External Frontier (`verify/certification/external-frontier.json`): All 25 external tasks re-audited and validated; nonexistent `ffuia_smoke_tests` replaced with real UIA commands; VM tasks separated from vision critic into `Invoke-EnvironmentProviderCertification.ps1`; command executability verified by automated contract test `Test-ExternalFrontierInventory.ps1`.
-- OpenSpec & Lifecycle: OpenSpec strict validation 80/80 PASS; `verify.ps1 status` reports 25 unchecked / 0 active-local / lifecycle model PASS with exact hosted run binding `33807003147` on parent SHA `7b4315e`.
+- OpenSpec & Lifecycle: OpenSpec strict validation 80/80 PASS; `verify.ps1 status` reports 25 unchecked / 0 active-local / lifecycle model PASS with exact hosted run binding `33807003147` on parent SHA `7b4315e` and `33833816000` on evidence SHA `f635cc5`.
+- Hosted CI Certification (2026-09-04): Hosted run `33833816000` on exact SHA `f635cc5327e10d6305c499278a7d8a291acd9be6` completed **6/6 SUCCESS** (asan-protocol-ipc-lifecycle 1m46s, unsigned-release-candidate-qualification 7m15s, repository-hygiene-and-contracts 3m4s, release-test 9m15s, analyze 18m53s, debug 8m27s).
 - Product Code Freeze: 100% frozen; zero product C++ modifications.
 
 ## External certification readiness + durable stress evidence + clean-host execution pack campaign — COMPLETE 2026-09-04

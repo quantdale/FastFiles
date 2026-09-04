@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAtUtc": "2026-09-04T03:22:33.0951778Z",
+  "generatedAtUtc": "2026-09-04T03:57:27.0091938Z",
   "directory": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence",
   "artifactCount": 20,
   "artifacts": {
@@ -10,9 +10,9 @@
       "lastModifiedUtc": "2026-09-04T03:22:26.5945695Z"
     },
     "local-long-run-certification.md": {
-      "sha256": "7e513cd7661599f212f39c8783f91a997c8dffea635561d7fac38e08703851a1",
-      "bytes": 2328,
-      "lastModifiedUtc": "2026-09-04T03:22:33.0680287Z"
+      "sha256": "30ea9b656082fc8c5cd8c103fbbc699c3a1f198f42065bb11d12e59c2ac65204",
+      "bytes": 2491,
+      "lastModifiedUtc": "2026-09-04T03:57:26.9556707Z"
     },
     "long-run-application-lifecycle-100.json": {
       "sha256": "fe8fda97bd94b62de538016460be9d824a149409dbebb5ad233c89bc37a625ad",
@@ -75,9 +75,9 @@
       "lastModifiedUtc": "2026-09-04T03:10:55.8647299Z"
     },
     "long-run-summary.json": {
-      "sha256": "591a4252c9bda10d0a39754b2ca5714a56627ea2efe775ca394e3d363e17c987",
+      "sha256": "2de774c90fdbb18e613bdfce7f4710a282094894250491f54bacca1813b4fa18",
       "bytes": 4100,
-      "lastModifiedUtc": "2026-09-04T03:22:33.0818878Z"
+      "lastModifiedUtc": "2026-09-04T03:57:26.9871734Z"
     },
     "long-run-uiserver-25.json": {
       "sha256": "8fe25c485dcd85e41b499a7d795885589b0f3197baab2323ea9ca843ea60cf05",
@@ -102,7 +102,7 @@
     "resource-soak-summary.md": {
       "sha256": "d36f7cb453e9eaf6dd0091ef8be8453f5caff9208ab2f495a343f2c2136ec112",
       "bytes": 1500,
-      "lastModifiedUtc": "2026-09-04T03:22:33.0257930Z"
+      "lastModifiedUtc": "2026-09-04T03:57:26.8858695Z"
     }
   }
 }

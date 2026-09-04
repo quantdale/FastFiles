@@ -46,7 +46,7 @@
 - [x] 7.4 Run full repository validation ladder (Debug CTest, release-test CTest, Analyze, ASAN, Visual contracts, diagnostic policy, OpenSpec strict)
 - [x] 7.5 Run `verify/qualification/Invoke-ExactTreeQualification.ps1` and verify clean-tree PASS
 ## 8. Hosted CI certification and final binding
-- [ ] 8.1 Push clean certified commit to `main` without force push
-- [ ] 8.2 Monitor hosted GitHub Actions CI run to completion and verify 6/6 jobs SUCCESS
-- [ ] 8.3 Record final hosted run ID and SHA binding in `openspec/lifecycle.json` and documentation
-- [ ] 8.4 Produce comprehensive final campaign closure report
+- [x] 8.1 Push clean certified commit to `main` without force push
+- [x] 8.2 Monitor hosted GitHub Actions CI run to completion and verify 6/6 jobs SUCCESS
+- [x] 8.3 Record final hosted run ID and SHA binding in `openspec/lifecycle.json` and documentation
+- [x] 8.4 Produce comprehensive final campaign closure report

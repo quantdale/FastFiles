@@ -4,7 +4,7 @@
 - **Tree**: `01dae7925217684c945bcaf90d717fa4448b60c8`
 - **Exact-Tree Binding**: True
 - **Execution Strategy**: Re-executed under hardened `Invoke-LongRunCertification.ps1` and `Invoke-UiaLongRunCertification.ps1`
-
+- **Hosted CI Run**: [33833816000](https://github.com/quantdale/FastFiles/actions/runs/33833816000) on SHA `f635cc5327e10d6305c499278a7d8a291acd9be6` (6/6 SUCCESS)
 ## Representative Stress Re-Execution Results
 
 | Test ID | Command / Target | Iterations | PASS | FAIL | Timeout | Median (ms) | P95 (ms) | Disposition | Artifact SHA-256 |
