@@ -491,11 +491,17 @@
     ,
     {
       "name": "external-certification-execution-engine-and-frontier-truthfulness",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/proposal.md" },
         { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/tasks.md" }
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/tasks.md" },
+        { "kind": "repository-path", "path": "docs/agent/NTFS_VISUAL_CERTIFICATION_DEFECT_LEDGER_2026-09-04.md" },
+        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
+        { "kind": "git-commit", "sha": "98375b007d46fd7062178705c9710f29148ea696" },
+        { "kind": "git-commit", "sha": "343d22e0cc185319b29cb69b27747914edf84621" },
+        { "kind": "git-commit", "sha": "a8662a02df73651d8613676aa7a97c5a3ce99a6f" },
+        { "kind": "hosted-run", "runId": "33897389042", "sha": "227902eaecfdcaccd733d328ec6e63bb56c57d82", "record": "docs/agent/WORKSTATE.md" }
       ],
       "supersededBy": null,
       "taskOverrides": []

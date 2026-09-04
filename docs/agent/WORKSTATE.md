@@ -11,7 +11,8 @@
 - Soak gate (NV-011): settled-step allowance + Test 7 warmup; 600 s interactive soak PASS (12/12, drift=2, graceful, zero orphans); 20-cycle + 45-cycle probes prove bounded caches, no leak. Commit `a8662a0`.
 - FC-001: post-fix rapid-input 100/100 PASS (1100 assertions). FC-002/005: no Hyper-V build per §17 (fail-closed + declared credentials verified). NV-001/004/009 not reproduced; NV-003/010 no-change-needed/documented.
 - Validation on final content: Debug 99/99 x3; release-test 99/99 x2; Analyze PASS; ASAN 6/6; OpenSpec strict 81/81; markers/policy PASS; cert suites 10/10; handshake/framing 100/100 + UiServer 25/25; lifecycle 100/100; rapid 100/100; soak 600 s PASS. Artifacts exactTreeBound=false SOLELY from the 2 unrelated .opencode files (NV-010).
-- NEXT EXACT ACTION: push final tip, verify hosted CI green on the exact SHA, then register lifecycle completion (6.3) + close 7.3, push again, verify CI on the ultimate tip. Remaining frontier is external-only (elevated NTFS, physical display/DPI, provider/guest, production signing, clean-host).
+- Lifecycle/completion: change registered `completed` with implementation commits + hosted run `33897389042` on exact SHA `227902eaecfdcaccd733d328ec6e63bb56c57d82` (6/6 SUCCESS); tasks 6.3/7.3 checked. Final tip push + hosted CI on the ultimate tip remains; then report. Remaining frontier is external-only (elevated NTFS, physical display/DPI, provider/guest, production signing, clean-host).
+- NEXT EXACT ACTION: push the lifecycle-completion tip and verify hosted CI green on the exact final SHA, then issue the final campaign report.
 - NOTE: entries below (including the IN PROGRESS FC-001..FC-009 header) are superseded checkpoint evidence until lifecycle completion lands.
 
 ## Final local certification closure (FC-001..FC-009) — IN PROGRESS 2026-09-04

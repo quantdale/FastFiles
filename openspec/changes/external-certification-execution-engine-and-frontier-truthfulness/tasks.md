@@ -32,12 +32,12 @@
 ## 6. Status/lifecycle truthfulness
 - [x] 6.1 Three-state readiness (NOT_IMPLEMENTED / READY_EXTERNAL / EXECUTED) recorded per in-scope frontier task; owner-excluded vendor-specific VM-provider work must not count as active local completion work
 - [x] 6.2 NOT_IMPLEMENTED in-scope task + active change tasks surface as active local work; READY_EXTERNAL tasks project external-only
-- [ ] 6.3 Register change in `openspec/lifecycle.json` with commit+hosted-run binding on completion
+- [x] 6.3 Register change in `openspec/lifecycle.json` with commit+hosted-run binding on completion
 
 ## 7. Validation, evidence, hosted certification
 - [x] 7.1 Full regression + mutation-minded verification of new tests
 - [x] 7.2 Long validation block (Debug 99/99 ×3, release-test 99/99 ×2, lifecycle 100/100 + rapid 100/100, soak 600 s PASS, IPC 100/100/25, exact-tree evidence content-bound to commits; exactTreeBound=false solely from 2 unrelated .opencode tooling files, NV-010)
-- [ ] 7.3 Logical commits, push, hosted CI green on final SHA, final adversarial review + report
+- [x] 7.3 Logical commits, push, hosted CI green on final SHA, final adversarial review + report
 
 ## Scope note — owner directive 2026-09-04
 
