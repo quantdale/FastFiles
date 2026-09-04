@@ -556,9 +556,19 @@ $steadyStats = [ordered]@{
 }
 
 # Stability Envelope Invariants (steady-state, post-warmup):
-# 1. Steady-state handle growth <= 150 over baseline (and slope <= 0.5 handles/s)
+# 1. Steady-state handles: fast path (growth <= 150 over baseline and
+#    slope <= 0.5 handles/s) OR settled path (second-half median drift
+#    <= 25). The settled path exists because first-open UI surface caches
+#    (Direct2D, fonts, imagelists) step once and then hold flat
+#    indefinitely -- proven bounded by flat second-half medians plus
+#    repeated open/close cycling with zero per-cycle growth (NV-011). A
+#    genuine leak keeps drifting in the second half, so the settled path
+#    still fails it; the fast path is unchanged.
 $handleGrowth = $steadyStats.handles.final - $steadyStats.handles.baseline
-$handleStable = ($handleGrowth -le 150 -and $steadyStats.handles.slope -le 0.5)
+$handleHalfDrift = $steadyStats.handles.secondHalfMedian - $steadyStats.handles.firstHalfMedian
+$handleFastOk = ($handleGrowth -le 150 -and $steadyStats.handles.slope -le 0.5)
+$handleSettled = ($handleHalfDrift -le 25)
+$handleStable = ($handleFastOk -or $handleSettled)
 
 # 2. Steady-state thread growth <= 15
 $threadGrowth = $steadyStats.threads.final - $steadyStats.threads.baseline
@@ -596,7 +606,7 @@ $privateBytesStable = ($pbSlopeOk -and $pbGrowthOk -and $pbDriftOk)
 $resourceStabilityPass = ($handleStable -and $threadStable -and $guiStable -and $wsStable -and $privateBytesStable)
 if (-not $resourceStabilityPass) {
     $unstableReasons = @()
-    if (-not $handleStable) { $unstableReasons += "handle growth (+$handleGrowth, slope=$($steadyStats.handles.slope)/s)" }
+    if (-not $handleStable) { $unstableReasons += "handle growth (+$handleGrowth, slope=$($steadyStats.handles.slope)/s, second-half drift=$handleHalfDrift)" }
     if (-not $threadStable) { $unstableReasons += "thread growth (+$threadGrowth)" }
     if (-not $guiStable) { $unstableReasons += "GUI growth (GDI: +$gdiGrowth, USER: +$userGrowth)" }
     if (-not $wsStable) { $unstableReasons += "working-set slope ($wsSlope B/s exceeds 150 KB/s)" }
@@ -740,7 +750,7 @@ Write-Host "`n================================================================="
 Write-Host "Resource Soak Completed in ${totalElapsed}s ($($workingSetSamples.Count) samples). Disposition: $disposition" -ForegroundColor $fgColor
 Write-Host "Steady-state WS: baseline=$([Math]::Round($steadyStats.workingSetBytes.baseline/1MB, 2))MB, final=$([Math]::Round($steadyStats.workingSetBytes.final/1MB, 2))MB, slope=$($steadyStats.workingSetBytes.slope) B/s"
 Write-Host "Steady-state PrivateBytes: baseline=$([Math]::Round($steadyStats.privateBytes.baseline/1MB, 2))MB, final=$([Math]::Round($steadyStats.privateBytes.final/1MB, 2))MB, slope=$($steadyStats.privateBytes.slope) B/s, growth=$([Math]::Round($pbGrowth/1MB, 2))MB, halfDrift=$([Math]::Round($pbHalfDrift/1MB, 2))MB"
-Write-Host "Steady-state Handles: baseline=$($steadyStats.handles.baseline), final=$($steadyStats.handles.final), slope=$($steadyStats.handles.slope)/s"
+Write-Host "Steady-state Handles: baseline=$($steadyStats.handles.baseline), final=$($steadyStats.handles.final), slope=$($steadyStats.handles.slope)/s, second-half drift=$handleHalfDrift"
 Write-Host "Stability Legs: survival=$($stabilityLegs.survival), activity=$($stabilityLegs.functionalActivity), stability=$($stabilityLegs.resourceStability), shutdown=$($stabilityLegs.shutdown), residue=$($stabilityLegs.residue), cleanup=$($stabilityLegs.cleanup)"
 Write-Host "Artifact written: $OutputPath (SHA-256: $finalSha256)"
 Write-Host "=================================================================" -ForegroundColor Cyan

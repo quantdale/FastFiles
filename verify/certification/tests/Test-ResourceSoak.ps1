@@ -116,21 +116,45 @@ try {
 
 # Test 4: Resource Instability Gate (Adversarial Slope/Runaway Fixture)
 Write-Host "  Test 4: Resource runaway slope triggers resourceStability FAIL (CT-003 Regression)..."
+$runnerSoakText = Get-Content -LiteralPath $runner -Raw
+foreach ($required in @('$handleSettled', '$handleHalfDrift', '$handleFastOk', 'second-half drift')) {
+    if ($runnerSoakText -notmatch [regex]::Escape($required)) { throw "Runner missing settled-step handle gate element: $required" }
+}
 $checkStability = {
     param([double[]] $samples, [double] $duration)
+    $halfCount = [Math]::Max(1, [int]($samples.Count / 2))
+    $firstHalf = @($samples[0..($halfCount - 1)] | Sort-Object)
+    $secondHalf = @($samples[($samples.Count - $halfCount)..($samples.Count - 1)] | Sort-Object)
+    $firstMed = $firstHalf[[Math]::Floor(($firstHalf.Count - 1) * 0.50)]
+    $secondMed = $secondHalf[[Math]::Floor(($secondHalf.Count - 1) * 0.50)]
     $baseline = $samples[0]
     $final = $samples[$samples.Count - 1]
     $slope = [Math]::Round(($final - $baseline) / $duration, 4)
     $handleGrowth = $final - $baseline
-    $handleStable = ($handleGrowth -le 150 -and $slope -le 0.5)
-    return $handleStable
+    $handleHalfDrift = $secondMed - $firstMed
+    $handleFastOk = ($handleGrowth -le 150 -and $slope -le 0.5)
+    $handleSettled = ($handleHalfDrift -le 25)
+    return ($handleFastOk -or $handleSettled)
 }
 $runawaySamples = [double[]]@(100.0, 150.0, 250.0, 400.0, 600.0) # Handle runaway (+500 handles over 10s)
 $isStable = & $checkStability -samples $runawaySamples -duration 10.0
 if ($isStable) {
     throw "Expected runaway handle profile to fail stability check, but it passed!"
 }
-Write-Host "    PASS (Runaway handle/resource profile correctly fails closed)" -ForegroundColor Green
+# NV-011: one-time first-open cache step (+536) then flat across 45
+# open/close cycles must settle to PASS, not trip the slope gate.
+$stepFlat = [double[]]@(1180.0, 1180.0, 1756.0, 1758.0, 1756.0, 1758.0, 1758.0, 1756.0, 1758.0, 1756.0)
+$stepStable = & $checkStability -samples $stepFlat -duration 600.0
+if (-not $stepStable) {
+    throw "Expected bounded step-then-flat handle profile to settle PASS, but it failed!"
+}
+# Late-onset growth after a flat first half must still fail.
+$lateOnset = [double[]]@(500.0, 501.0, 500.0, 502.0, 501.0, 560.0, 620.0, 680.0, 740.0, 800.0)
+$lateStable = & $checkStability -samples $lateOnset -duration 600.0
+if ($lateStable) {
+    throw "Expected late-onset handle growth to fail stability check, but it passed!"
+}
+Write-Host "    PASS (Runaway fails closed; bounded step settles PASS; late-onset fails)" -ForegroundColor Green
 
 # Test 5: Separate Private-Bytes Gate (stable working set + leaking private bytes => FAIL)
 Write-Host "  Test 5: Private-bytes-only leak fails the separate gate (no working-set reuse)..."
@@ -205,10 +229,16 @@ Write-Host "    PASS (No unconditional closed=PASS; all four branches gate on ve
 Write-Host "  Test 7: Idle run emits explicit mode plus clean cleanup census..."
 $test7Json = [IO.Path]::GetTempFileName()
 try {
+    # NV-011: WarmupSeconds 2 (was 0) -- the runner's baseline phase is
+    # defined as STEADY_STATE, so measuring it with zero warmup samples
+    # launch-settling allocator noise instead (WS slope ~190 KB/s over a
+    # 3-sample window vs ~8 KB/s after 2 s warmup on the same binary).
+    # Duration 4 s keeps this a fast contract test; every assertion below
+    # is unchanged.
     $res = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $runner `
-        -DurationSeconds 2 `
+        -DurationSeconds 4 `
         -SampleIntervalSeconds 1 `
-        -WarmupSeconds 0 `
+        -WarmupSeconds 2 `
         -IdleOnly `
         -OutputPath $test7Json `
         -RepoRoot $RepoRoot
