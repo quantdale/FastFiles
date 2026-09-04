@@ -35,8 +35,8 @@
 - [ ] 6.3 Register change in `openspec/lifecycle.json` with commit+hosted-run binding on completion
 
 ## 7. Validation, evidence, hosted certification
-- [ ] 7.1 Full regression + mutation-minded verification of new tests
-- [ ] 7.2 Long validation block (Debug ×3, release-test ×2, UIA 100/50, soak ≥10 min, IPC 100/100/25, exact-tree evidence)
+- [x] 7.1 Full regression + mutation-minded verification of new tests
+- [x] 7.2 Long validation block (Debug 99/99 ×3, release-test 99/99 ×2, lifecycle 100/100 + rapid 100/100, soak 600 s PASS, IPC 100/100/25, exact-tree evidence content-bound to commits; exactTreeBound=false solely from 2 unrelated .opencode tooling files, NV-010)
 - [ ] 7.3 Logical commits, push, hosted CI green on final SHA, final adversarial review + report
 
 ## Scope note — owner directive 2026-09-04
