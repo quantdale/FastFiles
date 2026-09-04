@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "ffui/SnapshotAggregate.h"
 #include "ffui/StoragePercentage.h"
 #include "ffui/TreemapLayout.h"
 #include "ffui/UiaEvents.h"
@@ -52,6 +53,27 @@ inline std::wstring TreemapFormatSize(uint64_t bytes) {
         return buffer;
     }
     return std::to_wstring(bytes) + L" B";
+}
+
+// visual-matrix EX-009 closure: degraded snapshots (volumeRowId == 0) can
+// never answer an engine folder-aggregate request, so directory totals
+// resolve from the immutable snapshot instead of stalling in
+// "Calculating…" forever with an unknown share. Complete subtrees become
+// exact; missing descendants stay explicitly partial (aggregateFailed) so no
+// share is ever presented from an incomplete denominator. Indexed nodes
+// (volumeRowId != 0) and files are untouched -- their totals still arrive
+// through the engine aggregate path.
+inline void ResolveDegradedTreemapTotals(TreemapNode& node, const SnapshotAggregate& aggregate) {
+    if (!node.isDirectory || node.volumeRowId != 0) {
+        return;
+    }
+    node.totalSizeBytes = aggregate.totalSizeBytes;
+    node.totalAllocatedSizeBytes = aggregate.totalAllocatedSizeBytes;
+    node.allocatedKnownCount = aggregate.allocatedBytesKnownCount;
+    node.allocatedTotalCount = aggregate.allocatedBytesTotalCount;
+    node.calculating = false;
+    node.aggregateResolved = aggregate.complete;
+    node.aggregateFailed = !aggregate.complete;
 }
 
 // Stable identity of a treemap node: the synthetic catch-all is identified by

@@ -6,7 +6,11 @@ param(
     [int] $Iterations = 0,
 
     [int] $TimeoutSecondsPerIteration = 60,
-    [ValidateSet('debug', 'release-test')]
+    # debug-diagnostic permits the compile-time unsigned discovery seam for
+    # disposable local UIA/degraded validation (visual-matrix storage needs
+    # an engine-connected UI; the fail-closed debug/release-test builds
+    # cannot launch the unsigned dev engine). Never a release artifact.
+    [ValidateSet('debug', 'release-test', 'debug-diagnostic')]
     [string] $Preset = 'debug',
 
     [ValidateSet('Light', 'Dark')]

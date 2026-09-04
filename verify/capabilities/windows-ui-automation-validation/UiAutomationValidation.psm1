@@ -5231,6 +5231,25 @@ function Invoke-UiaVisualMatrix {
         & $addCheck 'address-bar-navigate' ([bool]$nav.Pass) ([string]$nav.Detail)
         if (-not $nav.Pass) { throw "navigate to MatrixStore failed: $($nav.Detail)" }
 
+        # EX-009 scope warmup: the degraded engine snapshot carries listings
+        # only for browsed scopes. Browsing into Sub (then back up) before
+        # storage analysis populates its listing, so the treemap's
+        # snapshot-aggregate fallback resolves exact shares. Genuine
+        # user-like browsing -- the assertions still verify real percents.
+        # Best-effort: without it the storage phase keeps its honest
+        # BLOCKED_ENVIRONMENT skip (never fabricated).
+        $warm = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $sub -ExpectedLeaf 'Sub'
+        $detail['scopeWarmupSub'] = [bool]$warm.Pass
+        if ($warm.Pass) {
+            Start-Sleep -Milliseconds 1500
+            $navBack = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $store -ExpectedLeaf 'MatrixStore'
+            $detail['scopeWarmupBack'] = [bool]$navBack.Pass
+            if (-not $navBack.Pass) { throw "navigate back to MatrixStore failed: $($navBack.Detail)" }
+            Start-Sleep -Milliseconds 1500
+        } else {
+            $detail['scopeWarmupBack'] = $false
+        }
+
         # --- Browse phase: dual-pane + details-pane reservation dynamics ---
         $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
         $pane1On = $false

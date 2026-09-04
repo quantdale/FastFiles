@@ -15,8 +15,8 @@
       "REQUIRED-BUT-UNAVAILABLE": 15
     },
     "byReadiness": {
-      "NOT_IMPLEMENTED": 1,
-      "READY_EXTERNAL": 24
+      "NOT_IMPLEMENTED": 0,
+      "READY_EXTERNAL": 25
     }
   },
   "tasks": [
@@ -60,11 +60,11 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario visual-matrix -Iterations 25 -Theme Light,Dark -DpiPercent 100,150 -Contrast Normal,HighContrast -Viewport Narrow,Normal,Wide -PaneTopology Single,Dual",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario visual-matrix -Preset debug-diagnostic -Iterations 25 -Theme Light,Dark -DpiPercent 100,150 -Contrast Normal,HighContrast -Viewport Narrow,Normal,Wide -PaneTopology Single,Dual",
       "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
-      "readiness": "NOT_IMPLEMENTED",
-      "implementationGap": "visual-matrix implements dual-pane, details-pane reservation dynamics, and treemap % of parent sums with drill-down, but storage content needs the engine index for the scope: sandboxed contexts never establish the UI/engine connection (EX-009), so percent assertions classify BLOCKED_ENVIRONMENT until an engine-connected context or authorized indexed scope exists. Runner proves theme/DPI/contrast/viewport/dual-pane dimensions; details-pane-contents and storage-parent-percent-sum assertions are not implemented in any UIA scenario. Local work tracked by external-certification-execution-engine-and-frontier-truthfulness section 5.",
+      "readiness": "READY_EXTERNAL",
+      "implementationGap": "EX-009 closed locally: TreemapView resolves degraded-scope directory totals from the immutable engine snapshot (snapshot-aggregate fallback) and recomputes scope totals on build, so shares are exact where the snapshot is complete and explicitly Partial otherwise; the matrix warms the fixture sub-scope by genuine browsing before asserting. Storage assertions require an engine-connected UI, so local/physical execution uses -Preset debug-diagnostic (fail-closed debug/release-test builds cannot launch the unsigned dev engine; production uses signed binaries instead). Proven locally 2/2 x 14/14 on the diagnostic build; the remaining external work is the physical display/DPI matrix itself.",
       "certificationLane": "physical-display",
       "executionMode": "uia-matrix",
       "scenarioIds": [
@@ -1244,7 +1244,9 @@
       "requiredCapabilities": [
         "raw-volume-read",
         "mft-ground-truth",
-        "usn-ground-truth"
+        "usn-ground-truth",
+        "mft-observer-semantics",
+        "usn-observer-semantics"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -1314,7 +1316,9 @@
       "reason": "requires an elevated or privileged validation context",
       "nextAction": "Run the documented command with explicit elevation on a disposable or authorized host.",
       "requiredCapabilities": [
-        "raw-volume-read"
+        "raw-volume-read",
+        "mft-observer-semantics",
+        "usn-observer-semantics"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [

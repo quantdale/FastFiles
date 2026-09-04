@@ -291,7 +291,15 @@ void TreemapView::BuildTree(const std::wstring& path) {
         node->depth = 1;
         node->parent = root_.get();
         if (node->isDirectory) {
-            requestAggregate(*node);
+            if (node->volumeRowId == 0) {
+                // Degraded scope: no engine aggregate can ever arrive.
+                // Resolve from the snapshot (same fallback the storage
+                // list path uses) instead of stalling unknown forever.
+                ResolveDegradedTreemapTotals(
+                    *node, AggregateSnapshotDirectory(*snapshot, node->path));
+            } else {
+                requestAggregate(*node);
+            }
         }
         root_->children.push_back(std::move(node));
     }
@@ -300,6 +308,11 @@ void TreemapView::BuildTree(const std::wstring& path) {
         FilterTreemapTree(*root_, *categoryEngine_, categoryId_);
     }
 
+    // Totals must reflect the displayed (possibly filtered) tree: without
+    // this the scope total stays zero and every share is unknown, even when
+    // every child size is already known. Aggregate completions recompute
+    // again on arrival (HandleAggregateCompletion).
+    RecomputeTotals(*root_);
     RebuildLayout();
 }
 
@@ -548,9 +561,12 @@ int TreemapView::UiaTileCount() const {
 TreemapUiaItemInfo TreemapView::BuildTileInfoLocked(const TreemapNode& node, const TreemapRect& rect) const {
     // The displayed parent/scope total is the filtered tree's own root total:
     // percentages use the category-filtered displayed scope (existing product
-    // behavior). Unknown root totals make the parent percentage unknown too.
+    // behavior). Unknown root totals make the parent percentage unknown too,
+    // and so does a partial root: shares of an incomplete denominator are
+    // never presented as exact (visual-matrix EX-009).
     const uint64_t parentTotal = root_ ? root_->totalSizeBytes : 0;
-    const bool parentKnown = root_ ? !root_->calculating : false;
+    const bool parentKnown =
+        root_ ? (!root_->calculating && !root_->aggregateFailed) : false;
 
     bool offscreen = false;
     if (viewportSize_.width > 0.0f && viewportSize_.height > 0.0f) {

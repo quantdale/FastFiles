@@ -54,6 +54,32 @@ void TestMissingDescendantIsPartial() {
           "partial aggregate retains known file bytes as a lower bound");
 }
 
+// visual-matrix EX-009: the certification fixture shape (files plus one
+// unbrowsed subdir) aggregates honestly -- files exact, subdir partial -- so
+// the treemap fallback can resolve files while flagging the subdir Partial.
+void TestFixtureShapeWithUnbrowsedSubdir() {
+    std::map<std::wstring, ffprotocol::SnapshotDirectory> snapshot;
+    snapshot[L"C:\\M"] = Success(
+        {File(L"fileA.bin", 100), File(L"fileB.bin", 200), File(L"fileC.bin", 300), Folder(L"Sub")});
+
+    const auto scope = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\M");
+    Check(!scope.complete, "unbrowsed subdir keeps the scope aggregate partial");
+    Check(scope.totalSizeBytes == 600, "scope total covers only enumerated files");
+
+    const auto sub = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\M\\Sub");
+    Check(!sub.complete && sub.totalSizeBytes == 0,
+          "unbrowsed subdir aggregates to unknown zero, never a guess");
+
+    // After the subdir is browsed, the same scope resolves exactly.
+    snapshot[L"C:\\M\\Sub"] = Success({File(L"fileD.bin", 400)});
+    const auto rescoped = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\M");
+    Check(rescoped.complete && rescoped.totalSizeBytes == 1000,
+          "browsed subdir completes the scope aggregate exactly");
+    const auto resub = ffui::AggregateSnapshotDirectory(snapshot, L"C:\\M\\Sub");
+    Check(resub.complete && resub.totalSizeBytes == 400,
+          "browsed subdir aggregates to its exact total");
+}
+
 // allocated-size-storage-accuracy 8.2/D8: degraded aggregation carries the
 // allocated subtotal over known descendants plus the completeness pair;
 // complete only when every descendant is known; unknown never becomes zero.
@@ -129,6 +155,7 @@ void TestPendingSelectionPathIdentity() {
 int main() {
     TestCompleteKnownSubtree();
     TestMissingDescendantIsPartial();
+    TestFixtureShapeWithUnbrowsedSubdir();
     TestAllocatedAggregateCompletenessAndUnknown();
     TestCaseVariantDescendantIsTheSameWindowsDirectory();
     TestUnavailableRoot();

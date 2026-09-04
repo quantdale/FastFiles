@@ -402,6 +402,54 @@ void TestBuildMetadataFailedWhileSiblingPending() {
     Check(!failedInfo.calculating, "failed node is never projected as Calculating");
 }
 
+// visual-matrix EX-009: degraded fallback resolution (ResolveDegradedTreemapTotals).
+void TestResolveDegradedTreemapTotals() {
+    // Indexed directories and files are untouched (engine path owns them).
+    ffui::TreemapNode indexed;
+    indexed.name = L"Indexed";
+    indexed.isDirectory = true;
+    indexed.calculating = true;
+    indexed.volumeRowId = 7;
+    indexed.fileIdLow = 9;
+    ffui::SnapshotAggregate any{1, 100, 50, 1, 1, true, true};
+    ffui::ResolveDegradedTreemapTotals(indexed, any);
+    Check(indexed.calculating, "indexed dir keeps pending state (engine resolves it)");
+    Check(indexed.totalSizeBytes == 0, "indexed dir totals untouched");
+
+    ffui::TreemapNode file;
+    file.name = L"f.bin";
+    file.isDirectory = false;
+    file.sizeBytes = 11;
+    ffui::ResolveDegradedTreemapTotals(file, any);
+    Check(file.totalSizeBytes == 0, "file totals untouched by dir fallback");
+
+    // Degraded dir + complete snapshot subtree -> exact, resolved.
+    ffui::TreemapNode degraded;
+    degraded.name = L"Sub";
+    degraded.isDirectory = true;
+    degraded.calculating = true;
+    degraded.volumeRowId = 0;
+    ffui::SnapshotAggregate full{1, 400, 0, 0, 1, true, false};
+    ffui::ResolveDegradedTreemapTotals(degraded, full);
+    Check(!degraded.calculating, "complete degraded dir leaves calculating");
+    Check(degraded.totalSizeBytes == 400, "complete degraded dir takes snapshot total");
+    Check(degraded.aggregateResolved, "complete degraded dir marked resolved");
+    Check(!degraded.aggregateFailed, "complete degraded dir not failed");
+
+    // Degraded dir + missing descendants -> honest partial, never calculating.
+    ffui::TreemapNode partial;
+    partial.name = L"Partial";
+    partial.isDirectory = true;
+    partial.calculating = true;
+    partial.volumeRowId = 0;
+    ffui::SnapshotAggregate missing{0, 0, 0, 0, 0, false, false};
+    ffui::ResolveDegradedTreemapTotals(partial, missing);
+    Check(!partial.calculating, "partial degraded dir is never calculating");
+    Check(!partial.aggregateResolved, "partial degraded dir not resolved");
+    Check(partial.aggregateFailed, "partial degraded dir marked failed (Partial, not exact)");
+    Check(partial.totalSizeBytes == 0, "partial degraded dir contributes zero, not a guess");
+}
+
 } // namespace
 
 int main() {
@@ -419,6 +467,7 @@ int main() {
     TestBuildMetadataAggregateFailed();
     TestBuildMetadataResolvedEmptyFolder();
     TestBuildMetadataFailedWhileSiblingPending();
+    TestResolveDegradedTreemapTotals();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "fftreemap_metadata_tests: %d check(s) failed\n", FailureCount());

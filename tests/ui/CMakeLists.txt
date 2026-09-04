@@ -243,7 +243,9 @@ target_include_directories(ffselection_identity_runtime_probe PRIVATE ../../src/
 
 # semantic-treemap-uia 33.J: pure headless metadata/formatting tests.
 add_executable(fftreemap_metadata_tests test_treemap_metadata.cpp)
-target_include_directories(fftreemap_metadata_tests PRIVATE ../../src/ui/include)
+# EX-009: TreemapSemantics.h now shares the snapshot-aggregate helper, so this
+# target needs the protocol headers too (mirrors ffsnapshot_aggregate_tests).
+target_include_directories(fftreemap_metadata_tests PRIVATE ../../src/ui/include ../../src/protocol/include)
 add_test(NAME fftreemap_metadata_tests COMMAND fftreemap_metadata_tests)
 
 # semantic-treemap-uia 33.M: headless provider tests over a fake treemap surface.
