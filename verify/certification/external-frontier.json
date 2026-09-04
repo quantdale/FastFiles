@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAtUtc": "2026-09-03T20:49:00.403445Z",
+  "generatedAtUtc": "2026-09-04T02:30:00.000000Z",
   "summary": {
     "totalTasks": 25,
     "byFrontierGroup": {
@@ -21,6 +21,7 @@
       "taskId": "5.1",
       "description": "**[external / interactive Windows desktop]** Run the visual matrix for the M4/L7/L10/L1 and this change's surfaces: Light and Dark themes; 100% and 150% DPI; animations enabled and disabled; High Contrast where supported; narrow, normal, and wide window widths; details pane open and closed; single-pane and dual-pane behavior. Confirm no column content renders under the details pane at any width; confirm the \"% of Parent\" column values sum to 100% (within tolerance) in a real drill-down.",
       "frontierGroup": "physical-environment",
+      "lane": "physical-display",
       "disposition": "external",
       "categories": [
         "interactive"
@@ -45,14 +46,16 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
       "taskId": "6.15",
-      "description": "major user-journey/UIA smoke available on the current host; \u2014 interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`",
+      "description": "major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "external",
       "categories": [
         "interactive"
@@ -77,7 +80,8 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
@@ -85,6 +89,7 @@
       "taskId": "1.3",
       "description": "Measure clean focused and complete UIA executions and select a manifest-declared finite capability budget; document why the budget is sufficient for the supported matrix and how timeout evidence is collected.",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "external",
       "categories": [
         "interactive"
@@ -109,7 +114,8 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario application-lifecycle -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
@@ -117,6 +123,7 @@
       "taskId": "7.2",
       "description": "Add campaign evidence for root cause, result contract, repeatability/order matrix, final UIA outcome, validation ladder, hosted SHA/result, external prerequisites, and final Git handoff; preserve historical evidence unchanged. (Root cause, result contract, validation ladder, and external boundaries are recorded; final UIA/hosted/final-handoff evidence remains pending.)",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "external",
       "categories": [
         "interactive"
@@ -141,7 +148,8 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
@@ -149,6 +157,7 @@
       "taskId": "8.2",
       "description": "Run a bounded final repeatability/ordering/soak matrix with recorded seeds and classify every PASS, SKIP, BLOCKED, FAIL, timeout, and cleanup result without retry-until-green behavior.",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "external",
       "categories": [
         "interactive"
@@ -173,14 +182,16 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
       "change": "autonomous-runtime-verification",
       "taskId": "2.3",
-      "description": "Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end \u2014 **not yet implementable; prerequisites re-audited 2026-08-03**: the local provider is implemented and validated (\u00a72.2) and this host is now elevated with `hyper-v` PASS in `verify.ps1 doctor`; a configured VM `FastFiles-Matrix` (Gen2, v12.0, Off) exists with a valid dynamic parent `C:\\VMs\\FastFiles-Matrix.vhdx` (64 GB, `HasParent` unset, DiskIdentifier E4B9D482-...) and a chained differencing checkpoint child (HasParent resolves to the parent). However the parent disk holds **zero data blocks** (4 MB file \u2014 no OS installed), no Windows installation media exists on the host, WinRM is unavailable, and Windows Sandbox is absent (`windows-sandbox-not-found`). The Hyper-V adapter is deliberately not shipped as dead code: its `activate` contract needs a reachable guest to run the harness, and an adapter that cannot be validated end-to-end cannot satisfy this change's evidence gate. Remaining prerequisite: install a supported Windows OS into the VM and make the guest reachable (WinRM/credential story).",
+      "description": "Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end — not yet implementable; prerequisites re-audited 2026-08-03: the local provider is implemented and validated (§2.2) and this host is now elevated with hyper-v PASS in verify.ps1 doctor; a configured VM FastFiles-Matrix (Gen2, v12.0, Off) exists with a valid dynamic parent C:\\VMs\\FastFiles-Matrix.vhdx (64 GB) but holds no lawful guest OS.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider",
@@ -199,21 +210,24 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "autonomous-runtime-verification",
       "taskId": "2.4",
-      "description": "Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree \u2014 **blocked on 2.3** (re-audited 2026-08-03: VM exists but no guest OS; see 2.3).",
+      "description": "Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree — blocked on 2.3 (re-audited 2026-08-03: VM exists but no guest OS; see 2.3).",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -231,14 +245,16 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -246,6 +262,7 @@
       "taskId": "5.1",
       "description": "Validate a real snapshot-restorable Windows provider with an authorized OS image, reachable secure guest channel, toolchain, and clean checkpoint.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -263,14 +280,16 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -278,6 +297,7 @@
       "taskId": "5.3",
       "description": "Execute the remaining physical DPI/monitor/High Contrast/interactive matrix and cross-provider equivalence; do not infer these from headless tests.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider",
@@ -296,14 +316,16 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -311,6 +333,7 @@
       "taskId": "5.3",
       "description": "Add supported-wrapper coverage for single scenarios, groups, mixed/isolated selections, seeded order permutations, back-to-back runs, interrupted-run recovery, Search/pane/degraded-engine transitions, and Explorer-assisted boundaries where available.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -328,21 +351,24 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.3",
-      "description": "Build unattended-install config (`autounattend.xml`); create temp automation account; enable WinRM (HTTPS or credential-secured) or another secure channel \u2014 REQUIRED-BUT-UNAVAILABLE: no Windows guest can be provisioned (no install media / clean template). The autounattend authoring + account + WinRM channel are part of the guest provisioning flow that cannot run without a rightful guest.",
+      "description": "Build unattended-install config (`autounattend.xml`); create temp automation account; enable WinRM (HTTPS or credential-secured) or another secure channel — REQUIRED-BUT-UNAVAILABLE: no Windows guest can be provisioned (no install media / clean template). The autounattend authoring + account + WinRM channel are part of the guest provisioning flow that cannot run without a rightful guest.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -360,21 +386,24 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.4",
-      "description": "Install VS Build Tools + Windows SDK + pwsh prerequisites in the guest; create a clean reference snapshot \u2014 REQUIRED-BUT-UNAVAILABLE: no guest to install into or snapshot.",
+      "description": "Install VS Build Tools + Windows SDK + pwsh prerequisites in the guest; create a clean reference snapshot — REQUIRED-BUT-UNAVAILABLE: no guest to install into or snapshot.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -392,21 +421,24 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.6",
-      "description": "Validate the same capability runs unchanged across `local` and the disposable VM; collect logs/artifacts back to the run tree \u2014 provider plumbing demonstrated (test-code-signing runs under both `-Provider local` and `-Provider hyperv`, exit 0), but the VM-gated execution against a real disposable guest is REQUIRED-BUT-UNAVAILABLE (no guest can be provisioned). Cross-provider runtime equivalence on a live guest cannot be validated until media is supplied.",
+      "description": "Validate the same capability runs unchanged across `local` and the disposable VM; collect logs/artifacts back to the run tree — provider plumbing demonstrated (test-code-signing runs under both `-Provider local` and `-Provider hyperv`, exit 0), but the VM-gated execution against a real disposable guest is REQUIRED-BUT-UNAVAILABLE (no guest can be provisioned). Cross-provider runtime equivalence on a live guest cannot be validated until media is supplied.",
       "frontierGroup": "external-provider",
+      "lane": "environment-provider",
       "disposition": "external",
       "categories": [
         "external-provider"
@@ -424,21 +456,24 @@
         "none"
       ],
       "requiredHostProperties": [
-        "windows-guest-vm-or-cloud-runner-or-vision-api"
+        "windows-hyperv-feature",
+        "clean-reference-guest-vhdx"
       ],
       "evidenceRequirements": [
-        "schema-valid-response",
-        "redacted-workload",
-        "fake-critic-rejected"
+        "provider-preflight-verified",
+        "guest-image-presence-checked",
+        "clean-teardown-verified"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider <provider-name>",
+      "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "close-independent-validation-gaps",
       "taskId": "4.2.2",
-      "description": "**[external]** Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated. Do not satisfy this by weakening fail-closed pins. **2026-08-30 boundary measured exactly** in `evidence/privileged-trust-protectedroots-boundary.md`: the host does honour CurrentUser roots and its `ProtectedRoots` list held a chain-building FastFiles test root, so this is not a whole-store policy denial. What is blocked is adding a *new* `ProtectedRoots` entry non-interactively \u2014 that value is ACL-protected and is normally updated through Crypt32's install confirmation, which cannot resolve with stdout redirected and no interactive desktop. Writing the blob directly was deliberately not implemented: it is the storage behind that trust gate. The fixture now installs silently via `CERT_STORE_PROV_REG` and fails closed with `*_PROTECTEDROOTS_UI_REQUIRED` in ~5s (previously a ~30s hang then a misleading `CERT_E_UNTRUSTEDROOT`), and the run was proven to leave zero residue across `CurrentUser\\{My,Root,CA,TrustedPublisher}`. Every failing assertion is fixture setup; no product WinTrust assertion failed. Remains `BLOCKED_EXTERNAL`.",
+      "description": "**[external]** Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated. Do not satisfy this by weakening fail-closed pins. CurrentUser roots and ProtectedRoots list update requires an authorized interactive or provisioning context.",
       "frontierGroup": "production-signing",
+      "lane": "production-signing",
       "disposition": "external",
       "categories": [
         "production-signing",
@@ -467,13 +502,15 @@
         "unsigned-candidate-rejected"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "close-independent-validation-gaps",
       "taskId": "4.5",
-      "description": "**[external]** Signed privileged-path install and runtime validation under elevation: install signed service, start it, confirm connection-state transition to `Active` and privileged scan, **and confirm degraded-mode fallback (no privileged scan, degraded path stays active) when the signed service is unavailable or the handshake fails**, per the \"Service-startup and connection-state evidence covers the active transition\" scenario. Prerequisite: a provisioned code-signing certificate + an authorized elevated host.",
+      "description": "**[external]** Signed privileged-path install and runtime validation under elevation: install signed service, start it, confirm connection-state transition to `Active` and privileged scan, and confirm degraded-mode fallback when the signed service is unavailable or handshake fails.",
       "frontierGroup": "production-signing",
+      "lane": "production-signing",
       "disposition": "external",
       "categories": [
         "production-signing",
@@ -502,6 +539,7 @@
         "unsigned-candidate-rejected"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -509,6 +547,7 @@
       "taskId": "5.2",
       "description": "Execute the signed privileged install/runtime and real MFT/USN validation with authorized production signer/pins on a clean supported host.",
       "frontierGroup": "production-signing",
+      "lane": "production-signing",
       "disposition": "external",
       "categories": [
         "production-signing",
@@ -538,13 +577,15 @@
         "unsigned-candidate-rejected"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "ship-ready-ui-ux-hardening-convergence",
       "taskId": "6.2",
-      "description": "Run production signing-pin, signed-install, elevated clean-host MFT/USN, trust-store, guest/VM, and foreground-controllable repeated UIA evidence only under their explicitly authorized environments. (External; never satisfied by weakening ordinary development validation.)",
+      "description": "Run production signing-pin, signed-install, elevated clean-host MFT/USN, trust-store, guest/VM, and foreground-controllable repeated UIA evidence only under their explicitly authorized environments.",
       "frontierGroup": "production-signing",
+      "lane": "production-signing",
       "disposition": "external",
       "categories": [
         "production-signing",
@@ -576,6 +617,7 @@
         "unsigned-candidate-rejected"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -583,6 +625,7 @@
       "taskId": "4.6",
       "description": "**[external]** End-to-end privileged scanning validation (real MFT/USN) against the documented supported volumes; record evidence.",
       "frontierGroup": "privileged-ntfs",
+      "lane": "privileged-ntfs",
       "disposition": "external",
       "categories": [
         "elevated"
@@ -610,6 +653,7 @@
         "fixture-ground-truth-match"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -617,6 +661,7 @@
       "taskId": "4.7",
       "description": "**[external]** `fftest` privilege-diagnostics coverage against the running service; record evidence.",
       "frontierGroup": "privileged-ntfs",
+      "lane": "privileged-ntfs",
       "disposition": "external",
       "categories": [
         "elevated"
@@ -644,6 +689,7 @@
         "fixture-ground-truth-match"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
@@ -651,6 +697,7 @@
       "taskId": "4.8",
       "description": "**[external]** Clean-host privilege-candidate matrix across the documented supported Windows environments; record as pending / `REQUIRED-BUT-UNAVAILABLE` with machine evidence until actually executed.",
       "frontierGroup": "clean-host",
+      "lane": "clean-host",
       "disposition": "external",
       "categories": [
         "clean-host",
@@ -676,13 +723,15 @@
         "clean-uninstall-and-zero-residue"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
       "taskId": "8.3",
-      "description": "Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification. (Unsigned candidate qualification passed from `34137dba`; supported full UIA remains pending under the documented host resource boundary.)",
+      "description": "Run supported full UIA validation and unsigned release-candidate qualification; record any real external blocker and do not claim production-signed or privileged clean-host certification.",
       "frontierGroup": "clean-host",
+      "lane": "clean-host",
       "disposition": "external",
       "categories": [
         "clean-host",
@@ -709,13 +758,15 @@
         "clean-uninstall-and-zero-residue"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "close-independent-validation-gaps",
       "taskId": "4.2",
-      "description": ".2 **[external]** Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated. Do not satisfy this by weakening fail-closed pins. **2026-08-30 boundary measured exactly** in `evidence/privileged-trust-protectedroots-boundary.md`: the host does honour CurrentUser roots and its `ProtectedRoots` list held a chain-building FastFiles test root, so this is not a whole-store policy denial. What is blocked is adding a *new* `ProtectedRoots` entry non-interactively \u2014 that value is ACL-protected and is normally updated through Crypt32's install confirmation, which cannot resolve with stdout redirected and no interactive desktop. Writing the blob directly was deliberately not implemented: it is the storage behind that trust gate. The fixture now installs silently via `CERT_STORE_PROV_REG` and fails closed with `*_PROTECTEDROOTS_UI_REQUIRED` in ~5s (previously a ~30s hang then a misleading `CERT_E_UNTRUSTEDROOT`), and the run was proven to leave zero residue across `CurrentUser\\{My,Root,CA,TrustedPublisher}`. Every failing assertion is fixture setup; no product WinTrust assertion failed. Remains `BLOCKED_EXTERNAL`.",
+      "description": "Authorized production signer/pins and opt-in `CurrentUser\\Root` trusted-acceptance (expiry transition / RFC3161) remain `BLOCKED_EXTERNAL` / host-policy gated.",
       "frontierGroup": "production-signing",
+      "lane": "production-signing",
       "disposition": "mixed",
       "categories": [
         "production-signing",
@@ -745,13 +796,15 @@
         "unsigned-candidate-rejected"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
+      "requiresOperatorInput": true,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
       "taskId": "4.5.1",
-      "description": "Trace Home -> browse -> deep navigation -> tabs/dual pane -> search -> preview/properties -> file operation -> settings/storage flows end-to-end. \u2014 local component seams are covered; the single continuous foreground-owned journey remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive`).",
+      "description": "Trace Home -> browse -> deep navigation -> tabs/dual pane -> search -> preview/properties -> file operation -> settings/storage flows end-to-end.",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "mixed",
       "categories": [
         "interactive",
@@ -777,14 +830,16 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
       "taskId": "4.5.2",
-      "description": "Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states. \u2014 headless semantics, 20/20 selection lifecycles, 20/20 search lifecycles, and 14/14 visual captures are recorded; the complete foreground/display matrix remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive`).",
+      "description": "Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states.",
       "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
       "disposition": "mixed",
       "categories": [
         "interactive",
@@ -810,14 +865,16 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-LongRunCertification.ps1 -TestTarget ffuia_smoke_tests -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
       "taskId": "4.5.3",
-      "description": "Validate degraded/indexed/offline/unavailable transitions and reconnect/restart behavior. \u2014 local degraded/indexed/recovery seams and restart regressions are covered; the full clean foreground/elevated availability matrix remains `BLOCKED_ENVIRONMENT`. See `evidence/final-ui-journey-disposition.md`; lifecycle disposition is explicit `mixed` (`local` + `interactive` + `clean-host` + `elevated`).",
+      "description": "Validate degraded/indexed/offline/unavailable transitions and reconnect/restart behavior.",
       "frontierGroup": "clean-host",
+      "lane": "clean-host",
       "disposition": "mixed",
       "categories": [
         "interactive",
@@ -827,7 +884,7 @@
       ],
       "status": "BLOCKED_ENVIRONMENT",
       "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise; requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
-      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "nextAction": "Run the clean-host certification package in audit or live mode on an uncontaminated host.",
       "requiredCapabilities": [
         "clean-host-installation-runtime"
       ],
@@ -845,6 +902,7 @@
         "clean-uninstall-and-zero-residue"
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
+      "requiresOperatorInput": false,
       "resultSchema": "verify/certification/schemas/certification-result.schema.json"
     }
   ]

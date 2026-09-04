@@ -156,12 +156,8 @@ $jsonText = $resultObject | ConvertTo-Json -Depth 10
 Set-Content -LiteralPath $OutputPath -Value $jsonText -Encoding utf8NoBOM
 
 $fileBytes = [IO.File]::ReadAllBytes($OutputPath)
-$artifactHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($fileBytes)).Replace('-', '').ToLowerInvariant()
-$resultObject.artifactHashes[([IO.Path]::GetFileName($OutputPath))] = $artifactHash
-
-$jsonText = $resultObject | ConvertTo-Json -Depth 10
-Set-Content -LiteralPath $OutputPath -Value $jsonText -Encoding utf8NoBOM
-
+$finalSha256 = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($fileBytes)).Replace('-', '').ToLowerInvariant()
+Set-Content -LiteralPath "$OutputPath.sha256" -Value "$finalSha256  $([IO.Path]::GetFileName($OutputPath))" -Encoding utf8NoBOM
 Write-Host "Signing certification finished with status: $laneStatus (disposition: $disposition)"
 Write-Host "Artifact written: $OutputPath"
 

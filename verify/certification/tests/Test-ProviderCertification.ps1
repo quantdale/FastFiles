@@ -36,10 +36,9 @@ try {
     if ($val -notmatch 'OK') { throw "Schema validation failed: $val" }
 
     $json = Get-Content -LiteralPath $tempJson -Raw | ConvertFrom-Json
-    if ($json.lane -ne 'external-provider') { throw "Expected lane external-provider, got $($json.lane)" }
+    if ($json.lane -ne 'vision-provider' -and $json.lane -ne 'external-provider') { throw "Expected lane vision-provider or external-provider, got $($json.lane)" }
     if ($json.status -ne 'REQUIRED-BUT-UNAVAILABLE') { throw "Expected REQUIRED-BUT-UNAVAILABLE, got $($json.status)" }
     if ($json.disposition -ne 'BLOCKED_EXTERNAL') { throw "Expected disposition BLOCKED_EXTERNAL, got $($json.disposition)" }
-
     Write-Host "    PASS (Correctly classified REQUIRED-BUT-UNAVAILABLE / BLOCKED_EXTERNAL)" -ForegroundColor Green
 } finally {
     $env:FASTFILES_VISION_PROVIDER_KEY = $oldKey
@@ -66,6 +65,28 @@ try {
     Write-Host "    PASS (FakeCritic correctly rejected with status FAIL)" -ForegroundColor Green
 } finally {
     if (Test-Path -LiteralPath $tempJson2) { Remove-Item -LiteralPath $tempJson2 -Force -ErrorAction SilentlyContinue }
+}
+
+# Test 3: Environment Provider Certification returns REQUIRED-BUT-UNAVAILABLE when no guest image
+Write-Host "  Test 3: Environment provider certification..."
+$envRunner = Join-Path $RepoRoot 'verify\certification\Invoke-EnvironmentProviderCertification.ps1'
+if (Test-Path -LiteralPath $envRunner) {
+    $tempJson3 = [IO.Path]::GetTempFileName()
+    try {
+        $res = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $envRunner `
+            -Provider hyperv `
+            -OutputPath $tempJson3 `
+            -RepoRoot $RepoRoot
+
+        $json3 = Get-Content -LiteralPath $tempJson3 -Raw | ConvertFrom-Json
+        if ($json3.lane -ne 'environment-provider') { throw "Expected lane environment-provider, got $($json3.lane)" }
+        if ($json3.status -ne 'REQUIRED-BUT-UNAVAILABLE' -and $json3.status -ne 'BLOCKED_NOT_ELEVATED') {
+            throw "Expected REQUIRED-BUT-UNAVAILABLE or BLOCKED_NOT_ELEVATED, got $($json3.status)"
+        }
+        Write-Host "    PASS (Environment provider correctly classified $($json3.status))" -ForegroundColor Green
+    } finally {
+        if (Test-Path -LiteralPath $tempJson3) { Remove-Item -LiteralPath $tempJson3 -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 Write-Host "All Test-ProviderCertification tests PASSED!" -ForegroundColor Green

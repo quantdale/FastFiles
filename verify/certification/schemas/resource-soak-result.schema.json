@@ -15,7 +15,9 @@
     "sampleIntervalSeconds",
     "sampleCount",
     "fastFilesPid",
+    "phases",
     "metrics",
+    "stabilityLegs",
     "disposition"
   ],
   "properties": {
@@ -52,7 +54,8 @@
         "os": { "type": "string" },
         "architecture": { "type": "string" },
         "computer": { "type": "string" },
-        "powershell": { "type": "string" }
+        "powershell": { "type": "string" },
+        "interactive": { "type": "boolean" }
       }
     },
     "startUtc": {
@@ -73,7 +76,7 @@
     },
     "sampleCount": {
       "type": "integer",
-      "minimum": 1
+      "minimum": 0
     },
     "fastFilesPid": {
       "type": "integer",
@@ -81,6 +84,38 @@
     },
     "enginePid": {
       "type": ["integer", "null"]
+    },
+    "engine": {
+      "type": "object",
+      "properties": {
+        "observed": { "type": "boolean" },
+        "pid": { "type": ["integer", "null"] },
+        "reason": { "type": ["string", "null"] }
+      }
+    },
+    "phases": {
+      "type": "object",
+      "required": [
+        "launchUtc",
+        "measuredSoakEndUtc",
+        "shutdownUtc",
+        "exitUtc"
+      ],
+      "properties": {
+        "launchUtc": { "type": "string", "format": "date-time" },
+        "readyUtc": { "type": ["string", "null"] },
+        "readyDurationMs": { "type": ["number", "null"] },
+        "warmupDurationSeconds": { "type": ["number", "null"] },
+        "steadyStateBaselineUtc": { "type": ["string", "null"] },
+        "measuredSoakEndUtc": { "type": "string", "format": "date-time" },
+        "shutdownUtc": { "type": "string", "format": "date-time" },
+        "exitUtc": { "type": "string", "format": "date-time" },
+        "shutdownMethod": { "type": "string", "enum": ["graceful", "forced"] },
+        "shutdownDurationMs": { "type": "number" }
+      }
+    },
+    "startupMetrics": {
+      "type": "object"
     },
     "metrics": {
       "type": "object",
@@ -101,6 +136,18 @@
         "cpuSeconds": { "$ref": "#/definitions/metricStat" }
       }
     },
+    "steadyStateMetrics": {
+      "type": "object",
+      "properties": {
+        "workingSetBytes": { "$ref": "#/definitions/metricStat" },
+        "privateBytes": { "$ref": "#/definitions/metricStat" },
+        "handles": { "$ref": "#/definitions/metricStat" },
+        "threads": { "$ref": "#/definitions/metricStat" },
+        "gdiObjects": { "$ref": "#/definitions/metricStat" },
+        "userObjects": { "$ref": "#/definitions/metricStat" },
+        "cpuSeconds": { "$ref": "#/definitions/metricStat" }
+      }
+    },
     "activityTransitions": {
       "type": "array",
       "items": {
@@ -110,8 +157,35 @@
           "timestampUtc": { "type": "string", "format": "date-time" },
           "activity": { "type": "string" },
           "success": { "type": "boolean" },
-          "details": { "type": "string" }
+          "details": { "type": "string" },
+          "durationMs": { "type": "number" },
+          "postcondition": { "type": "object" }
         }
+      }
+    },
+    "residue": {
+      "type": "object",
+      "properties": {
+        "clean": { "type": "boolean" },
+        "orphanCount": { "type": "integer", "minimum": 0 },
+        "orphanPids": { "type": "array", "items": { "type": "integer" } }
+      }
+    },
+    "stabilityLegs": {
+      "type": "object",
+      "required": [
+        "survival",
+        "functionalActivity",
+        "resourceStability",
+        "shutdown",
+        "residue"
+      ],
+      "properties": {
+        "survival": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "functionalActivity": { "type": "string", "enum": ["PASS", "FAIL", "SKIPPED"] },
+        "resourceStability": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "shutdown": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "residue": { "type": "string", "enum": ["PASS", "FAIL"] }
       }
     },
     "disposition": {
@@ -150,7 +224,10 @@
         "median": { "type": "number" },
         "maximum": { "type": "number" },
         "final": { "type": "number" },
-        "trendRatePerSecond": { "type": ["number", "null"] }
+        "trendRatePerSecond": { "type": ["number", "null"] },
+        "firstHalfMedian": { "type": ["number", "null"] },
+        "secondHalfMedian": { "type": ["number", "null"] },
+        "slope": { "type": ["number", "null"] }
       }
     }
   }

@@ -93,6 +93,18 @@
             "physical-environment"
           ]
         },
+        "lane": {
+          "type": "string",
+          "enum": [
+            "physical-display",
+            "interactive-uia",
+            "environment-provider",
+            "vision-provider",
+            "production-signing",
+            "privileged-ntfs",
+            "clean-host"
+          ]
+        },
         "disposition": {
           "type": "string",
           "enum": [
@@ -154,6 +166,9 @@
         },
         "resultSchema": {
           "type": "string"
+        },
+        "requiresOperatorInput": {
+          "type": "boolean"
         }
       }
     }

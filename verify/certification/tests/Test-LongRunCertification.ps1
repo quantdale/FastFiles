@@ -36,31 +36,56 @@ try {
     if ($json.disposition -ne 'PASS') { throw "Expected PASS, got $($json.disposition)" }
     if ($json.passed -ne 2) { throw "Expected 2 passed, got $($json.passed)" }
     if ($json.failed -ne 0) { throw "Expected 0 failed, got $($json.failed)" }
+
+    # Verify sidecar hash matches actual file hash
+    $sidecar = "$tempJson.sha256"
+    if (-not (Test-Path -LiteralPath $sidecar)) { throw "Expected sidecar checksum file $sidecar was not created" }
+    $sidecarText = (Get-Content -LiteralPath $sidecar -Raw).Trim()
+    $sidecarHash = ($sidecarText -split '\s+')[0].ToLowerInvariant()
+    $fileBytes = [IO.File]::ReadAllBytes($tempJson)
+    $actualHash = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($fileBytes)).Replace('-', '').ToLowerInvariant()
+    if ($sidecarHash -ne $actualHash) { throw "Sidecar hash ($sidecarHash) does not match actual file bytes ($actualHash)" }
+
+    # Verify path sanitization: command should be relative or forward-slash normalized
+    if ($json.command -match '^[a-zA-Z]:\\') {
+        throw "Command path should be repository-relative or normalized, got absolute Windows path: $($json.command)"
+    }
+
     Write-Host "    PASS" -ForegroundColor Green
 } finally {
     if (Test-Path -LiteralPath $tempJson) { Remove-Item -LiteralPath $tempJson -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$tempJson.sha256") { Remove-Item -LiteralPath "$tempJson.sha256" -Force -ErrorAction SilentlyContinue }
 }
 
 # Test 2: Exact-tree enforcement rejects dirty trees when required
 Write-Host "  Test 2: Exact-tree requirement rejects dirty worktree..."
-$dirtyOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $runner `
-    -TestTarget ffaddress_bar_focus_tests `
-    -Iterations 1 `
-    -Category uia `
-    -RequireExactTree `
-    -RepoRoot $RepoRoot 2>&1
+$dirtyFixture = Join-Path $RepoRoot "temp-dirty-fixture-$([guid]::NewGuid().ToString('n')).tmp"
+try {
+    # Ensure working tree is dirty for this test fixture
+    Set-Content -LiteralPath $dirtyFixture -Value "dirty tree test fixture" -Encoding utf8
 
-# In current session, working tree has untracked/modified files, so -RequireExactTree must fail
-if ($LASTEXITCODE -eq 0) {
-    throw "Expected -RequireExactTree on dirty tree to fail, but exit code was 0"
-}
-if (($dirtyOutput -join ' ') -notmatch 'Exact-tree qualification required') {
-    throw "Expected error message about exact-tree qualification, got: $($dirtyOutput -join ' ')"
-}
-Write-Host "    PASS" -ForegroundColor Green
+    $dirtyOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $runner `
+        -TestTarget ffaddress_bar_focus_tests `
+        -Iterations 1 `
+        -Category uia `
+        -RequireExactTree `
+        -RepoRoot $RepoRoot 2>&1
 
-# Test 3: Missing executable / invalid target fails closed
-Write-Host "  Test 3: Non-existent target fails closed..."
+    if ($LASTEXITCODE -eq 0) {
+        throw "Expected -RequireExactTree on dirty tree to fail, but exit code was 0"
+    }
+    if (($dirtyOutput -join ' ') -notmatch 'Exact-tree qualification required') {
+        throw "Expected error message about exact-tree qualification, got: $($dirtyOutput -join ' ')"
+    }
+    Write-Host "    PASS" -ForegroundColor Green
+} finally {
+    if (Test-Path -LiteralPath $dirtyFixture) {
+        Remove-Item -LiteralPath $dirtyFixture -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# Test 3: Missing executable / invalid target fails closed (CT-001 regression)
+Write-Host "  Test 3: Non-existent target fails closed as INVALID_TARGET..."
 $missingOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $runner `
     -TestTarget non_existent_target_12345 `
     -Iterations 1 `
@@ -70,6 +95,9 @@ $missingOutput = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $r
 if ($LASTEXITCODE -eq 0) {
     throw "Expected non-existent target to fail, but exit code was 0"
 }
-Write-Host "    PASS" -ForegroundColor Green
+if (($missingOutput -join ' ') -notmatch 'INVALID_TARGET') {
+    throw "Expected INVALID_TARGET in error message, got: $($missingOutput -join ' ')"
+}
+Write-Host "    PASS (Zero-test CTest target correctly rejected with INVALID_TARGET)" -ForegroundColor Green
 
 Write-Host "All Test-LongRunCertification tests PASSED!" -ForegroundColor Green
