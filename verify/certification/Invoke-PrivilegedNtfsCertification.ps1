@@ -21,7 +21,16 @@ param(
     [scriptblock] $UsnReader = $null,
     # Fixture-truth provider: receives the fixture directory, returns truth records with the
     # same shape. Default enumerates the live filesystem.
-    [scriptblock] $FixtureTruthProvider = $null
+    [scriptblock] $FixtureTruthProvider = $null,
+    # Production observer backend (FC-003/FC-004): `fftest ntfs-observe`, which
+    # reuses the production VolumeScanner/UsnJournalReader ioctl sequences and
+    # the production MFT/USN parsers in bounded read-only form.
+    # $NtfsObserverCommand (optional seam) receives the probe argv array
+    # (e.g. @('C','semantics')) and returns the parsed probe JSON object.
+    # Otherwise the runner locates fftest.exe under build/<config>/src/fftest
+    # (explicit $NtfsObserverExe wins). No backend -> fail-closed BLOCKED.
+    [scriptblock] $NtfsObserverCommand = $null,
+    [string] $NtfsObserverExe = ''
 )
 
 # READ-ONLY INVARIANT: this lane opens raw volumes read-only and creates campaign-owned
@@ -138,6 +147,108 @@ if ($isAdmin -and $fsType -eq 'NTFS') {
     }
 } else {
     Add-CheckResult -Id "raw-volume-access" -Status "SKIPPED" -Message "Raw volume access skipped due to missing elevation or unsupported filesystem"
+}
+
+# 5b. Production observer semantics (FC-003/FC-004).
+# The default backend is the real FastFiles probe; seams override it for
+# deterministic contract tests. Semantics PASS requires genuine observation
+# (>=1 parsed MFT record, queried+read journal, zero mutations) -- a blocked
+# or absent backend can never PASS.
+function Resolve-NtfsObserverExe {
+    param([string] $Explicit)
+    if ($Explicit -and (Test-Path -LiteralPath $Explicit)) { return $Explicit }
+    foreach ($candidate in @(
+        (Join-Path $RepoRoot 'build\debug\src\fftest\fftest.exe'),
+        (Join-Path $RepoRoot 'build\release-test\src\fftest\fftest.exe'),
+        (Join-Path $RepoRoot 'build\release\src\fftest\fftest.exe'))) {
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Invoke-NtfsObserver {
+    param([string[]] $ObserverArgs)
+    if ($NtfsObserverCommand) {
+        try {
+            # Single-argument binding: the seam receives the whole argv
+            # array as one [string[]] (splatting re-binds positionally and
+            # breaks $ObserverArgs[1] mode dispatch).
+            return (& $NtfsObserverCommand $ObserverArgs)
+        } catch {
+            return $null
+        }
+    }
+    $exe = Resolve-NtfsObserverExe -Explicit $NtfsObserverExe
+    if (-not $exe) { return $null }
+    $script:observerExeResolved = $exe
+    $jsonText = (& $exe ntfs-observe @ObserverArgs 2>$null | Out-String)
+    if ([string]::IsNullOrWhiteSpace($jsonText)) { return $null }
+    try {
+        return ($jsonText | ConvertFrom-Json)
+    } catch {
+        return $null
+    }
+}
+
+function Get-ObserverBlockedStatus {
+    param($Semantics)
+    if ($null -eq $Semantics) {
+        if ($script:observerExeResolved) {
+            return 'FAIL'
+        }
+        return 'BLOCKED_ENVIRONMENT'
+    }
+    if ($Semantics.status -eq 'BLOCKED') {
+        $reason = "$($Semantics.reason)"
+        if ($reason -match 'elevation') { return 'BLOCKED_NOT_ELEVATED' }
+        if ("$($Semantics.filesystem)" -ne '' -and "$($Semantics.filesystem)" -ne 'NTFS') {
+            return 'BLOCKED_UNSUPPORTED_FILESYSTEM'
+        }
+        if ($Semantics.volumeOpened -eq $false) { return 'BLOCKED_RAW_VOLUME_ACCESS' }
+        return 'BLOCKED_ENVIRONMENT'
+    }
+    return 'FAIL'
+}
+
+$observerExeResolved = $null
+$observerSemantics = Invoke-NtfsObserver @($driveLetter, 'semantics')
+$observerBackendName = $(if ($NtfsObserverCommand) { 'injected-seam' } elseif ($observerExeResolved) { $observerExeResolved } else { 'none' })
+$observerPreFixtureNextUsn = $null
+if ($observerSemantics -and $observerSemantics.status -eq 'OBSERVED') {
+    $observerPreFixtureNextUsn = "$($observerSemantics.nextUsn)"
+    $mftSemOk = ([int]$observerSemantics.parsedRecords -ge 1) -and
+        (-not [string]::IsNullOrWhiteSpace("$($observerSemantics.parsedName)")) -and
+        ([int]$observerSemantics.mutationOperations -eq 0)
+    if ($mftSemOk) {
+        Add-CheckResult -Id 'mft-observer-semantics' -Status 'PASS' `
+            -Message "Production MFT observer: $($observerSemantics.parsedRecords) parsed record(s), first '$($observerSemantics.parsedName)', read-only, 0 mutations" `
+            -DetailObj ([ordered]@{ backend = $observerBackendName; parsedRecords = $observerSemantics.parsedRecords; firstRecord = $observerSemantics.parsedName; journalId = "$($observerSemantics.journalId)" })
+    } else {
+        Add-CheckResult -Id 'mft-observer-semantics' -Status 'FAIL' `
+            -Message 'Production MFT observer ran but reported no usable parsed record'
+    }
+    $usnSemOk = ([bool]$observerSemantics.journalQueried) -and
+        ("$($observerSemantics.journalId)" -ne '' -and "$($observerSemantics.journalId)" -ne '0x0') -and
+        ([bool]$observerSemantics.journalRead) -and ([int]$observerSemantics.mutationOperations -eq 0)
+    if ($usnSemOk) {
+        Add-CheckResult -Id 'usn-observer-semantics' -Status 'PASS' `
+            -Message "Production USN observer: journal $($observerSemantics.journalId) queried+read from $($observerSemantics.nextUsn), read-only, 0 mutations" `
+            -DetailObj ([ordered]@{ backend = $observerBackendName; journalId = "$($observerSemantics.journalId)"; nextUsn = "$($observerSemantics.nextUsn)" })
+    } else {
+        Add-CheckResult -Id 'usn-observer-semantics' -Status 'FAIL' `
+            -Message 'Production USN observer ran but journal query/read is incomplete'
+    }
+} else {
+    $blockedStatus = Get-ObserverBlockedStatus -Semantics $observerSemantics
+    $blockedMessage = $(if ($null -eq $observerSemantics -and -not $observerExeResolved) {
+            'No production NTFS observer backend available (fftest ntfs-observe not built); MFT/USN semantics unverified'
+        } elseif ($null -eq $observerSemantics) {
+            'Production NTFS observer backend failed to produce output'
+        } else {
+            "Production NTFS observer blocked: $($observerSemantics.reason)"
+        })
+    Add-CheckResult -Id 'mft-observer-semantics' -Status $blockedStatus -Message $blockedMessage
+    Add-CheckResult -Id 'usn-observer-semantics' -Status $blockedStatus -Message $blockedMessage
 }
 
 # 6. Fixture Ground-Truth Leg (MFT + USN)
@@ -261,7 +372,13 @@ $fixtureRootCreatedByRunner = $false
 $createdFixturePaths = @()
 $fixtureTruthCount = 0
 
-if ($rawHandleOpened -and ($MftReader -or $UsnReader)) {
+# Observer-backed defaults: when no reader seams are injected but the real
+# production observer verified live semantics above, fixture confirmation
+# runs through targeted production record fetches (MFT) and a bounded
+# journal read (USN) instead of failing closed on null readers.
+$observerBacked = ((-not $MftReader) -and (-not $UsnReader) -and ($null -ne $observerSemantics) -and
+    ($observerSemantics.status -eq 'OBSERVED'))
+if ($rawHandleOpened -and ($MftReader -or $UsnReader -or $observerBacked)) {
     try {
         if ($DiagnosticFixtureDirectory) {
             $fixtureDir = $DiagnosticFixtureDirectory
@@ -280,35 +397,100 @@ if ($rawHandleOpened -and ($MftReader -or $UsnReader)) {
         }
         $fixtureTruthCount = @($truthRecords).Count
 
+        # Resolve targeted-fetch FRNs from normal-filesystem FileId truth.
+        # A truth row without a FileId cannot be addressed to the production
+        # record fetcher; that leg stays BLOCKED (documented), never guessed.
+        $wantedFrns = @()
+        $truthIdsUsable = $true
+        foreach ($t in @($truthRecords)) {
+            $fid = "$($t.FileId)"
+            if ([string]::IsNullOrWhiteSpace($fid)) { $truthIdsUsable = $false; break }
+            try {
+                $num = if ($fid -match '^0[xX]') { [Convert]::ToUInt64($fid.Substring(2), 16) } else { [Convert]::ToUInt64($fid, 10) }
+                $wantedFrns += ('0x{0:X}' -f $num)
+            } catch {
+                $truthIdsUsable = $false; break
+            }
+        }
+
+        function Compare-AndRecordLeg {
+            param([string] $Leg, [array] $Observed)
+            $cmp = Compare-NtfsFixtureRecords -Truth $truthRecords -Observed $Observed
+            $detail = [ordered]@{ fixtureDir = $fixtureDir; comparedFiles = $fixtureTruthCount; fieldResults = @($cmp.Rows) }
+            if ([bool]$cmp.Match) {
+                Add-CheckResult -Id "$Leg-ground-truth" -Status 'PASS' `
+                    -Message "$Leg raw observation matches normal-filesystem truth ($fixtureTruthCount files, field-by-field)" -DetailObj $detail
+                return $true
+            }
+            Add-CheckResult -Id "$Leg-ground-truth" -Status 'FAIL' `
+                -Message "$Leg raw observation diverges from normal-filesystem truth; see fieldResults" -DetailObj $detail
+            return $false
+        }
+
+        function ConvertTo-ObservedRecords {
+            param($ObservedArray)
+            $rows = @()
+            foreach ($o in @($ObservedArray)) {
+                if ($o.found -ne $true) {
+                    $rows += [pscustomobject]@{ Name = ''; Size = [long]0; ParentPath = ''; FileId = $null; MissingFrn = $true }
+                } else {
+                    $rows += [pscustomobject]@{ Name = "$($o.name)"; Size = [long]$o.size; ParentPath = "$($o.parentPath)"; FileId = $null }
+                }
+            }
+            return $rows
+        }
+
         if ($MftReader) {
             $mftCompared = $true
             $mftObserved = @(& $MftReader $fixtureDir)
-            $mftCmp = Compare-NtfsFixtureRecords -Truth $truthRecords -Observed $mftObserved
-            $mftMatched = [bool]$mftCmp.Match
-            $mftDetail = [ordered]@{ fixtureDir = $fixtureDir; comparedFiles = $fixtureTruthCount; fieldResults = @($mftCmp.Rows) }
-            if ($mftMatched) {
-                Add-CheckResult -Id "mft-ground-truth" -Status "PASS" -Message "MFT raw observation matches normal-filesystem truth ($fixtureTruthCount files, field-by-field)" -DetailObj $mftDetail
+            $mftMatched = Compare-AndRecordLeg -Leg 'mft' -Observed $mftObserved
+        } elseif ($observerBacked -and $truthIdsUsable) {
+            $mftCompared = $true
+            $findResult = Invoke-NtfsObserver (@($driveLetter, 'find') + $wantedFrns)
+            if ($findResult -and $findResult.status -eq 'OBSERVED') {
+                $mftObserved = @(ConvertTo-ObservedRecords -ObservedArray $findResult.observed)
+                $mftMatched = Compare-AndRecordLeg -Leg 'mft' -Observed $mftObserved
+            } elseif ($findResult -and $findResult.status -eq 'BLOCKED') {
+                $mftCompared = $false
+                Add-CheckResult -Id 'mft-ground-truth' -Status (Get-ObserverBlockedStatus -Semantics $findResult) `
+                    -Message "Production MFT fetch blocked: $($findResult.reason)"
             } else {
-                Add-CheckResult -Id "mft-ground-truth" -Status "FAIL" -Message "MFT raw observation diverges from normal-filesystem truth; see fieldResults" -DetailObj $mftDetail
+                $mftCompared = $false
+                Add-CheckResult -Id 'mft-ground-truth' -Status 'FAIL' `
+                    -Message 'Production MFT fetch failed unexpectedly'
             }
+        } elseif ($observerBacked) {
+            Add-CheckResult -Id "mft-ground-truth" -Status "BLOCKED_ENVIRONMENT" -Message "Normal-filesystem FileId truth unavailable for targeted production fetch; fixture comparison requires addressable records"
         } else {
             Add-CheckResult -Id "mft-ground-truth" -Status "BLOCKED_ENVIRONMENT" -Message "No MFT reader available; fixture ground-truth comparison is required before MFT certification (raw-open alone does not qualify)"
         }
+        if ($mftCompared -and ($null -eq $mftObserved)) { $mftObserved = @() }
 
         if ($UsnReader) {
             $usnCompared = $true
             $usnObserved = @(& $UsnReader $fixtureDir)
-            $usnCmp = Compare-NtfsFixtureRecords -Truth $truthRecords -Observed $usnObserved
-            $usnMatched = [bool]$usnCmp.Match
-            $usnDetail = [ordered]@{ fixtureDir = $fixtureDir; comparedFiles = $fixtureTruthCount; fieldResults = @($usnCmp.Rows) }
-            if ($usnMatched) {
-                Add-CheckResult -Id "usn-ground-truth" -Status "PASS" -Message "USN raw observation matches normal-filesystem truth ($fixtureTruthCount files, field-by-field)" -DetailObj $usnDetail
+            $usnMatched = Compare-AndRecordLeg -Leg 'usn' -Observed $usnObserved
+        } elseif ($observerBacked -and $truthIdsUsable -and $observerPreFixtureNextUsn) {
+            $usnCompared = $true
+            $usnResult = Invoke-NtfsObserver (@($driveLetter, 'usn', $observerPreFixtureNextUsn) + $wantedFrns)
+            if ($usnResult -and $usnResult.status -eq 'OBSERVED') {
+                $usnObserved = @(ConvertTo-ObservedRecords -ObservedArray $usnResult.observed)
+                $usnMatched = Compare-AndRecordLeg -Leg 'usn' -Observed $usnObserved
+            } elseif ($usnResult -and $usnResult.status -eq 'BLOCKED') {
+                $usnCompared = $false
+                Add-CheckResult -Id 'usn-ground-truth' -Status (Get-ObserverBlockedStatus -Semantics $usnResult) `
+                    -Message "Production USN fetch blocked: $($usnResult.reason)"
             } else {
-                Add-CheckResult -Id "usn-ground-truth" -Status "FAIL" -Message "USN raw observation diverges from normal-filesystem truth; see fieldResults" -DetailObj $usnDetail
+                $usnCompared = $false
+                Add-CheckResult -Id 'usn-ground-truth' -Status 'FAIL' `
+                    -Message 'Production USN fetch failed unexpectedly'
             }
+        } elseif ($observerBacked) {
+            Add-CheckResult -Id "usn-ground-truth" -Status "BLOCKED_ENVIRONMENT" -Message "Normal-filesystem FileId truth or pre-fixture journal USN unavailable for bounded production journal read"
         } else {
             Add-CheckResult -Id "usn-ground-truth" -Status "BLOCKED_ENVIRONMENT" -Message "No USN reader available; fixture ground-truth comparison is required before USN certification (raw-open alone does not qualify)"
         }
+        if ($usnCompared -and ($null -eq $usnObserved)) { $usnObserved = @() }
     } catch {
         $legMessage = "Fixture ground-truth leg failed before comparison: $($_.Exception.Message)"
         if (-not $mftCompared) {
@@ -418,10 +600,17 @@ $disposition = $(if ($laneStatus -eq 'PASS') { 'PASS' }
                  else { 'FAIL' })
 
 # Capabilities are claimed only for executed, matching proof.
+function Test-CheckPass {
+    param([string] $Id)
+    $c = @($script:checks | Where-Object { $_.checkId -eq $Id }) | Select-Object -First 1
+    return ($null -ne $c -and $c.status -eq 'PASS')
+}
 $capabilities = @()
 if ($rawHandleOpened) { $capabilities += 'raw-volume-read' }
 if ($mftCompared -and $mftMatched) { $capabilities += 'mft-ground-truth' }
 if ($usnCompared -and $usnMatched) { $capabilities += 'usn-ground-truth' }
+if (Test-CheckPass -Id 'mft-observer-semantics') { $capabilities += 'mft-observer-semantics' }
+if (Test-CheckPass -Id 'usn-observer-semantics') { $capabilities += 'usn-observer-semantics' }
 
 $resultObject = [ordered]@{
     schemaVersion = 1
@@ -452,6 +641,13 @@ $resultObject = [ordered]@{
         fixtureTruthFiles = $fixtureTruthCount
         mftCompared = $mftCompared
         usnCompared = $usnCompared
+        observer = [ordered]@{
+            backend = $observerBackendName
+            productionPrimitive = $true
+            accessMode = 'read-only'
+            observerBackedFixture = [bool]$observerBacked
+            preFixtureNextUsn = $observerPreFixtureNextUsn
+        }
     }
     capabilities = @($capabilities)
     cleanup = $cleanup

@@ -27,7 +27,7 @@
     },
     "Invoke-PrivilegedNtfsCertification.ps1": {
       "modes": {
-        "ground-truth": ["raw-volume-read", "mft-ground-truth", "usn-ground-truth"]
+        "ground-truth": ["raw-volume-read", "mft-ground-truth", "usn-ground-truth", "mft-observer-semantics", "usn-observer-semantics"]
       }
     },
     "Invoke-SigningCertification.ps1": {

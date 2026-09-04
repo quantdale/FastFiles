@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "ClientAuthentication.h"
+#include "NtfsObserve.h"
 #include "PrivilegeVerification.h"
 #include "ffprotocol/Commands.h"
 #include "ffindexstore/Store.h"
@@ -435,7 +436,7 @@ int RunHandshakeImpostorProbe(const wchar_t* installDirectory) {
 }
 
 void PrintUsage() {
-    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|walk <root>|streams <file>|handshake-impostor <install-dir>|index-aggregate <db> <folder> <items> <bytes>>\n");
+    std::fprintf(stderr, "usage: fftest <privilege|token|acl <path>|mapping <name>|walk <root>|streams <file>|handshake-impostor <install-dir>|index-aggregate <db> <folder> <items> <bytes>|ntfs-observe <L> <semantics|find|usn> [...] >\n");
 }
 
 } // namespace
@@ -446,6 +447,9 @@ int wmain(int argc, wchar_t** argv) {
         return kUsageError;
     }
     if (_wcsicmp(argv[1], L"privilege") == 0 && argc == 2) return RunPrivilegeProbe();
+    if (_wcsicmp(argv[1], L"ntfs-observe") == 0 && argc >= 3) {
+        return ffntfsobserve::RunNtfsObserveProbe(argc - 2, argv + 2);
+    }
     if (_wcsicmp(argv[1], L"token") == 0 && argc == 2) return RunTokenProbe();
     if (_wcsicmp(argv[1], L"acl") == 0 && argc == 3) return RunAclProbe(argv[2]);
     if (_wcsicmp(argv[1], L"mapping") == 0 && argc == 3) return RunMappingProbe(argv[2]);

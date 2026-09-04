@@ -171,6 +171,8 @@
               "raw-volume-read",
               "mft-ground-truth",
               "usn-ground-truth",
+              "mft-observer-semantics",
+              "usn-observer-semantics",
               "hyperv-provision",
               "guest-execution",
               "provider-rollback"

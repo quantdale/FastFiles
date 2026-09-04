@@ -27,5 +27,11 @@ add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
 add_executable(ffindexsvc_write_deadline_policy_tests test_write_deadline_policy.cpp)
 add_test(NAME ffindexsvc_write_deadline_policy_tests COMMAND ffindexsvc_write_deadline_policy_tests)
 
+# ntfs-observe certification-probe contract (FC-003/FC-004): synthetic
+# fixtures only, never a live volume.
+add_executable(ffntfsobserve_tests test_ntfs_observe.cpp)
+target_link_libraries(ffntfsobserve_tests PRIVATE ffntfsobserve)
+add_test(NAME ffntfsobserve_tests COMMAND ffntfsobserve_tests)
+
 set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests
-    ffconnection_registry_tests ffindexsvc_write_deadline_policy_tests PROPERTIES TIMEOUT 120)
+    ffconnection_registry_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests PROPERTIES TIMEOUT 120)

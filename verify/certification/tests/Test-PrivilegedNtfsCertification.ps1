@@ -162,6 +162,17 @@ try {
     if (Test-Path -LiteralPath "$tempJson4.sha256") { Remove-Item -LiteralPath "$tempJson4.sha256" -Force -ErrorAction SilentlyContinue }
 }
 
+# Shared production-observer seam: reports genuine OBSERVED semantics.
+$observerObservedSeam = {
+    param([string[]] $ObserverArgs)
+    [pscustomobject]@{
+        status = 'OBSERVED'; parsedRecords = 2; parsedName = 'fixture-01.bin'
+        journalQueried = $true; journalId = '0x12345'; journalRead = $true
+        nextUsn = '0x5000'; mutationOperations = 0; requestedAccess = @('GENERIC_READ')
+        volumeOpened = $true; filesystem = 'NTFS'; reason = ''
+    }
+}
+
 # Test 5: Matching fixtures via seams yield PASS deterministically (repeat twice).
 Write-Host "  Test 5: Matching fixtures yield deterministic PASS..."
 $truthMatchSeam = {
@@ -186,13 +197,14 @@ for ($run = 1; $run -le 2; $run++) {
             -PrivilegeProbe { $true } `
             -FilesystemProbe { 'NTFS' } `
             -VolumeOpenProbe { param($p) $true } `
+            -NtfsObserverCommand $observerObservedSeam `
             -FixtureTruthProvider $truthMatchSeam -MftReader $readerMatchSeam -UsnReader $readerMatchSeam | Out-Null
 
         Assert-ResultSchema -JsonPath $tempJson5
         $json5 = Get-Content -LiteralPath $tempJson5 -Raw | ConvertFrom-Json
         if ($json5.status -ne 'PASS') { throw "Run ${run}: matching fixtures must yield PASS, got $($json5.status)" }
         if ($json5.disposition -ne 'PASS') { throw "Run ${run}: expected disposition PASS, got $($json5.disposition)" }
-        foreach ($cap in @('raw-volume-read', 'mft-ground-truth', 'usn-ground-truth')) {
+        foreach ($cap in @('raw-volume-read', 'mft-ground-truth', 'usn-ground-truth', 'mft-observer-semantics', 'usn-observer-semantics')) {
             if (-not ($json5.capabilities -contains $cap)) { throw "Run ${run}: capability missing: $cap" }
         }
         if ($json5.cleanup.status -ne 'PASS') { throw "Run ${run}: expected clean cleanup" }
@@ -244,6 +256,107 @@ try {
     }
     if (Test-Path -LiteralPath $tempJson6) { Remove-Item -LiteralPath $tempJson6 -Force -ErrorAction SilentlyContinue }
     if (Test-Path -LiteralPath "$tempJson6.sha256") { Remove-Item -LiteralPath "$tempJson6.sha256" -Force -ErrorAction SilentlyContinue }
+}
+
+# Test 7: Observer semantics PASS alone never yields ground-truth PASS.
+Write-Host "  Test 7: Semantics without fixture comparison cannot PASS ground truth..."
+$tempJson7 = [IO.Path]::GetTempFileName()
+try {
+    $observerSemOnlySeam = {
+        param([string[]] $ObserverArgs)
+        if ($ObserverArgs[1] -eq 'semantics') { return (& $observerObservedSeam @ObserverArgs) }
+        return [pscustomobject]@{
+            status = 'BLOCKED'; parsedRecords = 0; parsedName = ''
+            journalQueried = $false; journalId = ''; journalRead = $false
+            nextUsn = ''; mutationOperations = 0; requestedAccess = @('GENERIC_READ')
+            volumeOpened = $true; filesystem = 'NTFS'
+            reason = 'seam provides semantics only; fixture fetch refused'
+        }
+    }
+    & $runner -VolumeRoot 'C:' -OutputPath $tempJson7 -RepoRoot $RepoRoot `
+        -PrivilegeProbe { $true } `
+        -FilesystemProbe { 'NTFS' } `
+        -VolumeOpenProbe { param($p) $true } `
+        -NtfsObserverCommand $observerSemOnlySeam | Out-Null
+
+    Assert-ResultSchema -JsonPath $tempJson7
+    $json7 = Get-Content -LiteralPath $tempJson7 -Raw | ConvertFrom-Json
+    if ($json7.status -notmatch 'BLOCKED') { throw "Semantics alone must yield BLOCKED_*, got $($json7.status)" }
+    $mftSem7 = Get-Check -Json $json7 -Id 'mft-observer-semantics'
+    $usnSem7 = Get-Check -Json $json7 -Id 'usn-observer-semantics'
+    if ($mftSem7.status -ne 'PASS') { throw "mft-observer-semantics must PASS, got $($mftSem7.status)" }
+    if ($usnSem7.status -ne 'PASS') { throw "usn-observer-semantics must PASS, got $($usnSem7.status)" }
+    $mft7 = Get-Check -Json $json7 -Id 'mft-ground-truth'
+    if ($mft7.status -notmatch 'BLOCKED') { throw "mft-ground-truth must stay BLOCKED without readers, got $($mft7.status)" }
+    if (-not ($json7.capabilities -contains 'mft-observer-semantics')) { throw 'mft-observer-semantics capability missing' }
+    if ($json7.capabilities -contains 'mft-ground-truth') { throw 'mft-ground-truth must NOT be claimed without comparison' }
+    Write-Host '    PASS (Semantics PASS; ground truth BLOCKED without comparison)' -ForegroundColor Green
+} finally {
+    if (Test-Path -LiteralPath $tempJson7) { Remove-Item -LiteralPath $tempJson7 -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$tempJson7.sha256") { Remove-Item -LiteralPath "$tempJson7.sha256" -Force -ErrorAction SilentlyContinue }
+}
+
+# Test 8: Blocked observer is BLOCKED, never PASS and never silent.
+Write-Host "  Test 8: Blocked observer cannot PASS..."
+$tempJson8 = [IO.Path]::GetTempFileName()
+try {
+    $observerDeniedSeam = {
+        param([string[]] $ObserverArgs)
+        [pscustomobject]@{
+            status = 'BLOCKED'; parsedRecords = 0; parsedName = ''
+            journalQueried = $false; journalId = ''; journalRead = $false
+            nextUsn = ''; mutationOperations = 0; requestedAccess = @('GENERIC_READ')
+            volumeOpened = $false; filesystem = 'NTFS'
+            reason = 'raw volume open denied (elevation required for production observer)'
+        }
+    }
+    & $runner -VolumeRoot 'C:' -OutputPath $tempJson8 -RepoRoot $RepoRoot `
+        -PrivilegeProbe { $true } `
+        -FilesystemProbe { 'NTFS' } `
+        -VolumeOpenProbe { param($p) $true } `
+        -NtfsObserverCommand $observerDeniedSeam | Out-Null
+
+    Assert-ResultSchema -JsonPath $tempJson8
+    $json8 = Get-Content -LiteralPath $tempJson8 -Raw | ConvertFrom-Json
+    if ($json8.status -eq 'PASS') { throw 'Denied observer must never PASS' }
+    $mftSem8 = Get-Check -Json $json8 -Id 'mft-observer-semantics'
+    if ($mftSem8.status -notmatch 'BLOCKED') { throw "mft-observer-semantics must be BLOCKED_*, got $($mftSem8.status)" }
+    if ($json8.capabilities -contains 'mft-observer-semantics') { throw 'blocked semantics must not claim capability' }
+    if ($json8.capabilities -contains 'usn-observer-semantics') { throw 'blocked semantics must not claim capability' }
+    Write-Host "    PASS (Denied observer yields $($json8.status); no capability claimed)" -ForegroundColor Green
+} finally {
+    if (Test-Path -LiteralPath $tempJson8) { Remove-Item -LiteralPath $tempJson8 -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$tempJson8.sha256") { Remove-Item -LiteralPath "$tempJson8.sha256" -Force -ErrorAction SilentlyContinue }
+}
+
+# Test 9: Observer with zero parsed records is FAIL, not PASS.
+Write-Host "  Test 9: Zero-record observer observation is FAIL..."
+$tempJson9 = [IO.Path]::GetTempFileName()
+try {
+    $observerEmptySeam = {
+        param([string[]] $ObserverArgs)
+        [pscustomobject]@{
+            status = 'OBSERVED'; parsedRecords = 0; parsedName = ''
+            journalQueried = $true; journalId = '0x12345'; journalRead = $true
+            nextUsn = '0x5000'; mutationOperations = 0; requestedAccess = @('GENERIC_READ')
+            volumeOpened = $true; filesystem = 'NTFS'; reason = ''
+        }
+    }
+    & $runner -VolumeRoot 'C:' -OutputPath $tempJson9 -RepoRoot $RepoRoot `
+        -PrivilegeProbe { $true } `
+        -FilesystemProbe { 'NTFS' } `
+        -VolumeOpenProbe { param($p) $true } `
+        -NtfsObserverCommand $observerEmptySeam | Out-Null
+
+    Assert-ResultSchema -JsonPath $tempJson9
+    $json9 = Get-Content -LiteralPath $tempJson9 -Raw | ConvertFrom-Json
+    if ($json9.status -ne 'FAIL') { throw "Zero-record observation must yield FAIL, got $($json9.status)" }
+    $mftSem9 = Get-Check -Json $json9 -Id 'mft-observer-semantics'
+    if ($mftSem9.status -ne 'FAIL') { throw "mft-observer-semantics must be FAIL, got $($mftSem9.status)" }
+    Write-Host '    PASS (Zero-record observation yields FAIL)' -ForegroundColor Green
+} finally {
+    if (Test-Path -LiteralPath $tempJson9) { Remove-Item -LiteralPath $tempJson9 -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$tempJson9.sha256") { Remove-Item -LiteralPath "$tempJson9.sha256" -Force -ErrorAction SilentlyContinue }
 }
 
 Write-Host "All Test-PrivilegedNtfsCertification tests PASSED!" -ForegroundColor Green
