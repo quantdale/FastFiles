@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_client_handshake_tests",
+  "category": "ipc-lifecycle",
+  "command": "build/debug/tests/engine/ffengine_client_handshake_tests.exe",
+  "commit": "76e5b2cc169cd92e2a3e60a57812c3ef4cbc7f2a",
+  "tree": "d579f0f61afc38c5787c756af0a3b31c98cfe9d4",
+  "exactTreeBound": true,
+  "executableHash": "0b156f22eaf2fe678a08087b80ce81eabebf2ca73ebd1231a692948de9296b1b",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T06:00:03.3923560Z",
+  "endUtc": "2026-09-04T06:00:55.8474707Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 490.02,
+  "medianDurationMs": 505.51,
+  "p95DurationMs": 644.76,
+  "maxDurationMs": 754.09,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}
