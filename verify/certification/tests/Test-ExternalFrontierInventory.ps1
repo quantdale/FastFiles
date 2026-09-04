@@ -138,4 +138,77 @@ foreach ($task in $frontier.tasks) {
 }
 Write-Host "    PASS (Zero semantic mismatches across all 25 frontier tasks)" -ForegroundColor Green
 
+# Test 5: Capability-aware execution contract (campaign sections 12-13, 26.14-16)
+Write-Host "  Test 5: Runner capability coverage for every task contract..."
+$manifestPath = Join-Path $RepoRoot 'verify\certification\runner-capabilities.json'
+if (-not (Test-Path -LiteralPath $manifestPath)) { throw "Runner capability manifest not found: $manifestPath" }
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+
+# 5a. Manifest grounding: every advertised capability must appear literally in runner source
+foreach ($runnerProp in $manifest.runners.PSObject.Properties) {
+    $runnerFile = Join-Path $RepoRoot ("verify\certification\" + $runnerProp.Name)
+    if (-not (Test-Path -LiteralPath $runnerFile)) { throw "Manifest runner missing: $($runnerProp.Name)" }
+    $source = Get-Content -LiteralPath $runnerFile -Raw
+    $claimed = @()
+    foreach ($modeProp in $runnerProp.Value.modes.PSObject.Properties) { $claimed += @($modeProp.Value) }
+    if ($runnerProp.Value.matrixDimensions) { $claimed += @($runnerProp.Value.matrixDimensions) }
+    foreach ($cap in @($claimed | Select-Object -Unique)) {
+        if ($source -notmatch [regex]::Escape($cap)) {
+            throw "Manifest claims '$cap' for $($runnerProp.Name) but the string never appears in its source (ungrounded advertisement)."
+        }
+    }
+}
+Write-Host "    PASS (manifest capabilities grounded in runner sources)" -ForegroundColor Green
+
+# 5b. Per-task coverage: requiredCapabilities must be a subset of the mapped runner mode set
+foreach ($task in $frontier.tasks) {
+    $cmd = $task.executionCommand
+    $scriptName = $null
+    if ($cmd -match '(Invoke-[A-Za-z0-9_-]+\.ps1)') { $scriptName = $Matches[1] }
+    if (-not $scriptName -or -not $manifest.runners.PSObject.Properties.Name.Contains($scriptName)) {
+        throw "Task $($task.taskId) maps to unknown runner '$scriptName' (no manifest entry)."
+    }
+    $entry = $manifest.runners.$scriptName
+    $mode = switch ($scriptName) {
+        'Invoke-UiaLongRunCertification.ps1' {
+            if ($cmd -match '-Scenario\s+([A-Za-z-]+)') { $Matches[1] } else { 'core-smoke' }
+        }
+        'Invoke-EnvironmentProviderCertification.ps1' { 'hyperv-execution' }
+        'Invoke-CleanHostCertification.ps1' { if ($cmd -match '-InstallCandidate') { 'install' } else { 'audit' } }
+        'Invoke-PrivilegedNtfsCertification.ps1' { 'ground-truth' }
+        'Invoke-SigningCertification.ps1' { 'verification' }
+    }
+    $provided = @($entry.modes.$mode)
+    if ($entry.matrixDimensions -and ($cmd -match '-Theme|-DpiPercent|-Contrast|-Viewport|-PaneTopology')) {
+        $provided += @($entry.matrixDimensions)
+    }
+    $missing = @($task.requiredCapabilities | Where-Object { $provided -notcontains $_ })
+    if ($missing.Count -gt 0 -and $task.readiness -ne 'NOT_IMPLEMENTED') {
+        throw "Task $($task.change)/$($task.taskId) requires [$($missing -join ',')] but '$scriptName' mode '$mode' provides [$($provided -join ',')]. Command: $cmd"
+    }
+    # 5c. Dimension-specific gates: DPI/contrast requirements need explicit matrix args
+    if (@($task.requiredCapabilities | Where-Object { $_ -like 'dpi-*' }).Count -gt 0 -and $cmd -notmatch '-DpiPercent') {
+        throw "Task $($task.change)/$($task.taskId) requires DPI capability but command has no -DpiPercent matrix argument."
+    }
+    if ($task.requiredCapabilities -contains 'high-contrast' -and $cmd -notmatch '-Contrast') {
+        throw "Task $($task.change)/$($task.taskId) requires high-contrast but command has no -Contrast matrix argument."
+    }
+    if (@($task.requiredCapabilities | Where-Object { $_ -in @('clean-install', 'installed-runtime', 'uninstall-cleanup') }).Count -gt 0 -and $cmd -notmatch '-InstallCandidate') {
+        throw "Task $($task.change)/$($task.taskId) requires install capabilities but command lacks -InstallCandidate."
+    }
+    # 5d. Readiness truth: unprovable capabilities force NOT_IMPLEMENTED with a recorded gap
+    $never = @($entry.neverAdvertised)
+    $unprovable = @($task.requiredCapabilities | Where-Object { $never -contains $_ })
+    if ($unprovable.Count -gt 0 -and $task.readiness -ne 'NOT_IMPLEMENTED') {
+        throw "Task $($task.change)/$($task.taskId) requires [$($unprovable -join ',')] no runner advertises, yet readiness is '$($task.readiness)' (must be NOT_IMPLEMENTED)."
+    }
+    if ($task.readiness -eq 'NOT_IMPLEMENTED' -and [string]::IsNullOrWhiteSpace([string]$task.implementationGap)) {
+        throw "Task $($task.change)/$($task.taskId) is NOT_IMPLEMENTED but records no implementationGap."
+    }
+    if ($task.readiness -eq 'READY_EXTERNAL' -and ([string]::IsNullOrWhiteSpace([string]$task.successPredicate) -or @($task.requiredAssertions).Count -eq 0 -or @($task.cleanupRequirements).Count -eq 0)) {
+        throw "Task $($task.change)/$($task.taskId) is READY_EXTERNAL but its execution contract is incomplete (predicate/assertions/cleanup required)."
+    }
+}
+Write-Host "    PASS (all 25 task contracts covered by runner capabilities with honest readiness)" -ForegroundColor Green
+
 Write-Host "All Test-ExternalFrontierInventory tests PASSED!" -ForegroundColor Green

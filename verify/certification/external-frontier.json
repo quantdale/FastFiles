@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "generatedAtUtc": "2026-09-04T02:30:00.000000Z",
+  "schemaVersion": 2,
+  "generatedAtUtc": "2026-09-04T04:59:23.280889Z",
   "summary": {
     "totalTasks": 25,
     "byFrontierGroup": {
@@ -13,6 +13,10 @@
     "byStatus": {
       "BLOCKED_ENVIRONMENT": 10,
       "REQUIRED-BUT-UNAVAILABLE": 15
+    },
+    "byReadiness": {
+      "NOT_IMPLEMENTED": 1,
+      "READY_EXTERNAL": 24
     }
   },
   "tasks": [
@@ -30,7 +34,17 @@
       "reason": "requires an attached interactive desktop or physical display configuration",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke",
+        "visual-light-theme",
+        "visual-dark-theme",
+        "dpi-100",
+        "dpi-150",
+        "high-contrast",
+        "window-narrow",
+        "window-wide",
+        "dual-pane",
+        "details-pane",
+        "storage-parent-percent"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -46,14 +60,51 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25 -Theme Light,Dark -DpiPercent 100,150 -Contrast Normal,HighContrast -Viewport Narrow,Normal,Wide -PaneTopology Single,Dual",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "NOT_IMPLEMENTED",
+      "implementationGap": "Runner proves theme/DPI/contrast/viewport/dual-pane dimensions; details-pane-contents and storage-parent-percent-sum assertions are not implemented in any UIA scenario. Local work tracked by external-certification-execution-engine-and-frontier-truthfulness section 5.",
+      "certificationLane": "physical-display",
+      "executionMode": "uia-matrix",
+      "scenarioIds": [
+        "core-smoke"
+      ],
+      "requiredDimensions": [
+        "theme:Light,Dark",
+        "dpi:100,150",
+        "contrast:normal,high-contrast",
+        "viewport:narrow,normal,wide",
+        "pane:single,dual",
+        "details:closed,open"
+      ],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "pane-count",
+        "Pane.0",
+        "Pane.1",
+        "Search.Filters",
+        "no-column-under-details-pane",
+        "percent-of-parent-sum-100"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with all requested dimensions realized and zero failed assertions",
+      "operatorInputs": []
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
       "taskId": "6.15",
-      "description": "major user-journey/UIA smoke available on the current host; — interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`",
+      "description": "major user-journey/UIA smoke available on the current host; \u00e2\u20ac\u201d interactive foreground live journey remains host-sensitive; visual catalog 14/14 PASS with UIA-driven Home/dual-pane/Filters, headless UIA 94/94 PASS; full live foreground classified `BLOCKED_ENVIRONMENT` per `evidence/uia-live-determinism-root-cause.md` and `openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md`",
       "frontierGroup": "physical-environment",
       "lane": "interactive-uia",
       "disposition": "external",
@@ -64,7 +115,7 @@
       "reason": "requires an attached interactive desktop or physical display configuration",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -82,7 +133,37 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "core-smoke"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "launch-main-window",
+        "home-activation",
+        "dual-pane-toggle",
+        "search-open-filters",
+        "storage-analysis-open",
+        "settings-open",
+        "command-palette"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with zero failed assertions",
+      "operatorInputs": []
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
@@ -98,7 +179,7 @@
       "reason": "requires an attached interactive desktop or physical display configuration",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -114,9 +195,36 @@
         "zero-failure-across-iterations",
         "timing-and-stability-metrics"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario application-lifecycle -Iterations 25",
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "core-smoke"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "launch-main-window",
+        "home-activation",
+        "dual-pane-toggle",
+        "search-open-filters"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with zero failed assertions",
+      "operatorInputs": []
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
@@ -132,7 +240,8 @@
       "reason": "requires an attached interactive desktop or physical display configuration",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke",
+        "uia-keyboard-navigation"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -150,7 +259,36 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "rapid-input"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "command-palette-open-close",
+        "dual-pane-enable-2-panes",
+        "single-pane-restore",
+        "search-filters-disclosure-contents",
+        "search-close-verified"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "iteration-ledger",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with zero failed assertions",
+      "operatorInputs": []
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
@@ -166,7 +304,7 @@
       "reason": "requires an attached interactive desktop or physical display configuration",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -184,12 +322,38 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "core-smoke"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "launch-main-window",
+        "dual-pane-toggle",
+        "search-open-filters"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with recorded seeds and classified cleanup",
+      "operatorInputs": []
     },
     {
       "change": "autonomous-runtime-verification",
       "taskId": "2.3",
-      "description": "Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end — not yet implementable; prerequisites re-audited 2026-08-03: the local provider is implemented and validated (§2.2) and this host is now elevated with hyper-v PASS in verify.ps1 doctor; a configured VM FastFiles-Matrix (Gen2, v12.0, Off) exists with a valid dynamic parent C:\\VMs\\FastFiles-Matrix.vhdx (64 GB) but holds no lawful guest OS.",
+      "description": "Implement disposable/isolated provider adapters (Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runner, self-hosted runner) behind the interface, with at least one snapshot-restorable reference implementation validated end-to-end \u00e2\u20ac\u201d not yet implementable; prerequisites re-audited 2026-08-03: the local provider is implemented and validated (\u00c2\u00a72.2) and this host is now elevated with hyper-v PASS in verify.ps1 doctor; a configured VM FastFiles-Matrix (Gen2, v12.0, Off) exists with a valid dynamic parent C:\\VMs\\FastFiles-Matrix.vhdx (64 GB) but holds no lawful guest OS.",
       "frontierGroup": "external-provider",
       "lane": "environment-provider",
       "disposition": "external",
@@ -201,7 +365,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image; requires an elevated or privileged validation context",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -220,12 +386,52 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "autonomous-runtime-verification",
       "taskId": "2.4",
-      "description": "Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree — blocked on 2.3 (re-audited 2026-08-03: VM exists but no guest OS; see 2.3).",
+      "description": "Verify the same capability runs unchanged across `local` and a disposable provider, with logs/artifacts collected back to the run tree \u00e2\u20ac\u201d blocked on 2.3 (re-audited 2026-08-03: VM exists but no guest OS; see 2.3).",
       "frontierGroup": "external-provider",
       "lane": "environment-provider",
       "disposition": "external",
@@ -236,7 +442,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -255,7 +463,47 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "phase8-release-readiness-convergence",
@@ -271,7 +519,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -290,7 +540,47 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "phase8-release-readiness-convergence",
@@ -307,7 +597,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image; requires an attached interactive desktop or physical display configuration",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -326,7 +618,47 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
@@ -342,7 +674,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -361,12 +695,52 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.3",
-      "description": "Build unattended-install config (`autounattend.xml`); create temp automation account; enable WinRM (HTTPS or credential-secured) or another secure channel — REQUIRED-BUT-UNAVAILABLE: no Windows guest can be provisioned (no install media / clean template). The autounattend authoring + account + WinRM channel are part of the guest provisioning flow that cannot run without a rightful guest.",
+      "description": "Build unattended-install config (`autounattend.xml`); create temp automation account; enable WinRM (HTTPS or credential-secured) or another secure channel \u00e2\u20ac\u201d REQUIRED-BUT-UNAVAILABLE: no Windows guest can be provisioned (no install media / clean template). The autounattend authoring + account + WinRM channel are part of the guest provisioning flow that cannot run without a rightful guest.",
       "frontierGroup": "external-provider",
       "lane": "environment-provider",
       "disposition": "external",
@@ -377,7 +751,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -396,12 +772,52 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.4",
-      "description": "Install VS Build Tools + Windows SDK + pwsh prerequisites in the guest; create a clean reference snapshot — REQUIRED-BUT-UNAVAILABLE: no guest to install into or snapshot.",
+      "description": "Install VS Build Tools + Windows SDK + pwsh prerequisites in the guest; create a clean reference snapshot \u00e2\u20ac\u201d REQUIRED-BUT-UNAVAILABLE: no guest to install into or snapshot.",
       "frontierGroup": "external-provider",
       "lane": "environment-provider",
       "disposition": "external",
@@ -412,7 +828,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -431,12 +849,52 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "zero-touch-autonomous-engineering",
       "taskId": "6.6",
-      "description": "Validate the same capability runs unchanged across `local` and the disposable VM; collect logs/artifacts back to the run tree — provider plumbing demonstrated (test-code-signing runs under both `-Provider local` and `-Provider hyperv`, exit 0), but the VM-gated execution against a real disposable guest is REQUIRED-BUT-UNAVAILABLE (no guest can be provisioned). Cross-provider runtime equivalence on a live guest cannot be validated until media is supplied.",
+      "description": "Validate the same capability runs unchanged across `local` and the disposable VM; collect logs/artifacts back to the run tree \u00e2\u20ac\u201d provider plumbing demonstrated (test-code-signing runs under both `-Provider local` and `-Provider hyperv`, exit 0), but the VM-gated execution against a real disposable guest is REQUIRED-BUT-UNAVAILABLE (no guest can be provisioned). Cross-provider runtime equivalence on a live guest cannot be validated until media is supplied.",
       "frontierGroup": "external-provider",
       "lane": "environment-provider",
       "disposition": "external",
@@ -447,7 +905,9 @@
       "reason": "requires an isolated/provider execution target or lawful source image",
       "nextAction": "Supply a lawful Windows guest/template and run the provider preflight before the task capability.",
       "requiredCapabilities": [
-        "external-environment-provider"
+        "hyperv-provision",
+        "guest-execution",
+        "provider-rollback"
       ],
       "requiredCredentials": [
         "provider-api-key-or-guest-credentials"
@@ -466,7 +926,47 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-EnvironmentProviderCertification.ps1 -Provider hyperv",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "environment-provider",
+      "executionMode": "provider-execution",
+      "scenarioIds": [
+        "hyperv-lifecycle"
+      ],
+      "requiredDimensions": [
+        "provider:hyperv"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "provision",
+        "activate",
+        "wait-ready",
+        "guest-channel",
+        "transfer-payload",
+        "execute-payload",
+        "collect-results",
+        "provenance-verified",
+        "rollback",
+        "cleanup",
+        "residue-check"
+      ],
+      "requiredArtifacts": [
+        "provider-result-json",
+        "guest-logs",
+        "structured-results",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "provider-vms",
+        "checkpoints",
+        "guest-sessions",
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with EXECUTE_PAYLOAD provenance-verified and cleanup clean",
+      "operatorInputs": [
+        "lawful-windows-guest-image"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -483,7 +983,7 @@
       "reason": "requires authorized production signing or trust evidence; requires an attached interactive desktop or physical display configuration",
       "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
       "requiredCapabilities": [
-        "production-signing-verification"
+        "production-signing"
       ],
       "requiredCredentials": [
         "authorized-code-signing-certificate-or-signed-candidate"
@@ -503,7 +1003,34 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "production-signing",
+      "executionMode": "signing-verification",
+      "scenarioIds": [],
+      "requiredDimensions": [],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "candidate-identity",
+        "authenticode-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "timestamp-valid",
+        "unsigned-candidate-rejected"
+      ],
+      "requiredArtifacts": [
+        "signing-result-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with pin match and chain valid",
+      "operatorInputs": [
+        "authorized-code-signing-certificate-or-signed-candidate",
+        "expected-signer-thumbprint"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -520,7 +1047,7 @@
       "reason": "requires authorized production signing or trust evidence; requires an elevated or privileged validation context",
       "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
       "requiredCapabilities": [
-        "production-signing-verification"
+        "production-signing"
       ],
       "requiredCredentials": [
         "authorized-code-signing-certificate-or-signed-candidate"
@@ -540,7 +1067,34 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "production-signing",
+      "executionMode": "signing-verification",
+      "scenarioIds": [],
+      "requiredDimensions": [],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "candidate-identity",
+        "authenticode-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "timestamp-valid",
+        "unsigned-candidate-rejected"
+      ],
+      "requiredArtifacts": [
+        "signing-result-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with pin match and chain valid",
+      "operatorInputs": [
+        "authorized-code-signing-certificate-or-signed-candidate",
+        "expected-signer-thumbprint"
+      ]
     },
     {
       "change": "phase8-release-readiness-convergence",
@@ -558,7 +1112,7 @@
       "reason": "requires authorized production signing or trust evidence; requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
       "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
       "requiredCapabilities": [
-        "production-signing-verification"
+        "production-signing"
       ],
       "requiredCredentials": [
         "authorized-code-signing-certificate-or-signed-candidate"
@@ -578,7 +1132,34 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "production-signing",
+      "executionMode": "signing-verification",
+      "scenarioIds": [],
+      "requiredDimensions": [],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "candidate-identity",
+        "authenticode-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "timestamp-valid",
+        "unsigned-candidate-rejected"
+      ],
+      "requiredArtifacts": [
+        "signing-result-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with pin match and chain valid",
+      "operatorInputs": [
+        "authorized-code-signing-certificate-or-signed-candidate",
+        "expected-signer-thumbprint"
+      ]
     },
     {
       "change": "ship-ready-ui-ux-hardening-convergence",
@@ -598,7 +1179,7 @@
       "reason": "requires authorized production signing or trust evidence; requires an isolated/provider execution target or lawful source image; requires an uncontaminated supported Windows host; requires an attached interactive desktop or physical display configuration; requires an elevated or privileged validation context",
       "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
       "requiredCapabilities": [
-        "production-signing-verification"
+        "production-signing"
       ],
       "requiredCredentials": [
         "authorized-code-signing-certificate-or-signed-candidate"
@@ -618,7 +1199,34 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "production-signing",
+      "executionMode": "signing-verification",
+      "scenarioIds": [],
+      "requiredDimensions": [],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "candidate-identity",
+        "authenticode-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "timestamp-valid",
+        "unsigned-candidate-rejected"
+      ],
+      "requiredArtifacts": [
+        "signing-result-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with pin match and chain valid",
+      "operatorInputs": [
+        "authorized-code-signing-certificate-or-signed-candidate",
+        "expected-signer-thumbprint"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -634,7 +1242,9 @@
       "reason": "requires an elevated or privileged validation context",
       "nextAction": "Run the documented command with explicit elevation on a disposable or authorized host.",
       "requiredCapabilities": [
-        "privileged-ntfs-mft-usn-access"
+        "raw-volume-read",
+        "mft-ground-truth",
+        "usn-ground-truth"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -654,7 +1264,41 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "privileged-ntfs",
+      "executionMode": "ntfs-ground-truth",
+      "scenarioIds": [],
+      "requiredDimensions": [
+        "volume:C"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "elevation",
+        "volume-identity",
+        "filesystem-ntfs",
+        "raw-handle-read-only",
+        "mft-fixture-field-match",
+        "usn-fixture-field-match",
+        "handles-closed",
+        "no-raw-writes",
+        "fixture-cleanup"
+      ],
+      "requiredArtifacts": [
+        "ntfs-result-json",
+        "fixture-provenance",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "fixtures",
+        "file-handles",
+        "temporary-directories"
+      ],
+      "successPredicate": "laneStatus==PASS with per-field fixture comparison match",
+      "operatorInputs": [
+        "elevation",
+        "campaign-fixture-directory"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -670,7 +1314,7 @@
       "reason": "requires an elevated or privileged validation context",
       "nextAction": "Run the documented command with explicit elevation on a disposable or authorized host.",
       "requiredCapabilities": [
-        "privileged-ntfs-mft-usn-access"
+        "raw-volume-read"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -690,7 +1334,37 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot C: -DiagnosticFixtureDirectory <dir>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "privileged-ntfs",
+      "executionMode": "ntfs-ground-truth",
+      "scenarioIds": [],
+      "requiredDimensions": [
+        "volume:C"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "elevation",
+        "privilege-diagnostics",
+        "raw-handle-read-only",
+        "handles-closed",
+        "fixture-cleanup"
+      ],
+      "requiredArtifacts": [
+        "ntfs-result-json",
+        "fixture-provenance",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "fixtures",
+        "file-handles",
+        "temporary-directories"
+      ],
+      "successPredicate": "laneStatus==PASS with per-field fixture comparison match",
+      "operatorInputs": [
+        "elevation",
+        "campaign-fixture-directory"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -707,7 +1381,9 @@
       "reason": "requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
       "nextAction": "Run on a clean supported Windows host and attach the task-specific evidence.",
       "requiredCapabilities": [
-        "clean-host-installation-runtime"
+        "clean-install",
+        "installed-runtime",
+        "uninstall-cleanup"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -722,9 +1398,47 @@
         "clean-install-and-run",
         "clean-uninstall-and-zero-residue"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
-      "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -InstallCandidate -CandidatePath <path-to-candidate>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "clean-host",
+      "executionMode": "install-certification",
+      "scenarioIds": [],
+      "requiredDimensions": [
+        "host:clean"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "artifact-exists",
+        "hash-captured",
+        "precondition-clean",
+        "invoke-install",
+        "exit-status-zero",
+        "files-created",
+        "launch-from-installed-location",
+        "readiness",
+        "smoke",
+        "graceful-shutdown",
+        "orphan-census-clean",
+        "uninstall-performed",
+        "residue-clean"
+      ],
+      "requiredArtifacts": [
+        "clean-host-result-json",
+        "installed-binary-hash",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "installed-state",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with all legs PASS and cleanup clean",
+      "operatorInputs": [
+        "installable-candidate",
+        "elevation-where-required"
+      ]
     },
     {
       "change": "runtime-certification-and-verifier-convergence",
@@ -742,7 +1456,9 @@
       "reason": "requires an uncontaminated supported Windows host; requires an attached interactive desktop or physical display configuration; requires an elevated or privileged validation context",
       "nextAction": "Run on a clean supported Windows host and attach the task-specific evidence.",
       "requiredCapabilities": [
-        "clean-host-installation-runtime"
+        "clean-install",
+        "installed-runtime",
+        "uninstall-cleanup"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -757,9 +1473,47 @@
         "clean-install-and-run",
         "clean-uninstall-and-zero-residue"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
-      "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -InstallCandidate -CandidatePath <path-to-candidate>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "clean-host",
+      "executionMode": "install-certification",
+      "scenarioIds": [],
+      "requiredDimensions": [
+        "host:clean"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "artifact-exists",
+        "hash-captured",
+        "precondition-clean",
+        "invoke-install",
+        "exit-status-zero",
+        "files-created",
+        "launch-from-installed-location",
+        "readiness",
+        "smoke",
+        "graceful-shutdown",
+        "orphan-census-clean",
+        "uninstall-performed",
+        "residue-clean"
+      ],
+      "requiredArtifacts": [
+        "clean-host-result-json",
+        "installed-binary-hash",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "installed-state",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with all legs PASS and cleanup clean",
+      "operatorInputs": [
+        "installable-candidate",
+        "elevation-where-required"
+      ]
     },
     {
       "change": "close-independent-validation-gaps",
@@ -777,7 +1531,7 @@
       "reason": "requires authorized production signing or trust evidence; locally actionable unless evidence proves otherwise; requires an attached interactive desktop or physical display configuration",
       "nextAction": "Supply authorized signer/pins, then run the task-specific release validation command.",
       "requiredCapabilities": [
-        "production-signing-verification"
+        "production-signing"
       ],
       "requiredCredentials": [
         "authorized-code-signing-certificate-or-signed-candidate"
@@ -797,7 +1551,34 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-SigningCertification.ps1 -CandidatePath <path-to-candidate> -SignerThumbprint <thumbprint>",
       "requiresOperatorInput": true,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "production-signing",
+      "executionMode": "signing-verification",
+      "scenarioIds": [],
+      "requiredDimensions": [],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "candidate-identity",
+        "authenticode-valid",
+        "chain-valid",
+        "signer-pin-match",
+        "timestamp-valid",
+        "unsigned-candidate-rejected"
+      ],
+      "requiredArtifacts": [
+        "signing-result-json",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with pin match and chain valid",
+      "operatorInputs": [
+        "authorized-code-signing-certificate-or-signed-candidate",
+        "expected-signer-thumbprint"
+      ]
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
@@ -814,42 +1595,9 @@
       "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise",
       "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
       "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
-      ],
-      "requiredCredentials": [],
-      "requiredPrivileges": [
-        "none"
-      ],
-      "requiredHostProperties": [
-        "interactive-desktop",
-        "supported-dpi-100-or-150",
-        "supported-theme-and-contrast"
-      ],
-      "evidenceRequirements": [
-        "interactive-session-detected",
-        "zero-failure-across-iterations",
-        "timing-and-stability-metrics"
-      ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario core-smoke -Iterations 25",
-      "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
-    },
-    {
-      "change": "completion-integrity-hardening-and-release-certification",
-      "taskId": "4.5.2",
-      "description": "Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states.",
-      "frontierGroup": "physical-environment",
-      "lane": "interactive-uia",
-      "disposition": "mixed",
-      "categories": [
-        "interactive",
-        "local"
-      ],
-      "status": "BLOCKED_ENVIRONMENT",
-      "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise",
-      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
-      "requiredCapabilities": [
-        "interactive-desktop-display-matrix"
+        "uia-core-smoke",
+        "uia-keyboard-navigation",
+        "dual-pane"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -867,7 +1615,100 @@
       ],
       "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
       "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/long-run-result.schema.json"
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "rapid-input"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "home-activation",
+        "address-bar-navigate",
+        "dual-pane-enable-2-panes",
+        "single-pane-restore",
+        "search-filters-disclosure-contents"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "iteration-ledger",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with zero failed assertions",
+      "operatorInputs": []
+    },
+    {
+      "change": "completion-integrity-hardening-and-release-certification",
+      "taskId": "4.5.2",
+      "description": "Exercise keyboard-only and UIA semantics, focus/tab order, selection identity, dynamic events, narrow/wide layouts, long names, Unicode, empty directories/searches, error/disabled states.",
+      "frontierGroup": "physical-environment",
+      "lane": "interactive-uia",
+      "disposition": "mixed",
+      "categories": [
+        "interactive",
+        "local"
+      ],
+      "status": "BLOCKED_ENVIRONMENT",
+      "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise",
+      "nextAction": "Run the semantic UIA/visual command in the required interactive desktop configuration.",
+      "requiredCapabilities": [
+        "uia-core-smoke",
+        "uia-keyboard-navigation"
+      ],
+      "requiredCredentials": [],
+      "requiredPrivileges": [
+        "none"
+      ],
+      "requiredHostProperties": [
+        "interactive-desktop",
+        "supported-dpi-100-or-150",
+        "supported-theme-and-contrast"
+      ],
+      "evidenceRequirements": [
+        "interactive-session-detected",
+        "zero-failure-across-iterations",
+        "timing-and-stability-metrics"
+      ],
+      "executionCommand": "pwsh -File verify/certification/Invoke-UiaLongRunCertification.ps1 -Scenario rapid-input -Iterations 25",
+      "requiresOperatorInput": false,
+      "resultSchema": "verify/certification/schemas/long-run-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "interactive-uia",
+      "executionMode": "uia-scenario",
+      "scenarioIds": [
+        "rapid-input"
+      ],
+      "requiredDimensions": [],
+      "minimumIterations": 25,
+      "requiredAssertions": [
+        "command-palette-open-close",
+        "dual-pane-enable-2-panes",
+        "search-filters-disclosure-contents",
+        "focus-restoration"
+      ],
+      "requiredArtifacts": [
+        "long-run-json",
+        "iteration-ledger",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "campaign-processes",
+        "temporary-directories",
+        "provider-vms",
+        "fixtures",
+        "file-handles"
+      ],
+      "successPredicate": "disposition==PASS with zero failed assertions",
+      "operatorInputs": []
     },
     {
       "change": "completion-integrity-hardening-and-release-certification",
@@ -886,7 +1727,9 @@
       "reason": "requires an attached interactive desktop or physical display configuration; locally actionable unless evidence proves otherwise; requires an uncontaminated supported Windows host; requires an elevated or privileged validation context",
       "nextAction": "Run the clean-host certification package in audit or live mode on an uncontaminated host.",
       "requiredCapabilities": [
-        "clean-host-installation-runtime"
+        "clean-install",
+        "installed-runtime",
+        "uninstall-cleanup"
       ],
       "requiredCredentials": [],
       "requiredPrivileges": [
@@ -901,9 +1744,47 @@
         "clean-install-and-run",
         "clean-uninstall-and-zero-residue"
       ],
-      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -AuditOnly",
-      "requiresOperatorInput": false,
-      "resultSchema": "verify/certification/schemas/certification-result.schema.json"
+      "executionCommand": "pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 -InstallCandidate -CandidatePath <path-to-candidate>",
+      "requiresOperatorInput": true,
+      "resultSchema": "verify/certification/schemas/certification-result.schema.json",
+      "readiness": "READY_EXTERNAL",
+      "certificationLane": "clean-host",
+      "executionMode": "install-certification",
+      "scenarioIds": [],
+      "requiredDimensions": [
+        "host:clean"
+      ],
+      "minimumIterations": 0,
+      "requiredAssertions": [
+        "artifact-exists",
+        "hash-captured",
+        "precondition-clean",
+        "invoke-install",
+        "exit-status-zero",
+        "files-created",
+        "launch-from-installed-location",
+        "readiness",
+        "smoke",
+        "graceful-shutdown",
+        "orphan-census-clean",
+        "uninstall-performed",
+        "residue-clean"
+      ],
+      "requiredArtifacts": [
+        "clean-host-result-json",
+        "installed-binary-hash",
+        "sidecar-sha256"
+      ],
+      "cleanupRequirements": [
+        "temporary-directories",
+        "installed-state",
+        "file-handles"
+      ],
+      "successPredicate": "laneStatus==PASS with all legs PASS and cleanup clean",
+      "operatorInputs": [
+        "installable-candidate",
+        "elevation-where-required"
+      ]
     }
   ]
 }

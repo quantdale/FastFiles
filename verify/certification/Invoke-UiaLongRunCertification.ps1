@@ -6,9 +6,26 @@ param(
     [int] $Iterations = 0,
 
     [int] $TimeoutSecondsPerIteration = 60,
-
     [ValidateSet('debug', 'release-test')]
     [string] $Preset = 'debug',
+
+    [ValidateSet('Light', 'Dark')]
+    [string[]] $Theme = @(),
+
+    [ValidateSet(100, 125, 150, 200)]
+    [int[]] $DpiPercent = @(),
+
+    [ValidateSet('Normal', 'HighContrast')]
+    [string[]] $Contrast = @(),
+
+    [ValidateSet('Narrow', 'Normal', 'Wide')]
+    [string[]] $Viewport = @(),
+
+    [ValidateSet('Single', 'Dual')]
+    [string[]] $PaneTopology = @(),
+
+    [ValidateSet('Closed', 'Open')]
+    [string[]] $DetailsPane = @(),
 
     [string] $OutputPath,
 
@@ -122,6 +139,153 @@ $testCategory = switch ($Scenario) {
     Default                { 'uia' }
 }
 
+#region Display-matrix requested-vs-observed evaluation (campaign section 14)
+# Requested dimensions are NEVER assumed realized. Each requested value is
+# compared against the observed host state; mismatches or unobservable host
+# state classify the permutation unrealized (honest BLOCKED, never PASS).
+function Get-UiaObservedDisplayState {
+    $theme = 'Unknown'
+    try {
+        $key = Get-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' -Name 'AppsUseLightTheme' -ErrorAction Stop
+        $theme = if ([int]$key.AppsUseLightTheme -eq 0) { 'Dark' } else { 'Light' }
+    } catch { $theme = 'Unknown' }
+
+    $dpiPercent = $null
+    $contrast = 'Unknown'
+    $viewport = 'Unknown'
+    try {
+        if (-not ([System.Management.Automation.PSTypeName]'FastFiles.UiaDisplayProbe').Type) {
+            Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+namespace FastFiles {
+    public static class UiaDisplayProbe {
+        [DllImport("user32.dll")]
+        public static extern uint GetDpiForSystem();
+        [DllImport("user32.dll")]
+        public static extern int GetSystemMetrics(int nIndex);
+        [DllImport("user32.dll")]
+        public static extern bool SystemParametersInfo(int uiAction, int uiParam, ref HighContrastFlags pvParam, int fWinIni);
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HighContrastFlags {
+            public int cbSize;
+            public int dwFlags;
+        }
+    }
+}
+"@
+        }
+        try {
+            $sysDpi = [FastFiles.UiaDisplayProbe]::GetDpiForSystem()
+            if ($sysDpi -gt 0) { $dpiPercent = [int][Math]::Round($sysDpi / 96.0 * 100.0) }
+        } catch { $dpiPercent = $null }
+        try {
+            $hc = New-Object FastFiles.UiaDisplayProbe+HighContrastFlags
+            $hc.cbSize = [System.Runtime.InteropServices.Marshal]::SizeOf($hc)
+            if ([FastFiles.UiaDisplayProbe]::SystemParametersInfo(0x0042, $hc.cbSize, [ref]$hc, 0)) {
+                $contrast = if (($hc.dwFlags -band 1) -ne 0) { 'HighContrast' } else { 'Normal' }
+            }
+        } catch { $contrast = 'Unknown' }
+        try {
+            $cx = [FastFiles.UiaDisplayProbe]::GetSystemMetrics(0)
+            if ($cx -le 0) { $viewport = 'Unknown' }
+            elseif ($cx -lt 1100) { $viewport = 'Narrow' }
+            elseif ($cx -lt 1700) { $viewport = 'Normal' }
+            else { $viewport = 'Wide' }
+        } catch { $viewport = 'Unknown' }
+    } catch { }
+    return [ordered]@{
+        Theme = $theme
+        DpiPercent = $dpiPercent
+        Contrast = $contrast
+        Viewport = $viewport
+        PaneTopology = 'Unmeasured'
+        DetailsPane = 'Unmeasured'
+    }
+}
+
+$observedDisplay = Get-UiaObservedDisplayState
+$matrixDims = [ordered]@{}
+if (@($Theme).Count -gt 0) { $matrixDims['Theme'] = @($Theme) }
+if (@($DpiPercent).Count -gt 0) { $matrixDims['DpiPercent'] = @($DpiPercent) }
+if (@($Contrast).Count -gt 0) { $matrixDims['Contrast'] = @($Contrast) }
+if (@($Viewport).Count -gt 0) { $matrixDims['Viewport'] = @($Viewport) }
+if (@($PaneTopology).Count -gt 0) { $matrixDims['PaneTopology'] = @($PaneTopology) }
+if (@($DetailsPane).Count -gt 0) { $matrixDims['DetailsPane'] = @($DetailsPane) }
+
+$displayMatrix = @()
+$unrealizedDims = @()
+if ($matrixDims.Count -eq 0) {
+    $displayMatrix += [pscustomobject]@{
+        requested = [pscustomobject]@{}
+        observed = [pscustomobject]$observedDisplay
+        realized = $true
+        unrealizedFields = @()
+    }
+} else {
+    $combos = @(@{})
+    foreach ($dimName in @($matrixDims.Keys)) {
+        $nextCombos = @()
+        foreach ($combo in $combos) {
+            foreach ($dimVal in @($matrixDims[$dimName])) {
+                $clone = $combo.Clone()
+                $clone[$dimName] = $dimVal
+                $nextCombos += $clone
+            }
+        }
+        $combos = $nextCombos
+    }
+    foreach ($combo in $combos) {
+        $unreal = @()
+        foreach ($dimKey in @($combo.Keys)) {
+            $obs = $observedDisplay[$dimKey]
+            $req = $combo[$dimKey]
+            if (($null -eq $obs) -or ($obs -eq 'Unknown') -or ($obs -eq 'Unmeasured')) {
+                $unreal += "$dimKey(requested=$req,observed=$obs)"
+            } elseif ("$obs" -ne "$req") {
+                $unreal += "$dimKey(requested=$req,observed=$obs)"
+            }
+        }
+        $isRealized = ($unreal.Count -eq 0)
+        $displayMatrix += [pscustomobject]@{
+            requested = [pscustomobject]$combo
+            observed = [pscustomobject]$observedDisplay
+            realized = $isRealized
+            unrealizedFields = @($unreal)
+        }
+        foreach ($u in $unreal) { if ($unrealizedDims -notcontains $u) { $unrealizedDims += $u } }
+    }
+}
+
+# Capability advertisement: scenario-proven base plus matrix dimensions that
+# were requested AND realized. Unrealized or unrequested dims advertise nothing.
+# details-pane and storage-parent-percent are NEVER advertised: no scenario in
+# this runner asserts details-pane contents or %ofParent sums (tracked gap).
+$scenarioCaps = switch ($Scenario) {
+    'rapid-input' { @('uia-core-smoke', 'uia-keyboard-navigation', 'dual-pane') }
+    'core-smoke' { @('uia-core-smoke', 'uia-keyboard-navigation', 'dual-pane') }
+    default { @() }
+}
+$matrixCaps = @()
+foreach ($perm in $displayMatrix) {
+    if (-not $perm.realized) { continue }
+    foreach ($prop in @($perm.requested.PSObject.Properties)) {
+        $matrixCaps += switch ("$($prop.Name)=$($prop.Value)") {
+            'Theme=Light' { 'visual-light-theme' }
+            'Theme=Dark' { 'visual-dark-theme' }
+            'DpiPercent=100' { 'dpi-100' }
+            'DpiPercent=150' { 'dpi-150' }
+            'Contrast=HighContrast' { 'high-contrast' }
+            'Viewport=Narrow' { 'window-narrow' }
+            'Viewport=Wide' { 'window-wide' }
+            'PaneTopology=Dual' { if ($Scenario -ne 'application-lifecycle') { 'dual-pane' } }
+            default { $null }
+        }
+    }
+}
+$runnerCapabilities = @($scenarioCaps + @($matrixCaps | Where-Object { $_ }) | Select-Object -Unique)
+#endregion
+
 $startUtc = [DateTime]::UtcNow
 $durations = [System.Collections.Generic.List[double]]::new()
 $passedCount = 0
@@ -129,6 +293,21 @@ $failedCount = 0
 $timeoutCount = 0
 $skippedCount = 0
 $firstFailure = $null
+# Execution-proof tracking (populated by scenario branches; defaults keep the
+# artifact contract complete when a branch never instruments them).
+$cleanupResult = [ordered]@{
+    pass = $true
+    status = 'PASS'
+    method = 'none-required'
+    residue = @()
+    orphanCount = 0
+    orphanPids = @()
+}
+$iterationLedger = [System.Collections.Generic.List[object]]::new()
+$totalAssertions = 0
+$totalFailedAssertions = 0
+$phaseDurations = [ordered]@{}
+$semanticPostconditions = [ordered]@{}
 
 Write-Host "Starting UIA long-run certification: scenario='$Scenario', iterations=$Iterations, preset=$Preset"
 Write-Host "Git: head=$headSha, tree=$treeSha, exactTreeBound=$exactTreeBound"
@@ -172,6 +351,17 @@ if (-not $isInteractive) {
             stderrTail = ""
         }
         artifactHashes = [ordered]@{}
+        displayMatrix = @($displayMatrix)
+        unrealizedDimensions = @($unrealizedDims)
+        capabilities = @()
+        cleanup = [ordered]@{
+            pass = $true
+            status = 'PASS'
+            method = 'not-executed-blocked-environment'
+            residue = @()
+            orphanCount = 0
+            orphanPids = @()
+        }
         disposition = 'BLOCKED_ENVIRONMENT'
     }
     $jsonText = $resultObject | ConvertTo-Json -Depth 10
@@ -275,9 +465,16 @@ if ($Scenario -eq 'application-lifecycle') {
         }
     }
 } elseif ($Scenario -eq 'rapid-input') {
-    # Launch persistent scenario context for rapid input transitions
+    # Launch persistent scenario context for rapid input transitions.
+    # Every transition ends in an explicit semantic postcondition with counted
+    # assertions: open is proved by element appearance, close is proved by
+    # element disappearance/restoration. A sent keystroke alone is never
+    # recorded as proof. Any failed assertion fails the iteration.
     $quietLog = { param($m) }
     $ctx = $null
+    $rapidSetupSw = [System.Diagnostics.Stopwatch]::StartNew()
+    $rapidSetupMs = 0.0
+    $rapidTeardownMs = 0.0
     try {
         $ctx = New-UiaScenarioContext -Exe $targetExe -RepoRoot $RepoRoot -ScenarioId 'rapid-input' -LogFn $quietLog
         if (-not $ctx -or -not $ctx.Main) { throw "Main window did not appear for rapid input scenario" }
@@ -289,50 +486,188 @@ if ($Scenario -eq 'application-lifecycle') {
         Invoke-UiaActivateAppWindow -Driver $driver -Main $main
         $null = Keep-UiaWindowTopmost -Driver $driver -Element $main -Topmost $true
         $null = Wait-UiaStableGeometry -Driver $driver -Element $main -TimeoutMs 5000
+        $rapidSetupSw.Stop()
+        $rapidSetupMs = [Math]::Round($rapidSetupSw.Elapsed.TotalMilliseconds, 2)
 
         for ($i = 1; $i -le $Iterations; $i++) {
             $iterSw = [System.Diagnostics.Stopwatch]::StartNew()
             $iterError = $null
+            $iterAssertions = 0
+            $iterFailed = 0
+            $iterPhaseMs = [ordered]@{}
+            $iterChecks = [ordered]@{}
 
             try {
-                # Transition 1: Command palette open -> check visible -> close
+                # Transition 1: command palette open (proved) -> close (proved)
+                $tSw = [System.Diagnostics.Stopwatch]::StartNew()
                 $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
-                $paletteEl = $false
-                $palSw = [Diagnostics.Stopwatch]::StartNew()
-                while (-not $paletteEl -and $palSw.ElapsedMilliseconds -lt 2500) {
-                    try { $null = Find-UiaElement -Driver $driver -AutomationId '6301' -FromElement $main -TimeoutMs 300; $paletteEl = $true } catch { }
+                $paletteEl = Wait-UiaElement -Driver $driver -AutomationId '6301' -FromElement $main -TimeoutMs 2500
+                $iterAssertions++
+                if ($null -eq $paletteEl) {
+                    $iterFailed++
+                    $iterChecks['palette-opened'] = 'FAIL: command palette edit 6301 did not appear after Ctrl+Shift+P'
+                    throw "Command palette edit 6301 not visible after Ctrl+Shift+P"
                 }
-                if (-not $paletteEl) { throw "Command palette edit 6301 not visible after Ctrl+Shift+P" }
-
+                $iterChecks['palette-opened'] = 'PASS: command palette edit 6301 appeared after Ctrl+Shift+P'
                 $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
-                Start-Sleep -Milliseconds 100
+                $paletteGone = Wait-UiaElementGone -Driver $driver -AutomationId '6301' -FromElement $main -TimeoutMs 3000
+                $iterAssertions++
+                if (-not $paletteGone) {
+                    $iterFailed++
+                    $iterChecks['palette-closed'] = 'FAIL: command palette edit 6301 still present after Escape; close not verified'
+                    throw "Command palette edit 6301 still present after Escape; close not verified"
+                }
+                $iterChecks['palette-closed'] = 'PASS: command palette edit 6301 disappeared after Escape'
+                $tSw.Stop()
+                $iterPhaseMs['command-palette-ms'] = [Math]::Round($tSw.Elapsed.TotalMilliseconds, 2)
 
-                # Transition 2: Dual pane toggle -> verify Pane.1 -> toggle back
+                # Transition 2: dual pane enable (proved 2 panes) -> disable (proved 1 pane)
+                $tSw = [System.Diagnostics.Stopwatch]::StartNew()
                 $dualResult = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
-                if (-not $dualResult.Pass) { throw "Dual pane command failed: $($dualResult.Detail)" }
+                $iterAssertions++
+                if (-not $dualResult.Pass) {
+                    $iterFailed++
+                    $iterChecks['dual-pane-command'] = "FAIL: dual pane enable command failed: $($dualResult.Detail)"
+                    throw "Dual pane command failed: $($dualResult.Detail)"
+                }
+                $iterChecks['dual-pane-command'] = 'PASS: Toggle Dual Pane enable command dispatched'
+                $pane0On = $false
+                $pane1On = $false
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 2000; $pane0On = $true } catch { }
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 2000; $pane1On = $true } catch { }
+                $enabledPaneCount = 0
+                if ($pane0On) { $enabledPaneCount++ }
+                if ($pane1On) { $enabledPaneCount++ }
+                $iterAssertions++
+                if (($enabledPaneCount -ne 2) -or (-not $pane0On) -or (-not $pane1On)) {
+                    $iterFailed++
+                    $iterChecks['dual-pane-enabled'] = "FAIL: dual-pane enable postcondition not met: pane count=$enabledPaneCount (expected 2), Pane.0 present=$pane0On, Pane.1 present=$pane1On"
+                    throw "Dual-pane enable postcondition failed: pane count=$enabledPaneCount (expected 2), Pane.0 present=$pane0On, Pane.1 present=$pane1On"
+                }
+                $iterChecks['dual-pane-enabled'] = 'PASS: pane count=2 with Pane.0 and Pane.1 both present after enable'
+                $dualOffResult = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+                $iterAssertions++
+                if (-not $dualOffResult.Pass) {
+                    $iterFailed++
+                    $iterChecks['single-pane-command'] = "FAIL: dual pane disable command failed: $($dualOffResult.Detail)"
+                    throw "Dual pane disable command failed: $($dualOffResult.Detail)"
+                }
+                $iterChecks['single-pane-command'] = 'PASS: Toggle Dual Pane disable command dispatched'
+                $pane0Back = $false
+                $pane1StillThere = $true
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $main -TimeoutMs 2000; $pane0Back = $true } catch { }
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $main -TimeoutMs 800; $pane1StillThere = $true } catch { $pane1StillThere = $false }
+                $iterAssertions++
+                if ((-not $pane0Back) -or ($pane1StillThere)) {
+                    $iterFailed++
+                    $iterChecks['single-pane-restored'] = "FAIL: single-pane restoration postcondition not met: Pane.0 present=$pane0Back (expected True), Pane.1 present=$pane1StillThere (expected False)"
+                    throw "Single-pane restoration failed: Pane.0 present=$pane0Back (expected True), Pane.1 present=$pane1StillThere (expected False)"
+                }
+                $iterChecks['single-pane-restored'] = 'PASS: pane count=1 with Pane.0 present and Pane.1 absent after disable'
+                $tSw.Stop()
+                $iterPhaseMs['dual-pane-ms'] = [Math]::Round($tSw.Elapsed.TotalMilliseconds, 2)
 
-                # Toggle back to single pane
-                $null = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
-
-                # Transition 3: Search panel focus -> close
+                # Transition 3: Search opened (proved) -> Filters disclosure (proved) -> closed (proved)
+                $tSw = [System.Diagnostics.Stopwatch]::StartNew()
                 $searchResult = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'search' -ExpectedNames @('Filters') -ExpectedCommandName 'Search' -ExpectedCommandId 'search.focus'
-                $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
+                $iterAssertions++
+                if (-not $searchResult.Pass) {
+                    $iterFailed++
+                    $iterChecks['search-opened'] = "FAIL: Search did not open via palette: $($searchResult.Detail)"
+                    throw "Search panel did not open via palette: $($searchResult.Detail)"
+                }
+                $searchSurface = $false
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 2000; $searchSurface = $true } catch { }
+                $iterAssertions++
+                if (-not $searchSurface) {
+                    $iterFailed++
+                    $iterChecks['search-opened'] = 'FAIL: Search command dispatched but Search.Results surface did not appear'
+                    throw "Search command dispatched but Search.Results surface did not appear"
+                }
+                $iterChecks['search-opened'] = 'PASS: Search opened via palette with Search.Results surface present'
+                $filtersBtn = $null
+                try { $filtersBtn = Find-UiaElement -Driver $driver -AutomationId 'Search.Filters' -FromElement $main -TimeoutMs 2000 } catch { }
+                if ($null -eq $filtersBtn) {
+                    try { $filtersBtn = Find-UiaElement -Driver $driver -Name 'Filters' -FromElement $main -TimeoutMs 2000 } catch { }
+                }
+                $iterAssertions++
+                if ($null -eq $filtersBtn) {
+                    $iterFailed++
+                    $iterChecks['filters-disclosure'] = "FAIL: 'Filters' disclosure not found after Search opened"
+                    throw "'Filters' disclosure not found after Search opened"
+                }
+                $iterChecks['filters-disclosure'] = "PASS: 'Filters' disclosure located after Search opened"
+                $expandState = ''
+                try {
+                    if (Test-UiaPatternAvailable -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse') {
+                        $expandState = [string](Invoke-UiaPattern -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'GetState')
+                    }
+                } catch { }
+                if ($expandState -ne 'Expanded') {
+                    try {
+                        if (Test-UiaPatternAvailable -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse') {
+                            $null = Invoke-UiaPattern -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'Expand'
+                        } else {
+                            $null = Invoke-UiaElementAction -Driver $driver -Element $filtersBtn -Action 'Click'
+                        }
+                    } catch { }
+                    Start-Sleep -Milliseconds 500
+                }
+                $clearFound = $false
+                $ascFound = $false
+                try { $null = Find-UiaElement -Driver $driver -Name 'Clear history' -FromElement $main -TimeoutMs 1500; $clearFound = $true } catch { }
+                try { $null = Find-UiaElement -Driver $driver -Name 'Ascending' -FromElement $main -TimeoutMs 1500; $ascFound = $true } catch { }
+                $iterAssertions++
+                if ((-not $clearFound) -or (-not $ascFound)) {
+                    $iterFailed++
+                    $iterChecks['filters-contents'] = "FAIL: expanded 'Filters' row missing expected contents: 'Clear history' present=$clearFound, 'Ascending' present=$ascFound"
+                    throw "Expanded 'Filters' row missing expected contents: 'Clear history' present=$clearFound, 'Ascending' present=$ascFound"
+                }
+                $iterChecks['filters-contents'] = "PASS: expanded 'Filters' row exposes 'Clear history' and 'Ascending'"
+                $searchClose = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
+                $searchGone = $false
+                try { $null = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 800 } catch { $searchGone = $true }
+                $iterAssertions++
+                if ((-not $searchClose.Pass) -or (-not $searchGone)) {
+                    $iterFailed++
+                    $iterChecks['search-closed'] = "FAIL: Search panel close not verified: closer Pass=$($searchClose.Pass) ($($searchClose.Detail)), Search.Results absent=$searchGone"
+                    throw "Search panel close not verified: closer Pass=$($searchClose.Pass), Search.Results absent=$searchGone"
+                }
+                $iterChecks['search-closed'] = 'PASS: Search closed with Search.Results absent and no input-blocking popups'
+                $tSw.Stop()
+                $iterPhaseMs['search-filters-ms'] = [Math]::Round($tSw.Elapsed.TotalMilliseconds, 2)
             } catch {
-                $iterError = $_.Exception.Message
+                if ($null -eq $iterError) { $iterError = $_.Exception.Message }
             }
 
             $iterSw.Stop()
             $elapsedMs = [Math]::Round($iterSw.Elapsed.TotalMilliseconds, 2)
             $durations.Add($elapsedMs)
+            $totalAssertions += $iterAssertions
+            $totalFailedAssertions += $iterFailed
 
-            if (-not $iterError) {
+            $ledgerPass = ($null -eq $iterError)
+            $ledgerFailText = ''
+            if (-not $ledgerPass) { $ledgerFailText = $iterError }
+            $iterationLedger.Add([pscustomobject][ordered]@{
+                iteration = $i
+                pass = $ledgerPass
+                assertions = $iterAssertions
+                failedAssertions = $iterFailed
+                durationMs = $elapsedMs
+                failedCheck = $ledgerFailText
+                phases = $iterPhaseMs
+            })
+            $semanticPostconditions = $iterChecks
+
+            if ($ledgerPass) {
                 $passedCount++
                 if ($i % 10 -eq 0 -or $i -eq $Iterations) {
-                    Write-Host "  Iteration $i/$Iterations PASS (${elapsedMs}ms)" -ForegroundColor Green
+                    Write-Host "  Iteration $i/$Iterations PASS (${elapsedMs}ms, ${iterAssertions} assertions)" -ForegroundColor Green
                 }
             } else {
                 $failedCount++
-                Write-Host "  Iteration $i/$Iterations FAIL: $iterError (${elapsedMs}ms)" -ForegroundColor Red
+                Write-Host "  Iteration $i/$Iterations FAIL: $iterError (${elapsedMs}ms, ${iterFailed}/${iterAssertions} assertions failed)" -ForegroundColor Red
                 if ($null -eq $firstFailure) {
                     $firstFailure = [pscustomobject]@{
                         iteration = $i
@@ -340,15 +675,44 @@ if ($Scenario -eq 'application-lifecycle') {
                         exitCode = 0
                         stdoutTail = ""
                         stderrTail = ""
+                        assertions = $iterAssertions
+                        failedAssertions = $iterFailed
                     }
                 }
                 if (-not $ContinueOnFailure) { break }
             }
         }
     } finally {
+        $rapidTeardownSw = [System.Diagnostics.Stopwatch]::StartNew()
         if ($ctx) {
-            $null = Remove-UiaScenarioContext -Context $ctx -LogFn $quietLog
+            $ctxCleanup = Remove-UiaScenarioContext -Context $ctx -LogFn $quietLog
+            $ownedIds = @()
+            try { $ownedIds = @($ctx.OwnedProcesses | ForEach-Object { [int]$_.Id }) } catch { }
+            $liveOrphans = @()
+            foreach ($ownedId in $ownedIds) {
+                if (Get-Process -Id $ownedId -ErrorAction SilentlyContinue) { $liveOrphans += $ownedId }
+            }
+            $cleanupResidue = @()
+            if ($ctxCleanup) { $cleanupResidue = @($ctxCleanup.Residue) }
+            foreach ($orphanId in $liveOrphans) { $cleanupResidue += "orphan-pid=$orphanId" }
+            $cleanupPass = ([bool]$ctxCleanup.Pass) -and ($liveOrphans.Count -eq 0)
+            $cleanupStatus = 'FAIL'
+            if ($cleanupPass) { $cleanupStatus = 'PASS' }
+            $cleanupResult = [ordered]@{
+                pass = $cleanupPass
+                status = $cleanupStatus
+                method = 'Remove-UiaScenarioContext'
+                residue = $cleanupResidue
+                orphanCount = $liveOrphans.Count
+                orphanPids = @($liveOrphans)
+            }
+        } else {
+            $cleanupResult['method'] = 'context-never-established'
         }
+        $rapidTeardownSw.Stop()
+        $rapidTeardownMs = [Math]::Round($rapidTeardownSw.Elapsed.TotalMilliseconds, 2)
+        $phaseDurations['setup-ms'] = $rapidSetupMs
+        $phaseDurations['teardown-ms'] = $rapidTeardownMs
     }
 } elseif ($Scenario -eq 'core-smoke') {
     for ($i = 1; $i -le $Iterations; $i++) {
@@ -394,6 +758,38 @@ if ($failedCount -gt 0) {
     $disposition = 'TIMEOUT'
 } elseif ($passedCount -eq $Iterations) {
     $disposition = 'PASS'
+}
+# Cleanup gate: overall PASS requires a clean cleanup census. A cleanup
+# failure forces FAIL and is never hidden behind iteration counts.
+if (($cleanupResult.pass -ne $true) -and ($disposition -eq 'PASS')) {
+    $disposition = 'FAIL'
+    $cleanupDetail = "Cleanup census failed (method=$($cleanupResult.method), orphans=$($cleanupResult.orphanCount), residue=$($cleanupResult.residue -join ','))"
+    if ($null -eq $firstFailure) {
+        $firstFailure = [pscustomobject]@{
+            iteration = 0
+            error = $cleanupDetail
+            exitCode = $null
+            stdoutTail = ""
+            stderrTail = ""
+        }
+    }
+    Write-Host "  $cleanupDetail" -ForegroundColor Red
+}
+# Requested-but-unrealized display dimensions can never PASS. Requested state
+# was not observed on this host: honest BLOCKED_ENVIRONMENT, never assumed.
+if ((@($unrealizedDims).Count -gt 0) -and ($disposition -eq 'PASS')) {
+    $disposition = 'BLOCKED_ENVIRONMENT'
+    $matrixDetail = "Requested display dimensions not realized on this host: $((@($unrealizedDims)) -join '; ')"
+    if ($null -eq $firstFailure) {
+        $firstFailure = [pscustomobject]@{
+            iteration = 0
+            error = $matrixDetail
+            exitCode = $null
+            stdoutTail = ""
+            stderrTail = ""
+        }
+    }
+    Write-Host "  $matrixDetail" -ForegroundColor Yellow
 }
 
 $artifactHashes = [ordered]@{}
@@ -443,6 +839,18 @@ $resultObject = [ordered]@{
     failed = $failedCount
     timedOut = $timeoutCount
     skipped = $skippedCount
+    totalIterations = $Iterations
+    iterationLedger = @($iterationLedger)
+    phaseDurations = $phaseDurations
+    assertionCounts = [ordered]@{
+        total = $totalAssertions
+        failed = $totalFailedAssertions
+    }
+    semanticPostconditions = $semanticPostconditions
+    displayMatrix = @($displayMatrix)
+    unrealizedDimensions = @($unrealizedDims)
+    capabilities = @($runnerCapabilities)
+    cleanup = $cleanupResult
     minDurationMs = [Math]::Round($minMs, 2)
     medianDurationMs = [Math]::Round($medianMs, 2)
     p95DurationMs = [Math]::Round($p95Ms, 2)

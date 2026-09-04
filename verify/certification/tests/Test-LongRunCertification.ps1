@@ -100,4 +100,66 @@ if (($missingOutput -join ' ') -notmatch 'INVALID_TARGET') {
 }
 Write-Host "    PASS (Zero-test CTest target correctly rejected with INVALID_TARGET)" -ForegroundColor Green
 
+# Test 4: UIA rapid-input semantic assertions present (no PASS without real execution proof)
+Write-Host "  Test 4: UIA rapid-input runner asserts pane/filter/close postconditions..."
+$uiaRunner = Join-Path $RepoRoot 'verify\certification\Invoke-UiaLongRunCertification.ps1'
+if (-not (Test-Path -LiteralPath $uiaRunner)) { throw "UIA runner not found at $uiaRunner" }
+$uiaText = Get-Content -LiteralPath $uiaRunner -Raw
+# Dual-pane toggle must assert both directions with explicit pane identities.
+foreach ($required in @('Pane.1', 'pane count=2', 'Pane.1 absent', 'pane count=1', 'Pane.0 present')) {
+    if ($uiaText -notmatch [regex]::Escape($required)) { throw "UIA runner missing dual-pane semantic assertion: $required" }
+}
+# Search/Filters must assert open, disclosure, contents, and verified close.
+foreach ($required in @('Search.Results', "'Filters' disclosure", "'Clear history'", "'Ascending'", 'close not verified', 'Search.Results absent')) {
+    if ($uiaText -notmatch [regex]::Escape($required)) { throw "UIA runner missing search/filters semantic assertion: $required" }
+}
+# Palette close must be proved by disappearance, never by a sent Escape.
+if ($uiaText -notmatch 'Wait-UiaElementGone') { throw "UIA runner must verify close via Wait-UiaElementGone" }
+if ($uiaText -notmatch 'still present after Escape') { throw "UIA runner must fail the iteration when the palette is still present after Escape" }
+$bareClosed = [regex]::Matches($uiaText, "\['closed'\]\s*=\s*'PASS'")
+if ($bareClosed.Count -gt 0) { throw "Found $($bareClosed.Count) unconditional closed=PASS assignment(s) in UIA runner" }
+Write-Host "    PASS (Pane.1/Filters-disclosure/verified-close assertions present; no bare closed=PASS)" -ForegroundColor Green
+
+# Test 5: UIA artifact carries ledger, phases, assertions, cleanup, and orphan census
+Write-Host "  Test 5: UIA result contract carries execution-proof artifact fields..."
+foreach ($required in @('iterationLedger', 'phaseDurations', 'assertionCounts', 'semanticPostconditions', 'cleanup', 'orphanPids', 'orphanCount', 'sandboxRemoved', 'totalIterations')) {
+    $hit = ($uiaText -match [regex]::Escape($required)) -or ((Join-Path $RepoRoot 'verify\certification\Invoke-ResourceSoak.ps1') | ForEach-Object { (Get-Content -LiteralPath $_ -Raw) -match [regex]::Escape($required) })
+    if (-not $hit) { throw "Neither runner emits artifact field: $required" }
+}
+foreach ($required in @('iterationLedger', 'phaseDurations', 'assertionCounts', 'semanticPostconditions', 'cleanup = $cleanupResult')) {
+    if ($uiaText -notmatch [regex]::Escape($required)) { throw "UIA runner result missing artifact field: $required" }
+}
+# Cleanup failure must force FAIL, never hide behind iteration counts.
+if ($uiaText -notmatch 'Cleanup gate') { throw "UIA runner missing cleanup gate forcing FAIL on cleanup failure" }
+if ($uiaText -notmatch '\$cleanupResult\.pass -ne \$true') { throw "UIA runner cleanup gate must key off the cleanup census" }
+Write-Host "    PASS (Ledger, phases, assertion counts, postconditions, cleanup, and FAIL-gate present)" -ForegroundColor Green
+
+# Test 6: Live UIA rapid-input run proves execution or reports BLOCKED_ENVIRONMENT with cleanup
+Write-Host "  Test 6: Live rapid-input run (1 iteration) yields proof fields or clean BLOCKED_ENVIRONMENT..."
+$test6Json = [IO.Path]::GetTempFileName()
+try {
+    $null = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $uiaRunner `
+        -Scenario rapid-input `
+        -Iterations 1 `
+        -Preset debug `
+        -OutputPath $test6Json `
+        -RepoRoot $RepoRoot
+
+    if (-not (Test-Path -LiteralPath $test6Json)) { throw "UIA runner produced no output JSON" }
+    $json6 = Get-Content -LiteralPath $test6Json -Raw | ConvertFrom-Json
+    if ($null -eq $json6.cleanup) { throw "UIA result JSON must include a cleanup object in every mode" }
+    if ($json6.disposition -eq 'BLOCKED_ENVIRONMENT') {
+        Write-Host "    PASS (Non-interactive host cleanly classified BLOCKED_ENVIRONMENT with cleanup object)" -ForegroundColor Green
+    } else {
+        if ($json6.totalIterations -ne 1) { throw "Expected totalIterations=1, got $($json6.totalIterations)" }
+        if ($null -eq $json6.iterationLedger -or $json6.iterationLedger.Count -lt 1) { throw "Expected a per-iteration ledger entry" }
+        if ($json6.assertionCounts.total -le 0) { throw "Expected counted semantic assertions, got $($json6.assertionCounts.total)" }
+        if ($json6.completedIterations -lt 1) { throw "Expected at least 1 completed iteration" }
+        Write-Host "    PASS (Live run: $($json6.passed) passed / $($json6.failed) failed, $($json6.assertionCounts.total) assertions, cleanup=$($json6.cleanup.status))" -ForegroundColor Green
+    }
+} finally {
+    if (Test-Path -LiteralPath $test6Json) { Remove-Item -LiteralPath $test6Json -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$test6Json.sha256") { Remove-Item -LiteralPath "$test6Json.sha256" -Force -ErrorAction SilentlyContinue }
+}
+
 Write-Host "All Test-LongRunCertification tests PASSED!" -ForegroundColor Green

@@ -11,7 +11,7 @@
   "properties": {
     "schemaVersion": {
       "type": "integer",
-      "enum": [1]
+      "enum": [1, 2]
     },
     "generatedAtUtc": {
       "type": "string",
@@ -42,6 +42,13 @@
             "type": "integer",
             "minimum": 0
           }
+        },
+        "byReadiness": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
         }
       }
     },
@@ -63,13 +70,21 @@
         "disposition",
         "categories",
         "status",
+        "readiness",
         "requiredCapabilities",
         "requiredCredentials",
         "requiredPrivileges",
         "requiredHostProperties",
         "evidenceRequirements",
         "executionCommand",
-        "resultSchema"
+        "resultSchema",
+        "certificationLane",
+        "executionMode",
+        "minimumIterations",
+        "requiredAssertions",
+        "requiredArtifacts",
+        "cleanupRequirements",
+        "successPredicate"
       ],
       "properties": {
         "change": {
@@ -133,8 +148,33 @@
         },
         "requiredCapabilities": {
           "type": "array",
+          "minItems": 1,
           "items": {
-            "type": "string"
+            "type": "string",
+            "enum": [
+              "uia-core-smoke",
+              "uia-keyboard-navigation",
+              "visual-light-theme",
+              "visual-dark-theme",
+              "dpi-100",
+              "dpi-150",
+              "high-contrast",
+              "window-narrow",
+              "window-wide",
+              "dual-pane",
+              "details-pane",
+              "storage-parent-percent",
+              "production-signing",
+              "clean-install",
+              "installed-runtime",
+              "uninstall-cleanup",
+              "raw-volume-read",
+              "mft-ground-truth",
+              "usn-ground-truth",
+              "hyperv-provision",
+              "guest-execution",
+              "provider-rollback"
+            ]
           }
         },
         "requiredCredentials": {
@@ -169,6 +209,50 @@
         },
         "requiresOperatorInput": {
           "type": "boolean"
+        },
+        "readiness": {
+          "type": "string",
+          "enum": ["NOT_IMPLEMENTED", "READY_EXTERNAL", "EXECUTED"]
+        },
+        "implementationGap": {
+          "type": "string"
+        },
+        "certificationLane": {
+          "type": "string"
+        },
+        "executionMode": {
+          "type": "string"
+        },
+        "scenarioIds": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredDimensions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "minimumIterations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "requiredAssertions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requiredArtifacts": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "cleanupRequirements": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "successPredicate": {
+          "type": "string"
+        },
+        "operatorInputs": {
+          "type": "array",
+          "items": { "type": "string" }
         }
       }
     }

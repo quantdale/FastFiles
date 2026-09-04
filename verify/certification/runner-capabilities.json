@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "note": "Maximal capabilities each runner mode can advertise when its execution path actually runs and proves them. Every entry must appear literally in the runner source (inventory Test 5 enforces source grounding). A frontier task may map to a runner mode only if the mode's set covers the task's requiredCapabilities.",
+  "runners": {
+    "Invoke-UiaLongRunCertification.ps1": {
+      "modes": {
+        "core-smoke": ["uia-core-smoke", "uia-keyboard-navigation", "dual-pane"],
+        "rapid-input": ["uia-core-smoke", "uia-keyboard-navigation", "dual-pane"],
+        "application-lifecycle": []
+      },
+      "matrixDimensions": ["visual-light-theme", "visual-dark-theme", "dpi-100", "dpi-150", "high-contrast", "window-narrow", "window-wide"],
+      "neverAdvertised": ["details-pane", "storage-parent-percent"]
+    },
+    "Invoke-EnvironmentProviderCertification.ps1": {
+      "modes": {
+        "hyperv-execution": ["hyperv-provision", "guest-execution", "provider-rollback"],
+        "hyperv-preflight-only": [],
+        "local-execution": []
+      }
+    },
+    "Invoke-CleanHostCertification.ps1": {
+      "modes": {
+        "audit": [],
+        "install": ["clean-install", "installed-runtime", "uninstall-cleanup"]
+      }
+    },
+    "Invoke-PrivilegedNtfsCertification.ps1": {
+      "modes": {
+        "ground-truth": ["raw-volume-read", "mft-ground-truth", "usn-ground-truth"]
+      }
+    },
+    "Invoke-SigningCertification.ps1": {
+      "modes": {
+        "verification": ["production-signing"]
+      }
+    }
+  }
+}

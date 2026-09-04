@@ -350,7 +350,12 @@ try {
             }
         }
 
-        # Real UIA Activity Transitions (every ~45s)
+        # Real UIA Activity Transitions (every ~45s). Each transition carries
+        # explicit semantic postconditions: open is proved by element
+        # appearance, close is proved by actual element disappearance or
+        # provider restoration. A sent Escape (or any dispatched keystroke)
+        # alone is never recorded as 'closed'. A failed required transition
+        # fails the functional leg (success stays $false).
         $elapsed = $soakSw.Elapsed.TotalSeconds
         if ($executeInteractiveActivity -and ($elapsed - $lastActivityTime) -ge 45) {
             $lastActivityTime = $elapsed
@@ -369,41 +374,107 @@ try {
                 switch ($actType) {
                     'command-palette' {
                         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}{SHIFT}p'
-                        $pal = $false
-                        $pSw = [Diagnostics.Stopwatch]::StartNew()
-                        while (-not $pal -and $pSw.ElapsedMilliseconds -lt 2000) {
-                            try { $null = Find-UiaElement -Driver $driver -AutomationId '6301' -FromElement $mainElement -TimeoutMs 200; $pal = $true } catch { }
-                        }
-                        $postcondition['opened'] = if ($pal) { 'PASS' } else { 'FAIL' }
+                        $palEl = Wait-UiaElement -Driver $driver -AutomationId '6301' -FromElement $mainElement -TimeoutMs 2000
+                        $palOpened = ($null -ne $palEl)
+                        if ($palOpened) { $postcondition['opened'] = 'PASS' }
+                        else { $postcondition['opened'] = 'FAIL: command palette edit 6301 did not appear after Ctrl+Shift+P' }
                         $null = Send-UiaInput -Driver $driver -Keys '{ESC}'
-                        $postcondition['closed'] = 'PASS'
-                        $actSuccess = $pal
-                        $actDetails = "Command palette opened and dismissed via Escape"
+                        $palGone = Wait-UiaElementGone -Driver $driver -AutomationId '6301' -FromElement $mainElement -TimeoutMs 3000
+                        $postcondition['closed'] = $(if ($palGone) { 'PASS' } else { 'FAIL: command palette edit 6301 still present after Escape; close not verified' })
+                        $actSuccess = ($palOpened -and $palGone)
+                        $actDetails = "Command palette open verified by edit appearance and close verified by edit disappearance"
                     }
                     'dual-pane' {
                         $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $mainElement -ProcessId $mainPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
-                        $postcondition['opened'] = if ($dual.Pass) { 'PASS' } else { 'FAIL' }
-                        # Toggle back
-                        $null = Invoke-UiaPaletteCommand -Driver $driver -Main $mainElement -ProcessId $mainPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
-                        $postcondition['closed'] = 'PASS'
-                        $actSuccess = [bool]$dual.Pass
-                        $actDetails = "Dual pane toggled on and off via palette"
+                        $dualCmdOk = [bool]$dual.Pass
+                        if ($dualCmdOk) { $postcondition['command'] = 'PASS' }
+                        else { $postcondition['command'] = "FAIL: dual pane enable command failed: $($dual.Detail)" }
+                        $pane0On = $false
+                        $pane1On = $false
+                        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $mainElement -TimeoutMs 2000; $pane0On = $true } catch { }
+                        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $mainElement -TimeoutMs 2000; $pane1On = $true } catch { }
+                        $enabledCount = 0
+                        if ($pane0On) { $enabledCount++ }
+                        if ($pane1On) { $enabledCount++ }
+                        $enabledOk = (($enabledCount -eq 2) -and $pane0On -and $pane1On)
+                        if ($enabledOk) { $postcondition['pane-count-2'] = 'PASS' }
+                        else { $postcondition['pane-count-2'] = "FAIL: dual-pane enable postcondition not met: pane count=$enabledCount (expected 2), Pane.0 present=$pane0On, Pane.1 present=$pane1On" }
+                        # Toggle back to single pane and prove restoration.
+                        $dualOff = Invoke-UiaPaletteCommand -Driver $driver -Main $mainElement -ProcessId $mainPid -Query 'dual pane' -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
+                        $dualOffOk = [bool]$dualOff.Pass
+                        $pane0Back = $false
+                        $pane1StillThere = $true
+                        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -FromElement $mainElement -TimeoutMs 2000; $pane0Back = $true } catch { }
+                        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Pane.1' -FromElement $mainElement -TimeoutMs 800; $pane1StillThere = $true } catch { $pane1StillThere = $false }
+                        $restoredOk = ($dualOffOk -and $pane0Back -and (-not $pane1StillThere))
+                        $postcondition['closed'] = $(if ($restoredOk) { 'PASS' } else { "FAIL: single-pane restoration not verified: disable command Pass=$dualOffOk, Pane.0 present=$pane0Back (expected True), Pane.1 present=$pane1StillThere (expected False)" })
+                        $actSuccess = ($dualCmdOk -and $enabledOk -and $restoredOk)
+                        $actDetails = "Dual pane enable proved by Pane.0+Pane.1 presence and disable proved by Pane.1 absence with Pane.0 restored"
                     }
                     'search' {
                         $srch = Invoke-UiaPaletteCommand -Driver $driver -Main $mainElement -ProcessId $mainPid -Query 'search' -ExpectedNames @('Filters') -ExpectedCommandName 'Search' -ExpectedCommandId 'search.focus'
-                        $postcondition['opened'] = if ($srch.Pass) { 'PASS' } else { 'FAIL' }
-                        $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $mainElement -ProcessId $mainPid
-                        $postcondition['closed'] = 'PASS'
-                        $actSuccess = [bool]$srch.Pass
-                        $actDetails = "Search panel focused and closed"
+                        $searchCmdOk = [bool]$srch.Pass
+                        $searchSurface = $false
+                        if ($searchCmdOk) {
+                            try { $null = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $mainElement -TimeoutMs 2000; $searchSurface = $true } catch { }
+                        }
+                        $searchOpened = ($searchCmdOk -and $searchSurface)
+                        if ($searchOpened) { $postcondition['opened'] = 'PASS' }
+                        else { $postcondition['opened'] = "FAIL: Search did not open (command Pass=$searchCmdOk, Search.Results present=$searchSurface): $($srch.Detail)" }
+                        $filtersBtn = $null
+                        if ($searchOpened) {
+                            try { $filtersBtn = Find-UiaElement -Driver $driver -AutomationId 'Search.Filters' -FromElement $mainElement -TimeoutMs 2000 } catch { }
+                            if ($null -eq $filtersBtn) {
+                                try { $filtersBtn = Find-UiaElement -Driver $driver -Name 'Filters' -FromElement $mainElement -TimeoutMs 2000 } catch { }
+                            }
+                        }
+                        $filtersFound = ($null -ne $filtersBtn)
+                        if ($filtersFound) { $postcondition['filters-disclosure'] = 'PASS' }
+                        else { $postcondition['filters-disclosure'] = "FAIL: 'Filters' disclosure not found after Search opened" }
+                        $contentsOk = $false
+                        if ($filtersFound) {
+                            $expandState = ''
+                            try {
+                                if (Test-UiaPatternAvailable -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse') {
+                                    $expandState = [string](Invoke-UiaPattern -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'GetState')
+                                }
+                            } catch { }
+                            if ($expandState -ne 'Expanded') {
+                                try {
+                                    if (Test-UiaPatternAvailable -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse') {
+                                        $null = Invoke-UiaPattern -Driver $driver -Element $filtersBtn -PatternName 'ExpandCollapse' -Method 'Expand'
+                                    } else {
+                                        $null = Invoke-UiaElementAction -Driver $driver -Element $filtersBtn -Action 'Click'
+                                    }
+                                } catch { }
+                                Start-Sleep -Milliseconds 500
+                            }
+                            $clearFound = $false
+                            $ascFound = $false
+                            try { $null = Find-UiaElement -Driver $driver -Name 'Clear history' -FromElement $mainElement -TimeoutMs 1500; $clearFound = $true } catch { }
+                            try { $null = Find-UiaElement -Driver $driver -Name 'Ascending' -FromElement $mainElement -TimeoutMs 1500; $ascFound = $true } catch { }
+                            $contentsOk = ($clearFound -and $ascFound)
+                            if ($contentsOk) { $postcondition['filters-contents'] = 'PASS' }
+                            else { $postcondition['filters-contents'] = "FAIL: expanded 'Filters' row missing expected contents: 'Clear history' present=$clearFound, 'Ascending' present=$ascFound" }
+                        }
+                        $closeRes = Close-UiaSearchPanelIfOpen -Driver $driver -Main $mainElement -ProcessId $mainPid
+                        $searchGone = $false
+                        try { $null = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $mainElement -TimeoutMs 800 } catch { $searchGone = $true }
+                        $closeOk = ([bool]$closeRes.Pass -and $searchGone)
+                        $postcondition['closed'] = $(if ($closeOk) { 'PASS' } else { "FAIL: Search panel close not verified (closer Pass=$($closeRes.Pass), Search.Results absent=$searchGone): $($closeRes.Detail)" })
+                        $actSuccess = ($searchOpened -and $filtersFound -and $contentsOk -and $closeOk)
+                        $actDetails = "Search panel open proved by Search.Results, Filters disclosure expanded with expected contents, close proved by Search.Results absence"
                     }
                     'settings' {
                         $sett = Invoke-UiaOpenSettings -Driver $driver -Main $mainElement -ProcessId $mainPid
-                        $postcondition['opened'] = if ($sett.Pass) { 'PASS' } else { 'FAIL' }
-                        $null = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $mainElement
-                        $postcondition['closed'] = 'PASS'
-                        $actSuccess = [bool]$sett.Pass
-                        $actDetails = "Settings dialog opened and dismissed with focus restored"
+                        $settingsOpened = [bool]$sett.Pass
+                        if ($settingsOpened) { $postcondition['opened'] = 'PASS' }
+                        else { $postcondition['opened'] = "FAIL: settings dialog did not open: $($sett.Detail)" }
+                        $settingsClose = Invoke-UiaCloseSettingsDialog -Driver $driver -Main $mainElement -ProcessId $mainPid
+                        $settingsClosed = [bool]$settingsClose.Pass
+                        $postcondition['closed'] = $(if ($settingsClosed) { 'PASS' } else { "FAIL: settings dialog close not verified (dialog still present or cancel failed): $($settingsClose.Detail)" })
+                        $actSuccess = ($settingsOpened -and $settingsClosed)
+                        $actDetails = "Settings dialog open proved by dialog appearance and close proved by verified dismissal with focus restored"
                     }
                 }
             } catch {
@@ -484,7 +555,7 @@ $steadyStats = [ordered]@{
     cpuSeconds = Compute-MetricStats -Samples $cpuSamples.ToArray() -Duration $totalElapsed
 }
 
-# Stability Envelope Invariants:
+# Stability Envelope Invariants (steady-state, post-warmup):
 # 1. Steady-state handle growth <= 150 over baseline (and slope <= 0.5 handles/s)
 $handleGrowth = $steadyStats.handles.final - $steadyStats.handles.baseline
 $handleStable = ($handleGrowth -le 150 -and $steadyStats.handles.slope -le 0.5)
@@ -498,26 +569,84 @@ $gdiGrowth = $steadyStats.gdiObjects.final - $steadyStats.gdiObjects.baseline
 $userGrowth = $steadyStats.userObjects.final - $steadyStats.userObjects.baseline
 $guiStable = ($gdiGrowth -le 30 -and $userGrowth -le 30)
 
-# 4. Steady-state memory slope <= 150 KB/s
+# 4. Steady-state working-set slope <= 150 KB/s. The working set is a
+#    shared-address-space metric: paged-out memory can mask real growth, so
+#    this verdict NEVER substitutes for the private-bytes gate below.
 $wsSlope = $steadyStats.workingSetBytes.slope
-$memStable = ($wsSlope -le 153600) # 150 KB/s
+$wsStable = ($wsSlope -le 153600) # 150 KB/s
 
-$resourceStabilityPass = ($handleStable -and $threadStable -and $guiStable -and $memStable)
+# 5. SEPARATE private-bytes stability gate (committed-memory leak detector).
+#    Private bytes cannot be paged away, so a heap/VirtualAlloc leak is
+#    visible here even when the working set looks flat. Documented
+#    thresholds, independent of the working-set verdict:
+#      (a) slope <= 150 KB/s (same rate ceiling as working set);
+#      (b) baseline -> final growth <= 50 MB;
+#      (c) second-half median minus first-half median <= 25 MB (catches slow
+#          ramps whose endpoints still look close together).
+#    All three sub-conditions must hold; any violation fails the gate.
+$pbStats = $steadyStats.privateBytes
+$pbSlope = $pbStats.slope
+$pbGrowth = $pbStats.final - $pbStats.baseline
+$pbHalfDrift = $pbStats.secondHalfMedian - $pbStats.firstHalfMedian
+$pbSlopeOk = ($pbSlope -le 153600) # 150 KB/s
+$pbGrowthOk = ($pbGrowth -le 52428800) # 50 MB
+$pbDriftOk = ($pbHalfDrift -le 26214400) # 25 MB
+$privateBytesStable = ($pbSlopeOk -and $pbGrowthOk -and $pbDriftOk)
+
+$resourceStabilityPass = ($handleStable -and $threadStable -and $guiStable -and $wsStable -and $privateBytesStable)
 if (-not $resourceStabilityPass) {
     $unstableReasons = @()
     if (-not $handleStable) { $unstableReasons += "handle growth (+$handleGrowth, slope=$($steadyStats.handles.slope)/s)" }
     if (-not $threadStable) { $unstableReasons += "thread growth (+$threadGrowth)" }
     if (-not $guiStable) { $unstableReasons += "GUI growth (GDI: +$gdiGrowth, USER: +$userGrowth)" }
-    if (-not $memStable) { $unstableReasons += "memory slope ($wsSlope B/s)" }
+    if (-not $wsStable) { $unstableReasons += "working-set slope ($wsSlope B/s exceeds 150 KB/s)" }
+    if (-not $privateBytesStable) {
+        $pbReasons = @()
+        if (-not $pbSlopeOk) { $pbReasons += "slope $pbSlope B/s exceeds 150 KB/s" }
+        if (-not $pbGrowthOk) { $pbReasons += "baseline-to-final growth $([Math]::Round($pbGrowth/1MB, 2)) MB exceeds 50 MB" }
+        if (-not $pbDriftOk) { $pbReasons += "second-half drift $([Math]::Round($pbHalfDrift/1MB, 2)) MB exceeds 25 MB" }
+        $unstableReasons += "private-bytes instability ($($pbReasons -join '; '))"
+    }
     $dispositionReason = "Resource instability detected: $($unstableReasons -join '; ')"
     Write-Host "  WARNING: $dispositionReason" -ForegroundColor Red
 }
-
-# Functional activity evaluation
+# Functional activity evaluation. Explicit soak modes: idle modes perform no
+# transitions, so functionalActivity=SKIPPED is the valid idle result. Any
+# mode that executes transitions must prove each one; a failed required
+# transition fails the functional leg.
 $failedActivities = @($activityTransitions | Where-Object { -not $_.success })
 $functionalPass = $(if ($failedActivities.Count -gt 0) { 'FAIL' }
                     elseif ($activityTransitions.Count -gt 0) { 'PASS' }
                     else { 'SKIPPED' })
+$soakMode = 'idle-fallback-no-uia'
+if ($IdleOnly) { $soakMode = 'idle-only' }
+elseif ($HeadlessSmokeOnly) { $soakMode = 'headless-smoke-only' }
+elseif ($executeInteractiveActivity) { $soakMode = 'interactive' }
+if ((($soakMode -eq 'idle-only') -or ($soakMode -eq 'headless-smoke-only') -or ($soakMode -eq 'idle-fallback-no-uia')) -and ($activityTransitions.Count -eq 0)) {
+    $functionalPass = 'SKIPPED'
+}
+
+# Cleanup census: the campaign-owned sandbox must be gone and no owned
+# process may remain. A cleanup failure forces FAIL, never hidden.
+$sandboxRemoved = -not (Test-Path -LiteralPath $tempSandbox)
+$cleanupPass = ($residueClean -and $sandboxRemoved)
+$cleanupStatus = 'FAIL'
+if ($cleanupPass) { $cleanupStatus = 'PASS' }
+$cleanupResult = [ordered]@{
+    pass = $cleanupPass
+    status = $cleanupStatus
+    method = 'graceful-close-then-verify'
+    sandboxRemoved = $sandboxRemoved
+    shutdownMethod = $shutdownMethod
+    orphanCount = $orphanPids.Count
+    orphanPids = @($orphanPids)
+}
+if (-not $cleanupPass) {
+    $cleanupNote = "Cleanup census failed (sandboxRemoved=$sandboxRemoved, orphans=$($orphanPids.Count))"
+    if ($dispositionReason) { $dispositionReason = "$dispositionReason; $cleanupNote" }
+    else { $dispositionReason = $cleanupNote }
+    Write-Host "  WARNING: $cleanupNote" -ForegroundColor Red
+}
 
 # Stability Legs Composition
 $stabilityLegs = [ordered]@{
@@ -526,6 +655,7 @@ $stabilityLegs = [ordered]@{
     resourceStability = $(if ($resourceStabilityPass) { 'PASS' } else { 'FAIL' })
     shutdown = $(if ($shutdownMethod -eq 'graceful') { 'PASS' } else { 'FAIL' })
     residue = $(if ($residueClean) { 'PASS' } else { 'FAIL' })
+    cleanup = $cleanupStatus
 }
 
 $disposition = 'FAIL'
@@ -533,6 +663,7 @@ if ($stabilityLegs.survival -eq 'PASS' -and
     $stabilityLegs.resourceStability -eq 'PASS' -and
     $stabilityLegs.shutdown -eq 'PASS' -and
     $stabilityLegs.residue -eq 'PASS' -and
+    $stabilityLegs.cleanup -eq 'PASS' -and
     $stabilityLegs.functionalActivity -ne 'FAIL') {
     $disposition = 'PASS'
 }
@@ -568,6 +699,7 @@ $resultObject = [ordered]@{
     endUtc = $endUtc.ToString('o')
     durationSeconds = $totalElapsed
     sampleIntervalSeconds = $SampleIntervalSeconds
+    mode = $soakMode
     sampleCount = $workingSetSamples.Count
     fastFilesPid = $mainPid
     enginePid = $enginePid
@@ -586,6 +718,7 @@ $resultObject = [ordered]@{
         orphanCount = $orphanPids.Count
         orphanPids = $orphanPids
     }
+    cleanup = $cleanupResult
     stabilityLegs = $stabilityLegs
     disposition = $disposition
     dispositionReason = $dispositionReason
@@ -606,8 +739,9 @@ $fgColor = $(if ($disposition -eq 'PASS') { 'Green' } else { 'Red' })
 Write-Host "`n=================================================================" -ForegroundColor Cyan
 Write-Host "Resource Soak Completed in ${totalElapsed}s ($($workingSetSamples.Count) samples). Disposition: $disposition" -ForegroundColor $fgColor
 Write-Host "Steady-state WS: baseline=$([Math]::Round($steadyStats.workingSetBytes.baseline/1MB, 2))MB, final=$([Math]::Round($steadyStats.workingSetBytes.final/1MB, 2))MB, slope=$($steadyStats.workingSetBytes.slope) B/s"
+Write-Host "Steady-state PrivateBytes: baseline=$([Math]::Round($steadyStats.privateBytes.baseline/1MB, 2))MB, final=$([Math]::Round($steadyStats.privateBytes.final/1MB, 2))MB, slope=$($steadyStats.privateBytes.slope) B/s, growth=$([Math]::Round($pbGrowth/1MB, 2))MB, halfDrift=$([Math]::Round($pbHalfDrift/1MB, 2))MB"
 Write-Host "Steady-state Handles: baseline=$($steadyStats.handles.baseline), final=$($steadyStats.handles.final), slope=$($steadyStats.handles.slope)/s"
-Write-Host "Stability Legs: survival=$($stabilityLegs.survival), activity=$($stabilityLegs.functionalActivity), stability=$($stabilityLegs.resourceStability), shutdown=$($stabilityLegs.shutdown), residue=$($stabilityLegs.residue)"
+Write-Host "Stability Legs: survival=$($stabilityLegs.survival), activity=$($stabilityLegs.functionalActivity), stability=$($stabilityLegs.resourceStability), shutdown=$($stabilityLegs.shutdown), residue=$($stabilityLegs.residue), cleanup=$($stabilityLegs.cleanup)"
 Write-Host "Artifact written: $OutputPath (SHA-256: $finalSha256)"
 Write-Host "=================================================================" -ForegroundColor Cyan
 
@@ -627,8 +761,8 @@ if ($MarkdownOutputPath) {
 
 | Metric | Startup Value | Steady Baseline | Median | Final | Steady Slope | Stability |
 | :--- | :--- | :--- | :--- | :--- | :--- | :---: |
-| **Working Set** | $([Math]::Round($startupWorkingSet/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.baseline/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.median/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.final/1MB, 2)) MB | $($steadyStats.workingSetBytes.slope) B/s | $(if ($memStable) { 'PASS' } else { 'FAIL' }) |
-| **Private Bytes** | $([Math]::Round($startupPrivateBytes/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.baseline/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.median/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.final/1MB, 2)) MB | $($steadyStats.privateBytes.slope) B/s | $(if ($memStable) { 'PASS' } else { 'FAIL' }) |
+| **Working Set** | $([Math]::Round($startupWorkingSet/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.baseline/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.median/1MB, 2)) MB | $([Math]::Round($steadyStats.workingSetBytes.final/1MB, 2)) MB | $($steadyStats.workingSetBytes.slope) B/s | $(if ($wsStable) { 'PASS' } else { 'FAIL' }) |
+| **Private Bytes** | $([Math]::Round($startupPrivateBytes/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.baseline/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.median/1MB, 2)) MB | $([Math]::Round($steadyStats.privateBytes.final/1MB, 2)) MB | $($steadyStats.privateBytes.slope) B/s | $(if ($privateBytesStable) { 'PASS' } else { 'FAIL' }) |
 | **Handles** | $startupHandles | $($steadyStats.handles.baseline) | $($steadyStats.handles.median) | $($steadyStats.handles.final) | $($steadyStats.handles.slope)/s | $(if ($handleStable) { 'PASS' } else { 'FAIL' }) |
 | **Threads** | $startupThreads | $($steadyStats.threads.baseline) | $($steadyStats.threads.median) | $($steadyStats.threads.final) | $($steadyStats.threads.slope)/s | $(if ($threadStable) { 'PASS' } else { 'FAIL' }) |
 | **GDI Objects** | $startupGdi | $($steadyStats.gdiObjects.baseline) | $($steadyStats.gdiObjects.median) | $($steadyStats.gdiObjects.final) | $($steadyStats.gdiObjects.slope)/s | $(if ($guiStable) { 'PASS' } else { 'FAIL' }) |

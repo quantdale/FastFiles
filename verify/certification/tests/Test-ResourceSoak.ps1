@@ -131,4 +131,106 @@ if ($isStable) {
     throw "Expected runaway handle profile to fail stability check, but it passed!"
 }
 Write-Host "    PASS (Runaway handle/resource profile correctly fails closed)" -ForegroundColor Green
+
+# Test 5: Separate Private-Bytes Gate (stable working set + leaking private bytes => FAIL)
+Write-Host "  Test 5: Private-bytes-only leak fails the separate gate (no working-set reuse)..."
+$runnerText = Get-Content -LiteralPath $runner -Raw
+# The gate must exist as its own verdict with all three documented signals.
+foreach ($required in @('$privateBytesStable', '$pbSlopeOk', '$pbGrowthOk', '$pbDriftOk', '$pbHalfDrift', 'private-bytes instability')) {
+    if ($runnerText -notmatch [regex]::Escape($required)) { throw "Runner missing separate private-bytes gate element: $required" }
+}
+# The working-set verdict must not decide private bytes: the PB row and the
+# composed verdict must reference the separate gate, not the WS verdict.
+if ($runnerText -notmatch '\$wsStable -and \$privateBytesStable') { throw "resourceStabilityPass must compose the separate private-bytes verdict alongside the working-set verdict" }
+if ($runnerText -match '\|\s\*\*Private Bytes\*\*.*\$wsStable') { throw "Private Bytes markdown row must not reuse the working-set verdict" }
+# Numeric simulation with the runner-documented thresholds (slope <= 150 KB/s,
+# growth <= 50 MB, second-half drift <= 25 MB) over Compute-MetricStats shape.
+$getSimStats = {
+    param([double[]] $samples, [double] $duration)
+    $sorted = @($samples | Sort-Object)
+    $medianIdx = [Math]::Floor(($sorted.Count - 1) * 0.50)
+    $median = $sorted[[int]$medianIdx]
+    $halfCount = [Math]::Max(1, [int]($samples.Count / 2))
+    $firstHalf = @($samples[0..($halfCount - 1)] | Sort-Object)
+    $secondHalf = @($samples[($samples.Count - $halfCount)..($samples.Count - 1)] | Sort-Object)
+    $firstMed = $firstHalf[[Math]::Floor(($firstHalf.Count - 1) * 0.50)]
+    $secondMed = $secondHalf[[Math]::Floor(($secondHalf.Count - 1) * 0.50)]
+    return [pscustomobject]@{
+        baseline = $samples[0]
+        final = $samples[$samples.Count - 1]
+        slope = [Math]::Round(($samples[$samples.Count - 1] - $samples[0]) / $duration, 4)
+        firstHalfMedian = $firstMed
+        secondHalfMedian = $secondMed
+    }
+}
+$wsFlat = [double[]]@(104857600, 104960000, 104752000, 105062400, 104857600, 104960000, 104752000, 105062400, 104857600, 104960000)
+$wsStats = & $getSimStats -samples $wsFlat -duration 60.0
+$wsVerdict = ($wsStats.slope -le 153600)
+if (-not $wsVerdict) { throw "Simulation setup broken: flat working-set profile should pass the WS verdict (slope=$($wsStats.slope))" }
+# Leaking private bytes: +20 MB over 60 s (slope ~349 KB/s > 150 KB/s ceiling).
+$pbLeak = [double[]]@(83886080, 86222848, 88559616, 90896384, 93233152, 95569920, 97906688, 100243456, 102580224, 104857600)
+$pbStats = & $getSimStats -samples $pbLeak -duration 60.0
+$pbSlopeCheck = ($pbStats.slope -le 153600)
+$pbGrowthCheck = (($pbStats.final - $pbStats.baseline) -le 52428800)
+$pbDriftCheck = (($pbStats.secondHalfMedian - $pbStats.firstHalfMedian) -le 26214400)
+$pbVerdict = ($pbSlopeCheck -and $pbGrowthCheck -and $pbDriftCheck)
+if ($pbVerdict) { throw "Expected leaking private-bytes profile to fail the separate gate, but it passed (slope=$($pbStats.slope))" }
+$composedStability = ($true -and $true -and $true -and $wsVerdict -and $pbVerdict)
+if ($composedStability) { throw "Stable working set + leaking private bytes must compose to resourceStability FAIL" }
+# Positive control: flat private bytes pass all three sub-conditions.
+$pbFlat = [double[]]@(83886080, 83918848, 83853312, 83951616, 83886080, 83918848, 83853312, 83951616, 83886080, 83918848)
+$pbFlatStats = & $getSimStats -samples $pbFlat -duration 60.0
+$pbFlatVerdict = (($pbFlatStats.slope -le 153600) -and (($pbFlatStats.final - $pbFlatStats.baseline) -le 52428800) -and (($pbFlatStats.secondHalfMedian - $pbFlatStats.firstHalfMedian) -le 26214400))
+if (-not $pbFlatVerdict) { throw "Flat private-bytes profile should pass the separate gate (slope=$($pbFlatStats.slope))" }
+Write-Host "    PASS (WS verdict PASS + PB verdict FAIL composes to resourceStability FAIL; flat PB passes)" -ForegroundColor Green
+
+# Test 6: Close-Without-Verification Is Rejected (no closed=PASS from a sent keystroke)
+Write-Host "  Test 6: Every transition close is verified by disappearance/restoration..."
+$unverifiedClosed = [regex]::Matches($runnerText, "\['closed'\]\s*=\s*'PASS'")
+if ($unverifiedClosed.Count -gt 0) { throw "Found $($unverifiedClosed.Count) unconditional closed=PASS assignment(s); every close must be verified" }
+foreach ($proof in @('Wait-UiaElementGone', 'close not verified', 'still present after', 'Search.Results absent', 'Pane.1 absence', 'single-pane restoration not verified', 'settings dialog close not verified')) {
+    if ($runnerText -notmatch [regex]::Escape($proof)) { throw "Runner missing verified-close evidence: $proof" }
+}
+# Each of the four activity branches must gate success on its verified close.
+foreach ($branch in @("'command-palette'", "'dual-pane'", "'search'", "'settings'")) {
+    if ($runnerText -notmatch [regex]::Escape($branch)) { throw "Runner missing activity branch: $branch" }
+}
+if ($runnerText -notmatch '\$actSuccess = \(\$palOpened -and \$palGone\)') { throw "command-palette success must require both verified open and verified close" }
+if ($runnerText -notmatch '\$actSuccess = \(\$dualCmdOk -and \$enabledOk -and \$restoredOk\)') { throw "dual-pane success must require command, enable postcondition, and verified restoration" }
+if ($runnerText -notmatch '\$actSuccess = \(\$searchOpened -and \$filtersFound -and \$contentsOk -and \$closeOk\)') { throw "search success must require open, Filters disclosure, contents, and verified close" }
+if ($runnerText -notmatch '\$actSuccess = \(\$settingsOpened -and \$settingsClosed\)') { throw "settings success must require verified open and verified close" }
+Write-Host "    PASS (No unconditional closed=PASS; all four branches gate on verified disappearance/restoration)" -ForegroundColor Green
+
+# Test 7: Cleanup Object Present and Clean on a Real Idle Run (mode explicit)
+Write-Host "  Test 7: Idle run emits explicit mode plus clean cleanup census..."
+$test7Json = [IO.Path]::GetTempFileName()
+try {
+    $res = & (Get-Command pwsh).Source -NoProfile -NonInteractive -File $runner `
+        -DurationSeconds 2 `
+        -SampleIntervalSeconds 1 `
+        -WarmupSeconds 0 `
+        -IdleOnly `
+        -OutputPath $test7Json `
+        -RepoRoot $RepoRoot
+
+    if ($LASTEXITCODE -ne 0) { throw "Test 7 runner failed with exit code $LASTEXITCODE" }
+    $json7 = Get-Content -LiteralPath $test7Json -Raw | ConvertFrom-Json
+    if ($json7.mode -ne 'idle-only') { throw "Expected mode=idle-only, got $($json7.mode)" }
+    if ($json7.stabilityLegs.functionalActivity -ne 'SKIPPED') { throw "Expected functionalActivity=SKIPPED in idle-only mode, got $($json7.stabilityLegs.functionalActivity)" }
+    if ($null -eq $json7.cleanup) { throw "Result JSON must include a cleanup object" }
+    if ($json7.cleanup.status -ne 'PASS') { throw "Expected cleanup.status=PASS, got $($json7.cleanup.status)" }
+    if ($json7.cleanup.pass -ne $true) { throw "Expected cleanup.pass=true" }
+    if ($json7.cleanup.sandboxRemoved -ne $true) { throw "Expected cleanup.sandboxRemoved=true" }
+    if ($json7.cleanup.orphanCount -ne 0) { throw "Expected cleanup.orphanCount=0, got $($json7.cleanup.orphanCount)" }
+    if ($json7.stabilityLegs.cleanup -ne 'PASS') { throw "Expected stability leg cleanup=PASS, got $($json7.stabilityLegs.cleanup)" }
+    if ($json7.disposition -ne 'PASS') { throw "Expected disposition PASS for a clean idle run, got $($json7.disposition)" }
+    # Schema still validates with the new mode/cleanup fields.
+    $pyCmd7 = "import json, jsonschema; s = json.load(open(r'$schemaPath')); d = json.load(open(r'$test7Json')); jsonschema.validate(instance=d, schema=s); print('OK')"
+    $val7 = & (Get-Command python).Source -c $pyCmd7 2>&1
+    if ($val7 -notmatch 'OK') { throw "Schema validation failed with new fields: $val7" }
+    Write-Host "    PASS (mode=idle-only, SKIPPED leg, cleanup census clean, schema valid)" -ForegroundColor Green
+} finally {
+    if (Test-Path -LiteralPath $test7Json) { Remove-Item -LiteralPath $test7Json -Force -ErrorAction SilentlyContinue }
+    if (Test-Path -LiteralPath "$test7Json.sha256") { Remove-Item -LiteralPath "$test7Json.sha256" -Force -ErrorAction SilentlyContinue }
+}
 Write-Host "All Test-ResourceSoak tests PASSED!" -ForegroundColor Green

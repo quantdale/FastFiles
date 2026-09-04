@@ -488,5 +488,17 @@
       "supersededBy": null,
       "taskOverrides": []
     }
+    ,
+    {
+      "name": "external-certification-execution-engine-and-frontier-truthfulness",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/tasks.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    }
   ]
 }
