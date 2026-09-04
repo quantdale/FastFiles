@@ -2,9 +2,11 @@
 
 ## Overview
 
-This runbook provides deterministic, one-shot instructions for operators executing FastFiles external certification packages on authorized, clean, elevated, or provider-enabled Windows hosts.
+This runbook provides deterministic instructions for FastFiles external certification on authorized Windows hosts.
 
-Each package is deterministic, safety-bounded, and self-verifying. Packages output machine-readable JSON artifacts conforming to `verify/certification/schemas/` that can be imported back into the repository via `verify/certification/Import-CertificationEvidence.ps1`.
+Owner scope directive (2026-09-04): vendor-specific VM-provider execution/testing is intentionally excluded from FastFiles local completion and from this operator runbook unless the owner explicitly reopens that scope. Generic provider-contract/fake-adapter tests may remain in the repository as infrastructure, but no provider-specific guest execution is required here.
+
+Each in-scope package is safety-bounded and self-verifying. Packages output machine-readable JSON artifacts conforming to `verify/certification/schemas/` that can be imported through `verify/certification/Import-CertificationEvidence.ps1`.
 
 ---
 
@@ -14,137 +16,137 @@ Each package is deterministic, safety-bounded, and self-verifying. Packages outp
 | :--- | :--- | :--- | :---: | :---: | :--- |
 | **Top-Level Orchestrator** | Any supported Windows 10/11 host | Unprivileged or Elevated | No (audit mode) | < 30s | `Invoke-ExternalCertification.ps1` |
 | **Clean-Host Certification** | Fresh / disposable Windows 10/11 host | Elevated (Admin) | Only if `-InstallCandidate` | 1–2 min | `Invoke-CleanHostCertification.ps1` |
-| **Privileged NTFS Certification** | Authorized NTFS volume | Elevated (Admin) | No (read-only raw volume) | < 15s | `Invoke-PrivilegedNtfsCertification.ps1` |
+| **Privileged NTFS Certification** | Authorized NTFS volume | Elevated (Admin) | No raw writes | < 15s | `Invoke-PrivilegedNtfsCertification.ps1` |
 | **Production Signing** | Any Windows machine with signed artifact | None | No | < 10s | `Invoke-SigningCertification.ps1` |
-| **External Provider** | Host with configured vision / VM provider | None | No (sandboxed workload) | < 30s | `Invoke-ProviderCertification.ps1` |
-| **Long-Run Stress** | Development / qualification host | None | No | 1–5 min | `Invoke-LongRunCertification.ps1` |
-| **Resource Soak** | Development / qualification host | None | No | ~5 min (300s) | `Invoke-ResourceSoak.ps1` |
+| **Vision Review Provider** | Host with configured real vision provider | None | No | provider-dependent | `Invoke-ProviderCertification.ps1` |
+| **Long-Run Stress** | Development / qualification host | None | No | scenario-dependent | `Invoke-LongRunCertification.ps1` / UIA runner |
+| **Resource Soak** | Development / qualification host | None | No | 10 min default qualification target | `Invoke-ResourceSoak.ps1` |
 
 ---
 
 ## 2. Top-Level External Orchestrator
 
-To inspect the host environment, discover capabilities, and execute all applicable certification lanes in safe audit mode:
+To inspect the host environment and execute applicable in-scope lanes in safe audit mode:
 
 ```powershell
 pwsh -File verify/certification/Invoke-ExternalCertification.ps1
 ```
 
-### Optional Switches:
-- `-CandidatePath <path>`: Path to production signed installer or executable.
-- `-SignerThumbprint <hash>`: Expected SHA-1 thumbprint of the production signing certificate.
-- `-IncludeCleanHostInstall`: Request isolated installation on a disposable clean host.
-- `-RequireExactTree`: Reject execution if git working tree contains uncommitted changes.
-
-### Output:
-Emits consolidated capability matrix and lane results to:
-`verify/runs/certification/orchestrator/external-certification-<timestamp>.json`
+Optional inputs may include a candidate path, expected signer identity, clean-host install request, and exact-tree enforcement. Do not treat an unavailable or owner-excluded lane as a product PASS.
 
 ---
 
 ## 3. Clean-Host Certification Package
 
-Used on a disposable or isolated Windows host to verify absence of development residue, confirm conflict-free deployment, and optionally exercise clean install/run/uninstall lifecycles.
+Use a disposable or isolated Windows host to verify absence of development residue, conflict-free deployment, and where an actual installable candidate exists, the install/run/shutdown/remove journey.
 
-### Step 1: Run Audit Mode (Default / Non-Destructive)
+### Audit mode
+
 ```powershell
 pwsh -File verify/certification/Invoke-CleanHostCertification.ps1
 ```
 
-### Step 2: Run Full Install & Zero-Residue Lifecycle (Disposable Host Only)
+Audit-only success establishes host readiness only; it is not installation certification.
+
+### Full candidate journey
+
 ```powershell
 pwsh -File verify/certification/Invoke-CleanHostCertification.ps1 `
     -InstallCandidate `
     -CandidatePath "C:\path\to\FastFilesSetup.exe"
 ```
 
-### Safety Rules:
-- The runner audits for running FastFiles processes or existing `FastFilesIndexSvc`.
-- If pre-existing state is detected, it fails closed with `BLOCKED_ENVIRONMENT`. It will **never** blindly terminate unrelated processes or delete foreign registry keys.
+Safety rules:
+
+- Existing FastFiles processes/services are treated as contamination unless the invocation explicitly supports the intended scenario.
+- The runner must not terminate unrelated processes, remove foreign registry state, or delete non-campaign-owned paths.
+- Missing installable candidate remains unavailable rather than being converted into a staged synthetic PASS.
 
 ---
 
 ## 4. Privileged NTFS Certification Package
 
-Used on an authorized host to verify privileged read-only access to NTFS MFT records and USN change journals.
+Use an authorized elevated NTFS host to verify read-only privileged observation and fixture-to-filesystem ground truth.
 
-### Execution Command (Run in Elevated PowerShell):
 ```powershell
 pwsh -File verify/certification/Invoke-PrivilegedNtfsCertification.ps1 -VolumeRoot "C:"
 ```
 
-### Safety & Invariants:
-- **Strictly Read-Only**: Opens raw volume (`\\.\C:`) with `FILE_SHARE_READ | FILE_SHARE_WRITE` and `GENERIC_READ`.
-- Never writes raw sectors, alters filesystem metadata, or disables Windows security.
-- Verification fixtures are written exclusively to an isolated campaign temporary directory.
-- If executed without elevation, reports `BLOCKED_NOT_ELEVATED` (not FAIL).
+Safety and truth invariants:
+
+- Raw-volume access is strictly read-only.
+- Never write raw sectors or directly mutate filesystem metadata.
+- Campaign fixtures are created only through normal filesystem APIs in a disposable directory.
+- Raw-volume open by itself is insufficient for MFT/USN certification.
+- Real default MFT/USN observation backends must execute and match campaign fixture truth before those capabilities may PASS.
+- Without elevation, report the corresponding blocked state rather than manufacturing success.
 
 ---
 
 ## 5. Production Signing Certification Package
 
-Used to verify an Authenticode-signed candidate binary against production pinning policies without manufacturing fake credentials.
+Use a real signed candidate and expected production signer identity.
 
-### Execution Command:
 ```powershell
 pwsh -File verify/certification/Invoke-SigningCertification.ps1 `
     -CandidatePath "C:\path\to\FastFiles.exe" `
-    -SignerThumbprint "A1B2C3D4E5F6A1B2C3D4E5F6A1B2C3D4E5F6A1B2" `
-    -ExpectedSubject "CN=Quantdale Production, O=Quantdale"
+    -SignerThumbprint "<approved-production-thumbprint>" `
+    -ExpectedSubject "<approved-production-subject>"
 ```
 
-### Verification Checks:
-1. **Unsigned Candidate Rejection**: Confirms that unsigned binaries are rejected as `NotSigned`.
-2. **Authenticode Integrity**: Confirms signature status is cryptographically `Valid`.
-3. **Pin Enforcement**: Confirms the signer certificate thumbprint matches the expected production pin.
-4. **RFC3161 Timestamp**: Confirms valid counter-signature timestamp is embedded.
-5. If signed inputs are omitted, reports `REQUIRED-BUT-UNAVAILABLE` (fail-closed).
+Required checks include candidate identity, Authenticode validity, signer-pin match, chain/timestamp policy where required, and negative mismatch behavior. Missing production credentials/material remain external and unavailable; test certificates do not satisfy production certification.
 
 ---
 
 ## 6. Real Vision Provider Certification Package
 
-Used to certify external vision critic capabilities against sanitized visual catalog images.
+Use this lane only for sanitized visual-review evidence when a real vision provider is configured.
 
-### Step 1: Configure Credentials in Environment
 ```powershell
-$env:FASTFILES_VISION_PROVIDER_KEY = "your-provider-api-key"
-$env:FASTFILES_VISION_PROVIDER_ENDPOINT = "https://your-provider-endpoint.com/v1"
-```
-
-### Step 2: Execute Provider Certification
-```powershell
+$env:FASTFILES_VISION_PROVIDER_KEY = "<provider-key>"
+$env:FASTFILES_VISION_PROVIDER_ENDPOINT = "<approved-endpoint>"
 pwsh -File verify/certification/Invoke-ProviderCertification.ps1 -Provider real
-```
-
-### Step 3: Clear Credentials
-```powershell
 $env:FASTFILES_VISION_PROVIDER_KEY = $null
 $env:FASTFILES_VISION_PROVIDER_ENDPOINT = $null
 ```
 
-### Security & Privacy Rules:
-- **No Credentials in Output**: The runner scans and redacts all secrets before writing artifacts.
-- **FakeCritic Rejection**: Passing `-Provider fake` is rejected as `FAIL`. FakeCritic is permitted only for CI regression fixtures, not external provider certification.
+Security/privacy rules:
+
+- Never commit or retain credentials.
+- Sanitize visual inputs according to the repository privacy gate.
+- Fake critic/provider fixtures are regression infrastructure only and cannot satisfy real external visual review.
 
 ---
 
 ## 7. Evidence Import and Staleness Verification
 
-When external certification evidence is returned from an authorized host, import it into the repository:
+When in-scope external evidence is returned from an authorized host:
 
-### Validation & Import Command:
 ```powershell
 pwsh -File verify/certification/Import-CertificationEvidence.ps1 `
     -EvidenceBundlePath "C:\path\to\evidence_directory" `
     -TargetChange "external-certification-readiness-and-evidence-convergence"
 ```
 
-### Audits Performed:
-1. **Schema Conformance**: Validates against `verify/certification/schemas/*.schema.json`.
-2. **Secret Scan**: Scans all fields for private keys, passwords, and tokens.
-3. **Commit & Tree Binding**: Rejects all-zero SHAs; verifies commit reachability.
-4. **Staleness Analysis**: Compares the evidence commit against current `HEAD`:
-   - If signed code changed since certification, flags `STALE`.
-   - If parser code changed since privileged NTFS certification, flags `STALE`.
-   - If packaging manifests changed since clean-host certification, flags `STALE`.
+Importer expectations:
+
+1. schema conformance;
+2. secret scan;
+3. exact commit/tree and candidate provenance where required;
+4. artifact/sidecar integrity;
+5. lane-specific staleness analysis;
+6. no PASS inferred from skipped or unavailable execution.
+
+---
+
+## 8. Current Completion Scope
+
+FastFiles local certification closure currently concerns:
+
+- post-fix rapid-input stress;
+- real default MFT/USN readers and privileged fixture comparison;
+- visual-matrix engine-connected context or truthful external reclassification;
+- clean-host/signing/vision tooling truthfulness where applicable;
+- full local validation, exact-tree qualification, lifecycle convergence, and exact-final-SHA hosted CI.
+
+Vendor-specific VM-provider testing is intentionally absent from this list and must stay absent unless the owner explicitly changes scope.
