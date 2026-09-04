@@ -55,6 +55,21 @@ Do not reintroduce those items into the remaining-local-work list, validation la
 
 Prior campaign reports and historical evidence remain available in their OpenSpec change directories and Git history. They are historical records, not current instructions. When historical prose disagrees with this section or generated project status, current lifecycle/project-status truth wins.
 
+## Historical hosted-run bindings (lifecycle record corroboration)
+
+Retained because `openspec/lifecycle.json` hosted-run records point at
+this file and the project-status gate requires the run ID and exact SHA
+to appear in the record text:
+
+- `final-product-completion-and-production-readiness`: hosted run
+  `33294518606` on exact SHA
+  `0ad79a8caeab30f6c129c0f285279d1508b62c48` (6/6 SUCCESS); ledger tip
+  `94a4830cb799a459844e7af421257fd525b82116` (hosted run
+  `33295510209`, 6/6 SUCCESS).
+- `completion-integrity-hardening-and-release-certification`: hosted run
+  `33294518606` on exact SHA
+  `0ad79a8caeab30f6c129c0f285279d1508b62c48` (6/6 SUCCESS).
+
 ## Next exact action
 
 Continue the active closure campaign with post-fix rapid-input stress, real MFT/USN backends, visual-matrix context/reclassification, then full validation/lifecycle/final-tip hosted convergence. Vendor-specific VM-provider testing is intentionally skipped.

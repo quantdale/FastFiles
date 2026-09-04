@@ -124,14 +124,12 @@ ctest --test-dir build/debug -R <name> --output-on-failure
 
 Use production Release only in the authorized release workflow with real signing prerequisites.
 
-## Current FastFiles closure priorities
+## FastFiles closure priorities
 
-Current local verification work is limited to the active closure campaign documented in `docs/agent/WORKSTATE.md`. In particular:
-
-- post-fix rapid-input stress;
-- real default MFT/USN observation backends and privileged fixture truth;
-- visual-matrix engine-connected context or truthful external reclassification;
-- complete Debug/release/Analyze/ASAN/certification/generic-provider-contract/NTFS/visual/OpenSpec/status/exact-tree validation;
-- lifecycle and exact-final-SHA hosted convergence.
+Local verification follows the lifecycle-active campaign recorded in
+docs/agent/WORKSTATE.md and openspec/lifecycle.json. The NTFS observer,
+visual-matrix, and soak-gate closure work described there is complete
+locally; the remaining frontier is external-only (elevated NTFS,
+physical display/DPI, provider/guest, production signing, clean-host).
 
 Vendor-specific VM-provider testing is intentionally skipped and must not be reintroduced without an explicit owner scope change.
