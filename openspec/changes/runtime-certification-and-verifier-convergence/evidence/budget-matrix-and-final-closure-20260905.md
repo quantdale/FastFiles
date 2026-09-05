@@ -131,10 +131,16 @@ at `20260905-173233`. The six skips are the documented host boundary: two
 drag boundaries, one `interactive-foreground-unavailable` selection lifecycle.
 No production-signed or privileged clean-host certification is claimed.
 
-Unsigned release-candidate qualification on the clean committed tree: recorded
-in the WORKSTATE closure entry (requires the clean tree of the session commit;
-the pre-commit dirty tree correctly refuses with `RELEASE_CLEAN_TREE_REQUIRED`,
-which is the gate working as designed).
+Unsigned release-candidate qualification executed on the clean committed tree
+at `e47c743751a7c711befaecd8a8cfca5113e2db87` (the path hosted CI uses:
+`verify/release/tests/Test-ReleaseCandidate.ps1` against `build/release-test`
+with retained evidence): all checks pass, 0 failures — deterministic
+dual-build candidate manifests, provenance bound to the qualified commit,
+no absolute pin source paths, and production mode still rejects missing
+detached-manifest signatures. Before the commit, the dirty tree correctly
+refused with `RELEASE_CLEAN_TREE_REQUIRED`, the gate working as designed.
+A post-change live UIA smoke (`treemap-readability-click-precision`, tree
+`20260905-180845`) passed after the path-normalization fix.
 
 ## Final local UI journey note (completion-integrity 4.5.x)
 
