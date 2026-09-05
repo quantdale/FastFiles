@@ -37,8 +37,28 @@ function Get-VerificationRepositoryRoot {
     return [IO.Path]::GetFullPath((Join-Path $RunContext.VerifyRoot '..'))
 }
 
+function Get-VerificationNormalizedExecutablePath {
+    <# Full path with any extended-length prefix removed; CIM reports some process
+       paths as `\\?\D:\...`, and an unnormalized prefix silently defeats the
+       build-root prefix filter, letting an owned process escape identity tracking
+       entirely. #>
+    param([Parameter(Mandatory)][string] $Path)
+    $full = [IO.Path]::GetFullPath($Path)
+    if ($full.StartsWith('\\?\Volume', [StringComparison]::OrdinalIgnoreCase)) {
+        # Volume-GUID device path: keep verbatim; it can never match a build root.
+        return $full
+    }
+    if ($full.StartsWith('\\?\')) { $full = $full.Substring(4) }
+    return [IO.Path]::GetFullPath($full)
+}
+
 function Get-VerificationBuildProcessSnapshot {
-    <# Exact path/PID/start-time identities; executable names are only a cheap filter. #>
+    <# Exact path/PID/start-time identities; executable names are only a cheap filter.
+       A process that exits during enumeration can fail its CIM CreationDate read;
+       that race must not poison the snapshot (otherwise cleanup can never be proven
+       complete for the exact process that already left). A read failure for a
+       process that is still alive remains a recorded error and fails the snapshot
+       closed. #>
     [CmdletBinding()]
     param([Parameter(Mandatory)] [pscustomobject] $RunContext)
 
@@ -50,11 +70,20 @@ function Get-VerificationBuildProcessSnapshot {
         foreach ($process in @(Get-CimInstance -ClassName Win32_Process -ErrorAction Stop)) {
             $path = [string]$process.ExecutablePath
             if ([string]::IsNullOrWhiteSpace($path)) { continue }
-            $fullPath = [IO.Path]::GetFullPath($path)
+            $fullPath = Get-VerificationNormalizedExecutablePath -Path $path
             if (-not $fullPath.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)) { continue }
             if ([IO.Path]::GetFileName($fullPath) -notin @('FastFiles.exe', 'FastFilesEngine.exe')) { continue }
             $startUtc = $null
-            try { $startUtc = [Management.ManagementDateTimeConverter]::ToDateTime([string]$process.CreationDate).ToUniversalTime().ToString('o') } catch { $errors.Add("pid=$($process.ProcessId): creation time unavailable") }
+            try { $startUtc = [Management.ManagementDateTimeConverter]::ToDateTime([string]$process.CreationDate).ToUniversalTime().ToString('o') } catch { $startUtc = $null }
+            if ($null -eq $startUtc) {
+                # The identity is unreadable. If the process already exited, there is
+                # nothing to adopt or kill and no residue: skip it. Only a still-live
+                # process with an unreadable creation time is an unverifiable identity.
+                $stillLive = $false
+                try { $null = Get-Process -Id ([int]$process.ProcessId) -ErrorAction Stop; $stillLive = $true } catch { $stillLive = $false }
+                if ($stillLive) { $errors.Add("pid=$($process.ProcessId): creation time unavailable") }
+                continue
+            }
             $records.Add([pscustomobject]@{
                     pid = [int]$process.ProcessId
                     path = $fullPath
@@ -72,7 +101,7 @@ function Test-VerificationProcessIdentityCurrent {
     param([Parameter(Mandatory)] [pscustomobject] $Identity)
     try {
         $process = Get-Process -Id ([int]$Identity.pid) -ErrorAction Stop
-        $path = [IO.Path]::GetFullPath([string]$process.Path)
+        $path = Get-VerificationNormalizedExecutablePath -Path ([string]$process.Path)
         if (-not $path.Equals([string]$Identity.path, [StringComparison]::OrdinalIgnoreCase)) { return $false }
         $actualStart = $process.StartTime.ToUniversalTime()
         $expectedStart = [DateTime]::Parse([string]$Identity.startTimeUtc).ToUniversalTime()

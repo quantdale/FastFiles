@@ -16,4 +16,10 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-UiaScenarioSelection.ps1"
   )
   set_tests_properties(ffverify_uia_selection_ps_tests PROPERTIES TIMEOUT 30)
+  add_test(
+    NAME ffverify_process_reaper_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-ProcessReaper.ps1"
+  )
+  set_tests_properties(ffverify_process_reaper_ps_tests PROPERTIES TIMEOUT 60)
 endif()
