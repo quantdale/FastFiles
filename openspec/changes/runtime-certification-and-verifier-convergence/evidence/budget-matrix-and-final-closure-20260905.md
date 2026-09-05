@@ -149,3 +149,20 @@ tabs -> search -> settings -> storage in one foreground-owned lifecycle. The
 journey tasks remain unchecked truthfully: preview/properties and file
 operations steps are not part of the UIA scenario registry, so the complete
 continuous journey criterion is still not met. No reclassification.
+
+## Hosted-CI binding (final handoff)
+
+- Implementation+evidence commits `93f2538` / `e47c743` (release-candidate
+  qualification tree) pushed to `main` at `b6a04e649984355d58a9014f925a0504e16f9722`.
+- Hosted CI run `33983389425` (event=push, branch=main, headSha
+  `b6a04e649984355d58a9014f925a0504e16f9722`) completed SUCCESS 6/6: debug,
+  release-test, analyze, asan-protocol-ipc-lifecycle,
+  repository-hygiene-and-contracts, unsigned-release-candidate-qualification.
+- Lifecycle entry `runtime-certification-and-verifier-convergence` is `completed`
+  in `openspec/lifecycle.json`; the prior `BLOCKED_ENVIRONMENT` /
+  `REQUIRED-BUT-UNAVAILABLE` overrides for tasks 1.3, 5.3, 7.2, 8.2, 8.3 are
+  removed because those tasks were executed with local + hosted evidence above
+  (keeping them would assert unavailability that no longer reflects reality).
+- Final Git handoff: local `main` == `origin/main`, worktree clean. No
+  production-signed or privileged clean-host certification is claimed by this
+  campaign; those external obligations remain in `verify/certification/external-frontier.json`.

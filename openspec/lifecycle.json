@@ -7,29 +7,52 @@
       "name": "autonomous-runtime-verification",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" }
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/autonomous-runtime-verification/tasks.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
         {
           "task": "2.3",
           "disposition": "external",
-          "categories": ["external-provider", "elevated"],
+          "categories": [
+            "external-provider",
+            "elevated"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/autonomous-runtime-verification/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "2.4",
           "disposition": "external",
-          "categories": ["external-provider"],
+          "categories": [
+            "external-provider"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/autonomous-runtime-verification/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/autonomous-runtime-verification/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         }
       ]
@@ -38,81 +61,154 @@
       "name": "close-independent-validation-gaps",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
         {
           "task": "4.2.2",
           "disposition": "external",
-          "categories": ["production-signing", "interactive"],
+          "categories": [
+            "production-signing",
+            "interactive"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md" },
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/privileged-trust-protectedroots-boundary.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/privileged-trust-protectedroots-boundary.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.2",
           "disposition": "mixed",
-          "categories": ["production-signing", "local", "interactive"],
+          "categories": [
+            "production-signing",
+            "local",
+            "interactive"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md" },
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/authentication-negative-tests.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.5",
           "disposition": "external",
-          "categories": ["production-signing", "elevated"],
+          "categories": [
+            "production-signing",
+            "elevated"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.6",
           "disposition": "external",
-          "categories": ["elevated"],
+          "categories": [
+            "elevated"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.7",
           "disposition": "external",
-          "categories": ["elevated"],
+          "categories": [
+            "elevated"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.8",
           "disposition": "external",
-          "categories": ["clean-host", "elevated"],
+          "categories": [
+            "clean-host",
+            "elevated"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/evidence/production-validation-finding-matrix.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "5.1",
           "disposition": "external",
-          "categories": ["interactive"],
+          "categories": [
+            "interactive"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/close-independent-validation-gaps/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/close-independent-validation-gaps/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         }
       ]
@@ -121,9 +217,18 @@
       "name": "interactive-ui-runtime-determinism",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/interactive-ui-runtime-determinism/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/interactive-ui-runtime-determinism/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -132,10 +237,22 @@
       "name": "nonblocking-indexed-read-plane",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md" },
-        { "kind": "git-commit", "sha": "e621b70c12bff7839ec8d525810f05f32ee0c018" },
-        { "kind": "git-commit", "sha": "08b794d0c7f1680ab6a7e44bbd77d284da82a18e" },
-        { "kind": "git-commit", "sha": "f332f222c73297d00ae36cc36c8a9ee5ffb375ae" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "e621b70c12bff7839ec8d525810f05f32ee0c018"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "08b794d0c7f1680ab6a7e44bbd77d284da82a18e"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "f332f222c73297d00ae36cc36c8a9ee5ffb375ae"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -144,40 +261,76 @@
       "name": "phase8-release-readiness-convergence",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md" },
-        { "kind": "git-commit", "sha": "55408b73e7b9cbb937f1d24399190b7fe9a62541" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "55408b73e7b9cbb937f1d24399190b7fe9a62541"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
         {
           "task": "5.1",
           "disposition": "external",
-          "categories": ["external-provider"],
+          "categories": [
+            "external-provider"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "5.2",
           "disposition": "external",
-          "categories": ["production-signing", "clean-host", "elevated"],
+          "categories": [
+            "production-signing",
+            "clean-host",
+            "elevated"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "5.3",
           "disposition": "external",
-          "categories": ["external-provider", "interactive"],
+          "categories": [
+            "external-provider",
+            "interactive"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/phase8-release-readiness-convergence/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         }
       ]
@@ -186,81 +339,162 @@
       "name": "real-user-dogfooding-release-engineering",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md" },
-        { "kind": "git-commit", "sha": "83e668c3b82f7b9af9811b94381c9d878fea5041" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/historical-ledger-reconciliation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "83e668c3b82f7b9af9811b94381c9d878fea5041"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
     },
     {
       "name": "runtime-certification-and-verifier-convergence",
-      "state": "external-evidence-only",
+      "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/runtime-certification-and-verifier-convergence/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/runtime-certification-and-verifier-convergence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/runtime-certification-and-verifier-convergence/evidence/budget-matrix-and-final-closure-20260905.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "93f2538844c07a52bb5c56e6fff1276b812bc231"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "e47c743751a7c711befaecd8a8cfca5113e2db87"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33983389425",
+          "sha": "b6a04e649984355d58a9014f925a0504e16f9722",
+          "record": "openspec/changes/runtime-certification-and-verifier-convergence/evidence/budget-matrix-and-final-closure-20260905.md"
+        }
       ],
       "supersededBy": null,
-      "taskOverrides": [
-        { "task": "1.3", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "5.3", "disposition": "external", "categories": ["external-provider"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "7.2", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "8.2", "disposition": "external", "categories": ["interactive"], "status": "BLOCKED_ENVIRONMENT", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] },
-        { "task": "8.3", "disposition": "external", "categories": ["clean-host", "interactive", "elevated"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [
-          { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
-        ] }
-      ]
+      "taskOverrides": []
     },
     {
       "name": "ship-ready-ui-ux-hardening-convergence",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/ship-ready-ui-ux-hardening-convergence/evidence/audit.md" },
-        { "kind": "git-commit", "sha": "90d012ebfbcd7530f5b397528dc768de34a7396f" }
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/ship-ready-ui-ux-hardening-convergence/evidence/audit.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "90d012ebfbcd7530f5b397528dc768de34a7396f"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
-        { "task": "6.2", "disposition": "external", "categories": ["production-signing", "external-provider", "clean-host", "interactive", "elevated"], "status": "REQUIRED-BUT-UNAVAILABLE", "evidence": [{ "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }] }
+        {
+          "task": "6.2",
+          "disposition": "external",
+          "categories": [
+            "production-signing",
+            "external-provider",
+            "clean-host",
+            "interactive",
+            "elevated"
+          ],
+          "status": "REQUIRED-BUT-UNAVAILABLE",
+          "evidence": [
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
+          ]
+        }
       ]
     },
     {
       "name": "zero-touch-autonomous-engineering",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" }
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
         {
           "task": "6.3",
           "disposition": "external",
-          "categories": ["external-provider"],
+          "categories": [
+            "external-provider"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "6.4",
           "disposition": "external",
-          "categories": ["external-provider"],
+          "categories": [
+            "external-provider"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "6.6",
           "disposition": "external",
-          "categories": ["external-provider"],
+          "categories": [
+            "external-provider"
+          ],
           "status": "REQUIRED-BUT-UNAVAILABLE",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/zero-touch-autonomous-engineering/tasks.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         }
       ]
@@ -269,10 +503,24 @@
       "name": "openspec-frontier-lifecycle-truthfulness",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": ".agent/EXECUTION_PROMPT.md" },
-        { "kind": "repository-path", "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/tasks.md" },
-        { "kind": "git-commit", "sha": "2b600eb9a8d1f8d4e20168653da50afcddc97717" },
-        { "kind": "hosted-run", "runId": "32848021114", "sha": "2b600eb9a8d1f8d4e20168653da50afcddc97717", "record": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": ".agent/EXECUTION_PROMPT.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-frontier-lifecycle-truthfulness/tasks.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "2b600eb9a8d1f8d4e20168653da50afcddc97717"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "32848021114",
+          "sha": "2b600eb9a8d1f8d4e20168653da50afcddc97717",
+          "record": "openspec/changes/openspec-frontier-lifecycle-truthfulness/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -281,8 +529,14 @@
       "name": "stabilize-live-uia-e2e",
       "state": "superseded",
       "evidence": [
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/interactive-ui-runtime-determinism" }
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/interactive-ui-runtime-determinism"
+        }
       ],
       "supersededBy": "interactive-ui-runtime-determinism",
       "taskOverrides": []
@@ -291,12 +545,32 @@
       "name": "openspec-lifecycle-evidence-integrity-and-semantic-convergence",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md" },
-        { "kind": "git-commit", "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163" },
-        { "kind": "hosted-run", "runId": "32865014793", "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163", "record": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "32865014793",
+          "sha": "09bac46a5371ecaad58b7c38ab044deb2c5d8163",
+          "record": "openspec/changes/openspec-lifecycle-evidence-integrity-and-semantic-convergence/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -305,13 +579,36 @@
       "name": "repository-truth-surface-and-doc-drift-convergence",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md" },
-        { "kind": "git-commit", "sha": "80b24ffa37185e90a02af798dd9245ce6894fb7b" },
-        { "kind": "git-commit", "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b" },
-        { "kind": "hosted-run", "runId": "32935961728", "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b", "record": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "80b24ffa37185e90a02af798dd9245ce6894fb7b"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "32935961728",
+          "sha": "72db280e9b41723a571c0f1367aa4ba8bb0be15b",
+          "record": "openspec/changes/repository-truth-surface-and-doc-drift-convergence/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -320,13 +617,36 @@
       "name": "committed-tree-validation-provenance-and-clean-checkout-parity",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md" },
-        { "kind": "git-commit", "sha": "656acb8b8ebdc69da97501f34917df484213bf49" },
-        { "kind": "git-commit", "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4" },
-        { "kind": "hosted-run", "runId": "32956387761", "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4", "record": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "656acb8b8ebdc69da97501f34917df484213bf49"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "32956387761",
+          "sha": "35deafe13e601b82bc88fc2e893f0df0b788a5f4",
+          "record": "openspec/changes/committed-tree-validation-provenance-and-clean-checkout-parity/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -335,12 +655,30 @@
       "name": "indexed-search-zero-copy-hot-path-and-lock-pressure-convergence",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/baseline.md" },
-        { "kind": "git-commit", "sha": "3f171f6bd5714d13e7eae827b7c6250d16a8b73d" },
-        { "kind": "git-commit", "sha": "360e982096fe9bb8e14909cedeb8c140e2725a9a" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/indexed-search-zero-copy-hot-path-and-lock-pressure-convergence/evidence/baseline.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "3f171f6bd5714d13e7eae827b7c6250d16a8b73d"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "360e982096fe9bb8e14909cedeb8c140e2725a9a"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -349,13 +687,36 @@
       "name": "rule-pruning-durability-and-reconciliation-failure-closure",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/specs/index/rule-pruning-durability/spec.md" },
-        { "kind": "repository-path", "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md" },
-        { "kind": "git-commit", "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3" },
-        { "kind": "hosted-run", "runId": "33122565103", "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3", "record": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/specs/index/rule-pruning-durability/spec.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33122565103",
+          "sha": "f65b3bfc770587b4f28f3fa49f3da68faa4142a3",
+          "record": "openspec/changes/rule-pruning-durability-and-reconciliation-failure-closure/evidence/implementation-and-validation.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -364,12 +725,32 @@
       "name": "final-product-completion-and-production-readiness",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/tasks.md" },
-        { "kind": "git-commit", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48" },
-        { "kind": "git-commit", "sha": "2310cf50efbc209df93c04e1f999425399a895dc" },
-        { "kind": "hosted-run", "runId": "33294518606", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48", "record": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-completion-and-production-readiness/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-completion-and-production-readiness/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-product-completion-and-production-readiness/tasks.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "2310cf50efbc209df93c04e1f999425399a895dc"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33294518606",
+          "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48",
+          "record": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -378,57 +759,126 @@
       "name": "completion-integrity-hardening-and-release-certification",
       "state": "external-evidence-only",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/release-and-truth-surface-validation.md" },
-        { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "git-commit", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48" },
-        { "kind": "hosted-run", "runId": "33294518606", "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48", "record": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/specs/engineering/completion-integrity/spec.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/release-and-truth-surface-validation.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33294518606",
+          "sha": "0ad79a8caeab30f6c129c0f285279d1508b62c48",
+          "record": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": [
         {
           "task": "4.5.1",
           "disposition": "mixed",
-          "categories": ["interactive", "local"],
+          "categories": [
+            "interactive",
+            "local"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.5.2",
           "disposition": "mixed",
-          "categories": ["interactive", "local"],
+          "categories": [
+            "interactive",
+            "local"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "4.5.3",
           "disposition": "mixed",
-          "categories": ["interactive", "local", "clean-host", "elevated"],
+          "categories": [
+            "interactive",
+            "local",
+            "clean-host",
+            "elevated"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/final-ui-journey-disposition.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         },
         {
           "task": "6.15",
           "disposition": "external",
-          "categories": ["interactive"],
+          "categories": [
+            "interactive"
+          ],
           "status": "BLOCKED_ENVIRONMENT",
           "evidence": [
-            { "kind": "repository-path", "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md" },
-            { "kind": "repository-path", "path": "openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md" },
-            { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" }
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/completion-integrity-hardening-and-release-certification/evidence/uia-live-determinism-root-cause.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "openspec/changes/final-product-completion-and-production-readiness/evidence/external-blockers.md"
+            },
+            {
+              "kind": "repository-path",
+              "path": "docs/agent/WORKSTATE.md"
+            }
           ]
         }
       ]
@@ -437,15 +887,44 @@
       "name": "visual-intelligence-autopilot",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md" },
-        { "kind": "repository-path", "path": "openspec/changes/visual-intelligence-autopilot/evidence/sanitized-visual-catalog-dossier.md" },
-        { "kind": "git-commit", "sha": "d47063055859c4290c3f1a1f58e40edf06a962e6" },
-        { "kind": "git-commit", "sha": "cb2d96765a2bbfed430dc157519b83b528bb3925" },
-        { "kind": "git-commit", "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd" },
-        { "kind": "hosted-run", "runId": "33746740302", "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd", "record": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/visual-intelligence-autopilot/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/visual-intelligence-autopilot/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/visual-intelligence-autopilot/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/visual-intelligence-autopilot/evidence/sanitized-visual-catalog-dossier.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "d47063055859c4290c3f1a1f58e40edf06a962e6"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "cb2d96765a2bbfed430dc157519b83b528bb3925"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33746740302",
+          "sha": "f339a4895d4180314ba7e7573b196c103e91b2fd",
+          "record": "openspec/changes/visual-intelligence-autopilot/evidence/visual-closure-ff-vis-focus-001.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -454,17 +933,52 @@
       "name": "external-certification-readiness-and-evidence-convergence",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/local-long-run-certification.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/long-run-summary.json" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/resource-soak-summary.json" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/external-frontier-summary.json" },
-        { "kind": "repository-path", "path": "verify/certification/external-frontier.json" },
-        { "kind": "repository-path", "path": "docs/certification/EXTERNAL_CERTIFICATION_RUNBOOK.md" },
-        { "kind": "git-commit", "sha": "7b4315ea267acfc7c29c9c46cdfe29b79437e02d" },
-        { "kind": "hosted-run", "runId": "33807003147", "sha": "7b4315ea267acfc7c29c9c46cdfe29b79437e02d", "record": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/local-long-run-certification.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/local-long-run-certification.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/long-run-summary.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/resource-soak-summary.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/external-frontier-summary.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "verify/certification/external-frontier.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/certification/EXTERNAL_CERTIFICATION_RUNBOOK.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "7b4315ea267acfc7c29c9c46cdfe29b79437e02d"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33807003147",
+          "sha": "7b4315ea267acfc7c29c9c46cdfe29b79437e02d",
+          "record": "openspec/changes/external-certification-readiness-and-evidence-convergence/evidence/local-long-run-certification.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
@@ -473,59 +987,170 @@
       "name": "certification-truthfulness-repair-and-recertification",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/tasks.md" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/local-long-run-certification.md" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/resource-soak-summary.md" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/long-run-summary.json" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/resource-soak-summary.json" },
-        { "kind": "repository-path", "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/evidence-manifest.json" },
-        { "kind": "repository-path", "path": "docs/agent/CERTIFICATION_TRUTHFULNESS_DEFECT_LEDGER_2026-09-04.md" },
-        { "kind": "git-commit", "sha": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb" },
-        { "kind": "hosted-run", "runId": "33833816000", "sha": "f635cc5327e10d6305c499278a7d8a291acd9be6", "record": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/local-long-run-certification.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/local-long-run-certification.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/resource-soak-summary.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/long-run-summary.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/resource-soak-summary.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/evidence-manifest.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/CERTIFICATION_TRUTHFULNESS_DEFECT_LEDGER_2026-09-04.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "67f06b5203241cf8c6384bc58173fc6eba9bf2fb"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33833816000",
+          "sha": "f635cc5327e10d6305c499278a7d8a291acd9be6",
+          "record": "openspec/changes/certification-truthfulness-repair-and-recertification/evidence/local-long-run-certification.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
-    }
-    ,
+    },
     {
       "name": "external-certification-execution-engine-and-frontier-truthfulness",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/tasks.md" },
-        { "kind": "repository-path", "path": "docs/agent/NTFS_VISUAL_CERTIFICATION_DEFECT_LEDGER_2026-09-04.md" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/evidence/exact-tree-5dbe234/evidence-manifest.json" },
-        { "kind": "repository-path", "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/evidence/exact-tree-5dbe234/SUPERSESSION.md" },
-        { "kind": "git-commit", "sha": "630960bec2051649fe511d02eebb133b846e41ad" },
-        { "kind": "hosted-run", "runId": "33932827458", "sha": "630960bec2051649fe511d02eebb133b846e41ad", "record": "docs/agent/WORKSTATE.md" },
-        { "kind": "git-commit", "sha": "98375b007d46fd7062178705c9710f29148ea696" },
-        { "kind": "git-commit", "sha": "343d22e0cc185319b29cb69b27747914edf84621" },
-        { "kind": "git-commit", "sha": "a8662a02df73651d8613676aa7a97c5a3ce99a6f" },
-        { "kind": "hosted-run", "runId": "33897389042", "sha": "227902eaecfdcaccd733d328ec6e63bb56c57d82", "record": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/NTFS_VISUAL_CERTIFICATION_DEFECT_LEDGER_2026-09-04.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/evidence/exact-tree-5dbe234/evidence-manifest.json"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/external-certification-execution-engine-and-frontier-truthfulness/evidence/exact-tree-5dbe234/SUPERSESSION.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "630960bec2051649fe511d02eebb133b846e41ad"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33932827458",
+          "sha": "630960bec2051649fe511d02eebb133b846e41ad",
+          "record": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "98375b007d46fd7062178705c9710f29148ea696"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "343d22e0cc185319b29cb69b27747914edf84621"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "a8662a02df73651d8613676aa7a97c5a3ce99a6f"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33897389042",
+          "sha": "227902eaecfdcaccd733d328ec6e63bb56c57d82",
+          "record": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []
-    }
-    ,
+    },
     {
       "name": "index-durability-false-success-closure",
       "state": "completed",
       "evidence": [
-        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/proposal.md" },
-        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/design.md" },
-        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/tasks.md" },
-        { "kind": "repository-path", "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md" },
-        { "kind": "repository-path", "path": "docs/agent/WORKSTATE.md" },
-        { "kind": "git-commit", "sha": "426b6b053454cc974eb7b7d6b95fa764bb905839" },
-        { "kind": "git-commit", "sha": "9d5d675feda043268d976a469c865b7da0a7ba6f" },
-        { "kind": "git-commit", "sha": "b4a48cc9285f26272d42aa3deeb13ad89a466672" },
-        { "kind": "git-commit", "sha": "e4aed465d0d489fdb99fccbf0c49efb1096ddddd" },
-        { "kind": "git-commit", "sha": "d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3" },
-        { "kind": "hosted-run", "runId": "33941775599", "sha": "d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3", "record": "docs/agent/WORKSTATE.md" }
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/index-durability-false-success-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/index-durability-false-success-closure/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/index-durability-false-success-closure/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "426b6b053454cc974eb7b7d6b95fa764bb905839"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "9d5d675feda043268d976a469c865b7da0a7ba6f"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "b4a48cc9285f26272d42aa3deeb13ad89a466672"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "e4aed465d0d489fdb99fccbf0c49efb1096ddddd"
+        },
+        {
+          "kind": "git-commit",
+          "sha": "d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3"
+        },
+        {
+          "kind": "hosted-run",
+          "runId": "33941775599",
+          "sha": "d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3",
+          "record": "docs/agent/WORKSTATE.md"
+        }
       ],
       "supersededBy": null,
       "taskOverrides": []

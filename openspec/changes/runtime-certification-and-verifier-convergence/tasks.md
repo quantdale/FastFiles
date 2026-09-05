@@ -40,7 +40,7 @@
 ## 7. Release-truth and documentation
 
 - [x] 7.1 Update current status/release-readiness generation and affected documentation to distinguish implemented, locally validated, hosted-CI validated, environment/interactive blocked, privilege/elevation blocked, signing blocked, clean-host/guest blocked, and administrative follow-up states.
-- [ ] 7.2 Add campaign evidence for root cause, result contract, repeatability/order matrix, final UIA outcome, validation ladder, hosted SHA/result, external prerequisites, and final Git handoff; preserve historical evidence unchanged. (Root cause, result contract, validation ladder, and external boundaries are recorded; final UIA/hosted/final-handoff evidence remains pending.)
+- [x] 7.2 Add campaign evidence for root cause, result contract, repeatability/order matrix, final UIA outcome, validation ladder, hosted SHA/result, external prerequisites, and final Git handoff; preserve historical evidence unchanged. — historical evidence preserved unchanged; the new ledger `evidence/budget-matrix-and-final-closure-20260905.md` records the measured budget, seeded matrix, interrupted-run probe (with the `\\?\` ownership-escape fix it exposed), full UIA outcome, validation ladder, RC qualification at `e47c743`, and the hosted binding: run `33983389425` (push/main/`b6a04e649984355d58a9014f925a0504e16f9722`) completed SUCCESS 6/6; final handoff pushed normally with HEAD == origin/main and a clean worktree.
 - [x] 7.3 Reconcile `progress.md`, `docs/agent/WORKSTATE.md`, OpenSpec task state, and generated status from current Git reality before handoff. (Narrative state, task ledger, generated status, clean-tree reconciliation, and final handoff state were updated.)
 
 ## 8. Validation and delivery
