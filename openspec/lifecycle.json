@@ -510,5 +510,18 @@
       "supersededBy": null,
       "taskOverrides": []
     }
+    ,
+    {
+      "name": "index-durability-false-success-closure",
+      "state": "active",
+      "evidence": [
+        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/proposal.md" },
+        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/design.md" },
+        { "kind": "repository-path", "path": "openspec/changes/index-durability-false-success-closure/tasks.md" },
+        { "kind": "repository-path", "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md" }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    }
   ]
 }
