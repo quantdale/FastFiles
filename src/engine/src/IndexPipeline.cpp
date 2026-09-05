@@ -820,12 +820,31 @@ bool IndexPipeline::ApplyUsnBatchChanges(ffindexstore::VolumeRowId volumeId,
     // path, but only Upsert USN records are gated (deletes are no-ops).
     // Skips all ReconstructPath walks when no rules exist for the volume.
     const bool hasRulesForUsnVolume = volumeRules_.find(volumeId) != volumeRules_.end();
+    // index-durability-false-success-closure D3: while a reconciliation
+    // pass is running, journal-batch upserts are "observed" exactly like
+    // scan records -- otherwise a file created between the pass's scan
+    // start and Finish is unseen, removed as stale, and never re-observed
+    // (its USN event was already consumed). Rule-excluded upserts stay out
+    // of the seen-set, matching the MFT path so Finish still prunes them.
+    auto reconcilingUsn = reconciliationSeen_.find(volumeId);
     std::vector<ffindexstore::EntryChange> ruleExcluded;
     if (hasRulesForUsnVolume) {
         ruleExcluded.reserve(changes.size() / 8 + 1);
         for (const auto& change : changes) {
-            if (change.kind == ffindexstore::EntryChangeKind::Upsert && !IsEntryIncludedLocked(volumeId, change.record.id)) {
-                ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, change.record});
+            if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+                if (IsEntryIncludedLocked(volumeId, change.record.id)) {
+                    if (reconcilingUsn != reconciliationSeen_.end()) {
+                        reconcilingUsn->second.insert(change.record.id);
+                    }
+                } else {
+                    ruleExcluded.push_back({ffindexstore::EntryChangeKind::Remove, change.record});
+                }
+            }
+        }
+    } else if (reconcilingUsn != reconciliationSeen_.end()) {
+        for (const auto& change : changes) {
+            if (change.kind == ffindexstore::EntryChangeKind::Upsert) {
+                reconcilingUsn->second.insert(change.record.id);
             }
         }
     }
@@ -924,6 +943,13 @@ void IndexPipeline::BeginReconciliationPass(ffindexstore::VolumeRowId id) {
 bool IndexPipeline::IsReconciliationPassActive(ffindexstore::VolumeRowId id) {
     std::lock_guard<std::mutex> lock(mutex_);
     return reconciliationSeen_.find(id) != reconciliationSeen_.end();
+}
+
+void IndexPipeline::AbortReconciliationPass(ffindexstore::VolumeRowId id) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (reconciliationSeen_.erase(id) != 0) {
+        RecordMetadataOnlyUpdateLocked();
+    }
 }
 
 void IndexPipeline::FinishReconciliationPass(ffindexstore::VolumeRowId id) {

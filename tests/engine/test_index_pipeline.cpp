@@ -2169,6 +2169,134 @@ void TestRulePruningFailureRecoversAfterCloseAndOpen() {
     std::filesystem::remove(dbPath + "-shm");
 }
 
+// index-durability-false-success-closure 6.3 (PA-002): a file created by a
+// journal delta while a reconciliation scan is running has already had its
+// USN event consumed -- if the pass's seen-set only counts scan records,
+// Finish removes the brand-new row as "stale" and nothing ever re-observes
+// it. Journal upserts must count as observed, exactly like scan records.
+void TestUsnUpsertDuringReconciliationPassSurvivesFinish() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_seen_reconcile.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "usn-seen reconciliation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 97;
+    const auto vol = pipeline.ResolveVolume(key);
+    Check(pipeline.ApplyMftBatch(vol, {
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"Users", 0x10, 0),
+    }), "usn-seen fixture seeds its root tree");
+
+    pipeline.BeginReconciliationPass(vol);
+    Check(pipeline.ApplyMftBatch(vol, {
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"Users", 0x10, 0),
+    }), "the reconciliation scan re-observes the existing tree");
+    Check(pipeline.ApplyUsnBatch(vol, {MakeUsnRecord(7, 150, 100, u"created-during-pass.txt", 8)}),
+          "a journal delta creates a new file mid-pass");
+    pipeline.FinishReconciliationPass(vol);
+    Check(!pipeline.IsReconciliationPassActive(vol), "the pass finishes");
+
+    const auto snapshot = pipeline.ExportDirectorySnapshot(vol, L"C:");
+    Check(SnapshotHasName(snapshot, L"created-during-pass.txt"),
+          "a journal-created entry is NOT deleted as stale by the pass that raced it (PA-002)");
+    const auto durable = ReadDurableEntryState(dbPath, vol, FileId{150, 0});
+    Check(durable.opened && durable.hasTarget && durable.entryCount == 3,
+          "the mid-pass creation survives finalization in the durable store too");
+
+    // And the normal correction path still works afterwards: a genuinely
+    // gone row (never re-observed, no journal event) is still pruned.
+    pipeline.BeginReconciliationPass(vol);
+    Check(pipeline.ApplyMftBatch(vol, {MakeMftRecord(5, 5, u"", 0x10, 0)}),
+          "the follow-up pass omits both former children");
+    pipeline.FinishReconciliationPass(vol);
+    const auto pruned = pipeline.ExportDirectorySnapshot(vol, L"C:");
+    Check(!SnapshotHasName(pruned, L"Users") && !SnapshotHasName(pruned, L"created-during-pass.txt"),
+          "seen-set semantics did not disable missed-delete self-correction");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
+// The exclusion half of the seen-set rule: a journal upsert that the
+// volume's rules exclude must never enter the seen-set -- rule-excluded
+// rows stay owed for removal exactly as in the MFT path.
+void TestRuleExcludedUsnUpsertStaysOutOfSeenSet() {
+    const std::string dbPath = FreshDbPath("engine_test_usn_excluded_reconcile.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "usn-excluded reconciliation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 98;
+    const auto vol = pipeline.ResolveVolume(key);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    setting.rules.push_back({L"C:\\excluded-during-pass.txt", false});
+    pipeline.SetVolumeRules(vol, setting);
+    Check(pipeline.ApplyMftBatch(vol, {MakeMftRecord(1, 1, u"", 0x10, 0)}),
+          "usn-excluded fixture seeds its root");
+
+    pipeline.BeginReconciliationPass(vol);
+    Check(pipeline.ApplyUsnBatch(vol, {MakeUsnRecord(9, 160, 1, u"excluded-during-pass.txt", 3)}),
+          "a rule-excluded journal upsert applies during the pass");
+    pipeline.FinishReconciliationPass(vol);
+    const auto snapshot = pipeline.ExportDirectorySnapshot(vol, L"C:");
+    Check(!SnapshotHasName(snapshot, L"excluded-during-pass.txt"),
+          "a rule-excluded mid-pass upsert is not retained by the seen-set");
+    const auto durable = ReadDurableEntryState(dbPath, vol, FileId{160, 0});
+    Check(durable.opened && !durable.hasTarget,
+          "the rule-excluded mid-pass row is not durable after finalization");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
+// D3/D5: an aborted pass (ScanFailed / paused / batch-failed completion)
+// must drop the pass with zero removals and no searchable-epoch change --
+// the whole point is that a partial scan's seen-set never drives deletions.
+void TestAbortReconciliationPassDropsWithoutRemovals() {
+    const std::string dbPath = FreshDbPath("engine_test_abort_reconcile.db");
+    IndexPipeline pipeline;
+    Check(pipeline.Open(dbPath), "abort-reconciliation fixture opens");
+    VolumeKey key;
+    key.serialNumber = 99;
+    const auto vol = pipeline.ResolveVolume(key);
+    Check(pipeline.ApplyMftBatch(vol, {
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"live.txt", 0, 10),
+    }), "abort fixture seeds a row the partial scan will miss");
+
+    pipeline.BeginReconciliationPass(vol);
+    Check(pipeline.ApplyMftBatch(vol, {MakeMftRecord(5, 5, u"", 0x10, 0)}),
+          "the interrupted scan observed only the root");
+    const uint64_t epochBeforeAbort = pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch;
+    pipeline.AbortReconciliationPass(vol);
+    Check(!pipeline.IsReconciliationPassActive(vol), "the pass is no longer active after abort");
+
+    const auto snapshot = pipeline.ExportDirectorySnapshot(vol, L"C:");
+    Check(SnapshotHasName(snapshot, L"live.txt"),
+          "abort removes nothing -- the unobserved-but-live row survives");
+    const auto durable = ReadDurableEntryState(dbPath, vol, FileId{100, 0});
+    Check(durable.opened && durable.hasTarget && durable.entryCount == 2,
+          "abort leaves the durable row set completely untouched");
+    Check(pipeline.GetReadPlaneDiagnostics().queryVisibleEpoch == epochBeforeAbort,
+          "abort is not a searchable mutation -- no epoch advance");
+
+    // A later full reconciliation still finalizes normally.
+    pipeline.BeginReconciliationPass(vol);
+    Check(pipeline.ApplyMftBatch(vol, {
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(100, 5, u"live.txt", 0, 10),
+    }), "the retried pass re-observes everything");
+    pipeline.FinishReconciliationPass(vol);
+    Check(!pipeline.IsReconciliationPassActive(vol), "the retried pass completes normally");
+    pipeline.Close();
+    std::filesystem::remove(dbPath);
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+}
+
 int main() {
 
     TestBulkInsertTriggersAnalyzeAtTenThousandRecords();
@@ -2199,6 +2327,9 @@ int main() {
     TestReconciliationRetentionOnSecondaryFailure();
     TestRepeatedSecondaryFailure();
     TestRulePruningFailureRecoversAfterCloseAndOpen();
+    TestUsnUpsertDuringReconciliationPassSurvivesFinish();
+    TestRuleExcludedUsnUpsertStaysOutOfSeenSet();
+    TestAbortReconciliationPassDropsWithoutRemovals();
 
     if (fftest::FailureCount() > 0) {
         return 1;

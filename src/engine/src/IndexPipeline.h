@@ -298,6 +298,12 @@ public:
     // acting on a partial view.
     void BeginReconciliationPass(ffindexstore::VolumeRowId id);
     void FinishReconciliationPass(ffindexstore::VolumeRowId id);
+    // index-durability-false-success-closure D3/D5: discard an in-flight
+    // pass without finalizing -- no removals, no epoch change. Used when
+    // the scan that was supplying the pass's seen-set turned out not to
+    // have run to completion (ScanFailed, batch-apply failure, or pause),
+    // so its partial coverage can never be mistaken for the whole volume.
+    void AbortReconciliationPass(ffindexstore::VolumeRowId id);
     bool IsReconciliationPassActive(ffindexstore::VolumeRowId id);
 
     // Converts the current projection state for one volume into the
