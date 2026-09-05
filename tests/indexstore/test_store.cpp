@@ -886,6 +886,118 @@ void TestConcurrentReaderWriterWalContract() {
     Check(passedIterations == kIterations, "concurrency: every iteration passed without retry-until-pass");
 }
 
+// index-durability-false-success-closure 5.4 (PA-006): the corrupt-vs-
+// inconclusive boundary is a testable pure rule. Only SQLite's own
+// corruption verdicts may ever qualify a database for the caller's
+// delete-and-rebuild fallback; everything else must read as "unproven".
+void TestIntegrityVerdictClassifier() {
+    using Verdict = Store::IntegrityVerdict;
+    Check(Store::ClassifyIntegrityStep(SQLITE_CORRUPT) == Verdict::Corrupt,
+          "SQLITE_CORRUPT is a corruption verdict");
+    Check(Store::ClassifyIntegrityStep(SQLITE_NOTADB) == Verdict::Corrupt,
+          "SQLITE_NOTADB (not a database file) is a corruption verdict");
+    Check(Store::ClassifyIntegrityStep(SQLITE_CORRUPT | (2 << 8)) == Verdict::Corrupt,
+          "an extended corrupt code classifies with its primary family");
+    Check(Store::ClassifyIntegrityStep(SQLITE_BUSY) == Verdict::Inconclusive,
+          "a locked database is unproven, never corrupt");
+    Check(Store::ClassifyIntegrityStep(SQLITE_LOCKED) == Verdict::Inconclusive, "LOCKED is unproven");
+    Check(Store::ClassifyIntegrityStep(SQLITE_NOMEM) == Verdict::Inconclusive, "NOMEM is unproven");
+    Check(Store::ClassifyIntegrityStep(SQLITE_READONLY) == Verdict::Inconclusive, "READONLY is unproven");
+    Check(Store::ClassifyIntegrityStep(SQLITE_INTERRUPT) == Verdict::Inconclusive, "INTERRUPT is unproven");
+    Check(Store::ClassifyIntegrityStep(SQLITE_FULL) == Verdict::Inconclusive, "FULL is unproven");
+    Check(Store::ClassifyIntegrityStep(SQLITE_IOERR | (3 << 8)) == Verdict::Inconclusive,
+          "the extended IOERR family never claims corruption");
+    Check(Store::ClassifyIntegrityStep(0x5391) == Verdict::Inconclusive,
+          "an unrecognized result code never claims corruption -- the classifier fails safe");
+}
+
+// PA-006: a healthy database under a transient exclusive lock must fail the
+// open WITHOUT the integrity-failed flag -- the flag is what licenses the
+// engine's delete path, and "could not check" is not "checked and corrupt".
+void TestLockedDatabaseFailsOpenWithoutIntegrityFlag() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_locked_integrity.db");
+    VolumeRowId vol = 0;
+    {
+        Store store;
+        Check(store.Open(dbPath), "locked-integrity fixture database opens");
+        VolumeKey key;
+        key.serialNumber = 611;
+        vol = *store.GetOrCreateVolume(key);
+        store.ApplyBatch(vol, {{EntryChangeKind::Upsert, MakeEntry(1, 1, u"keep-me.db")}});
+    }
+    {
+        sqlite3* locker = nullptr;
+        Check(sqlite3_open(dbPath.c_str(), &locker) == SQLITE_OK, "lock-holder connection opens");
+        if (!locker) return;
+        // WAL readers ignore BEGIN EXCLUSIVE; only locking_mode=EXCLUSIVE
+        // with an active read genuinely locks new connections out -- the
+        // transient-contention shape PA-006 must survive without deletion.
+        const int lockMode = sqlite3_exec(locker, "PRAGMA locking_mode=EXCLUSIVE;", nullptr, nullptr, nullptr);
+        const int begin = sqlite3_exec(locker, "BEGIN;", nullptr, nullptr, nullptr);
+        const int read = sqlite3_exec(locker, "SELECT count(*) FROM sqlite_master;", nullptr, nullptr, nullptr);
+        Check(lockMode == SQLITE_OK && begin == SQLITE_OK && read == SQLITE_OK,
+              "exclusive lock acquired on a healthy database");
+
+        Store victim;
+        bool integrityFailed = true;
+        Check(!victim.Open(dbPath, &integrityFailed),
+              "the integrity check under an exclusive lock fails the open (fail-closed)");
+        Check(!integrityFailed,
+              "a check that could not reach a verdict does NOT report corruption (PA-006)");
+        Check(victim.RunIntegrityCheckDetailed() == Store::IntegrityVerdict::Inconclusive,
+              "the failed-open store's verdict is inconclusive, never corrupt");
+
+        sqlite3_exec(locker, "COMMIT;", nullptr, nullptr, nullptr);
+        sqlite3_close(locker);
+    }
+    // The files survived: reopening once the lock releases finds the index intact.
+    Check(std::filesystem::exists(dbPath), "the inconclusive open left the database file in place");
+    Store revived;
+    bool integrityFailed = true;
+    Check(revived.Open(dbPath, &integrityFailed), "the same database opens cleanly once the lock is gone");
+    Check(!integrityFailed, "the unlocked open reports a clean verdict");
+    Check(revived.CountEntries(vol) == 1, "no rows were lost to the inconclusive interval");
+    Check(revived.RunIntegrityCheckDetailed() == Store::IntegrityVerdict::Ok,
+          "the healthy verdict is exactly Ok");
+}
+
+// The corruption half of the split: a file SQLite positively identifies as
+// corrupt must set outIntegrityFailed true (the fallback stays available
+// when earned). Pure garbage bytes would read as a brand-new empty
+// database, so the fixture damages the page-1 b-tree header of a real one.
+void TestCorruptDatabaseSetsIntegrityFailedFlag() {
+    const std::string dbPath = FreshDbPath("ffindexstore_test_corrupt_verdict.db");
+    {
+        Store store;
+        Check(store.Open(dbPath), "corrupt-verdict fixture creates a real database");
+        VolumeKey key;
+        key.serialNumber = 612;
+        const auto vol = *store.GetOrCreateVolume(key);
+        store.ApplyBatch(vol, {{EntryChangeKind::Upsert, MakeEntry(1, 1, u"was-here.db")}});
+        store.CheckpointPassive();
+        store.Close();
+    }
+    std::filesystem::remove(dbPath + "-wal");
+    std::filesystem::remove(dbPath + "-shm");
+    {
+        FILE* file = nullptr;
+        Check(fopen_s(&file, dbPath.c_str(), "r+b") == 0 && file != nullptr,
+              "corrupt-verdict fixture file is reopenable for damage");
+        if (!file) return;
+        // Overwrite the page-1 b-tree page header (SQLite magic stays
+        // valid, so this is a corrupt database, not a non-database file).
+        fseek(file, 100, SEEK_SET);
+        const unsigned char damage[64] = {0xDE, 0xAD, 0xBE, 0xEF};
+        fwrite(damage, 1, sizeof(damage), file);
+        fclose(file);
+    }
+    Store store;
+    bool integrityFailed = false;
+    Check(!store.Open(dbPath, &integrityFailed), "a corrupted database fails the open");
+    Check(integrityFailed,
+          "a file SQLite positively verifies as corrupt reports corruption");
+}
+
 } // namespace
 
 // memory-bounded-indexed-scale 2.1: durable point lookup round-trip.
@@ -947,6 +1059,9 @@ int main() {
     TestAllocatedSizeUnknownVsZeroAndPreservation();
     TestConcurrentReaderWriterWalContract();
     TestFindEntryPointLookup();
+    TestIntegrityVerdictClassifier();
+    TestLockedDatabaseFailsOpenWithoutIntegrityFlag();
+    TestCorruptDatabaseSetsIntegrityFailedFlag();
 
     if (fftest::FailureCount() > 0) {
         std::fprintf(stderr, "%d test(s) failed\n", fftest::FailureCount());

@@ -291,19 +291,48 @@ Store::~Store() {
     Close();
 }
 
-bool Store::RunIntegrityCheck() {
+Store::IntegrityVerdict Store::ClassifyIntegrityStep(int stepCode) noexcept {
+    // The primary result code lives in the low 8 bits; extended codes carry
+    // sub-reasons (e.g. SQLITE_IOERR_READ == 266) that must classify with
+    // their primary family. Only SQLite's own corruption verdicts qualify;
+    // everything else -- BUSY, LOCKED, NOMEM, READONLY, INTERRUPT, FULL,
+    // IOERR, and any unrecognized code -- means the check produced no
+    // corruption verdict, which is grounds for retry, never deletion.
+    switch (stepCode & 0xff) {
+        case SQLITE_CORRUPT: // 11 -- verified corrupt
+        case SQLITE_NOTADB:  // 26 -- not a database file at all
+            return IntegrityVerdict::Corrupt;
+        default:
+            return IntegrityVerdict::Inconclusive;
+    }
+}
+
+Store::IntegrityVerdict Store::RunIntegrityCheckDetailed() {
     if (db_ == nullptr) {
-        return false;
+        return IntegrityVerdict::Inconclusive;
     }
     Statement stmt(db_, "PRAGMA integrity_check;");
     if (!stmt.Valid()) {
-        return false;
+        // Preparation itself carries SQLite's verdict: a corrupted page-1
+        // b-tree header or a NOTADB file fails the prepare of any statement,
+        // so classify the connection's real result code -- losing it here
+        // would turn verified corruption into "unproven".
+        return ClassifyIntegrityStep(sqlite3_extended_errcode(db_));
     }
-    if (sqlite3_step(stmt) != SQLITE_ROW) {
-        return false;
+    const int step = sqlite3_step(stmt);
+    if (step == SQLITE_ROW) {
+        const unsigned char* text = sqlite3_column_text(stmt, 0);
+        if (text == nullptr) {
+            return IntegrityVerdict::Inconclusive; // unusable report row -- unproven, not corrupt
+        }
+        return std::strcmp(reinterpret_cast<const char*>(text), "ok") == 0 ? IntegrityVerdict::Ok
+                                                                           : IntegrityVerdict::Corrupt;
     }
-    const unsigned char* text = sqlite3_column_text(stmt, 0);
-    return text != nullptr && std::strcmp(reinterpret_cast<const char*>(text), "ok") == 0;
+    return ClassifyIntegrityStep(step);
+}
+
+bool Store::RunIntegrityCheck() {
+    return RunIntegrityCheckDetailed() == IntegrityVerdict::Ok;
 }
 
 bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
@@ -320,8 +349,13 @@ bool Store::Open(const std::string& dbPathUtf8, bool* outIntegrityFailed) {
     // task 1.7: verify before trusting anything already on disk. A brand
     // new, empty file passes trivially, so this is safe to run
     // unconditionally rather than special-casing first-run.
-    if (!RunIntegrityCheck()) {
-        if (outIntegrityFailed != nullptr) {
+    // index-durability-false-success-closure D6 (PA-006): only a Corrupt
+    // verdict licenses the caller's delete-and-rescan fallback; an
+    // Inconclusive verdict fails the open with outIntegrityFailed left
+    // false so a transient lock/IO condition can never destroy the index.
+    const IntegrityVerdict verdict = RunIntegrityCheckDetailed();
+    if (verdict != IntegrityVerdict::Ok) {
+        if (verdict == IntegrityVerdict::Corrupt && outIntegrityFailed != nullptr) {
             *outIntegrityFailed = true;
         }
         Close();

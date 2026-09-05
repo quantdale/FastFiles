@@ -74,10 +74,15 @@ public:
     // (design.md "Risks" WAL-growth mitigation), and ensures the schema
     // exists at the current schema version.
     //
-    // Runs an integrity check first (task 1.7); if it fails against an
-    // existing file, the open fails (outIntegrityFailed is set to true) so
-    // the caller can fall back to a fresh scan rather than trusting data
-    // known to be corrupt (spec "Corruption is detectable").
+    // Runs an integrity check first (task 1.7); if it reaches a *corrupt*
+    // verdict against an existing file, the open fails
+    // (outIntegrityFailed is set to true) so the caller can fall back to a
+    // fresh scan rather than trusting data known to be corrupt (spec
+    // "Corruption is detectable"). index-durability-false-success-closure
+    // D6: an integrity check that could not reach a verdict (lock, I/O,
+    // busy, OOM -- anything but a positive corruption report) fails the
+    // open *without* setting outIntegrityFailed, because "unproven" is not
+    // "corrupt" and must never qualify the database for deletion.
     bool Open(const std::string& dbPathUtf8, bool* outIntegrityFailed = nullptr);
     void Close();
     bool IsOpen() const noexcept { return db_ != nullptr; }
@@ -91,6 +96,25 @@ public:
 
     // task 1.7, also callable standalone (e.g. from a diagnostics path).
     bool RunIntegrityCheck();
+
+    // index-durability-false-success-closure D6: the verdict behind
+    // RunIntegrityCheck(). Ok = the check completed and reported "ok";
+    // Corrupt = the check completed and reported damage (or SQLite itself
+    // classified the file as not-a-database/corrupt); Inconclusive = the
+    // check could not be completed or classified (prepare failed, BUSY,
+    // LOCKED, NOMEM, IOERR, READONLY, INTERRUPT, FULL, ...). Only Corrupt
+    // is ever grounds for destroying a database.
+    enum class IntegrityVerdict { Ok, Corrupt, Inconclusive };
+    IntegrityVerdict RunIntegrityCheckDetailed();
+
+    // Classification of a non-row sqlite3_step result code from the
+    // integrity_check statement. Exposed (and unit-testable) so the
+    // corrupt-vs-inconclusive boundary is a testable pure rule rather than
+    // an untestable control-flow accident. Corrupt-family primary result
+    // codes (SQLITE_CORRUPT=11, SQLITE_NOTADB=26, masking extended codes)
+    // classify as Corrupt; *everything* else classifies as Inconclusive --
+    // fail-safe in the direction that never deletes data.
+    static IntegrityVerdict ClassifyIntegrityStep(int stepCode) noexcept;
 
     // task 1.6: passive checkpoint, cheap and safe to call frequently
     // (e.g. on an idle timer); does not block writers.

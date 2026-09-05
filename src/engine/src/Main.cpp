@@ -164,23 +164,45 @@ int wmain() {
     ffengine::IndexPipeline indexPipeline;
     const std::string dbPathUtf8 = GetIndexDatabasePathUtf8();
     if (!dbPathUtf8.empty()) {
-        bool integrityFailed = false;
-        bool opened = indexPipeline.Open(dbPathUtf8, &integrityFailed);
-        if (!opened && integrityFailed) {
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
-                                          ffprotocol::DiagnosticCode::FFDIAG_CORRUPT_DB,
-                                          {}, {}, L"index-database-corrupt", ERROR_INVALID_DATA, 0});
-            // Task 1.7's defined fallback: an existing database that fails
-            // its integrity check is never trusted -- delete it (plus its
-            // WAL/SHM siblings) and reopen a fresh, empty store, which the
-            // normal scan/reconciliation machinery then rebuilds from a
-            // fresh scan.
-            std::fwprintf(stderr,
-                          L"FastFilesEngine: index database at %hs failed its integrity check -- deleting it and rebuilding from a fresh scan\n",
-                          dbPathUtf8.c_str());
-            indexPipeline.Close();
-            DeleteIndexDatabaseFiles(dbPathUtf8);
-            opened = indexPipeline.Open(dbPathUtf8);
+        // index-durability-false-success-closure D6 (PA-006): the
+        // delete-and-rebuild fallback is reserved for a *proven* corrupt
+        // verdict. A failed open whose integrity check could not reach a
+        // verdict -- an exclusive lock held by a lingering process, an
+        // I/O hiccup, BUSY/LOCKED/NOMEM/IOERR -- is retried a bounded
+        // number of times with the file preserved; destroying a healthy
+        // index because a check was inconclusive is the failure this
+        // closes. Corruption remains fatal exactly as before (task 1.7).
+        constexpr int kOpenAttempts = 3;
+        constexpr DWORD kOpenRetryDelayMs = 500;
+        bool opened = false;
+        for (int attempt = 0; attempt < kOpenAttempts && !opened; ++attempt) {
+            if (attempt > 0) {
+                Sleep(kOpenRetryDelayMs);
+            }
+            bool integrityFailed = false;
+            opened = indexPipeline.Open(dbPathUtf8, &integrityFailed);
+            if (!opened && integrityFailed) {
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_CORRUPT_DB,
+                                              {}, {}, L"index-database-corrupt", ERROR_INVALID_DATA, 0});
+                // Task 1.7's defined fallback: an existing database that fails
+                // its integrity check is never trusted -- delete it (plus its
+                // WAL/SHM siblings) and reopen a fresh, empty store, which the
+                // normal scan/reconciliation machinery then rebuilds from a
+                // fresh scan.
+                std::fwprintf(stderr,
+                              L"FastFilesEngine: index database at %hs failed its integrity check -- deleting it and rebuilding from a fresh scan\n",
+                              dbPathUtf8.c_str());
+                indexPipeline.Close();
+                DeleteIndexDatabaseFiles(dbPathUtf8);
+                opened = indexPipeline.Open(dbPathUtf8);
+                break; // the fresh-reopen result is terminal: never delete again
+            }
+            if (!opened && attempt + 1 < kOpenAttempts) {
+                ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
+                                              ffprotocol::DiagnosticCode::FFDIAG_DB_INTEGRITY_INCONCLUSIVE,
+                                              {}, {}, L"index-database-open-inconclusive-retry", ERROR_RETRY, 0});
+            }
         }
         if (!opened) {
             ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::DatabaseError,
