@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffdialog_focus_return_tests",
+  "category": "ipc-lifecycle",
+  "command": "build/debug/tests/ui/ffdialog_focus_return_tests.exe",
+  "commit": "5dbe234248f630e58aecc621ac3c7a6cacb8e449",
+  "tree": "8f648afcbcd04a0a211c921fd168a37cc1d523c4",
+  "exactTreeBound": true,
+  "executableHash": "77d357c0b5bfcb2fa9c76c457ec56bd3c0e243226ff264466b8af0f3b4cb7050",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T23:33:42.4037451Z",
+  "endUtc": "2026-09-04T23:33:44.8896660Z",
+  "requestedIterations": 50,
+  "completedIterations": 50,
+  "passed": 50,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 41.93,
+  "medianDurationMs": 46.13,
+  "p95DurationMs": 55.73,
+  "maxDurationMs": 120.6,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

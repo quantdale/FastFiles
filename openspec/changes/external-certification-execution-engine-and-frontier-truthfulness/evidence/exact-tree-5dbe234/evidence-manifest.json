@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "generatedAtUtc": "2026-09-05T00:23:08.3037370Z",
+  "directory": "build/cert-evidence",
+  "artifactCount": 20,
+  "artifacts": {
+    "local-long-run-certification.md": {
+      "sha256": "3f2e6a05ddba0128979dbb7fd5ff99b3a12c9d75cba337b56ccdea9386cbbfdc",
+      "bytes": 2345,
+      "lastModifiedUtc": "2026-09-05T00:23:08.2872626Z"
+    },
+    "long-run-concurrency-20.json": {
+      "sha256": "976de995940d83cc593f0fa09683906b2ecef3be88398eaffdc7e801ab81d98b",
+      "bytes": 1005,
+      "lastModifiedUtc": "2026-09-04T23:33:37.0409831Z"
+    },
+    "long-run-concurrency-20.json.sha256": {
+      "sha256": "f775fd9523c7d605f29ec19e7459314c317da53875e6f5fad50dd98476897911",
+      "bytes": 96,
+      "lastModifiedUtc": "2026-09-04T23:33:37.0575959Z"
+    },
+    "long-run-dialog-focus-50.json": {
+      "sha256": "361ba497323c3599e2342c1933f4804aedb61eb6fbd291e9066e9f16f337228c",
+      "bytes": 973,
+      "lastModifiedUtc": "2026-09-04T23:33:44.9549879Z"
+    },
+    "long-run-dialog-focus-50.json.sha256": {
+      "sha256": "ca7a820f1b08c2133f1442f9b84591ec43ee6795c24f9ba5d76180729452aec8",
+      "bytes": 97,
+      "lastModifiedUtc": "2026-09-04T23:33:44.9715677Z"
+    },
+    "long-run-framing-100.json": {
+      "sha256": "cf80fbbee68256fe048b0ca4b7c67cc7d6e22f9ca70ebad32c1a015af6f7b785",
+      "bytes": 969,
+      "lastModifiedUtc": "2026-09-04T23:30:17.9942917Z"
+    },
+    "long-run-framing-100.json.sha256": {
+      "sha256": "3b7f5c074561ce053d4657b3fb1fdaf67f7fb50617a7323fad9450f19e0c33d9",
+      "bytes": 93,
+      "lastModifiedUtc": "2026-09-04T23:30:18.0148302Z"
+    },
+    "long-run-handshake-100.json": {
+      "sha256": "7520511d8031d63b25d32c419ab92195904c5d194f70c897316ef3301621f44e",
+      "bytes": 993,
+      "lastModifiedUtc": "2026-09-04T23:26:47.3576958Z"
+    },
+    "long-run-handshake-100.json.sha256": {
+      "sha256": "fd54b977ecb9e2bfb519a0bd7e37a7d2054c8a75f9eb14fdee1654e30716800d",
+      "bytes": 95,
+      "lastModifiedUtc": "2026-09-04T23:26:47.3727361Z"
+    },
+    "long-run-summary.json": {
+      "sha256": "5a34f4a3615a9bb33f94df1ff87ecff621d2a500da598bf8d5e3aa8d43f06bce",
+      "bytes": 4118,
+      "lastModifiedUtc": "2026-09-05T00:17:32.1376974Z"
+    },
+    "long-run-uia-application-lifecycle-100.json": {
+      "sha256": "cdd953da5c3c1ac51aeb51fa0fec7297d792e54d294149a81bebffdc2fdf9eed",
+      "bytes": 1700,
+      "lastModifiedUtc": "2026-09-04T23:41:56.557351Z"
+    },
+    "long-run-uia-application-lifecycle-100.json.sha256": {
+      "sha256": "0961e904161b2b184c1cddc5988ee40b877153aeecdd886a5fde49cd9d542311",
+      "bytes": 111,
+      "lastModifiedUtc": "2026-09-04T23:41:56.5719749Z"
+    },
+    "long-run-uia-rapid-input-100.json": {
+      "sha256": "eb3a32bf3365c028a7e23b77363bc1559589111cad7fb2a3e2ac0ca420550139",
+      "bytes": 33809,
+      "lastModifiedUtc": "2026-09-05T00:01:45.4507771Z"
+    },
+    "long-run-uia-rapid-input-100.json.sha256": {
+      "sha256": "830a108b4972875d5e2de0350bf5c99f752719743d1f7a981fb61ede8b51297d",
+      "bytes": 101,
+      "lastModifiedUtc": "2026-09-05T00:01:45.4698717Z"
+    },
+    "long-run-uiserver-25.json": {
+      "sha256": "ec782982eaed8d5c6b29d7e4b6f67552a0ff14f21a5cf0efbda489e7c8e63949",
+      "bytes": 1001,
+      "lastModifiedUtc": "2026-09-04T23:33:17.3269818Z"
+    },
+    "long-run-uiserver-25.json.sha256": {
+      "sha256": "0d0a80be0e6a527c491928fc318d64a5fbba73d391843dffb239a2f1da25bd8f",
+      "bytes": 93,
+      "lastModifiedUtc": "2026-09-04T23:33:17.3436938Z"
+    },
+    "resource-soak-summary.json": {
+      "sha256": "8139cb917dd59ea9dc72e99ba70f3b7c44332288004771402cd34dda84289c21",
+      "bytes": 11138,
+      "lastModifiedUtc": "2026-09-05T00:12:22.3490728Z"
+    },
+    "resource-soak-summary.json.sha256": {
+      "sha256": "b1fff2a36f72afa5f1a61b3049ab243cd4c8f764955d3b0d855b66fe6552629d",
+      "bytes": 102,
+      "lastModifiedUtc": "2026-09-05T00:12:22.3632852Z"
+    },
+    "resource-soak-summary.md": {
+      "sha256": "41ed5a3dd28f056f52fcf317ffb6fdc6b5162fed77fb40382f172059ed43938d",
+      "bytes": 1533,
+      "lastModifiedUtc": "2026-09-05T00:17:32.0689643Z"
+    },
+    "SUPERSESSION.md": {
+      "sha256": "1a859bed939e1bf873079db4e2b2903d4aaa02658e35877128272f941f94c8f9",
+      "bytes": 1679,
+      "lastModifiedUtc": "2026-09-05T00:23:08.2425140Z"
+    }
+  }
+}

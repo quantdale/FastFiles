@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffipc_framing_tests",
+  "category": "ipc-lifecycle",
+  "command": "build/debug/tests/ipc/ffipc_framing_tests.exe",
+  "commit": "5dbe234248f630e58aecc621ac3c7a6cacb8e449",
+  "tree": "8f648afcbcd04a0a211c921fd168a37cc1d523c4",
+  "exactTreeBound": true,
+  "executableHash": "bac22666c4de7c9dc8fdc3519bd82cd807495318ed6c5ab066b157afc341669e",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T23:26:53.1377224Z",
+  "endUtc": "2026-09-04T23:30:17.9229329Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 1635.06,
+  "medianDurationMs": 1659.83,
+  "p95DurationMs": 3595.94,
+  "maxDurationMs": 7082.45,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

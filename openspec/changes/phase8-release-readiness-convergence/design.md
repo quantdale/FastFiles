@@ -33,9 +33,9 @@ Why: deterministic, explainable classification is more useful than an opaque heu
 
 ### D3 — Providers advertise preflight and own all resources
 
-The provider descriptor gains optional preflight/source metadata entry points while retaining interface-major compatibility. The core calls preflight before activation and writes a sanitized result. A fake provider module is used for contract tests; real Hyper-V remains a plug-in and reports stable unavailable reasons when its source image or guest is absent. User-supplied paths are expanded only at runtime, validated as files with defensive metadata checks, and represented by hashes/size/type rather than persisted absolute paths in committed evidence.
+The provider descriptor gains optional preflight/source metadata entry points while retaining interface-major compatibility. The core calls preflight before activation and writes a sanitized result. A fake provider module is used for contract tests; the real vendor-specific VM-provider adapter remains a plug-in and reports stable unavailable reasons when its source image or guest is absent. User-supplied paths are expanded only at runtime, validated as files with defensive metadata checks, and represented by hashes/size/type rather than persisted absolute paths in committed evidence.
 
-Why: this leaves the only missing real resource—the lawful Windows guest—outside the code while avoiding an adapter that claims a zero-byte VHDX is runnable. Alternatives rejected: an OS-less fake Hyper-V success and hardcoded machine paths.
+Why: this leaves the only missing real resource—the lawful Windows guest—outside the code while avoiding an adapter that claims a zero-byte VHDX is runnable. Alternatives rejected: an OS-less fake vendor-specific VM-provider success and hardcoded machine paths.
 
 ### D4 — CI composes existing gates with bounded jobs
 

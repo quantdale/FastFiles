@@ -1,7 +1,7 @@
 # NTFS Observer + Visual-Matrix Closure — Defect Ledger (2026-09-04)
 
 Campaign: live MFT/USN observer integration (FC-003/FC-004), visual-matrix
-EX-009 closure (FC-007), Hyper-V reconciliation (FC-002/FC-005), soak
+EX-009 closure (FC-007), vendor-specific VM-provider reconciliation (FC-002/FC-005), soak
 gate false-positive (NV-011), post-fix rapid-input closure (FC-001).
 Starting SHA `b3dffc5` (= origin/main, clean except pre-existing
 unrelated `.opencode/package.json[.lock]` tooling bump, preserved
@@ -109,7 +109,7 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
   across all 25 tasks (green). The single stale aspect found: task 5.1
   lacked the engine-connected preset, so external executors would
   always BLOCK. Fixed (`-Preset debug-diagnostic` + reason text).
-  No Hyper-V-specific requirement was added (§17).
+  No vendor-specific VM-provider requirement was added (§17).
 
 ## NV-009 evidence/report consistency — NOT_REPRODUCED
 
@@ -159,14 +159,14 @@ CONFIRMED / NOT_REPRODUCED / INVALIDATED / FIXED.
   `4bce753`/`343d22e`. Intermittent iteration-22 failure mode not observed.
   Reopen was justified: product code on the exact path changed.
 
-## FC-002/FC-005 Hyper-V channel/readiness — RESOLVED, NO LOCAL WORK
+## FC-002/FC-005 vendor-specific VM-provider channel/readiness — RESOLVED, NO LOCAL WORK
 
 - Verified live: `ESTABLISH_SECURE_GUEST_CHANNEL` fail-closes
   BLOCKED/GUEST_CHANNEL_CREDENTIAL_ABSENT; provider tasks declare
   `requiredCredentials: [provider-api-key-or-guest-credentials]` with
-  REQUIRED-BUT-UNAVAILABLE status; Hyper-V PowerShell module absent on
+  REQUIRED-BUT-UNAVAILABLE status; vendor-specific VM-provider PowerShell module absent on
   this host (`verify.ps1 doctor`: SKIPPED). Per campaign §17 no
-  Hyper-V credential/channel machinery will be built and no Hyper-V
+  vendor-specific VM-provider credential/channel machinery will be built and no vendor-specific
   requirement added; the fail-closed runner + declared credential
   requirement is the truthful end state. Failure-matrix tests cover
   the channel-failure path (provider suite green).

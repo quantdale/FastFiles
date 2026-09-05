@@ -323,7 +323,7 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   active lifecycle tasks can enter `frontier.localOpen`.
 - `verify/core/Providers.psm1` — versioned provider descriptor validation,
   reason-coded preflight, lifecycle dispatch, and cleanup-guaranteed contract
-  orchestration. `verify/providers/hyperv/` is a real-provider adapter that stays
+  orchestration. the vendor-specific VM-provider adapter under `verify/providers/` is a real-provider adapter that stays
   unavailable until a lawful Windows image and host capability are supplied.
 - `verify/providers/tests/Test-ProviderContract.ps1` — fake-provider lifecycle
   contract tests; it proves orchestration semantics only and is not guest evidence.

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffuia_application-lifecycle",
+  "category": "application-lifecycle",
+  "command": "build/debug/src/ui/FastFiles.exe",
+  "commit": "5dbe234248f630e58aecc621ac3c7a6cacb8e449",
+  "tree": "8f648afcbcd04a0a211c921fd168a37cc1d523c4",
+  "exactTreeBound": true,
+  "executableHash": "e3f90769b4695c9bc5ea582865df7e9084325ea2d4cac20baa3de9651d46f26d",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T23:41:11.2046154Z",
+  "endUtc": "2026-09-04T23:41:56.5036123Z",
+  "requestedIterations": 100,
+  "completedIterations": 100,
+  "passed": 100,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "totalIterations": 100,
+  "iterationLedger": [],
+  "phaseDurations": {},
+  "assertionCounts": {
+    "total": 0,
+    "failed": 0
+  },
+  "semanticPostconditions": {},
+  "displayMatrix": [
+    {
+      "requested": {},
+      "observed": {
+        "Theme": "Light",
+        "DpiPercent": 100,
+        "Contrast": "Unknown",
+        "Viewport": "Wide",
+        "PaneTopology": "Unmeasured",
+        "DetailsPane": "Unmeasured"
+      },
+      "realized": true,
+      "unrealizedFields": []
+    }
+  ],
+  "unrealizedDimensions": [],
+  "capabilities": [],
+  "cleanup": {
+    "pass": true,
+    "status": "PASS",
+    "method": "none-required",
+    "residue": [],
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "minDurationMs": 420.8,
+  "medianDurationMs": 450.14,
+  "p95DurationMs": 476.81,
+  "maxDurationMs": 588.8,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

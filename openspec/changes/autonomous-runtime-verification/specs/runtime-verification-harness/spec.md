@@ -157,7 +157,7 @@ The harness SHALL provide a Crash Analysis capability that, when a monitored pro
 - **THEN** Crash Analysis SHALL still capture and preserve the dump and reproduction artifacts, recording that symbolization was `SKIPPED` with a reason
 
 ### Requirement: Environment Providers And Lifecycle
-The harness SHALL execute against a selectable Environment Provider behind a common interface — at least `local`, and disposable/isolated providers such as Hyper-V, VMware, VirtualBox, Windows Sandbox, GitHub Actions Windows runners, and self-hosted runners — managing each provider's lifecycle: provision, activate, collect logs, cleanup, and snapshot restore where supported.
+The harness SHALL execute against a selectable Environment Provider behind a common interface — at least `local`, and disposable/isolated providers such as vendor-specific VM providers, Windows Sandbox, GitHub Actions Windows runners, and self-hosted runners — managing each provider's lifecycle: provision, activate, collect logs, cleanup, and snapshot restore where supported.
 
 #### Scenario: A disposable environment is provisioned and cleaned up
 - **WHEN** a run targets a disposable Environment Provider
@@ -229,7 +229,7 @@ The harness SHALL provide a gate, consulted before a change is archived, that re
 - **THEN** the gate SHALL not pass until that change is represented in the change's tasks/specs or reverted
 
 ### Requirement: Developer-Experience Inspection Verbs — `list` And `doctor`
-In addition to the validation-lifecycle verbs, the harness SHALL expose two read-only inspection verbs: `list`, which enumerates every discovered capability (including ones rejected by registry hardening) with its id, interface version, tier, load status, and declared dependencies; and `doctor`, which probes and reports environment readiness — PowerShell version, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, Process Monitor, ProcDump, WinDbg, Application Verifier, Hyper-V, and Windows Sandbox — as presence/version detection only, with no hardcoded paths and no environment provisioning. Neither verb SHALL create a run in the per-run artifact tree.
+In addition to the validation-lifecycle verbs, the harness SHALL expose two read-only inspection verbs: `list`, which enumerates every discovered capability (including ones rejected by registry hardening) with its id, interface version, tier, load status, and declared dependencies; and `doctor`, which probes and reports environment readiness — PowerShell version, Visual Studio/VC toolset, Windows SDK, CMake, Ninja, WPR, WPA, Process Monitor, ProcDump, WinDbg, Application Verifier, vendor-specific VM-provider readiness, and Windows Sandbox — as presence/version detection only, with no hardcoded paths and no environment provisioning. Neither verb SHALL create a run in the per-run artifact tree.
 
 #### Scenario: list enumerates the registry, including rejected capabilities
 - **WHEN** `list` runs

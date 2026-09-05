@@ -341,7 +341,7 @@ UI external-validation notes.
   build` PASS (`windows-build-validation`).
 - Toolchain doctor: `pwsh -NoProfile -File .\\verify\\verify.ps1 doctor` PASS;
   Visual Studio/Windows SDK/CMake/Ninja and core diagnostics are present.
-  Optional WPA/Procmon/Procdump/PageHeap/WinDbg/Hyper-V/Sandbox tools are
+  Optional WPA/Procmon/Procdump/PageHeap/WinDbg/vendor-specific VM-provider/Sandbox tools are
   explicitly SKIPPED as unavailable.
 - Production Release checkpoint: `cmake --preset release && cmake --build
   --preset release` PASS (112 build steps), using existing locally cached
@@ -362,7 +362,7 @@ UI external-validation notes.
   executable also PASS. Running the executable without the VS runtime path
   returned `0xC0000135`, an environment invocation issue, not a test PASS.
 - `pwsh ./verify/verify.ps1 doctor`: PASS; optional WPA/Procmon/Procdump/
-  WinDbg/Hyper-V/Sandbox tools SKIPPED as unavailable.
+  WinDbg/vendor-specific VM-provider/Sandbox tools SKIPPED as unavailable.
 - `pwsh ./verify/verify.ps1 build`: PASS (`windows-build-validation`).
 - `pwsh ./verify/verify.ps1 release-readiness -Mode report`: expected
   `BLOCKED_EXTERNAL` (exit 2); artifact integrity PASS, signing/pins/privileged
@@ -527,7 +527,7 @@ UI external-validation notes.
   recorded by the command output and is not read as source evidence.
 - Post-commit doctor: `pwsh -NoProfile -File .\verify\verify.ps1 doctor`
   PASS for VS/SDK/CMake/Ninja/core diagnostics. Optional WPA/Procmon/
-  Procdump/PageHeap/WinDbg/Hyper-V/Sandbox capabilities remain explicitly
+  Procdump/PageHeap/WinDbg/vendor-specific VM-provider/Sandbox capabilities remain explicitly
   SKIPPED because the tools are unavailable.
 - Final source audit found the public `PipeListener` still carried an unused
   synchronous accept mode with `CancelSynchronousIo`, although both product
@@ -562,7 +562,7 @@ UI external-validation notes.
   and is intentionally not read as source.
 - Final-HEAD doctor: `pwsh -NoProfile -File .\verify\verify.ps1 doctor` PASS
   for available core diagnostics; optional WPA/Procmon/Procdump/PageHeap/
-  WinDbg/Hyper-V/Sandbox are explicitly SKIPPED as unavailable.
+  WinDbg/vendor-specific VM-provider/Sandbox are explicitly SKIPPED as unavailable.
 - Release tooling: `Test-ReleaseTooling.ps1 -BuildRoot build/release` PASS,
   31/31. Release kit generation PASS with five valid VERSIONINFO resources and
   `productionReady=false` as required without signed production artifacts.

@@ -1,0 +1,374 @@
+{
+  "schemaVersion": 1,
+  "commit": "5dbe234248f630e58aecc621ac3c7a6cacb8e449",
+  "tree": "8f648afcbcd04a0a211c921fd168a37cc1d523c4",
+  "exactTreeBound": true,
+  "targetExecutable": "build/debug/src/ui/FastFiles.exe",
+  "executableHash": "e3f90769b4695c9bc5ea582865df7e9084325ea2d4cac20baa3de9651d46f26d",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5",
+    "interactive": true
+  },
+  "startUtc": "2026-09-05T00:02:11.6001618Z",
+  "endUtc": "2026-09-05T00:12:22.2818582Z",
+  "durationSeconds": 600.17,
+  "sampleIntervalSeconds": 5,
+  "mode": "interactive",
+  "sampleCount": 109,
+  "fastFilesPid": 6720,
+  "enginePid": null,
+  "engine": {
+    "observed": false,
+    "pid": null,
+    "reason": "Diagnostic mode runs UI process with in-proc/mock engine or on-demand connection"
+  },
+  "phases": {
+    "launchUtc": "2026-09-05T00:02:11.6001618Z",
+    "readyUtc": "2026-09-05T00:02:11.9782734Z",
+    "readyDurationMs": 331.04,
+    "warmupDurationSeconds": 10,
+    "steadyStateBaselineUtc": "2026-09-05T00:02:21.9908439Z",
+    "measuredSoakEndUtc": "2026-09-05T00:12:22.1538345Z",
+    "shutdownUtc": "2026-09-05T00:12:22.1542175Z",
+    "exitUtc": "2026-09-05T00:12:22.2080605Z",
+    "shutdownMethod": "graceful",
+    "shutdownDurationMs": 53.77
+  },
+  "startupMetrics": {
+    "workingSetBytes": 6434816.0,
+    "privateBytes": 2129920.0,
+    "handles": 46.0,
+    "threads": 4.0,
+    "gdiObjects": 0.0,
+    "userObjects": 3.0
+  },
+  "metrics": {
+    "workingSetBytes": {
+      "baseline": 59686912.0,
+      "minimum": 59686912.0,
+      "median": 78139392.0,
+      "maximum": 78417920.0,
+      "final": 78417920.0,
+      "trendRatePerSecond": 31209.504,
+      "firstHalfMedian": 77635584.0,
+      "secondHalfMedian": 78323712.0,
+      "slope": 31209.504
+    },
+    "privateBytes": {
+      "baseline": 39890944.0,
+      "minimum": 39845888.0,
+      "median": 60395520.0,
+      "maximum": 60796928.0,
+      "final": 60796928.0,
+      "trendRatePerSecond": 34833.4372,
+      "firstHalfMedian": 59985920.0,
+      "secondHalfMedian": 60739584.0,
+      "slope": 34833.4372
+    },
+    "handles": {
+      "baseline": 1190.0,
+      "minimum": 1190.0,
+      "median": 1742.0,
+      "maximum": 1748.0,
+      "final": 1742.0,
+      "trendRatePerSecond": 0.9197,
+      "firstHalfMedian": 1742.0,
+      "secondHalfMedian": 1744.0,
+      "slope": 0.9197
+    },
+    "threads": {
+      "baseline": 30.0,
+      "minimum": 27.0,
+      "median": 34.0,
+      "maximum": 37.0,
+      "final": 35.0,
+      "trendRatePerSecond": 0.0083,
+      "firstHalfMedian": 34.0,
+      "secondHalfMedian": 35.0,
+      "slope": 0.0083
+    },
+    "gdiObjects": {
+      "baseline": 108.0,
+      "minimum": 108.0,
+      "median": 121.0,
+      "maximum": 121.0,
+      "final": 121.0,
+      "trendRatePerSecond": 0.0217,
+      "firstHalfMedian": 121.0,
+      "secondHalfMedian": 121.0,
+      "slope": 0.0217
+    },
+    "userObjects": {
+      "baseline": 114.0,
+      "minimum": 114.0,
+      "median": 117.0,
+      "maximum": 118.0,
+      "final": 117.0,
+      "trendRatePerSecond": 0.005,
+      "firstHalfMedian": 116.0,
+      "secondHalfMedian": 117.0,
+      "slope": 0.005
+    },
+    "cpuSeconds": {
+      "baseline": 0.31,
+      "minimum": 0.31,
+      "median": 1.7,
+      "maximum": 2.62,
+      "final": 2.62,
+      "trendRatePerSecond": 0.0039,
+      "firstHalfMedian": 0.89,
+      "secondHalfMedian": 2.12,
+      "slope": 0.0039
+    }
+  },
+  "steadyStateMetrics": {
+    "workingSetBytes": {
+      "baseline": 59686912.0,
+      "minimum": 59686912.0,
+      "median": 78139392.0,
+      "maximum": 78417920.0,
+      "final": 78417920.0,
+      "trendRatePerSecond": 31209.504,
+      "firstHalfMedian": 77635584.0,
+      "secondHalfMedian": 78323712.0,
+      "slope": 31209.504
+    },
+    "privateBytes": {
+      "baseline": 39890944.0,
+      "minimum": 39845888.0,
+      "median": 60395520.0,
+      "maximum": 60796928.0,
+      "final": 60796928.0,
+      "trendRatePerSecond": 34833.4372,
+      "firstHalfMedian": 59985920.0,
+      "secondHalfMedian": 60739584.0,
+      "slope": 34833.4372
+    },
+    "handles": {
+      "baseline": 1190.0,
+      "minimum": 1190.0,
+      "median": 1742.0,
+      "maximum": 1748.0,
+      "final": 1742.0,
+      "trendRatePerSecond": 0.9197,
+      "firstHalfMedian": 1742.0,
+      "secondHalfMedian": 1744.0,
+      "slope": 0.9197
+    },
+    "threads": {
+      "baseline": 30.0,
+      "minimum": 27.0,
+      "median": 34.0,
+      "maximum": 37.0,
+      "final": 35.0,
+      "trendRatePerSecond": 0.0083,
+      "firstHalfMedian": 34.0,
+      "secondHalfMedian": 35.0,
+      "slope": 0.0083
+    },
+    "gdiObjects": {
+      "baseline": 108.0,
+      "minimum": 108.0,
+      "median": 121.0,
+      "maximum": 121.0,
+      "final": 121.0,
+      "trendRatePerSecond": 0.0217,
+      "firstHalfMedian": 121.0,
+      "secondHalfMedian": 121.0,
+      "slope": 0.0217
+    },
+    "userObjects": {
+      "baseline": 114.0,
+      "minimum": 114.0,
+      "median": 117.0,
+      "maximum": 118.0,
+      "final": 117.0,
+      "trendRatePerSecond": 0.005,
+      "firstHalfMedian": 116.0,
+      "secondHalfMedian": 117.0,
+      "slope": 0.005
+    },
+    "cpuSeconds": {
+      "baseline": 0.31,
+      "minimum": 0.31,
+      "median": 1.7,
+      "maximum": 2.62,
+      "final": 2.62,
+      "trendRatePerSecond": 0.0039,
+      "firstHalfMedian": 0.89,
+      "secondHalfMedian": 2.12,
+      "slope": 0.0039
+    }
+  },
+  "activityTransitions": [
+    {
+      "timestampUtc": "2026-09-05T00:03:14.6867668Z",
+      "activity": "dual-pane",
+      "success": true,
+      "details": "Dual pane enable proved by Pane.0+Pane.1 presence and disable proved by Pane.1 absence with Pane.0 restored",
+      "durationMs": 6671.47,
+      "postcondition": {
+        "command": "PASS",
+        "pane-count-2": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:04:02.7153823Z",
+      "activity": "search",
+      "success": true,
+      "details": "Search panel open proved by Search.Results, Filters disclosure expanded with expected contents, close proved by Search.Results absence",
+      "durationMs": 7435.68,
+      "postcondition": {
+        "opened": "PASS",
+        "filters-disclosure": "PASS",
+        "filters-contents": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:04:47.8995096Z",
+      "activity": "settings",
+      "success": true,
+      "details": "Settings dialog open proved by dialog appearance and close proved by verified dismissal with focus restored",
+      "durationMs": 4599.16,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:05:28.6488682Z",
+      "activity": "command-palette",
+      "success": true,
+      "details": "Command palette open verified by edit appearance and close verified by edit disappearance",
+      "durationMs": 168.21,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:06:20.5327505Z",
+      "activity": "dual-pane",
+      "success": true,
+      "details": "Dual pane enable proved by Pane.0+Pane.1 presence and disable proved by Pane.1 absence with Pane.0 restored",
+      "durationMs": 6201.93,
+      "postcondition": {
+        "command": "PASS",
+        "pane-count-2": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:07:08.3343985Z",
+      "activity": "search",
+      "success": true,
+      "details": "Search panel open proved by Search.Results, Filters disclosure expanded with expected contents, close proved by Search.Results absence",
+      "durationMs": 7180.57,
+      "postcondition": {
+        "opened": "PASS",
+        "filters-disclosure": "PASS",
+        "filters-contents": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:07:53.5590087Z",
+      "activity": "settings",
+      "success": true,
+      "details": "Settings dialog open proved by dialog appearance and close proved by verified dismissal with focus restored",
+      "durationMs": 4618.88,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:08:34.2807901Z",
+      "activity": "command-palette",
+      "success": true,
+      "details": "Command palette open verified by edit appearance and close verified by edit disappearance",
+      "durationMs": 150.75,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:09:26.2280418Z",
+      "activity": "dual-pane",
+      "success": true,
+      "details": "Dual pane enable proved by Pane.0+Pane.1 presence and disable proved by Pane.1 absence with Pane.0 restored",
+      "durationMs": 6337.05,
+      "postcondition": {
+        "command": "PASS",
+        "pane-count-2": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:10:13.6570540Z",
+      "activity": "search",
+      "success": true,
+      "details": "Search panel open proved by Search.Results, Filters disclosure expanded with expected contents, close proved by Search.Results absence",
+      "durationMs": 6831.02,
+      "postcondition": {
+        "opened": "PASS",
+        "filters-disclosure": "PASS",
+        "filters-contents": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:10:58.8663305Z",
+      "activity": "settings",
+      "success": true,
+      "details": "Settings dialog open proved by dialog appearance and close proved by verified dismissal with focus restored",
+      "durationMs": 4601.17,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    },
+    {
+      "timestampUtc": "2026-09-05T00:11:39.5818494Z",
+      "activity": "command-palette",
+      "success": true,
+      "details": "Command palette open verified by edit appearance and close verified by edit disappearance",
+      "durationMs": 147.42,
+      "postcondition": {
+        "opened": "PASS",
+        "closed": "PASS"
+      }
+    }
+  ],
+  "residue": {
+    "clean": true,
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "cleanup": {
+    "pass": true,
+    "status": "PASS",
+    "method": "graceful-close-then-verify",
+    "sandboxRemoved": true,
+    "shutdownMethod": "graceful",
+    "orphanCount": 0,
+    "orphanPids": []
+  },
+  "stabilityLegs": {
+    "survival": "PASS",
+    "functionalActivity": "PASS",
+    "resourceStability": "PASS",
+    "shutdown": "PASS",
+    "residue": "PASS",
+    "cleanup": "PASS"
+  },
+  "disposition": "PASS",
+  "dispositionReason": null,
+  "artifactHashes": {}
+}

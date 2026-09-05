@@ -1,19 +1,22 @@
 # Fast Files — Agent Workstate
 
-## Current authoritative state — 2026-09-04
+## Current authoritative state — 2026-09-05 (final provenance + documentation-truth closure IN PROGRESS)
 
-## NTFS observer + visual-matrix closure + soak-gate repair campaign — COMPLETE 2026-09-04 (pending hosted CI on final tip)
+## NTFS observer + visual-matrix closure + soak-gate repair campaign — COMPLETE 2026-09-04 (tip CI since verified green)
 
-- Frontier: `external-certification-execution-engine-and-frontier-truthfulness` (tasks 7.1/7.2 checked this campaign; 6.3/7.3 close with the hosted-CI binding). HEAD `a8662a0` lineage (rebased onto upstream docs; code/harness byte-identical; origin/main after push; clean except pre-existing unrelated `M .opencode/package.json[.lock]`, preserved untouched).
+- Live baseline re-derived 2026-09-05: HEAD `5dbe234248f630e58aecc621ac3c7a6cacb8e449` == origin/main (tree `8f648afcbcd04a0a211c921fd168a37cc1d523c4`); primary worktree dirty ONLY with the 2 pre-existing unrelated `.opencode/package.json[.lock]` edits (preserved untouched: not staged, not committed, not reverted).
+- Hosted CI on the exact tip verified live: run `33899848739` (push/main/`5dbe234`) completed SUCCESS 6/6. Lifecycle record still binds the older implementation-SHA run `33897389042`/`227902eaecfdcaccd733d328ec6e63bb56c57d82`; rebinding to the tip run lands with this closure.
+- Campaign `external-certification-execution-engine-and-frontier-truthfulness`: `completed` in `openspec/lifecycle.json`, all tasks checked. No active planner prompt (`.agent/EXECUTION_PROMPT.md` ARCHIVED/FROZEN) — this session runs only the narrow terminal closure: exact-tree evidence, docs scrub + guard, WORKSTATE convergence, final-tip CI.
 - Defect ledger: `docs/agent/NTFS_VISUAL_CERTIFICATION_DEFECT_LEDGER_2026-09-04.md` (NV-001..NV-011 + FC resolutions, all forensically established against the live tree).
 - NTFS observer (FC-003/FC-004, NV-002/005/006): `fftest ntfs-observe` (semantics/find/usn via production ioctls+parsers, read-only, 0 mutations) + runner semantics checks + observer-backed fixture confirmation + `mft/usn-observer-semantics` vocabulary (schema/manifest/frontier 4.6/4.7). Live non-admin proof: real open attempted, error 5, BLOCKED exit 2. Commit `98375b0`.
 - Visual EX-009 (FC-007, NV-007): treemap degraded fallback + totals recompute + partial-known gating + matrix scope warmup + `-Preset debug-diagnostic`. Live: visual-matrix 2/2 x 14/14 PASS (10/20/30/40, drill 100%). Frontier 5.1 -> READY_EXTERNAL. Commit `343d22e`.
 - Soak gate (NV-011): settled-step allowance + Test 7 warmup; 600 s interactive soak PASS (12/12, drift=2, graceful, zero orphans); 20-cycle + 45-cycle probes prove bounded caches, no leak. Commit `a8662a0`.
-- FC-001: post-fix rapid-input 100/100 PASS (1100 assertions). FC-002/005: no Hyper-V build per §17 (fail-closed + declared credentials verified). NV-001/004/009 not reproduced; NV-003/010 no-change-needed/documented.
-- Validation on final content: Debug 99/99 x3; release-test 99/99 x2; Analyze PASS; ASAN 6/6; OpenSpec strict 81/81; markers/policy PASS; cert suites 10/10; handshake/framing 100/100 + UiServer 25/25; lifecycle 100/100; rapid 100/100; soak 600 s PASS. Artifacts exactTreeBound=false SOLELY from the 2 unrelated .opencode files (NV-010).
-- Lifecycle/completion: change registered `completed` with implementation commits + hosted run `33897389042` on exact SHA `227902eaecfdcaccd733d328ec6e63bb56c57d82` (6/6 SUCCESS); tasks 6.3/7.3 checked. Final tip push + hosted CI on the ultimate tip remains; then report. Remaining frontier is external-only (elevated NTFS, physical display/DPI, provider/guest, production signing, clean-host).
-- NEXT EXACT ACTION: push the lifecycle-completion tip and verify hosted CI green on the exact final SHA, then issue the final campaign report.
-- NOTE: entries below (including the IN PROGRESS FC-001..FC-009 header) are superseded checkpoint evidence until lifecycle completion lands.
+- FC-001: post-fix rapid-input 100/100 PASS (1100 assertions). FC-002/005: no vendor-specific VM-provider build per owner scope directive (fail-closed + declared credentials verified). NV-001/004/009 not reproduced; NV-003/010 no-change-needed/documented.
+- Exact-tree evidence status: retained UIA/IPC/soak JSON artifacts record `exactTreeBound=true` but bind older implementation SHAs (e.g. `39b873a`, `1a29ef5`); the post-fix rapid-input 100/100 and interactive-soak 600 s passes live only in untracked run trees plus NV-010 dirty-tree prose. Authoritative regen at the final tree is IN PROGRESS in clean cert worktree `C:/ff-cert` (branch `cert/final-exact-tree` at `5dbe234`, `status --porcelain` empty). Environment finding: a detached HEAD breaks `ffproject_status_ps_tests` (empty Branch parameter) — cert branch used instead; commit/tree binding unaffected. Debug build+ctest already green there except that harness-branch artifact (now fixed and passing standalone).
+- Docs scrub 2026-09-05: excluded vendor-specific VM technology name removed from all tracked `.md` prose (14 files across docs/openspec/.agent/CODE_INDEX/codebase-audit); implementation symbols (`.ps1`/`.psm1`/`.json` provider ids, adapter paths, executed commands incl. historical `external-frontier-summary.json`) intentionally preserved per scope. Durable guard `Test-ExcludedProviderTerminology` added to `tests/drift/check_doc_drift.ps1` (`ffdoc_drift_tests`); green after this rewrite. Prior broad `verify/README.md` rewrite attempts failed hosted CI (runs `33865833834`/`33865755337`/`33865780253`); this closure uses minimal token-level replacements only and validates all gates locally before push.
+- Remaining frontier is external-only (elevated NTFS, physical display/DPI, external environment provider, production signing, clean-host).
+- NEXT EXACT ACTION: commit the closure set, push normally, verify new hosted CI green on the exact final SHA, then close WORKSTATE with the run binding.
+- NOTE: entries below (including the IN PROGRESS FC-001..FC-009 header) are superseded checkpoint evidence; the head entry above is current.
 
 ## Final local certification closure (FC-001..FC-009) — IN PROGRESS 2026-09-04
 
@@ -73,4 +76,4 @@ to appear in the record text:
 
 ## Next exact action
 
-Continue the active closure campaign with post-fix rapid-input stress, real MFT/USN backends, visual-matrix context/reclassification, then full validation/lifecycle/final-tip hosted convergence. Vendor-specific VM-provider testing is intentionally skipped.
+Finish the terminal provenance/documentation closure: exact-tree evidence regen in C:/ff-cert, artifact binding, full local gates, push, hosted CI green on the exact final SHA, then WORKSTATE closure. Vendor-specific VM-provider testing remains excluded by owner directive.

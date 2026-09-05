@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "testId": "ffengine_ui_server_lifecycle_tests",
+  "category": "ipc-lifecycle",
+  "command": "build/debug/tests/engine/ffengine_ui_server_lifecycle_tests.exe",
+  "commit": "5dbe234248f630e58aecc621ac3c7a6cacb8e449",
+  "tree": "8f648afcbcd04a0a211c921fd168a37cc1d523c4",
+  "exactTreeBound": true,
+  "executableHash": "47a87768facf3e6a8c101d3f69058b699ad68dd0e39e4c0ff11d8b290a389699",
+  "environment": {
+    "os": "Microsoft Windows NT 10.0.26200.0",
+    "architecture": "AMD64",
+    "computer": "<local-host>",
+    "powershell": "7.6.5"
+  },
+  "startUtc": "2026-09-04T23:30:23.5626716Z",
+  "endUtc": "2026-09-04T23:33:17.2748759Z",
+  "requestedIterations": 25,
+  "completedIterations": 25,
+  "passed": 25,
+  "failed": 0,
+  "timedOut": 0,
+  "skipped": 0,
+  "minDurationMs": 5670.08,
+  "medianDurationMs": 5722.41,
+  "p95DurationMs": 12970.77,
+  "maxDurationMs": 16514.15,
+  "firstFailure": null,
+  "artifactHashes": {},
+  "disposition": "PASS"
+}

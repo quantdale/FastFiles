@@ -17,7 +17,7 @@ Known code-level nuance already present in this codebase: `UsnJournalReader.cpp:
 **Non-Goals:**
 - Designing or implementing a new privileged-broker process, service SID scheme, or any change to the three-process architecture. That is explicitly deferred to a follow-up change against `establish-architecture-foundation`, informed by this change's findings.
 - Re-litigating D1 (native C++ stack) or D2/D3 (three-process split, named-pipe IPC) — out of scope; this concerns only the specific privilege grant used by the already-established privileged service.
-- Building the Hyper-V test VM itself (tracked separately for `autonomous-runtime-verification`); this change consumes that environment once available but doesn't provision it.
+- Building the vendor-specific VM-provider test guest itself (tracked separately for `autonomous-runtime-verification`); this change consumes that environment once available but doesn't provision it.
 
 ## Decisions
 
@@ -31,9 +31,9 @@ Known code-level nuance already present in this codebase: `UsnJournalReader.cpp:
 
 ## Risks / Trade-offs
 
-- **[Risk] The real service account's failure isn't reproducible on demand** (e.g., it depended on machine/session state from the original task 4.6 run). → **Mitigation:** the instrumentation ships as an always-on structured log at the real call site, so the next time the service runs against a real volume — including in a future Hyper-V VM run — the evidence is captured automatically rather than requiring another special one-off repro.
+- **[Risk] The real service account's failure isn't reproducible on demand** (e.g., it depended on machine/session state from the original task 4.6 run). → **Mitigation:** the instrumentation ships as an always-on structured log at the real call site, so the next time the service runs against a real volume — including in a future vendor-specific VM-provider guest run — the evidence is captured automatically rather than requiring another special one-off repro.
 - **[Risk] This change concludes "insufficient" without fully ruling out configuration causes**, prematurely triggering the larger D1/D2 redesign the earlier discussion floated. → **Mitigation:** the decision above enumerates the distinguishable token-state outcomes explicitly; the verdict must cite which specific outcome occurred, not just "it failed again."
-- **[Risk] No real elevated Windows service environment is available in the current sandbox**, so full closure of this change may itself be blocked pending the separately-tracked Hyper-V VM. → **Mitigation:** the instrumentation and any config fix can be written and unit-tested for compile-correctness now; the tasks below explicitly mark the real-environment verification step as depending on that VM, consistent with how `establish-architecture-foundation` 7.1/7.4/7.5/7.6 already track this same environment dependency.
+- **[Risk] No real elevated Windows service environment is available in the current sandbox**, so full closure of this change may itself be blocked pending the separately-tracked vendor-specific VM-provider guest. → **Mitigation:** the instrumentation and any config fix can be written and unit-tested for compile-correctness now; the tasks below explicitly mark the real-environment verification step as depending on that VM, consistent with how `establish-architecture-foundation` 7.1/7.4/7.5/7.6 already track this same environment dependency.
 
 ## Migration Plan
 

@@ -30,4 +30,4 @@ Committing to a redesign (a new "privileged broker," different service SID model
 - `src/indexsvc/src/VolumeScanner.cpp` — the actual raw-volume-open call site the task 4.6 failure occurred in; instrumentation must observe this exact path, not a parallel synthetic one.
 - `src/setup/src/ServiceRegistration.cpp` — where `LsaAddAccountRights` grants `SeBackupPrivilege`; timing/sequencing relative to service start is part of what's being verified.
 - No IPC protocol, wire format, or process-boundary changes.
-- Requires a real elevated Windows install with the actual `FastFilesIndexSvc` service running under its virtual account to gather real evidence (cannot be fully verified in a non-Windows or non-elevated sandbox) — ties into the separately-discussed Hyper-V VM provisioning for `autonomous-runtime-verification`.
+- Requires a real elevated Windows install with the actual `FastFilesIndexSvc` service running under its virtual account to gather real evidence (cannot be fully verified in a non-Windows or non-elevated sandbox) — ties into the separately-discussed vendor-specific VM-provider guest provisioning for `autonomous-runtime-verification`.

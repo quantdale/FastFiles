@@ -101,7 +101,7 @@ healthy without current data.
 ### D5 — Make verification a layered capability
 
 **Why:** Engine/headless state machines are deterministic and available in
-ordinary development environments; GUI foreground, Hyper-V, signing, and
+ordinary development environments; GUI foreground, vendor-specific VM-provider, signing, and
 clean-host checks are not. A single all-or-nothing runtime test would either
 hide useful failures or fabricate availability.
 

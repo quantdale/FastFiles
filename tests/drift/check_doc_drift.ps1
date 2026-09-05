@@ -14,7 +14,16 @@
 #  (b) No .cpp/.h file under src/ or tests/ may have mixed line endings (both
 #      CRLF and lone LF). With `* text=auto` renormalization, a mixed-ending
 #      worktree file indicates line-ending corruption or a partial conversion.
-#  (c) Semantic truth contracts (DocTruth.psm1): fenced machine-derived claims
+#  (c) Excluded vendor-specific VM-provider terminology must not appear in
+#      tracked documentation prose (.md under docs/, openspec/, .agent/,
+#      verify/, tests/, codebase-audit/, plus root guidance .md). Owner
+#      directive: vendor-specific VM-provider execution/testing is out of
+#      scope, and the excluded provider technology must not be named in docs.
+#      Generic replacements ("vendor-specific VM provider", "external
+#      environment provider") are required instead. Implementation symbols
+#      (.ps1/.psm1/.json provider ids, adapter paths, execution commands) are
+#      intentionally out of scope and unscanned.
+#  (d) Semantic truth contracts (DocTruth.psm1): fenced machine-derived claims
 #      in current-facing guidance must match their authoritative executable
 #      seams (verifier verbs/exit codes, CMake presets/targets, lifecycle
 #      manifest states, snapshot publication source seam); stale
@@ -85,6 +94,49 @@ function Test-LineEndings {
     return $failures
 }
 
+function Test-ExcludedProviderTerminology {
+    $failures = 0
+    # hyperv(?!isor) keeps the generic English word "hypervisor" legal while
+    # forbidding the vendor technology name in all hyphenations/casings.
+    # "VMware"/"VirtualBox" are vendor names outright.
+    $pattern = 'hyper[\s-]*v(?!isor)|vmware|virtualbox'
+    $scopeDirs = @('docs', 'openspec', '.agent', 'verify', 'tests', 'codebase-audit')
+    $rootDocs = @('README.md', 'AGENTS.md', 'CLAUDE.md', 'CODE_INDEX.md', 'AUTONOMOUS.md', 'progress.md')
+    $tracked = @()
+    try {
+        $tracked = @(git -C $repoRoot ls-files 2>$null | ForEach-Object { $_.ToString() })
+    } catch {
+        Write-Host 'FAIL: excluded-provider scan could not enumerate tracked files (git ls-files failed)'
+        return 1
+    }
+    if ($tracked.Count -eq 0) {
+        Write-Host 'FAIL: excluded-provider scan enumerated zero tracked files (fail-closed, not vacuous PASS)'
+        return 1
+    }
+    $candidates = @($tracked | Where-Object {
+        $f = $_.Replace('\', '/')
+        if ($f -notmatch '\.md$') { return $false }
+        foreach ($d in $scopeDirs) { if ($f -eq "$d" -or $f.StartsWith("$d/")) { return $true } }
+        foreach ($r in $rootDocs) { if ($f -eq $r) { return $true } }
+        return $false
+    })
+    foreach ($rel in $candidates) {
+        $path = Join-Path $repoRoot ($rel -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+        $content = [System.IO.File]::ReadAllText($path)
+        $hits = @([regex]::Matches($content, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase))
+        foreach ($hit in $hits) {
+            $line = ($content.Substring(0, $hit.Index) -split "`n").Count
+            Write-Host ("FAIL: {0}:{1} names excluded vendor-specific VM technology: '{2}'" -f ($rel -replace '\\', '/'), $line, $hit.Value)
+            $failures++
+        }
+    }
+    if ($failures -eq 0) {
+        Write-Host 'PASS: tracked documentation prose names no excluded vendor-specific VM technology'
+    }
+    return $failures
+}
+
 function Test-TruthContracts {
     Import-Module (Join-Path $PSScriptRoot 'DocTruth.psm1') -Force
     $findings = @(Get-DocTruthFindings -RepoRoot $repoRoot)
@@ -100,6 +152,7 @@ function Test-TruthContracts {
 $failures = 0
 $failures += Test-SupersededClaims
 $failures += Test-LineEndings
+$failures += Test-ExcludedProviderTerminology
 $failures += Test-TruthContracts
 
 if ($failures -eq 0) {
