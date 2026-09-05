@@ -56,6 +56,11 @@ int main() {
           "allowlist: reply-only JournalRecordBatch is rejected");
     Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::JournalResumeInvalid)),
           "allowlist: reply-only JournalResumeInvalid is rejected");
+    // index-durability-false-success-closure 1.3: the new terminal is
+    // service->engine only -- a client "failing" a scan on the request
+    // surface is as nonsensical as a client completing one.
+    Check(!IsAllowedClientRequest(static_cast<uint16_t>(MessageType::ScanFailed)),
+          "allowlist: reply-only ScanFailed is rejected");
 
     // No generic escape hatches exist on the surface: unknown and
     // out-of-range wire values are rejected before any dispatch table is

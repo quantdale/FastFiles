@@ -43,20 +43,29 @@ void TestUnrecognizedMessageTypeRejected() {
           "a real MessageType value round-trips");
 
     // Bounds around the closed command surface's current end
-    // (allocated-size-storage-accuracy's JournalRecordBatchV3 = 21): the
-    // last assigned value must round-trip, the next unassigned one must not.
+    // (index-durability-false-success-closure's ScanFailed = 22): the last
+    // assigned value must round-trip, the next unassigned one must not.
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalResumeInvalid)).has_value(),
-          "JournalResumeInvalid (the newest service->engine message) round-trips");
+          "JournalResumeInvalid (the journal-gap service->engine message) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV2)).has_value(),
           "JournalRecordBatchV2 (the explicit USN presence-mask format) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanRecordBatchV2)).has_value(),
           "ScanRecordBatchV2 (the MFT record layout with allocated size) round-trips");
     Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV3)).has_value(),
           "JournalRecordBatchV3 (the USN V3 presence-mask format) round-trips");
-    Check(ToMessageType(static_cast<uint16_t>(MessageType::JournalRecordBatchV3) + 1).has_value() == false,
-          "the first unassigned value past JournalRecordBatchV3 is rejected");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanFailed)).has_value(),
+          "ScanFailed (the terminal scan-failure message) round-trips");
+    Check(ToMessageType(static_cast<uint16_t>(MessageType::ScanFailed) + 1).has_value() == false,
+          "the first unassigned value past ScanFailed is rejected");
     Check(sizeof(JournalResumeInvalidPayload) == sizeof(VolumeId),
           "JournalResumeInvalidPayload is exactly the fixed VolumeId payload the wire format promises");
+    Check(sizeof(ScanFailedPayload) == sizeof(ScanCompletePayload) &&
+              sizeof(ScanFailedPayload) == sizeof(VolumeId),
+          "ScanFailed carries exactly the fixed VolumeId payload ScanComplete carries");
+    const volatile uint16_t failedType = static_cast<uint16_t>(MessageType::ScanFailed);
+    const volatile uint16_t completeType = static_cast<uint16_t>(MessageType::ScanComplete);
+    Check(failedType != completeType,
+          "completion and failure are distinct terminal message types a legacy parser cannot conflate");
     Check(AreStartVolumeScanFlagsValid(0), "a normal-priority scan uses a valid zero flag set");
     Check(AreStartVolumeScanFlagsValid(kStartVolumeScanLowPriority),
           "a reconciliation scan may request low-priority scheduling");
@@ -327,6 +336,17 @@ void TestUsnV3PresenceMaskRoundTripAndDowngradePolicy() {
     Check(ProtocolSupportsAllocatedSize({3, 0}), "a future major with matching minor gates open");
     Check(!ProtocolSupportsAllocatedSize({2, 0}), "protocol {2,0} does not support the allocated-size records");
     Check(!ProtocolSupportsAllocatedSize({1, 99}), "a major-1 peer never receives the allocated-size records");
+
+    // index-durability-false-success-closure 1.3: the ScanFailed terminal is
+    // gated the same additive-minor way -- {2,2}+ understands it; anything
+    // older keeps the legacy ScanComplete terminal on failure paths.
+    Check(ProtocolSupportsScanFailure({2, 2}), "protocol {2,2} supports the ScanFailed terminal");
+    Check(ProtocolSupportsScanFailure({3, 0}), "a future major with matching minor gates open for ScanFailed");
+    Check(!ProtocolSupportsScanFailure({2, 1}), "the previous minor does not support the ScanFailed terminal");
+    Check(!ProtocolSupportsScanFailure({2, 0}), "protocol {2,0} does not support the ScanFailed terminal");
+    Check(!ProtocolSupportsScanFailure({1, 99}), "a major-1 peer never receives the ScanFailed terminal");
+    Check(kCurrentProtocolVersion.major == 2 && kCurrentProtocolVersion.minor >= 2,
+          "this build self-declares the ScanFailed capability it implements");
 }
 
 void TestVersionCompatibility() {

@@ -21,6 +21,16 @@ target_link_libraries(ffconnection_registry_tests PRIVATE ffprotocol)
 target_include_directories(ffconnection_registry_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
 add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
 
+# index-durability-false-success-closure 2.3: the real RunVolumeScan against
+# an unmounted drive letter must emit the ScanFailed terminal to {2,2}+ peers
+# and the legacy ScanComplete to older peers (compiled source pattern follows
+# ffconnection_registry_tests; the probe/parse deps are static libraries).
+add_executable(ffvolumescanner_terminal_tests test_volume_scanner_terminal.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src/VolumeScanner.cpp)
+target_link_libraries(ffvolumescanner_terminal_tests PRIVATE ffmftparser ffindexsvcprobes ffipc ffprotocol)
+target_include_directories(ffvolumescanner_terminal_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
+add_test(NAME ffvolumescanner_terminal_tests COMMAND ffvolumescanner_terminal_tests)
+
 # fastfiles-audit-remediation FF-AUDIT-08: keep the service's live write path
 # on the shared absolute-deadline framing primitive; source-policy assertions
 # prevent a helper-thread timeout fallback from returning.
@@ -34,4 +44,4 @@ target_link_libraries(ffntfsobserve_tests PRIVATE ffntfsobserve)
 add_test(NAME ffntfsobserve_tests COMMAND ffntfsobserve_tests)
 
 set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests
-    ffconnection_registry_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests PROPERTIES TIMEOUT 120)
+    ffconnection_registry_tests ffvolumescanner_terminal_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests PROPERTIES TIMEOUT 120)

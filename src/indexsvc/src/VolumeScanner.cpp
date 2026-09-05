@@ -112,6 +112,23 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                                   &payload, sizeof(payload));
 }
 
+// index-durability-false-success-closure D1/2.1: the single terminal sender.
+// A failed scan must never masquerade as a completion -- the engine treats
+// ScanComplete as the authority to mark the volume indexed and to finalize
+// reconciliation passes, which would delete rows a failed scan simply never
+// reached. Peers older than {2,2} cannot parse ScanFailed, so they keep
+// receiving today's ScanComplete byte-for-byte on the same paths.
+bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                      ffprotocol::ProtocolVersion negotiatedVersion, bool success) {
+    if (!success && ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
+        ffprotocol::ScanFailedPayload payload{volumeId};
+        std::lock_guard<std::mutex> lock(writeMutex);
+        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
+                                      &payload, sizeof(payload));
+    }
+    return SendScanComplete(pipe, writeMutex, volumeId);
+}
+
 class BackgroundMode {
 public:
     explicit BackgroundMode(bool enabled) : enabled_(enabled && SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)) {}
@@ -151,7 +168,7 @@ void RunVolumeScan(
         LogRawVolumeOpenDiagnostic(
             volumePath, tokenState,
             ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
-        SendScanComplete(pipe, writeMutex, volumeId);
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
         return;
     }
     // Capture the actual service token immediately before the raw-volume
@@ -165,7 +182,7 @@ void RunVolumeScan(
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
     if (!volumeOpened) {
-        SendScanComplete(pipe, writeMutex, volumeId);
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
         return;
     }
 
@@ -174,9 +191,9 @@ void RunVolumeScan(
     NTFS_VOLUME_DATA_BUFFER volumeData{};
     DWORD bytesReturned = 0;
     if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
-                          &bytesReturned, nullptr)) {
+                           &bytesReturned, nullptr)) {
         CloseHandle(volumeHandle);
-        SendScanComplete(pipe, writeMutex, volumeId);
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
         return;
     }
 
@@ -184,7 +201,7 @@ void RunVolumeScan(
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         CloseHandle(volumeHandle);
-        SendScanComplete(pipe, writeMutex, volumeId);
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
         return;
     }
 
@@ -220,6 +237,7 @@ void RunVolumeScan(
     size_t recordsSinceYield = 0;
     bool writeFailed = false;
     bool enumerationEnded = false;
+    bool enumerationFailed = false;
 
     while (!enumerationEnded && !shouldStop.load() && !writeFailed) {
         MFT_ENUM_DATA_V0 enumData{};
@@ -231,15 +249,22 @@ void RunVolumeScan(
         DWORD enumBytesReturned = 0;
         if (!DeviceIoControl(volumeHandle, FSCTL_ENUM_USN_DATA, &enumData, sizeof(enumData), enumBuffer.data(),
                               static_cast<DWORD>(enumBuffer.size()), &enumBytesReturned, nullptr)) {
-            // ERROR_HANDLE_EOF is the expected terminal condition (the
-            // enumeration reached the end of the MFT); any other failure
-            // ends the scan the same way rather than being retried
-            // forever.
+            // index-durability-false-success-closure 2.2: ERROR_HANDLE_EOF
+            // is the expected terminal condition (the enumeration reached
+            // the end of the MFT). Any other failure -- I/O error, journal
+            // gone, disk pulled -- is an incomplete scan, not a
+            // completion: it stops the same way (never retried forever)
+            // but the terminal message distinguishes the two.
             enumerationEnded = true;
+            enumerationFailed = GetLastError() != ERROR_HANDLE_EOF;
             break;
         }
         if (enumBytesReturned < sizeof(uint64_t)) {
-            enumerationEnded = true; // degenerate empty reply -- treat as completion rather than looping forever
+            // Degenerate reply with no cursor: cannot resume and cannot be
+            // trusted as a full enumeration -- treat as a failure, not an
+            // silent completion.
+            enumerationEnded = true;
+            enumerationFailed = true;
             break;
         }
 
@@ -359,7 +384,11 @@ void RunVolumeScan(
     CloseHandle(volumeHandle);
 
     if (!writeFailed && !shouldStop.load()) {
-        SendScanComplete(pipe, writeMutex, volumeId);
+        // PA-001: only an enumeration that reached the end of the MFT gets a
+        // ScanComplete; an enumeration cut short by a non-EOF fault sends
+        // the ScanFailed terminal (or ScanComplete only to pre-{2,2} peers,
+        // which have no failure vocabulary and keep today's behavior).
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, !enumerationFailed);
     }
 }
 

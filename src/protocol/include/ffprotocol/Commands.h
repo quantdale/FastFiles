@@ -30,7 +30,9 @@ enum class MessageType : uint16_t {
     // the service on the same Ctrl connection the request arrived on,
     // interleaved with Heartbeat/Stop/Close traffic from the client.
     ScanRecordBatch = 14,  // service -> client, zero or more per scan
-    ScanComplete = 15,     // service -> client, exactly once per scan that runs to completion
+    ScanComplete = 15,     // service -> client, exactly once per scan that runs to
+                           // completion; a scan that cannot run to completion sends
+                           // ScanFailed instead (index-durability-false-success-closure)
     UsnJournalOpened = 16, // service -> client, once, acks OpenUsnJournal with the current JournalId
     JournalRecordBatch = 17, // service -> client, zero or more per open journal
     JournalResumeInvalid = 18, // service -> engine: the supplied ResumeUsn is no longer valid (D6/task 7.6)
@@ -44,6 +46,15 @@ enum class MessageType : uint16_t {
     // JournalRecordBatchV2.
     ScanRecordBatchV2 = 20,    // service -> client, MFT record layout with allocatedSizeBytes
     JournalRecordBatchV3 = 21, // service -> engine, USN V3 layout with allocatedSizeBytes presence bit
+    // index-durability-false-success-closure D1: additive terminal failure message.
+    // Sent by the service *instead of* ScanComplete when a scan cannot run to
+    // completion (setup denial, volume-data failure, mid-scan non-EOF I/O fault).
+    // Sent only to peers that negotiated protocol {2,2}+ (ProtocolSupportsScanFailure);
+    // a legacy peer keeps receiving today's ScanComplete byte-for-byte. Distinct
+    // type (not a re-used/extended ScanComplete) so a legacy exact-length parser
+    // can never misread it, and completion and failure stay mutually exclusive
+    // signals the engine can trust independently.
+    ScanFailed = 22, // service -> engine, exactly once per scan that failed to complete
 };
 
 // Bounds-checked conversion: never index a jump table with an untrusted
@@ -166,6 +177,14 @@ struct ScanRecordBatchV2Header {
 };
 
 struct ScanCompletePayload {
+    VolumeId volumeId;
+};
+
+// index-durability-false-success-closure D1: terminal failure carries the same
+// volume identity as ScanComplete. Same size on purpose: the engine dispatches
+// it with the identical exact-length check, so a truncated/extended frame is a
+// protocol violation exactly as ScanComplete already is.
+struct ScanFailedPayload {
     VolumeId volumeId;
 };
 

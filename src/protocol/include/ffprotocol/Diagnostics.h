@@ -76,6 +76,24 @@ enum class DiagnosticCode : uint32_t {
     // interactive-ui-runtime-determinism: opt-in provider child-query evidence
     // for distinguishing a stale UIA root from a wrong live pane count.
     FFDIAG_UI_PROVIDER_CHILD_QUERY = 41,
+    // index-durability-false-success-closure: the service reported a scan
+    // that could not run to completion (ScanFailed terminal received).
+    FFDIAG_SCAN_FAILED = 42,
+    // A scan terminal (complete or failed) arrived for a volume with no
+    // scan in flight -- a duplicate, stale, or out-of-model message whose
+    // authority the engine refused.
+    FFDIAG_STALE_SCAN_TERMINAL = 43,
+    // A scan batch could not be applied; the volume's cursor is frozen at
+    // its last-applied position and the pending completion is non-authoritative.
+    FFDIAG_SCAN_BATCH_APPLY_FAILED = 44,
+    // A reconciliation request arrived while a scan was already in flight
+    // for the volume and was deferred to that scan's authoritative
+    // completion instead of racing it (index-durability-false-success-closure D4).
+    FFDIAG_RECONCILIATION_DEFERRED = 45,
+    // Startup integrity_check could not reach a verdict (lock/IO/busy).
+    // The database was preserved and startup retried instead of deleting
+    // (index-durability-false-success-closure D6).
+    FFDIAG_DB_INTEGRITY_INCONCLUSIVE = 46,
 };
 
 const wchar_t* DiagnosticCodeName(DiagnosticCode code);
