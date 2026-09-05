@@ -1,13 +1,15 @@
 # Fast Files — Agent Workstate
 
-## index-durability-false-success-closure — ACTIVE 2026-09-05 (post-certification audit PA-001..PA-006; local validation green, commit/push/CI pending)
+## index-durability-false-success-closure — COMPLETE 2026-09-05 (hosted CI green on final tip)
 
-- Provenance: `docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md` (PA-001..PA-006); OpenSpec change `openspec/changes/index-durability-false-success-closure/` (proposal/design/spec/tasks, D1–D6); lifecycle entry `active` in `openspec/lifecycle.json`.
+- Closure tip: `d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3` (5 wave commits: protocol+service `426b6b0`, engine completion `9d5d675`, reconciliation `b4a48cc`, store verdict `e4aed46`, campaign record `d721732`), pushed normally; HEAD == origin/main.
+- Hosted CI on the closure tip verified live: run `33941775599` (push/main/`d7217327ba2f454cce7c66eb65eb0aa8e3a46bc3`) completed SUCCESS 6/6 (debug, release-test, analyze, asan-protocol-ipc-lifecycle, repository-hygiene-and-contracts, unsigned-release-candidate-qualification). Lifecycle record now binds this run; entry `completed`, tasks 1.1–7.5 all checked.
+- Local validation (pre-push): Debug CTest 100/100 ×2 consecutive, release-test 100/100, `/analyze` warning-clean, ASAN 4/4, OpenSpec strict 82/82.
+- NEXT EXACT ACTION: campaign closed. Resume the privileged production-validation campaign only on explicit owner request for a production signed release.
+
+- Provenance: `docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md` (PA-001..PA-006); OpenSpec change `openspec/changes/index-durability-false-success-closure/` (proposal/design/spec/tasks, D1–D6); lifecycle entry `completed` in `openspec/lifecycle.json`.
 - Implementation COMPLETE: protocol `ScanFailed = 22` + `{2,2}` gate; service `SendScanTerminal` + EOF-vs-fault enumeration truth; engine completion trust model (stale/paused/batch-failed terminals non-authoritative, `OnScanFailed` never marks); reconciliation identity (`AbortReconciliationPass`, deferred-safe `TriggerReconciliation`, USN seen-set, journal-failure reconciliation request); store `IntegrityVerdict` (prepare-failure classification via `sqlite3_extended_errcode`) + fail-closed open without deletion license on inconclusive; `Main.cpp` bounded retry (3 attempts/500 ms, delete only on Corrupt); 42–46 diagnostics.
 - Tests: 5 VSM + 3 pipeline + 3 store + protocol gates + command-surface rejection + new `ffvolumescanner_terminal_tests` (legacy `{2,1}` fallback proof). Fixture lessons: WAL readers ignore `BEGIN EXCLUSIVE` (use `locking_mode=EXCLUSIVE` + active read); page-1 b-tree damage fails integrity-check *prepare* (classify the connection code); pure-garbage bytes read as empty DB; `/analyze` C6326 on constant enum compare (volatile reads); `#define private public` cannot call cross-TU private methods on MSVC (mangled `Q` vs `A`).
-- Local validation green: Debug CTest 100/100 ×2 consecutive (passes 2–3; pass 1 drift failure from LF-in-CRLF edits, fixed via normalization), release-test 100/100 ×1, `/analyze` warning-clean, ASAN 4/4 (fuzz/mft/usn/terminal-scan), OpenSpec strict 82/82, tasks 1.1–7.4 checked (7.5 pending).
-- NEXT EXACT ACTION: commit in waves (protocol+service → engine completion → reconciliation → store verdict → tests/docs) without staging `.opencode/*`; push `main`; watch hosted CI green on final tip; then lifecycle `completed` + 7.5 + push + CI.
-
 ## Current authoritative state — 2026-09-05 (final provenance + documentation-truth closure COMPLETE)
 
 Terminal classification: `CERTIFICATION READINESS COMPLETE — EXTERNAL EXECUTION PENDING`.

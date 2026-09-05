@@ -49,4 +49,4 @@ Audit provenance: `docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md` (P
 - [x] 7.2 Full Debug CTest (expected 99 + new targets, all green) ×2; release-test full CTest ×1.
 - [x] 7.3 Analyze preset warning-clean; ASAN protocol/IPC slice (protocol dispatch touched).
 - [x] 7.4 `ffdoc_drift_tests` + OpenSpec strict (`npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive`) + project status/policy gates.
-- [ ] 7.5 Commit in waves (protocol+service → engine completion → reconciliation → store verdict → tests/docs); push; hosted CI green on final tip; lifecycle entry completed only after final-tip CI.
+- [x] 7.5 Commit in waves (protocol+service → engine completion → reconciliation → store verdict → tests/docs); push; hosted CI green on final tip; lifecycle entry completed only after final-tip CI.
