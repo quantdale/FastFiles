@@ -24,3 +24,6 @@ all-edit-with-results-*.md
 # OpenCode loop execution state (transient session/journal files; goal .md files stay tracked).
 .opencode/opencode-loop/loop.log
 .opencode/opencode-loop/ses_*.json
+
+# Scratch wrappers for agent-local MSVC/ctest invocation
+.tmp-ff/
