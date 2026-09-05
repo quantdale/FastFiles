@@ -388,6 +388,22 @@ void PrivilegedConnection::DispatchReceivedFrame(
             break;
         }
 
+        case MessageType::ScanFailed: {
+            // index-durability-false-success-closure D1: exact-length check
+            // mirrors ScanComplete -- a re-sized frame is a violation, never
+            // a silently-tolerated variant.
+            if (frame.payload.size() != sizeof(ffprotocol::ScanFailedPayload)) {
+                protocolViolation = true;
+                break;
+            }
+            ffprotocol::ScanFailedPayload payload{};
+            std::memcpy(&payload, frame.payload.data(), sizeof(payload));
+            if (scanFailedCallback_) {
+                scanFailedCallback_(payload.volumeId);
+            }
+            break;
+        }
+
         case MessageType::UsnJournalOpened: {
             if (frame.payload.size() != sizeof(ffprotocol::UsnJournalOpenedPayload)) {
                 protocolViolation = true;

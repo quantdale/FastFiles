@@ -205,6 +205,7 @@ void VolumeSessionManager::Start() {
         OnScanBatchV2(id, std::move(cursor), std::move(records));
     });
     connection_.SetScanCompleteCallback([this](ffprotocol::VolumeId id) { OnScanComplete(id); });
+    connection_.SetScanFailedCallback([this](ffprotocol::VolumeId id) { OnScanFailed(id); });
     connection_.SetJournalOpenedCallback(
         [this](ffprotocol::VolumeId id, uint64_t journalId, uint64_t currentUsn) { OnJournalOpened(id, journalId, currentUsn); });
     connection_.SetJournalBatchCallback([this](ffprotocol::VolumeId id, uint64_t latestUsn,
@@ -370,6 +371,10 @@ void VolumeSessionManager::StartOrResumeVolume(ffprotocol::VolumeId ephemeralId,
             auto it = sessionsByEphemeralId_.find(ephemeralId.value);
             if (it != sessionsByEphemeralId_.end() && it->second.durableId == session.durableId) {
                 it->second.scanInProgress = true;
+                // index-durability-false-success-closure D2: every new
+                // scan starts with a clean completion-authority slate.
+                it->second.scanBatchFailed = false;
+                it->second.reconciliationScan = false;
             }
         }
         RefreshProjectionScanState();
@@ -425,12 +430,42 @@ bool VolumeSessionManager::RequestJournalOpen(ffprotocol::VolumeId ephemeralId, 
 }
 
 void VolumeSessionManager::TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId) {
+    // index-durability-false-success-closure D4: a reconciliation pass is
+    // finalized by the authoritative completion of the scan started here,
+    // so starting one must respect the scan authority that already exists
+    // for the volume rather than racing it.
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(ephemeralId.value);
-        if (it != sessionsByEphemeralId_.end() && it->second.durableId == durableId) {
-            it->second.scanInProgress = true;
+        if (it == sessionsByEphemeralId_.end() || it->second.durableId != durableId) {
+            // Session vanished (volume list changed / teardown raced the
+            // caller). An orphan StartVolumeScan for a stale VolumeId is
+            // rejected by the service as a connection-violating handle and
+            // would tear the connection down for every *other* volume.
+            return;
         }
+        if (IsPausedLocked(it->second.driveLetter)) {
+            // settings-and-appearance §9.1: paused volumes get no new scan
+            // authority. Previously only the scheduler honored this; the
+            // journal-gap triggers did not.
+            return;
+        }
+        if (it->second.scanInProgress) {
+            // A scan is in flight: its completion -- not a second
+            // BeginReconciliationPass clearing the first pass's seen-set
+            // mid-scan -- is what must decide. Re-arm after it lands.
+            if (!it->second.deferredReconciliation) {
+                it->second.deferredReconciliation = true;
+                ffprotocol::AppendDiagnostic(
+                    {ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                     ffprotocol::DiagnosticCode::FFDIAG_RECONCILIATION_DEFERRED,
+                     {}, std::wstring(1, it->second.driveLetter), L"reconciliation-deferred-scan-in-flight", 0, 0});
+            }
+            return;
+        }
+        it->second.scanInProgress = true;
+        it->second.reconciliationScan = true;
+        it->second.scanBatchFailed = false;
     }
     RefreshProjectionScanState();
     pipeline_.BeginReconciliationPass(durableId);
@@ -481,7 +516,23 @@ void VolumeSessionManager::ApplyScanBatch(ffprotocol::VolumeId volumeId, std::ve
     }
 
     if (!apply(durableId)) {
-        return; // task 3.4: leave the cursor untouched so the next batch attempt (or a full restart) can retry
+        // task 3.4: leave the cursor untouched so the next batch attempt (or a full restart) can retry.
+        // index-durability-false-success-closure D2 (PA-003): the service
+        // keeps streaming later batches past a batch the store rejected,
+        // and it will still report ScanComplete at the end. Mark this
+        // scan's completion non-authoritative so that terminal can never
+        // mark the volume indexed over the gap left at the frozen cursor.
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(volumeId.value);
+        if (it != sessionsByEphemeralId_.end() && it->second.durableId == durableId) {
+            it->second.scanBatchFailed = true;
+        }
+        ffprotocol::AppendDiagnostic(
+            {ffprotocol::DiagnosticCategory::IndexingError,
+             ffprotocol::DiagnosticCode::FFDIAG_SCAN_BATCH_APPLY_FAILED,
+             {}, std::wstring(1, driveLetter), L"scan-batch-apply-failed-cursor-frozen", 0,
+             static_cast<uint64_t>(cursor.size())});
+        return;
     }
     pipeline_.SetScanCursor(durableId, cursor);
     RepublishSnapshot(durableId, driveLetter);
@@ -491,26 +542,142 @@ void VolumeSessionManager::OnScanComplete(ffprotocol::VolumeId volumeId) {
     ffindexstore::VolumeRowId durableId = 0;
     wchar_t driveLetter = L'\0';
     bool anyScanInProgress = false;
+    bool wasReconciliationScan = false;
+    bool batchFailed = false;
+    bool deferred = false;
+    bool paused = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
         auto it = sessionsByEphemeralId_.find(volumeId.value);
         if (it == sessionsByEphemeralId_.end()) {
             return;
         }
+        if (!it->second.scanInProgress) {
+            // index-durability-false-success-closure D2: a completion for
+            // a volume with no scan in flight (duplicate, or one that
+            // raced pause/teardown bookkeeping) has no authority over the
+            // index at all.
+            ffprotocol::AppendDiagnostic(
+                {ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                 ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+                 {}, std::wstring(1, it->second.driveLetter), L"scan-complete-without-scan-in-progress", 0, 0});
+            return;
+        }
         durableId = it->second.durableId;
         driveLetter = it->second.driveLetter;
+        wasReconciliationScan = it->second.reconciliationScan;
+        batchFailed = it->second.scanBatchFailed;
+        deferred = it->second.deferredReconciliation;
+        paused = IsPausedLocked(driveLetter);
         it->second.scanInProgress = false;
+        it->second.reconciliationScan = false;
+        it->second.scanBatchFailed = false;
+        it->second.deferredReconciliation = false;
         anyScanInProgress = std::any_of(
             sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
             [](const auto& entry) { return entry.second.scanInProgress; });
     }
 
     pipeline_.SetBulkScanActive(anyScanInProgress);
-    pipeline_.MarkScanComplete(durableId);
-    if (pipeline_.IsReconciliationPassActive(durableId)) {
-        pipeline_.FinishReconciliationPass(durableId);
-        pipeline_.SetLastReconciliationTime(durableId, NowAsFileTime());
+
+    if (paused || batchFailed) {
+        // index-durability-false-success-closure D2/D5 (PA-001/PA-005):
+        // ScanComplete is only authority when the scan actually ran to the
+        // end of the MFT with every batch applied. A completion received
+        // while paused (batches were dropped) or after any batch failed to
+        // apply must not mark the volume indexed, and must not finalize a
+        // reconciliation pass on a seen-set with guaranteed holes -- that
+        // finalization is exactly what deletes live rows.
+        if (pipeline_.IsReconciliationPassActive(durableId)) {
+            pipeline_.AbortReconciliationPass(durableId);
+        }
+        if (deferred) {
+            // The pending reconciliation request is still owed -- the scan
+            // that was supposed to satisfy it never became authoritative.
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = sessionsByEphemeralId_.find(volumeId.value);
+            if (it != sessionsByEphemeralId_.end() && it->second.durableId == durableId) {
+                it->second.deferredReconciliation = true;
+            }
+        }
+        ffprotocol::AppendDiagnostic(
+            {ffprotocol::DiagnosticCategory::VolumeStateTransition,
+             ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+             {}, std::wstring(1, driveLetter),
+             paused ? L"scan-complete-non-authoritative-paused" : L"scan-complete-non-authoritative-batch-failed",
+             0, 0});
+        RepublishSnapshot(durableId, driveLetter, true);
+        return;
     }
+
+    pipeline_.MarkScanComplete(durableId);
+    if (wasReconciliationScan) {
+        if (pipeline_.IsReconciliationPassActive(durableId)) {
+            pipeline_.FinishReconciliationPass(durableId);
+            pipeline_.SetLastReconciliationTime(durableId, NowAsFileTime());
+        }
+    } else if (pipeline_.IsReconciliationPassActive(durableId)) {
+        // D4's invariant (a pass exists only while its own scan runs,
+        // every terminal clears it) makes this unreachable today; defend
+        // anyway -- a partial scan must never finalize a pass it does not
+        // own. Abort, and let the next scheduler sweep redo it.
+        ffprotocol::AppendDiagnostic(
+            {ffprotocol::DiagnosticCategory::IndexingError,
+             ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+             {}, std::wstring(1, driveLetter), L"reconciliation-pass-not-owned-by-completing-scan", 0, 0});
+        pipeline_.AbortReconciliationPass(durableId);
+    }
+    if (deferred) {
+        // Reconciliation requested while this scan ran (e.g. the journal
+        // resume position proved invalid mid-scan -- PA-004). Now the
+        // volume's scan authority is free and the initial scan is
+        // complete, so it runs cleanly instead of having raced the scan.
+        TriggerReconciliation(volumeId, durableId);
+    }
+    RepublishSnapshot(durableId, driveLetter, true);
+}
+
+void VolumeSessionManager::OnScanFailed(ffprotocol::VolumeId volumeId) {
+    // index-durability-false-success-closure D1/D2: the service's explicit
+    // terminal failure. Nothing this scan covered is authoritative: the
+    // volume keeps its previous scanComplete state, an in-flight
+    // reconciliation pass is discarded rather than finalized (a partial
+    // seen-set must never drive deletions), and the reconciliation cadence
+    // clock is untouched so the failure is retried, not papered over.
+    ffindexstore::VolumeRowId durableId = 0;
+    wchar_t driveLetter = L'\0';
+    bool anyScanInProgress = false;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = sessionsByEphemeralId_.find(volumeId.value);
+        if (it == sessionsByEphemeralId_.end()) {
+            return;
+        }
+        if (!it->second.scanInProgress) {
+            ffprotocol::AppendDiagnostic(
+                {ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                 ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+                 {}, std::wstring(1, it->second.driveLetter), L"scan-failed-without-scan-in-progress", 0, 0});
+            return;
+        }
+        durableId = it->second.durableId;
+        driveLetter = it->second.driveLetter;
+        it->second.scanInProgress = false;
+        it->second.reconciliationScan = false;
+        it->second.scanBatchFailed = false;
+        anyScanInProgress = std::any_of(
+            sessionsByEphemeralId_.begin(), sessionsByEphemeralId_.end(),
+            [](const auto& entry) { return entry.second.scanInProgress; });
+    }
+
+    pipeline_.SetBulkScanActive(anyScanInProgress);
+    if (pipeline_.IsReconciliationPassActive(durableId)) {
+        pipeline_.AbortReconciliationPass(durableId);
+    }
+    ffprotocol::AppendDiagnostic(
+        {ffprotocol::DiagnosticCategory::IndexingError,
+         ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+         {}, std::wstring(1, driveLetter), L"service-reported-scan-failure", 0, 0});
     RepublishSnapshot(durableId, driveLetter, true);
 }
 
@@ -580,6 +747,17 @@ void VolumeSessionManager::ApplyJournalBatch(ffprotocol::VolumeId volumeId, uint
     }
 
     if (!apply(durableId)) {
+        // index-durability-false-success-closure D3/4.4 (PA-002 gap
+        // closure): an un-applied journal batch is a coverage hole the
+        // position advance must not paper over. The stored ResumeUsn stays
+        // behind (monotonic replay is safe -- re-applied events upsert),
+        // and a reconciliation sweep is requested to close the gap; with
+        // D4's deferral this is idempotent while any scan is in flight.
+        ffprotocol::AppendDiagnostic(
+            {ffprotocol::DiagnosticCategory::IndexingError,
+             ffprotocol::DiagnosticCode::FFDIAG_SCAN_BATCH_APPLY_FAILED,
+             {}, std::wstring(1, driveLetter), L"journal-batch-apply-failed-reconciliation-requested", 0, 0});
+        TriggerReconciliation(volumeId, durableId);
         return;
     }
     pipeline_.SetJournalPosition(durableId, journalId, latestUsn);

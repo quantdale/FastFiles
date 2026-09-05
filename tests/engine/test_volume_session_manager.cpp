@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include "ffipc/PipeFraming.h"
+#include "sqlite3.h"
 #include "IndexPipeline.h"
 #include "../TestSupport.h"
 
@@ -472,6 +473,245 @@ void TestPendingDecisionForObservedUnselectedVolume() {
           "adding the volume to the selection clears the pending-decision record");
 }
 
+// index-durability-false-success-closure 6.1: ScanFailed is the service's
+// explicit "this scan did not run to completion". It must leave every
+// derived authority where it was: prior completion state, cadence clock,
+// and -- critically -- it must discard rather than finalize the
+// reconciliation pass whose seen-set the failed scan only partially fed.
+void TestScanFailedLeavesPriorIndexAuthorityIntact() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_scan_failed_authority.db")),
+          "pipeline opens for scan-failed authority test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 61;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    Check(pipeline.MarkScanComplete(volumeId), "prior completion state is established");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "ScanFailed discards the reconciliation pass instead of finalizing a partial seen-set");
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "ScanFailed leaves the prior completion state intact (PA-001 index survives)");
+    Check(pipeline.GetVolumeMetadata(volumeId)->lastReconciliationTime == 0,
+          "ScanFailed leaves the reconciliation cadence clock untouched -- the failure is retried");
+    Check(!session.scanInProgress && !session.reconciliationScan && !session.scanBatchFailed,
+          "ScanFailed clears the in-flight scan state");
+
+    // A duplicate terminal for the same finished scan is refused outright.
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    Check(!session.scanInProgress, "a duplicate ScanFailed changes nothing");
+
+    // A later clean scan still marks completion (no sticky poisoning).
+    session.scanInProgress = true;
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "the next authoritative completion still marks the volume");
+}
+
+// index-durability-false-success-closure 6.1: a terminal for a volume with
+// no scan in flight carries no authority -- it must never mark, and must
+// never finalize a pass its scan did not own.
+void TestDuplicateTerminalsWithoutScanInFlightAreRefused() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_duplicate_terminals.db")),
+          "pipeline opens for duplicate-terminal test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 62;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    // A pass exists with no scan feeding it (stale-state shape).
+    pipeline.BeginReconciliationPass(volumeId);
+    // Give the volume a persisted journal identity so the public
+    // journal-open path can legitimately request a reconciliation below.
+    Check(pipeline.SetJournalPosition(volumeId, 10, 50), "stale-terminal fixture persists a journal identity");
+
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "a completion without a scan in flight never marks the volume indexed");
+    Check(pipeline.IsReconciliationPassActive(volumeId),
+          "a stale completion does not finalize a pass its scan did not own");
+
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.IsReconciliationPassActive(volumeId),
+          "a stale failure leaves pass state untouched too");
+
+    // The pass is recoverable: the next genuine reconciliation (a journal
+    // identity change -- the public trigger path) starts cleanly and a
+    // fresh Begin replaces the orphaned pass.
+    connection.journalOpenedCallback_(ffprotocol::VolumeId{7}, 11, 900);
+    Check(pipeline.IsReconciliationPassActive(volumeId),
+          "a real reconciliation can still be started over the orphaned pass");
+    Check(manager.sessionsByEphemeralId_.at(7).reconciliationScan,
+          "the started scan is tagged as the pass owner");
+}
+
+// index-durability-false-success-closure 6.1/6.4 (PA-003): a scan whose
+// batch failed to apply has a guaranteed coverage hole at the frozen
+// cursor; its later ScanComplete must not mark the volume indexed. The
+// volume must still be markable by a subsequent clean scan.
+void TestBatchFailedScanCompletionIsNotAuthoritative() {
+    ffengine::IndexPipeline pipeline;
+    const std::string dbPath = FreshDbPath("engine_test_batch_failed_completion.db");
+    Check(pipeline.Open(dbPath), "pipeline opens for batch-failure test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 63;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    // Force a real store-level batch failure: an exclusive lock on the
+    // database makes the ingestion transaction fail immediately (no busy
+    // timeout is set on the writer connection), exercising the genuine
+    // apply-failure path rather than a fake one.
+    sqlite3* locker = nullptr;
+    bool locked = false;
+    // Flush the pipeline's WAL first (passive maintenance checkpoint) so
+    // establishing the exclusive lock is not racing the engine's own
+    // un-checkpointed pages.
+    pipeline.RunStoreMaintenance();
+    if (sqlite3_open(dbPath.c_str(), &locker) == SQLITE_OK) {
+        locked = sqlite3_exec(locker, "BEGIN EXCLUSIVE;", nullptr, nullptr, nullptr) == SQLITE_OK;
+    }
+    Check(locked, "exclusive lock established for the batch-failure fixture");
+    const std::vector<ffprotocol::MftRecordV1> failingBatch{
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+    };
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{9}, failingBatch);
+    if (locker) {
+        sqlite3_exec(locker, "COMMIT;", nullptr, nullptr, nullptr);
+        sqlite3_close(locker);
+    }
+    Check(session.scanBatchFailed, "a rejected batch marks the scan non-authoritative");
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanCursor.empty(),
+          "the rejected batch leaves the stored cursor untouched");
+
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "completion after a failed batch does not mark the volume indexed (PA-003)");
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "completion after a failed batch aborts the pass instead of deleting live rows");
+
+    // A pause/resume cycle re-issues the unfinished scan through the real
+    // (re)start path -- which resets the authority slate -- and the clean
+    // scan that follows marks completion normally.
+    manager.SetIndexingPaused(0, true);
+    manager.SetIndexingPaused(0, false);
+    Check(session.scanInProgress, "pause/resume re-issued the unfinished scan");
+    Check(!session.scanBatchFailed, "a (re)started scan begins with a clean authority slate");
+    const std::vector<ffprotocol::MftRecordV1> resumedBatch{
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+        MakeMftRecord(120, 5, u"after-resume.txt", 0, 3),
+    };
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6}, resumedBatch);
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "a later clean scan marks completion -- the failure never poisons the volume");
+}
+
+// index-durability-false-success-closure 6.1 (PA-005): while indexing is
+// paused, inbound batches are dropped -- a completion arriving in that
+// window describes a scan whose records were thrown away and must not mark.
+void TestPausedCompletionIsNotAuthoritative() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_paused_completion.db")),
+          "pipeline opens for paused-completion test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 64;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    manager.SetIndexingPaused(0, true);
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "a completion received while paused does not mark the volume indexed (PA-005)");
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "a paused completion aborts the pass -- its seen-set is missing every dropped batch");
+    Check(pipeline.GetVolumeMetadata(volumeId)->lastReconciliationTime == 0,
+          "the paused completion leaves the cadence clock where it was");
+
+    manager.SetIndexingPaused(0, false); // resume re-issues the scan from the stored position
+    Check(session.scanInProgress, "resume re-issues the unfinished scan");
+    const std::vector<ffprotocol::MftRecordV1> resumedBatch{
+        MakeMftRecord(5, 5, u"", 0x10, 0),
+    };
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{1}, resumedBatch);
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "the post-resume authoritative completion marks normally");
+}
+
+// index-durability-false-success-closure 6.2 (PA-004): a journal-gap
+// reconciliation request that arrives while the initial scan is still in
+// flight must not start a second pass under the scan; it is deferred and
+// issued cleanly after the scan's authoritative completion.
+void TestJournalGapDuringInFlightScanDefersUntilCompletion() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_deferred_reconciliation.db")),
+          "pipeline opens for deferred-reconciliation test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 65;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "deferred-reconciliation test creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true; // initial scan in flight
+
+    connection.journalResumeInvalidCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "a gap request during an in-flight scan begins no pass (PA-004)");
+    Check(session.deferredReconciliation, "the gap request is deferred to the scan's completion");
+    const auto reopenFrame = ReadCapturedMessage(capture->client);
+    Check(reopenFrame && *reopenFrame == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
+          "only the journal reopen rides the wire while reconciliation is deferred");
+
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "the in-flight initial scan completes authoritatively");
+    Check(pipeline.IsReconciliationPassActive(volumeId),
+          "the deferred reconciliation starts once the scan authority is free");
+    Check(session.reconciliationScan, "the deferred scan is tagged as the new pass owner");
+    Check(!session.deferredReconciliation, "the deferred request is consumed on drain");
+    const auto scanFrame = ReadCapturedMessage(capture->client);
+    Check(scanFrame && *scanFrame == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the deferred reconciliation issues its low-priority scan after completion");
+}
+
 } // namespace
 
 int main() {
@@ -485,5 +725,10 @@ int main() {
     TestPauseShownInStatusAndDropsBatchesWithoutAdvancing();
     TestInitialScanBatchesDoNotRepeatWholeSnapshotExports();
     TestPendingDecisionForObservedUnselectedVolume();
+    TestScanFailedLeavesPriorIndexAuthorityIntact();
+    TestDuplicateTerminalsWithoutScanInFlightAreRefused();
+    TestBatchFailedScanCompletionIsNotAuthoritative();
+    TestPausedCompletionIsNotAuthoritative();
+    TestJournalGapDuringInFlightScanDefersUntilCompletion();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

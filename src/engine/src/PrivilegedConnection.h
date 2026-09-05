@@ -50,6 +50,10 @@ public:
     using ScanBatchV2Callback = std::function<void(
         ffprotocol::VolumeId, std::vector<uint8_t> resumeCursor, std::vector<ffprotocol::MftRecordV2> records)>;
     using ScanCompleteCallback = std::function<void(ffprotocol::VolumeId)>;
+    // index-durability-false-success-closure D1: terminal failure counterpart,
+    // sent by a {2,2}+ service instead of ScanComplete for scans that could
+    // not run to completion.
+    using ScanFailedCallback = std::function<void(ffprotocol::VolumeId)>;
     using JournalOpenedCallback = std::function<void(ffprotocol::VolumeId, uint64_t journalId, uint64_t currentUsn)>;
     using JournalBatchCallback =
         std::function<void(ffprotocol::VolumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records)>;
@@ -74,6 +78,7 @@ public:
     void SetScanBatchCallback(ScanBatchCallback callback) { scanBatchCallback_ = std::move(callback); }
     void SetScanBatchV2Callback(ScanBatchV2Callback callback) { scanBatchV2Callback_ = std::move(callback); }
     void SetScanCompleteCallback(ScanCompleteCallback callback) { scanCompleteCallback_ = std::move(callback); }
+    void SetScanFailedCallback(ScanFailedCallback callback) { scanFailedCallback_ = std::move(callback); }
     void SetJournalOpenedCallback(JournalOpenedCallback callback) { journalOpenedCallback_ = std::move(callback); }
     void SetJournalBatchCallback(JournalBatchCallback callback) { journalBatchCallback_ = std::move(callback); }
     void SetJournalBatchV3Callback(JournalBatchV3Callback callback) { journalBatchV3Callback_ = std::move(callback); }
@@ -145,6 +150,7 @@ private:
     ScanBatchCallback scanBatchCallback_;
     ScanBatchV2Callback scanBatchV2Callback_;
     ScanCompleteCallback scanCompleteCallback_;
+    ScanFailedCallback scanFailedCallback_;
     JournalOpenedCallback journalOpenedCallback_;
     JournalBatchCallback journalBatchCallback_;
     JournalBatchV3Callback journalBatchV3Callback_;

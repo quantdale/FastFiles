@@ -95,6 +95,21 @@ private:
         // ScanComplete. Journal-only updates remain publishable once the
         // scan has finished.
         bool scanInProgress = false;
+        // index-durability-false-success-closure D2: a scan whose batches
+        // all applied but whose completion would otherwise be taken at
+        // face value must stay non-authoritative if any batch failed to
+        // apply (the cursor is frozen at the last-applied position, so the
+        // scan demonstrably did not cover everything since).
+        bool scanBatchFailed = false;
+        // True while the in-flight scan on this session is the one started
+        // by TriggerReconciliation, so OnScanComplete knows whether the
+        // authoritative completion is allowed to finalize the durable
+        // reconciliation pass (a mid-scan pass start must never finish it).
+        bool reconciliationScan = false;
+        // A reconciliation request arrived while a scan was in flight; it
+        // is issued when that scan next completes authoritatively (D4),
+        // never by racing a second BeginReconciliationPass against it.
+        bool deferredReconciliation = false;
     };
 
     void OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes);
@@ -104,6 +119,10 @@ private:
     void OnScanBatchV2(ffprotocol::VolumeId volumeId, std::vector<uint8_t> cursor,
                        std::vector<ffprotocol::MftRecordV2> records);
     void OnScanComplete(ffprotocol::VolumeId volumeId);
+    // index-durability-false-success-closure D1/D2: the ScanFailed terminal
+    // -- the scan did not run to completion, so nothing derived from it is
+    // authoritative: no MarkScanComplete, no pass finalization.
+    void OnScanFailed(ffprotocol::VolumeId volumeId);
     void OnJournalOpened(ffprotocol::VolumeId volumeId, uint64_t journalId, uint64_t currentUsn);
     void OnJournalBatch(ffprotocol::VolumeId volumeId, uint64_t latestUsn, std::vector<ffprotocol::UsnDeltaV2> records);
     // allocated-size-storage-accuracy 5.2: additive V3 journal records.
