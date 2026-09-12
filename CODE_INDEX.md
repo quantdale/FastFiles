@@ -278,6 +278,17 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   bounded, DPI-aware, off-thread icon cache and `ffui::IconLru` is its pure
   recency/eviction seam. No hardcoded `RGB`/`GetSysColor` literals except
   High-Contrast fallbacks.
+- `include/ffui/` — public, headless seam headers: pure geometry, layout
+  policy, and identity contracts compiled into tests without a renderer.
+  Workspace allocation (`ShellLayout.h`, `ResponsiveLayout.h`), layout policies
+  (`ChromeLayout.h` — the Narrow/Normal/Wide chrome policy consumed by
+  `NavigationChrome`; `DetailsLayout.h`, `HomeLayout.h`, `StorageLayout.h`,
+  `TreemapLayout.h`, `SearchLayout.h`), settings/UIA contracts
+  (`SettingsPages.h`, `UiaSurface.h`, `UiaIdentity.h`, `UiaEvents.h`), and the
+  focus/selection/drop seams. New testable policy belongs here.
+- `UiStatePalette.h` — the shared visual-state resolver (hover/pressed/focused/
+  selected/disabled/drop-target plus High-Contrast system fallbacks) consumed
+  by browse rows, the sidebar, and the search list.
 - `WindowShell` — HWND creation, message loop, top-level wiring; composes all
    the panels below. Owns `EngineClient`, `ColumnView`, `NavigationWorkspace`,
    `Renderer`, `SearchPanel`, `CommandPalette`, `FileOperations`, `Preview`,

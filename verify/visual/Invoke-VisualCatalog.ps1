@@ -513,7 +513,23 @@ try {
 
     $dual = Invoke-UiaPaletteCommand -Driver $driver -Main $main -ProcessId $appPid -Query 'dual pane' `
         -ExpectedNames @() -ExpectedCommandName 'Toggle Dual Pane' -ExpectedCommandId 'navigation.toggle-dual-pane'
-    $dualSurface = Test-CatalogNamed -Driver $driver -Main $main -ProcessId $appPid -AutomationIds @('Pane.0', 'Pane.1')
+    # Pane presence is asserted against the pane group's direct children: a
+    # full-tree DFS for 'Pane.1' is O(whole-window tree) and reliably times out
+    # once two panes of columns are loaded, while the UIA contract under test is
+    # exactly "the group exposes both pane roots as children".
+    $dualControl = $null
+    $paneRootIds = @()
+    try {
+        $dualControl = Find-UiaElement -Driver $driver -AutomationId 'ColumnView' -FromElement $main -TimeoutMs 4000
+        foreach ($child in @(Get-UiaChildren -Driver $driver -Element $dualControl)) {
+            $paneRootIds += (Get-UiaElementIdentity -Driver $driver -Element $child).AutomationId
+        }
+    } catch { }
+    $dualSurface = [pscustomobject]@{
+        Pass = ($paneRootIds -contains 'Pane.0') -and ($paneRootIds -contains 'Pane.1')
+        Found = $paneRootIds
+        Missing = @(@('Pane.0', 'Pane.1') | Where-Object { $paneRootIds -notcontains $_ })
+    }
     Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
         -ScenarioId 'dual-pane' -ExpectedState 'Dual-pane Column View with two semantic pane roots' `
         -Theme 'Light' -Width 1280 -PaneMode 'dual' `
@@ -559,16 +575,37 @@ try {
         -ScenarioId 'search-filters-expanded' -ExpectedState 'Fast Search with the Filters disclosure expanded' `
         -Theme 'Light' -Width 1280 -PaneMode 'single' `
         -Assertion ([pscustomobject]@{ Pass = $filtersExpanded; Detail = "ExpandCollapse state='$filterState'" })
-    $null = Close-UiaSearchPanelIfOpen -Driver $driver -Main $main -ProcessId $appPid
-    # Query with no matching results to capture empty search state
+    # Query with no matching results to capture empty search state. The search
+    # workspace must still be open here: the earlier ordering closed it first,
+    # which made the query edit undiscoverable and skipped this scenario in
+    # every catalog run.
     $searchEdit = $null
     try { $searchEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 2000 } catch { }
     if ($searchEdit) {
-        $null = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value 'zzzz_no_matching_files_query_9999'
-        Start-Sleep -Milliseconds 400
+        $sentinel = 'zzzz_no_matching_files_query_9999'
+        $applied = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value $sentinel
+        if (-not $applied.ok) {
+            # A synthetic value can be ignored by an edit that only reacts to
+            # real edits; fall back to actual typing, never to a hardcoded pass.
+            try { $searchEdit.SetFocus() } catch { }
+            $null = Send-UiaText -Driver $driver -Text $sentinel
+        }
+        Start-Sleep -Milliseconds 600
+        $queryNow = $null
+        try { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $searchEdit } catch { }
+        $resultsEl = $null
+        try { $resultsEl = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 2000 } catch { }
+        $resultChildren = 0
+        if ($resultsEl) { $resultChildren = @(Get-UiaChildren -Driver $driver -Element $resultsEl).Count }
+        # Honest scope: the query holds the sentinel and the result set is
+        # empty. Degraded-mode search has zero candidates in this disposable
+        # sandbox, so "a non-empty query produced zero rows" is the strongest
+        # semantic contract available without product-side status exposure.
         Invoke-CatalogCapture -Run $run -Driver $driver -Main $main -ProcessId $appPid `
             -ScenarioId 'search-no-results' -ExpectedState 'Fast Search with zero results and empty search state' `
-            -Theme 'Light' -Width 1280 -PaneMode 'single' -Assertion ([pscustomobject]@{ Pass = $true; Detail = 'zero-match search query applied' })
+            -Theme 'Light' -Width 1280 -PaneMode 'single' `
+            -Assertion ([pscustomobject]@{ Pass = (([string]$queryNow -eq $sentinel) -and $null -ne $resultsEl -and $resultChildren -eq 0)
+                                           Detail = "query='$queryNow' resultsElement=$($null -ne $resultsEl) children=$resultChildren" })
     } else {
         # Never silently drop a scenario: a missing search edit is an
         # explicit SKIPPED record, not an invisible coverage hole.

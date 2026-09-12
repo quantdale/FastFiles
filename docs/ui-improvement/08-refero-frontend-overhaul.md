@@ -329,3 +329,14 @@ The branch tip's only delta from the validated `4b7ef8b` is this documentation, 
 - **Settings "missing controls" was a capture artifact, not a defect.** A fresh settings capture appeared to lack the preview checkbox/edit; a Win32 child-window dump proved every General-page control exists, is visible, and has the intended geometry (`Preview` header, `Enable automatic preview`, size label, `16777216` edit, helper text). PrintWindow simply skipped two themed controls in that frame.
 - **Hosted CI is blocked externally.** Every GitHub Actions run for this repository (PR #8 and `main` pushes alike) fails in seconds with `The job was not started because recent account payments have failed or your spending limit needs to be increased`. No job starts, so no code or test result is implicated; branch CI evidence stays unbound until the account billing block is cleared.
 - Cut-item ghosting still has no live screenshot: the pure join/match seam (`ffcolumn_hit_test_tests`) plus the catalog's semantic scenarios remain its coverage.
+
+## Follow-up hardening — 2026-09-12
+
+An adversarial pass over the branch's newest code plus a catalog-robustness audit produced four verified fixes:
+
+- **Cut-ghost feedback repaints immediately.** `ColumnView::SetCutPaths` now reports whether the effective set changed (via the pure `CutPathSetChanged` seam) and `WindowShell::SyncCutGhost` requests the repaint on a real change, so Ctrl+X/Ctrl+C dimming no longer waits for an unrelated invalidation; focus/clipboard/file-operation re-checks still clear it. New assertions pin the change detector.
+- **Expired status notices clear on their own.** The existing 500 ms workspace-save timer now clears an expired notice and repaints once, so operation feedback cannot linger after its deadline.
+- **One “Toggle Dual Pane” row.** The legacy `navigation.toggle-column-view` alias (kept so persisted shortcut bindings keep working) is hidden from the palette through `CommandDescriptor::paletteHidden`; it remains resolvable and invocable by id. `ffcommand_tests` pins both behaviors.
+- **The visual catalog has no permanent coverage hole.** `search-no-results` previously closed the search workspace before resolving its query edit (so it always skipped) and asserted a hardcoded `Pass=$true`; it now runs with a checked assertion (query applied, `Search.Results` present, zero rows). The `dual-pane` scenario now asserts the pane group's direct children rather than a full-tree DFS for `Pane.1`, which times out once both panes of columns are loaded. Catalog result: **16/16 PASS, 0 skipped**.
+
+Validation on the working tree: Debug CTest 103/103, release-test CTest 103/103, focused `ffcommand_tests`/`ffcolumn_hit_test_tests`/`ffdoc_drift_tests` green. `CODE_INDEX.md` now documents the public `ffui/` seam headers and `UiStatePalette.h`.

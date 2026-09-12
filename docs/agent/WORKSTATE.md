@@ -1,5 +1,17 @@
 # Fast Files — Agent Workstate
 
+## overhaul-hardening-campaign — VERIFIED 2026-09-12 (autonomous slice on `feat/refero-frontend-overhaul`)
+
+- Cut-ghost feedback now repaints itself: `ColumnView::SetCutPaths` returns whether the effective set changed (pure `CutPathSetChanged` seam + new assertions in `ffcolumn_hit_test_tests`) and `WindowShell::SyncCutGhost` schedules the repaint, so Ctrl+X/Ctrl+C ghosting no longer waits for an unrelated invalidation; the clipboard-sequence re-check on focus/file-op completion still clears it.
+- Expired status/operation notices repaint promptly: the existing 500 ms workspace-save timer clears an expired notice and requests one repaint (previously the text could linger until the next unrelated invalidation).
+- Command palette no longer lists the legacy `navigation.toggle-column-view` alias as a second “Toggle Dual Pane” row: `CommandDescriptor::paletteHidden` keeps it resolvable/invocable for persisted shortcut bindings while `SearchCommands` skips it. `ffcommand_tests` pins both halves.
+- Visual catalog hardening (`verify/visual/Invoke-VisualCatalog.ps1`): the `search-no-results` scenario had closed the search workspace before looking for its query edit, so it skipped on every run — ordering fixed and the hardcoded `Pass=$true` replaced with a checked assertion (query applied + `Search.Results` present with zero rows). The `dual-pane` pane check now asserts the pane group's direct children (`Pane.0`/`Pane.1`) instead of a full-tree DFS for `Pane.1`, which reliably times out once both panes of columns are loaded even though the tree is correct.
+- Catalog result: **16/16 PASS, 0 skipped, 0 failed** (`build/vis-campaign3`, commit `40b16de`, worktree dirty during the run); the previous skip is closed and dual-pane is deterministic.
+- Documentation accuracy: `CODE_INDEX.md` now maps the public `src/ui/include/ffui/` headless seam headers and the shared `UiStatePalette.h`; `ffdoc_drift_tests` green (line endings normalized after edits).
+- Validation on the exact working tree: Debug CTest **103/103**, release-test CTest **103/103**; focused `ffcommand_tests`, `ffcolumn_hit_test_tests`, `ffdoc_drift_tests` green; live probe confirms one canonical palette row (`rows=[Toggle Dual Pane | Toggle Details Pane]`).
+- Findings deliberately not productized: the palette matcher's single-typo tolerance makes “dual pane” also list “Toggle Details Pane” (documented behavior, not a defect); the driver's full-tree DFS remains O(window tree) — scenario-scoped assertions now avoid it rather than changing the shared driver.
+- NEXT EXACT ACTION: run `pwsh ./verify/verify.ps1 build` on the committed tree and record the result; then resume the external frontier (GitHub Actions billing block, palette live screenshot, 125/150/200% DPI + High-Contrast captures).
+
 ## refero-frontend-overhaul — ACTIVE 2026-09-12 (branch pushed; all UI phases 1–12 advanced)
 
 - Follow-up verification pass (same day, tip `4101e0b`): Debug CTest **103/103** and release-test CTest **103/103** re-run green on the exact tip (docs-only delta from `4b7ef8b`); `ffdoc_drift_tests` green after this record. The earlier session screenshots were captured with a `debug-diagnostic` binary that predated the final SettingsDialog/ColumnView/WindowShell edits, so a compact matrix was re-captured from the rebuilt binary (`build/visual/recheck-*.png`): home, longnames (ellipsis), empty state, dark browse, settings (dark, UIA-opened), gallery, collapsed rail — all visually verified correct.
