@@ -168,8 +168,14 @@ void DrawRowLabel(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, ID
     if (SUCCEEDED(dwriteFactory->CreateTextLayout(text, textLength, format,
                                                   availableWidth, lineHeight, &layout)) &&
         layout != nullptr) {
-        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
-        if (SUCCEEDED(layout->SetTrimming(&trimming, nullptr))) {
+        // ui-overhaul phase 3: use the factory's ellipsis trimming sign. A
+        // DWRITE_TRIMMING delimiter value alone does not render an ellipsis
+        // (the layout silently clips), which left long names ending in a hard
+        // cut instead of the documented character ellipsis.
+        Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        if (SUCCEEDED(dwriteFactory->CreateEllipsisTrimmingSign(layout.Get(), &ellipsis)) &&
+            SUCCEEDED(layout->SetTrimming(&trimming, ellipsis.Get()))) {
             context->DrawTextLayout(D2D1::Point2F(rect.left, textTop), layout.Get(), brush,
                                     D2D1_DRAW_TEXT_OPTIONS_CLIP);
             return;

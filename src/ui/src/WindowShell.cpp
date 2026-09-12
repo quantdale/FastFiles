@@ -954,6 +954,12 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     columnView_.SetRepaintCallback([this] { RequestRepaint(); });
     if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
         columnView_.NavigateToPath(initialLocation.path);
+        // ui-overhaul phase 3: a deep startup location must reveal its leaf
+        // column immediately, exactly like an address/sidebar navigation. The
+        // window already owns its initial client size here, so the reveal uses
+        // the real viewport instead of leaving the user stranded at the root
+        // whenever the path chain is wider than the workspace.
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
     }
     // The icon cache posts WM_APP_ICON_READY to hwnd_ when a type icon resolves;
     // the shell repaints on that message. The column view draws the cached
@@ -1802,10 +1808,15 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                     name.c_str(), static_cast<UINT32>(name.size()), titleFormat, contentWidth,
                     nameHeight, &nameLayout)) &&
                 nameLayout != nullptr) {
-                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
-                nameLayout->SetTrimming(&trimming, nullptr);
-                context->DrawTextLayout(D2D1::Point2F(contentLeft, y), nameLayout.Get(), primary,
-                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                // ui-overhaul phase 7: the layout needs the factory's ellipsis
+                // trimming sign; a bare DWRITE_TRIMMING delimiter clips silently.
+                Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+                if (SUCCEEDED(renderer_.DWriteFactory()->CreateEllipsisTrimmingSign(nameLayout.Get(), &ellipsis)) &&
+                    SUCCEEDED(nameLayout->SetTrimming(&trimming, ellipsis.Get()))) {
+                    context->DrawTextLayout(D2D1::Point2F(contentLeft, y), nameLayout.Get(), primary,
+                                            D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                }
             }
             y += nameHeight + 2.0f;
 
@@ -1916,14 +1927,17 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                     displayPath.c_str(), static_cast<UINT32>(displayPath.size()),
                     detailsCaptionFormat_.Get(), contentWidth, captionHeight * 3.0f, &pathLayout)) &&
                 pathLayout != nullptr) {
-                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
-                pathLayout->SetTrimming(&trimming, nullptr);
-                DWRITE_TEXT_METRICS pathMetrics{};
-                if (SUCCEEDED(pathLayout->GetMetrics(&pathMetrics))) {
-                    pathHeight = (std::min)(pathMetrics.height, captionHeight * 3.0f);
+                Microsoft::WRL::ComPtr<IDWriteInlineObject> ellipsis;
+                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+                if (SUCCEEDED(renderer_.DWriteFactory()->CreateEllipsisTrimmingSign(pathLayout.Get(), &ellipsis)) &&
+                    SUCCEEDED(pathLayout->SetTrimming(&trimming, ellipsis.Get()))) {
+                    DWRITE_TEXT_METRICS pathMetrics{};
+                    if (SUCCEEDED(pathLayout->GetMetrics(&pathMetrics))) {
+                        pathHeight = (std::min)(pathMetrics.height, captionHeight * 3.0f);
+                    }
+                    context->DrawTextLayout(D2D1::Point2F(contentLeft, y), pathLayout.Get(), secondary,
+                                            D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 }
-                context->DrawTextLayout(D2D1::Point2F(contentLeft, y), pathLayout.Get(), secondary,
-                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
             y += pathHeight + 4.0f;
             const std::wstring extension = ExtensionOf(selection->path);
@@ -2034,6 +2048,9 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
 
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
+    // Defensive: before the first real size the viewport can be zero; scrolling
+    // with a zero viewport would translate the whole chain off-screen.
+    if (viewportWidth <= 0.0f) return;
     const float columnLeft = columnIndex * ColumnView::kColumnWidth;
     const float columnRight = columnLeft + ColumnView::kColumnWidth;
     const uint64_t now = GetTickCount64();
