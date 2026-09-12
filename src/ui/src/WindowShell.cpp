@@ -1745,6 +1745,14 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     } else if (layout.paneCollapsed) {
         context->FillRectangle(D2D1::RectF(layout.detailsRect.left, 0.0f,
                                            layout.detailsRect.right, sceneHeight), detailsBrush_.Get());
+        // ui-overhaul phase 7: the rail is a real disclosure control. A
+        // trailing chevron marks it as interactive; clicking it collapses the
+        // details surface so the workspace reclaims the rail width (the
+        // View > Toggle Details Pane command brings it back).
+        const D2D1_RECT_F rail = D2D1::RectF(layout.detailsRect.left, cardTop,
+                                             layout.detailsRect.right, cardBottom);
+        ffui::UiDrawTextCentered(context, detailsCaptionFormat_.Get(), L"\u203A", rail,
+                                 highContrast ? detailsTextBrush_.Get() : detailsSecondaryBrush_.Get());
     }
     const SelectionSummary summary = columnView_.CurrentSelectionSummary();
     const bool singleSelection = summary.items.size() == 1;
@@ -2558,6 +2566,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             }
             const auto shellLayout = CurrentShellLayout();
             const float scale = CurrentDpiScale();
+            const float clientX = static_cast<float>(GET_X_LPARAM(lParam)) / scale;
+            const float clientY = static_cast<float>(GET_Y_LPARAM(lParam)) / scale;
+            // ui-overhaul phase 7: the collapsed details disclosure rail is a
+            // real control; clicking anywhere on its strip collapses the
+            // details surface entirely.
+            if (shellLayout.details.paneCollapsed && !shellLayout.detailsRect.Empty() &&
+                clientX >= shellLayout.detailsRect.left && clientX <= shellLayout.detailsRect.right &&
+                clientY >= shellLayout.contentRect.top && clientY <= shellLayout.contentRect.bottom) {
+                detailsPaneVisible_ = false;
+                RequestRepaint();
+                return 0;
+            }
             D2D1_POINT_2F point = D2D1::Point2F(
                 static_cast<float>(GET_X_LPARAM(lParam)) / scale - shellLayout.contentRect.left,
                 static_cast<float>(GET_Y_LPARAM(lParam)) / scale - shellLayout.contentRect.top);

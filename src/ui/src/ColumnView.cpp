@@ -554,8 +554,12 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
         // recovery-degraded-browsing D3: the top status chip is the retry
         // affordance for the Engine unavailable state only (modernize-ui-
         // appearance 3.6 kept the chip non-interactive; the Unavailable
-        // state now genuinely offers an action).
-        if (engineState_.load() == EngineConnectionState::Unavailable && retryEngineCallback_) {
+        // state now genuinely offers an action). ui-overhaul phase 3: the hit
+        // area matches the content-sized chip, not the whole band.
+        const float chipRight = 8.0f + (std::min)((std::max)(0.0f, viewportWidth - 16.0f),
+                                                  badgeTextWidth_ + 28.0f);
+        if (clientPoint.x <= chipRight && engineState_.load() == EngineConnectionState::Unavailable &&
+            retryEngineCallback_) {
             retryEngineCallback_();
         }
         return;
@@ -1712,11 +1716,32 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     // recovery-degraded-browsing D3: engine-connection-status text as a
     // rounded chip. Paint-only except for the Unavailable state, where a
     // click retries the engine connection (see OnMouseDown).
-    D2D1_RECT_F badgeRect = D2D1::RectF(8.0f, 4.0f, viewportSize.width - 8.0f, kBadgeHeight - 4.0f);
-    const EngineConnectionState connectionState = engineState_.load();
-    const bool privilegedActive = privilegedPathActive_.load();
+    // ui-overhaul phase 3: the chip is sized to its text instead of spanning
+    // the whole workspace -- degraded mode stays first-class without painting a
+    // permanent full-width amber band over the file content.
     const EngineStatusPresentation statusPresentation =
-        GetEngineStatusPresentation(connectionState, privilegedActive);
+        GetEngineStatusPresentation(engineState_.load(), privilegedPathActive_.load());
+    const std::wstring statusText = statusPresentation.text;
+    if (badgeMeasureText_ != statusText) {
+        badgeMeasureText_ = statusText;
+        badgeTextWidth_ = 0.0f;
+        Microsoft::WRL::ComPtr<IDWriteTextLayout> measureLayout;
+        if (badgeTextFormat_ != nullptr &&
+            SUCCEEDED(dwriteFactory->CreateTextLayout(statusText.c_str(),
+                                                      static_cast<UINT32>(statusText.size()),
+                                                      badgeTextFormat_.Get(), 100000.0f,
+                                                      kBadgeHeight, &measureLayout)) &&
+            measureLayout != nullptr) {
+            DWRITE_TEXT_METRICS metrics{};
+            if (SUCCEEDED(measureLayout->GetMetrics(&metrics))) {
+                badgeTextWidth_ = metrics.width;
+            }
+        }
+    }
+    const float badgeWidth = (std::min)((std::max)(0.0f, viewportSize.width - 16.0f),
+                                       badgeTextWidth_ + 28.0f);
+    D2D1_RECT_F badgeRect = D2D1::RectF(8.0f, 4.0f, 8.0f + badgeWidth, kBadgeHeight - 4.0f);
+    const EngineConnectionState connectionState = engineState_.load();
     ID2D1SolidColorBrush* badgeBrush = badgeDegradedBrush_.Get();
     ID2D1SolidColorBrush* badgeTextBrush = badgeDegradedTextBrush_.Get();
     if (statusPresentation.privilegedPathActive) {
@@ -1727,8 +1752,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
         badgeTextBrush = badgeDegradedTextBrush_.Get();
     }
     ffui::UiFillRoundedRect(context, badgeRect, badgeBrush, ffui::UiMetrics::kRadiusSmall);
-    D2D1_RECT_F badgeTextRect = D2D1::RectF(16.0f, 4.0f, viewportSize.width - 16.0f, kBadgeHeight - 4.0f);
-    context->DrawText(statusPresentation.text, static_cast<UINT32>(wcslen(statusPresentation.text)),
+    D2D1_RECT_F badgeTextRect = D2D1::RectF(badgeRect.left + 10.0f, 4.0f,
+                                            badgeRect.right - 10.0f, kBadgeHeight - 4.0f);
+    context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()),
                       badgeTextFormat_.Get(), badgeTextRect,
                       badgeTextBrush);
 

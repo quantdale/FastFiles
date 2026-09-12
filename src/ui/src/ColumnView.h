@@ -451,6 +451,10 @@ private:
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeActiveTextBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> badgeDegradedTextBrush_;
+    // ui-overhaul phase 3: cached measurement of the engine-status chip text so
+    // the chip is sized to its content without a per-frame layout allocation.
+    std::wstring badgeMeasureText_;
+    float badgeTextWidth_ = 0.0f;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> selectionSoftBrush_;  // unfocused-selection soft fill
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> dividerBrush_;        // subtle 1-DIP column hairline
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hoverOverlayBrush_;   // hover overlay (alpha faded per frame)
