@@ -16,17 +16,9 @@ constexpr int kNewTabId = 8204;
 constexpr int kUpId = 8205;
 constexpr int kSearchId = 8206;
 constexpr int kSettingsId = 8207;
+constexpr int kOverflowId = 8208;
 constexpr int kTabCloseBaseId = 8400;
 constexpr UINT WM_APP_ADDRESS_FOCUS_LOST = WM_APP + 52;
-constexpr int kChromeHeight = 72;
-// final-product-completion-and-production-readiness 3.1: tabs occupy the first
-// row; Back/Forward/Up + breadcrumb + Fast Search occupy the toolbar row.
-constexpr int kTabRowTopDip = 4;
-constexpr int kToolbarRowTopDip = 40;
-constexpr int kToolbarControlHeightDip = 28;
-constexpr int kAddressLeftDip = 110;
-constexpr int kSearchFieldWidthDip = 220;
-constexpr int kSearchFieldNarrowDip = 36;
 
 // Scale a DIP metric to physical pixels for Win32 control layout. Accepts a
 // float so themed corner radii (UiMetrics::kRadiusMedium) pass without a
@@ -104,33 +96,39 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     RegisterClassW(&windowClass);
 
     window_ = CreateWindowExW(0, kWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                              0, 0, 0, Scaled(kChromeHeight), owner, nullptr, windowClass.hInstance, this);
+                              0, 0, 0, Scaled(ffui::UiMetrics::kChromeHeight), owner, nullptr, windowClass.hInstance, this);
     if (!window_) return false;
     // ui-v3 shell: Back/Forward/New Tab render through the shared owner-drawn
-    // icon-button family (see DrawIconButton).
+    // icon-button family (see DrawIconButton); Reposition sizes them from the
+    // shared chrome layout policy.
     back_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                            0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
+                            0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBackId)), nullptr, nullptr);
     forward_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                               0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kForwardId)), nullptr, nullptr);
+                               0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kForwardId)), nullptr, nullptr);
     up_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                          0, 0, Scaled(32), Scaled(30), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
+                          0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kUpId)), nullptr, nullptr);
     drives_ = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | CBS_DROPDOWNLIST |
                                  CBS_OWNERDRAWFIXED | CBS_HASSTRINGS | WS_TABSTOP,
                               0, 0, Scaled(140), Scaled(260), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kDriveId)), nullptr, nullptr);
     search_ = CreateWindowExW(0, L"BUTTON", L"Fast Search", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                              0, 0, Scaled(kSearchFieldWidthDip), Scaled(28), window_,
+                              0, 0, Scaled(200), Scaled(28), window_,
                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSearchId)), nullptr, nullptr);
     settings_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                 0, 0, Scaled(28), Scaled(28), window_,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsId)), nullptr, nullptr);
     newTab_ = CreateWindowExW(0, L"BUTTON", L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                               0, 0, Scaled(28), Scaled(28), window_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kNewTabId)), nullptr, nullptr);
+    // ui-overhaul phase 1: hidden until the tab strip overflows its visible
+    // window; opens the tab list so no tab becomes unreachable.
+    overflow_ = CreateWindowExW(0, L"BUTTON", L"Tab list", WS_CHILD | WS_TABSTOP | BS_OWNERDRAW,
+                                0, 0, Scaled(30), Scaled(28), window_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kOverflowId)), nullptr, nullptr);
     // ui-v3 shell: the address edit is borderless — while editing, the
     // breadcrumb row paints a themed field backdrop so edit mode reads as a
     // transformation of the breadcrumb, not a different subsystem.
     addressEdit_ = CreateWindowExW(0, L"EDIT", L"", WS_CHILD | ES_AUTOHSCROLL | WS_TABSTOP,
                                    0, 0, Scaled(200), Scaled(28), window_, nullptr, nullptr, nullptr);
-    if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !settings_ || !newTab_ || !addressEdit_) return false;
+    if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !settings_ || !newTab_ || !addressEdit_ || !overflow_) return false;
     darkTheme_ = gUiDarkTheme;
     UpdateChromeBrush();
     // ui-v3 shell: the MDL2 glyph face tracks the body ramp size (as
@@ -152,10 +150,21 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     SetWindowSubclass(search_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(settings_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(newTab_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(overflow_, HoverButtonProc, 1, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(addressEdit_, AddressEditProc, 1, reinterpret_cast<DWORD_PTR>(this));
     RebuildDrives();
     Refresh();
     return true;
+}
+
+ffui::ChromeLayout NavigationChrome::CurrentChromeLayout() const {
+    RECT client{};
+    GetClientRect(owner_, &client);
+    const float scale = (std::max)(0.01f, ffui::UiDpiScale());
+    const float widthDip = static_cast<float>((std::max)(0L, client.right - client.left)) / scale;
+    const int tabCount = workspace_ != nullptr ? static_cast<int>(workspace_->TabCount()) : 0;
+    const int activeIndex = workspace_ != nullptr ? static_cast<int>(workspace_->ActiveTabIndex()) : 0;
+    return ffui::ComputeChromeLayout(widthDip, tabCount, activeIndex);
 }
 
 void NavigationChrome::Reposition() {
@@ -163,25 +172,30 @@ void NavigationChrome::Reposition() {
     RECT client{};
     GetClientRect(owner_, &client);
     const int width = (std::max)(0L, client.right - client.left);
-    SetWindowPos(window_, HWND_TOP, 0, 0, width, Scaled(kChromeHeight), SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    // ui-overhaul phase 1: every position comes from one responsive policy, so
+    // the command family, location region, search affordance, and tab strip
+    // can never disagree about the available width.
+    const ffui::ChromeLayout layout = CurrentChromeLayout();
+    SetWindowPos(window_, HWND_TOP, 0, 0, width, Scaled(layout.chromeHeight), SWP_NOACTIVATE | SWP_SHOWWINDOW);
     // Drives remain in the sidebar product map; the chrome trailing slot is Fast Search.
     ShowWindow(drives_, SW_HIDE);
-    const bool narrow = width < Scaled(620.0f);
-    const int searchWidth = narrow ? Scaled(kSearchFieldNarrowDip) : Scaled(kSearchFieldWidthDip);
-    const int searchLeft = (std::max)(Scaled(kAddressLeftDip), width - searchWidth - Scaled(8));
-    const int addressWidth = (std::max)(Scaled(80), searchLeft - Scaled(kAddressLeftDip) - Scaled(8));
-    const int toolbarY = Scaled(kToolbarRowTopDip);
-    SetWindowPos(back_, HWND_TOP, Scaled(4), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
-    SetWindowPos(forward_, HWND_TOP, Scaled(38), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
-    SetWindowPos(up_, HWND_TOP, Scaled(72), toolbarY, Scaled(32), Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
-    SetWindowPos(addressEdit_, HWND_TOP, Scaled(kAddressLeftDip), toolbarY, addressWidth,
-                 Scaled(kToolbarControlHeightDip), SWP_NOACTIVATE);
-    SetWindowPos(search_, HWND_TOP, searchLeft, toolbarY, searchWidth, Scaled(kToolbarControlHeightDip),
-                 SWP_NOACTIVATE);
-    SetWindowPos(settings_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(66)), Scaled(kTabRowTopDip), Scaled(28),
-                 Scaled(27), SWP_NOACTIVATE);
-    SetWindowPos(newTab_, HWND_TOP, (std::max)(Scaled(4), width - Scaled(34)), Scaled(kTabRowTopDip), Scaled(28),
-                 Scaled(27), SWP_NOACTIVATE);
+    const auto placeSquare = [this](HWND control, const ffui::ChromeRect& rect) {
+        if (control == nullptr) return;
+        SetWindowPos(control, HWND_TOP, Scaled(rect.left), Scaled(rect.top), Scaled(rect.Width()),
+                     Scaled(rect.Height()), SWP_NOACTIVATE);
+    };
+    placeSquare(back_, layout.back);
+    placeSquare(forward_, layout.forward);
+    placeSquare(up_, layout.up);
+    placeSquare(settings_, layout.settings);
+    placeSquare(newTab_, layout.newTab);
+    placeSquare(overflow_, layout.tabs.overflowButton);
+    if (addressEdit_ != nullptr) {
+        SetWindowPos(addressEdit_, HWND_TOP, Scaled(layout.addressLeft), Scaled(layout.search.top),
+                     (std::max)(1, Scaled(layout.addressRight - layout.addressLeft)),
+                     Scaled(layout.search.Height()), SWP_NOACTIVATE);
+    }
+    placeSquare(search_, layout.search);
     RepositionTabs();
     InvalidateRect(window_, nullptr, FALSE);
 }
@@ -344,23 +358,78 @@ void NavigationChrome::RebuildTabs() {
 
 void NavigationChrome::RepositionTabs() {
     if (!window_) return;
-    RECT client{};
-    GetClientRect(window_, &client);
-    const int available = (std::max)(Scaled(80), static_cast<int>(client.right) - Scaled(74));
-    // ui-v3 shell tab geometry: the close affordance lives inside the pill's
-    // right edge; tabs shrink to a 64-DIP floor under pressure (excess tabs
-    // clip rather than squeeze into unreadability).
-    const int tabWidth = tabButtons_.empty()
-        ? 0
-        : (std::max)(Scaled(84), available / static_cast<int>(tabButtons_.size()));
-    int x = Scaled(4);
+    // ui-overhaul phase 1: tab geometry comes from the shared responsive
+    // policy. When the readable floor cannot fit, a bounded window of tabs
+    // stays visible (always containing the active tab) and the overflow button
+    // exposes the rest through the tab list.
+    const ffui::ChromeLayout layout = CurrentChromeLayout();
+    const int tabTop = Scaled(layout.tabs.top);
+    const int tabHeight = Scaled(layout.tabs.height);
+    const int tabWidth = Scaled(layout.tabs.width);
+    const int tabGap = Scaled(layout.tabs.gap);
+    const int firstVisible = layout.tabs.visibleFirst;
+    const int visibleCount = layout.tabs.visibleCount;
     for (size_t index = 0; index < tabButtons_.size(); ++index) {
-        const int width = (std::max)(Scaled(64), (std::min)(Scaled(220), tabWidth - Scaled(4)));
-        SetWindowPos(tabButtons_[index], HWND_TOP, x, Scaled(kTabRowTopDip), width, Scaled(27), SWP_NOACTIVATE);
-        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + width - Scaled(24), Scaled(kTabRowTopDip), Scaled(24),
-                     Scaled(27), SWP_NOACTIVATE);
-        x += width + Scaled(4);
+        const int visibleIndex = static_cast<int>(index) - firstVisible;
+        const bool visible = visibleIndex >= 0 && visibleIndex < visibleCount;
+        if (!visible) {
+            if (IsWindowVisible(tabButtons_[index])) ShowWindow(tabButtons_[index], SW_HIDE);
+            if (IsWindowVisible(tabCloseButtons_[index])) ShowWindow(tabCloseButtons_[index], SW_HIDE);
+            continue;
+        }
+        if (!IsWindowVisible(tabButtons_[index])) ShowWindow(tabButtons_[index], SW_SHOWNA);
+        if (!IsWindowVisible(tabCloseButtons_[index])) ShowWindow(tabCloseButtons_[index], SW_SHOWNA);
+        const int x = Scaled(layout.tabs.left) + visibleIndex * (tabWidth + tabGap);
+        SetWindowPos(tabButtons_[index], HWND_TOP, x, tabTop, tabWidth, tabHeight, SWP_NOACTIVATE);
+        SetWindowPos(tabCloseButtons_[index], HWND_TOP, x + tabWidth - Scaled(24), tabTop, Scaled(24),
+                     tabHeight, SWP_NOACTIVATE);
     }
+    if (overflow_ != nullptr) {
+        if (layout.tabs.overflow) {
+            SetWindowPos(overflow_, HWND_TOP, Scaled(layout.tabs.overflowButton.left), tabTop,
+                         Scaled(layout.tabs.overflowButton.size), tabHeight,
+                         SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        } else if (IsWindowVisible(overflow_)) {
+            ShowWindow(overflow_, SW_HIDE);
+        }
+    }
+    // A hidden tab can no longer be hovered or pressed.
+    if (hoverItemId_ >= kTabBaseId && hoverItemId_ < kTabBaseId + static_cast<int>(tabButtons_.size())) {
+        const size_t index = static_cast<size_t>(hoverItemId_ - kTabBaseId);
+        if (index < tabButtons_.size() && !IsWindowVisible(tabButtons_[index])) hoverItemId_ = -1;
+    }
+    if (pressedItemId_ >= kTabBaseId && pressedItemId_ < kTabBaseId + static_cast<int>(tabButtons_.size())) {
+        const size_t index = static_cast<size_t>(pressedItemId_ - kTabBaseId);
+        if (index < tabButtons_.size() && !IsWindowVisible(tabButtons_[index])) pressedItemId_ = -1;
+    }
+}
+
+void NavigationChrome::ShowTabList() {
+    if (!workspace_ || overflow_ == nullptr || tabButtons_.empty()) return;
+    HMENU menu = CreatePopupMenu();
+    if (menu == nullptr) return;
+    const size_t count = workspace_->TabCount();
+    for (size_t index = 0; index < count; ++index) {
+        const std::wstring label = TabLabelForLocation(index + 1, workspace_->TabLocation(index));
+        UINT flags = MF_STRING;
+        if (index == workspace_->ActiveTabIndex()) flags |= MF_CHECKED;
+        AppendMenuW(menu, flags, static_cast<UINT_PTR>(index + 1), label.c_str());
+    }
+    RECT anchor{};
+    GetWindowRect(overflow_, &anchor);
+    const UINT command = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_LEFTALIGN,
+                                        anchor.left, anchor.bottom, 0, window_, nullptr);
+    DestroyMenu(menu);
+    if (command == 0) return;
+    const size_t index = static_cast<size_t>(command - 1);
+    if (index >= workspace_->TabCount()) return;
+    const bool switching = index != workspace_->ActiveTabIndex();
+    if (switching && beforeTabChange_) beforeTabChange_();
+    if (workspace_->SwitchTab(index)) {
+        const auto& context = workspace_->ActiveContext();
+        NavigateToLocation(ffui::LocationOf(context), switching);
+    }
+    Refresh();
 }
 
 void NavigationChrome::CloseTab(size_t index) {
@@ -402,16 +471,14 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
         int width;
     };
     const int separatorWidth = Scaled(14);
-    int x = Scaled(kAddressLeftDip);
-    const int crumbTop = Scaled(kToolbarRowTopDip);
-    const int crumbBottom = crumbTop + Scaled(kToolbarControlHeightDip);
-    int rightLimit = static_cast<int>(client.right) - Scaled(8);
-    if (search_) {
-        RECT searchRect{};
-        GetWindowRect(search_, &searchRect);
-        MapWindowPoints(HWND_DESKTOP, window_, reinterpret_cast<POINT*>(&searchRect), 2);
-        rightLimit = (std::max)(x + Scaled(40), static_cast<int>(searchRect.left) - Scaled(8));
-    }
+    // ui-overhaul phase 1: the breadcrumb band and its right limit come from
+    // the same responsive policy that positions the search affordance, so the
+    // painted path can never collide with the trailing controls.
+    const ffui::ChromeLayout chromeLayout = CurrentChromeLayout();
+    int x = Scaled(chromeLayout.addressLeft);
+    const int crumbTop = Scaled(chromeLayout.search.top);
+    const int crumbBottom = crumbTop + Scaled(chromeLayout.search.size);
+    int rightLimit = (std::max)(x + Scaled(40), Scaled(chromeLayout.addressRight));
     std::vector<SegmentLayout> layout;
     layout.reserve(breadcrumbs.size());
     int totalWidth = 0;
@@ -539,7 +606,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     }
 
     if (!workspace_->ActiveContext().addressBarError.empty()) {
-        RECT error{Scaled(kAddressLeftDip), crumbBottom - Scaled(2), rightLimit, crumbBottom + Scaled(12)};
+        RECT error{Scaled(chromeLayout.addressLeft), crumbBottom - Scaled(2), rightLimit, crumbBottom + Scaled(12)};
         DrawTextSegment(dc, workspace_->ActiveContext().addressBarError, error,
                         highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(theme.error));
     }
@@ -589,14 +656,22 @@ void NavigationChrome::DrawSearchField(const DRAWITEMSTRUCT* item) {
         : ToColorRef(searchActive_ ? theme.text : theme.textSecondary);
     HFONT oldFont = mdl2Font_ ? static_cast<HFONT>(SelectObject(dc, mdl2Font_)) : nullptr;
     RECT glyphRect = rect;
-    glyphRect.left += Scaled(8);
+    // Collapsed (icon-only) search centers the glyph in its command square so
+    // the family reads identically to the other icon buttons; the labelled
+    // form keeps the glyph in a leading slot.
+    const bool iconOnly = (rect.right - rect.left) <= Scaled(64);
+    if (iconOnly) {
+        glyphRect.left = rect.left + ((rect.right - rect.left) - Scaled(18)) / 2;
+    } else {
+        glyphRect.left += Scaled(8);
+    }
     glyphRect.right = glyphRect.left + Scaled(18);
     const wchar_t glyph = L'\uE721';
     SetBkMode(dc, TRANSPARENT);
     SetTextColor(dc, fg);
     DrawTextW(dc, &glyph, 1, &glyphRect, DT_SINGLELINE | DT_VCENTER | DT_CENTER | DT_NOPREFIX);
     if (oldFont) SelectObject(dc, oldFont);
-    if (rect.right - rect.left > Scaled(48) && bodyFont_) {
+    if (!iconOnly && bodyFont_) {
         oldFont = static_cast<HFONT>(SelectObject(dc, bodyFont_));
         RECT textRect = rect;
         textRect.left = glyphRect.right + Scaled(4);
@@ -841,6 +916,7 @@ void NavigationChrome::SetDarkTheme(bool dark) {
     if (search_) InvalidateRect(search_, nullptr, FALSE);
     if (settings_) InvalidateRect(settings_, nullptr, FALSE);
     if (newTab_) InvalidateRect(newTab_, nullptr, FALSE);
+    if (overflow_) InvalidateRect(overflow_, nullptr, FALSE);
     if (drives_) InvalidateRect(drives_, nullptr, FALSE);
     for (HWND tab : tabButtons_) InvalidateRect(tab, nullptr, FALSE);
     for (HWND close : tabCloseButtons_) InvalidateRect(close, nullptr, FALSE);
@@ -1032,17 +1108,11 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             }
             RECT client{};
             GetClientRect(hwnd, &client);
-            int searchLeft = static_cast<int>(client.right) - Scaled(8);
-            if (search_) {
-                RECT searchRect{};
-                GetWindowRect(search_, &searchRect);
-                MapWindowPoints(HWND_DESKTOP, window_, reinterpret_cast<POINT*>(&searchRect), 2);
-                searchLeft = searchRect.left;
-            }
-            const int crumbTop = Scaled(kToolbarRowTopDip);
-            const int crumbBottom = crumbTop + Scaled(kToolbarControlHeightDip);
+            const ffui::ChromeLayout chromeLayout = CurrentChromeLayout();
+            const int crumbTop = Scaled(chromeLayout.search.top);
+            const int crumbBottom = crumbTop + Scaled(chromeLayout.search.size);
             if (point.y >= crumbTop && point.y < crumbBottom &&
-                point.x >= Scaled(kAddressLeftDip) && point.x < searchLeft - Scaled(4)) {
+                point.x >= Scaled(chromeLayout.addressLeft) && point.x < Scaled(chromeLayout.addressRight)) {
                 BeginAddressEdit();
                 return 0;
             }
@@ -1072,6 +1142,10 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             }
             if (id == kSettingsId && HIWORD(wParam) == BN_CLICKED && toolCommand_) {
                 toolCommand_(L"app.settings");
+                return 0;
+            }
+            if (id == kOverflowId && HIWORD(wParam) == BN_CLICKED) {
+                ShowTabList();
                 return 0;
             }
             if (id == kDriveId && HIWORD(wParam) == CBN_DROPDOWN) {
@@ -1140,6 +1214,11 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
                 }
                 if (id == kSettingsId) {
                     DrawIconButton(item, L"\uE713", false);
+                    return TRUE;
+                }
+                if (id == kOverflowId) {
+                    // ui-overhaul phase 1: tab-strip overflow affordance.
+                    DrawIconButton(item, L"\uE712", false);
                     return TRUE;
                 }
                 if (id >= kTabBaseId && id < kTabBaseId + static_cast<int>(tabButtons_.size())) {

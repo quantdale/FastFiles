@@ -34,6 +34,13 @@ add_executable(ffdetails_layout_tests test_details_layout.cpp)
 target_include_directories(ffdetails_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffdetails_layout_tests COMMAND ffdetails_layout_tests)
 
+# ui-overhaul phase 1: pure responsive policy for the top navigation chrome
+# (width class, command family geometry, tab overflow window). Header-only,
+# no renderer dependency -- mirrors ffdetails_layout_tests.
+add_executable(ffchrome_layout_tests test_chrome_layout.cpp)
+target_include_directories(ffchrome_layout_tests PRIVATE ../../src/ui/include)
+add_test(NAME ffchrome_layout_tests COMMAND ffchrome_layout_tests)
+
 add_executable(ffshell_layout_tests test_shell_layout.cpp)
 target_include_directories(ffshell_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffshell_layout_tests COMMAND ffshell_layout_tests)

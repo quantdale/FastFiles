@@ -7,6 +7,7 @@
 #include <windows.h>
 
 #include "ffui/DisplayPath.h"
+#include "ffui/ChromeLayout.h"
 #include "NavigationWorkspace.h"
 
 namespace ffui {
@@ -97,6 +98,14 @@ private:
     void DrawBreadcrumbs(HDC dc, const RECT& client);
     void RebuildTabs();
     void RepositionTabs();
+    // ui-overhaul phase 1: the single responsive policy consumed by every
+    // reposition/paint path (narrow/normal/wide command, tab, and search
+    // geometry). Derived from the live client width in DIPs.
+    ffui::ChromeLayout CurrentChromeLayout() const;
+    // ui-overhaul phase 1: the tab-overflow affordance. Opens the tab list as
+    // a keyboard-navigable popup so hidden tabs stay reachable; the shell's
+    // Ctrl+Tab cycling also re-centers the visible window on the active tab.
+    void ShowTabList();
     void CloseTab(size_t index);
     void UpdateChromeBrush();
     // ui-v3 shell: shared icon-button presentation for Back/Forward/New Tab —
@@ -122,6 +131,9 @@ private:
     HWND search_ = nullptr;
     HWND settings_ = nullptr;
     HWND newTab_ = nullptr;
+    // ui-overhaul phase 1: tab-strip overflow affordance; hidden unless the
+    // tab count exceeds the visible window.
+    HWND overflow_ = nullptr;
     NavigationWorkspace* workspace_ = nullptr;
     NavigateHandler navigate_;
     BeforeTabChangeHandler beforeTabChange_;

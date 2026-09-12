@@ -1331,7 +1331,9 @@ void WindowShell::MarkDeviceDirty() {
     // formats are device-independent but reset for symmetry with ApplyTheme.
     detailsBrush_.Reset();
     detailsTextBrush_.Reset();
+    detailsSecondaryBrush_.Reset();
     detailsTextFormat_.Reset();
+    detailsTitleFormat_.Reset();
     previewTextFormat_.Reset();
     // ui-v3 details: the caption format and state-panel brush cache follow the
     // same device/theme reset ladder as the other details resources.
@@ -1710,15 +1712,21 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         // ui-v3 details: caption-size format for preview-state explanations.
         renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, ffui::UiMetrics::kFontSizeCaption, L"en-us", &detailsCaptionFormat_);
+        // ui-overhaul phase 7: the selected item name is the pane's title and
+        // must outrank every metadata row.
+        renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"en-us", &detailsTitleFormat_);
     }
     if (highContrast) {
         // High contrast: suppress the rounded-token styling and fall back to
         // system colors so the user's accessibility palette is never overridden.
         ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOW)), &detailsBrush_);
         ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOWTEXT)), &detailsTextBrush_);
+        ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_WINDOWTEXT)), &detailsSecondaryBrush_);
     } else {
         ffui::UiEnsureSolidBrush(context, theme.surfaceElevated, &detailsBrush_);
         ffui::UiEnsureSolidBrush(context, theme.text, &detailsTextBrush_);
+        ffui::UiEnsureSolidBrush(context, theme.textSecondary, &detailsSecondaryBrush_);
         ffui::UiEnsureSolidBrush(context, theme.dividerSubtle, &dividerBrush_);
     }
     if (drawFullPane) {
@@ -1732,172 +1740,269 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
                                            layout.detailsRect.right, sceneHeight), detailsBrush_.Get());
     }
     const SelectionSummary summary = columnView_.CurrentSelectionSummary();
-    const auto selection = summary.items.size() == 1 ? std::optional<FileDescriptor>(summary.items.front()) : std::nullopt;
+    const bool singleSelection = summary.items.size() == 1;
+    const auto selection = singleSelection ? std::optional<FileDescriptor>(summary.items.front()) : std::nullopt;
+    const bool previewAllowed = summary.items.size() == 1;
     if (drawFullPane) {
-    std::wstring info = L"Properties\n\n";
-    if (summary.items.empty()) info += L"No selection";
-    else if (summary.items.size() > 1) {
-        info += L"Items: " + std::to_wstring(summary.items.size()) + L"\n";
-        info += L"Known total size: " + ffui::FormatSize(summary.knownSizeBytes);
-    }
-    else {
-        // Fetch attributes once per selection change, never per paint frame:
-        // a blocking GetFileAttributesExW on an unreachable network share
-        // would otherwise freeze the UI on every repaint.
-        if (!attributesCacheValid_ || attributesCachePath_ != selection->path) {
-            attributesCachePath_ = selection->path;
-            attributesCacheValid_ =
-                GetFileAttributesExW(selection->path.c_str(), GetFileExInfoStandard, &attributesCache_) != FALSE;
-        }
-        const bool haveAttributes = attributesCacheValid_;
-        const std::wstring extension = ExtensionOf(selection->path);
-        const std::wstring extensionLabel = extension.empty() ? std::wstring(L"(none)") : extension;
-        const std::wstring typeLabel = FileTypeFor(selection->path);
-        info += L"Name: " + FileNameOf(selection->path) + L"\n";
-        info += L"Extension: " + extensionLabel + L"\n";
-        info += L"Path: " + ffui::NormalizeDisplayPath(selection->path) + L"\n";
-        if (selection->isDirectory) {
-            const ffui::FolderAggregateKey aggregateKey{
-                static_cast<int64_t>(selection->volumeRowId), selection->fileIdLow, selection->fileIdHigh};
-            if (aggregateRequest_.NeedsRequest(aggregateKey)) {
-                aggregateRequest_.Begin(aggregateKey);
-                uint64_t requestId = 0;
-                pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
-                pendingAggregateItemCount_ = 0;
-                pendingAggregateTotalSize_ = 0;
-                pendingAggregateAllocatedSize_ = 0;
-                pendingAggregateAllocatedKnownCount_ = 0;
-                pendingAggregateAllocatedTotalCount_ = 0;
-                requestId = engineClient_.RequestFolderAggregate(
-                    static_cast<int64_t>(selection->volumeRowId),
-                    selection->fileIdLow, selection->fileIdHigh,
-                    [this](uint64_t engineRequestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes,
-                           uint64_t totalAllocatedSizeBytes, uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
-                        auto payload = std::make_unique<ffprotocol::FolderAggregateResultV2Payload>(
-                            ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
-                                                                       totalAllocatedSizeBytes, allocatedBytesKnownCount,
-                                                                       allocatedBytesTotalCount});
-                        const HWND target = hwnd_;
-                        if (target != nullptr
-                            && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
-                                            reinterpret_cast<LPARAM>(payload.get()))) {
-                            payload.release();
-                        }
-                    });
-                aggregateRequest_.SetRequestId(requestId);
+        // ui-overhaul phase 7: the details pane is an information hierarchy, not
+        // a property dump. Item name (title) > type/size summary > the 4-6
+        // highest-value metadata rows > path/attributes as quiet secondary
+        // text. Every row is painted with the semantic text/caption formats so
+        // the eye lands on identification first.
+        ID2D1SolidColorBrush* primary = detailsTextBrush_.Get();
+        ID2D1SolidColorBrush* secondary =
+            detailsSecondaryBrush_ != nullptr ? detailsSecondaryBrush_.Get() : detailsTextBrush_.Get();
+        IDWriteTextFormat* const titleFormat =
+            detailsTitleFormat_ != nullptr ? detailsTitleFormat_.Get() : detailsTextFormat_.Get();
+        const float contentLeft = cardLeft + pad;
+        const float contentRight = cardRight - pad;
+        const float contentWidth = (std::max)(0.0f, contentRight - contentLeft);
+        const float captionHeight = ffui::UiMetrics::kFontSizeCaption * 1.5f;
+        const float rowHeight = 20.0f;
+        const float labelWidth = (std::min)(92.0f, contentWidth * 0.42f);
+        float y = cardTop + pad;
+
+        if (summary.items.empty()) {
+            // Empty selection is a deliberate state, never a blank card.
+            ffui::DrawUiStatePanel(
+                context, D2D1::RectF(contentLeft, cardTop, contentRight, statusTop - inset),
+                titleFormat, L"Nothing selected", detailsCaptionFormat_.Get(),
+                L"Select a file or folder to see its details and preview.", theme, highContrast,
+                &detailsStateBrushes_);
+        } else if (!singleSelection) {
+            // Multi-selection aggregate: count + total size. No preview promise
+            // beyond an honest one-line explanation.
+            const std::wstring title = std::to_wstring(summary.items.size()) + L" items selected";
+            context->DrawTextW(title.c_str(), static_cast<UINT32>(title.size()), titleFormat,
+                               D2D1::RectF(contentLeft, y, contentRight, y + 24.0f), primary);
+            y += 28.0f;
+            const auto drawRow = [&](const wchar_t* label, const std::wstring& value) {
+                context->DrawTextW(label, static_cast<UINT32>(wcslen(label)), detailsCaptionFormat_.Get(),
+                                   D2D1::RectF(contentLeft, y, contentLeft + labelWidth, y + rowHeight),
+                                   secondary);
+                context->DrawTextW(value.c_str(), static_cast<UINT32>(value.size()), detailsTextFormat_.Get(),
+                                   D2D1::RectF(contentLeft + labelWidth, y, contentRight, y + rowHeight),
+                                   primary);
+                y += rowHeight;
+            };
+            drawRow(L"Total size", ffui::FormatSize(summary.knownSizeBytes));
+            y += 6.0f;
+            const wchar_t* hint = L"Preview is available for a single selection.";
+            context->DrawTextW(hint, static_cast<UINT32>(wcslen(hint)), detailsCaptionFormat_.Get(),
+                               D2D1::RectF(contentLeft, y, contentRight, y + captionHeight * 2.0f), secondary);
+            y += captionHeight * 2.0f;
+        } else {
+            const std::wstring name = FileNameOf(selection->path);
+            // Title: one bounded, character-trimmed layout per paint.
+            const float nameHeight = 24.0f;
+            Microsoft::WRL::ComPtr<IDWriteTextLayout> nameLayout;
+            if (titleFormat != nullptr && contentWidth > 0.0f &&
+                SUCCEEDED(renderer_.DWriteFactory()->CreateTextLayout(
+                    name.c_str(), static_cast<UINT32>(name.size()), titleFormat, contentWidth,
+                    nameHeight, &nameLayout)) &&
+                nameLayout != nullptr) {
+                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
+                nameLayout->SetTrimming(&trimming, nullptr);
+                context->DrawTextLayout(D2D1::Point2F(contentLeft, y), nameLayout.Get(), primary,
+                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
             }
-            if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Pending) {
-                info += L"Type: Folder\nItems: Calculating…\nTotal size: Calculating…";
-            } else if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Resolved) {
-                info += L"Type: Folder\nItems: " + std::to_wstring(pendingAggregateItemCount_) + L"\n";
-                info += L"Total size: " + ffui::FormatSize(pendingAggregateTotalSize_);
-                // allocated-size-storage-accuracy 6.3: the engine-computed
-                // size-on-disk is displayed when known; unknown stays honestly
-                // absent rather than being fabricated as 0 B.
-                if (pendingAggregateAllocatedKnownCount_ > 0) {
-                    info += L"\nSize on disk: " + ffui::FormatSize(pendingAggregateAllocatedSize_);
+            y += nameHeight + 2.0f;
+
+            // Type + size summary: the one line a user reads before the grid.
+            std::wstring summaryLine = selection->isDirectory ? std::wstring(L"Folder")
+                                                              : FileTypeFor(selection->path);
+            if (!selection->isDirectory) {
+                summaryLine += L"  \u2022  " + ffui::FormatSize(selection->sizeBytes);
+            }
+            context->DrawTextW(summaryLine.c_str(), static_cast<UINT32>(summaryLine.size()),
+                               detailsCaptionFormat_.Get(),
+                               D2D1::RectF(contentLeft, y, contentRight, y + captionHeight), secondary);
+            y += captionHeight + 6.0f;
+            if (!highContrast) {
+                context->DrawLine(D2D1::Point2F(contentLeft, y), D2D1::Point2F(contentRight, y),
+                                  dividerBrush_.Get(), 1.0f);
+            }
+            y += 8.0f;
+
+            const auto drawRow = [&](const wchar_t* label, const std::wstring& value) {
+                context->DrawTextW(label, static_cast<UINT32>(wcslen(label)), detailsCaptionFormat_.Get(),
+                                   D2D1::RectF(contentLeft, y, contentLeft + labelWidth, y + rowHeight),
+                                   secondary);
+                context->DrawTextW(value.c_str(), static_cast<UINT32>(value.size()), detailsTextFormat_.Get(),
+                                   D2D1::RectF(contentLeft + labelWidth, y, contentRight, y + rowHeight),
+                                   primary);
+                y += rowHeight;
+            };
+
+            // Attributes are fetched once per selection change, never per paint
+            // frame: a blocking GetFileAttributesExW on an unreachable network
+            // share would otherwise freeze the UI on every repaint.
+            if (!attributesCacheValid_ || attributesCachePath_ != selection->path) {
+                attributesCachePath_ = selection->path;
+                attributesCacheValid_ =
+                    GetFileAttributesExW(selection->path.c_str(), GetFileExInfoStandard, &attributesCache_) != FALSE;
+            }
+            const bool haveAttributes = attributesCacheValid_;
+
+            if (selection->isDirectory) {
+                const ffui::FolderAggregateKey aggregateKey{
+                    static_cast<int64_t>(selection->volumeRowId), selection->fileIdLow, selection->fileIdHigh};
+                if (aggregateRequest_.NeedsRequest(aggregateKey)) {
+                    aggregateRequest_.Begin(aggregateKey);
+                    uint64_t requestId = 0;
+                    pendingAggregateStatus_ = ffprotocol::FolderAggregateStatus::Pending;
+                    pendingAggregateItemCount_ = 0;
+                    pendingAggregateTotalSize_ = 0;
+                    pendingAggregateAllocatedSize_ = 0;
+                    pendingAggregateAllocatedKnownCount_ = 0;
+                    pendingAggregateAllocatedTotalCount_ = 0;
+                    requestId = engineClient_.RequestFolderAggregate(
+                        static_cast<int64_t>(selection->volumeRowId),
+                        selection->fileIdLow, selection->fileIdHigh,
+                        [this](uint64_t engineRequestId, ffprotocol::FolderAggregateStatus status, uint64_t itemCount, uint64_t totalSizeBytes,
+                               uint64_t totalAllocatedSizeBytes, uint64_t allocatedBytesKnownCount, uint64_t allocatedBytesTotalCount) {
+                            auto payload = std::make_unique<ffprotocol::FolderAggregateResultV2Payload>(
+                                ffprotocol::FolderAggregateResultV2Payload{engineRequestId, status, itemCount, totalSizeBytes,
+                                                                           totalAllocatedSizeBytes, allocatedBytesKnownCount,
+                                                                           allocatedBytesTotalCount});
+                            const HWND target = hwnd_;
+                            if (target != nullptr
+                                && PostMessageW(target, WM_APP_FOLDER_AGGREGATE, 0,
+                                                reinterpret_cast<LPARAM>(payload.get()))) {
+                                payload.release();
+                            }
+                        });
+                    aggregateRequest_.SetRequestId(requestId);
+                }
+                if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Pending) {
+                    drawRow(L"Items", L"Calculating\u2026");
+                    drawRow(L"Total size", L"Calculating\u2026");
+                } else if (pendingAggregateStatus_ == ffprotocol::FolderAggregateStatus::Resolved) {
+                    drawRow(L"Items", std::to_wstring(pendingAggregateItemCount_));
+                    drawRow(L"Total size", ffui::FormatSize(pendingAggregateTotalSize_));
+                    // allocated-size-storage-accuracy 6.3: size-on-disk is shown
+                    // when known; unknown stays honestly absent, never 0 B.
+                    if (pendingAggregateAllocatedKnownCount_ > 0) {
+                        drawRow(L"Size on disk", ffui::FormatSize(pendingAggregateAllocatedSize_));
+                    }
+                } else {
+                    drawRow(L"Items", L"\u2014");
+                    drawRow(L"Total size", L"\u2014");
                 }
             } else {
-                info += L"Type: Folder\nItems: —\nTotal size: —";
-            }
-        } else {
-            info += L"Type: " + typeLabel + L"\n";
-            info += L"Size: " + ffui::FormatSize(selection->sizeBytes) + L"\n";
-            // allocated-size-storage-accuracy 6.3: size-on-disk when the
-            // snapshot carries it -- never 0 B, never logical size relabeled.
-            if (selection->allocatedSizeKnown) {
-                info += L"Size on disk: " + ffui::FormatSize(selection->allocatedSizeBytes) + L"\n";
+                drawRow(L"Size", ffui::FormatSize(selection->sizeBytes));
+                if (selection->allocatedSizeKnown) {
+                    drawRow(L"Size on disk", ffui::FormatSize(selection->allocatedSizeBytes));
+                }
             }
             // A failed attribute fetch renders em-dashes (FormatTime maps a
             // zero FILETIME to "—"), never epoch-zero 1601 timestamps.
-            info += std::wstring(L"Created: ") + (haveAttributes ? FormatTime(attributesCache_.ftCreationTime) : L"—") + L"\n";
-            info += std::wstring(L"Modified: ") + (haveAttributes ? FormatTime(attributesCache_.ftLastWriteTime) : L"—") + L"\n";
-            info += std::wstring(L"Accessed: ") + (haveAttributes ? FormatTime(attributesCache_.ftLastAccessTime) : L"—") + L"\n";
-            info += L"Attributes: " + FormatAttributes(selection->attributes);
+            drawRow(L"Modified", haveAttributes ? FormatTime(attributesCache_.ftLastWriteTime) : L"\u2014");
+            drawRow(L"Created", haveAttributes ? FormatTime(attributesCache_.ftCreationTime) : L"\u2014");
+            if (!selection->isDirectory) {
+                drawRow(L"Accessed", haveAttributes ? FormatTime(attributesCache_.ftLastAccessTime) : L"\u2014");
+            }
+
+            // Secondary block: the path (wrapped, bounded to three caption
+            // lines) then extension/attributes. Progressively disclosed and
+            // deliberately quieter than the grid above.
+            y += 4.0f;
+            const std::wstring displayPath = ffui::NormalizeDisplayPath(selection->path);
+            float pathHeight = captionHeight;
+            Microsoft::WRL::ComPtr<IDWriteTextLayout> pathLayout;
+            if (detailsCaptionFormat_ != nullptr && contentWidth > 0.0f &&
+                SUCCEEDED(renderer_.DWriteFactory()->CreateTextLayout(
+                    displayPath.c_str(), static_cast<UINT32>(displayPath.size()),
+                    detailsCaptionFormat_.Get(), contentWidth, captionHeight * 3.0f, &pathLayout)) &&
+                pathLayout != nullptr) {
+                const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, L'\u2026'};
+                pathLayout->SetTrimming(&trimming, nullptr);
+                DWRITE_TEXT_METRICS pathMetrics{};
+                if (SUCCEEDED(pathLayout->GetMetrics(&pathMetrics))) {
+                    pathHeight = (std::min)(pathMetrics.height, captionHeight * 3.0f);
+                }
+                context->DrawTextLayout(D2D1::Point2F(contentLeft, y), pathLayout.Get(), secondary,
+                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+            y += pathHeight + 4.0f;
+            const std::wstring extension = ExtensionOf(selection->path);
+            std::wstring advanced = L"Extension: " + (extension.empty() ? std::wstring(L"(none)") : extension);
+            advanced += L"  \u2022  Attributes: " + FormatAttributes(selection->attributes);
+            context->DrawTextW(advanced.c_str(), static_cast<UINT32>(advanced.size()), detailsCaptionFormat_.Get(),
+                               D2D1::RectF(contentLeft, y, contentRight, y + captionHeight * 2.0f), secondary);
+            y += captionHeight * 2.0f;
         }
-    }
-    const float infoTop = cardTop + pad;
-    const float infoWidth = (std::max)(0.0f, cardRight - cardLeft - 2.0f * pad);
-    float infoHeight = 120.0f;
-    Microsoft::WRL::ComPtr<IDWriteTextLayout> infoLayout;
-    if (detailsTextFormat_ && infoWidth > 0.0f &&
-        SUCCEEDED(renderer_.DWriteFactory()->CreateTextLayout(
-            info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
-            infoWidth, (std::numeric_limits<float>::max)(), &infoLayout))) {
-        DWRITE_TEXT_METRICS infoMetrics{};
-        if (SUCCEEDED(infoLayout->GetMetrics(&infoMetrics))) {
-            infoHeight = (std::max)(0.0f, infoMetrics.height);
-        }
-    }
-    // Long paths can wrap across several lines. Let DirectWrite determine the
-    // property block height, then place the preview below it so metadata never
-    // paints into the preview region.
-    const float previewTop = (std::min)(cardBottom,
-        (std::max)(cardTop + 135.0f, infoTop + infoHeight + pad));
-    const float infoBottom = (std::min)(previewTop - pad, cardBottom);
-    context->DrawText(info.c_str(), static_cast<UINT32>(info.size()), detailsTextFormat_.Get(),
-        D2D1::RectF(cardLeft + pad, infoTop, cardRight - pad, infoBottom), detailsTextBrush_.Get());
-    std::shared_ptr<const PreviewResult> preview;
-    { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
-    const float previewBottom = cardBottom - pad;
-    // ui-v3 details: non-Ready previews render through the shared state panel
-    // (centered title + one-line explanation) instead of flat corner text —
-    // deliberate states, never unexplained empty boxes.
-    const auto drawPreviewStatePanel = [&](ffui::PreviewState state) {
-        if (previewTop >= previewBottom || !detailsTextFormat_ || !detailsCaptionFormat_) {
-            return;
-        }
-        const ffui::PreviewStatePresentation presentation =
-            ffui::ResolvePreviewStatePresentation(state);
-        if (presentation.title == nullptr) {
-            return;
-        }
-        ffui::DrawUiStatePanel(context,
-                               D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
-                               detailsTextFormat_.Get(), presentation.title,
-                               detailsCaptionFormat_.Get(), presentation.message, theme,
-                               highContrast, &detailsStateBrushes_);
-    };
-    if (previewTop < previewBottom && !settings_.previewEnabled) {
-        drawPreviewStatePanel(ffui::PreviewState::Disabled);
-    } else if (previewTop < previewBottom && preview && preview->kind == PreviewKind::Image) {
-        if (!previewBitmap_ && !preview->pixels.empty()) {
-            const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-            context->CreateBitmap(D2D1::SizeU(preview->width, preview->height), preview->pixels.data(), preview->width * 4, &properties, &previewBitmap_);
-        }
-        if (previewBitmap_) {
-            // Letterbox: uniform scale, centered -- never stretch to the pane
-            // rect (which would distort portraits/panoramas).
-            const D2D1_RECT_F dest = ffui::ComputeLetterboxRect(
-                D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
-                static_cast<float>(preview->width), static_cast<float>(preview->height));
-            context->DrawBitmap(previewBitmap_.Get(), dest);
-        }
-    } else if (previewTop < previewBottom && preview && preview->kind == PreviewKind::Text) {
-        std::wstring text = preview->text;
-        if (preview->truncated) text += L"\n\n[Preview truncated]";
-        context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
-            D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
-    } else if (previewTop < previewBottom) {
-        // No content: resolve the sharpest known cause. A provider-supplied
-        // failure wins; a pending request shows Loading; folders/no-selection
-        // legitimately have no preview and stay silent rather than nagging.
-        bool haveState = true;
-        ffui::PreviewState state = ffui::PreviewState::Unsupported;
-        if (preview) {
-            state = preview->state;
-        } else if (selection && !selection->isDirectory) {
-            state = ffui::PreviewState::Loading;
+
+        // Preview occupies whatever remains beneath the metadata block; it never
+        // pushes the metadata off the card.
+        const float previewTop = (std::min)(cardBottom - pad, (std::max)(y + 6.0f, cardTop + 150.0f));
+        const float previewBottom = cardBottom - pad;
+        // ui-v3 details: non-Ready previews render through the shared state panel
+        // (centered title + one-line explanation) instead of flat corner text —
+        // deliberate states, never unexplained empty boxes.
+        const auto drawPreviewStatePanel = [&](ffui::PreviewState state) {
+            if (previewTop >= previewBottom - 8.0f || !detailsTextFormat_ || !detailsCaptionFormat_) {
+                return;
+            }
+            const ffui::PreviewStatePresentation presentation =
+                ffui::ResolvePreviewStatePresentation(state);
+            if (presentation.title == nullptr) {
+                return;
+            }
+            ffui::DrawUiStatePanel(context,
+                                   D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
+                                   detailsTextFormat_.Get(), presentation.title,
+                                   detailsCaptionFormat_.Get(), presentation.message, theme,
+                                   highContrast, &detailsStateBrushes_);
+        };
+        if (!previewAllowed || previewTop >= previewBottom - 8.0f) {
+            // Empty/multi selection has no preview surface; the aggregate block
+            // above already fills the pane, so nothing more is drawn.
         } else {
-            haveState = false;
-        }
-        if (haveState) {
-            drawPreviewStatePanel(state);
+            std::shared_ptr<const PreviewResult> preview;
+            { std::lock_guard<std::mutex> lock(previewMutex_); preview = preview_; }
+            if (!settings_.previewEnabled) {
+                drawPreviewStatePanel(ffui::PreviewState::Disabled);
+            } else if (preview && preview->kind == PreviewKind::Image) {
+                if (!previewBitmap_ && !preview->pixels.empty()) {
+                    const D2D1_BITMAP_PROPERTIES properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+                    context->CreateBitmap(D2D1::SizeU(preview->width, preview->height), preview->pixels.data(), preview->width * 4, &properties, &previewBitmap_);
+                }
+                if (previewBitmap_) {
+                    // Letterbox: uniform scale, centered -- never stretch to the
+                    // pane rect (which would distort portraits/panoramas).
+                    const D2D1_RECT_F dest = ffui::ComputeLetterboxRect(
+                        D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom),
+                        static_cast<float>(preview->width), static_cast<float>(preview->height));
+                    context->DrawBitmap(previewBitmap_.Get(), dest);
+                }
+            } else if (preview && preview->kind == PreviewKind::Text) {
+                std::wstring text = preview->text;
+                if (preview->truncated) text += L"\n\n[Preview truncated]";
+                context->DrawText(text.c_str(), static_cast<UINT32>(text.size()), previewTextFormat_.Get(),
+                    D2D1::RectF(cardLeft + pad, previewTop, cardRight - pad, previewBottom), detailsTextBrush_.Get());
+            } else {
+                // No content: resolve the sharpest known cause. A
+                // provider-supplied failure wins; a pending request shows
+                // Loading; folders legitimately have no preview and stay silent
+                // rather than nagging.
+                bool haveState = true;
+                ffui::PreviewState state = ffui::PreviewState::Unsupported;
+                if (preview) {
+                    state = preview->state;
+                } else if (selection && !selection->isDirectory) {
+                    state = ffui::PreviewState::Loading;
+                } else {
+                    haveState = false;
+                }
+                if (haveState) {
+                    drawPreviewStatePanel(state);
+                }
+            }
         }
     }
-    }
-    const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  •  " +
-        ffui::FormatSize(summary.knownSizeBytes) + L"  •  " + columnView_.CurrentPath();
+    const std::wstring status = L"Selected: " + std::to_wstring(summary.items.size()) + L"  \u2022  " +
+        ffui::FormatSize(summary.knownSizeBytes) + L"  \u2022  " + columnView_.CurrentPath();
     // Status bar: full-width strip under the card, separated by a subtle
     // divider and carrying the slim file-operation progress bar (the primary
     // progress surface; the window title keeps its textual progress too).
@@ -1920,11 +2025,12 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     // rides the status line until it expires.
     std::wstring statusText = status;
     if (!statusNotice_.empty() && GetTickCount64() < statusNoticeUntilMs_) {
-        statusText += L"  •  " + statusNotice_;
+        statusText += L"  \u2022  " + statusNotice_;
     }
     context->DrawText(statusText.c_str(), static_cast<UINT32>(statusText.size()), detailsTextFormat_.Get(),
         D2D1::RectF(8, statusTop, sceneWidth - 8, sceneHeight), detailsTextBrush_.Get());
 }
+
 
 void WindowShell::EnsureColumnVisible(int columnIndex, float viewportWidth) {
     const float columnLeft = columnIndex * ColumnView::kColumnWidth;

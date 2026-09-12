@@ -22,10 +22,13 @@ void TestStandardBrowseLayout() {
     Check(NearlyEqual(layout.contentRect.right, 1500.0f) &&
               NearlyEqual(layout.contentRect.bottom, 900.0f),
           "content reaches the client edge without a phantom reservation");
+    // ui-overhaul branch: the details surface is bounded to 280-320 DIP and
+    // the full presentation reserves clamp(contentWidth * 0.25, 280, 320).
+    // At 1280 DIP of content that is 320 DIP; the workspace keeps the rest.
     Check(NearlyEqual(layout.columnViewportRect.left, 220.0f) &&
-              NearlyEqual(layout.columnViewportRect.right, 1200.0f),
+              NearlyEqual(layout.columnViewportRect.right, 1180.0f),
           "column viewport is the details-adjusted workspace");
-    Check(NearlyEqual(layout.detailsRect.left, 1200.0f) &&
+    Check(NearlyEqual(layout.detailsRect.left, 1180.0f) &&
               NearlyEqual(layout.detailsRect.right, 1500.0f),
           "details pane is right anchored to the same content rect");
     Check(NearlyEqual(layout.columnViewportRect.right, layout.detailsRect.left),

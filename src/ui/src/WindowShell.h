@@ -155,7 +155,11 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap> previewBitmap_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsBrush_;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsTextBrush_;
+    // ui-overhaul phase 7: secondary metadata label/brush pair so the details
+    // pane carries a real hierarchy (title > values > labels/path).
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> detailsSecondaryBrush_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTextFormat_;
+    Microsoft::WRL::ComPtr<IDWriteTextFormat> detailsTitleFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> previewTextFormat_;
     // ui-v3 details: caption format + shared brush cache for the deliberate
     // preview-state panel (DrawUiStatePanel) so non-Ready previews never paint
