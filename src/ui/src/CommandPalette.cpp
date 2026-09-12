@@ -201,6 +201,14 @@ void CommandPalette::RefreshResults() {
     GetWindowTextW(edit_, query, static_cast<int>(std::size(query)));
     results_ = SearchCommands(*registry_, *shortcuts_, context_, query);
     SendMessageW(list_, LB_RESETCONTENT, 0, 0);
+    if (results_.empty()) {
+        // ui-overhaul phase 6: a no-match query is a deliberate state, not a
+        // blank list. The row is inert (not backed by a result) and reads as
+        // explanatory text rather than a command.
+        SendMessageW(list_, LB_ADDSTRING, 0,
+                     reinterpret_cast<LPARAM>(L"No matching commands"));
+        return;
+    }
     for (const auto& result : results_) {
         // ui-v3 commands: the list stores the bare display name; HandleDrawItem
         // composes category/shortcut/disabled presentation from results_ so
@@ -208,7 +216,7 @@ void CommandPalette::RefreshResults() {
         SendMessageW(list_, LB_ADDSTRING, 0,
                      reinterpret_cast<LPARAM>(result.command->displayName.c_str()));
     }
-    if (!results_.empty()) SendMessageW(list_, LB_SETCURSEL, 0, 0);
+    SendMessageW(list_, LB_SETCURSEL, 0, 0);
 }
 
 void CommandPalette::ExecuteSelected() {
@@ -298,26 +306,34 @@ bool CommandPalette::HandleDrawItem(LPARAM lParam) {
                      GetSysColor(!enabled ? COLOR_GRAYTEXT : selected ? COLOR_HIGHLIGHTTEXT : COLOR_WINDOWTEXT));
     } else {
         const ffui::UiTheme theme = ffui::GetUiTheme(ffui::gUiDarkTheme);
-        const bool emphasized = selected && enabled;
+        const bool emphasized = selected && enabled && haveResult;
         const HBRUSH backgroundBrush = LazyThemeBrush(emphasized ? theme.accent : theme.background,
                                                       emphasized ? ctlAccentBrush_ : ctlListBrush_);
         FillRect(dc, &item->rcItem, backgroundBrush);
         SetTextColor(dc, ffui::ToColorRef(!enabled ? theme.textDisabled
-                                                    : emphasized ? theme.textOnAccent : theme.text));
+                                                    : !haveResult ? theme.textSecondary
+                                                                  : emphasized ? theme.textOnAccent
+                                                                               : theme.text));
     }
     SetBkMode(dc, TRANSPARENT);
     RECT textRect = item->rcItem;
     textRect.left += Scaled(12);
     textRect.right -= Scaled(12);
-    DrawTextW(dc, text, -1, &textRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+    const int rightEdge = item->rcItem.right - Scaled(12);
+    // ui-overhaul phase 6: reserve the trailing shortcut column before drawing
+    // the name so a long command name can never paint under its shortcut.
+    RECT nameRect = textRect;
+    if (shortcut != nullptr && !shortcut->empty()) {
+        nameRect.right = (std::max)(static_cast<int>(nameRect.left), rightEdge - Scaled(188));
+    }
+    DrawTextW(dc, text, -1, &nameRect, DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
     // Secondary columns measure against the name so nothing overlaps.
     int nameWidth = 0;
     SIZE measured{};
     const int textLength = static_cast<int>(wcslen(text));
     if (GetTextExtentPoint32W(dc, text, textLength, &measured)) {
-        nameWidth = measured.cx;
+        nameWidth = (std::min)(measured.cx, nameRect.right - nameRect.left);
     }
-    const int rightEdge = item->rcItem.right - Scaled(12);
     if (!enabled) {
         // Explicit non-color cue paired with the dimmed name.
         RECT unavailableRect{textRect.left + nameWidth + Scaled(8), item->rcItem.top,
