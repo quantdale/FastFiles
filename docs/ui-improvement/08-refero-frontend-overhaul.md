@@ -290,5 +290,21 @@ Acceptance:
 1. **Global visual language** — `UITheme.h` now carries the Refero-grounded neutral palette and reference-lock rationale. All token-consuming Direct2D and owner-drawn Win32 surfaces inherit the update.
 2. **Adaptive details presentation** — `DetailsLayout.h` now emits `Hidden`, `DisclosureRail`, or `Full` presentations, bounds the full details width to 280–320 DIP, and protects a 720-DIP primary workspace contract in dual-pane mode.
 3. **Responsive contract tests** — `test_details_layout.cpp` now covers presentation classification, constrained dual-pane behavior, bounded wide-layout details width, and DPI-invariant presentation.
+4. **Shell chrome layout policy (wave 2)** — `ffui/ChromeLayout.h` is the single pure Narrow/Normal/Wide policy consumed by `NavigationChrome`: one 28-DIP command family, a policy-derived location/search reservation with icon-only search at Narrow, a 96-DIP tab floor, and a windowed tab overflow with a keyboard-reachable tab list. `test_chrome_layout.cpp` pins classification, geometry, overflow windowing, and no-overlap invariants.
+5. **Details information hierarchy (wave 5)** — `WindowShell::RenderDetails` renders item title, type/size summary, high-value metadata rows, wrapped secondary path, and a quiet extension/attributes caption, with deliberate empty and multi-selection states instead of a property dump.
+6. **Honest state surfaces** — the treemap collapses zero-size scopes to centered state text; Home recent folders render as name + path cards; settings checkboxes join the dark visual style in dark mode.
+7. **Design-system regression surface** — the debug component gallery exposes ten sections including icon-button focus states, tab/breadcrumb/field chrome, and section headers; it is excluded from the details-pane overlay.
 
 These changes deliberately alter presentation and space allocation only; navigation, indexing, search semantics, file operations, UIA identity, and engine behavior remain untouched.
+
+## Session record — 2026-09-12 (waves 1 continued, 2, 5, 7, 9, 10, 12)
+
+The branch advanced from the previous four-commit tip through three pushed slices on `feat/refero-frontend-overhaul` (PR #8):
+
+- `6803650` — chrome layout policy + details hierarchy + stale shell-layout test alignment;
+- `507349c` — treemap empty state, dark-mode checkboxes, two-line recent folders;
+- `3f0aa13` — component gallery expansion and gallery overlay exclusion.
+
+Validation: Debug CTest 102/102 after every slice; focused `ffchrome_layout_tests` / `fvgallery_tests` / `ffshell_layout_tests` / `ffdoc_drift_tests` green; live captures through the sandboxed `build/ffvisual.ps1` probe at 620/800/900/1280/1600 widths in light and dark.
+
+Remaining: wave 4 search/command polish, wave 5 operations/conflict surfaces, wave 6 storage/settings rows, wave 7 release validation; release-test CTest pending at session end.
