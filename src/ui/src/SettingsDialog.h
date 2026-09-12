@@ -167,6 +167,12 @@ private:
     HWND previewCheck_ = nullptr;
     HWND previewSizeLabel_ = nullptr;
     HWND previewSizeEdit_ = nullptr;
+    // ui-overhaul phase 10: setting-row grammar chrome (section header + helper
+    // text) so the General page reads as structured rows, not a flat list.
+    HWND appearanceHeader_ = nullptr;
+    HWND appearanceHint_ = nullptr;
+    HWND previewHeader_ = nullptr;
+    HWND previewSizeHint_ = nullptr;
 
     // Storage page controls
     HWND categoryList_ = nullptr;

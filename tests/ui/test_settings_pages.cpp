@@ -34,6 +34,20 @@ void TestGeneralPageKeepsDensityAndTheme() {
           "Indexing page does not include Theme");
 }
 
+void TestGeneralPageCarriesRowGrammar() {
+    // ui-overhaul phase 10: the General page owns its section headers and
+    // helper text, and no other page shows that chrome.
+    Check(SettingsControlOnPage(kSettingsAppearanceHeader, 0) &&
+              SettingsControlOnPage(kSettingsAppearanceHint, 0),
+          "General page includes the Appearance header and helper text");
+    Check(SettingsControlOnPage(kSettingsPreviewHeader, 0) &&
+              SettingsControlOnPage(kSettingsPreviewSizeHint, 0),
+          "General page includes the Preview header and size helper text");
+    Check(!SettingsControlOnPage(kSettingsAppearanceHeader, 1) &&
+              !SettingsControlOnPage(kSettingsPreviewSizeHint, 3),
+          "section headers and helper text stay off other pages");
+}
+
 void TestUnknownPageShowsNothing() {
     Check(SettingsPageVisibleControls(-1) == 0, "unknown negative page shows no controls");
     Check(SettingsPageVisibleControls(6) == 0, "page index past Shortcuts shows no controls");
@@ -61,6 +75,7 @@ void TestNativeOverlayLayoutKeepsZOrder() {
 int main() {
     TestIndexingPageIncludesRuleChrome();
     TestGeneralPageKeepsDensityAndTheme();
+    TestGeneralPageCarriesRowGrammar();
     TestUnknownPageShowsNothing();
     TestNativeOverlayLayoutKeepsZOrder();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;

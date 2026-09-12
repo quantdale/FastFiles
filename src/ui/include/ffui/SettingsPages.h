@@ -48,13 +48,22 @@ enum SettingsPageControl : std::uint32_t {
     kSettingsRemoveCategory = 1u << 25,
     kSettingsShortcutList = 1u << 26,
     kSettingsResetShortcuts = 1u << 27,
+    // ui-overhaul phase 10: the General page's setting-row grammar (section
+    // headers + helper text) so rows carry a title/description structure
+    // instead of a flat label/control list.
+    kSettingsAppearanceHeader = 1u << 28,
+    kSettingsAppearanceHint = 1u << 29,
+    kSettingsPreviewHeader = 1u << 30,
+    kSettingsPreviewSizeHint = 1u << 31,
 };
 
 inline std::uint32_t SettingsPageVisibleControls(int pageIndex) {
     switch (pageIndex) {
         case 0:
             return kSettingsThemeLabel | kSettingsThemeCombo | kSettingsDensityLabel | kSettingsDensityCombo |
-                   kSettingsPreviewCheck | kSettingsPreviewSizeLabel | kSettingsPreviewSizeEdit;
+                   kSettingsPreviewCheck | kSettingsPreviewSizeLabel | kSettingsPreviewSizeEdit |
+                   kSettingsAppearanceHeader | kSettingsAppearanceHint | kSettingsPreviewHeader |
+                   kSettingsPreviewSizeHint;
         case 1:
             return kSettingsSearchScope | kSettingsRetainHistory;
         case 2:

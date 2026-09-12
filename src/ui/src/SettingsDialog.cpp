@@ -26,6 +26,9 @@ constexpr int kDialogHeight = 520;
 constexpr int kTabControlHeight = 28;
 constexpr int kPageTop = 36;
 constexpr int kPagePadding = 12;
+// ui-overhaul phase 10: helper/description statics render in the muted token so
+// a setting row can carry a title (primary) plus explanatory text (secondary).
+constexpr int kSettingsHelperTextId = 1301;
 constexpr int kControlHeight = 24;
 constexpr int kControlSpacing = 32;
 
@@ -434,7 +437,6 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
             return 1;
         }
         case WM_CTLCOLORDLG:
-        case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT:
         case WM_CTLCOLORLISTBOX:
         // ui-overhaul phase 10: checkboxes are BUTTON-class controls; without
@@ -442,6 +444,17 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         // become unreadable on the dark dialog surface.
         case WM_CTLCOLORBTN:
             return reinterpret_cast<LRESULT>(ThemeControlColor(reinterpret_cast<HDC>(wParam)));
+        case WM_CTLCOLORSTATIC: {
+            // Setting-row helper text is deliberately muted relative to the row
+            // title; every other static keeps the primary text color.
+            HDC hdc = reinterpret_cast<HDC>(wParam);
+            const UiTheme theme = GetUiTheme(darkTheme_);
+            const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lParam));
+            SetBkColor(hdc, ToColorRef(theme.background));
+            SetTextColor(hdc, id == kSettingsHelperTextId ? ToColorRef(theme.textSecondary)
+                                                          : ToColorRef(theme.text));
+            return reinterpret_cast<LRESULT>(themeBrush_);
+        }
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
@@ -459,37 +472,58 @@ void SettingsDialog::CreateControls(HWND hwnd) {
 
 void SettingsDialog::PopulateGeneralPage() {
     if (!themeCombo_) {
+        // ui-overhaul phase 10: setting-row grammar -- a section header carries
+        // the group, each row is a left-aligned title with its control in one
+        // aligned column, and explanatory/helper text sits under the group.
+        appearanceHeader_ = CreateWindowExW(0, L"STATIC", L"Appearance", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(36), Scaled(200), Scaled(18),
+                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         themeLabel_ = CreateWindowExW(0, L"STATIC", L"Theme:", WS_CHILD | WS_VISIBLE,
-                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(34), Scaled(90), Scaled(20),
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(66), Scaled(90), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         themeCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
                                       WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                      Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(30), Scaled(200), Scaled(200),
+                                      Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(62), Scaled(200), Scaled(200),
                                       dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
         SendMessageW(themeCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Follow System"));
         densityLabel_ = CreateWindowExW(0, L"STATIC", L"Density:", WS_CHILD | WS_VISIBLE,
-                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(66), Scaled(90), Scaled(20),
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(98), Scaled(90), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         densityCombo_ = CreateWindowExW(0, L"COMBOBOX", L"",
                                         WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(62), Scaled(200), Scaled(200),
+                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(94), Scaled(200), Scaled(200),
                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Compact"));
         SendMessageW(densityCombo_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Comfortable"));
+        appearanceHint_ = CreateWindowExW(0, L"STATIC",
+                        L"Theme and row density apply to every workspace.",
+                        WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(122), Scaled(460), Scaled(18),
+                        dialog_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsHelperTextId)),
+                        GetModuleHandleW(nullptr), nullptr);
+        previewHeader_ = CreateWindowExW(0, L"STATIC", L"Preview", WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(154), Scaled(200), Scaled(18),
+                        dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeLabel_ = CreateWindowExW(0, L"STATIC", L"Automatic preview size limit (bytes):", WS_CHILD | WS_VISIBLE,
-                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(126), Scaled(240), Scaled(20),
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(214), Scaled(240), Scaled(20),
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
-                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(152), Scaled(200), Scaled(24),
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(240), Scaled(200), Scaled(24),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        previewSizeHint_ = CreateWindowExW(0, L"STATIC",
+                        L"Maximum bytes read when generating a preview; enter a positive integer.",
+                        WS_CHILD | WS_VISIBLE,
+                        Scaled(kPagePadding), Scaled(kPagePadding) + Scaled(268), Scaled(460), Scaled(18),
+                        dialog_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSettingsHelperTextId)),
+                        GetModuleHandleW(nullptr), nullptr);
     }
     if (!previewCheck_) {
         previewCheck_ = CreateWindowExW(0, L"BUTTON", L"Enable automatic preview",
                                         WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
-                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(94), Scaled(220), Scaled(20),
+                                        Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(182), Scaled(220), Scaled(20),
                                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
 
@@ -578,6 +612,10 @@ void SettingsDialog::SwitchPage(int pageIndex) {
     apply(previewCheck_, kSettingsPreviewCheck);
     apply(previewSizeLabel_, kSettingsPreviewSizeLabel);
     apply(previewSizeEdit_, kSettingsPreviewSizeEdit);
+    apply(appearanceHeader_, kSettingsAppearanceHeader);
+    apply(appearanceHint_, kSettingsAppearanceHint);
+    apply(previewHeader_, kSettingsPreviewHeader);
+    apply(previewSizeHint_, kSettingsPreviewSizeHint);
     apply(searchScopeCombo_, kSettingsSearchScope);
     apply(retainHistoryCheck_, kSettingsRetainHistory);
     apply(startupLabel_, kSettingsStartupLabel);
