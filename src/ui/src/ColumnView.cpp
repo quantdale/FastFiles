@@ -641,6 +641,17 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
     ActivateItem(hit.columnIndex, hit.itemIndex, control, shift);
 }
 
+void ColumnView::SetCutPaths(std::vector<std::wstring> paths) {
+    // ui-overhaul phase 3: presentation-only cut ghost state. Paths are
+    // canonical filesystem paths (same lineage as the column/selection paths),
+    // so a direct string match decides the ghosted treatment.
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    cutPathSet_.clear();
+    for (auto& path : paths) {
+        if (!path.empty()) cutPathSet_.insert(std::move(path));
+    }
+}
+
 void ColumnView::SetIconCache(IconCache* iconCache) {
     iconCache_ = iconCache;
 }
@@ -1780,6 +1791,9 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
     // ui-v3 column-view: per-pane scratch reused across rows — capacity-stable
     // assigns keep the visible-row loop free of steady-state heap traffic.
     std::wstring labelBuffer;
+    // ui-overhaul phase 3: scratch for the cut-ghost path comparison (same
+    // capacity-stable reuse so ghosting adds no per-row allocation).
+    std::wstring cutPathBuffer;
 
     auto RenderPane = [&](const std::vector<Column>& columns, float paneX, float paneWidth, float paneScroll,
                           float verticalScrollOffset, bool isActivePane, int focusedColumnIndex) {
@@ -1867,6 +1881,14 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 }
 
                 const ColumnItem& item = column.items[r];
+                // ui-overhaul phase 3: a cut item stays ghosted (dimmed) until
+                // the pending move is pasted or the clipboard changes. The
+                // path comparison reuses one scratch buffer per pane.
+                bool cutRow = false;
+                if (!cutPathSet_.empty() && !column.path.empty()) {
+                    AppendColumnItemPath(cutPathBuffer, column.path, item.name);
+                    cutRow = PathIsInCutSet(cutPathSet_, cutPathBuffer);
+                }
                 const bool isSelected = column.selectedIndices.contains(r);
                 // ui-v3 column-view: canonical O(1)/allocation-free state
                 // resolution. A selection in the active pane's focused column is
@@ -1913,9 +1935,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                 const float iconX = x + ffui::UiMetrics::kSpaceS;
                 const float iconY = y + (rowHeight - iconSize) / 2.0f;
                 if (iconCache_ != nullptr && iconCache_->Get(context, iconKey, &icon) && icon != nullptr) {
+                    // ui-overhaul phase 3: a cut item's icon is dimmed so the
+                    // pending move reads before hover/selection takes over.
                     context->DrawBitmap(icon,
                                         D2D1::RectF(iconX, iconY, iconX + iconSize, iconY + iconSize),
-                                        1.0f, D2D1_INTERPOLATION_MODE_LINEAR);
+                                        cutRow ? 0.45f : 1.0f, D2D1_INTERPOLATION_MODE_LINEAR);
                 } else {
                     const float placeholderSide = iconSize * 0.5f;
                     const float centerX = iconX + iconSize * 0.5f;
@@ -1947,7 +1971,12 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                                                          : x + kColumnWidth - ffui::UiMetrics::kSpaceS;
                 const D2D1_RECT_F textRect = D2D1::RectF(iconX + iconSize + ffui::UiMetrics::kSpaceXs, y,
                                                          textRight, y + rowHeight);
-                if (SUCCEEDED(ffui::UiEnsureSolidBrush(context, palette.text, &rowBrushes_.text))) {
+                if (SUCCEEDED(ffui::UiEnsureSolidBrush(context,
+                        cutRow && rowState != ffui::UiVisualState::SelectedFocused
+                            ? (highContrast ? ffui::ToD2DColor(GetSysColor(COLOR_GRAYTEXT))
+                                            : theme.textDisabled)
+                            : palette.text,
+                        &rowBrushes_.text))) {
                     DrawRowLabel(context, dwriteFactory, textFormat_.Get(), labelText, labelLength,
                                  textRect, rowBrushes_.text.Get());
                 }

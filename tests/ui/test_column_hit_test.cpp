@@ -103,6 +103,23 @@ int main() {
     Check(extendedUncChain == std::vector<std::wstring>{L"\\\\?\\UNC\\server\\share", L"\\\\?\\UNC\\server\\share\\folder"},
           "extended UNC navigation keeps the server/share root visible");
 
+    // ui-overhaul phase 3: cut-ghost path join and match contract.
+    {
+        const std::set<std::wstring> cutPaths{L"C:\\dir\\cut.txt", L"D:\\folder"};
+        std::wstring joined;
+        ffui::AppendColumnItemPath(joined, L"C:\\dir", L"cut.txt");
+        Check(joined == L"C:\\dir\\cut.txt" && ffui::PathIsInCutSet(cutPaths, joined),
+              "cut-ghost matches a file under its parent path");
+        ffui::AppendColumnItemPath(joined, L"C:\\dir\\", L"cut.txt");
+        Check(joined == L"C:\\dir\\cut.txt", "a trailing separator is not doubled when joining");
+        ffui::AppendColumnItemPath(joined, L"C:\\other", L"cut.txt");
+        Check(!ffui::PathIsInCutSet(cutPaths, joined),
+              "a same-named file in another directory is not ghosted");
+        ffui::AppendColumnItemPath(joined, L"D:\\", L"folder");
+        Check(ffui::PathIsInCutSet(cutPaths, joined), "drive-root joins match the cut set");
+        Check(!ffui::PathIsInCutSet({}, joined), "an empty cut set never ghosts a row");
+    }
+
     // selection-model-interactions click fix: dual-pane pane-1 round trip.
     // Mirrors the live failing geometry: viewport 1000 DIPs wide (pane width
     // 500), a deep address-bar navigation leaves the terminal column (index 3)

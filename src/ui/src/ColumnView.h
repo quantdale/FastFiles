@@ -93,6 +93,20 @@ struct Column {
 // Pure path-chain construction used by direct address/sidebar/startup
 // navigation. Keeping it header-visible lets the Finder-style ancestor
 // contract be regression-tested without creating a renderer or engine.
+// ui-overhaul phase 3: canonical cut-ghost seam. A browse row renders ghosted
+// when its joined path is in the current cut set. Both helpers are pure so the
+// join/match contract is headless-testable without a renderer.
+inline void AppendColumnItemPath(std::wstring& out, const std::wstring& columnPath,
+                                 const std::wstring& itemName) {
+    out.assign(columnPath);
+    if (!out.empty() && out.back() != L'\\' && out.back() != L'/') out.push_back(L'\\');
+    out.append(itemName);
+}
+
+inline bool PathIsInCutSet(const std::set<std::wstring>& cutPaths, const std::wstring& joinedPath) {
+    return !cutPaths.empty() && !joinedPath.empty() && cutPaths.find(joinedPath) != cutPaths.end();
+}
+
 inline std::vector<std::wstring> BuildNavigationPathChain(const std::wstring& path) {
     std::vector<std::wstring> result;
     if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
@@ -224,6 +238,12 @@ public:
     // type-icon cache. WindowShell keeps its animation timer alive while
     // HoverAnimating() returns true so Render can advance the fade each frame.
     void SetIconCache(IconCache* iconCache);
+    // ui-overhaul phase 3: items whose paths are pending a cut/move render
+    // ghosted (dimmed) until the move is pasted or the clipboard changes,
+    // matching the file-manager grammar for an in-flight cut. Pass an empty
+    // list to clear. Presentation-only: selection identity and operations are
+    // unchanged.
+    void SetCutPaths(std::vector<std::wstring> paths);
     void SetRepaintCallback(std::function<void()> repaint);
     // selection-input-hardening: invoked when Enter is pressed over a focused
     // NON-DIRECTORY. The shell wires this to the `item.open` command path
@@ -429,6 +449,9 @@ private:
     mutable std::mutex columnsMutex_;
     std::vector<Column> columns_;
     std::vector<Column> columns2_;
+    // ui-overhaul phase 3: full paths pending a cut/move; rows matching an entry
+    // render ghosted. Guarded by columnsMutex_.
+    std::set<std::wstring> cutPathSet_;
     int focusedColumnIndex_ = 0;
     int focusedColumnIndex2_ = 0;
     int activePane_ = 0;

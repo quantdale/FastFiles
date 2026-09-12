@@ -404,6 +404,7 @@ bool WindowShell::InitializeCommands() {
                 // file managers can paste this selection.
                 const bool published = CopyFilesToClipboard(hwnd_, paths, clipboardIsCut_);
                 clipboardSequenceNumber_ = published ? GetClipboardSequenceNumber() : 0;
+                SyncCutGhost();
             } else if (commandId == L"file.paste") {
                 const std::wstring destination = columnView_.ActivePanePath();
                 // The shell clipboard is authoritative: read it fresh at paste
@@ -436,6 +437,7 @@ bool WindowShell::InitializeCommands() {
                             clipboardPaths_.clear();
                             clipboardIsCut_ = false;
                             clipboardSequenceNumber_ = 0;
+                            SyncCutGhost();
                             if (OpenClipboard(hwnd_)) {
                                 EmptyClipboard();
                                 CloseClipboard();
@@ -1394,6 +1396,22 @@ void WindowShell::ShowStatusNotice(const std::wstring& message) {
     RequestRepaint();
 }
 
+void WindowShell::SyncCutGhost() {
+    // ui-overhaul phase 3: the browse surface ghosts its own cut selection until
+    // the move is pasted. An external clipboard publication (different sequence
+    // number) supersedes the app-local cut intent, so the ghost clears with it.
+    bool ghost = clipboardIsCut_ && !clipboardPaths_.empty();
+    if (ghost && clipboardSequenceNumber_ != 0 &&
+        GetClipboardSequenceNumber() != clipboardSequenceNumber_) {
+        ghost = false;
+    }
+    if (ghost) {
+        columnView_.SetCutPaths(clipboardPaths_);
+    } else {
+        columnView_.SetCutPaths({});
+    }
+}
+
 void WindowShell::UpdatePreviewLimitMenuChecks() {
     HMENU menu = GetMenu(hwnd_);
     if (menu == nullptr) return;
@@ -2201,6 +2219,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         // main window, projected into HasKeyboardFocus by the providers.
         case WM_SETFOCUS: {
             columnView_.SetUiaKeyboardFocusOwned(true);
+            // ui-overhaul phase 3: re-check the clipboard on activation so a cut
+            // ghost left over an external clipboard change clears immediately.
+            SyncCutGhost();
             return DefWindowProcW(hwnd, message, wParam, lParam);
         }
 
@@ -2566,6 +2587,9 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 }
                 fileOpInProgress_ = false;
                 columnView_.OnSnapshotUpdated();
+                // ui-overhaul phase 3: a completed move/delete invalidates the
+                // cut ghost for paths that no longer exist in place.
+                SyncCutGhost();
                 navigationChrome_.Refresh();
                 RequestRepaint();
             }

@@ -55,6 +55,10 @@ private:
     bool IsSystemDark() const;
     void SaveAndNotifySettings();
     void RefreshSelectionPresentation();
+    // ui-overhaul phase 3: push the current cut/move intent to the browse
+    // surface so cut rows render ghosted; clears on paste, copy, external
+    // clipboard changes, and window re-activation.
+    void SyncCutGhost();
     // Transient, non-modal status-line message (copy failures, degraded-mode
     // explanations). Auto-expires; never blocks input.
     void ShowStatusNotice(const std::wstring& message);
