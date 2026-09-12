@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "ffipc/PipeListener.h"
+#include "ffipc/PipeFraming.h"
 #include "../TestSupport.h"
 
 using namespace fftest;
@@ -143,11 +144,80 @@ void TestFinishedConnectionThreadsAreReaped() {
     listener.Stop();
 }
 
+// Shutdown-termination regression: PipeListener::Stop() must return promptly
+// when a connection callback's reader is BETWEEN frames rather than blocked in
+// a read.
+//
+// CancelIoEx only cancels *pending* I/O. A reader that is busy in a dispatch
+// step -- the service control loop runs durable scan/journal work here -- has
+// no overlapped read outstanding, so the cancel is a no-op. Without a
+// listener-owned shutdown event the reader then re-arms a fresh deadline read
+// and Stop() blocks at its join barrier for that entire deadline (300 s for
+// the service's kInboundIdleTimeout). Mirrors the EngineClient/UiServer
+// shutdown-termination regressions.
+void TestStopReleasesReaderParkedBetweenFrames() {
+    static constexpr auto kReadDeadline = std::chrono::seconds(15);
+    static constexpr auto kMaxStopDuration = std::chrono::seconds(5);
+    static constexpr auto kBusyDispatchSlice = std::chrono::milliseconds(500);
+
+    ffipc::PipeListener listener;
+    const std::wstring pipeName =
+        L"\\\\.\\pipe\\FastFiles.ListenerShutdownWake." + std::to_wstring(GetCurrentProcessId());
+    std::atomic<bool> dispatchStarted{false};
+    std::atomic<bool> readerObservedCancelled{false};
+
+    const bool started = listener.Start(
+        pipeName, nullptr,
+        [&listener, &dispatchStarted, &readerObservedCancelled](HANDLE pipe) {
+            dispatchStarted.store(true, std::memory_order_release);
+            // Stand-in for the control loop's durable dispatch step: the reader
+            // is busy and holds NO overlapped read, which is precisely the
+            // window CancelIoEx cannot cover. Stop() runs during this slice.
+            std::this_thread::sleep_for(kBusyDispatchSlice);
+            ffipc::ReceivedFrame frame{};
+            const ffipc::FrameReadStatus status = ffipc::ReadFrameOverlappedDetailed(
+                pipe, listener.ShutdownEvent(), std::chrono::steady_clock::now() + kReadDeadline, &frame);
+            readerObservedCancelled.store(status == ffipc::FrameReadStatus::Cancelled,
+                                          std::memory_order_release);
+            if (pipe != INVALID_HANDLE_VALUE && pipe != nullptr) {
+                CloseHandle(pipe);
+            }
+        });
+    Check(started, "shutdown-wake listener starts");
+    if (!started) return;
+
+    // Hold the client open and send nothing, so the peer is idle but connected.
+    HANDLE client = INVALID_HANDLE_VALUE;
+    for (int attempt = 0; attempt < 50 && client == INVALID_HANDLE_VALUE; ++attempt) {
+        client = CreateFileW(pipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, 0, nullptr);
+        if (client == INVALID_HANDLE_VALUE) Sleep(2);
+    }
+    Check(client != INVALID_HANDLE_VALUE, "shutdown-wake client connects");
+
+    // Enter Stop() while the reader is mid-dispatch, with no I/O pending.
+    for (int attempt = 0; attempt < 500 && !dispatchStarted.load(std::memory_order_acquire); ++attempt) {
+        Sleep(2);
+    }
+    Check(dispatchStarted.load(std::memory_order_acquire), "shutdown-wake dispatch step entered");
+
+    const auto stopStart = std::chrono::steady_clock::now();
+    listener.Stop();
+    const auto stopElapsed = std::chrono::steady_clock::now() - stopStart;
+
+    Check(stopElapsed < kMaxStopDuration,
+          "listener Stop() releases a reader parked between frames promptly");
+    Check(readerObservedCancelled.load(std::memory_order_acquire),
+          "reader re-armed after dispatch observes Cancelled on listener shutdown");
+
+    if (client != INVALID_HANDLE_VALUE) CloseHandle(client);
+}
+
 } // namespace
 
 int main() {
     TestImmediateStopDuringPendingAccept();
     TestConcurrentListenerLifecycle();
     TestFinishedConnectionThreadsAreReaped();
+    TestStopReleasesReaderParkedBetweenFrames();
     return FailureCount() == 0 ? 0 : 1;
 }

@@ -38,6 +38,17 @@ public:
 
     void Stop();
 
+    // Manual-reset event, created by Start() and signaled by Stop() before it
+    // joins connection callbacks. A connection callback whose reader is
+    // blocked on an overlapped read -- or parked between frames, e.g. inside a
+    // durable scan/journal step -- can wait on this to wake deterministically.
+    // CancelIoEx alone is a no-op when no I/O is pending, which would otherwise
+    // let the reader re-arm a fresh bounded read and stall Stop() for that
+    // deadline (300 s for the service control loop). Null before Start() or if
+    // event creation failed; callers must treat null as "no shutdown signal
+    // available" and fall back to the plain deadline-bounded read.
+    HANDLE ShutdownEvent() const noexcept { return shutdownEvent_; }
+
 private:
     class OwnedHandle {
     public:
@@ -68,6 +79,9 @@ private:
     std::function<void(HANDLE)> onConnect_;
     std::thread acceptThread_;
     std::atomic<bool> running_{false};
+    // Created by Start(), signaled by Stop(). Owned here for the listener's
+    // whole lifetime; closed in the destructor after Stop() has joined.
+    HANDLE shutdownEvent_ = nullptr;
     std::mutex lifecycleMutex_;
     std::mutex pendingMutex_;
     OwnedHandlePtr pendingInstance_;

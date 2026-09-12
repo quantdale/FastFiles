@@ -263,7 +263,12 @@ void WINAPI ServiceMain(DWORD, LPWSTR*) {
 
     const bool ctrlStarted = g_ctrlListener.Start(
         ffsetup::kCtrlPipeName, &g_pipeSecurityDescriptor.attributes,
-        [installDir](HANDLE pipeHandle) { ffindexsvc::RunCtrlConnection(pipeHandle, installDir, g_registry); });
+        [installDir](HANDLE pipeHandle) {
+            // g_ctrlListener.ShutdownEvent() is created by Start() before the
+            // accept thread runs, so it is already valid here. It lets
+            // listener Stop() release a control loop parked between frames.
+            ffindexsvc::RunCtrlConnection(pipeHandle, g_ctrlListener.ShutdownEvent(), installDir, g_registry);
+        });
 
     if (!ctrlStarted) {
         StopEverything();

@@ -170,6 +170,15 @@ private:
     PipePtr activePipe_;
     PipePtr connectingPipe_;
 
+    // Manual-reset, signaled by Stop()/DropForIdle() (and by ActiveLoop's own
+    // teardown) so the Active reader's INFINITE blocking read is woken
+    // deterministically. CancelIoEx alone is a no-op when the reader is
+    // between frames -- e.g. inside a durable scan/journal batch callback --
+    // which previously let it re-arm an unbounded read and deadlock the
+    // subsequent reader.join(). Mirrors EngineClient::ReaderLoop and
+    // UiServer::HandleConnection.
+    HANDLE shutdownEvent_ = nullptr;
+
     std::thread lifecycleThread_;
     std::mutex wakeMutex_;
     std::condition_variable wakeCv_;

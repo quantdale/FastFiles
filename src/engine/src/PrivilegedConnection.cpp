@@ -61,6 +61,12 @@ PrivilegedConnection::OwnedPipe::~OwnedPipe() {
 
 PrivilegedConnection::~PrivilegedConnection() {
     Stop();
+    // Closed only after Stop() has joined the lifecycle thread, so the Active
+    // reader can never observe a dangling event handle.
+    if (shutdownEvent_ != nullptr) {
+        CloseHandle(shutdownEvent_);
+        shutdownEvent_ = nullptr;
+    }
 }
 
 void PrivilegedConnection::SetState(ConnectionState state, UnavailableReason reason) {
@@ -73,6 +79,15 @@ void PrivilegedConnection::SetState(ConnectionState state, UnavailableReason rea
 void PrivilegedConnection::Start(std::wstring installDir, StateChangeCallback onStateChange) {
     installDir_ = std::move(installDir);
     onStateChange_ = std::move(onStateChange);
+    // Manual-reset shutdown event: the Active reader blocks on {frame
+    // completion, shutdownEvent} with an INFINITE deadline, so Stop()/
+    // DropForIdle() wake it deterministically instead of relying on
+    // CancelIoEx -- which is a no-op when the reader is between frames.
+    if (shutdownEvent_ == nullptr) {
+        shutdownEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    } else {
+        ResetEvent(shutdownEvent_);
+    }
     running_ = true;
     lifecycleThread_ = std::thread(&PrivilegedConnection::RunLoop, this);
 }
@@ -80,6 +95,12 @@ void PrivilegedConnection::Start(std::wstring installDir, StateChangeCallback on
 void PrivilegedConnection::Stop() {
     if (!running_.exchange(false)) {
         return;
+    }
+    // Wake the Active reader even when no overlapped I/O is pending (it may be
+    // between frames inside a batch callback); CancelIoEx below cannot do that,
+    // and the reader would otherwise re-arm an unbounded read and hang join().
+    if (shutdownEvent_ != nullptr) {
+        SetEvent(shutdownEvent_);
     }
     PipePtr connecting;
     PipePtr active;
@@ -102,6 +123,14 @@ void PrivilegedConnection::Stop() {
 
 void PrivilegedConnection::DropForIdle() {
     idleDropped_ = true;
+    // Same reasoning as Stop(): release the Active reader from its INFINITE
+    // read so ActiveLoop can tear down and RunLoop can park for reconnect.
+    // Without this the lifecycle thread hangs in reader.join() and
+    // RequestReconnect() is never observed -- the privileged path stays stuck
+    // until process restart.
+    if (shutdownEvent_ != nullptr) {
+        SetEvent(shutdownEvent_);
+    }
     SetState(ConnectionState::Disconnected, UnavailableReason::IdleDropped);
     // Wake the loop WITHOUT clearing idleDropped_: RunLoop must observe the
     // flag and park until RequestReconnect. RequestReconnect() would reset
@@ -522,6 +551,13 @@ void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
         std::lock_guard<std::mutex> lock(pipeStateMutex_);
         activePipe_ = pipe;
     }
+    // A previous DropForIdle()/reconnect cycle leaves the manual-reset event
+    // signaled; clear it so this Active lifetime starts unsignaled. A Stop()
+    // racing this reset is covered by the running_ gate in the reader loop.
+    const HANDLE shutdownEvent = shutdownEvent_;
+    if (shutdownEvent != nullptr) {
+        ResetEvent(shutdownEvent);
+    }
     SetState(ConnectionState::Active, UnavailableReason::None);
 
     std::atomic<bool> heartbeatAckPending{false};
@@ -538,15 +574,29 @@ void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
     // lockstep reply to a request.
     std::thread reader([&] {
         for (;;) {
-            auto frame = ffipc::ReadFrameOverlapped(
-                pipe->handle, std::chrono::steady_clock::time_point::max());
-            if (!frame) {
+            // Re-arm gate: never issue a fresh read once teardown has begun.
+            // Without this, a reader that finishes a dispatch callback after
+            // the main loop exited would re-issue an unbounded read against a
+            // still-open, idle peer and deadlock the CancelIoEx/join below.
+            if (!running_.load(std::memory_order_acquire) || idleDropped_.load(std::memory_order_acquire)) {
+                break;
+            }
+            // Shutdown-aware blocking: wait INFINITE for either frame
+            // completion or shutdownEvent. CancelIoEx alone cannot release a
+            // reader that is between frames.
+            ffipc::ReceivedFrame frameOut;
+            const ffipc::FrameReadStatus status = ffipc::ReadFrameOverlappedDetailed(
+                pipe->handle, shutdownEvent, std::chrono::steady_clock::time_point::max(), &frameOut);
+            if (status != ffipc::FrameReadStatus::Success) {
+                // Cancelled/Disconnected/IoError all end this Active lifetime.
+                // Timeout is impossible with an INFINITE deadline; treat it
+                // defensively as a disconnect rather than silently re-arming.
                 protocolViolation = true; // read failure/disconnect -- reuse the same teardown path
                 ackCv.notify_all();
                 break;
             }
             try {
-                DispatchReceivedFrame(*frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+                DispatchReceivedFrame(frameOut, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
             } catch (...) {
                 // A callback owns durable/index projection work and may still
                 // encounter a bounded allocation or data-structure failure
@@ -605,8 +655,14 @@ void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
     }
     // Unblock the reader and any concurrent writer through the same
     // overlapped handle. The reader owns its event/operation state and will
-    // return before the pipe handle is finally closed below.
+    // return before the pipe handle is finally closed below. Signaling the
+    // shutdown event as well covers every exit reason from the loop above --
+    // including a heartbeat timeout, where running_ is still true and
+    // CancelIoEx finds no pending I/O because the reader is between frames.
     CancelIoEx(pipe->handle, nullptr);
+    if (shutdownEvent != nullptr) {
+        SetEvent(shutdownEvent);
+    }
     reader.join();
 
     const bool wasIdleDropped = idleDropped_.load();

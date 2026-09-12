@@ -23,6 +23,12 @@ HANDLE PipeListener::OwnedHandle::Release() noexcept {
 
 PipeListener::~PipeListener() {
     Stop();
+    // Closed only after Stop() has joined every connection callback, so no
+    // reader can observe a dangling event handle.
+    if (shutdownEvent_ != nullptr) {
+        CloseHandle(shutdownEvent_);
+        shutdownEvent_ = nullptr;
+    }
 }
 
 HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
@@ -54,6 +60,15 @@ bool PipeListener::Start(const std::wstring& pipeName, const SECURITY_ATTRIBUTES
         std::fwprintf(stderr, L"FastFiles: CreateNamedPipe failed for %ls (error %lu) -- refusing to start\n",
                       pipeName_.c_str(), GetLastError());
         return false;
+    }
+
+    // Created before the accept thread starts, so a connection callback can
+    // read ShutdownEvent() as soon as it is invoked. Reset on restart, since a
+    // previous Stop() leaves it signaled.
+    if (shutdownEvent_ == nullptr) {
+        shutdownEvent_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    } else {
+        ResetEvent(shutdownEvent_);
     }
 
     running_ = true;
@@ -226,6 +241,14 @@ void PipeListener::JoinConnectionThreads() {
 void PipeListener::Stop() {
     std::lock_guard<std::mutex> lifecycleLock(lifecycleMutex_);
     const bool wasRunning = running_.exchange(false);
+    // Wake every connection callback's reader even when it has no overlapped
+    // I/O pending (it may be parked between frames, e.g. inside a durable
+    // scan/journal step). The CancelIoEx sweep below cannot do that, and such
+    // a reader would re-arm a fresh bounded read and stall the
+    // JoinConnectionThreads() below for up to that whole deadline.
+    if (shutdownEvent_ != nullptr) {
+        SetEvent(shutdownEvent_);
+    }
     OwnedHandlePtr pending;
     {
         std::lock_guard<std::mutex> lock(pendingMutex_);

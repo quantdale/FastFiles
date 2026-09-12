@@ -36,12 +36,28 @@ constexpr std::chrono::milliseconds kInboundIdleTimeout{300000};
 constexpr std::chrono::milliseconds kHandshakeTimeout{30000};
 
 // The service listener opens Ctrl-pipe instances with FILE_FLAG_OVERLAPPED.
-// ReadFrameOverlapped issues one bounded ReadFile for the header and payload,
-// then waits on the operation event instead of polling pipe state. If the
-// absolute deadline expires, the operation is cancelled and the connection
-// follows the existing reject-by-close path.
-std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle, std::chrono::steady_clock::time_point idleDeadline) {
-    return ffipc::ReadFrameOverlapped(pipeHandle, idleDeadline);
+// ReadFrameOverlappedDetailed issues one bounded ReadFile for the header and
+// payload, then waits on the operation event instead of polling pipe state.
+// If the absolute deadline expires, the operation is cancelled and the
+// connection follows the existing reject-by-close path.
+//
+// shutdownEvent (the listener's manual-reset stop signal) is waited on
+// alongside the read, so a listener Stop() releases a reader that is parked
+// between frames -- where CancelIoEx is a no-op -- rather than letting the
+// loop re-arm a fresh kInboundIdleTimeout read and stall the listener's
+// JoinConnectionThreads() for up to 300 s. A null event degrades to the
+// deadline-bounded read alone.
+std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle, HANDLE shutdownEvent,
+                                                    std::chrono::steady_clock::time_point idleDeadline) {
+    ffipc::ReceivedFrame frameOut;
+    const ffipc::FrameReadStatus status =
+        ffipc::ReadFrameOverlappedDetailed(pipeHandle, shutdownEvent, idleDeadline, &frameOut);
+    if (status != ffipc::FrameReadStatus::Success) {
+        // Includes Cancelled (listener shutdown), the idle-deadline timeout,
+        // clean disconnect, and I/O error -- every one ends this connection.
+        return std::nullopt;
+    }
+    return frameOut;
 }
 
 // index-storage-and-scanning: a scan or journal stream runs on its own
@@ -154,7 +170,8 @@ std::optional<ClientIdentity> PerformHandshake(HANDLE pipeHandle, const std::wst
 
 } // namespace
 
-void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, ConnectionRegistry& registry) {
+void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstring& installDir,
+                       ConnectionRegistry& registry) {
     const ConnectionRegistry::ConnectionId connectionId = static_cast<ConnectionRegistry::ConnectionId>(reinterpret_cast<uintptr_t>(pipeHandle));
 
     bool shouldClose = false;
@@ -176,7 +193,7 @@ void RunCtrlConnection(HANDLE pipeHandle, const std::wstring& installDir, Connec
     bool disconnect = false;
     auto idleDeadline = std::chrono::steady_clock::now() + kInboundIdleTimeout;
     while (!disconnect) {
-        auto frame = ReadActiveFrame(pipeHandle, idleDeadline);
+        auto frame = ReadActiveFrame(pipeHandle, shutdownEvent, idleDeadline);
         if (!frame) {
             break; // I/O error, clean disconnect, or inbound idle timeout
         }
