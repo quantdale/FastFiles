@@ -215,6 +215,14 @@ void SettingsDialog::ApplyNativeControlThemes() {
     ApplyNativeExplorerTheme(startupPathEdit_, dark, NativeExplorerTheme::Combo);
     ApplyNativeExplorerTheme(shortcutEdit_, dark, NativeExplorerTheme::Combo);
     ApplyNativeExplorerTheme(categoryEdit_, dark, NativeExplorerTheme::Combo);
+    // ui-overhaul phase 10: checkboxes are BUTTON-class controls. The themed
+    // (ComCtl32 v6) checkbox ignores WM_CTLCOLORBTN text color, so the control
+    // itself must switch to the dark visual style or its label stays
+    // black-on-dark in dark mode.
+    for (HWND check : {previewCheck_, retainHistoryCheck_, restoreSessionCheck_, pauseAllCheck_,
+                       excludeRuleCheck_}) {
+        ApplyNativeExplorerTheme(check, dark);
+    }
     for (HWND list : {volumeList_, ruleList_, categoryList_, shortcutList_}) {
         if (list == nullptr) continue;
         const UiTheme theme = GetUiTheme(dark);
@@ -429,6 +437,10 @@ LRESULT SettingsDialog::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LP
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT:
         case WM_CTLCOLORLISTBOX:
+        // ui-overhaul phase 10: checkboxes are BUTTON-class controls; without
+        // this case their labels render in the system light-mode text color and
+        // become unreadable on the dark dialog surface.
+        case WM_CTLCOLORBTN:
             return reinterpret_cast<LRESULT>(ThemeControlColor(reinterpret_cast<HDC>(wParam)));
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);

@@ -2131,7 +2131,11 @@ void ColumnView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFacto
                     }
                     break;
                 case HomeSectionKind::RecentFolders:
-                    primary = ffui::NormalizeDisplayPath(homeData_.recentFolders[item.indexInSection]);
+                    // ui-overhaul phase 4: recent destinations read as a
+                    // name + path card (matching Pinned/Common locations)
+                    // instead of a single overlong path line.
+                    primary = HomeLeafName(homeData_.recentFolders[item.indexInSection]);
+                    secondary = ffui::NormalizeDisplayPath(homeData_.recentFolders[item.indexInSection]);
                     isFolderIcon = true;
                     break;
                 case HomeSectionKind::RecentSearches:

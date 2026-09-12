@@ -121,13 +121,31 @@ void TreemapView::RebuildLayout() {
     layout_.clear();
     syntheticNodes_.clear();
     layoutIndexByIdentity_.clear();
-    if (!root_ || root_->children.empty()) return;
+    // ui-overhaul phase 9: a scope with no sized entries (empty folder, unknown
+    // subtree still calculating, or a degraded scope whose snapshot carries no
+    // sizes) is the deliberate empty-state surface -- never a grid of
+    // background-colored zero-information tiles.
+    if (!root_ || root_->children.empty() || root_->totalSizeBytes == 0) return;
 
     std::vector<TreemapNode*> nodes;
     nodes.reserve(root_->children.size());
     for (const auto& child : root_->children) nodes.push_back(child.get());
     LayoutTreemap(layout_, kPadding, kPadding, 100.0f - 2 * kPadding,
                   100.0f - 2 * kPadding, nodes, 0, &syntheticNodes_);
+
+    // ui-overhaul phase 9: a scope whose entries all have zero known size must
+    // present its deliberate empty-state text, not a grid of zero-area
+    // rectangles that paints as a silent blank canvas. Collapsing the layout
+    // here also keeps the UIA tile projection honest (no phantom items).
+    const bool anySized = std::any_of(layout_.begin(), layout_.end(), [](const TreemapRect& rect) {
+        return rect.width > 0.01f && rect.height > 0.01f;
+    });
+    if (!anySized) {
+        layout_.clear();
+        syntheticNodes_.clear();
+        layoutIndexByIdentity_.clear();
+        return;
+    }
 
     // semantic-treemap-uia 16.x: identity -> layout index, rebuilt here under
     // the same lock so the provider resolves tiles in O(1).
@@ -333,9 +351,13 @@ void TreemapView::Render(ID2D1DeviceContext* context, IDWriteFactory* dwriteFact
             message = emptyStateText_;
         }
         if (!message.empty()) {
-            D2D1_RECT_F messageRect = D2D1::RectF(16.0f, 0.0f,
+            // ui-overhaul phase 9: center the honest state in the treemap
+            // viewport instead of tucking it under the mode toolbar.
+            const float lineHeight = 18.0f;
+            const float centerY = (std::max)(0.0f, (viewportSize.height - lineHeight) * 0.5f);
+            D2D1_RECT_F messageRect = D2D1::RectF(16.0f, centerY,
                                                   (std::max)(16.0f, viewportSize.width - 16.0f),
-                                                  viewportSize.height);
+                                                  centerY + lineHeight);
             context->DrawText(message.c_str(), static_cast<UINT32>(message.size()),
                               textFormat_.Get(), messageRect, textBrush_.Get(),
                               D2D1_DRAW_TEXT_OPTIONS_CLIP, DWRITE_MEASURING_MODE_NATURAL);
