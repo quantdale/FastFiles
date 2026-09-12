@@ -2034,14 +2034,26 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         context->DrawLine(D2D1::Point2F(0, statusTop), D2D1::Point2F(sceneWidth, statusTop), dividerBrush_.Get(), 1.0f);
     }
     if (fileOpInProgress_) {
-        const float progressWidth = sceneWidth * std::clamp(fileOpProgress_, 0.0f, 1.0f);
-        const D2D1_RECT_F progressRect = D2D1::RectF(0, statusTop + kStatusHeight - kProgressHeight, progressWidth, statusTop + kStatusHeight);
-        if (highContrast) {
-            ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHT)), &progressBrush_);
-            context->FillRectangle(progressRect, progressBrush_.Get());
+        if (fileOpProgress_ > 0.001f) {
+            const float progressWidth = sceneWidth * std::clamp(fileOpProgress_, 0.0f, 1.0f);
+            const D2D1_RECT_F progressRect = D2D1::RectF(0, statusTop + kStatusHeight - kProgressHeight, progressWidth, statusTop + kStatusHeight);
+            if (highContrast) {
+                ffui::UiEnsureSolidBrush(context, ffui::ToD2DColor(GetSysColor(COLOR_HIGHLIGHT)), &progressBrush_);
+                context->FillRectangle(progressRect, progressBrush_.Get());
+            } else {
+                ffui::UiEnsureSolidBrush(context, theme.accent, &progressBrush_);
+                ffui::UiFillRoundedRect(context, progressRect, progressBrush_.Get(), ffui::UiMetrics::kRadiusSmall);
+            }
         } else {
-            ffui::UiEnsureSolidBrush(context, theme.accent, &progressBrush_);
-            ffui::UiFillRoundedRect(context, progressRect, progressBrush_.Get(), ffui::UiMetrics::kRadiusSmall);
+            // ui-overhaul phase 8: an operation that has not reported a
+            // percentage yet (queued, scanning, first item) shows the canonical
+            // indeterminate band instead of an invisible zero-width bar. The
+            // phase advances as the worker's progress events repaint.
+            const float phase = static_cast<float>((GetTickCount64() % 1200) / 1200.0);
+            ffui::DrawUiProgressSurface(
+                context,
+                D2D1::RectF(0, statusTop + kStatusHeight - kProgressHeight, sceneWidth, statusTop + kStatusHeight),
+                -1.0f, phase, theme, highContrast, &detailsStateBrushes_);
         }
     }
     // Transient non-modal notice (copy failures, degraded-mode explanation)
@@ -2499,6 +2511,20 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     title += L" (first: " + event->failures.front().path + L")";
                 }
                 SetWindowTextW(hwnd_, title.c_str());
+                // ui-overhaul phase 8: completion, cancellation, and failure
+                // also ride the non-modal status line, so an outcome is never
+                // visible only in the window title. Failures stay actionable
+                // through the existing last-operation-errors surface.
+                if (event->kind == FileOperationEventKind::Cancelled) {
+                    ShowStatusNotice(L"Cancelled after " + std::to_wstring(event->completed) + L" of " +
+                                     std::to_wstring(event->total) + L" item(s).");
+                } else if (!event->failures.empty()) {
+                    ShowStatusNotice(std::to_wstring(event->failures.size()) + L" of " +
+                                     std::to_wstring(event->total) +
+                                     L" item(s) failed. Right-click for last operation errors.");
+                } else {
+                    ShowStatusNotice(std::to_wstring(event->completed) + L" item(s) completed.");
+                }
                 if (event->reversibleOperation) {
                     auto& reversible = *event->reversibleOperation;
                     if (reversible.kind == ReversibleOperationKind::Rename && reversible.paths.size() == 1) {

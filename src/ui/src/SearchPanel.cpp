@@ -186,65 +186,18 @@ struct SearchRowPaint {
 
 SearchRowPaint ResolveSearchRowPaint(const UiTheme& theme, UiVisualState state, bool highContrast,
                                      COLORREF background) {
+    // ui-overhaul phase 11: consume the shared semantic state resolver so the
+    // result list cannot drift from the browse rows or the sidebar; this
+    // adapter maps the palette onto the list's four paint roles and composites
+    // translucent fills over the list background for GDI.
+    const UiStatePalette shared = ResolveUiStatePalette(theme, state, highContrast);
     SearchRowPaint paint{};
-    if (highContrast) {
-        // Accessibility fallback: system highlight colors, never token overlays.
-        switch (state) {
-            case UiVisualState::SelectedFocused:
-            case UiVisualState::SelectedUnfocused:
-                paint.fill = GetSysColor(COLOR_HIGHLIGHT);
-                paint.hasFill = true;
-                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                break;
-            case UiVisualState::Hover:
-            case UiVisualState::Pressed:
-                paint.fill = GetSysColor(COLOR_MENUHILIGHT);
-                paint.hasFill = true;
-                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                break;
-            default:
-                paint.text = GetSysColor(COLOR_WINDOWTEXT);
-                break;
-        }
-        paint.secondary = paint.text;
-        paint.tertiary = paint.text;
-        return paint;
-    }
-    paint.text = ToColorRef(theme.text);
-    paint.secondary = ToColorRef(theme.textSecondary);
-    paint.tertiary = ToColorRef(theme.textTertiary);
-    switch (state) {
-        case UiVisualState::Hover:
-            paint.fill = CompositeOver(theme.hoverOverlay, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::Pressed:
-            paint.fill = CompositeOver(theme.pressOverlay, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::SelectedUnfocused:
-            paint.fill = CompositeOver(theme.selectionSoft, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::SelectedFocused:
-            paint.fill = ToColorRef(theme.accent);
-            paint.hasFill = true;
-            paint.text = ToColorRef(theme.textOnAccent);
-            // Secondary text on the accent fill stays readable by leaning back
-            // toward textOnAccent instead of dropping to muted grays.
-            paint.secondary = ToColorRef(UiLerpColor(theme.textOnAccent, theme.accent, 0.22f));
-            paint.tertiary = ToColorRef(UiLerpColor(theme.textOnAccent, theme.accent, 0.38f));
-            break;
-        case UiVisualState::Disabled:
-            paint.text = ToColorRef(theme.textDisabled);
-            paint.secondary = paint.text;
-            paint.tertiary = paint.text;
-            break;
-        case UiVisualState::Busy:
-        case UiVisualState::Focused:
-        case UiVisualState::DropTarget:
-        case UiVisualState::Rest:
-            break;
+    paint.text = ToColorRef(shared.text);
+    paint.secondary = ToColorRef(shared.secondary);
+    paint.tertiary = ToColorRef(shared.tertiary);
+    if (shared.hasFill) {
+        paint.fill = highContrast ? ToColorRef(shared.fill) : CompositeOver(shared.fill, background);
+        paint.hasFill = true;
     }
     return paint;
 }

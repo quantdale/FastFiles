@@ -72,71 +72,19 @@ struct NavPaint {
 };
 
 NavPaint ResolveNavPaint(const UiTheme& theme, UiVisualState state, bool highContrast, COLORREF background) {
+    // ui-overhaul phase 11: the sidebar shares the one semantic state resolver
+    // with browse/search; this adapter only composites translucent token fills
+    // over the sidebar background for GDI and converts to COLORREF.
+    const UiStatePalette shared = ResolveUiStatePalette(theme, state, highContrast);
     NavPaint paint{};
-    paint.text = highContrast ? GetSysColor(COLOR_WINDOWTEXT) : ToColorRef(theme.text);
-    if (highContrast) {
-        // Accessibility fallback: system highlight/menu colors, never token
-        // overlays, so the user's contrast scheme always wins.
-        switch (state) {
-            case UiVisualState::SelectedFocused:
-            case UiVisualState::SelectedUnfocused:
-                paint.fill = GetSysColor(COLOR_HIGHLIGHT);
-                paint.hasFill = true;
-                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                break;
-            case UiVisualState::Hover:
-            case UiVisualState::Pressed:
-                paint.fill = GetSysColor(COLOR_MENUHILIGHT);
-                paint.hasFill = true;
-                paint.text = GetSysColor(COLOR_HIGHLIGHTTEXT);
-                break;
-            case UiVisualState::Disabled:
-                paint.text = GetSysColor(COLOR_GRAYTEXT);
-                break;
-            case UiVisualState::Focused:
-                paint.ring = GetSysColor(COLOR_WINDOWTEXT);
-                paint.hasRing = true;
-                break;
-            default:
-                break;
-        }
-        return paint;
+    paint.text = ToColorRef(shared.text);
+    if (shared.hasFill) {
+        paint.fill = highContrast ? ToColorRef(shared.fill) : CompositeOver(shared.fill, background);
+        paint.hasFill = true;
     }
-    switch (state) {
-        case UiVisualState::Hover:
-            paint.fill = CompositeOver(theme.hoverOverlay, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::Pressed:
-            // Pressed is immediately stronger than hover.
-            paint.fill = CompositeOver(theme.pressOverlay, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::SelectedUnfocused:
-            // Active-destination treatment: soft fill + accent leading bar,
-            // quieter than the accent-filled selection used for files.
-            paint.fill = CompositeOver(theme.selectionSoft, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::SelectedFocused:
-            paint.fill = ToColorRef(theme.accent);
-            paint.hasFill = true;
-            paint.text = ToColorRef(theme.textOnAccent);
-            break;
-        case UiVisualState::Disabled:
-            paint.text = ToColorRef(theme.textDisabled);
-            break;
-        case UiVisualState::Focused:
-            paint.ring = ToColorRef(theme.focusStroke);
-            paint.hasRing = true;
-            break;
-        case UiVisualState::DropTarget:
-            paint.fill = CompositeOver(theme.selectionSoft, background);
-            paint.hasFill = true;
-            break;
-        case UiVisualState::Busy:
-        case UiVisualState::Rest:
-            break;
+    if (shared.hasRing) {
+        paint.ring = ToColorRef(shared.ring);
+        paint.hasRing = true;
     }
     return paint;
 }

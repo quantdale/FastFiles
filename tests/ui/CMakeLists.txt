@@ -41,6 +41,14 @@ add_executable(ffchrome_layout_tests test_chrome_layout.cpp)
 target_include_directories(ffchrome_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffchrome_layout_tests COMMAND ffchrome_layout_tests)
 
+# ui-overhaul phase 11: the one shared semantic state->color resolver consumed
+# by browse rows, the sidebar, and the search list. Header-only (theme tokens +
+# system colors); links user32 for GetSysColor and d2d1 for the color types.
+add_executable(ffui_state_palette_tests test_ui_state_palette.cpp)
+target_include_directories(ffui_state_palette_tests PRIVATE ../../src/ui/src ../../src/ui/include)
+target_link_libraries(ffui_state_palette_tests PRIVATE user32 d2d1)
+add_test(NAME ffui_state_palette_tests COMMAND ffui_state_palette_tests)
+
 add_executable(ffshell_layout_tests test_shell_layout.cpp)
 target_include_directories(ffshell_layout_tests PRIVATE ../../src/ui/include)
 add_test(NAME ffshell_layout_tests COMMAND ffshell_layout_tests)

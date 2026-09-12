@@ -18,6 +18,7 @@
 #include <wrl/client.h>
 
 #include "UITheme.h"
+#include "UiStatePalette.h"
 #include "UiStyle.h"
 
 namespace ffui {
@@ -37,57 +38,19 @@ struct UiRowPalette {
 };
 
 inline UiRowPalette ResolveUiRowPalette(const UiTheme& theme, UiVisualState state, bool highContrast) {
-    UiRowPalette p{/*fill=*/D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f),
-                   /*stroke=*/D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f), /*text=*/theme.text};
-    if (highContrast) {
-        // Accessibility fallback: system highlight/menu colors, never token
-        // overlays, so the user's contrast scheme always wins.
-        switch (state) {
-            case UiVisualState::SelectedFocused:
-            case UiVisualState::SelectedUnfocused:
-                p.fill = ToD2DColor(GetSysColor(COLOR_HIGHLIGHT));
-                p.text = ToD2DColor(GetSysColor(COLOR_HIGHLIGHTTEXT));
-                break;
-            case UiVisualState::Hover:
-            case UiVisualState::Pressed:
-                p.fill = ToD2DColor(GetSysColor(COLOR_MENUHILIGHT));
-                p.text = ToD2DColor(GetSysColor(COLOR_HIGHLIGHTTEXT));
-                break;
-            case UiVisualState::Disabled:
-                p.text = ToD2DColor(GetSysColor(COLOR_GRAYTEXT));
-                break;
-            default:
-                break;
-        }
-        return p;
+    // ui-overhaul phase 11: delegate to the one semantic resolver shared with
+    // the sidebar and search list; this wrapper only adds the Direct2D
+    // drop-target outline (shape + stroke redundancy).
+    const UiStatePalette shared = ResolveUiStatePalette(theme, state, highContrast);
+    UiRowPalette palette{/*fill=*/D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f),
+                         /*stroke=*/D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.0f), /*text=*/shared.text};
+    if (shared.hasFill) {
+        palette.fill = shared.fill;
     }
-    switch (state) {
-        case UiVisualState::Hover:
-            p.fill = theme.hoverOverlay;
-            break;
-        case UiVisualState::Pressed:
-            p.fill = theme.pressOverlay;
-            break;
-        case UiVisualState::SelectedFocused:
-            p.fill = theme.accent;
-            p.text = theme.textOnAccent;
-            break;
-        case UiVisualState::SelectedUnfocused:
-            p.fill = theme.selectionSoft;
-            break;
-        case UiVisualState::Disabled:
-            p.text = theme.textDisabled;
-            break;
-        case UiVisualState::DropTarget:
-            p.fill = theme.selectionSoft;
-            p.stroke = theme.dropTargetStroke;
-            break;
-        case UiVisualState::Busy:
-        case UiVisualState::Focused:
-        case UiVisualState::Rest:
-            break;
+    if (!highContrast && state == UiVisualState::DropTarget) {
+        palette.stroke = theme.dropTargetStroke;
     }
-    return p;
+    return palette;
 }
 
 // Small fixed-slot brush cache so composite helpers avoid per-frame brush
