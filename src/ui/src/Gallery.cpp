@@ -54,14 +54,22 @@ std::vector<GallerySection> GallerySections() {
         {L"Data Rows & Selection", L"Data rows with tokenized selection, soft selection, and keyboard focus.", {L"Rest", L"Hover", L"Selected Focused", L"Selected Unfocused"}},
         {L"Drop Target Affordance", L"Shape and stroke affordance for drag-and-drop targets.", {L"Drop Target"}},
         {L"State Panels & Placeholders", L"Centered empty, loading, or error presentation with actionable recovery.", {L"Empty State"}},
+        // ui-overhaul phase 12: extended coverage so every shared command/state
+        // component can be reviewed deterministically without launching the
+        // product surfaces.
+        {L"Icon Buttons & Focus", L"Command-family squares with an independent keyboard focus ring.", {L"Rest", L"Hover", L"Pressed", L"Focus", L"Disabled"}},
+        {L"Tabs, Breadcrumb & Fields", L"Tab pills, breadcrumb segments, and the address/search field wells.", {L"Active Tab", L"Inactive Tab", L"Breadcrumb", L"Field"}},
+        {L"Section Headers & Dividers", L"Section title + count hint over a quiet hairline divider.", {L"Section", L"Divider"}},
     };
 }
 
 std::vector<GallerySizeVariant> GallerySizeVariants() {
+    // ui-overhaul phase 12: the single-column narrow variant stacks all ten
+    // sections, so it needs a taller canvas than the two-column variants.
     return {
-        {L"Narrow (800px)", 800.0f, 720.0f},
-        {L"Normal (1280px)", 1280.0f, 800.0f},
-        {L"Wide (1600px)", 1600.0f, 800.0f},
+        {L"Narrow (800px)", 800.0f, 1120.0f},
+        {L"Normal (1280px)", 1280.0f, 900.0f},
+        {L"Wide (1600px)", 1600.0f, 900.0f},
     };
 }
 
@@ -290,6 +298,116 @@ void RenderGallery(ID2D1DeviceContext* context, ID2D1SolidColorBrush* textBrush,
         y2 += panelH + sectionGap;
     }
 
+    // 8. Icon Buttons & Focus (ui-overhaul phase 12)
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"Icon Buttons & Focus", bodyFormat, tRect, textBrush);
+        y2 += 26.0f;
+
+        const float btn = 30.0f;
+        const float stride = 56.0f;
+        const UiVisualState states[] = {UiVisualState::Rest, UiVisualState::Hover, UiVisualState::Pressed,
+                                        UiVisualState::Focused, UiVisualState::Disabled};
+        const wchar_t* stateLabels[] = {L"Rest", L"Hover", L"Pressed", L"Focus", L"Disabled"};
+        float bx = col2Left;
+        for (int i = 0; i < 5; ++i) {
+            const D2D1_RECT_F rect = D2D1::RectF(bx, y2, bx + btn, y2 + btn);
+            const UiVisualState fillState = states[i] == UiVisualState::Focused ? UiVisualState::Hover : states[i];
+            const UiRowPalette palette = ResolveUiRowPalette(theme, fillState, highContrast);
+            DrawUiStateFill(context, rect, palette, UiMetrics::kRadiusSmall, &brushes);
+            ID2D1Brush* glyph = textBrush;
+            if (states[i] == UiVisualState::Disabled) {
+                if (SUCCEEDED(UiEnsureSolidBrush(context,
+                        highContrast ? ToD2DColor(GetSysColor(COLOR_GRAYTEXT)) : theme.textDisabled,
+                        &brushes.text))) {
+                    glyph = brushes.text.Get();
+                }
+            } else if (SUCCEEDED(UiEnsureSolidBrush(context, theme.text, &brushes.text))) {
+                glyph = brushes.text.Get();
+            }
+            UiDrawTextCentered(context, bodyFormat, L"\u203A", rect, glyph);
+            if (states[i] == UiVisualState::Focused) {
+                DrawUiFocusIndicator(context, rect, theme, highContrast, UiMetrics::kRadiusSmall, &brushes);
+            }
+            DrawGalleryText(context, stateLabels[i], captionFormat ? captionFormat : bodyFormat,
+                            D2D1::RectF(bx - 4.0f, y2 + btn + 2.0f, bx + stride, y2 + btn + 18.0f), textBrush);
+            bx += stride;
+        }
+        y2 += btn + 24.0f + sectionGap;
+    }
+
+    // 9. Tabs, breadcrumb, and fields (ui-overhaul phase 12)
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"Tabs, Breadcrumb & Fields", bodyFormat, tRect, textBrush);
+        y2 += 26.0f;
+
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> secBrush;
+        context->CreateSolidColorBrush(theme.textSecondary, &secBrush);
+        // Active tab: subtle lift plus the accent underline; inactive tab is
+        // background with secondary text so the pair reads at a glance.
+        const D2D1_RECT_F activeTab = D2D1::RectF(col2Left, y2, col2Left + 176.0f, y2 + 30.0f);
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.surfaceSubtle, &brushes.fill))) {
+            UiFillRoundedRect(context, activeTab, brushes.fill.Get(), UiMetrics::kRadiusMedium);
+        }
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.accent, &brushes.stroke))) {
+            UiFillRoundedRect(context, D2D1::RectF(activeTab.left + 8.0f, activeTab.bottom - 3.0f,
+                                                   activeTab.right - 8.0f, activeTab.bottom - 1.0f),
+                              brushes.stroke.Get(), 1.0f);
+        }
+        UiDrawTextCentered(context, bodyFormat, L"1: Documents", activeTab, textBrush);
+        const D2D1_RECT_F inactiveTab = D2D1::RectF(activeTab.right + 6.0f, y2, activeTab.right + 166.0f, y2 + 30.0f);
+        UiDrawTextCentered(context, bodyFormat, L"2: Downloads", inactiveTab,
+                           secBrush ? secBrush.Get() : textBrush);
+        y2 += 38.0f;
+
+        // Breadcrumb: quiet ancestors in accent, the current location in text,
+        // then the address/search field well with its focus stroke.
+        float crumbX = col2Left;
+        const auto drawCrumb = [&](const wchar_t* text, ID2D1Brush* brush) {
+            const float width = static_cast<float>(wcslen(text)) * 7.2f + 8.0f;
+            UiDrawTextCentered(context, bodyFormat, text,
+                               D2D1::RectF(crumbX, y2, crumbX + width, y2 + 24.0f), brush);
+            crumbX += width;
+        };
+        ID2D1Brush* accentBrush = textBrush;
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.accent, &brushes.stroke))) accentBrush = brushes.stroke.Get();
+        drawCrumb(L"This PC", accentBrush);
+        drawCrumb(L"\u203A", secBrush ? secBrush.Get() : textBrush);
+        drawCrumb(L"Documents", textBrush);
+        const D2D1_RECT_F field = D2D1::RectF(col2Left + 300.0f, y2, col2Right, y2 + 28.0f);
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.surfaceElevated, &brushes.fill))) {
+            UiFillRoundedRect(context, field, brushes.fill.Get(), UiMetrics::kRadiusField);
+        }
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.focusStroke, &brushes.text))) {
+            UiDrawRoundedRect(context, field, brushes.text.Get(), UiMetrics::kRadiusField, 1.0f);
+        }
+        UiDrawTextAt(context, bodyFormat, L"Search browsed folders", field.left + 10.0f, field.top,
+                     field.bottom, secBrush ? secBrush.Get() : textBrush);
+        y2 += 36.0f + sectionGap;
+    }
+
+    // 10. Section headers and dividers (ui-overhaul phase 12)
+    {
+        D2D1_RECT_F tRect = D2D1::RectF(col2Left, y2, col2Right, y2 + 22.0f);
+        DrawGalleryText(context, L"Section Headers & Dividers", bodyFormat, tRect, textBrush);
+        y2 += 28.0f;
+        DrawGalleryText(context, L"Recent folders", titleFormat,
+                        D2D1::RectF(col2Left, y2, col2Right, y2 + 26.0f), textBrush);
+        Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> hintBrush;
+        context->CreateSolidColorBrush(theme.textSecondary, &hintBrush);
+        if (captionFormat) {
+            DrawGalleryText(context, L"12 items", captionFormat,
+                            D2D1::RectF(col2Left, y2 + 24.0f, col2Right, y2 + 40.0f),
+                            hintBrush ? hintBrush.Get() : textBrush);
+        }
+        if (SUCCEEDED(UiEnsureSolidBrush(context, theme.dividerSubtle, &brushes.stroke))) {
+            context->DrawLine(D2D1::Point2F(col2Left, y2 + 46.0f),
+                              D2D1::Point2F(col2Right, y2 + 46.0f), brushes.stroke.Get(), 1.0f);
+        }
+        y2 += 56.0f + sectionGap;
+    }
+
     // Footer note
     const float maxY = std::max(y1, y2);
     if (captionFormat && maxY + 20.0f < clientRect.bottom) {
@@ -340,6 +458,13 @@ int GalleryHitTest(D2D1_POINT_2F point, const D2D1_RECT_F& clientRect) {
         if (point.y >= y && point.y < y + 80.0f) return 5; // Drop target
         y += 80.0f + 16.0f;
         if (point.y >= y && point.y < y + 90.0f) return 6; // State panel
+        // ui-overhaul phase 12 extended sections follow in the same column.
+        y += 90.0f + 16.0f;
+        if (point.y >= y && point.y < y + 80.0f) return 7; // Icon buttons & focus
+        y += 80.0f + 16.0f;
+        if (point.y >= y && point.y < y + 80.0f) return 8; // Tabs/breadcrumb/fields
+        y += 80.0f + 16.0f;
+        if (point.y >= y && point.y < y + 60.0f) return 9; // Section headers
     }
 
     return -1;

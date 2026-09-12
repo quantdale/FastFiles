@@ -8,7 +8,7 @@ namespace {
 
 void TestGallerySections() {
     auto sections = ffui::GallerySections();
-    fftest::Check(sections.size() >= 7, "gallery exposes at least 7 component sections");
+    fftest::Check(sections.size() >= 10, "gallery exposes at least 10 component sections");
 
     bool hasButtons = false;
     bool hasChips = false;
@@ -17,19 +17,25 @@ void TestGallerySections() {
     bool hasRows = false;
     bool hasDrop = false;
     bool hasPanel = false;
+    bool hasIconButtons = false;
+    bool hasTabs = false;
+    bool hasSectionHeaders = false;
 
     for (const auto& sec : sections) {
         fftest::Check(!sec.title.empty(), "gallery section has a title");
         fftest::Check(!sec.description.empty(), "gallery section has a description");
         fftest::Check(!sec.states.empty(), "gallery section lists states");
 
-        if (sec.title.find(L"Buttons") != std::wstring::npos) hasButtons = true;
+        if (sec.title.find(L"Buttons") != std::wstring::npos && sec.title.find(L"Icon") == std::wstring::npos) hasButtons = true;
         if (sec.title.find(L"Chips") != std::wstring::npos) hasChips = true;
         if (sec.title.find(L"Navigation") != std::wstring::npos) hasNav = true;
         if (sec.title.find(L"Progress") != std::wstring::npos) hasProgress = true;
         if (sec.title.find(L"Rows") != std::wstring::npos) hasRows = true;
         if (sec.title.find(L"Drop") != std::wstring::npos) hasDrop = true;
         if (sec.title.find(L"Panel") != std::wstring::npos) hasPanel = true;
+        if (sec.title.find(L"Icon Buttons") != std::wstring::npos) hasIconButtons = true;
+        if (sec.title.find(L"Tabs") != std::wstring::npos) hasTabs = true;
+        if (sec.title.find(L"Section Headers") != std::wstring::npos) hasSectionHeaders = true;
     }
 
     fftest::Check(hasButtons, "gallery covers buttons");
@@ -39,6 +45,9 @@ void TestGallerySections() {
     fftest::Check(hasRows, "gallery covers rows and selection");
     fftest::Check(hasDrop, "gallery covers drop target");
     fftest::Check(hasPanel, "gallery covers state panels");
+    fftest::Check(hasIconButtons, "gallery covers the icon-button family and focus states");
+    fftest::Check(hasTabs, "gallery covers tabs, breadcrumb, and fields");
+    fftest::Check(hasSectionHeaders, "gallery covers section headers and dividers");
 }
 
 void TestGallerySizeVariants() {

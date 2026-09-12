@@ -1513,8 +1513,9 @@ void WindowShell::Render() {
     // underneath their native children; it would create a stale overlapping
     // strip at the bottom of their lists.
     // quick-access-home 5.4: Home has no selection, so the details card must
-    // not draw over it.
-    if (!searchPanel_.Visible() && !storageAnalysis_.Visible() &&
+    // not draw over it. ui-overhaul phase 12: the debug component gallery owns
+    // the whole workspace and must not be overlaid by the details surface.
+    if (!searchPanel_.Visible() && !storageAnalysis_.Visible() && !galleryMode_ &&
         !navigationWorkspace_.ActiveContext().isHomeLocation) {
         RenderDetails(context, detailsLayout);
     }
