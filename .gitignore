@@ -27,3 +27,7 @@ all-edit-with-results-*.md
 
 # Scratch wrappers for agent-local MSVC/ctest invocation
 .tmp-ff/
+
+# WorkBuddy agent workspace: per-session memory and logs. Machine-local session
+# state describing a specific agent run, not project source — never checked in.
+.workbuddy-ai/
