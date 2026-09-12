@@ -103,7 +103,7 @@ void DrawReplaceButton(const DRAWITEMSTRUCT* item) {
                                                      : ToColorRef(theme.focusStroke));
         if (frame) {
             HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(dc, frame));
-            const int radius = ScaleInt(6);
+            const int radius = ScaleInt(static_cast<int>(UiMetrics::kRadiusField));
             HRGN region = CreateRoundRectRgn(ring.left, ring.top, ring.right, ring.bottom,
                                              radius * 2, radius * 2);
             if (region) {
@@ -194,10 +194,12 @@ ConflictDecision ShowConflictDialog(HWND owner, const std::wstring& source, cons
     }
     if (!registered) return {};
 
-    HFONT bodyFont = CreateFontW(-ScaleInt(14), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // ui-v3: sizes come from the product type ramp, not literals, so this
+    // dialog cannot drift from the shared typography scale.
+    HFONT bodyFont = CreateFontW(-ScaleInt(static_cast<int>(UiTypeSize(UiTypeRole::Body))), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                  DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                  CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-    HFONT captionFont = CreateFontW(-ScaleInt(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    HFONT captionFont = CreateFontW(-ScaleInt(static_cast<int>(UiTypeSize(UiTypeRole::Caption))), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                                     DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                                     CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
 

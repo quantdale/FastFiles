@@ -133,7 +133,10 @@ bool NavigationChrome::Initialize(HWND owner, NavigationWorkspace* workspace, Na
     if (!back_ || !forward_ || !up_ || !drives_ || !search_ || !settings_ || !newTab_ || !addressEdit_) return false;
     darkTheme_ = gUiDarkTheme;
     UpdateChromeBrush();
-    mdl2Font_ = CreateFontW(-static_cast<int>(UiScale(14.0f)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+    // ui-v3 shell: the MDL2 glyph face tracks the body ramp size (as
+    // NavigationSidebar's glyph font does) rather than carrying a bare
+    // literal that can drift from the type scale.
+    mdl2Font_ = CreateFontW(-static_cast<int>(UiScale(UiMetrics::kFontSizeBody)), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
                             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
                             CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe MDL2 Assets");
     // ui-v3 shell: breadcrumbs and the address field use the product type ramp
