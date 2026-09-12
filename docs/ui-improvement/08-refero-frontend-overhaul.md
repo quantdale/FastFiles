@@ -294,17 +294,27 @@ Acceptance:
 5. **Details information hierarchy (wave 5)** — `WindowShell::RenderDetails` renders item title, type/size summary, high-value metadata rows, wrapped secondary path, and a quiet extension/attributes caption, with deliberate empty and multi-selection states instead of a property dump.
 6. **Honest state surfaces** — the treemap collapses zero-size scopes to centered state text; Home recent folders render as name + path cards; settings checkboxes join the dark visual style in dark mode.
 7. **Design-system regression surface** — the debug component gallery exposes ten sections including icon-button focus states, tab/breadcrumb/field chrome, and section headers; it is excluded from the details-pane overlay.
+8. **One shared state grammar** — `src/ui/src/UiStatePalette.h` resolves hover/pressed/focused/selected/disabled/drop-target (and High Contrast system fallbacks) once for browse rows, the sidebar, and the search list; `test_ui_state_palette.cpp` pins it.
+9. **Trustworthy operation feedback** — queued/active/progress/completion/cancellation/failure ride the window title, the non-modal status line, and a canonical indeterminate band before the first percentage.
+10. **Navigation and state polish** — deep startup locations reveal their leaf column; long names/paths trim with a real ellipsis; cut items ghost until paste; the engine-status banner is a content-sized chip; the collapsed details rail is an interactive disclosure.
+11. **Structured settings rows** — the General page groups rows under section headers with aligned controls and muted helper text.
 
 These changes deliberately alter presentation and space allocation only; navigation, indexing, search semantics, file operations, UIA identity, and engine behavior remain untouched.
 
-## Session record — 2026-09-12 (waves 1 continued, 2, 5, 7, 9, 10, 12)
+## Session record — 2026-09-12 (all waves advanced)
 
-The branch advanced from the previous four-commit tip through three pushed slices on `feat/refero-frontend-overhaul` (PR #8):
+The branch advanced from the previous four-commit tip through nine pushed slices on `feat/refero-frontend-overhaul` (PR #8):
 
 - `6803650` — chrome layout policy + details hierarchy + stale shell-layout test alignment;
 - `507349c` — treemap empty state, dark-mode checkboxes, two-line recent folders;
-- `3f0aa13` — component gallery expansion and gallery overlay exclusion.
+- `3f0aa13` — component gallery expansion and gallery overlay exclusion;
+- `327b725` — deep-startup leaf reveal + long-name/path ellipsis trimming;
+- `0514207` — content-sized engine chip + interactive details rail;
+- `160cbf5` — palette shortcut reservation + no-match row;
+- `eeaea38` — shared semantic state palette (`UiStatePalette.h`) + operation completion/cancel/failure notices and indeterminate progress;
+- `96f3f2a` — settings section headers, helper text, and dark checkbox labels;
+- `4b7ef8b` — cut-item ghosting with a pure join/match seam.
 
-Validation: Debug CTest 102/102 after every slice; focused `ffchrome_layout_tests` / `fvgallery_tests` / `ffshell_layout_tests` / `ffdoc_drift_tests` green; live captures through the sandboxed `build/ffvisual.ps1` probe at 620/800/900/1280/1600 widths in light and dark.
+Validation: **Debug CTest 103/103 and release-test CTest 103/103 on `4b7ef8b`**; focused `ffchrome_layout_tests`, `ffui_state_palette_tests`, `ffgallery_tests`, `ffsettings_pages_tests`, `ffcolumn_hit_test_tests`, `ffshell_layout_tests`, `ffdoc_drift_tests` green; visual catalog 15/15 semantic scenarios (dual-pane and command-palette included); live PrintWindow captures at 620/800/900/1280/1600 widths in light and dark across Home, browse (normal/deep/long-name/empty/denied), details open/rail, search idle/results/no-results, storage overview/treemap, settings, gallery, and the collapsed sidebar rail.
 
-Remaining: wave 4 search/command polish, wave 5 operations/conflict surfaces, wave 6 storage/settings rows, wave 7 release validation; release-test CTest pending at session end.
+External-only evidence: command-palette and live cut-ghost screenshots (foreground keyboard input is refused on this host — palette semantics are covered by the catalog scenario and the cut matching by `ffcolumn_hit_test_tests`), plus 125/150/200% DPI and High Contrast live captures (host exposes 96 DPI and a fixed scheme).
