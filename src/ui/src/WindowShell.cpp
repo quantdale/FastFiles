@@ -1400,16 +1400,16 @@ void WindowShell::SyncCutGhost() {
     // ui-overhaul phase 3: the browse surface ghosts its own cut selection until
     // the move is pasted. An external clipboard publication (different sequence
     // number) supersedes the app-local cut intent, so the ghost clears with it.
+    // A copy/cut keyboard command changes no other visible state, so the ghost
+    // transition itself must schedule the repaint; otherwise the dimmed rows
+    // and dimmed icon would stay stale until the next unrelated invalidation.
     bool ghost = clipboardIsCut_ && !clipboardPaths_.empty();
     if (ghost && clipboardSequenceNumber_ != 0 &&
         GetClipboardSequenceNumber() != clipboardSequenceNumber_) {
         ghost = false;
     }
-    if (ghost) {
-        columnView_.SetCutPaths(clipboardPaths_);
-    } else {
-        columnView_.SetCutPaths({});
-    }
+    const bool changed = ghost ? columnView_.SetCutPaths(clipboardPaths_) : columnView_.SetCutPaths({});
+    if (changed) RequestRepaint();
 }
 
 void WindowShell::UpdatePreviewLimitMenuChecks() {
@@ -2316,6 +2316,15 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
         case WM_TIMER:
             if (wParam == kWorkspaceSaveTimer) {
                 navigationWorkspace_.FlushState();
+                // Transient status/operation notices carry a wall-clock deadline;
+                // without a repaint at expiry the text would linger on screen
+                // until the next unrelated invalidation. This timer already
+                // ticks at 500 ms, so piggyback instead of adding a new timer.
+                if (!statusNotice_.empty() && GetTickCount64() >= statusNoticeUntilMs_) {
+                    statusNotice_.clear();
+                    statusNoticeUntilMs_ = 0;
+                    RequestRepaint();
+                }
                 return 0;
             }
             if (wParam == kUiScrollAnimTimer) {

@@ -75,6 +75,28 @@ void TestShortcutsAndPalette() {
     Check(registry.Find(L"navigation.toggle-column-view") != nullptr &&
               registry.Find(L"navigation.toggle-column-view")->displayName == L"Toggle Dual Pane",
           "legacy toggle-column-view id is an honest dual-pane alias");
+    {
+        // ui-overhaul: the retained legacy alias must not duplicate the
+        // canonical palette row, while staying invocable for persisted
+        // shortcut bindings that still reference it.
+        const auto dualRows = ffui::SearchCommands(registry, shortcuts, {ffui::SelectionKind::Empty, false}, L"dual pane");
+        int dualPaneRows = 0;
+        const ffui::CommandDescriptor* listedDual = nullptr;
+        for (const auto& row : dualRows) {
+            if (row.command->displayName == L"Toggle Dual Pane") {
+                ++dualPaneRows;
+                listedDual = row.command;
+            }
+        }
+        Check(dualPaneRows == 1, "the palette lists exactly one Toggle Dual Pane row");
+        Check(listedDual != nullptr && listedDual->commandId == L"navigation.toggle-dual-pane",
+              "the listed dual-pane row is the canonical command id");
+        const int invocationsBeforeAlias = invocations;
+        Check(registry.Invoke(L"navigation.toggle-column-view", {ffui::SelectionKind::Empty, false}, {}),
+              "the legacy alias stays invocable by id");
+        Check(invocations == invocationsBeforeAlias + 1,
+              "invoking the legacy alias dispatches its handler exactly once");
+    }
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, false) == ffui::RebindResult::Conflict,
           "conflicting rebind is rejected");
     Check(shortcuts.Rebind(L"navigation.refresh", {'C', ffui::ModifierControl}, true) == ffui::RebindResult::Applied,

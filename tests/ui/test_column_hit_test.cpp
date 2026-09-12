@@ -118,6 +118,22 @@ int main() {
         ffui::AppendColumnItemPath(joined, L"D:\\", L"folder");
         Check(ffui::PathIsInCutSet(cutPaths, joined), "drive-root joins match the cut set");
         Check(!ffui::PathIsInCutSet({}, joined), "an empty cut set never ghosts a row");
+
+        // The repaint decision rides the same pure contract: repeated copies of
+        // the same selection must not repaint, and any real membership delta
+        // must.
+        const std::set<std::wstring> current{L"C:\\dir\\cut.txt", L"D:\\folder"};
+        Check(!ffui::CutPathSetChanged(current, {L"C:\\dir\\cut.txt", L"D:\\folder"}),
+              "an identical cut set is not a change");
+        Check(!ffui::CutPathSetChanged(current, {L"C:\\dir\\cut.txt", L"D:\\folder", L""}),
+              "empty entries do not fabricate a change");
+        Check(!ffui::CutPathSetChanged(current, {L"D:\\folder", L"C:\\dir\\cut.txt", L"D:\\folder"}),
+              "duplicate and reordered entries are not a change");
+        Check(ffui::CutPathSetChanged(current, {L"C:\\dir\\cut.txt"}), "a removal is a change");
+        Check(ffui::CutPathSetChanged(current, {L"C:\\dir\\cut.txt", L"D:\\folder", L"E:\\new.txt"}),
+              "an addition is a change");
+        Check(ffui::CutPathSetChanged({}, {L"C:\\dir\\cut.txt"}), "empty to populated is a change");
+        Check(!ffui::CutPathSetChanged({}, {}), "empty to empty is not a change");
     }
 
     // selection-model-interactions click fix: dual-pane pane-1 round trip.

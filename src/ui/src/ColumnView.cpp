@@ -641,15 +641,19 @@ void ColumnView::OnMouseDown(D2D1_POINT_2F clientPoint, float scrollOffset, floa
     ActivateItem(hit.columnIndex, hit.itemIndex, control, shift);
 }
 
-void ColumnView::SetCutPaths(std::vector<std::wstring> paths) {
+bool ColumnView::SetCutPaths(std::vector<std::wstring> paths) {
     // ui-overhaul phase 3: presentation-only cut ghost state. Paths are
     // canonical filesystem paths (same lineage as the column/selection paths),
-    // so a direct string match decides the ghosted treatment.
+    // so a direct string match decides the ghosted treatment. Returns true when
+    // the effective set changed so the caller can schedule the repaint that
+    // makes keyboard cut/copy feedback immediate.
     std::lock_guard<std::mutex> lock(columnsMutex_);
+    if (!CutPathSetChanged(cutPathSet_, paths)) return false;
     cutPathSet_.clear();
     for (auto& path : paths) {
         if (!path.empty()) cutPathSet_.insert(std::move(path));
     }
+    return true;
 }
 
 void ColumnView::SetIconCache(IconCache* iconCache) {

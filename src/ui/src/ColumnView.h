@@ -107,6 +107,20 @@ inline bool PathIsInCutSet(const std::set<std::wstring>& cutPaths, const std::ws
     return !cutPaths.empty() && !joinedPath.empty() && cutPaths.find(joinedPath) != cutPaths.end();
 }
 
+// ui-overhaul phase 3: the cut-ghost state feeds the repaint decision, so
+// "did the effective set change" is a pure contract: empty strings never
+// enter the set, duplicates collapse, and only a real membership or size
+// delta is a change. Callers use this to repaint exactly when cut/copy
+// feedback actually changes.
+inline bool CutPathSetChanged(const std::set<std::wstring>& current,
+                              const std::vector<std::wstring>& next) {
+    std::set<std::wstring> candidate;
+    for (const auto& path : next) {
+        if (!path.empty()) candidate.insert(path);
+    }
+    return candidate != current;
+}
+
 inline std::vector<std::wstring> BuildNavigationPathChain(const std::wstring& path) {
     std::vector<std::wstring> result;
     if (path.starts_with(L"\\\\?\\") && path.size() >= 7 &&
@@ -242,8 +256,8 @@ public:
     // ghosted (dimmed) until the move is pasted or the clipboard changes,
     // matching the file-manager grammar for an in-flight cut. Pass an empty
     // list to clear. Presentation-only: selection identity and operations are
-    // unchanged.
-    void SetCutPaths(std::vector<std::wstring> paths);
+    // unchanged. Returns true when the effective set changed.
+    bool SetCutPaths(std::vector<std::wstring> paths);
     void SetRepaintCallback(std::function<void()> repaint);
     // selection-input-hardening: invoked when Enter is pressed over a focused
     // NON-DIRECTORY. The shell wires this to the `item.open` command path

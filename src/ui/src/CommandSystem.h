@@ -91,6 +91,10 @@ struct CommandDescriptor {
     // Never consulted by Invoke(); the applicability mask and enabledPredicate
     // remain the sole semantic gates.
     std::wstring disabledReason;
+    // ui-overhaul: legacy ids retained for persisted shortcut bindings stay
+    // invocable and resolvable by id, but must not surface as a second palette
+    // row under a display name a newer id already owns.
+    bool paletteHidden = false;
 };
 
 class CommandRegistry {

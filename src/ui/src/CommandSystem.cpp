@@ -30,10 +30,11 @@ CommandHandler Resolve(const BaselineHandlers& handlers, const wchar_t* id) {
 bool RegisterOne(CommandRegistry& registry, const BaselineHandlers& handlers, const wchar_t* id,
                  const wchar_t* name, const wchar_t* category, SelectionApplicability applicability,
                  ShortcutScope scope, std::optional<KeyChord> shortcut = std::nullopt,
-                 EnabledPredicate predicate = {}, const wchar_t* disabledReason = nullptr) {
+                 EnabledPredicate predicate = {}, const wchar_t* disabledReason = nullptr,
+                 bool paletteHidden = false) {
     return registry.Register({id, name, category, shortcut, applicability, scope,
                               std::move(predicate), Resolve(handlers, id),
-                              disabledReason != nullptr ? disabledReason : L""});
+                              disabledReason != nullptr ? disabledReason : L"", paletteHidden});
 }
 
 std::wstring Lower(std::wstring value) {
@@ -247,8 +248,10 @@ bool RegisterNavigationCommands(CommandRegistry& registry, const BaselineHandler
     ok = RegisterOne(registry, handlers, L"navigation.reopen-tab", L"Reopen Closed Tab", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'T', static_cast<uint8_t>(ModifierControl | ModifierShift)}) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.add-bookmark", L"Add to Bookmarks", L"Navigation", kAnySelection, ShortcutScope::Global, KeyChord{'D', ModifierControl}) && ok;
     // FastFiles' browse surface is always Column View. This id is retained as a
-    // dual-pane alias so persisted shortcut customizations keep working.
-    ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
+    // dual-pane alias so persisted shortcut customizations keep working; the
+    // palette lists the canonical id only, so it never shows two identical
+    // 'Toggle Dual Pane' rows.
+    ok = RegisterOne(registry, handlers, L"navigation.toggle-column-view", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global, std::nullopt, {}, nullptr, true) && ok;
     ok = RegisterOne(registry, handlers, L"navigation.toggle-dual-pane", L"Toggle Dual Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"view.toggle-details-pane", L"Toggle Details Pane", L"View", kAnySelection, ShortcutScope::Global) && ok;
     ok = RegisterOne(registry, handlers, L"selection.select-all", L"Select All", L"Selection", kAnySelection, ShortcutScope::ActiveView, KeyChord{'A', ModifierControl}) && ok;
@@ -557,6 +560,9 @@ std::vector<PaletteResult> SearchCommands(const CommandRegistry& registry, const
                                           const CommandContext& context, const std::wstring& query) {
     std::vector<PaletteResult> result;
     for (const auto& command : registry.Commands()) {
+        // Legacy alias ids stay invocable (Find/Invoke/shortcut dispatch) but
+        // do not duplicate their canonical command's palette row.
+        if (command.paletteHidden) continue;
         const int score = FuzzyScore(command.displayName, query);
         if (score < 0) continue;
         const bool applicable = (command.applicability & AppliesTo(context.selectionKind)) != 0;
