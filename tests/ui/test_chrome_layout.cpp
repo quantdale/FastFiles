@@ -83,6 +83,46 @@ void TestLocationAndSearchReservation() {
           "degenerate widths keep the collapsed search inside the client");
 }
 
+void TestLocationRowErrorSlot() {
+    const auto layout = ffui::ComputeChromeLayout(1000.0f, 1, 0);
+    const ffui::ChromeBand band = ffui::ChromeLocationBand(layout);
+
+    const ffui::ChromeLocationRow clean = ffui::ComputeChromeLocationRow(layout, 0.0f);
+    Check(!clean.hasError, "no error text means no reserved error slot");
+    Check(NearlyEqual(clean.field.left, layout.addressLeft) &&
+              NearlyEqual(clean.field.right(), layout.addressRight),
+          "without an error the address field owns the whole location row");
+    Check(NearlyEqual(clean.field.top, band.top) && NearlyEqual(clean.field.bottom(), band.bottom),
+          "without an error the address field fills the location band");
+
+    const ffui::ChromeLocationRow error = ffui::ComputeChromeLocationRow(layout, 160.0f);
+    Check(error.hasError, "a measured error text reserves a slot");
+    Check(error.field.right() <= error.error.left + 0.001f,
+          "the address field and the error slot never overlap");
+    Check(NearlyEqual(error.error.right(), layout.addressRight),
+          "the error slot is right-aligned against the search affordance");
+    Check(NearlyEqual(error.error.top, band.top) && NearlyEqual(error.error.bottom(), band.bottom),
+          "the error slot shares the location band so it cannot be clipped");
+    Check(NearlyEqual(error.field.Width() + error.error.Width(),
+                      layout.addressRight - layout.addressLeft),
+          "field and slot partition the location row exactly");
+
+    const float addressWidth = layout.addressRight - layout.addressLeft;
+    const ffui::ChromeLocationRow clamped =
+        ffui::ComputeChromeLocationRow(layout, addressWidth * 4.0f);
+    Check(clamped.error.Width() <= addressWidth * 0.5f + 0.001f,
+          "an oversized error never takes more than half the location row");
+
+    const auto degenerate = ffui::ComputeChromeLayout(120.0f, 0, 0);
+    const ffui::ChromeLocationRow degenerateRow =
+        ffui::ComputeChromeLocationRow(degenerate, 80.0f);
+    Check(degenerateRow.field.Width() >= 0.0f && degenerateRow.error.Width() >= 0.0f,
+          "degenerate widths never produce negative row geometry");
+    Check(!degenerateRow.hasError ||
+              degenerateRow.field.right() <= degenerateRow.error.left + 0.001f,
+          "degenerate widths still keep field and slot disjoint");
+}
+
 void TestTabWidthPolicy() {
     const auto roomy = ffui::ComputeChromeLayout(1400.0f, 4, 0);
     Check(!roomy.tabs.overflow, "four tabs at 1400 DIP do not overflow");
@@ -202,6 +242,7 @@ int main() {
     TestCommandFamilyGeometry();
     TestLocationAndSearchReservation();
     TestLocationBandInsideChrome();
+    TestLocationRowErrorSlot();
     TestTabWidthPolicy();
     TestTabOverflowWindow();
     TestCompositionInvariants();

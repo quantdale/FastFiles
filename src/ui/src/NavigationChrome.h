@@ -96,6 +96,10 @@ private:
     void NavigateToLocation(const NavigationLocation& location, bool restoreTabState = false);
     void RebuildDrives();
     void DrawBreadcrumbs(HDC dc, const RECT& client);
+    // Width in physical pixels reserved for the address error slot; null borrows
+    // a temporary DC. Identical measurement in Reposition and paint keeps the
+    // edit control and the painted message from disagreeing.
+    int MeasureAddressErrorWidth(HDC dc) const;
     void RebuildTabs();
     void RepositionTabs();
     // ui-overhaul phase 1: the single responsive policy consumed by every

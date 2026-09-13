@@ -95,6 +95,29 @@ inline ChromeBand ChromeLocationBand(const ChromeLayout& layout) {
     return {top, top + layout.search.Height()};
 }
 
+// The location row split into the editable field and an optional right-aligned
+// error slot.  The address edit is a native child that paints its own rect
+// opaquely, so an address error is only readable when it owns a slot the edit
+// does not cover; the error never takes more than half the row.
+struct ChromeLocationRow {
+    ChromeRect field;
+    ChromeRect error;
+    bool hasError = false;
+};
+
+inline ChromeLocationRow ComputeChromeLocationRow(const ChromeLayout& layout, float errorWidthDip) {
+    const ChromeBand band = ChromeLocationBand(layout);
+    const float total = (std::max)(0.0f, layout.addressRight - layout.addressLeft);
+    const float errorWidth = std::clamp(errorWidthDip, 0.0f, total * 0.5f);
+    ChromeLocationRow row;
+    row.hasError = errorWidth > 0.0f;
+    row.field = {layout.addressLeft, band.top, (std::max)(0.0f, total - errorWidth), band.Height()};
+    if (row.hasError) {
+        row.error = {layout.addressRight - errorWidth, band.top, errorWidth, band.Height()};
+    }
+    return row;
+}
+
 inline ChromeLayout ComputeChromeLayout(float clientWidthDip, int tabCount, int activeTabIndex) {
     constexpr float kChromeHeight = 72.0f;
     constexpr float kRowTop = 4.0f;

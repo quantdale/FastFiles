@@ -191,9 +191,13 @@ void NavigationChrome::Reposition() {
     placeSquare(newTab_, layout.newTab);
     placeSquare(overflow_, layout.tabs.overflowButton);
     if (addressEdit_ != nullptr) {
-        SetWindowPos(addressEdit_, HWND_TOP, Scaled(layout.addressLeft), Scaled(layout.search.top),
-                     (std::max)(1, Scaled(layout.addressRight - layout.addressLeft)),
-                     Scaled(layout.search.Height()), SWP_NOACTIVATE);
+        // Address errors get a reserved slot inside the location row that the
+        // opaque edit control does not cover, so the message stays readable.
+        const int errorWidth = editing_ ? MeasureAddressErrorWidth(nullptr) : 0;
+        const ffui::ChromeLocationRow row =
+            ffui::ComputeChromeLocationRow(layout, static_cast<float>(errorWidth) / ffui::UiDpiScale());
+        SetWindowPos(addressEdit_, HWND_TOP, Scaled(row.field.left), Scaled(row.field.top),
+                     (std::max)(1, Scaled(row.field.Width())), Scaled(row.field.Height()), SWP_NOACTIVATE);
     }
     placeSquare(search_, layout.search);
     RepositionTabs();
@@ -228,6 +232,9 @@ void NavigationChrome::BeginAddressEdit() {
     ShowWindow(addressEdit_, SW_SHOW);
     SetFocus(addressEdit_);
     SendMessageW(addressEdit_, EM_SETSEL, 0, -1);
+    // Beginning an edit clears any prior address error, so the row is rebuilt
+    // without a reserved slot before it is painted.
+    Reposition();
     InvalidateRect(window_, nullptr, FALSE);
 }
 
@@ -248,6 +255,10 @@ void NavigationChrome::CommitAddressEdit() {
         SetFocus(AddressEditClosedFocusTarget(owner_, window_));
         return;
     }
+    // An invalid commit keeps the editor open with an error message; the
+    // location row must reserve the message's slot so the opaque edit no
+    // longer covers it.
+    Reposition();
     InvalidateRect(window_, nullptr, FALSE);
     SetFocus(addressEdit_);
     SendMessageW(addressEdit_, EM_SETSEL, 0, -1);
@@ -262,6 +273,8 @@ void NavigationChrome::EndAddressEdit(bool restoreFocus) {
     workspace_->CancelAddressBarEdit();
     editing_ = false;
     ShowWindow(addressEdit_, SW_HIDE);
+    // Reclaim the whole location row: the error slot only exists while editing.
+    Reposition();
     // keyboard-focus-forensics FF-VIS-FOCUS-001: the chrome child has no
     // WM_KEYDOWN routing, so restoring focus to it (instead of the shell
     // owner) leaves keyboard navigation dead after Escape. See the seam
@@ -449,6 +462,21 @@ void NavigationChrome::CloseTab(size_t index) {
     }
 }
 
+int NavigationChrome::MeasureAddressErrorWidth(HDC dc) const {
+    if (!workspace_ || !window_) return 0;
+    const std::wstring& error = workspace_->ActiveContext().addressBarError;
+    if (error.empty()) return 0;
+    HDC measureDc = dc;
+    if (measureDc == nullptr) measureDc = GetDC(window_);
+    if (measureDc == nullptr) return 0;
+    HFONT oldFont = bodyFont_ ? static_cast<HFONT>(SelectObject(measureDc, bodyFont_)) : nullptr;
+    RECT measured{0, 0, 0, 0};
+    DrawTextW(measureDc, error.c_str(), -1, &measured, DT_SINGLELINE | DT_CALCRECT | DT_NOPREFIX);
+    if (oldFont) SelectObject(measureDc, oldFont);
+    if (dc == nullptr) ReleaseDC(window_, measureDc);
+    return static_cast<int>(measured.right - measured.left) + Scaled(12);
+}
+
 void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     breadcrumbRects_.clear();
     breadcrumbIndices_.clear();
@@ -479,7 +507,14 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     const ffui::ChromeBand crumbBand = ffui::ChromeLocationBand(chromeLayout);
     const int crumbTop = Scaled(crumbBand.top);
     const int crumbBottom = crumbTop + Scaled(crumbBand.Height());
+    // ui-overhaul: an address error owns a readable slot at the end of the
+    // location row; the breadcrumb run stops at the slot so they never overlap.
+    const ffui::ChromeLocationRow locationRow = ffui::ComputeChromeLocationRow(
+        chromeLayout, static_cast<float>(MeasureAddressErrorWidth(dc)) / ffui::UiDpiScale());
     int rightLimit = (std::max)(x + Scaled(40), Scaled(chromeLayout.addressRight));
+    if (locationRow.hasError) {
+        rightLimit = (std::max)(x + Scaled(40), Scaled(locationRow.field.right()));
+    }
     std::vector<SegmentLayout> layout;
     layout.reserve(breadcrumbs.size());
     int totalWidth = 0;
@@ -588,7 +623,7 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
         RECT editClient{};
         GetClientRect(addressEdit_, &editClient);
         MapWindowPoints(addressEdit_, window_, reinterpret_cast<POINT*>(&editClient), 2);
-        RECT field{editClient.left - Scaled(4), crumbTop, editClient.right + Scaled(4), crumbBottom};
+    RECT field{editClient.left - Scaled(4), crumbTop, editClient.right + Scaled(4), crumbBottom};
         DrawPill(dc, field,
                  highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceElevated),
                  Scaled(UiMetrics::kRadiusField));
@@ -596,8 +631,10 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
                                          field.bottom - 1, Scaled(UiMetrics::kRadiusField),
                                          Scaled(UiMetrics::kRadiusField));
         if (inside) {
+            const bool hasError = locationRow.hasError;
             HBRUSH frame = CreateSolidBrush(highContrast ? GetSysColor(COLOR_WINDOWTEXT)
-                                                         : ToColorRef(theme.focusStroke));
+                                                         : ToColorRef(hasError ? theme.error
+                                                                               : theme.focusStroke));
             if (frame) {
                 FrameRgn(dc, inside, frame, 1, 1);
                 DeleteObject(frame);
@@ -607,7 +644,10 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     }
 
     if (!workspace_->ActiveContext().addressBarError.empty()) {
-        RECT error{Scaled(chromeLayout.addressLeft), crumbBottom - Scaled(2), rightLimit, crumbBottom + Scaled(12)};
+        // Inside the reserved slot and vertically centred in the location row:
+        // the previous rect sat below the 72-DIP chrome and was clipped.
+        const RECT error{Scaled(locationRow.error.left), crumbTop, Scaled(locationRow.error.right()),
+                         crumbBottom};
         DrawTextSegment(dc, workspace_->ActiveContext().addressBarError, error,
                         highContrast ? GetSysColor(COLOR_HIGHLIGHT) : ToColorRef(theme.error));
     }
