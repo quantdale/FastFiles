@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <memory>
@@ -712,6 +713,31 @@ void TestJournalGapDuringInFlightScanDefersUntilCompletion() {
           "the deferred reconciliation issues its low-priority scan after completion");
 }
 
+// Regression: Stop() must return promptly instead of waiting out the scheduler's
+// 10-minute poll interval. The scheduler wakeup used to be lost when Stop() set
+// running_ and notified outside wakeMutex_ while the scheduler was between its
+// predicate re-check and its wait_for registration; a fast start/stop loop
+// exercises that window, and a regression makes this suite exceed its 120 s
+// CTest timeout rather than stalling a real engine shutdown for ten minutes.
+void TestStopReturnsWithoutWaitingForTheSchedulerInterval() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_stop_promptness.db")),
+          "stop-promptness fixture pipeline opens");
+
+    constexpr int kIterations = 2000;
+    const auto started = std::chrono::steady_clock::now();
+    for (int iteration = 0; iteration < kIterations; ++iteration) {
+        ffengine::PrivilegedConnection connection;
+        ffengine::VolumeSessionManager manager(pipeline, connection);
+        manager.Start();
+        manager.Stop();
+    }
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - started);
+    Check(elapsed < std::chrono::seconds(30),
+          "repeated Start/Stop never waits out the reconciliation scheduler interval");
+}
+
 } // namespace
 
 int main() {
@@ -730,5 +756,6 @@ int main() {
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();
     TestJournalGapDuringInFlightScanDefersUntilCompletion();
+    TestStopReturnsWithoutWaitingForTheSchedulerInterval();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

@@ -223,7 +223,16 @@ void VolumeSessionManager::Start() {
 }
 
 void VolumeSessionManager::Stop() {
-    if (!running_.exchange(false)) {
+    bool wasRunning = false;
+    {
+        // Publish the stop while holding the scheduler's wait mutex. A notify
+        // sent outside it can land between the scheduler's predicate re-check
+        // and its wait_for entry, losing the wakeup for a full 10-minute poll
+        // interval -- an engine shutdown stall, not just a test hang.
+        std::lock_guard<std::mutex> wakeLock(wakeMutex_);
+        wasRunning = running_.exchange(false);
+    }
+    if (!wasRunning) {
         return;
     }
     wakeCv_.notify_all();
