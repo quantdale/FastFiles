@@ -358,3 +358,11 @@ The same band analysis exposed an older defect (present on `main` too): the addr
 Fixed as one row-split contract: `ffui::ChromeLocationRow` + `ComputeChromeLocationRow()` divide the location row into the editable field and a right-aligned error slot capped at half the row; `NavigationChrome` reserves the slot (shrinking the edit) whenever an address error is present, tints the field frame with the error color, and draws the message inside the slot. `BeginAddressEdit`/`CommitAddressEdit`/`EndAddressEdit` rebuild the row so the slot tracks the error state. `ffchrome_layout_tests` pins the split (disjoint, right-aligned, shared band, half-row cap, degenerate widths).
 
 Ground truth (125% DPI): the edit shrank 867 → 627 px (exactly the 240 px slot) after committing an invalid path, and the slot now carries a full text line in the error color (ink profile y=99..111; dominant colours are the error reds). Probe: `build/probe-address-error.ps1`; capture: `build/visual/probe-address-error-print.png`.
+
+## Seam cleanup — 2026-09-13 (dead details output removed)
+
+`DetailsLayout::contentConstrained` was computed by `ComputeDetailsLayout` but never read by any product or tooling consumer since its introduction (`1a4e7aa3`), while the pane behavior it described is already carried by `presentation`, `paneCollapsed`, and `paneWidthDip`. Removed the field, its computation, and the single assertion that only echoed it; `ffdetails_layout_tests` keeps the assertions that pin the real contract (rail collapse at the constrained width, 432-DIP pane width, non-overlapping clip). Validation: Debug CTest **103/103** (`ffdetails_layout_tests` green, `ffdoc_drift_tests` green after CRLF normalization of the two edited C++ files).
+
+## Verifier slice — 2026-09-13 (result-envelope and composition idempotency)
+
+The local release-readiness composition now composes every required gate green (commit `4ca258b`, fresh output root): the single-artifact envelope bug in `New-CapabilityWorkerEnvelope` (scalar PSObject `op_Addition` when a capability emits exactly one artifact) was fixed with a regression fixture in the composition test, and the compose now refreshes its own marked candidate directory so repeated runs no longer report a false `CANDIDATE_OUTPUT_NOT_EMPTY` packaging failure. Both harness fixes are recorded in `docs/agent/WORKSTATE.md`.
