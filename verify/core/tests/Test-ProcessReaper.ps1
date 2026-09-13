@@ -57,9 +57,14 @@ if ($null -eq $pwsh) {
     $live = Start-Process -FilePath $pwsh.Source -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', 'Start-Sleep -Seconds 300') -PassThru -WindowStyle Hidden
     try {
         $live.Refresh()
+        # System.Diagnostics.Path is filled lazily and can still be empty right
+        # after Start-Process under load; GetFullPath('') then aborted this
+        # fixture with 'The path is empty'. The production snapshot reads CIM
+        # ExecutablePath and skips empty paths, so record the exact path we
+        # launched instead of depending on the lazy property.
         $liveIdentity = [pscustomobject]@{
             pid = [int]$live.Id
-            path = [IO.Path]::GetFullPath([string]$live.Path)
+            path = [IO.Path]::GetFullPath([string]$pwsh.Source)
             startTimeUtc = $live.StartTime.ToUniversalTime().ToString('o')
             identityKey = "$($live.Id)|live"
         }
