@@ -1154,6 +1154,150 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "close-file-ops-conflict-lifetime-and-outcome-truth",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "complete-ole-drag-source-move-effect",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/complete-ole-drag-source-move-effect/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/complete-ole-drag-source-move-effect/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/complete-ole-drag-source-move-effect/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "lock-clipboard-hdrop-read",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/lock-clipboard-hdrop-read/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/lock-clipboard-hdrop-read/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/lock-clipboard-hdrop-read/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "harden-workspace-state-multi-writer",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-workspace-state-multi-writer/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-workspace-state-multi-writer/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-workspace-state-multi-writer/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "close-idle-drop-activity-race",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-idle-drop-activity-race/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-idle-drop-activity-race/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-idle-drop-activity-race/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
+    },
+    {
+      "name": "harden-ipc-trust-boundary-gaps",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }
