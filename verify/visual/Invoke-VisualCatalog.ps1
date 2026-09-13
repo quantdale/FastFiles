@@ -780,7 +780,7 @@ try {
     if (-not $Gallery) {
         Write-CatalogLog 'COVERAGE SUPPORTED_NOT_SELECTED: gallery-light, gallery-dark, gallery-narrow, gallery-wide (re-run with -Gallery)'
     }
-    Write-CatalogLog 'COVERAGE REQUIRED_BUT_UNAVAILABLE: dpi-125/150/200 live (host exposes 96 DPI only), engine-backed rows/previews/file-operations (require engine-served snapshot data)'
+    Write-CatalogLog 'COVERAGE REQUIRED_BUT_UNAVAILABLE: dpi-100/150/200 live (this host is 125% / 120 DPI), engine-backed rows/previews/file-operations (require engine-served snapshot data)'
     Write-CatalogLog 'COVERAGE NOT_APPLICABLE: ACL-mutation access-denied, destructive confirmations, settings reset (never run by policy: no user-system mutation)'
     $exit = 0
 } catch {
