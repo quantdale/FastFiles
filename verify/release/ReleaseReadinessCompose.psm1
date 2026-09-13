@@ -385,8 +385,12 @@ function Invoke-ReleaseReadinessComposition {
     $candidateOutput = Join-Path $outputRoot 'release-candidate'
     $candidateScript = Join-Path $VerifyRoot 'release\Build-ReleaseCandidate.ps1'
     if (Test-Path -LiteralPath $candidateRoot -PathType Container) {
+        # -Force is safe by construction: Build-ReleaseCandidate refuses to clear
+        # a non-empty directory unless it carries this tool's own marker, so a
+        # repeated compose run refreshes only its own candidate output and can
+        # never delete operator evidence (CANDIDATE_OUTPUT_MARKER_REQUIRED).
         $candidate = Invoke-ReadinessPowerShell -ScriptPath $candidateScript `
-            -Arguments @('-Mode', 'unsigned-validation', '-BuildRoot', $candidateRoot, '-OutputDirectory', $candidateOutput, '-SkipVerification', '-OutputFormat', 'json') `
+            -Arguments @('-Mode', 'unsigned-validation', '-BuildRoot', $candidateRoot, '-OutputDirectory', $candidateOutput, '-SkipVerification', '-Force', '-OutputFormat', 'json') `
             -LogPath (Join-Path $logDirectory 'release-candidate.log') -TimeoutSeconds 900
         [void]$gates.Add((New-ProcessGate -Id 'release-candidate-packaging-and-provenance' -ProcessResult $candidate -Required $true `
             -Detail "unsigned-validation kit; output=$candidateOutput"))
