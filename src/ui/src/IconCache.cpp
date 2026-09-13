@@ -13,7 +13,13 @@ IconCache::IconCache(HWND owner) : owner_(owner) {
 }
 
 IconCache::~IconCache() {
-    stopping_.store(true);
+    {
+        // Publish under the worker's wait mutex: a notify sent outside it can
+        // land before WorkerLoop registers its wait, and the join below would
+        // then block until some unrelated prefetch wakes the worker.
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopping_.store(true);
+    }
     workAvailable_.notify_all();
     if (worker_.joinable()) {
         worker_.join();

@@ -372,8 +372,13 @@ bool EngineClient::ConnectAndSubscribe() {
     // Wake the invalidation worker after the control pipe becomes usable. Any
     // directory requests queued while the engine was starting must remain
     // pending until this point; dropping them leaves the corresponding column
-    // permanently empty.
-    invalidationCv_.notify_all();
+    // permanently empty. Notify under the wait mutex: InvalidationLoop
+    // re-checks pipe_ between its predicate and its wait, so a notify sent
+    // outside the mutex can be lost and strand those queued requests.
+    {
+        std::lock_guard<std::mutex> lock(invalidationMutex_);
+        invalidationCv_.notify_all();
+    }
     ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                   ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_SUCCEEDED,
                                   {}, {}, L"engine-connect-succeeded", 0, 0});
@@ -776,7 +781,13 @@ bool EngineClient::WaitForRetryDelay() {
 }
 
 void EngineClient::RetryConnect() {
-    retryRequested_ = true;
+    {
+        // Publish under the wait mutex: a RetryConnect that wins the race
+        // against the management thread's predicate re-check would otherwise
+        // lose the wakeup and strand the reconnect cycle.
+        std::lock_guard<std::mutex> lock(retryMutex_);
+        retryRequested_ = true;
+    }
     retryCv_.notify_all();
 }
 
@@ -801,15 +812,24 @@ void EngineClient::Start(GenerationCallback onNewGeneration, StatusCallback onSt
 }
 
 void EngineClient::Stop() {
-    if (!running_) {
-        return;
+    bool wasRunning = false;
+    {
+        // Publish the stop under both wait mutexes. ManagementLoop's retry wait
+        // and InvalidationLoop's queue wait are unbounded, and a notify sent
+        // without its mutex can land between the predicate re-check and the
+        // wait registration, hanging Stop() in join().
+        std::lock_guard<std::mutex> retryLock(retryMutex_);
+        std::lock_guard<std::mutex> invalidationLock(invalidationMutex_);
+        wasRunning = running_.exchange(false);
+        if (!wasRunning) {
+            return;
+        }
     }
-    running_ = false;
     if (shutdownEvent_ != nullptr) {
         SetEvent(shutdownEvent_);
     }
-    invalidationCv_.notify_all();
     retryCv_.notify_all();
+    invalidationCv_.notify_all();
 
     // Both the reader and writer paths use overlapped operations. Cancel the
     // exact handles before joining their owners; no helper-thread join is
