@@ -1,5 +1,14 @@
 # Fast Files — Agent Workstate
 
+## verifier-single-artifact-envelope-fix — VERIFIED 2026-09-13 (local readiness audit slice)
+
+- Found by `pwsh ./verify/verify.ps1 release-readiness -Mode compose`: `runtime/windows-filesystem-validation` failed with `HARNESS_ERROR` / `result-envelope-composition-failed`, summary naming `[System.Management.Automation.PSObject] does not contain a method named 'op_Addition'` (plus a cascading `runtime-capability-suite` FAIL).
+- Root cause (`verify/core/CapabilityRunner.psm1`, `New-CapabilityWorkerEnvelope`): `$rawArtifacts = @(Get-VerificationProperty ... 'Artifacts') | Where-Object { $null -ne $_ }` lets the pipeline unwrap a **single** artifact into a scalar PSObject; the later `@($rawArtifacts + $workerArtifacts)` then evaluates `PSObject + array` and throws `op_Addition`. Only capabilities whose primary path emits exactly one artifact hit it; `FilesystemValidation.psm1:105` does exactly that (`WindowsFilesystemValidation` expected PASS). Audit of the same pattern elsewhere: `ResultModel.psm1:192` and `InstallService.psm1:65` are already `@()`-wrapped; `InstallService.psm1:188` / `PrivilegeValidation.psm1:82` unwrap but only use `.Count`/`-join`/`@()` re-wrap, so they are safe.
+- Fix: wrap the whole pipeline in `@(...)` so 0/1/many artifacts always yield an array, with a comment naming the failure mode.
+- Regression coverage: `verify/core/tests/Test-ResultComposition.ps1` gained fixture mode `single-artifact` plus two worker-boundary assertions (`ffverify_result_composition_ps_tests`): the envelope must compose `PASS/PASS` and preserve the capability artifact alongside the two worker artifacts (observed `artifacts=3`).
+- Evidence: buggy form reproduces the exact `op_Addition` message while the fixed form composes 3 artifacts; `pwsh -File verify/core/tests/Test-ResultComposition.ps1` all PASS; CTest `ffverify_result_composition_ps_tests` Passed (58 s); `pwsh ./verify/verify.ps1 run -Capability windows-filesystem-validation` now `status=PASS classification=PASS summary=7 filesystem scenario batteries passed; 0 failed; 0 skipped` (exit 0; run `verify/runs/ad-hoc/20260913-074442`).
+- NEXT EXACT ACTION: re-run `pwsh ./verify/verify.ps1 release-readiness -Mode compose` on the committed tip and record the composed result; only `production-release-artifact-readiness` (fail-closed external signing) and elevation/tier-3 SKIPs should remain non-PASS.
+
 ## shell-constant-consolidation — VERIFIED 2026-09-13 (same audit slice)
 
 - Gate note: `verify.ps1 build` reported 8/9 `ASSERTION_FAILURE` once while a DPI probe was launching the app concurrently; the same commit passed 9/9 with no concurrent activity. Do not launch the app/UIA probes while the gate runs.

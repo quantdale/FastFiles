@@ -66,6 +66,13 @@ function Invoke-Fixture {
         return
     }
     if ($mode -eq 'missing') { return }
+    if ($mode -eq 'single-artifact') {
+        return [pscustomobject]@{
+            Status = 'PASS'; Reason = $null; Summary = 'single artifact';
+            Artifacts = @([pscustomobject]@{ path = "artifacts/$($RunContext.Change)/one.log"; type = 'suite-logs' });
+            SubResults = @([pscustomobject]@{ id = 'fixture-scenario'; status = 'PASS'; reason = $null; detail = 'ok'; durationMs = 1; diagnostics = @() })
+        }
+    }
     if ($mode -eq 'badstatus') { return [pscustomobject]@{ Status = 'UNKNOWN'; Reason = 'bad'; Summary = 'bad'; Artifacts = @(); SubResults = @() } }
     [pscustomobject]@{
         Status = 'PASS'; Reason = $null; Summary = 'fixture passed'; Artifacts = @();
@@ -209,6 +216,15 @@ Export-ModuleMember -Function Test-FixtureAvailability, Invoke-Fixture, Get-Fixt
                 Write-Host ("fixture {0} observed status={1} classification={2} reason={3} summary={4}" -f $case.Mode, $envelope.status, $envelope.classification, $envelope.reason, $envelope.summary)
                 Check ($envelope.status -eq $case.Status -and $envelope.classification -eq $case.Classification) $case.Label
             }
+            # Regression: a capability emitting exactly ONE artifact used to
+            # unwrap to a scalar and make `$rawArtifacts + $workerArtifacts`
+            # throw PSObject op_Addition, turning a real PASS into a
+            # result-envelope-composition-failed HARNESS_ERROR.
+            $singleContext = New-FixtureRunContext -Name 'single-artifact'
+            $singleEnvelope = Invoke-Capability -Capability $capability -RunContext $singleContext -Fingerprint $fingerprint -Options @{ FixtureMode = 'single-artifact' }
+            Write-Host ("fixture single-artifact observed status={0} classification={1} artifacts={2}" -f $singleEnvelope.status, $singleEnvelope.classification, @($singleEnvelope.artifacts).Count)
+            Check ($singleEnvelope.status -eq 'PASS' -and $singleEnvelope.classification -eq 'PASS') 'a single capability artifact still composes one PASS envelope'
+            Check (@($singleEnvelope.artifacts).Count -eq 3) 'the single capability artifact is preserved alongside the worker artifacts'
         }
     } else {
         $script:WorkerBoundarySkipped = $true

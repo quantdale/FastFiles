@@ -289,7 +289,10 @@ function New-CapabilityWorkerEnvelope {
             [pscustomobject]@{ path = "artifacts/$($Capability.Id)/worker.stderr.log"; type = 'worker-stderr' }
         )
     }
-    $rawArtifacts = @((Get-VerificationProperty -InputObject $RawOutcome -Name 'Artifacts')) | Where-Object { $null -ne $_ }
+    # The pipeline must be wrapped so a capability that emits exactly one
+    # artifact still yields an array; an unwrapped single PSObject makes the
+    # `+ $workerArtifacts` below fail with op_Addition (HARNESS_ERROR).
+    $rawArtifacts = @((Get-VerificationProperty -InputObject $RawOutcome -Name 'Artifacts') | Where-Object { $null -ne $_ })
     New-ResultEnvelope -CapabilityId $Capability.Id -InterfaceVersion $Capability.InterfaceVersion -Tier $Capability.Tier `
         -Status $composition.status -StartedAtUtc $StartedAt -FinishedAtUtc $FinishedAt -RunContext $RunContext `
         -Reason $composition.reason -Classification $composition.classification -RequiredContext $null `
