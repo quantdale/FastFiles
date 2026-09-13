@@ -317,7 +317,7 @@ The branch advanced from the previous four-commit tip through nine pushed slices
 
 Validation: **Debug CTest 103/103 and release-test CTest 103/103 on `4b7ef8b`**; focused `ffchrome_layout_tests`, `ffui_state_palette_tests`, `ffgallery_tests`, `ffsettings_pages_tests`, `ffcolumn_hit_test_tests`, `ffshell_layout_tests`, `ffdoc_drift_tests` green; visual catalog 15/15 semantic scenarios (dual-pane and command-palette included); live PrintWindow captures at 620/800/900/1280/1600 widths in light and dark across Home, browse (normal/deep/long-name/empty/denied), details open/rail, search idle/results/no-results, storage overview/treemap, settings, gallery, and the collapsed sidebar rail.
 
-External-only evidence: command-palette live screenshot and the live cut-ghost look (the palette opens and dispatches through the real UIA command surface, but its layered dimmer plus this host's color-shifted/stale screen-capture path defeat a trustworthy palette image; the host exposes 96 DPI and a fixed color scheme, so 125/150/200% DPI and High Contrast captures also remain external).
+External-only evidence: command-palette live screenshot and the live cut-ghost look (the palette opens and dispatches through the real UIA command surface, but its layered dimmer plus this host's color-shifted/stale screen-capture path defeat a trustworthy palette image). DPI coverage corrected 2026-09-13: the host is multi-monitor with one display at 125% scaling (`PerMonitorSettings` DpiValue=1; the app window measures 120 DPI via `GetDpiForWindow`), so the session's probes and captures are **125% evidence**, not 96-DPI evidence; 100%/150%/200% and High Contrast remain external (the host's High Contrast scheme is fixed).
 
 ## Follow-up verification — 2026-09-12 (tip `4101e0b`)
 
