@@ -53,6 +53,16 @@ struct ChromeTabsLayout {
     int visibleCount = 0;     // number of visible tabs
 };
 
+// Vertical band occupied by the location row. Painters, the address editor,
+// and the click target must all derive from this instead of any control's
+// width: a band computed from a control's *width* silently grows past the
+// chrome clip and hides the breadcrumb text.
+struct ChromeBand {
+    float top = 0.0f;
+    float bottom = 0.0f;
+    constexpr float Height() const noexcept { return bottom - top; }
+};
+
 struct ChromeLayout {
     ChromeWidthClass widthClass = ChromeWidthClass::Normal;
     float chromeHeight = 72.0f;
@@ -76,6 +86,13 @@ inline ChromeWidthClass ClassifyChromeWidth(float widthDip) {
     if (widthDip < 760.0f) return ChromeWidthClass::Narrow;
     if (widthDip < 1180.0f) return ChromeWidthClass::Normal;
     return ChromeWidthClass::Wide;
+}
+
+// The one location-band definition shared by the breadcrumb painter and the
+// address click target.
+inline ChromeBand ChromeLocationBand(const ChromeLayout& layout) {
+    const float top = layout.search.top;
+    return {top, top + layout.search.Height()};
 }
 
 inline ChromeLayout ComputeChromeLayout(float clientWidthDip, int tabCount, int activeTabIndex) {

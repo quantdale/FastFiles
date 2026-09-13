@@ -128,6 +128,29 @@ void TestTabOverflowWindow() {
           "the end window shows the last tab");
 }
 
+void TestLocationBandInsideChrome() {
+    // Regression (6803650): the location band was derived from the search
+    // control's width (200/240 DIP), so DT_VCENTER pushed the breadcrumb text
+    // far below the 72-DIP chrome and it was clipped invisible.
+    const float widths[] = {480.0f, 1000.0f, 1400.0f};
+    for (const float width : widths) {
+        const auto layout = ffui::ComputeChromeLayout(width, 1, 0);
+        const ffui::ChromeBand band = ffui::ChromeLocationBand(layout);
+        Check(NearlyEqual(band.Height(), 28.0f),
+              "location band keeps the command-row height at every width class");
+        Check(NearlyEqual(band.top, layout.search.top),
+              "location band starts on the toolbar row");
+        Check(NearlyEqual(band.bottom, layout.search.bottom()),
+              "location band ends with the toolbar controls");
+        Check(band.bottom <= layout.chromeHeight + 0.001f,
+              "location band never extends past the chrome clip");
+    }
+    const auto wide = ffui::ComputeChromeLayout(1400.0f, 1, 0);
+    const ffui::ChromeBand wideBand = ffui::ChromeLocationBand(wide);
+    Check(wide.search.size >= 240.0f && NearlyEqual(wideBand.Height(), 28.0f),
+          "a wide search field never stretches the location band");
+}
+
 void TestCompositionInvariants() {
     // Every width in the supported range must produce a non-overlapping,
     // in-bounds composition. This is the invariant that prevents the
@@ -155,6 +178,19 @@ void TestCompositionInvariants() {
                   "search affordance never crosses the navigation commands");
             Check(layout.search.right() <= width + 0.001f,
                   "search affordance stays inside the client");
+            // Vertical composition: the missing invariant class that let the
+            // location band grow past the chrome clip unnoticed.
+            const ffui::ChromeBand band = ffui::ChromeLocationBand(layout);
+            Check(band.bottom <= layout.chromeHeight + 0.001f,
+                  "location band stays inside the chrome at every width");
+            Check(layout.back.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.forward.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.up.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.settings.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.newTab.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.search.bottom() <= layout.chromeHeight + 0.001f &&
+                      layout.tabs.overflowButton.bottom() <= layout.chromeHeight + 0.001f,
+                  "every chrome control stays inside the chrome height");
         }
     }
 }
@@ -165,6 +201,7 @@ int main() {
     TestWidthClassification();
     TestCommandFamilyGeometry();
     TestLocationAndSearchReservation();
+    TestLocationBandInsideChrome();
     TestTabWidthPolicy();
     TestTabOverflowWindow();
     TestCompositionInvariants();

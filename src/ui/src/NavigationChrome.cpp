@@ -476,8 +476,9 @@ void NavigationChrome::DrawBreadcrumbs(HDC dc, const RECT& client) {
     // painted path can never collide with the trailing controls.
     const ffui::ChromeLayout chromeLayout = CurrentChromeLayout();
     int x = Scaled(chromeLayout.addressLeft);
-    const int crumbTop = Scaled(chromeLayout.search.top);
-    const int crumbBottom = crumbTop + Scaled(chromeLayout.search.size);
+    const ffui::ChromeBand crumbBand = ffui::ChromeLocationBand(chromeLayout);
+    const int crumbTop = Scaled(crumbBand.top);
+    const int crumbBottom = crumbTop + Scaled(crumbBand.Height());
     int rightLimit = (std::max)(x + Scaled(40), Scaled(chromeLayout.addressRight));
     std::vector<SegmentLayout> layout;
     layout.reserve(breadcrumbs.size());
@@ -1109,8 +1110,9 @@ LRESULT NavigationChrome::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, 
             RECT client{};
             GetClientRect(hwnd, &client);
             const ffui::ChromeLayout chromeLayout = CurrentChromeLayout();
-            const int crumbTop = Scaled(chromeLayout.search.top);
-            const int crumbBottom = crumbTop + Scaled(chromeLayout.search.size);
+            const ffui::ChromeBand crumbBand = ffui::ChromeLocationBand(chromeLayout);
+            const int crumbTop = Scaled(crumbBand.top);
+            const int crumbBottom = crumbTop + Scaled(crumbBand.Height());
             if (point.y >= crumbTop && point.y < crumbBottom &&
                 point.x >= Scaled(chromeLayout.addressLeft) && point.x < Scaled(chromeLayout.addressRight)) {
                 BeginAddressEdit();
