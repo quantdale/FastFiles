@@ -14,9 +14,6 @@ namespace {
 constexpr wchar_t kWindowClass[] = L"FastFilesNavigationSidebar";
 constexpr int kExpandedWidth = 220;  // DIP
 constexpr int kCollapsedWidth = 32;  // DIP
-// DIP offset of the sidebar top inside the owner client; equals
-// UiMetrics::kChromeHeight (kept local so the chrome layer owns its token).
-constexpr int kChromeHeight = 72;
 constexpr UINT kBookmarkRename = 1;
 constexpr UINT kBookmarkRemove = 2;
 constexpr UINT kBookmarkMoveUp = 3;
@@ -204,7 +201,7 @@ bool NavigationSidebar::Initialize(HWND owner, NavigationWorkspace* workspace, N
     windowClass.lpszClassName = kWindowClass;
     RegisterClassW(&windowClass);
     window_ = CreateWindowExW(0, kWindowClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN,
-                              0, Scaled(kChromeHeight), Scaled(kExpandedWidth), 0, owner_, nullptr,
+                              0, Scaled(UiMetrics::kChromeHeight), Scaled(kExpandedWidth), 0, owner_, nullptr,
                               windowClass.hInstance, this);
     if (!window_) return false;
     // ui-v3 sidebar: name the surface so accessibility hierarchies can label it.
@@ -226,8 +223,8 @@ void NavigationSidebar::Reposition() {
     toolsDirty_ = true;
     RECT client{};
     GetClientRect(owner_, &client);
-    const int height = (std::max)(0L, client.bottom - Scaled(kChromeHeight));
-    SetWindowPos(window_, HWND_TOP, 0, Scaled(kChromeHeight), Scaled(Width()), height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    const int height = (std::max)(0L, client.bottom - Scaled(UiMetrics::kChromeHeight));
+    SetWindowPos(window_, HWND_TOP, 0, Scaled(UiMetrics::kChromeHeight), Scaled(Width()), height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     InvalidateRect(window_, nullptr, FALSE);
 }
 

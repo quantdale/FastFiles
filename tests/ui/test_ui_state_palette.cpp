@@ -3,6 +3,7 @@
 // across both themes and High Contrast so the surfaces cannot drift apart.
 
 #include "UiStatePalette.h"
+#include "ffui/ChromeLayout.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -16,6 +17,15 @@ namespace {
 bool Same(const D2D1_COLOR_F& left, const D2D1_COLOR_F& right) {
     return std::fabs(left.r - right.r) < 0.0005f && std::fabs(left.g - right.g) < 0.0005f &&
            std::fabs(left.b - right.b) < 0.0005f && std::fabs(left.a - right.a) < 0.0005f;
+}
+
+// The chrome window sizes itself from ChromeLayout's own literal while the
+// shell and sidebar consume UiMetrics::kChromeHeight; a drift between them
+// misaligns every surface under the chrome, so pin them together here.
+void TestChromeHeightTokenAgreement() {
+    const float shellChromeHeight = ffui::ComputeChromeLayout(1000.0f, 1, 0).chromeHeight;
+    Check(std::fabs(shellChromeHeight - ffui::UiMetrics::kChromeHeight) < 0.001f,
+          "chrome layout height agrees with the shared chrome-height token");
 }
 
 void TestRestAndMetadataRoles() {
@@ -130,6 +140,7 @@ void TestHighContrastUsesSystemColors() {
 } // namespace
 
 int main() {
+    TestChromeHeightTokenAgreement();
     TestRestAndMetadataRoles();
     TestInteractionOverlaysPreserveAlpha();
     TestSelectionStates();
