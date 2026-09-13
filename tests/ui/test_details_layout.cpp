@@ -56,8 +56,6 @@ void TestDualPaneProtectsPrimaryWorkspace() {
     Check(NearlyEqual(constrainedDual.availableColumnWidthDip, 864.0f) &&
               NearlyEqual(constrainedDual.paneWidthDip, 432.0f),
           "dual-pane disclosure rail preserves useful browsing width");
-    Check(!constrainedDual.contentConstrained,
-          "dual-pane disclosure strategy keeps each pane above the preferred workspace minimum");
 }
 
 void TestDetailsWidthIsBounded() {

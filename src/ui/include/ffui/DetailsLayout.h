@@ -26,7 +26,6 @@ struct DetailsLayout {
     DetailsLayoutRect columnClipRect;
     bool paneVisible = false;
     bool paneCollapsed = false;
-    bool contentConstrained = false;
     DetailsPresentation presentation = DetailsPresentation::Hidden;
 };
 
@@ -79,9 +78,6 @@ inline DetailsLayout ComputeDetailsLayout(float viewportWidthPixels,
     result.availableColumnWidthDip = (std::max)(0.0f, widthDip - reservedWidth);
     result.paneWidthDip = dualPane ? result.availableColumnWidthDip / 2.0f
                                    : result.availableColumnWidthDip;
-    result.contentConstrained =
-        dualPane ? result.paneWidthDip < (kMinimumDualPaneWorkspaceDip / 2.0f)
-                 : result.paneWidthDip < kMinimumSinglePaneWorkspaceDip;
     result.columnClipRect = {0.0f, 0.0f, result.availableColumnWidthDip, heightDip};
     if (reservedWidth > 0.0f) {
         result.detailsRect = {result.availableColumnWidthDip, 0.0f, widthDip, heightDip};
