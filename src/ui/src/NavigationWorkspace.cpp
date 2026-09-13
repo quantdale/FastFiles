@@ -153,7 +153,15 @@ NavigationContext NavigationWorkspace::MakeContext(const NavigationLocation& loc
 
 NavigationWorkspace::NavigationWorkspace(std::wstring defaultPath) : defaultPath_(std::move(defaultPath)) {
     tabs_.push_back({{MakeContext(NavigationLocation::FromPath(defaultPath_))}, 0});
-    LoadState(state_);
+    bool failed = false;
+    auto parsed = ReadStateFile(failed, &persistedDocument_);
+    if (parsed) {
+        state_ = std::move(*parsed);
+        loadStatus_ = WorkspaceLoadStatus::Ok;
+    } else {
+        loadStatus_ = failed ? WorkspaceLoadStatus::Failed : WorkspaceLoadStatus::Missing;
+        persistedDocument_.clear();
+    }
 }
 
 NavigationWorkspace::Tab& NavigationWorkspace::ActiveTab() { return tabs_[activeTab_]; }
@@ -230,7 +238,9 @@ void NavigationWorkspace::Navigate(const NavigationLocation& location) {
     // path); the no-op above already excludes non-changing navigations.
     if (location.IsFileSystem() && !location.path.empty()) {
         RecentFolderHistory::Record(state_.recentFolders, location.path);
-        MarkStateDirty();
+        // History recording is automatic, not a user mutation: after a failed
+        // load a navigation alone must not license a clobbering write (D1).
+        stateDirty_ = true;
     }
 }
 
@@ -438,6 +448,7 @@ bool NavigationWorkspace::CloseActiveTab() {
     tabs_.erase(tabs_.begin() + static_cast<std::ptrdiff_t>(activeTab_));
     activeTab_ = std::min(activeTab_, tabs_.size() - 1);
     stateDirty_ = true;
+    userStateMutated_ = true;
     return true;
 }
 
@@ -456,6 +467,7 @@ bool NavigationWorkspace::ReopenClosedTab() {
     state_.recentlyClosedTabs.pop_front();
     OpenTab(location);
     stateDirty_ = true;
+    userStateMutated_ = true;
     return true;
 }
 
@@ -497,13 +509,19 @@ void NavigationWorkspace::AddBookmark(const std::wstring& path, std::wstring nam
         });
     if (alreadyPresent) return;
     state_.bookmarks.push_back({path, name.empty() ? DefaultBookmarkName(path) : std::move(name)});
+    // Re-adding a path cancels its session tombstone so the merge keeps it.
+    std::erase_if(removedBookmarkPaths_, [&path](const std::wstring& removed) {
+        return _wcsicmp(removed.c_str(), path.c_str()) == 0;
+    });
     stateDirty_ = true;
+    userStateMutated_ = true;
 }
 
 bool NavigationWorkspace::RenameBookmark(size_t index, const std::wstring& name) {
     if (index >= state_.bookmarks.size() || name.empty()) return false;
     state_.bookmarks[index].displayName = name;
     stateDirty_ = true;
+    userStateMutated_ = true;
     return true;
 }
 
@@ -513,13 +531,18 @@ bool NavigationWorkspace::ReorderBookmark(size_t from, size_t to) {
     state_.bookmarks.erase(state_.bookmarks.begin() + static_cast<std::ptrdiff_t>(from));
     state_.bookmarks.insert(state_.bookmarks.begin() + static_cast<std::ptrdiff_t>(to), std::move(bookmark));
     stateDirty_ = true;
+    userStateMutated_ = true;
     return true;
 }
 
 bool NavigationWorkspace::RemoveBookmark(size_t index) {
     if (index >= state_.bookmarks.size()) return false;
+    // Session tombstone: another window may still have this path and would
+    // otherwise resurrect it in the merge on flush (D3).
+    removedBookmarkPaths_.push_back(state_.bookmarks[index].path);
     state_.bookmarks.erase(state_.bookmarks.begin() + static_cast<std::ptrdiff_t>(index));
     stateDirty_ = true;
+    userStateMutated_ = true;
     return true;
 }
 
@@ -562,19 +585,43 @@ std::wstring NavigationWorkspace::StateFilePath() {
     return length == 0 || length >= buffer.size() ? L"" : std::wstring(buffer.data()) + L"\\FastFiles\\workspace-state.json";
 }
 
-bool NavigationWorkspace::LoadState(WorkspaceState& state) {
-    state = {};
+std::optional<WorkspaceState> NavigationWorkspace::ReadStateFile(bool& failed, std::wstring* document) {
+    failed = false;
+    if (document != nullptr) document->clear();
     const std::wstring file = StateFilePath();
-    if (file.empty()) return false;
+    if (file.empty()) return std::nullopt;
     std::ifstream input(file, std::ios::binary);
-    if (!input) return true;
+    if (!input) return std::nullopt;
     const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
-    if (input.bad()) return true;
+    if (input.bad()) {
+        failed = true;
+        return std::nullopt;
+    }
     const auto decoded = Utf8ToWide(bytes);
-    if (!decoded) return true;
-    const std::wstring& json = *decoded;
-    if (!HasSupportedVersion(json)) return true;
-    return DeserializeState(json, state);
+    if (!decoded) {
+        failed = true;
+        return std::nullopt;
+    }
+    if (!HasSupportedVersion(*decoded)) {
+        failed = true;
+        return std::nullopt;
+    }
+    WorkspaceState parsed;
+    if (!DeserializeState(*decoded, parsed)) {
+        failed = true;
+        return std::nullopt;
+    }
+    if (document != nullptr) *document = *decoded;
+    return parsed;
+}
+
+WorkspaceLoadStatus NavigationWorkspace::LoadState(WorkspaceState& state) {
+    state = {};
+    bool failed = false;
+    auto parsed = ReadStateFile(failed);
+    if (!parsed) return failed ? WorkspaceLoadStatus::Failed : WorkspaceLoadStatus::Missing;
+    state = std::move(*parsed);
+    return WorkspaceLoadStatus::Ok;
 }
 
 bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
@@ -674,6 +721,37 @@ bool DeserializeState(const std::wstring& json, WorkspaceState& out) {
     return true;
 }
 
+WorkspaceState MergeWorkspaceStateForWrite(const WorkspaceState& onDisk, const WorkspaceState& writer,
+                                           const std::vector<std::wstring>& removedBookmarkPaths) {
+    WorkspaceState merged = writer;
+    const auto samePath = [](const std::wstring& left, const std::wstring& right) {
+        return _wcsicmp(left.c_str(), right.c_str()) == 0;
+    };
+    const auto tombstoned = [&](const std::wstring& path) {
+        return std::any_of(removedBookmarkPaths.begin(), removedBookmarkPaths.end(),
+                           [&](const std::wstring& removed) { return samePath(removed, path); });
+    };
+    for (const auto& bookmark : onDisk.bookmarks) {
+        if (tombstoned(bookmark.path)) continue;
+        const bool present = std::any_of(merged.bookmarks.begin(), merged.bookmarks.end(),
+            [&](const Bookmark& existing) { return samePath(existing.path, bookmark.path); });
+        if (!present) merged.bookmarks.push_back(bookmark);
+    }
+    for (const auto& folder : onDisk.recentFolders) {
+        if (merged.recentFolders.size() >= RecentFolderHistory::kMaxRecentFoldersPersisted) break;
+        const bool present = std::any_of(merged.recentFolders.begin(), merged.recentFolders.end(),
+            [&](const std::wstring& existing) { return RecentFolderHistory::Equivalent(existing, folder); });
+        if (!present) merged.recentFolders.push_back(folder);
+    }
+    for (const auto& tab : onDisk.recentlyClosedTabs) {
+        if (merged.recentlyClosedTabs.size() >= kMaxRecentlyClosedTabs) break;
+        const bool present = std::find(merged.recentlyClosedTabs.begin(), merged.recentlyClosedTabs.end(), tab) !=
+                             merged.recentlyClosedTabs.end();
+        if (!present) merged.recentlyClosedTabs.push_back(tab);
+    }
+    return merged;
+}
+
 std::wstring SerializeState(const WorkspaceState& state) {
     std::wostringstream document;
     document << L"{\n  \"version\": 1,\n  \"lastLocation\": \"" << EscapeJson(state.lastLocation)
@@ -715,7 +793,10 @@ bool NavigationWorkspace::SaveState(const WorkspaceState& state) {
     std::error_code error;
     std::filesystem::create_directories(std::filesystem::path(file).parent_path(), error);
     if (error) return false;
-    const std::wstring temporary = file + L".tmp";
+    // harden-workspace-state-multi-writer D2: a unique temporary name per
+    // write, so two live windows cannot truncate each other's temp file.
+    const std::wstring temporary = file + L"." + std::to_wstring(GetCurrentProcessId()) + L"." +
+                                   std::to_wstring(GetTickCount64()) + L".tmp";
     const auto document = SerializeState(state);
     const auto encoded = WideToUtf8(document);
     if (!encoded) return false;
@@ -742,11 +823,30 @@ bool NavigationWorkspace::FlushState() {
     if (state_.lastLocation != currentPath || state_.lastLocationIsHome != isHome) {
         state_.lastLocation = currentPath;
         state_.lastLocationIsHome = isHome;
-        stateDirty_ = true;
+        // A failed load must not be clobbered merely because this session's
+        // location differs from the in-memory default (D1).
+        if (loadStatus_ != WorkspaceLoadStatus::Failed || userStateMutated_) stateDirty_ = true;
     }
     if (!stateDirty_) return true;
-    const bool saved = SaveState(state_);
-    if (saved) stateDirty_ = false;
+    // D1: an unreadable/unsupported document is replaced only after a real
+    // user mutation in this session (an explicit recovery write).
+    if (loadStatus_ == WorkspaceLoadStatus::Failed && !userStateMutated_) return true;
+    // D3: when another writer changed the document since this process loaded
+    // it, union list fields so that writer's additions are not erased by this
+    // process's stale snapshot. An unchanged document needs no merge.
+    WorkspaceState effective = state_;
+    std::wstring onDiskDocument;
+    bool onDiskFailed = false;
+    const auto onDisk = ReadStateFile(onDiskFailed, &onDiskDocument);
+    if (onDisk && onDiskDocument != persistedDocument_) {
+        effective = MergeWorkspaceStateForWrite(*onDisk, effective, removedBookmarkPaths_);
+    }
+    const std::wstring document = SerializeState(effective);
+    const bool saved = SaveState(effective);
+    if (saved) {
+        stateDirty_ = false;
+        persistedDocument_ = document;
+    }
     return saved;
 }
 

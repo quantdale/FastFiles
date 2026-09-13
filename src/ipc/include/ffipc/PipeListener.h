@@ -99,6 +99,11 @@ private:
         std::shared_ptr<std::atomic<bool>> finished;
     };
     std::vector<ConnectionThread> connectionThreads_;
+    // Exact dwPipeMode passed to the last CreateNamedPipeW call. Recorded
+    // unconditionally (one atomic store per instance) so the lifecycle test
+    // can assert PIPE_REJECT_REMOTE_CLIENTS on the real mode word even though
+    // the listener is compiled into the shared ffipc library.
+    std::atomic<DWORD> lastCreateMode_{0};
 
 public:
     // Test-only observation of the retained thread registry size.
@@ -106,6 +111,9 @@ public:
     size_t ConnectionThreadCountForTesting() {
         std::lock_guard<std::mutex> lock(connectionMutex_);
         return connectionThreads_.size();
+    }
+    DWORD LastCreateModeForTesting() const noexcept {
+        return lastCreateMode_.load(std::memory_order_relaxed);
     }
 #endif
 };

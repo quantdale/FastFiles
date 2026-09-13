@@ -16,6 +16,14 @@ bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bo
 // Reads a shell file list without retaining clipboard-owned memory. The
 // returned flag is true when the source requested a move/cut operation.
 std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut);
+// Reads a CF_HDROP HGLOBAL (and an optional Preferred DropEffect HGLOBAL)
+// through locked views, matching the write path and the OLE drop extractor.
+// Returns false when the drop handle is null or cannot be locked; `paths` is
+// then empty and `cut` is false. Exposed so tests can exercise the lock
+// pairing without touching the process-global clipboard
+// (lock-clipboard-hdrop-read change).
+bool ReadDropHandle(HGLOBAL dropHandle, HGLOBAL preferredEffectHandle,
+                    std::vector<std::wstring>& paths, bool& cut);
 bool HasFilesOnClipboard(HWND owner);
 // A clipboard manager may preserve CF_HDROP but remove Preferred DropEffect.
 // The shell can recover the app's own cut intent only when the clipboard

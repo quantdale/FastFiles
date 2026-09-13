@@ -58,6 +58,8 @@ void TestConcurrentListenerLifecycle() {
         });
         Check(started, "listener starts a unique overlapped pipe instance");
         if (!started) continue;
+        Check((listener.LastCreateModeForTesting() & PIPE_REJECT_REMOTE_CLIENTS) != 0,
+              "every listener instance is created with PIPE_REJECT_REMOTE_CLIENTS");
 
         std::vector<std::thread> clients;
         clients.reserve(kClientsPerIteration);

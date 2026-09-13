@@ -1163,19 +1163,21 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
                 // stabilize-live-uia-e2e: destination comes from the drop
                 // point (the pane the user dropped on), NOT from the active
                 // pane: the drag's own mouse-down activated the source pane.
-                if (destination.empty()) return;                if (effect == DROPEFFECT_LINK) {
+                if (destination.empty()) return;
+                // complete-ole-drag-source-move-effect: an intra-app drop queues
+                // its own transfer here; the drag source must not additionally
+                // treat the returned MOVE as an external copy-then-delete.
+                dragDropHandledInWindow_ = true;
+                if (effect == DROPEFFECT_LINK) {
                     FileOperationRequest request{};
                     request.kind = FileOperationKind::Link;
                     request.sources = std::move(paths);
                     request.destination = destination;
+                    // complete-ole-drag-source-move-effect D3: reserve planned
+                    // destinations within the batch so two same-basename sources
+                    // get distinct .lnk names instead of one overwriting the other.
                     const auto exists = [](const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; };
-                    for (const auto& source : request.sources) {
-                        std::wstring name = std::filesystem::path(source).filename().wstring() + L".lnk";
-                        if (exists((std::filesystem::path(destination) / name).wstring())) {
-                            name = GenerateKeepBothName(destination, name, exists);
-                        }
-                        request.transferPlan.push_back({source, name, false});
-                    }
+                    request.transferPlan = BuildLinkPlan(request.sources, destination, exists);
                     fileOperations_.Enqueue(std::move(request));
                 } else {
                     QueueTransfer(paths, destination, effect == DROPEFFECT_MOVE ? FileOperationKind::Move : FileOperationKind::Copy);
@@ -2494,8 +2496,13 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             return 0;
 
         case WM_APP_FILE_OPERATION_CONFLICT: {
-            auto* question = reinterpret_cast<FileOperationConflictQuestion*>(lParam);
-            if (question == nullptr) return 0;
+            // The worker posts a heap shared_ptr so the question stays alive
+            // even when Stop()/WM_DESTROY runs inside the dialog's nested
+            // message pump (close-file-ops-conflict-lifetime-and-outcome-truth D1).
+            std::unique_ptr<FileOperationConflictQuestionRef> posted(
+                reinterpret_cast<FileOperationConflictQuestionRef*>(lParam));
+            if (!posted || !*posted) return 0;
+            const FileOperationConflictQuestionRef question = *posted;
             const ConflictDecision decision = ShowConflictDialog(hwnd_, question->source, question->destination);
             {
                 std::lock_guard lock(question->mutex);
@@ -2527,15 +2534,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     title += L" — speed/ETA estimating…";
                 }
                 SetWindowTextW(hwnd_, title.c_str());
-                lastOperationFailures_ = event->failures;
+                // file-operations-core: failure detail is retained from the
+                // terminal event below; a Progress tick never overwrites it.
                 fileOpProgress_ = std::clamp(static_cast<float>(event->percent) / 100.0f, 0.0f, 1.0f);
                 RequestRepaint();
             } else if (event->kind == FileOperationEventKind::Completed || event->kind == FileOperationEventKind::Cancelled) {
                 // The operation is no longer outstanding; Escape must not claim
                 // a cancellation is in flight when nothing is running.
                 fileOpOutstanding_ = false;
+                RetainLastOperationFailures(lastOperationFailures_, *event);
                 std::wstring title = event->kind == FileOperationEventKind::Cancelled ? L"FastFiles — cancelled" : L"FastFiles — complete";
                 title += L" — " + std::to_wstring(event->completed) + L" of " + std::to_wstring(event->total);
+                if (event->skipped > 0) title += L" — " + std::to_wstring(event->skipped) + L" skipped";
                 title += L" — " + std::to_wstring(event->failures.size()) + L" failed";
                 if (!event->failures.empty()) {
                     title += L" (first: " + event->failures.front().path + L")";
@@ -2552,6 +2562,11 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                     ShowStatusNotice(std::to_wstring(event->failures.size()) + L" of " +
                                      std::to_wstring(event->total) +
                                      L" item(s) failed. Right-click for last operation errors.");
+                } else if (event->skipped > 0) {
+                    // Skipped items are a user decision, not a failure: an
+                    // all-skip batch must not read as "0 item(s) completed".
+                    ShowStatusNotice(std::to_wstring(event->completed) + L" item(s) completed, " +
+                                     std::to_wstring(event->skipped) + L" skipped.");
                 } else {
                     ShowStatusNotice(std::to_wstring(event->completed) + L" item(s) completed.");
                 }
@@ -2692,7 +2707,18 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 (std::abs(GET_X_LPARAM(lParam) - dragOrigin_.x) >= GetSystemMetrics(SM_CXDRAG) ||
                  std::abs(GET_Y_LPARAM(lParam) - dragOrigin_.y) >= GetSystemMetrics(SM_CYDRAG))) {
                 dragArmed_ = false;
-                BeginFileDrag(columnView_.ActiveSelectionPaths());
+                const std::vector<std::wstring> selection = columnView_.ActiveSelectionPaths();
+                // complete-ole-drag-source-move-effect D1: consume the negotiated
+                // drag effect. A MOVE the target did not perform itself (sources
+                // still exist) completes as a Recycle-Bin delete of those sources
+                // through the same worker as the menu Delete; COPY/LINK never
+                // delete, and a target that already moved the files is left alone.
+                const DWORD dragEffect = BeginFileDrag(selection, static_cast<DWORD>(wParam));
+                auto remainingSources = SourcePathsToDeleteAfterDrag(dragEffect, selection,
+                    [](const std::wstring& path) { return GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES; });
+                if (!remainingSources.empty()) {
+                    fileOperations_.Enqueue({FileOperationKind::Delete, std::move(remainingSources), {}, {}, true});
+                }
                 return 0;
             }
             // Route hover into the column view (paint-only; hit-testing is

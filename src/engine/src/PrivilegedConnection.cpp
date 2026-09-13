@@ -167,6 +167,11 @@ bool PrivilegedConnection::SendRequest(uint16_t messageType, const void* payload
 }
 
 bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
+#ifdef FF_PRIVILEGED_CONNECTION_TESTING
+    if (serviceIdentityVerifier_) {
+        return serviceIdentityVerifier_(pipe);
+    }
+#endif
     const auto reject = [](const wchar_t* stage, DWORD error) {
         ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
                                       ffprotocol::DiagnosticCode::FFDIAG_ENGINE_CONNECT_FAILED,
@@ -640,6 +645,18 @@ void PrivilegedConnection::ActiveLoop(const PipePtr& pipe) {
         if (!ackOk) {
             // Spec "Heartbeat timeout is treated as disconnection": force
             // close even though the pipe itself may not have errored.
+            break;
+        }
+
+        // harden-ipc-trust-boundary-gaps D2: D4 requires symmetric mutual
+        // authentication to be re-checked periodically on long-lived
+        // connections. The engine re-runs the service image-path + pin
+        // verification on the heartbeat cadence; a failure is treated exactly
+        // like a heartbeat timeout (off Active into degraded mode).
+        if (!VerifyServiceIdentity(pipe->handle)) {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                          ffprotocol::DiagnosticCode::FFDIAG_ENGINE_DISCONNECTED,
+                                          {}, {}, L"heartbeat-service-identity-revalidation", ERROR_INVALID_DATA, 0});
             break;
         }
 

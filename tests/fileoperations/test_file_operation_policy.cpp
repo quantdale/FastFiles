@@ -4,6 +4,7 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <shlobj.h>
 #include <unordered_set>
 #include <thread>
 #include <windows.h>
@@ -100,6 +101,41 @@ int main() {
               unicodeCasePrompts == 1,
           "Unicode case-variant source names were assigned distinct destinations");
 
+    // complete-ole-drag-source-move-effect 3.1/3.2: only a MOVE whose sources
+    // still exist is completed by the source (Recycle-Bin delete); a target
+    // that moved the files itself, and every COPY/LINK, leaves sources alone.
+    {
+        const std::vector<std::wstring> dragSources{L"C:\\source\\one.txt", L"C:\\source\\two.txt"};
+        const auto allExist = [](const std::wstring&) { return true; };
+        const auto noneExist = [](const std::wstring&) { return false; };
+        Check(SourcePathsToDeleteAfterDrag(DROPEFFECT_MOVE, dragSources, allExist) == dragSources,
+              "a target that copied then reported MOVE leaves sources to delete");
+        Check(SourcePathsToDeleteAfterDrag(DROPEFFECT_MOVE, dragSources, noneExist).empty(),
+              "a target that already moved the files is not double-deleted");
+        Check(SourcePathsToDeleteAfterDrag(DROPEFFECT_COPY, dragSources, allExist).empty(),
+              "copy drag-out never deletes sources");
+        Check(SourcePathsToDeleteAfterDrag(DROPEFFECT_LINK, dragSources, allExist).empty(),
+              "link drag-out never deletes sources");
+        const auto partialDelete = SourcePathsToDeleteAfterDrag(DROPEFFECT_MOVE, dragSources,
+            [](const std::wstring& path) { return path == L"C:\\source\\one.txt"; });
+        Check(partialDelete.size() == 1 && partialDelete.front() == L"C:\\source\\one.txt",
+              "only sources still present after the drag are deleted");
+    }
+
+    // complete-ole-drag-source-move-effect 3.3: intra-batch .lnk reservation.
+    {
+        const auto noFiles = [](const std::wstring&) { return false; };
+        const auto links = BuildLinkPlan({L"D:\\a\\report.txt", L"E:\\b\\report.txt"}, L"C:\\links", noFiles);
+        Check(links.size() == 2 && links[0].destinationName == L"report.txt.lnk" &&
+              links[1].destinationName == L"report.txt (2).lnk",
+              "two same-basename link sources received distinct .lnk names");
+        const auto occupiedLink = [](const std::wstring& path) { return path == L"C:\\links\\report.txt.lnk"; };
+        const auto reserved = BuildLinkPlan({L"D:\\a\\report.txt", L"E:\\b\\report.txt"}, L"C:\\links", occupiedLink);
+        Check(reserved.size() == 2 && reserved[0].destinationName == L"report.txt (2).lnk" &&
+              reserved[1].destinationName == L"report.txt (3).lnk",
+              "link planning reserves names within the batch and against disk");
+    }
+
     OperationHistory history;
     history.PushRename(L"C:\\old.txt", L"C:\\new.txt");
     history.PushMove({{L"C:\\one.txt", L"D:\\one.txt"}});
@@ -139,6 +175,52 @@ int main() {
     Check(drop != nullptr && DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0) == 2, "CF_HDROP path count wrong");
     GlobalUnlock(medium.hGlobal);
     ReleaseStgMedium(&medium);
+
+    // complete-ole-drag-source-move-effect D1/D2: preferred-effect advertising
+    // and the performed-effect round trip on the source's own data object.
+    IDataObject* effectObject = nullptr;
+    Check(SUCCEEDED(CreateFileDataObject({L"C:\\source\\one.txt"}, DROPEFFECT_COPY, &effectObject)),
+          "data object with a preferred effect was not created");
+    if (effectObject != nullptr) {
+        const UINT preferredFormat = RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+        FORMATETC preferred{static_cast<CLIPFORMAT>(preferredFormat), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM preferredMedium{};
+        DWORD preferredValue = 0;
+        const bool advertised = SUCCEEDED(effectObject->GetData(&preferred, &preferredMedium)) &&
+                                preferredMedium.hGlobal != nullptr;
+        if (advertised) {
+            void* data = GlobalLock(preferredMedium.hGlobal);
+            if (data != nullptr) {
+                preferredValue = *static_cast<const DWORD*>(data);
+                GlobalUnlock(preferredMedium.hGlobal);
+            }
+            ReleaseStgMedium(&preferredMedium);
+        }
+        Check(advertised && preferredValue == DROPEFFECT_COPY,
+              "the preferred drop effect is advertised on the data object");
+
+        HGLOBAL performedStorage = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+        Check(performedStorage != nullptr, "performed-effect fixture allocation failed");
+        if (performedStorage != nullptr) {
+            auto* value = static_cast<DWORD*>(GlobalLock(performedStorage));
+            Check(value != nullptr, "performed-effect fixture lock failed");
+            if (value != nullptr) {
+                *value = DROPEFFECT_MOVE;
+                GlobalUnlock(performedStorage);
+            }
+            const UINT performedFormat = RegisterClipboardFormatW(CFSTR_PERFORMEDDROPEFFECT);
+            FORMATETC performed{static_cast<CLIPFORMAT>(performedFormat), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+            STGMEDIUM performedMedium{};
+            performedMedium.tymed = TYMED_HGLOBAL;
+            performedMedium.hGlobal = performedStorage;
+            performedMedium.pUnkForRelease = nullptr;
+            Check(SUCCEEDED(effectObject->SetData(&performed, &performedMedium, TRUE)),
+                  "the data object did not accept the target's performed drop effect");
+            Check(PerformedDropEffectFromDataObject(effectObject) == DROPEFFECT_MOVE,
+                  "the performed drop effect was not read back from the data object");
+        }
+        effectObject->Release();
+    }
     Check(DetermineDropEffect(0, DROPEFFECT_COPY | DROPEFFECT_MOVE, {L"C:\\one.txt"}, L"C:\\target") == DROPEFFECT_MOVE,
           "same-volume default drag effect wrong");
     Check(DetermineDropEffect(0, DROPEFFECT_COPY | DROPEFFECT_MOVE, {L"C:\\one.txt"}, L"D:\\target") == DROPEFFECT_COPY,

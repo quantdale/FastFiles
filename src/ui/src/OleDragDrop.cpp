@@ -16,6 +16,32 @@ FORMATETC DropFormat() {
     return {CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
 }
 
+// complete-ole-drag-source-move-effect D1/D2: the source advertises its
+// preferred effect and consumes the effect the target reports it performed.
+UINT PreferredDropEffectFormat() {
+    return RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT);
+}
+
+UINT PerformedDropEffectFormat() {
+    return RegisterClipboardFormatW(CFSTR_PERFORMEDDROPEFFECT);
+}
+
+HRESULT StoreDwordMedium(DWORD value, STGMEDIUM* medium) {
+    HGLOBAL storage = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(DWORD));
+    if (storage == nullptr) return E_OUTOFMEMORY;
+    auto* target = static_cast<DWORD*>(GlobalLock(storage));
+    if (target == nullptr) {
+        GlobalFree(storage);
+        return E_OUTOFMEMORY;
+    }
+    *target = value;
+    GlobalUnlock(storage);
+    medium->tymed = TYMED_HGLOBAL;
+    medium->hGlobal = storage;
+    medium->pUnkForRelease = nullptr;
+    return S_OK;
+}
+
 std::vector<std::wstring> ExtractPaths(IDataObject* object) {
     std::vector<std::wstring> paths;
     FORMATETC format = DropFormat();
@@ -57,7 +83,8 @@ std::vector<std::wstring> ExtractPaths(IDataObject* object) {
 
 class FileDataObject final : public IDataObject {
 public:
-    explicit FileDataObject(std::vector<std::wstring> paths) : paths_(std::move(paths)) {}
+    explicit FileDataObject(std::vector<std::wstring> paths, DWORD preferredEffect = DROPEFFECT_NONE)
+        : paths_(std::move(paths)), preferredEffect_(preferredEffect) {}
     IFACEMETHODIMP QueryInterface(REFIID iid, void** value) override {
         if (value == nullptr) return E_POINTER;
         if (iid == IID_IUnknown || iid == IID_IDataObject) {
@@ -77,6 +104,14 @@ public:
     IFACEMETHODIMP GetData(FORMATETC* format, STGMEDIUM* medium) override {
         if (format == nullptr || medium == nullptr) return E_POINTER;
         if (FAILED(QueryGetData(format))) return DV_E_FORMATETC;
+        const UINT preferred = PreferredDropEffectFormat();
+        if (preferred != 0 && format->cfFormat == preferred) {
+            return StoreDwordMedium(preferredEffect_, medium);
+        }
+        const UINT performed = PerformedDropEffectFormat();
+        if (performed != 0 && format->cfFormat == performed) {
+            return StoreDwordMedium(performedDropEffect_, medium);
+        }
         size_t characterCount = 1;
         for (const auto& path : paths_) {
             if (path.size() > SIZE_MAX / sizeof(wchar_t) - characterCount - 1) return E_OUTOFMEMORY;
@@ -109,20 +144,52 @@ public:
     IFACEMETHODIMP GetDataHere(FORMATETC*, STGMEDIUM*) override { return DATA_E_FORMATETC; }
     IFACEMETHODIMP QueryGetData(FORMATETC* format) override {
         if (format == nullptr) return E_POINTER;
-        return format->cfFormat == CF_HDROP && (format->tymed & TYMED_HGLOBAL) != 0 &&
-               format->dwAspect == DVASPECT_CONTENT ? S_OK : DV_E_FORMATETC;
+        if (format->dwAspect != DVASPECT_CONTENT || (format->tymed & TYMED_HGLOBAL) == 0) return DV_E_FORMATETC;
+        if (format->cfFormat == CF_HDROP) return S_OK;
+        const UINT preferred = PreferredDropEffectFormat();
+        if (preferred != 0 && format->cfFormat == preferred && preferredEffect_ != DROPEFFECT_NONE) return S_OK;
+        const UINT performed = PerformedDropEffectFormat();
+        if (performed != 0 && format->cfFormat == performed && performedDropEffectWritten_) return S_OK;
+        return DV_E_FORMATETC;
     }
     IFACEMETHODIMP GetCanonicalFormatEtc(FORMATETC*, FORMATETC* output) override {
         if (output != nullptr) output->ptd = nullptr;
         return E_NOTIMPL;
     }
-    IFACEMETHODIMP SetData(FORMATETC*, STGMEDIUM*, BOOL) override { return E_NOTIMPL; }
+    IFACEMETHODIMP SetData(FORMATETC* format, STGMEDIUM* medium, BOOL release) override {
+        if (format == nullptr || medium == nullptr) return E_POINTER;
+        // complete-ole-drag-source-move-effect D1: the drop target publishes
+        // what it actually did (MOVE vs COPY) through CFSTR_PERFORMEDDROPEFFECT.
+        const UINT performed = PerformedDropEffectFormat();
+        if (performed == 0 || format->cfFormat != performed || format->dwAspect != DVASPECT_CONTENT ||
+            (format->tymed & TYMED_HGLOBAL) == 0 || medium->tymed != TYMED_HGLOBAL || medium->hGlobal == nullptr) {
+            // Unsupported: the caller keeps ownership of the medium.
+            return E_NOTIMPL;
+        }
+        void* data = GlobalLock(medium->hGlobal);
+        if (data == nullptr) return E_FAIL;
+        performedDropEffect_ = *static_cast<const DWORD*>(data);
+        performedDropEffectWritten_ = true;
+        GlobalUnlock(medium->hGlobal);
+        if (release) ReleaseStgMedium(medium);
+        return S_OK;
+    }
     IFACEMETHODIMP EnumFormatEtc(DWORD direction, IEnumFORMATETC** enumerator) override {
         if (enumerator == nullptr) return E_POINTER;
         *enumerator = nullptr;
         if (direction != DATADIR_GET) return E_NOTIMPL;
-        FORMATETC format = DropFormat();
-        return SHCreateStdEnumFmtEtc(1, &format, enumerator);
+        FORMATETC formats[3]{};
+        UINT count = 0;
+        formats[count++] = DropFormat();
+        const UINT preferred = PreferredDropEffectFormat();
+        if (preferred != 0 && preferredEffect_ != DROPEFFECT_NONE) {
+            formats[count++] = {static_cast<CLIPFORMAT>(preferred), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        }
+        const UINT performed = PerformedDropEffectFormat();
+        if (performed != 0 && performedDropEffectWritten_) {
+            formats[count++] = {static_cast<CLIPFORMAT>(performed), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        }
+        return SHCreateStdEnumFmtEtc(count, formats, enumerator);
     }
     IFACEMETHODIMP DAdvise(FORMATETC*, DWORD, IAdviseSink*, DWORD*) override { return OLE_E_ADVISENOTSUPPORTED; }
     IFACEMETHODIMP DUnadvise(DWORD) override { return OLE_E_ADVISENOTSUPPORTED; }
@@ -131,6 +198,9 @@ public:
 private:
     std::atomic<ULONG> references_{1};
     std::vector<std::wstring> paths_;
+    DWORD preferredEffect_ = DROPEFFECT_NONE;
+    DWORD performedDropEffect_ = DROPEFFECT_NONE;
+    bool performedDropEffectWritten_ = false;
 };
 
 class FileDropSource final : public IDropSource {
@@ -230,22 +300,67 @@ private:
 } // namespace
 
 HRESULT CreateFileDataObject(const std::vector<std::wstring>& paths, IDataObject** object) {
+    return CreateFileDataObject(paths, DROPEFFECT_NONE, object);
+}
+
+HRESULT CreateFileDataObject(const std::vector<std::wstring>& paths, DWORD preferredEffect, IDataObject** object) {
     if (object == nullptr) return E_POINTER;
     *object = nullptr;
     if (paths.empty()) return E_INVALIDARG;
-    *object = new FileDataObject(paths);
+    *object = new FileDataObject(paths, preferredEffect);
     return S_OK;
 }
 
 DWORD BeginFileDrag(const std::vector<std::wstring>& paths) {
+    return BeginFileDrag(paths, 0);
+}
+
+DWORD BeginFileDrag(const std::vector<std::wstring>& paths, DWORD keyState) {
+    // complete-ole-drag-source-move-effect D2: the modifier state is advertised
+    // as the preferred effect (Ctrl=copy, Shift=move, Ctrl+Shift=link).
+    const DWORD preferred = DetermineDropEffect(keyState, DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK,
+                                                paths, std::wstring{});
     IDataObject* object = nullptr;
-    if (FAILED(CreateFileDataObject(paths, &object))) return DROPEFFECT_NONE;
+    if (FAILED(CreateFileDataObject(paths, preferred, &object))) return DROPEFFECT_NONE;
     auto* source = new FileDropSource();
     DWORD effect = DROPEFFECT_NONE;
     DoDragDrop(object, source, DROPEFFECT_COPY | DROPEFFECT_MOVE | DROPEFFECT_LINK, &effect);
+    // The target's published performed effect is more authoritative than the
+    // DoDragDrop return value; honor it when present (D1).
+    const DWORD performed = PerformedDropEffectFromDataObject(object);
+    if (performed != DROPEFFECT_NONE) effect = performed;
     source->Release();
     object->Release();
     return effect;
+}
+
+DWORD PerformedDropEffectFromDataObject(IDataObject* object) {
+    if (object == nullptr) return DROPEFFECT_NONE;
+    const UINT format = PerformedDropEffectFormat();
+    if (format == 0) return DROPEFFECT_NONE;
+    FORMATETC query{static_cast<CLIPFORMAT>(format), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    if (FAILED(object->GetData(&query, &medium))) return DROPEFFECT_NONE;
+    DWORD effect = DROPEFFECT_NONE;
+    if (medium.tymed == TYMED_HGLOBAL && medium.hGlobal != nullptr) {
+        void* data = GlobalLock(medium.hGlobal);
+        if (data != nullptr) {
+            effect = *static_cast<const DWORD*>(data);
+            GlobalUnlock(medium.hGlobal);
+        }
+    }
+    ReleaseStgMedium(&medium);
+    return effect;
+}
+
+std::vector<std::wstring> SourcePathsToDeleteAfterDrag(DWORD effect, const std::vector<std::wstring>& sourcePaths,
+                                                       const std::function<bool(const std::wstring&)>& exists) {
+    std::vector<std::wstring> result;
+    if (effect != DROPEFFECT_MOVE) return result;
+    for (const auto& path : sourcePaths) {
+        if (exists(path)) result.push_back(path);
+    }
+    return result;
 }
 
 DWORD DetermineDropEffect(DWORD keyState, DWORD allowedEffects, const std::vector<std::wstring>& sourcePaths,

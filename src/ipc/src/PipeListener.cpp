@@ -35,9 +35,14 @@ HANDLE PipeListener::CreateInstance(bool isFirstInstance) noexcept {
     const DWORD openMode = PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED
         | (isFirstInstance ? FILE_FLAG_FIRST_PIPE_INSTANCE : 0);
 
+    // harden-ipc-trust-boundary-gaps D1: every instance rejects remote SMB
+    // clients at the kernel layer, so both the service control pipe and the
+    // per-session UI pipe inherit the flag. No silent retry without it.
+    constexpr DWORD kInstanceMode =
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS;
+    lastCreateMode_.store(kInstanceMode, std::memory_order_relaxed);
     return CreateNamedPipeW(
-        pipeName_.c_str(), openMode,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+        pipeName_.c_str(), openMode, kInstanceMode,
         PIPE_UNLIMITED_INSTANCES, kPipeBufferSize, kPipeBufferSize, 0,
         const_cast<SECURITY_ATTRIBUTES*>(securityAttributes_));
 }

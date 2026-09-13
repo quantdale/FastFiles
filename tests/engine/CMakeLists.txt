@@ -20,6 +20,9 @@ add_executable(ffengine_volume_session_manager_tests
 )
 target_include_directories(ffengine_volume_session_manager_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
 target_link_libraries(ffengine_volume_session_manager_tests PRIVATE ffindexstore ffprotocol ffsearch ffipc ffsetup Rpcrt4 Shell32 Ole32)
+# harden-ipc-trust-boundary-gaps 2.2: enables the service-identity verifier
+# seam so the heartbeat revalidation path is testable without production pins.
+target_compile_definitions(ffengine_volume_session_manager_tests PRIVATE FF_PRIVILEGED_CONNECTION_TESTING=1)
 add_test(NAME ffengine_volume_session_manager_tests COMMAND ffengine_volume_session_manager_tests)
 
 # Portable pin-enforcement suite: no elevation, no production signer/pins, no
@@ -81,6 +84,17 @@ target_include_directories(ffengine_directory_watcher_tests PRIVATE ${CMAKE_SOUR
 target_link_libraries(ffengine_directory_watcher_tests PRIVATE ffprotocol)
 target_compile_definitions(ffengine_directory_watcher_tests PRIVATE FF_DIRECTORY_WATCHER_TESTING=1)
 add_test(NAME ffengine_directory_watcher_tests COMMAND ffengine_directory_watcher_tests)
+
+# close-idle-drop-activity-race D3: deterministic IdleManager coverage for the
+# idle-drop vs activity race. FF_IDLE_MANAGER_TESTING compresses the monitor
+# cadence; the production binary keeps the 15-second interval.
+add_executable(ffengine_idle_manager_tests
+  test_idle_manager.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IdleManager.cpp
+)
+target_include_directories(ffengine_idle_manager_tests PRIVATE ${CMAKE_SOURCE_DIR}/src/engine/src)
+target_compile_definitions(ffengine_idle_manager_tests PRIVATE FF_IDLE_MANAGER_TESTING=1)
+add_test(NAME ffengine_idle_manager_tests COMMAND ffengine_idle_manager_tests)
 
 add_executable(ffengine_ui_server_lifecycle_tests
   test_ui_server_lifecycle.cpp
@@ -208,5 +222,5 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
-set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
+set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)

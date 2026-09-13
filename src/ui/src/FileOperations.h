@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <deque>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -28,6 +29,15 @@ struct FileOperationConflictQuestion {
     bool answered = false;
 };
 
+// Ownership protocol for WM_APP_FILE_OPERATION_CONFLICT: the worker posts a
+// heap-allocated shared_ptr copy of the question as lParam; the receiving
+// window procedure owns that heap pointer and releases it once the decision
+// has been published. The worker keeps its own shared_ptr alive while it
+// waits, so Stop()/WM_DESTROY running during the conflict dialog's nested
+// message pump cannot free the question while the UI thread still writes to
+// it (close-file-ops-conflict-lifetime-and-outcome-truth D1).
+using FileOperationConflictQuestionRef = std::shared_ptr<FileOperationConflictQuestion>;
+
 enum class FileOperationKind { Copy, Move, Rename, CreateFolder, CreateFile, Delete, Restore, Link };
 enum class FileOperationEventKind { Queued, Started, Progress, Completed, Cancelled };
 
@@ -49,6 +59,10 @@ struct FileOperationEvent {
     double etaSeconds = -1.0;
     std::optional<ReversibleOperation> reversibleOperation;
     std::vector<std::wstring> createdPaths;
+    // Items the user skipped at conflict resolution; counted separately from
+    // completed transfers and per-item failures so an all-skip batch does not
+    // report "0 of 0" (close-file-ops-conflict-lifetime-and-outcome-truth D3).
+    unsigned int skipped = 0;
 };
 
 struct FileOperationRequest {
@@ -60,6 +74,10 @@ struct FileOperationRequest {
     std::vector<TransferPlanItem> transferPlan;
     std::vector<ReversiblePath> restorePaths;
     bool recordHistory = true;
+    // Set by CancelCurrent() on requests that were already queued when the
+    // cancel was observed; such requests report Cancelled without starting
+    // (close-file-ops-conflict-lifetime-and-outcome-truth D4).
+    bool cancelledBeforeStart = false;
 };
 
 class FileOperations {
@@ -78,15 +96,22 @@ public:
 
 private:
     void WorkerMain();
-    void Execute(const FileOperationRequest& request);
+    void Execute(const FileOperationRequest& request, bool cancelBeforeStart);
     ConflictDecision RequestConflictDecision(const std::wstring& source, const std::wstring& destination);
     HWND eventWindow_ = nullptr;
     std::atomic<DWORD> workerThreadId_{0};
     std::thread worker_;
     std::mutex queueMutex_;
     std::deque<FileOperationRequest> queue_;
+    // Guarded by queueMutex_: true while a dequeued request is executing.
+    bool executing_ = false;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cancelRequested_{false};
 };
+
+// Last-operation-errors retention contract: only terminal (Completed or
+// Cancelled) events carry the authoritative per-item failure list; Progress
+// ticks never clear a recorded list. WindowShell calls this for every event.
+void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event);
 
 } // namespace ffui

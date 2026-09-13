@@ -14,6 +14,7 @@
 namespace ffui {
 namespace {
 constexpr wchar_t kNamePromptClass[] = L"FastFilesNamePrompt";
+
 // ui-v3 secondary surfaces: the name prompt joins the shared theme system —
 // themed background/edit/static colors from GetUiTheme(gUiDarkTheme), product
 // typography, and an immersive dark title bar — instead of raw system chrome.
@@ -216,13 +217,28 @@ bool CopyFilesToClipboard(HWND owner, const std::vector<std::wstring>& paths, bo
     return true;
 }
 
-std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
+bool ReadDropHandle(HGLOBAL dropHandle, HGLOBAL preferredEffectHandle,
+                    std::vector<std::wstring>& paths, bool& cut) {
+    paths.clear();
     cut = false;
-    std::vector<std::wstring> paths;
-    if (!TryOpenClipboard(owner)) return paths;
-    struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
-    auto* drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
-    if (drop == nullptr) return paths;
+    // Win32 requires an HGLOBAL obtained from GetClipboardData to be locked
+    // before its bytes are inspected; the OLE drop extractor uses the same
+    // lock-cast-unlock pattern. RAII keeps the pairing intact on every exit.
+    struct GlobalLockGuard {
+        explicit GlobalLockGuard(HGLOBAL handle) : handle(handle) {
+            if (handle != nullptr) pointer = GlobalLock(handle);
+        }
+        ~GlobalLockGuard() {
+            if (pointer != nullptr) GlobalUnlock(handle);
+        }
+        GlobalLockGuard(const GlobalLockGuard&) = delete;
+        GlobalLockGuard& operator=(const GlobalLockGuard&) = delete;
+        HGLOBAL handle = nullptr;
+        void* pointer = nullptr;
+    };
+    GlobalLockGuard dropLock(dropHandle);
+    if (dropLock.pointer == nullptr) return false;
+    const HDROP drop = static_cast<HDROP>(dropLock.pointer);
     const UINT count = DragQueryFileW(drop, 0xFFFFFFFFu, nullptr, 0);
     paths.reserve(count);
     for (UINT index = 0; index < count; ++index) {
@@ -234,12 +250,26 @@ std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
             paths.push_back(std::move(path));
         }
     }
-    const UINT effectFormat = RegisterClipboardFormatW(L"Preferred DropEffect");
-    if (effectFormat != 0) {
-        if (auto* effect = static_cast<const DWORD*>(GetClipboardData(effectFormat)); effect != nullptr) {
-            cut = (*effect & DROPEFFECT_MOVE) != 0;
-        }
+    GlobalLockGuard effectLock(preferredEffectHandle);
+    if (effectLock.pointer != nullptr) {
+        cut = (*static_cast<const DWORD*>(effectLock.pointer) & DROPEFFECT_MOVE) != 0;
     }
+    return true;
+}
+
+std::vector<std::wstring> ReadFilesFromClipboard(HWND owner, bool& cut) {
+    cut = false;
+    std::vector<std::wstring> paths;
+    if (!TryOpenClipboard(owner)) return paths;
+    struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
+    const HGLOBAL drop = reinterpret_cast<HGLOBAL>(GetClipboardData(CF_HDROP));
+    const UINT effectFormat = RegisterClipboardFormatW(L"Preferred DropEffect");
+    const HGLOBAL effect = effectFormat != 0
+        ? reinterpret_cast<HGLOBAL>(GetClipboardData(effectFormat))
+        : nullptr;
+    // lock-clipboard-hdrop-read: both handles are dereferenced only through a
+    // GlobalLock view; a failed lock is an empty paste, never a dangling read.
+    ReadDropHandle(drop, effect, paths, cut);
     return paths;
 }
 
@@ -261,6 +291,7 @@ bool CanUseLocalCutClipboardFallback(const std::vector<std::wstring>& clipboardP
 bool HasFilesOnClipboard(HWND owner) {
     if (!TryOpenClipboard(owner)) return false;
     struct ClipboardCloser { ~ClipboardCloser() { CloseClipboard(); } } closer;
+    // Presence only: the handle is never dereferenced, so no lock is required.
     return GetClipboardData(CF_HDROP) != nullptr;
 }
 

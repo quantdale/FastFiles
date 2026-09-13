@@ -30,6 +30,13 @@ std::wstring GenerateKeepBothName(const std::wstring& destinationFolder, const s
 std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
     const std::vector<std::wstring>& sources, const std::wstring& destinationFolder,
     const PathExists& exists, const ConflictPrompt& prompt);
+// complete-ole-drag-source-move-effect D3: plans `.lnk` destination names for a
+// batch of link sources. Reservations are tracked within the batch exactly
+// like BuildTransferPlan, so two sources that share a basename receive
+// distinct names instead of the later shortcut overwriting the earlier one.
+std::vector<TransferPlanItem> BuildLinkPlan(const std::vector<std::wstring>& sources,
+                                            const std::wstring& destinationFolder,
+                                            const PathExists& exists);
 
 enum class ReversibleOperationKind { Rename, Move, RecycleDelete };
 

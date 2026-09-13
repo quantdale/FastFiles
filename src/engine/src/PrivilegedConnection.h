@@ -112,6 +112,16 @@ public:
     // activity burst after an idle drop (task 4.10).
     void RequestReconnect();
 
+#ifdef FF_PRIVILEGED_CONNECTION_TESTING
+    // Test-only seam (harden-ipc-trust-boundary-gaps 2.2): replaces the
+    // production service image-path + pinned-signature check so the Active
+    // heartbeat revalidation path is exercisable without production pins.
+    // Must be set before Start(). Never compiled into the production engine.
+    void SetServiceIdentityVerifierForTesting(std::function<bool(HANDLE)> verifier) {
+        serviceIdentityVerifier_ = std::move(verifier);
+    }
+#endif
+
 private:
     struct OwnedPipe {
         explicit OwnedPipe(HANDLE value) noexcept : handle(value) {}
@@ -183,6 +193,9 @@ private:
     std::mutex wakeMutex_;
     std::condition_variable wakeCv_;
     bool wakeRequested_ = false;
+#ifdef FF_PRIVILEGED_CONNECTION_TESTING
+    std::function<bool(HANDLE)> serviceIdentityVerifier_;
+#endif
 };
 
 } // namespace ffengine

@@ -213,19 +213,26 @@ bool FileOperations::Start(HWND eventWindow) {
 
 void FileOperations::Stop() {
     cancelRequested_ = true;
+    {
+        std::lock_guard<std::mutex> lock(queueMutex_);
+        for (auto& queued : queue_) queued.cancelledBeforeStart = true;
+    }
     stopping_ = true;
     if (eventWindow_ != nullptr) {
         MSG pending{};
         while (PeekMessageW(&pending, eventWindow_, WM_APP_FILE_OPERATION_CONFLICT,
                             WM_APP_FILE_OPERATION_CONFLICT, PM_REMOVE)) {
-            auto* question = reinterpret_cast<FileOperationConflictQuestion*>(pending.lParam);
-            if (question != nullptr) {
+            // The posted heap shared_ptr owns the message's reference; release
+            // it (and answer Cancel) so a later dispatch cannot see it.
+            std::unique_ptr<FileOperationConflictQuestionRef> posted(
+                reinterpret_cast<FileOperationConflictQuestionRef*>(pending.lParam));
+            if (posted && *posted) {
                 {
-                    std::lock_guard lock(question->mutex);
-                    question->decision = {};
-                    question->answered = true;
+                    std::lock_guard lock((*posted)->mutex);
+                    (*posted)->decision = {};
+                    (*posted)->answered = true;
                 }
-                question->answeredCondition.notify_one();
+                (*posted)->answeredCondition.notify_one();
             }
         }
     }
@@ -244,7 +251,15 @@ void FileOperations::Enqueue(FileOperationRequest request) {
     if (workerThreadId_ != 0) PostThreadMessageW(workerThreadId_, WM_APP_FILE_OPERATION_REQUEST, 0, 0);
 }
 
-void FileOperations::CancelCurrent() { cancelRequested_ = true; }
+void FileOperations::CancelCurrent() {
+    std::lock_guard<std::mutex> lock(queueMutex_);
+    // An idle Escape (no running or queued work) must not latch into the next
+    // enqueue: only work outstanding when the cancel is observed is marked
+    // (close-file-ops-conflict-lifetime-and-outcome-truth D4).
+    if (!executing_ && queue_.empty()) return;
+    cancelRequested_ = true;
+    for (auto& queued : queue_) queued.cancelledBeforeStart = true;
+}
 
 void FileOperations::PostEvent(FileOperationEvent event) const {
     if (eventWindow_ == nullptr) return;
@@ -283,30 +298,44 @@ void FileOperations::WorkerMain() {
             FileOperationRequest request;
             {
                 std::lock_guard<std::mutex> lock(queueMutex_);
-                // The cancel flag is checked before dequeuing and only reset
-                // once the queue is observed empty, so one cancellation
-                // stops the running operation and every queued sibling.
                 if (queue_.empty()) {
                     cancelRequested_ = false;
                     break;
                 }
                 request = std::move(queue_.front());
                 queue_.pop_front();
+                executing_ = true;
             }
-            Execute(request);
+            Execute(request, request.cancelledBeforeStart);
+            {
+                std::lock_guard<std::mutex> lock(queueMutex_);
+                executing_ = false;
+            }
+            // The batch that just finished consumed any cancel request observed
+            // while it ran; siblings queued at that moment carry their own
+            // cancelledBeforeStart bit. A request enqueued after the cancel is
+            // not born cancelled (design D4). Shutdown keeps the flag set so
+            // remaining queued work still aborts.
+            if (!stopping_) cancelRequested_ = false;
         }
     }
     CoUninitialize();
 }
 
 ConflictDecision FileOperations::RequestConflictDecision(const std::wstring& source, const std::wstring& destination) {
-    auto question = std::make_unique<FileOperationConflictQuestion>();
+    auto question = std::make_shared<FileOperationConflictQuestion>();
     question->source = source;
     question->destination = destination;
+    // The UI handler owns the posted reference until the decision is
+    // published; this local shared_ptr keeps the question alive while the
+    // worker waits, so Stop()/WM_DESTROY inside the conflict dialog's nested
+    // message pump cannot free it under the UI thread's write (design D1).
+    auto posted = std::make_unique<FileOperationConflictQuestionRef>(question);
     if (eventWindow_ == nullptr || !PostMessageW(eventWindow_, WM_APP_FILE_OPERATION_CONFLICT, 0,
-                                                  reinterpret_cast<LPARAM>(question.get()))) {
+                                                  reinterpret_cast<LPARAM>(posted.get()))) {
         return {};
     }
+    posted.release();
     std::unique_lock lock(question->mutex);
     while (!question->answered && !stopping_) {
         question->answeredCondition.wait_for(lock, std::chrono::milliseconds(100));
@@ -314,9 +343,18 @@ ConflictDecision FileOperations::RequestConflictDecision(const std::wstring& sou
     return question->answered ? question->decision : ConflictDecision{};
 }
 
-void FileOperations::Execute(const FileOperationRequest& input) {
+void FileOperations::Execute(const FileOperationRequest& input, bool cancelBeforeStart) {
+    // A cancel observed while this request was still queued stops it before
+    // any shell work starts; the user sees it reported as cancelled rather
+    // than silently dropped (close-file-ops-conflict-lifetime-and-outcome-truth D4).
+    if (cancelBeforeStart) {
+        PostEvent({FileOperationEventKind::Cancelled, input.kind, {}, 0,
+                   static_cast<unsigned int>((std::max)(size_t{1}, input.sources.size())), 0, {}});
+        return;
+    }
     FileOperationRequest request = input;
     std::vector<FileOperationFailure> rejectedSources;
+    unsigned int skipped = 0;
     if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
         // Self-target rejection covers every caller (drop, paste, undo):
         // copying a folder onto itself or into its own subtree must never
@@ -340,6 +378,7 @@ void FileOperations::Execute(const FileOperationRequest& input) {
     // requests that arrive with a pre-baked plan — so an occupied target is
     // never silently overwritten under FOF_NOCONFIRMATION.
     if (request.kind == FileOperationKind::Copy || request.kind == FileOperationKind::Move) {
+        const size_t plannedSourceCount = request.sources.size();
         const auto plan = BuildTransferPlan(request.sources, request.destination,
             [](const std::wstring& path) { return PathExistsWin32(path); },
             [this](const std::wstring& source, const std::wstring& destination) {
@@ -347,14 +386,21 @@ void FileOperations::Execute(const FileOperationRequest& input) {
             });
         if (!plan) {
             PostEvent({FileOperationEventKind::Cancelled, request.kind, {}, 0,
-                       static_cast<unsigned int>(request.sources.size()), 0, {}});
+                       static_cast<unsigned int>((std::max)(size_t{1}, plannedSourceCount)), 0, {}});
             return;
         }
         request.transferPlan = *plan;
         request.sources.clear();
         for (const auto& item : request.transferPlan) request.sources.push_back(item.source);
+        // Every source that received no plan item was skipped at the conflict
+        // prompt. A skip is a user decision, not a failure, and must still be
+        // visible in the batch outcome (design D3).
+        skipped = static_cast<unsigned int>(plannedSourceCount - request.sources.size());
         if (request.sources.empty()) {
-            PostEvent({FileOperationEventKind::Completed, request.kind, {}, 0, 0, 100, {}});
+            FileOperationEvent completion{FileOperationEventKind::Completed, request.kind, {}, 0,
+                                          static_cast<unsigned int>(plannedSourceCount), 100, {}};
+            completion.skipped = skipped;
+            PostEvent(std::move(completion));
             return;
         }
     }
@@ -507,7 +553,7 @@ void FileOperations::Execute(const FileOperationRequest& input) {
         }
     }
     failures.insert(failures.end(), rejectedSources.begin(), rejectedSources.end());
-    const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + rejectedSources.size()));
+    const unsigned int total = static_cast<unsigned int>((std::max)(size_t{1}, request.sources.size() + rejectedSources.size() + skipped));
     const unsigned int completed = sink->Completed();
     // Live progress is byte-based; keep the terminal event consistent with
     // it (full success = 100%) instead of recomputing from item counts.
@@ -519,6 +565,7 @@ void FileOperations::Execute(const FileOperationRequest& input) {
     if (!request.destination.empty()) affected.push_back(request.destination);
     FileOperationEvent completion{cancelled ? FileOperationEventKind::Cancelled : FileOperationEventKind::Completed,
                                   request.kind, {}, completed, total, percent, std::move(failures), std::move(affected)};
+    completion.skipped = skipped;
     const auto allCompletedPaths = sink->CompletedPaths();
     if (request.kind == FileOperationKind::CreateFolder || request.kind == FileOperationKind::CreateFile) {
         for (const auto& path : allCompletedPaths) {
@@ -565,6 +612,16 @@ void FileOperations::Execute(const FileOperationRequest& input) {
     }
     PostEvent(std::move(completion));
     sink->Release();
+}
+
+void RetainLastOperationFailures(std::vector<FileOperationFailure>& retained, const FileOperationEvent& event) {
+    if (event.kind != FileOperationEventKind::Completed && event.kind != FileOperationEventKind::Cancelled) {
+        return;
+    }
+    // Terminal events are authoritative (including an empty vector, which
+    // clears a previous batch's list); Progress ticks never carry failures and
+    // must not wipe what a terminal event recorded (design D2).
+    retained = event.failures;
 }
 
 } // namespace ffui

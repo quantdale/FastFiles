@@ -131,6 +131,10 @@ private:
     DWORD clipboardSequenceNumber_ = 0;
     bool dragArmed_ = false;
     POINT dragOrigin_{};
+    // complete-ole-drag-source-move-effect: set by this window's own drop
+    // handler while a drag is in flight, so an intra-app MOVE (already queued
+    // through QueueTransfer) is never re-completed as an external source delete.
+    bool dragDropHandledInWindow_ = false;
     HWND inlineRename_ = nullptr;
     std::wstring inlineRenamePath_;
     float scrollOffset_ = 0.0f;

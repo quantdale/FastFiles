@@ -21,10 +21,22 @@ ffui::ConflictDecision conflictDecision{ffui::ConflictChoice::KeepBoth, true};
 int conflictQuestionCount = 0;
 int terminalEventCount = 0;
 ffui::FileOperations* cancelOnProgress = nullptr;
+// Simulates the real UI's conflict dialog: when set, the posted question is
+// held (unanswered) so the test can run Stop() while the prompt is in flight.
+bool holdConflictQuestion = false;
+std::shared_ptr<ffui::FileOperationConflictQuestion> heldQuestion;
 
 LRESULT CALLBACK EventProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam) {
     if (message == ffui::WM_APP_FILE_OPERATION_CONFLICT) {
-        auto* question = reinterpret_cast<ffui::FileOperationConflictQuestion*>(lParam);
+        // Ownership protocol: the worker posts a heap shared_ptr reference.
+        std::unique_ptr<ffui::FileOperationConflictQuestionRef> posted(
+            reinterpret_cast<ffui::FileOperationConflictQuestionRef*>(lParam));
+        if (!posted || !*posted) return 0;
+        auto question = *posted;
+        if (holdConflictQuestion) {
+            heldQuestion = question;
+            return 0;
+        }
         {
             std::lock_guard lock(question->mutex);
             question->decision = conflictDecision;
@@ -423,6 +435,132 @@ int main() {
         // with extended-length prefixes instead.
         removeTree(longPathFixture);
         Check(!std::filesystem::exists(longPathFixture.substr(4)), "long-path fixture cleanup failed");
+    }
+
+    // Conflict prompt lifetime across Stop (PA-010): Stop() can run from
+    // inside the conflict dialog's nested message pump (WM_DESTROY). The
+    // prompt object must outlive the worker's join so the UI thread's later
+    // answer cannot write to freed memory, and the worker must resolve the
+    // outstanding prompt as Cancel instead of hanging.
+    {
+        WriteText(source / L"stop-conflict.txt", "incoming");
+        WriteText(destination / L"stop-conflict.txt", "existing");
+        holdConflictQuestion = true;
+        heldQuestion.reset();
+        conflictQuestionCount = 0;
+        lastEvent.reset();
+        const int terminalsBefore = terminalEventCount;
+        ffui::FileOperationRequest stopConflict{};
+        stopConflict.kind = ffui::FileOperationKind::Copy;
+        stopConflict.sources = {(source / L"stop-conflict.txt").wstring()};
+        stopConflict.destination = destination.wstring();
+        operations.Enqueue(std::move(stopConflict));
+        MSG message{};
+        {
+            const ULONGLONG deadline = GetTickCount64() + 30000;
+            while (!heldQuestion && GetTickCount64() < deadline) {
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                MsgWaitForMultipleObjects(0, nullptr, FALSE, 25, QS_ALLINPUT);
+            }
+        }
+        Check(heldQuestion != nullptr, "conflict prompt was not posted");
+        operations.Stop();
+        // Answering after Stop() is exactly what the nested dialog pump does
+        // when the owner window is destroyed mid-prompt.
+        auto answeredAfterStop = heldQuestion;
+        heldQuestion.reset();
+        if (answeredAfterStop) {
+            {
+                std::lock_guard lock(answeredAfterStop->mutex);
+                answeredAfterStop->decision = {ffui::ConflictChoice::Cancel, false};
+                answeredAfterStop->answered = true;
+            }
+            answeredAfterStop->answeredCondition.notify_one();
+        }
+        holdConflictQuestion = false;
+        {
+            const ULONGLONG deadline = GetTickCount64() + 30000;
+            while (terminalEventCount == terminalsBefore && GetTickCount64() < deadline) {
+                while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+                MsgWaitForMultipleObjects(0, nullptr, FALSE, 25, QS_ALLINPUT);
+            }
+        }
+        Check(lastEvent && lastEvent->kind == ffui::FileOperationEventKind::Cancelled &&
+              ReadText(destination / L"stop-conflict.txt") == "existing",
+              "Stop during an in-flight conflict prompt did not resolve as Cancel");
+        Check(operations.Start(window), "worker did not restart after conflict-prompt Stop");
+    }
+
+    // Last-operation failure detail comes from terminal events (PA-013): a
+    // Progress tick never wipes the retained list, a terminal event replaces
+    // it, and a later clean completion clears it.
+    {
+        std::vector<ffui::FileOperationFailure> retained;
+        ffui::FileOperationEvent progress{ffui::FileOperationEventKind::Progress,
+                                          ffui::FileOperationKind::Copy, {}, 0, 0, 50, {}};
+        ffui::FileOperationEvent failed{ffui::FileOperationEventKind::Completed,
+                                        ffui::FileOperationKind::Copy, {}, 0, 2, 100,
+                                        {{L"C:\\missing.txt", HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND)}}};
+        ffui::RetainLastOperationFailures(retained, failed);
+        Check(retained.size() == 1, "terminal event failures were not retained");
+        ffui::RetainLastOperationFailures(retained, progress);
+        Check(retained.size() == 1, "a progress event wiped the retained failure list");
+        ffui::FileOperationEvent success{ffui::FileOperationEventKind::Completed,
+                                         ffui::FileOperationKind::Copy, {}, 2, 2, 100, {}};
+        ffui::RetainLastOperationFailures(retained, success);
+        Check(retained.empty(), "a later successful terminal event did not clear the retained list");
+    }
+
+    // Skip accounting and cancel-vs-enqueue scope (PA-024/PA-025).
+    {
+        const auto skipSource = root / L"skip-source";
+        const auto skipDestination = root / L"skip-destination";
+        std::filesystem::create_directories(skipSource);
+        std::filesystem::create_directories(skipDestination);
+        std::vector<std::wstring> allSkipSources;
+        for (int index = 0; index < 3; ++index) {
+            const std::wstring name = L"all-skip-" + std::to_wstring(index) + L".txt";
+            WriteText(skipSource / name, "incoming");
+            WriteText(skipDestination / name, "existing");
+            allSkipSources.push_back((skipSource / name).wstring());
+        }
+        conflictQuestionCount = 0;
+        conflictDecision = {ffui::ConflictChoice::Skip, true};
+        event = Run(operations, {ffui::FileOperationKind::Copy, allSkipSources, skipDestination.wstring(), {}, true});
+        Check(event->kind == ffui::FileOperationEventKind::Completed && event->completed == 0 &&
+              event->skipped == 3 && event->total == 3 && event->failures.empty(),
+              "all-skip batch did not report three skipped items");
+
+        std::vector<std::wstring> mixedSources;
+        for (int index = 0; index < 5; ++index) {
+            const std::wstring name = L"mixed-" + std::to_wstring(index) + L".txt";
+            WriteText(skipSource / name, "incoming");
+            if (index < 2) WriteText(skipDestination / name, "existing");
+            mixedSources.push_back((skipSource / name).wstring());
+        }
+        conflictQuestionCount = 0;
+        conflictDecision = {ffui::ConflictChoice::Skip, false};
+        event = Run(operations, {ffui::FileOperationKind::Copy, mixedSources, skipDestination.wstring(), {}, true});
+        Check(event->kind == ffui::FileOperationEventKind::Completed && event->completed == 3 &&
+              event->skipped == 2 && event->total == 5 && event->failures.empty(),
+              "mixed skip batch did not report completed and skipped counts");
+
+        // An Escape with nothing outstanding must not latch into the next
+        // enqueued batch (D4): the cancel scope is what was running or queued
+        // at cancel time, not work enqueued afterwards.
+        operations.CancelCurrent();
+        WriteText(source / L"after-idle-escape.txt", "hello");
+        event = Run(operations, {ffui::FileOperationKind::Copy,
+            {(source / L"after-idle-escape.txt").wstring()}, destination.wstring(), {}, true});
+        Check(event->kind == ffui::FileOperationEventKind::Completed && event->failures.empty() &&
+              std::filesystem::exists(destination / L"after-idle-escape.txt"),
+              "an idle Escape pre-cancelled the next batch");
     }
 
     // Stop() latches the cancel flag; a fresh Start() must clear it so later

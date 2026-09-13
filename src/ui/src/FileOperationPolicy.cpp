@@ -109,6 +109,28 @@ std::optional<std::vector<TransferPlanItem>> BuildTransferPlan(
     return result;
 }
 
+std::vector<TransferPlanItem> BuildLinkPlan(const std::vector<std::wstring>& sources,
+                                            const std::wstring& destinationFolder,
+                                            const PathExists& exists) {
+    std::vector<TransferPlanItem> result;
+    std::set<std::wstring, ffprotocol::CaseInsensitivePathLess> plannedDestinations;
+    const auto isOccupied = [&](const std::wstring& path) {
+        return plannedDestinations.contains(DestinationKey(path)) || exists(path);
+    };
+    result.reserve(sources.size());
+    for (const auto& source : sources) {
+        const std::wstring baseName = std::filesystem::path(source).filename().wstring() + L".lnk";
+        std::wstring name = baseName;
+        if (isOccupied(Join(destinationFolder, name))) {
+            name = GenerateKeepBothName(destinationFolder, baseName, isOccupied);
+            if (name.empty()) break;
+        }
+        result.push_back({source, name, false});
+        plannedDestinations.insert(DestinationKey(Join(destinationFolder, name)));
+    }
+    return result;
+}
+
 void OperationHistory::PushRename(std::wstring originalPath, std::wstring resultingPath) {
     entries_.push_back({ReversibleOperationKind::Rename, {{std::move(originalPath), std::move(resultingPath)}}});
 }

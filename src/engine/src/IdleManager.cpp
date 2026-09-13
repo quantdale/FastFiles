@@ -3,7 +3,13 @@
 namespace ffengine {
 
 namespace {
+#ifdef FF_IDLE_MANAGER_TESTING
+// The monitor cadence is compressed for the deterministic unit test; the
+// production binary keeps the 15-second check interval.
+constexpr std::chrono::milliseconds kCheckInterval{10};
+#else
 constexpr std::chrono::milliseconds kCheckInterval{15000};
+#endif
 }
 
 IdleManager::~IdleManager() {
@@ -12,9 +18,11 @@ IdleManager::~IdleManager() {
 
 void IdleManager::Start(std::chrono::milliseconds idleTimeout,
                          std::function<void()> onIdleTimeout,
+                         std::function<void()> onIdleDrop,
                          std::function<void()> onReconnectNeeded) {
     idleTimeout_ = idleTimeout;
     onIdleTimeout_ = std::move(onIdleTimeout);
+    onIdleDrop_ = std::move(onIdleDrop);
     onReconnectNeeded_ = std::move(onReconnectNeeded);
     lastActivity_ = std::chrono::steady_clock::now();
     running_ = true;
@@ -40,9 +48,17 @@ void IdleManager::NotifyActivity() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         lastActivity_ = std::chrono::steady_clock::now();
+        ++activityGeneration_;
         if (droppedForIdle_) {
-            droppedForIdle_ = false;
-            shouldReconnect = true;
+            if (dropInFlight_) {
+                // The drop is landing right now: reconnecting before it lands
+                // would be undone by the drop. Record the reconnect and let
+                // MonitorLoop publish it once the drop has returned (D1).
+                reconnectPending_ = true;
+            } else {
+                droppedForIdle_ = false;
+                shouldReconnect = true;
+            }
         }
     }
     if (shouldReconnect && onReconnectNeeded_) {
@@ -65,11 +81,36 @@ void IdleManager::MonitorLoop() {
         // that could never be true.
         if (!droppedForIdle_ && idleFor >= idleTimeout_) {
             droppedForIdle_ = true;
+            // D1: epoch of this idle decision. Activity during the unlocked
+            // maintenance callback invalidates the drop for this epoch.
+            const unsigned long long epoch = activityGeneration_;
             lock.unlock();
             if (onIdleTimeout_) {
                 onIdleTimeout_();
             }
             lock.lock();
+            if (activityGeneration_ == epoch && droppedForIdle_) {
+                // Maintenance finished without activity. Run the drop outside
+                // the mutex, but keep dropInFlight_ set under it so activity
+                // that lands during the drop defers its reconnect instead of
+                // reconnecting before the drop.
+                dropInFlight_ = true;
+                lock.unlock();
+                if (onIdleDrop_) {
+                    onIdleDrop_();
+                }
+                lock.lock();
+                dropInFlight_ = false;
+                if (reconnectPending_) {
+                    reconnectPending_ = false;
+                    droppedForIdle_ = false;
+                    lock.unlock();
+                    if (onReconnectNeeded_) {
+                        onReconnectNeeded_();
+                    }
+                    lock.lock();
+                }
+            }
         }
     }
 }

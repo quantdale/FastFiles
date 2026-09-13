@@ -45,7 +45,24 @@ inline float DropPointClientXDip(POINTL point, POINT clientOrigin, float scale, 
 }
 
 HRESULT CreateFileDataObject(const std::vector<std::wstring>& paths, IDataObject** object);
+// complete-ole-drag-source-move-effect D2: advertises CFSTR_PREFERREDDROPEFFECT
+// alongside CF_HDROP so the target can honor the source's intended effect.
+HRESULT CreateFileDataObject(const std::vector<std::wstring>& paths, DWORD preferredEffect, IDataObject** object);
 DWORD BeginFileDrag(const std::vector<std::wstring>& paths);
+// complete-ole-drag-source-move-effect D1/D2: keyState supplies the modifier
+// preference advertised on the data object; the returned effect reflects
+// CFSTR_PERFORMEDDROPEFFECT when the target published one, else the effect
+// DoDragDrop returned.
+DWORD BeginFileDrag(const std::vector<std::wstring>& paths, DWORD keyState);
+// Reads CFSTR_PERFORMEDDROPEFFECT from the source's data object (the effect the
+// target reports it actually performed), or DROPEFFECT_NONE when absent.
+DWORD PerformedDropEffectFromDataObject(IDataObject* object);
+// complete-ole-drag-source-move-effect D1: returns the drag-out source paths
+// that must be Recycle-Bin deleted to complete a MOVE. COPY and LINK never
+// delete; MOVE deletes only sources that still exist (a target that moved the
+// files itself already removed them, and deleting again would double-delete).
+std::vector<std::wstring> SourcePathsToDeleteAfterDrag(DWORD effect, const std::vector<std::wstring>& sourcePaths,
+                                                       const std::function<bool(const std::wstring&)>& exists);
 DWORD DetermineDropEffect(DWORD keyState, DWORD allowedEffects, const std::vector<std::wstring>& sourcePaths,
                           const std::wstring& destination);
 HRESULT CreateFileDropTarget(DropDestinationProvider destination, FileDropHandler handler, IDropTarget** target);

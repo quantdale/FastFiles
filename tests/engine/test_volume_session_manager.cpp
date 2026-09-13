@@ -1,11 +1,15 @@
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <windows.h>
 
 #include "ffipc/PipeFraming.h"
+#include "ffsetup/Identifiers.h"
 #include "sqlite3.h"
 #include "IndexPipeline.h"
 #include "../TestSupport.h"
@@ -738,6 +742,64 @@ void TestStopReturnsWithoutWaitingForTheSchedulerInterval() {
           "repeated Start/Stop never waits out the reconciliation scheduler interval");
 }
 
+// harden-ipc-trust-boundary-gaps 2.1/2.2: a failed service-peer identity
+// revalidation on the heartbeat cadence must leave Active for degraded mode.
+// The injectable verifier seam stands in for the production image+pin check,
+// so this test needs no production pins and no installed service.
+void TestHeartbeatServicePeerRevalidationDropsToDisconnected() {
+    using namespace std::chrono_literals;
+    const HANDLE server = CreateNamedPipeW(
+        ffsetup::kCtrlPipeName, PIPE_ACCESS_DUPLEX | FILE_FLAG_FIRST_PIPE_INSTANCE,
+        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr);
+    if (server == INVALID_HANDLE_VALUE) {
+        std::cout << "service control pipe unavailable; skipping heartbeat revalidation test\n";
+        return;
+    }
+    std::atomic<bool> stopService{false};
+    std::thread service([&] {
+        if (ConnectNamedPipe(server, nullptr) == FALSE && GetLastError() != ERROR_PIPE_CONNECTED) return;
+        const auto handshake = ffipc::ReadFrame(server);
+        if (!handshake) return;
+        ffprotocol::HandshakeAckPayload ack{};
+        ack.negotiatedVersion = ffprotocol::kCurrentProtocolVersion;
+        if (!ffipc::WriteFrame(server, static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck), &ack, sizeof(ack))) return;
+        while (!stopService.load(std::memory_order_relaxed)) {
+            const auto frame = ffipc::ReadFrame(server);
+            if (!frame) break;
+            const auto type = ffprotocol::ToMessageType(frame->header.messageType);
+            if (type && *type == ffprotocol::MessageType::Heartbeat) {
+                ffipc::WriteFrame(server, static_cast<uint16_t>(ffprotocol::MessageType::HeartbeatAck));
+            }
+        }
+    });
+
+    ffengine::PrivilegedConnection connection;
+    std::atomic<int> verifyCalls{0};
+    connection.SetServiceIdentityVerifierForTesting([&verifyCalls](HANDLE) {
+        return verifyCalls.fetch_add(1, std::memory_order_relaxed) == 0;
+    });
+    std::atomic<bool> sawActive{false};
+    std::atomic<bool> leftActive{false};
+    connection.Start(L"C:\\FastFilesHeartbeatTestInstall",
+        [&sawActive, &leftActive](ffengine::ConnectionState state, ffengine::UnavailableReason) {
+            if (state == ffengine::ConnectionState::Active) sawActive.store(true, std::memory_order_relaxed);
+            else if (sawActive.load(std::memory_order_relaxed)) leftActive.store(true, std::memory_order_relaxed);
+        });
+    const auto deadline = std::chrono::steady_clock::now() + 15s;
+    while (!leftActive.load(std::memory_order_relaxed) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    connection.Stop();
+    stopService.store(true, std::memory_order_relaxed);
+    if (service.joinable()) service.join();
+    CloseHandle(server);
+
+    Check(sawActive.load(), "the heartbeat fixture reached Active");
+    Check(verifyCalls.load() >= 2,
+          "the Active connection re-ran service identity verification on the heartbeat cadence");
+    Check(leftActive.load(), "a failed heartbeat revalidation left Active instead of dropping to degraded mode");
+}
+
 } // namespace
 
 int main() {
@@ -757,5 +819,6 @@ int main() {
     TestPausedCompletionIsNotAuthoritative();
     TestJournalGapDuringInFlightScanDefersUntilCompletion();
     TestStopReturnsWithoutWaitingForTheSchedulerInterval();
+    TestHeartbeatServicePeerRevalidationDropsToDisconnected();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

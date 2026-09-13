@@ -125,10 +125,13 @@ void TestWorkspacePersistenceFallback() {
     workspace.MarkStateDirty();
     Check(workspace.HasPendingStateSave() && workspace.FlushState(), "workspace changes flush through the debounced save boundary");
     WorkspaceState loaded{};
-    const auto temporaryStateFile = std::filesystem::path(localAppData) / L"FastFiles" / L"workspace-state.json.tmp";
-    Check(!std::filesystem::exists(temporaryStateFile),
-          "successful workspace save removes its temporary replacement file");
-    Check(NavigationWorkspace::LoadState(loaded) && loaded.bookmarks.size() == 1 &&
+    bool leftoverTemporary = false;
+    for (const auto& entry : std::filesystem::directory_iterator(localAppData / L"FastFiles", error)) {
+        const std::wstring name = entry.path().filename().wstring();
+        if (name.starts_with(L"workspace-state.json") && name.ends_with(L".tmp")) leftoverTemporary = true;
+    }
+    Check(!leftoverTemporary, "successful workspace save removes its temporary replacement file");
+    Check(NavigationWorkspace::LoadState(loaded) == WorkspaceLoadStatus::Ok && loaded.bookmarks.size() == 1 &&
           loaded.bookmarks.front().displayName == L"Projects" && loaded.bookmarks.front().path == L"C:\\Projects" &&
           loaded.sidebarCollapsed && loaded.bookmarksCollapsed && loaded.lastLocation == L"C:\\",
           "workspace state persists bookmarks, location, and sidebar state");
@@ -142,7 +145,7 @@ void TestWorkspacePersistenceFallback() {
     workspace.MarkStateDirty();
     Check(workspace.FlushState(), "workspace state accepts Unicode paths and labels");
     WorkspaceState unicodeLoaded{};
-    Check(NavigationWorkspace::LoadState(unicodeLoaded) && unicodeLoaded.lastLocation == unicodePath &&
+    Check(NavigationWorkspace::LoadState(unicodeLoaded) == WorkspaceLoadStatus::Ok && unicodeLoaded.lastLocation == unicodePath &&
           unicodeLoaded.bookmarks.size() == 1 && unicodeLoaded.bookmarks.front().path == unicodePath &&
           unicodeLoaded.bookmarks.front().displayName == unicodeName &&
           unicodeLoaded.recentlyClosedTabs.size() == 1 && unicodeLoaded.recentlyClosedTabs.front().path == unicodePath,
@@ -153,8 +156,8 @@ void TestWorkspacePersistenceFallback() {
         std::wofstream corrupt(stateFile, std::ios::trunc);
         corrupt << L"{ this is not valid workspace state";
     }
-    NavigationWorkspace::LoadState(loaded);
-    Check(loaded.bookmarks.empty(), "corrupt workspace state falls back to empty state");
+    Check(NavigationWorkspace::LoadState(loaded) == WorkspaceLoadStatus::Failed && loaded.bookmarks.empty(),
+          "corrupt workspace state reports Failed and falls back to empty state");
 
     {
         std::ofstream invalidUtf8(stateFile, std::ios::binary | std::ios::trunc);
@@ -162,16 +165,16 @@ void TestWorkspacePersistenceFallback() {
         invalidUtf8.put(static_cast<char>(0xff));
         invalidUtf8 << "\"}";
     }
-    NavigationWorkspace::LoadState(loaded);
-    Check(loaded.bookmarks.empty() && loaded.lastLocation.empty(),
-          "invalid UTF-8 workspace state falls back to empty state");
+    Check(NavigationWorkspace::LoadState(loaded) == WorkspaceLoadStatus::Failed &&
+          loaded.bookmarks.empty() && loaded.lastLocation.empty(),
+          "invalid UTF-8 workspace state reports Failed and falls back to empty state");
 
     {
         std::wofstream unsupported(stateFile, std::ios::trunc);
         unsupported << L"{\"version\": 10, \"bookmarks\": [{\"path\": \"C:\\\\Unexpected\", \"displayName\": \"Unexpected\"}]}";
     }
-    NavigationWorkspace::LoadState(loaded);
-    Check(loaded.bookmarks.empty(), "unsupported workspace state versions are ignored");
+    Check(NavigationWorkspace::LoadState(loaded) == WorkspaceLoadStatus::Failed && loaded.bookmarks.empty(),
+          "unsupported workspace state versions report Failed and are ignored");
 
     {
         std::wofstream oversized(stateFile, std::ios::trunc);
@@ -182,8 +185,8 @@ void TestWorkspacePersistenceFallback() {
         }
         oversized << L"]}";
     }
-    NavigationWorkspace::LoadState(loaded);
-    Check(loaded.recentlyClosedTabs.size() == 16 &&
+    Check(NavigationWorkspace::LoadState(loaded) == WorkspaceLoadStatus::Ok &&
+          loaded.recentlyClosedTabs.size() == 16 &&
               loaded.recentlyClosedTabs.front().path == L"C:\\Closed-0" &&
               loaded.recentlyClosedTabs.back().path == L"C:\\Closed-15",
           "workspace restore keeps the supported recently-closed-tab bound");
@@ -627,6 +630,127 @@ void TestTypedClosedTabPersistence() {
           typedLoaded.recentlyClosedTabs[1] == NavigationLocation::FromPath(L"C:\\New"),
           "typed object entries parse and a malformed entry is skipped");
 }
+
+// harden-workspace-state-multi-writer 3.x: failed loads never clobber; two
+// sequential writers (two live windows) union their list fields; a bookmark
+// removed in one window is not resurrected by the other's stale snapshot.
+void TestWorkspaceMultiWriterHardening() {
+    using namespace ffui;
+    wchar_t tempPath[MAX_PATH]{};
+    Check(GetTempPathW(MAX_PATH, tempPath) != 0, "temporary path is available");
+    const std::filesystem::path localAppData = std::filesystem::path(tempPath) /
+        (L"FastFiles-multiwriter-test-" + std::to_wstring(GetCurrentProcessId()));
+    std::error_code error;
+    std::filesystem::remove_all(localAppData, error);
+    const DWORD oldLength = GetEnvironmentVariableW(L"LOCALAPPDATA", nullptr, 0);
+    std::wstring oldValue(oldLength, L'\0');
+    if (oldLength != 0) GetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.data(), oldLength);
+    SetEnvironmentVariableW(L"LOCALAPPDATA", localAppData.c_str());
+    const auto stateFile = localAppData / L"FastFiles" / L"workspace-state.json";
+
+    // 3.1: an undecodable document survives a flush with no user mutation.
+    {
+        std::filesystem::create_directories(stateFile.parent_path(), error);
+        {
+            std::ofstream invalidUtf8(stateFile, std::ios::binary | std::ios::trunc);
+            invalidUtf8 << "{\"version\": 1, \"bookmarks\": [{\"path\": \"C:\\\\Good\", \"displayName\": \"Good\"}], \"lastLocation\": \"";
+            invalidUtf8.put(static_cast<char>(0xff));
+            invalidUtf8 << "\"}";
+        }
+        std::vector<char> original;
+        {
+            std::ifstream input(stateFile, std::ios::binary);
+            original.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        }
+        NavigationWorkspace workspace(L"C:\\Somewhere");
+        Check(!workspace.HasPendingStateSave(), "a failed load does not dirty the workspace");
+        Check(workspace.FlushState(), "a failed-load flush without a user mutation is a reliable no-op");
+        std::vector<char> after;
+        {
+            std::ifstream input(stateFile, std::ios::binary);
+            after.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+        }
+        Check(after == original, "a failed load plus flush left the original bytes intact");
+
+        // A real user mutation licenses a recovery write in the same session.
+        workspace.AddBookmark(L"C:\\Recovered", L"Recovered");
+        Check(workspace.FlushState(), "a user mutation after a failed load writes a recovery document");
+        WorkspaceState recovered{};
+        Check(NavigationWorkspace::LoadState(recovered) == WorkspaceLoadStatus::Ok &&
+              recovered.bookmarks.size() == 1 && recovered.bookmarks.front().path == L"C:\\Recovered",
+              "the recovery write persists the new bookmark");
+    }
+
+    // 3.2: two sequential writers union their bookmarks.
+    {
+        std::filesystem::remove(stateFile, error);
+        NavigationWorkspace windowA(L"C:\\");
+        windowA.State().bookmarks.clear();
+        windowA.AddBookmark(L"D:\\Alpha", L"Alpha");
+        Check(windowA.FlushState(), "first writer flush failed");
+
+        NavigationWorkspace windowB(L"C:\\");
+        Check(windowB.State().bookmarks.size() == 1, "second writer loaded the first writer's bookmark");
+        windowB.AddBookmark(L"D:\\Beta", L"Beta");
+        Check(windowB.FlushState(), "second writer flush failed");
+
+        WorkspaceState merged{};
+        Check(NavigationWorkspace::LoadState(merged) == WorkspaceLoadStatus::Ok && merged.bookmarks.size() == 2,
+              "both writers' bookmarks survive the merge");
+        bool hasAlpha = false;
+        bool hasBeta = false;
+        for (const auto& bookmark : merged.bookmarks) {
+            hasAlpha = hasAlpha || bookmark.path == L"D:\\Alpha";
+            hasBeta = hasBeta || bookmark.path == L"D:\\Beta";
+        }
+        Check(hasAlpha && hasBeta, "the merged document contains both writers' distinct bookmarks");
+    }
+
+    // A bookmark removed in this session is not resurrected from the other
+    // writer's still-stale on-disk copy (session tombstone, D3).
+    {
+        std::filesystem::remove(stateFile, error);
+        NavigationWorkspace windowA(L"C:\\");
+        windowA.State().bookmarks.clear();
+        windowA.AddBookmark(L"D:\\Keep", L"Keep");
+        windowA.AddBookmark(L"D:\\Remove", L"Remove");
+        Check(windowA.FlushState(), "tombstone fixture flush failed");
+
+        NavigationWorkspace windowB(L"C:\\");
+        Check(windowB.State().bookmarks.size() == 2, "second window loaded both bookmarks");
+        for (size_t index = 0; index < windowB.State().bookmarks.size(); ++index) {
+            if (windowB.State().bookmarks[index].path == L"D:\\Remove") {
+                Check(windowB.RemoveBookmark(index), "removing the tombstoned bookmark failed");
+                break;
+            }
+        }
+        Check(windowB.FlushState(), "tombstone writer flush failed");
+        WorkspaceState afterRemoval{};
+        Check(NavigationWorkspace::LoadState(afterRemoval) == WorkspaceLoadStatus::Ok &&
+              afterRemoval.bookmarks.size() == 1 && afterRemoval.bookmarks.front().path == L"D:\\Keep",
+              "a removed bookmark is not resurrected by the merge");
+    }
+
+    // quick-access-home recentFolders stays additive and merges by value.
+    {
+        std::filesystem::remove(stateFile, error);
+        NavigationWorkspace windowA(L"C:\\");
+        windowA.State().recentFolders = {L"C:\\RecentA"};
+        windowA.MarkStateDirty();
+        Check(windowA.FlushState(), "recentFolders first writer flush failed");
+        NavigationWorkspace windowB(L"C:\\");
+        windowB.State().recentFolders.push_front(L"C:\\RecentB");
+        windowB.MarkStateDirty();
+        Check(windowB.FlushState(), "recentFolders second writer flush failed");
+        WorkspaceState merged{};
+        Check(NavigationWorkspace::LoadState(merged) == WorkspaceLoadStatus::Ok && merged.recentFolders.size() == 2,
+              "recentFolders union across writers without duplicating");
+    }
+
+    std::filesystem::remove_all(localAppData, error);
+    if (oldLength == 0) SetEnvironmentVariableW(L"LOCALAPPDATA", nullptr);
+    else SetEnvironmentVariableW(L"LOCALAPPDATA", oldValue.c_str());
+}
 } // namespace
 
 int main() {
@@ -638,6 +762,7 @@ int main() {
     TestTypedClosedTabReopen();
     TestTypedClosedTabStackOrder();
     TestTypedClosedTabPersistence();
+    TestWorkspaceMultiWriterHardening();
     TestAddressBarErrorClearedOnHistoryNavigation();
     TestUncBreadcrumbsMergeServerAndShare();
     TestThisPcBreadcrumbNavigable();

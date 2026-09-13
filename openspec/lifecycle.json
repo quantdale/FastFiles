@@ -1157,7 +1157,7 @@
     },
     {
       "name": "close-file-ops-conflict-lifetime-and-outcome-truth",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1174,6 +1174,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1181,7 +1189,7 @@
     },
     {
       "name": "complete-ole-drag-source-move-effect",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1198,6 +1206,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/complete-ole-drag-source-move-effect/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1205,7 +1221,7 @@
     },
     {
       "name": "lock-clipboard-hdrop-read",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1222,6 +1238,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/lock-clipboard-hdrop-read/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1229,7 +1253,7 @@
     },
     {
       "name": "harden-workspace-state-multi-writer",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1246,6 +1270,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-workspace-state-multi-writer/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1253,7 +1285,7 @@
     },
     {
       "name": "close-idle-drop-activity-race",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1270,6 +1302,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/close-idle-drop-activity-race/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1277,7 +1317,7 @@
     },
     {
       "name": "harden-ipc-trust-boundary-gaps",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1294,6 +1334,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/POST_CERTIFICATION_PRODUCT_AUDIT_2026-09-05.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
