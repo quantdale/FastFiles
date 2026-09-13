@@ -350,3 +350,11 @@ Root cause fixed at the seam rather than at the two call sites: `ffui::ChromeBan
 Ground-truth verification (125% DPI, 1280×800, chrome 1262×90 px, toolbar row y=50..85): before the fix the address band x=130..997 contained **zero** ink rows; after the fix the same band carries a text-like ink profile at chrome y=61..73 and every other chrome control (Back/Forward/Up, tab + close, New Tab, Settings, Fast Search) was independently confirmed to paint. Probe: `build/probe-breadcrumb.ps1`; capture: `build/visual/probe-breadcrumb-print.png`.
 
 Validation: Debug CTest **103/103**, release-test CTest **103/103**.
+
+### Follow-on: address errors were unreadable
+
+The same band analysis exposed an older defect (present on `main` too): the address-error line was painted at `crumbBottom - 2 .. crumbBottom + 12`, i.e. 66–80 DIP inside a 72-DIP chrome, so the message was clipped to a few pixels; and the address edit is a native child that paints its rect opaquely, so once (correctly) moved into the band it was still covered.
+
+Fixed as one row-split contract: `ffui::ChromeLocationRow` + `ComputeChromeLocationRow()` divide the location row into the editable field and a right-aligned error slot capped at half the row; `NavigationChrome` reserves the slot (shrinking the edit) whenever an address error is present, tints the field frame with the error color, and draws the message inside the slot. `BeginAddressEdit`/`CommitAddressEdit`/`EndAddressEdit` rebuild the row so the slot tracks the error state. `ffchrome_layout_tests` pins the split (disjoint, right-aligned, shared band, half-row cap, degenerate widths).
+
+Ground truth (125% DPI): the edit shrank 867 → 627 px (exactly the 240 px slot) after committing an invalid path, and the slot now carries a full text line in the error color (ink profile y=99..111; dominant colours are the error reds). Probe: `build/probe-address-error.ps1`; capture: `build/visual/probe-address-error-print.png`.

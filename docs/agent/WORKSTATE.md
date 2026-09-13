@@ -1,5 +1,14 @@
 # Fast Files — Agent Workstate
 
+## address-error-slot — VERIFIED 2026-09-13 (same audit slice)
+
+- Severity: medium, user-visible, pre-existing on `main`. The address-error line was painted at y=66..80 in a 72-DIP chrome (clipped to a few pixels), and the opaque native address edit covered the whole location row, so committing an invalid path produced no readable error.
+- Fix: `ffui::ChromeLocationRow` + `ComputeChromeLocationRow()` (ChromeLayout.h) split the location row into the editable field and a right-aligned error slot capped at half the row; the chrome reserves the slot (shrinking the edit), tints the field frame with `theme.error`, and draws the message inside the slot. Row rebuilds on `BeginAddressEdit`/`CommitAddressEdit`/`EndAddressEdit`.
+- Tests: `TestLocationRowErrorSlot` in `ffchrome_layout_tests` (disjoint, right-aligned, shared band, half-row cap, degenerate widths).
+- Ground truth (125% DPI, invalid path committed through the real address bar): edit shrank 867→627 px (exactly the 240 px slot); slot ink profile y=99..111 dominated by the error reds. `build/probe-address-error.ps1`, capture `build/visual/probe-address-error-print.png`.
+- Validation: Debug CTest **103/103**, release-test CTest **103/103**.
+- NEXT EXACT ACTION: continue the same layout/geometry audit surface (details pane, sidebar, search panel bands).
+
 ## breadcrumb-band-paint-fix — VERIFIED 2026-09-13 (autonomous audit slice)
 
 - Severity: high, user-visible. The chrome-layout unification (`6803650`, on this branch only) computed the breadcrumb band's vertical extent from the search control's **width** (`chromeLayout.search.size` = 200/240 DIP) instead of its row height (28 DIP). `DrawTextSegment` centres with `DT_VCENTER` inside the segment rect, so breadcrumb text was centred at y≈140–175 inside a 72-DIP chrome and clipped: the location path was invisible at Normal and Wide widths. The same expression also stretched the address click target past the toolbar row.
