@@ -340,3 +340,13 @@ An adversarial pass over the branch's newest code plus a catalog-robustness audi
 - **The visual catalog has no permanent coverage hole.** `search-no-results` previously closed the search workspace before resolving its query edit (so it always skipped) and asserted a hardcoded `Pass=$true`; it now runs with a checked assertion (query applied, `Search.Results` present, zero rows). The `dual-pane` scenario now asserts the pane group's direct children rather than a full-tree DFS for `Pane.1`, which times out once both panes of columns are loaded. Catalog result: **16/16 PASS, 0 skipped**.
 
 Validation on the working tree: Debug CTest 103/103, release-test CTest 103/103, focused `ffcommand_tests`/`ffcolumn_hit_test_tests`/`ffdoc_drift_tests` green. `CODE_INDEX.md` now documents the public `ffui/` seam headers and `UiStatePalette.h`.
+
+## Defect closure — 2026-09-13 (breadcrumb band painted invisibly)
+
+The chrome-layout unification (`6803650`) derived the location band's vertical extent from the **search control's width**: `crumbTop + Scaled(chromeLayout.search.size)`. `ChromeRect::size` is the width (200 DIP at Normal, 240 at Wide, 28 at Narrow), so the painted band became 240–280 DIP tall inside a 72-DIP chrome. Because `DrawTextSegment` centres with `DT_VCENTER`, the breadcrumb text was centred near y≈140–175 and clipped by the chrome window: **the location path was invisible at every window width except Narrow**, and the address click target extended past the toolbar row.
+
+Root cause fixed at the seam rather than at the two call sites: `ffui::ChromeBand` + `ChromeLocationBand()` in `src/ui/include/ffui/ChromeLayout.h` are now the single definition, and both the painter (`NavigationChrome.cpp`) and the click target consume it. `ffchrome_layout_tests` gained `TestLocationBandInsideChrome` plus vertical-composition invariants in `TestCompositionInvariants` (band and every command/overflow rect must stay inside `chromeHeight` at all widths and tab counts) — the previously missing invariant class that let this ship.
+
+Ground-truth verification (125% DPI, 1280×800, chrome 1262×90 px, toolbar row y=50..85): before the fix the address band x=130..997 contained **zero** ink rows; after the fix the same band carries a text-like ink profile at chrome y=61..73 and every other chrome control (Back/Forward/Up, tab + close, New Tab, Settings, Fast Search) was independently confirmed to paint. Probe: `build/probe-breadcrumb.ps1`; capture: `build/visual/probe-breadcrumb-print.png`.
+
+Validation: Debug CTest **103/103**, release-test CTest **103/103**.

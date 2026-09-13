@@ -1,5 +1,14 @@
 # Fast Files — Agent Workstate
 
+## breadcrumb-band-paint-fix — VERIFIED 2026-09-13 (autonomous audit slice)
+
+- Severity: high, user-visible. The chrome-layout unification (`6803650`, on this branch only) computed the breadcrumb band's vertical extent from the search control's **width** (`chromeLayout.search.size` = 200/240 DIP) instead of its row height (28 DIP). `DrawTextSegment` centres with `DT_VCENTER` inside the segment rect, so breadcrumb text was centred at y≈140–175 inside a 72-DIP chrome and clipped: the location path was invisible at Normal and Wide widths. The same expression also stretched the address click target past the toolbar row.
+- Root cause fixed at the seam: new `ffui::ChromeBand` + `ChromeLocationBand()` in `src/ui/include/ffui/ChromeLayout.h` is now the single location-band definition; both the painter (`NavigationChrome::DrawBreadcrumbs`) and the `WM_LBUTTONDOWN` address hit test consume it. Sibling audit: `ChromeRect::size` is consumed only by `NavigationChrome` (3 uses); the overflow-button use is a legitimate width and is unchanged.
+- Regression coverage: `ffchrome_layout_tests` gained `TestLocationBandInsideChrome` (band height is the command-row height at Narrow/Normal/Wide, ends with the toolbar controls, never exceeds `chromeHeight`, and a wide search field never stretches it) plus vertical-composition invariants in `TestCompositionInvariants` (band + every command/overflow rect inside `chromeHeight` for widths 320–2200 and 0–36 tabs). This was the missing invariant class.
+- Empirical proof (no vision available this session; pixel analysis used): `build/probe-breadcrumb.ps1` drives the diagnostic build at 125% DPI to a deep fixture path, dumps real child-window geometry, PrintWindow-captures, and profiles ink per row in the address band. Before: zero ink in the toolbar band (only the tab pill edge registered). After: text-like ink profile at chrome y=61..73; Back/Forward/Up, tab+close, New Tab, Settings, and Fast Search each independently ink-verified. Capture `build/visual/probe-breadcrumb-print.png`.
+- Validation: Debug CTest **103/103**, release-test CTest **103/103**; `ffchrome_layout_tests` green.
+- NEXT EXACT ACTION: continue the audit (the same era of layout unification is the highest-risk surface); then run `pwsh ./verify/verify.ps1 build` on the committed tip.
+
 ## overhaul-hardening-campaign — VERIFIED 2026-09-12 (autonomous slice on `feat/refero-frontend-overhaul`)
 
 - Cut-ghost feedback now repaints itself: `ColumnView::SetCutPaths` returns whether the effective set changed (pure `CutPathSetChanged` seam + new assertions in `ffcolumn_hit_test_tests`) and `WindowShell::SyncCutGhost` schedules the repaint, so Ctrl+X/Ctrl+C ghosting no longer waits for an unrelated invalidation; the clipboard-sequence re-check on focus/file-op completion still clears it.
