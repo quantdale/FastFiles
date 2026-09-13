@@ -1,5 +1,11 @@
 # Fast Files — Agent Workstate
 
+## shell-constant-consolidation — VERIFIED 2026-09-13 (same audit slice)
+
+- The shell chrome height had three independent definitions: `ChromeLayout.h`'s own literals (used to size the chrome window), `UiMetrics::kChromeHeight` (consumed by the shell layout and, after this change, the sidebar), and a local `constexpr int kChromeHeight = 72` in `NavigationSidebar.cpp`. A change to any one would silently misalign the sidebar/content under the chrome.
+- Fixed: the sidebar now consumes `UiMetrics::kChromeHeight`; `ffui_state_palette_tests` gained `TestChromeHeightTokenAgreement`, which fails if the chrome-layout height and the shared token ever drift.
+- Validation: Debug CTest **103/103**, release-test CTest **103/103**.
+
 ## address-error-slot — VERIFIED 2026-09-13 (same audit slice)
 
 - Severity: medium, user-visible, pre-existing on `main`. The address-error line was painted at y=66..80 in a 72-DIP chrome (clipped to a few pixels), and the opaque native address edit covered the whole location row, so committing an invalid path produced no readable error.
