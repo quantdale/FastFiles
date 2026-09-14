@@ -58,6 +58,11 @@ try {
         New-Item -ItemType Directory -Path $changeDir -Force | Out-Null
         Set-Content -LiteralPath (Join-Path $changeDir 'tasks.md') -Value $change.Value -Encoding utf8NoBOM
     }
+    # Archived changes keep their lifecycle tracking under the canonical name;
+    # `openspec archive` moves them under archive/YYYY-MM-DD-<name>.
+    $archivedFixtureRoot = Join-Path $fixtureChangesRoot 'archive\2026-01-02-archived-completed'
+    New-Item -ItemType Directory -Path $archivedFixtureRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $archivedFixtureRoot 'tasks.md') -Value '- [x] 1.1 Archived work is already complete.' -Encoding utf8NoBOM
     $fixtureEvidence = {
         param([string] $ChangeName)
         [pscustomobject]@{ kind = 'repository-path'; path = "openspec/changes/$ChangeName/tasks.md" }
@@ -80,6 +85,7 @@ try {
         [pscustomobject]@{ name = 'external-elevated'; state = 'active'; evidence = @(& $fixtureEvidence 'external-elevated'); supersededBy = $null; taskOverrides = @() }
         [pscustomobject]@{ name = 'external-clean-host'; state = 'active'; evidence = @(& $fixtureEvidence 'external-clean-host'); supersededBy = $null; taskOverrides = @() }
         [pscustomobject]@{ name = 'nested-external'; state = 'external-evidence-only'; evidence = @(& $fixtureEvidence 'nested-external'); supersededBy = $null; taskOverrides = @($fixtureOverrideNested) }
+        [pscustomobject]@{ name = 'archived-completed'; state = 'completed'; evidence = @([pscustomobject]@{ kind = 'repository-path'; path = 'openspec/changes/archive/2026-01-02-archived-completed/tasks.md' }); supersededBy = $null; taskOverrides = @() }
     )
     $fixtureLifecycle = [pscustomobject]@{ schemaVersion = 2; kind = 'fastfiles-openspec-lifecycle'; changes = $fixtureEntries }
     Set-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Value ($fixtureLifecycle | ConvertTo-Json -Depth 20) -Encoding utf8NoBOM
@@ -106,6 +112,17 @@ try {
     $fixtureLifecycleJson = Get-Content -LiteralPath (Join-Path $fixtureRoot 'openspec\lifecycle.json') -Raw | ConvertFrom-Json
     $fixtureLifecycleSchema = Get-Content -LiteralPath (Join-Path $repoRoot 'verify\schemas\openspec-lifecycle.schema.json') -Raw | ConvertFrom-Json
     Check ((Test-JsonSchema -Data $fixtureLifecycleJson -Schema $fixtureLifecycleSchema).Valid) 'lifecycle fixture validates against its schema'
+
+    $archivedFixtureModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check ($archivedFixtureModel.status -eq 'PASS' -and @($archivedFixtureModel.structuralErrors | Where-Object { $_ -match 'archived-completed' }).Count -eq 0) 'archived changes stay lifecycle-addressable under their canonical name'
+    Check (@($fixtureFrontier.changes | Where-Object { $_.name -eq 'archived-completed' }).Count -eq 0) 'completed archived tasks never reappear as open work'
+
+    $unrecordedArchiveRoot = Join-Path $fixtureChangesRoot 'archive\2025-12-31-archived-unrecorded'
+    New-Item -ItemType Directory -Path $unrecordedArchiveRoot -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $unrecordedArchiveRoot 'tasks.md') -Value '- [ ] 1.1 An archived change still needs a lifecycle entry.' -Encoding utf8NoBOM
+    $unrecordedArchiveModel = Get-ProjectStatusLifecycleModel -RepoRoot $fixtureRoot
+    Check (@($unrecordedArchiveModel.structuralErrors | Where-Object { $_ -eq 'openspec-lifecycle-entry-missing:archived-unrecorded' }).Count -eq 1) 'an archived change with open tasks still requires a lifecycle entry under its canonical name'
+    Remove-Item -LiteralPath $unrecordedArchiveRoot -Recurse -Force
 
     $fixtureLifecyclePath = Join-Path $fixtureRoot 'openspec\lifecycle.json'
     $writeFixtureLifecycle = {

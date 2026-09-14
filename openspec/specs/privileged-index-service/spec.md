@@ -4,6 +4,7 @@
 The privileged broker contract: a stateless service with a closed command surface, opaque connection-scoped handles, symmetric mutual authentication, hardened frame validation, and real MFT/USN scanning with parser-level attribute allowlisting.
 
 ## Requirements
+
 ### Requirement: Minimal Privilege Grant
 **Superseded:** This requirement's privilege-minimization premise is superseded by the evidence-backed constrained-broker decision in `resolve-raw-volume-privilege-insufficiency` (evidence: `openspec/changes/resolve-raw-volume-privilege-insufficiency/evidence/matrix-execution-and-selection.md`): no narrow user right or group membership opens a raw volume device on modern Windows, so `FastFilesIndexSvc` runs under **LocalSystem** as a deliberately constrained privileged broker. The original requirement text is retained below as the superseded statement; its scenario remains valid only for the non-production virtual-account registration path.
 
@@ -43,7 +44,7 @@ The engine-to-service command surface SHALL be a fixed, closed set: `Handshake`,
 - **THEN** the service SHALL tear down that connection's scans/journals without requiring an explicit `Stop`/`Close` message
 
 ### Requirement: Symmetric Mutual Authentication
-The service SHALL verify each connecting client's process image path (under the ACL-protected install directory) and pinned Authenticode signature, in addition to checking Windows group membership. This verification SHALL be re-checked periodically for long-lived connections, not only at initial connect.
+The service SHALL verify each connecting client's process image path (under the ACL-protected install directory) and pinned Authenticode signature, in addition to checking Windows group membership. The engine SHALL verify the service's process image path and pinned Authenticode signature before trusting the connection. Both verifications SHALL be re-checked periodically for long-lived connections, not only at initial connect. A periodic re-validation failure SHALL close that connection.
 
 #### Scenario: Connection from an unverified binary is rejected
 - **WHEN** a process that belongs to the authorized group but is not the genuine, signed `FastFilesEngine.exe` (wrong image path or signature) connects and completes `Handshake`
@@ -52,6 +53,10 @@ The service SHALL verify each connecting client's process image path (under the 
 #### Scenario: Revoked membership closes an active connection
 - **WHEN** a previously-authorized connection's user is removed from the authorized group while the connection is still open
 - **THEN** the service SHALL detect this on its next periodic re-validation and close the connection
+
+#### Scenario: Engine detects a replaced service binary on a live connection
+- **WHEN** an Active engine↔service connection is in the heartbeat cadence and the service image path or pinned signature no longer verifies
+- **THEN** the engine SHALL close that connection and transition to Disconnected rather than remaining Active
 
 ### Requirement: No Client-Grantable Service Control Rights
 The unprivileged client group SHALL be granted only `SERVICE_QUERY_STATUS` and `SERVICE_QUERY_CONFIG` on the service's Service Control Manager object. It SHALL NOT be granted `SERVICE_START`, `SERVICE_STOP`, `SERVICE_CHANGE_CONFIG`, `WRITE_DAC`, or `WRITE_OWNER`.
@@ -79,11 +84,15 @@ Every inbound frame SHALL be validated against a protocol-wide maximum frame siz
 - **THEN** the receiving side SHALL reject the entire frame rather than parsing any record from it
 
 ### Requirement: Named Pipe Access Control
-Both IPC pipes SHALL be created with an explicit security descriptor restricted to the authorized client group and `SYSTEM` — never a null DACL or `Everyone`/`Authenticated Users` — and SHALL be created with `FILE_FLAG_FIRST_PIPE_INSTANCE`.
+Both IPC pipes SHALL be created with an explicit security descriptor restricted to the authorized client group and `SYSTEM` for the elevation-seam pipe, and to the current user (plus `SYSTEM`/Administrators as already implemented) for the same-privilege UI pipe — never a null DACL or `Everyone`/`Authenticated Users`. Every instance SHALL be created with `FILE_FLAG_FIRST_PIPE_INSTANCE` on the first instance of that name. Every instance SHALL also set `PIPE_REJECT_REMOTE_CLIENTS` so SMB/remote named-pipe clients cannot connect.
 
 #### Scenario: Pipe-name collision fails loudly
 - **WHEN** a pipe of the service's expected name already exists at service startup (e.g., created by another process)
 - **THEN** the service's own `CreateNamedPipe` call SHALL fail, and the service SHALL log this condition and refuse to proceed rather than silently operating without its expected pipe
+
+#### Scenario: Remote named-pipe client is rejected
+- **WHEN** a remote SMB client attempts to open `\\<host>\pipe\FastFiles.Svc.Ctrl` or the per-session UI control pipe
+- **THEN** the create/connect SHALL fail at the pipe mode (`PIPE_REJECT_REMOTE_CLIENTS`) rather than reaching handshake or UI Subscribe
 
 ### Requirement: Real MFT Volume Scanning and USN Journal Streaming
 `FastFilesIndexSvc` SHALL perform real raw MFT parsing in response to `StartVolumeScan` and real USN Change Journal reads in response to `OpenUsnJournal`, streaming batched records to the requesting connection, rather than the "not yet implemented" stub response defined in `establish-architecture-foundation`. This requirement supersedes and replaces that change's "Scan and Journal Operations Are Explicitly Stubbed" requirement. Both operations SHALL continue to respond within the service's normal response time and SHALL NOT hang or leave the requesting connection waiting indefinitely, and SHALL parse and forward only the allowlisted fields already established (`$STANDARD_INFORMATION`, `$FILE_NAME` — never `$DATA` content).

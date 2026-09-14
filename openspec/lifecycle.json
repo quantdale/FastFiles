@@ -1161,15 +1161,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-close-file-ops-conflict-lifetime-and-outcome-truth/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/design.md"
+          "path": "openspec/changes/archive/2026-09-14-close-file-ops-conflict-lifetime-and-outcome-truth/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-close-file-ops-conflict-lifetime-and-outcome-truth/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1181,7 +1181,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-file-ops-conflict-lifetime-and-outcome-truth/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-close-file-ops-conflict-lifetime-and-outcome-truth/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1193,15 +1193,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/complete-ole-drag-source-move-effect/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-complete-ole-drag-source-move-effect/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/complete-ole-drag-source-move-effect/design.md"
+          "path": "openspec/changes/archive/2026-09-14-complete-ole-drag-source-move-effect/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/complete-ole-drag-source-move-effect/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-complete-ole-drag-source-move-effect/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1213,7 +1213,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/complete-ole-drag-source-move-effect/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-complete-ole-drag-source-move-effect/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1225,15 +1225,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/lock-clipboard-hdrop-read/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-lock-clipboard-hdrop-read/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/lock-clipboard-hdrop-read/design.md"
+          "path": "openspec/changes/archive/2026-09-14-lock-clipboard-hdrop-read/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/lock-clipboard-hdrop-read/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-lock-clipboard-hdrop-read/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1245,7 +1245,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/lock-clipboard-hdrop-read/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-lock-clipboard-hdrop-read/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1257,15 +1257,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-workspace-state-multi-writer/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-workspace-state-multi-writer/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-workspace-state-multi-writer/design.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-workspace-state-multi-writer/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-workspace-state-multi-writer/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-workspace-state-multi-writer/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1277,7 +1277,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-workspace-state-multi-writer/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-workspace-state-multi-writer/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1289,15 +1289,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-idle-drop-activity-race/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-close-idle-drop-activity-race/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-idle-drop-activity-race/design.md"
+          "path": "openspec/changes/archive/2026-09-14-close-idle-drop-activity-race/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-idle-drop-activity-race/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-close-idle-drop-activity-race/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1309,7 +1309,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/close-idle-drop-activity-race/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-close-idle-drop-activity-race/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,
@@ -1321,15 +1321,15 @@
       "evidence": [
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/proposal.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-ipc-trust-boundary-gaps/proposal.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/design.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-ipc-trust-boundary-gaps/design.md"
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/tasks.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-ipc-trust-boundary-gaps/tasks.md"
         },
         {
           "kind": "repository-path",
@@ -1341,7 +1341,7 @@
         },
         {
           "kind": "repository-path",
-          "path": "openspec/changes/harden-ipc-trust-boundary-gaps/evidence/implementation-and-validation.md"
+          "path": "openspec/changes/archive/2026-09-14-harden-ipc-trust-boundary-gaps/evidence/implementation-and-validation.md"
         }
       ],
       "supersededBy": null,

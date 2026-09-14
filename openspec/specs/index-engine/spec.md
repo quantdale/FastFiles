@@ -4,6 +4,7 @@
 The engine-side contract for serving the filesystem index: a resilient connection state machine to the privileged service, first-class degraded-mode enumeration with change watching, immutable snapshot publication over shared memory, and ingestion, resumption, and reconciliation of privileged scan and journal streams into the durable index.
 
 ## Requirements
+
 ### Requirement: Privileged Connection Lifecycle State Machine
 `FastFilesEngine` SHALL manage its connection to `FastFilesIndexSvc` as an explicit state machine (`Disconnected → Connecting → Handshaking → Active`), where any failure at any stage — including a live disconnect from `Active` — transitions back to `Disconnected`.
 
@@ -168,3 +169,29 @@ On startup, before issuing a fresh `StartVolumeScan` for a volume, `FastFilesEng
 #### Scenario: Reconciliation scheduling does not require the privileged path
 - **WHEN** the engine is operating in degraded mode (no active privileged connection)
 - **THEN** the engine SHALL NOT schedule privileged-path reconciliation sweeps for volumes that depend on the privileged connection, and SHALL resume normal reconciliation scheduling once the privileged path returns to `Active`
+
+### Requirement: Idle Drop Reconnects On Activity Even When Activity Races The Drop
+After a configurable idle period with no significant activity, `FastFilesEngine` MAY drop its privileged connection (foundation "Standing exposure window"). The next UI request or filesystem-change activity burst SHALL request reconnection. If activity arrives while the idle callback is still running (including during store maintenance / VACUUM that precedes the drop), FastFiles SHALL NOT leave the privileged connection dropped with no subsequent reconnect: either the drop is cancelled in favor of the reconnect, or the drop completes and the activity-driven reconnect still runs.
+
+#### Scenario: Activity during the idle callback
+- **WHEN** the idle timer has fired, the idle callback is in progress (for example running store maintenance), and a UI request or directory-change notification arrives before the callback returns
+- **THEN** the engine SHALL be Active (or reconnecting toward Active) after the race, not stuck Disconnected/IdleDropped until the next idle timeout
+
+#### Scenario: Quiet idle still drops
+- **WHEN** no activity arrives for the configured idle period and none arrives during the idle callback
+- **THEN** the engine SHALL drop the privileged connection and SHALL reconnect on the next later activity burst
+
+#### Scenario: Activity after a completed idle drop
+- **WHEN** an idle drop has fully completed and a UI request then arrives
+- **THEN** the engine SHALL request reconnection of the privileged path
+
+### Requirement: Periodic Service-Peer Revalidation On An Active Connection
+While the privileged connection is `Active`, `FastFilesEngine` SHALL re-verify the connected service process image path (under the ACL-protected install directory) and pinned Authenticode signature on a periodic bound no looser than the existing heartbeat cadence. Failure SHALL be treated as a disconnect: the engine transitions to `Disconnected` and remains in degraded mode until a later successful handshake. This is independent of whether Authenticode pins are production-provisioned; placeholder pins continue to fail closed.
+
+#### Scenario: Heartbeat-cadence revalidation failure drops to degraded
+- **WHEN** an Active connection's periodic service-peer check fails (wrong image path or signature)
+- **THEN** the engine SHALL leave Active, SHALL NOT keep using that pipe, and directory listing SHALL continue via degraded mode
+
+#### Scenario: Successful revalidation keeps the connection
+- **WHEN** the periodic check still matches the installed, pinned `FastFilesIndexSvc.exe`
+- **THEN** the engine SHALL remain Active and SHALL NOT bounce the connection

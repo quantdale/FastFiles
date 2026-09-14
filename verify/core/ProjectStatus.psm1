@@ -367,8 +367,22 @@ function Get-ProjectStatusLifecycleModel {
     }
 
     $knownChanges = @()
+    # Archived changes stay lifecycle-tracked under their canonical name;
+    # `openspec archive` moves the directory to archive/YYYY-MM-DD-<name>.
+    $archivedChangeRoots = @{}
     if (Test-Path -LiteralPath $changesRoot -PathType Container) {
         $knownChanges = @(Get-ChildItem -LiteralPath $changesRoot -Directory | Sort-Object Name | Select-Object -ExpandProperty Name)
+        $archiveRoot = Join-Path $changesRoot 'archive'
+        if (Test-Path -LiteralPath $archiveRoot -PathType Container) {
+            foreach ($archived in @(Get-ChildItem -LiteralPath $archiveRoot -Directory | Sort-Object Name)) {
+                $canonical = $archived.Name -replace '^\d{4}-\d{2}-\d{2}-', ''
+                if ([string]::IsNullOrWhiteSpace($canonical)) { continue }
+                if (-not $archivedChangeRoots.ContainsKey($canonical)) {
+                    $archivedChangeRoots[$canonical] = $archived.FullName
+                    $knownChanges += $canonical
+                }
+            }
+        }
     } else {
         [void]$structuralErrors.Add('openspec-changes-directory-missing')
     }
@@ -480,6 +494,9 @@ function Get-ProjectStatusLifecycleModel {
             $declaredTaskIds = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
             $openTaskCount = 0
             $entryTasksPath = Join-Path (Join-Path $changesRoot $name) 'tasks.md'
+            if (-not (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) -and $archivedChangeRoots.ContainsKey($name)) {
+                $entryTasksPath = Join-Path $archivedChangeRoots[$name] 'tasks.md'
+            }
             if (Test-Path -LiteralPath $entryTasksPath -PathType Leaf) {
                 foreach ($taskLine in [IO.File]::ReadAllLines($entryTasksPath)) {
                     if ($taskLine -match '^\s*-\s+\[[ xX]\]\s+([0-9]+(?:\.[0-9]+)+)\s+') {
@@ -508,6 +525,8 @@ function Get-ProjectStatusLifecycleModel {
         if (Test-Path -LiteralPath $changesRoot -PathType Container) {
             foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File | Sort-Object FullName)) {
                 $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
+                $parentName = Split-Path (Split-Path (Split-Path $tasksFile.FullName -Parent) -Parent) -Leaf
+                if ($parentName -ieq 'archive') { $changeName = $changeName -replace '^\d{4}-\d{2}-\d{2}-', '' }
                 $hasOpenTask = $false
                 foreach ($line in [IO.File]::ReadAllLines($tasksFile.FullName)) {
                     if ($line -match '^\s*-\s+\[\s\]\s+[0-9]+(?:\.[0-9]+)+\s+') { $hasOpenTask = $true; break }
@@ -713,6 +732,9 @@ function Get-ProjectStatusOpenSpecFrontier {
     $lifecycle = Get-ProjectStatusLifecycleModel -RepoRoot $RepoRoot
     foreach ($tasksFile in @(Get-ChildItem -LiteralPath $changesRoot -Filter tasks.md -Recurse -File | Sort-Object FullName)) {
         $changeName = Split-Path (Split-Path $tasksFile.FullName -Parent) -Leaf
+        $parentName = Split-Path (Split-Path (Split-Path $tasksFile.FullName -Parent) -Parent) -Leaf
+        if ($parentName -ieq 'archive') { $changeName = $changeName -replace '^\d{4}-\d{2}-\d{2}-', '' }
+        $relativeTasksPath = 'openspec/changes/' + ($tasksFile.FullName.Substring($changesRoot.Length).TrimStart('\', '/') -replace '\\', '/')
         $lifecycleEntry = Get-ProjectStatusLifecycleEntry -Model $lifecycle -ChangeName $changeName
         $changeState = if ($lifecycle.status -eq 'PASS' -and $null -ne $lifecycleEntry) { [string]$lifecycleEntry.state } else { 'unknown' }
         $open = [System.Collections.Generic.List[object]]::new()
@@ -722,7 +744,7 @@ function Get-ProjectStatusOpenSpecFrontier {
             if ($line -match '^\s*-\s+\[\s\]\s+([0-9]+(?:\.[0-9]+)+)\s+(.*)$') {
                 $taskId = $Matches[1]
                 $taskText = $Matches[2]
-                $safeSource = "openspec/changes/$changeName/tasks.md:$lineNumber"
+                $safeSource = "${relativeTasksPath}:$lineNumber"
                 $override = Get-ProjectStatusLifecycleOverride -Entry $lifecycleEntry -TaskId $taskId
                 $explicitCategories = if ($null -ne $override) { @($override.categories) } else { @() }
                 $explicitStatus = if ($null -ne $override) { [string]$override.status } else { $null }
@@ -757,7 +779,7 @@ function Get-ProjectStatusOpenSpecFrontier {
                     } }, sourceLine)
             $changes.Add([pscustomobject]@{
                 name = $changeName
-                tasksPath = "openspec/changes/$changeName/tasks.md"
+                tasksPath = $relativeTasksPath
                 lifecycleState = $changeState
                 lifecycleEvidence = if ($null -ne $lifecycleEntry) { @($lifecycleEntry.evidence) } else { @() }
                 supersededBy = if ($null -ne $lifecycleEntry) { $lifecycleEntry.supersededBy } else { $null }

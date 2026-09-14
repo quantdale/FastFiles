@@ -4,6 +4,7 @@
 Native Win32 context menus built from the shared command registry, composed per selection kind, with Open/Open With, copy-path actions, terminal-here, and delegation of file manipulation to existing capabilities.
 
 ## Requirements
+
 ### Requirement: Context Menu Built From the Shared Command Registry
 `FastFiles` SHALL build every context menu by filtering the shared command registry (the same registry read by `command-palette` and `keyboard-shortcuts`) rather than maintaining a separate, menu-specific definition of any action, so that an action such as "Copy Path" is defined exactly once and stays consistent across menu, palette, and shortcut.
 
@@ -125,3 +126,18 @@ Copy, Cut, Rename, and Delete menu entries SHALL invoke the existing `file-opera
 #### Scenario: Properties invoked on a multi-selection
 - **WHEN** a user selects Properties with multiple items selected
 - **THEN** the in-app `properties-and-details` view SHALL show the aggregate details applicable to the selection (such as combined size and item count) rather than failing or showing only the first item
+
+### Requirement: Clipboard File List Is Read Through A Locked Handle
+When FastFiles reads a file-list paste payload from the Windows clipboard (`CF_HDROP` and the Preferred DropEffect format), it SHALL lock the `HGLOBAL` returned by `GetClipboardData` before inspecting bytes, and SHALL unlock it before returning. A failed lock or a null handle SHALL yield an empty path list (paste is a no-op) rather than dereferencing an unlocked or invalid pointer. The write path that publishes `CF_HDROP` already locks; the read path SHALL match that contract.
+
+#### Scenario: Paste after Copy uses locked HDROP
+- **WHEN** a user copies files in FastFiles or another application that placed a valid `CF_HDROP` on the clipboard and then pastes into FastFiles
+- **THEN** FastFiles SHALL read those paths via a locked handle and SHALL enqueue the existing copy or move operation
+
+#### Scenario: Lock failure does not crash
+- **WHEN** `GetClipboardData` returns a handle that cannot be locked
+- **THEN** FastFiles SHALL treat the clipboard as containing no files, SHALL NOT crash, and SHALL NOT pass garbage paths to file operations
+
+#### Scenario: Preferred DropEffect is locked too
+- **WHEN** the clipboard carries a Preferred DropEffect `HGLOBAL` alongside `CF_HDROP`
+- **THEN** FastFiles SHALL lock that handle before reading the `DWORD` effect (cut vs copy) and unlock it afterward

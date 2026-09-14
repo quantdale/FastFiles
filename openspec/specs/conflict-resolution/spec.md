@@ -4,6 +4,7 @@
 In-app handling of destination naming conflicts during copy/move batches: detection up front, Replace/Skip/Keep Both choices with apply-to-all, and consistent per-item decisions.
 
 ## Requirements
+
 ### Requirement: Conflict Detection Before Batch Execution
 Before executing a copy or move batch operation, `FastFiles` SHALL check whether any item in the batch would collide with an existing item of the same name at the destination, and SHALL identify every such conflict prior to transferring any conflicting item's data.
 
@@ -56,3 +57,14 @@ Within a single batch operation, `FastFiles` SHALL apply conflict-resolution dec
 #### Scenario: A resolved conflict is not re-prompted
 - **WHEN** a user has already chosen a resolution for a specific conflicting item within a batch
 - **THEN** FastFiles SHALL NOT show the conflict dialog again for that same item within that same batch operation
+
+### Requirement: Outstanding Conflict Question Is Answered On Owner Teardown
+If the FastFiles owner window is destroyed or the file-operation worker is stopped while the in-app conflict dialog is still running its nested message pump, FastFiles SHALL treat the outstanding conflict as Cancel (no remaining transfers from that batch) and SHALL publish that decision to the worker before freeing the prompt object. The dialog's remaining UI-thread writes SHALL target only an object that is still alive.
+
+#### Scenario: Taskbar close during the conflict dialog
+- **WHEN** the conflict dialog is visible and the owner window processes WM_DESTROY (taskbar close, SC_CLOSE, or equivalent) before the user chooses Replace, Skip, Keep Both, or Cancel
+- **THEN** the worker SHALL observe a Cancel decision, SHALL NOT wait indefinitely, and SHALL NOT write to a destroyed prompt object
+
+#### Scenario: Apply-to-all does not survive a torn-down batch
+- **WHEN** a batch is cancelled by owner teardown in the middle of conflict prompting
+- **THEN** no apply-to-all choice from that batch SHALL apply to a later, separate operation
