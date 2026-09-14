@@ -1,5 +1,13 @@
 # Fast Files — Agent Workstate
 
+## readme-build-run-guide-and-branch-consolidation — VERIFIED 2026-09-14
+
+- Docs: `README.md` now carries the full developer path — prerequisites and developer-shell setup, all six configure presets (`debug`, `debug-diagnostic`, `release`, `release-test`, `analyze`, `asan`) with output dirs and failure modes, artifact locations, local run instructions, app-state paths, testing, `fftest` probes, and a troubleshooting table; added machine-checked `presets-subset` / `test-presets-all` / `product-executables` truth fences. `CLAUDE.md` and `ONBOARDING.md` gained the local-run pointer.
+- Verified run behavior empirically on the current binaries: the plain `debug` UI refuses the unsigned sibling engine (`FFDIAG_ENGINE_SIGNATURE_REJECTED state=unsigned`) and reports `FFDIAG_ENGINE_UNAVAILABLE`; a manually started `build/debug/src/engine/FastFilesEngine.exe` is accepted by the same UI (connect succeeded); the `debug-diagnostic` UI launches and connects to `build/debug-diagnostic/src/engine/FastFilesEngine.exe` through the diagnostic override. All launched processes were stopped; zero FastFiles processes remained.
+- Repo hygiene: `feat/refero-frontend-overhaul` was fast-forwarded into `main` (main was its ancestor; normal push, no force), and every other local branch plus `origin/feat/refero-frontend-overhaul` was deleted, leaving `main` as the only branch locally and on `origin`.
+- Validation: `pwsh -NoProfile -File tests/drift/check_doc_drift.ps1` PASS.
+- NEXT EXACT ACTION: no local docs/branch work remains; hosted CI stays blocked by the GitHub Actions account billing failure (external).
+
 ## post-cert-p2-openspec-application — VERIFIED 2026-09-14 (all six active changes applied on `feat/refero-frontend-overhaul`)
 
 - Applied the six post-certification P2/P3 OpenSpec changes proposed at `d214f1e` (frontier audit `docs/agent/FRONTIER_AUDIT_OPENSPEC_2026-09-14.md`): `close-file-ops-conflict-lifetime-and-outcome-truth`, `lock-clipboard-hdrop-read`, `harden-workspace-state-multi-writer`, `close-idle-drop-activity-race`, `harden-ipc-trust-boundary-gaps`, `complete-ole-drag-source-move-effect`. Every `tasks.md` item is checked; `openspec/lifecycle.json` entries moved `active` → `completed` with per-change evidence files; no active-local OpenSpec work remains.

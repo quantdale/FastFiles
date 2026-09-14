@@ -57,6 +57,16 @@ cmake --build --preset debug
 
 FastFiles has privileged/unprivileged process boundaries. Never bypass the service/engine/UI architecture or release signature checks just to make a new machine convenient.
 
+To run the desktop application locally (no admin, no service, no certificate):
+
+```powershell
+cmake --preset debug-diagnostic
+cmake --build --preset debug-diagnostic
+.\build\debug-diagnostic\src\ui\FastFiles.exe
+```
+
+Use `debug-diagnostic` for local runs: a plain `debug` UI fails closed when launching its unsigned engine while the Authenticode pins remain placeholders. `README.md` ("Building", "Running FastFiles") is the detailed build/run/troubleshooting guide.
+
 
 ## 5. Editor/LSP baseline
 

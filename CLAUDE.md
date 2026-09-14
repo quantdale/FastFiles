@@ -13,6 +13,8 @@ This file is a short stub. The authoritative repository guide is **AGENTS.md** �
   ctest --test-dir build/debug -R <test-name> --output-on-failure   # single test
   ```
 
+- **Run the app:** `cmake --preset debug-diagnostic && cmake --build --preset debug-diagnostic`, then `.\build\debug-diagnostic\src\ui\FastFiles.exe`. Use `debug-diagnostic` for local runs because a plain `debug` UI fails closed when launching its unsigned engine while the Authenticode pins are placeholders. Details: `README.md` "Running FastFiles".
+
 - **Warnings are errors** (`/W4 /WX` and more) — new code must be warning-clean.
 
 - **Windows-only**, by design — CMake `FATAL_ERROR`s on non-Windows (Win32/COM/Direct2D/NTFS only).
