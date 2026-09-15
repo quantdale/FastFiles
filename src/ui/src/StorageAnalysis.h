@@ -65,7 +65,10 @@ public:
     void SetEngineActive(bool active);
     void SetDarkTheme(bool dark);
     void OnSnapshotUpdated();
-    void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY);
+    void SetTreemapGeometry(const UiaViewGeometry& geometry);
+    UiaViewGeometry TreemapGeometry() const override;
+    void RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory,
+                       const ShellLayoutRect& surfaceRect);
 
     // semantic-treemap-uia 30.x: the provider controller subscribes here;
     // notifications are pushed after the view released its locks.
@@ -203,6 +206,9 @@ private:
     // same GetDiskFreeSpaceExW ground truth the storage overview uses.
     uint64_t volumeUsedBytes_ = 0;
     bool volumeUsedKnown_ = false;
+
+    mutable std::mutex treemapGeometryMutex_;
+    UiaViewGeometry treemapGeometry_;
 
     // semantic-treemap-uia 30.x: semantic events pushed after locks are
     // released; the provider controller registers itself via SetUiaEventSink.

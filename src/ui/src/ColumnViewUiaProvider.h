@@ -444,6 +444,11 @@ public:
     }
     UiaOwnerStatePtr FragmentState() const noexcept { return fragmentState_; }
     UiaViewGeometry Geometry() const { return surface_ != nullptr ? surface_->UiaGeometry() : UiaViewGeometry{}; }
+    UiaViewGeometry TreemapGeometry() const {
+        if (treemapSurface_ == nullptr) return Geometry();
+        const UiaViewGeometry geometry = treemapSurface_->TreemapGeometry();
+        return geometry.widthDip > 0.0f && geometry.heightDip > 0.0f ? geometry : Geometry();
+    }
     HWND Hwnd() const noexcept { return hwnd_; }
     // The treemap semantic surface (StorageAnalysis), wired after the views
     // are constructed; null while the storage panel is absent.

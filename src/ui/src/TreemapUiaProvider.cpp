@@ -175,7 +175,7 @@ STDMETHODIMP TreemapGroupUiaProvider::GetRuntimeId(SAFEARRAY** retVal) noexcept 
 STDMETHODIMP TreemapGroupUiaProvider::get_BoundingRectangle(UiaRect* retVal) noexcept {
     if (retVal == nullptr) return E_POINTER;
     if (!Alive() || owner_ == nullptr || owner_->TreemapSurface() == nullptr) return kElementNotAvailable;
-    const UiaViewGeometry geometry = owner_->Geometry();
+    const UiaViewGeometry geometry = owner_->TreemapGeometry();
     const RECT rect = UiaRectToScreen(D2D1::RectF(0.0f, 0.0f, geometry.widthDip, geometry.heightDip), geometry);
     retVal->left = static_cast<double>(rect.left);
     retVal->top = static_cast<double>(rect.top);
@@ -359,7 +359,7 @@ STDMETHODIMP TreemapTileUiaProvider::GetPropertyValue(PROPERTYID propertyId, VAR
                 UiaProviderBase::SetVariantBool(retVal, true);
                 return S_OK;
             }
-            const UiaViewGeometry geometry = owner_->Geometry();
+            const UiaViewGeometry geometry = owner_->TreemapGeometry();
             const D2D1_RECT_F rectDip = TileRectDip(info, geometry);
             UiaProviderBase::SetVariantBool(retVal,
                 UiaRectOffscreen(rectDip, 0.0f, geometry.widthDip, geometry.heightDip));
@@ -419,7 +419,7 @@ STDMETHODIMP TreemapTileUiaProvider::get_BoundingRectangle(UiaRect* retVal) noex
     // uses: normalized rect -> viewport DIPs -> physical screen pixels via
     // the live shell geometry (origin + DPI + ClientToScreen). No second
     // geometry implementation (semantic-treemap-uia 17.x).
-    const UiaViewGeometry geometry = owner_->Geometry();
+    const UiaViewGeometry geometry = owner_->TreemapGeometry();
     const RECT rect = UiaRectToScreen(TileRectDip(info, geometry), geometry);
     retVal->left = static_cast<double>(rect.left);
     retVal->top = static_cast<double>(rect.top);

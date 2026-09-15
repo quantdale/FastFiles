@@ -122,9 +122,9 @@ private:
     TreemapVolumeInfo volumeInfo_;
     std::shared_ptr<std::atomic<bool>> lifetime_ = std::make_shared<std::atomic<bool>>(true);
 
-    // The treemap is drawn under the shell's Translate(sidebar, chrome)
-    // transform and scaled by viewport/100; hit-testing stores the same
-    // offset/scale so client coordinates map back to normalized 0..100 space.
+    // The treemap is drawn in Storage Analysis' shared list rectangle and
+    // scaled by viewport/100; hit-testing stores the same offset/scale so
+    // client coordinates map back to normalized 0..100 space.
     D2D1_SIZE_F viewportSize_{};
     float offsetX_ = 0.0f;
     float offsetY_ = 0.0f;

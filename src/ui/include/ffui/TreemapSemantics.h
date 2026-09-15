@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cwchar>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ffui/SnapshotAggregate.h"
@@ -22,6 +23,7 @@
 #include "ffui/TreemapLayout.h"
 #include "ffui/UiaEvents.h"
 #include "ffui/UiaIdentity.h"
+#include "ffui/UiaSurface.h"
 
 namespace ffui {
 
@@ -74,6 +76,18 @@ inline void ResolveDegradedTreemapTotals(TreemapNode& node, const SnapshotAggreg
     node.calculating = false;
     node.aggregateResolved = aggregate.complete;
     node.aggregateFailed = !aggregate.complete;
+}
+
+// A degraded subtree with no known bytes is terminal, not pending: there is
+// no engine aggregate request that can resolve it. Keep the canvas text in
+// sync with the same pending/partial distinction used by tile metadata.
+inline constexpr std::wstring_view kTreemapCalculatingStateText =
+    L"Calculating folder sizes…";
+inline constexpr std::wstring_view kTreemapNoSizedDataStateText =
+    L"No sized data for this scope.";
+
+inline constexpr std::wstring_view TreemapEmptyStateText(const TreemapNode& root) {
+    return root.calculating ? kTreemapCalculatingStateText : kTreemapNoSizedDataStateText;
 }
 
 // Stable identity of a treemap node: the synthetic catch-all is identified by
@@ -313,6 +327,10 @@ class TreemapUiaSurface {
 public:
     virtual ~TreemapUiaSurface() = default;
 
+    // Geometry of the visible treemap canvas. The host Column View geometry
+    // remains authoritative for the browse surface; Storage Analysis returns
+    // its own inset canvas geometry while the treemap is active.
+    virtual UiaViewGeometry TreemapGeometry() const { return {}; }
     virtual bool TreemapActive() const { return false; }
     virtual uint64_t TreemapGeneration() const { return 0; }
     virtual uint64_t TreemapScopeHash() const { return 0; }

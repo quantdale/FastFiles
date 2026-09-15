@@ -4,7 +4,7 @@ FastFiles is a native **C++20 file manager for Windows 10 (1809+)/Windows 11**, 
 
 The whole product rests on one deliberately early architectural decision — a **three-process privileged/unprivileged split** — so that raw MFT/USN access (which requires elevation on *every* `DeviceIoControl` call) never forces the application to run as administrator for normal use.
 
-**Running the app right now:** FastFiles ships **degraded mode as a first-class, permanent state**. The privileged MFT/USN scan is implemented but fails closed until authorized Authenticode pins are provisioned, so ordinary development builds browse real directories through unprivileged Win32 enumeration — no service, no admin rights, and no certificate required. See [Quick start](#quick-start).
+**Running the app right now:** FastFiles ships **degraded mode as a first-class, permanent state**. The privileged MFT/USN scan is implemented but fails closed until authorized Authenticode pins are provisioned, so ordinary development builds browse real directories through unprivileged Win32 enumeration — no service, no admin rights, and no certificate required. The repository-root `dev.ps1` command discovers Visual Studio's bundled toolchain automatically. See [Quick start](#quick-start).
 
 ## Contents
 
@@ -24,29 +24,53 @@ The whole product rests on one deliberately early architectural decision — a *
 
 ## Quick start
 
-From a **Visual Studio Developer PowerShell** (see [Prerequisites](#prerequisites)):
+From an ordinary PowerShell opened at the repository root:
 
 ```powershell
 git clone https://github.com/quantdale/FastFiles.git
 cd FastFiles
 
-# Build a disposable local run of the desktop app (no admin, no service, no certificate).
-cmake --preset debug-diagnostic
-cmake --build --preset debug-diagnostic
+# Inspect the machine and build prerequisites.
+.\dev.ps1 doctor
 
-# Launch the UI. It locates and starts its sibling engine automatically.
-.\build\debug-diagnostic\src\ui\FastFiles.exe
+# Configure, build, and launch the disposable local UI run (no admin, no
+# service, and no production certificate required).
+.\dev.ps1 run
 ```
 
-For day-to-day test builds use the plain `debug` preset instead:
+The canonical executable is:
+
+```text
+build\debug-diagnostic\src\ui\FastFiles.exe
+```
+
+For a safe manual walkthrough, create a disposable fixture outside the
+repository, then open the printed path in FastFiles with `Ctrl+L`:
 
 ```powershell
-cmake --preset debug
-cmake --build --preset debug
-ctest --preset debug
+.\dev.ps1 fixture
+.\dev.ps1 run
+.\dev.ps1 fixture-clean       # marker-validated cleanup when finished
 ```
 
-`build_and_deploy.ps1` in the repository root wraps the configure/build/test sequence (and, only with `-Commit -CommitMessage`, an opt-in commit and push):
+For day-to-day test builds use the wrapper instead of memorizing presets:
+
+```powershell
+.\dev.ps1 build
+.\dev.ps1 test
+.\dev.ps1 test-fast -Target ffpreview_tests
+.\dev.ps1 clean
+.\dev.ps1 rebuild
+```
+
+`test-fast` also accepts `-Filter <CTest name>`; it detects CTest-only
+PowerShell entries and builds the selected preset before running that filter.
+
+Advanced users can still invoke CMake presets directly from a loaded Visual
+Studio developer environment. `build_and_deploy.ps1` remains as a legacy
+configure/build/test plus explicitly opt-in commit/push helper; new work should
+start with `dev.ps1` so toolchain discovery and safe process targeting are
+consistent.
 
 ```powershell
 ./build_and_deploy.ps1              # configure + build + full test suite
@@ -68,23 +92,17 @@ ctest --preset debug
 ## Prerequisites
 
 - **Windows 10 1809+ or Windows 11, x64.** FastFiles is Windows-only by design; CMake `FATAL_ERROR`s on any other platform.
-- **Visual Studio 2022 or newer** (IDE or Build Tools) with the **Desktop development with C++** workload: the MSVC toolset, Windows SDK, CMake, and Ninja.
-- **CMake >= 3.25** and **Ninja** discoverable from the active developer environment. The presets use Ninja as the generator.
+- **Visual Studio 2022 or newer** (IDE or Build Tools) with the **Desktop development with C++** workload: the MSVC toolset, Windows SDK, CMake tools for Windows, and Ninja. `dev.ps1` discovers the installation even when its tools are not on the global `PATH`.
+- **CMake >= 3.25** and **Ninja** are resolved automatically from Visual Studio or the active developer environment. The presets use Ninja as the generator.
 - **PowerShell 7+ (`pwsh`)** — required by the verification harness and by the PowerShell-gated tests (those tests are registered with CTest only when `pwsh` is found).
 - **Git.**
 - Optional, only for repo-local agent/MCP tooling (see `ONBOARDING.md`): Node.js/npm and Python.
 
-Open the environment first — the commands below assume `cl`, `cmake`, and `ninja` are on `PATH`:
-
-- Start menu → **Developer PowerShell for VS** (or **x64 Native Tools Command Prompt**), or
-- from any PowerShell, run `VsDevCmd.bat`/`Launch-VsDevShell.ps1` from your Visual Studio installation.
-
-Sanity check:
+The wrapper performs the environment setup in its child tool processes. Check
+the resolved paths at any time with:
 
 ```powershell
-cmake --version
-ninja --version
-cl
+.\dev.ps1 doctor
 ```
 
 ## Building
@@ -92,9 +110,14 @@ cl
 ### Configure and build
 
 ```powershell
-cmake --preset debug            # configure Debug into build/debug
-cmake --build --preset debug    # build every app + test target
+.\dev.ps1 configure             # default: Debug into build/debug
+.\dev.ps1 build                 # configure if needed, then build Debug
+.\dev.ps1 build -Preset analyze # Debug + MSVC /analyze
 ```
+
+`dev.ps1 run` selects `debug-diagnostic` automatically, configures it when
+needed, builds it, and launches the UI. `dev.ps1 build` defaults to the normal
+`debug` preset. All generated output remains under `build\`.
 
 ### Presets
 
@@ -169,10 +192,15 @@ Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl 
 ### Recommended local run: `debug-diagnostic`
 
 ```powershell
-cmake --preset debug-diagnostic
-cmake --build --preset debug-diagnostic
-.\build\debug-diagnostic\src\ui\FastFiles.exe
+.\dev.ps1 run
 ```
+
+Use `.\dev.ps1 run -SkipBuild` only when the diagnostic executable already
+exists. `.\dev.ps1 run -Gallery` launches the debug component gallery.
+`.\dev.ps1 stop` terminates only FastFiles processes whose executable path
+is inside this repository's generated `build\` tree; it never stops the
+installed service or unrelated applications. `.\dev.ps1 logs` prints the
+last diagnostic events from `%LOCALAPPDATA%\FastFiles\logs`.
 
 On launch the UI looks for the engine **only** at deterministic locations (its own directory, the sibling `..\engine\` development layout, then `%ProgramFiles%\FastFiles`) and starts `FastFilesEngine.exe` if the per-session control pipe is not already reachable. With `debug-diagnostic` that unsigned sibling engine is accepted through the diagnostic-only escape hatch, and the UI connects and browses immediately in degraded mode.
 
@@ -189,21 +217,20 @@ Why not a plain `debug` build? Without provisioned pins, the UI's engine-launch 
 
 - The **Home / Quick Access** location is the default for new tabs; browsing works without any service. A small non-modal badge reports the degraded/privileged state.
 - Recent-folder history, bookmarks, settings, and recent searches persist under `%LOCALAPPDATA%\FastFiles\` (below).
-- The engine keeps running after the UI exits; its idle manager drops the privileged connection after inactivity, but the process remains until stopped. Kill the whole tree when you are done:
+- The engine may keep running after the UI exits; its idle manager drops the privileged connection after inactivity, but the process remains until stopped. End a development run with the path-scoped helper:
 
 ```powershell
-taskkill /IM FastFiles.exe /T /F
-taskkill /IM FastFilesEngine.exe /F
+.\dev.ps1 stop
 ```
 
-(The `/T` form terminates the engine the UI launched as its child. Stop both if you started the engine separately; an orphaned engine holds the per-session `FastFiles.Ui.Ctrl.<session>` pipe and will break engine-client tests.)
+(This avoids touching unrelated FastFiles installations. An orphaned development engine holds the per-session `FastFiles.Ui.Ctrl.<session>` pipe and can break engine-client tests.)
 
 ### Debug gallery
 
 Debug builds accept a `--gallery` flag that renders the component gallery instead of the shell:
 
 ```powershell
-.\build\debug-diagnostic\src\ui\FastFiles.exe --gallery
+.\dev.ps1 run -Gallery
 ```
 
 The flag is debug-only: optimized (non-`_DEBUG`) builds refuse it at startup.

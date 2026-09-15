@@ -398,7 +398,8 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     *retVal = nullptr;
     if (!Alive() || surface_ == nullptr) return kElementNotAvailable;
 
-    const UiaViewGeometry geometry = Geometry();
+    const bool treemapActive = treemapSurface_ != nullptr && treemapSurface_->TreemapActive();
+    const UiaViewGeometry geometry = treemapActive ? TreemapGeometry() : Geometry();
     POINT pt{static_cast<LONG>(x), static_cast<LONG>(y)};
     if (geometry.hwnd != nullptr && IsWindow(geometry.hwnd)) {
         ScreenToClient(geometry.hwnd, &pt);
@@ -414,7 +415,7 @@ STDMETHODIMP ColumnViewUiaProvider::ElementProviderFromPoint(double x, double y,
     // goes through the EXACT cached treemap layout (same HitTest the mouse
     // click/hover use), converted to normalized 0..100 space with the same
     // viewport divide. The result MUST agree with HandleLButtonDown.
-    if (treemapSurface_ != nullptr && treemapSurface_->TreemapActive()) {
+    if (treemapActive) {
         const float normalizedX = geometry.widthDip > 0.0f
                                       ? static_cast<float>(xDip / geometry.widthDip) * 100.0f
                                       : -1.0f;

@@ -121,11 +121,19 @@ void TreemapView::RebuildLayout() {
     layout_.clear();
     syntheticNodes_.clear();
     layoutIndexByIdentity_.clear();
+    const auto updateTerminalEmptyState = [this]() {
+        if (root_ && !root_->calculating) {
+            emptyStateText_ = std::wstring(TreemapEmptyStateText(*root_));
+        }
+    };
     // ui-overhaul phase 9: a scope with no sized entries (empty folder, unknown
     // subtree still calculating, or a degraded scope whose snapshot carries no
     // sizes) is the deliberate empty-state surface -- never a grid of
     // background-colored zero-information tiles.
-    if (!root_ || root_->children.empty() || root_->totalSizeBytes == 0) return;
+    if (!root_ || root_->children.empty() || root_->totalSizeBytes == 0) {
+        updateTerminalEmptyState();
+        return;
+    }
 
     std::vector<TreemapNode*> nodes;
     nodes.reserve(root_->children.size());
@@ -144,6 +152,7 @@ void TreemapView::RebuildLayout() {
         layout_.clear();
         syntheticNodes_.clear();
         layoutIndexByIdentity_.clear();
+        updateTerminalEmptyState();
         return;
     }
 
@@ -232,14 +241,26 @@ void TreemapView::BuildTree(const std::wstring& path) {
     root_->isDirectory = true;
     root_->totalSizeBytes = 0;
 
-    if (!engine_) return;
+    if (!engine_) {
+        emptyStateText_ = L"Waiting for index snapshot…";
+        return;
+    }
     auto snapshot = engine_->ReadSnapshot();
-    if (!snapshot) return;
+    if (!snapshot) {
+        emptyStateText_ = L"Waiting for index snapshot…";
+        return;
+    }
 
     auto it = snapshot->find(path);
-    if (it == snapshot->end()) return;
+    if (it == snapshot->end()) {
+        emptyStateText_ = std::wstring(kTreemapNoSizedDataStateText);
+        return;
+    }
     const auto& directory = it->second;
-    if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) return;
+    if (directory.status != ffprotocol::DirectoryEnumerationStatus::Success) {
+        emptyStateText_ = std::wstring(kTreemapNoSizedDataStateText);
+        return;
+    }
 
     const bool categoryFilterActive = categoryEngine_ != nullptr && !categoryId_.empty();
 
@@ -520,9 +541,9 @@ bool TreemapView::HandleMouseMove(WPARAM /*wParam*/, LPARAM lParam) {
     if (!visible_.load(std::memory_order_acquire)) return false;
     std::lock_guard<std::recursive_mutex> lock(uiaMutex_);
     if (!visible_.load(std::memory_order_acquire)) return false;
-    // lParam holds raw client coordinates; the treemap is drawn under the
-    // shell's Translate(sidebar, chrome) transform and scaled by viewport/100,
-    // so translate back into normalized 0..100 treemap space before hit-testing.
+    // lParam holds client coordinates converted to DIPs by WindowShell; the
+    // treemap stores its global inset-canvas origin and scales it by
+    // viewport/100, so translate back into normalized 0..100 space.
     const float clientX = static_cast<float>(GET_X_LPARAM(lParam));
     const float clientY = static_cast<float>(GET_Y_LPARAM(lParam));
     if (viewportSize_.width <= 0.0f || viewportSize_.height <= 0.0f) return false;

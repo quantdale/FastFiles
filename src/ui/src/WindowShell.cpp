@@ -8,6 +8,7 @@
 #include "ffprotocol/Diagnostics.h"
 #include "ffui/DropFeedbackLayout.h" // ui-v3 drag/drop: pure feedback-geometry seam
 #include "ffui/DisplayPath.h"
+#include "ffui/StorageLayout.h"
 #include "UiaHostQuery.h"
 
 #include <commctrl.h>
@@ -954,15 +955,6 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
     // needs this repaint bridge to keep the painted frame, the pushed UIA
     // geometry, and the hit-test offsets in the same generation.
     columnView_.SetRepaintCallback([this] { RequestRepaint(); });
-    if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
-        columnView_.NavigateToPath(initialLocation.path);
-        // ui-overhaul phase 3: a deep startup location must reveal its leaf
-        // column immediately, exactly like an address/sidebar navigation. The
-        // window already owns its initial client size here, so the reveal uses
-        // the real viewport instead of leaving the user stranded at the root
-        // whenever the path chain is wider than the workspace.
-        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
-    }
     // The icon cache posts WM_APP_ICON_READY to hwnd_ when a type icon resolves;
     // the shell repaints on that message. The column view draws the cached
     // bitmap (16 DIP) with a themed glyph placeholder until it arrives.
@@ -1217,6 +1209,20 @@ bool WindowShell::Initialize(HINSTANCE instance, int showCommand) {
             PostMessageW(hwnd_, WM_APP_REPAINT, 0, 0);
         });
 
+    // overnight-recovery-campaign: EngineClient drops directory requests until
+    // Start publishes its running state. Restore the initial path only after
+    // Start so a cold launch cannot strand every restored column on
+    // "Refreshing…" until the user touches the address bar.
+    if (!initialLocation.IsHome() && !initialLocation.path.empty()) {
+        columnView_.NavigateToPath(initialLocation.path);
+        // ui-overhaul phase 3: a deep startup location must reveal its leaf
+        // column immediately, exactly like an address/sidebar navigation. The
+        // window already owns its initial client size here, so the reveal uses
+        // the real viewport instead of leaving the user stranded at the root
+        // whenever the path chain is wider than the workspace.
+        EnsureColumnVisible(columnView_.FocusedColumnIndex(), NavigationViewportWidth());
+    }
+
     // recovery-degraded-browsing 3.2: the status chip's retry affordance for
     // the Engine unavailable state.
     columnView_.SetRetryEngineCallback([this] { engineClient_.RetryConnect(); });
@@ -1453,6 +1459,20 @@ void WindowShell::Render() {
         geometry.revision = ++uiaGeometryRevision_;
         columnView_.SetUiaGeometry(geometry);
     }
+    if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
+        const auto storageLayout = ffui::ComputeStorageSurfaceLayout(shellLayout.contentRect);
+        const auto& treemapRect = storageLayout.list;
+        UiaViewGeometry treemapGeometry;
+        treemapGeometry.originXDip = treemapRect.left;
+        treemapGeometry.originYDip = treemapRect.top;
+        treemapGeometry.widthDip = treemapRect.Width();
+        treemapGeometry.heightDip = treemapRect.Height();
+        treemapGeometry.dpiScale = CurrentDpiScale();
+        treemapGeometry.hwnd = hwnd_;
+        treemapGeometry.keyboardFocus = GetFocus() == hwnd_;
+        treemapGeometry.revision = uiaGeometryRevision_;
+        storageAnalysis_.SetTreemapGeometry(treemapGeometry);
+    }
 
     ID2D1DeviceContext* context = renderer_.BeginFrame();
 
@@ -1516,9 +1536,7 @@ void WindowShell::Render() {
             previewTextFormat_.Get(), detailsTextFormat_.Get(), detailsCaptionFormat_.Get(),
             galleryRect, ffui::gUiDarkTheme, CurrentDpiScale());
     } else if (storageAnalysis_.Visible() && storageAnalysis_.GetViewMode() == StorageAnalysis::ViewMode::Treemap) {
-        storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), viewportSize,
-                                       shellLayout.contentRect.left,
-                                       shellLayout.contentRect.top);
+        storageAnalysis_.RenderTreemap(context, renderer_.DWriteFactory(), shellLayout.contentRect);
     } else if (searchPanel_.Visible() || storageAnalysis_.Visible()) {
         // ui-v3 hardening V3-01: search/storage own the workspace through native
         // child controls separated by inset gutters. Rendering browse pixels
@@ -1585,15 +1603,22 @@ void WindowShell::RefreshSelectionPresentation() {
     if (!selection || !selection->isDirectory) {
         aggregateRequest_.Invalidate();
     }
-    std::lock_guard<std::mutex> lock(previewMutex_);
-    preview_ = nullptr;
-    if (!settings_.previewEnabled || !selection || selection->isDirectory || selection->sizeBytes > settings_.maxAutoPreviewBytes) {
-        previewController_.Clear();
+    const bool canPreview = settings_.previewEnabled && selection && !selection->isDirectory &&
+                            selection->sizeBytes <= settings_.maxAutoPreviewBytes;
+    {
+        std::lock_guard<std::mutex> lock(previewMutex_);
+        preview_ = nullptr;
         ++activePreviewRequest_;
+    }
+    // Do not hold previewMutex_ while cancelling or queueing work. A tiny text
+    // file can complete immediately on a worker; keeping the lock across
+    // Request would make that otherwise-fast completion wait behind the UI
+    // thread and amplify selection churn into visible loading.
+    if (!canPreview) {
+        previewController_.Clear();
         return;
     }
     RequestFileType(selection->path);
-    ++activePreviewRequest_;
     // Forward the configured Preview Limit so text truncation follows the
     // advertised control, not just the auto-preview gate.
     FileDescriptor descriptor = *selection;
@@ -2251,15 +2276,24 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
             RequestRepaint();
             return 0;
 
-        case WM_APP_SNAPSHOT_UPDATED:
+        case WM_APP_SNAPSHOT_UPDATED: {
             snapshotRefreshPosted_ = false;
             // Folder aggregates are derived from the published projection,
             // so a new snapshot generation must not reuse the old Details
             // result even when the selected folder keeps the same identity.
             aggregateRequest_.Invalidate();
+            const auto selectionBeforeSnapshot = columnView_.CurrentSelection();
             {
                 const uint64_t generation = pendingSnapshotGeneration_.exchange(0);
                 columnView_.OnSnapshotUpdated(generation);
+            }
+            // A path activation can install a pending selection before the
+            // asynchronous directory snapshot arrives.  OnSnapshotUpdated
+            // materializes that row, but no pointer/keyboard event follows to
+            // refresh Details; detect that model transition here so preview
+            // requests cannot remain in the shell-resolved Loading state.
+            if (!PreviewSelectionEquivalent(selectionBeforeSnapshot, columnView_.CurrentSelection())) {
+                RefreshSelectionPresentation();
             }
             searchPanel_.OnSnapshotUpdated();
             storageAnalysis_.OnSnapshotUpdated();
@@ -2268,6 +2302,7 @@ LRESULT WindowShell::HandleMessage(HWND hwnd, UINT message, WPARAM wParam, LPARA
                 PostMessageW(hwnd_, WM_APP_SNAPSHOT_UPDATED, 0, 0);
             }
             return 0;
+        }
 
         case WM_APP_ENGINE_STATUS: {
             // wParam carries the EngineConnectionState; lParam is the

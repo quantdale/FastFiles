@@ -450,6 +450,20 @@ void TestResolveDegradedTreemapTotals() {
     Check(partial.totalSizeBytes == 0, "partial degraded dir contributes zero, not a guess");
 }
 
+void TestEmptyStateClassification() {
+    ffui::TreemapNode pending;
+    pending.isDirectory = true;
+    pending.calculating = true;
+    Check(ffui::TreemapEmptyStateText(pending) == ffui::kTreemapCalculatingStateText,
+          "pending treemap scope keeps the calculating state");
+
+    ffui::TreemapNode terminal;
+    terminal.isDirectory = true;
+    terminal.aggregateFailed = true;
+    Check(ffui::TreemapEmptyStateText(terminal) == ffui::kTreemapNoSizedDataStateText,
+          "terminal zero-sized treemap scope shows no sized data");
+}
+
 } // namespace
 
 int main() {
@@ -468,6 +482,7 @@ int main() {
     TestBuildMetadataResolvedEmptyFolder();
     TestBuildMetadataFailedWhileSiblingPending();
     TestResolveDegradedTreemapTotals();
+    TestEmptyStateClassification();
 
     if (FailureCount() != 0) {
         fprintf(stderr, "fftreemap_metadata_tests: %d check(s) failed\n", FailureCount());

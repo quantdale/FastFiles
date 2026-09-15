@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <deque>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -82,6 +83,20 @@ struct PreviewResult {
     uint32_t height = 0;
     bool truncated = false;
 };
+
+// A snapshot refresh may materialize a pending selection without a pointer or
+// keyboard event. This identity seam lets the shell distinguish that real
+// selection transition from a routine refresh of the same item.
+inline bool PreviewSelectionEquivalent(const std::optional<FileDescriptor>& left,
+                                       const std::optional<FileDescriptor>& right) {
+    if (!left || !right) return !left && !right;
+    return left->path == right->path &&
+           left->sizeBytes == right->sizeBytes &&
+           left->isDirectory == right->isDirectory &&
+           left->fileIdLow == right->fileIdLow &&
+           left->fileIdHigh == right->fileIdHigh &&
+           left->volumeRowId == right->volumeRowId;
+}
 
 class IPreviewProvider {
 public:

@@ -279,6 +279,28 @@ void TestLetterboxMath() {
     }
 }
 
+void TestPreviewSelectionIdentity() {
+    using namespace ffui;
+    FileDescriptor first{};
+    first.path = L"C:\\fixture\\note.txt";
+    first.sizeBytes = 3;
+    first.fileIdLow = 17;
+    first.fileIdHigh = 23;
+    first.volumeRowId = 5;
+    FileDescriptor same = first;
+    Check(PreviewSelectionEquivalent(first, same),
+          "stable selection identity survives an unchanged snapshot refresh");
+
+    FileDescriptor changedPath = same;
+    changedPath.path = L"C:\\fixture\\other.txt";
+    Check(!PreviewSelectionEquivalent(first, changedPath),
+          "a materialized pending selection starts a new preview request");
+
+    std::optional<FileDescriptor> empty;
+    Check(!PreviewSelectionEquivalent(empty, first),
+          "empty-to-file selection transition is observable for preview refresh");
+}
+
 void TestPreviewLimitControlsTextTruncation() {
     using namespace ffui;
     wchar_t temp[MAX_PATH]{};
@@ -329,6 +351,7 @@ int main() {
     TestRapidRequestsDropSupersededAndDoNotBlock();
     TestBomLessUtf8DetectedBeforeAnsiFallback();
     TestLetterboxMath();
+    TestPreviewSelectionIdentity();
     TestPreviewLimitControlsTextTruncation();
     CoUninitialize();
     return fftest::FailureCount();

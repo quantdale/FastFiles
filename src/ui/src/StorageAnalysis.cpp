@@ -749,8 +749,8 @@ void StorageAnalysis::SetCategories(const std::vector<std::pair<std::wstring, st
     categoryEngine_.LoadFromSettings(categories);
     if (categoryFilter_ != nullptr) {
         PopulateCategoryFilter();
-        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         if (visible_) RefreshData();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
     }
 }
 
@@ -810,8 +810,8 @@ void StorageAnalysis::ShowAndFocus(const std::wstring& currentPath, bool engineA
     // for capacity figures and per-volume analysis.
     CheckRadioButton(owner_, kOverviewId, kTreemapId, kOverviewId);
     viewMode_ = ViewMode::Overview;
-    ApplyModeVisibility();
     RefreshData();
+    ApplyModeVisibility();
     Reposition(surfaceRect);
     SetFocus(overview_);
 }
@@ -1406,10 +1406,32 @@ void StorageAnalysis::OnSnapshotUpdated() {
     treemapView_.OnSnapshotUpdated();
 }
 
-void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory, D2D1_SIZE_F viewportSize, float offsetX, float offsetY) {
+void StorageAnalysis::SetTreemapGeometry(const UiaViewGeometry& geometry) {
+    std::lock_guard<std::mutex> lock(treemapGeometryMutex_);
+    treemapGeometry_ = geometry;
+}
+
+UiaViewGeometry StorageAnalysis::TreemapGeometry() const {
+    std::lock_guard<std::mutex> lock(treemapGeometryMutex_);
+    return treemapGeometry_;
+}
+
+void StorageAnalysis::RenderTreemap(ID2D1DeviceContext* context, IDWriteFactory* dwriteFactory,
+                                    const ShellLayoutRect& surfaceRect) {
     if (viewMode_ != ViewMode::Treemap) return;
+    const auto layout = ComputeStorageSurfaceLayout(surfaceRect);
+    const ShellLayoutRect& treemapRect = layout.list;
+    D2D1_MATRIX_3X2_F priorTransform{};
+    context->GetTransform(&priorTransform);
+    // The shell enters this branch translated to the content origin. The
+    // native Storage controls use global DIPs, so render the D2D canvas into
+    // the same list rectangle and restore the shell transform for overlays.
+    context->SetTransform(D2D1::Matrix3x2F::Translation(treemapRect.left, treemapRect.top));
     treemapView_.EnsureCreated(context, dwriteFactory);
-    treemapView_.Render(context, dwriteFactory, viewportSize, offsetX, offsetY);
+    treemapView_.Render(context, dwriteFactory,
+                        D2D1::SizeF(treemapRect.Width(), treemapRect.Height()),
+                        treemapRect.left, treemapRect.top);
+    context->SetTransform(priorTransform);
 }
 
 bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
@@ -1417,8 +1439,8 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
     const int id = LOWORD(wParam);
     if (id == kCategoryFilterId && HIWORD(wParam) == CBN_SELCHANGE) {
         UpdateCategoryFilterFromControl();
-        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         RefreshData();
+        treemapView_.SetCategoryFilter(&categoryEngine_, activeCategoryId_);
         return true;
     }
     if (id == kBackId) {
@@ -1432,6 +1454,9 @@ bool StorageAnalysis::HandleOwnerCommand(WPARAM wParam, LPARAM) {
                 currentPath_ = parent;
                 UpdateNavigationButtonState();
                 RefreshData();
+                if (viewMode_ == ViewMode::Treemap) {
+                    treemapView_.ShowAndFocus(currentPath_);
+                }
                 if (navigate_) navigate_(currentPath_, true);
             }
         }
@@ -1491,8 +1516,8 @@ void StorageAnalysis::SetViewMode(ViewMode mode) {
     for (HWND control : {overviewButton_, drillDown_, largestFolders_, largestFiles_, byCategory_, treemap_}) {
         if (control != nullptr) InvalidateRect(control, nullptr, FALSE);
     }
-    ApplyModeVisibility();
     RefreshData();
+    ApplyModeVisibility();
 }
 
 bool StorageAnalysis::HandleNotify(LPARAM lParam) {
