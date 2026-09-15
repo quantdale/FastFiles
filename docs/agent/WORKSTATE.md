@@ -19,7 +19,7 @@
 - Authoritative verifier build: `pwsh -NoProfile -File .\\verify\\verify.ps1 build` returned `status=PASS classification=PASS`, with 9/9 underlying Debug/release-test/Analyze gates passed and no skips.
 - Final composed readiness: all locally executable build, test, protocol, filesystem, performance, ASAN, documentation, and Analyze gates passed. The composition correctly reported dirty-tree/candidate packaging, production signing/clean-host readiness, and disposable-guest availability as non-PASS external/working-tree conditions; elevation-dependent gates were skipped by policy.
 - Implementation commit: `a7a3d963e01895a1472f337f0df970502068e3b5`.
-- Current status: implementation and validation are complete; all session-owned files are staged, edited text files are CRLF-only, no preview trace remains, `git diff --check` passes, and no FastFiles process is running. The pre-existing untracked `frontier open spec.txt` remains untouched and must not be staged.
+- Current status: implementation and validation are complete; all session-owned files are committed, edited text files are CRLF-only, no preview trace remains, `git diff --check` passes, and no FastFiles process is running. The pre-existing untracked `frontier open spec.txt` remains untouched and must not be staged.
 - NEXT EXACT ACTION: after handoff, the single recommended next slice is explicitly authorized production release recertification (signing pins, clean-host install, and real privileged MFT/USN validation); no ordinary-development implementation work remains.
 
 ## readme-build-run-guide-and-branch-consolidation — VERIFIED 2026-09-14
