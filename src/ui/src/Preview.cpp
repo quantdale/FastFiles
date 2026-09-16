@@ -239,6 +239,13 @@ PreviewResult PreviewProviderRegistry::CreatePreview(const FileDescriptor& descr
             try {
                 PreviewResult result = provider->CreatePreview(descriptor, cancellation);
                 if (result.kind != PreviewKind::None || cancellation.IsCancelled()) {
+                    // A provider returning content has completed successfully.
+                    // Keep the user-visible state consistent even when a new
+                    // provider only fills in its payload kind and text/pixels;
+                    // PreviewResult defaults to Unsupported for no-content
+                    // fallthrough, so leaving it untouched would make a real
+                    // preview render while the shell advertises failure.
+                    if (result.kind != PreviewKind::None) result.state = PreviewState::Ready;
                     return result;
                 }
                 // ui-v3 preview: an identified failure (denied, too large,

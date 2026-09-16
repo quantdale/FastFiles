@@ -1346,6 +1346,30 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "structural-cleanup-real-e2e",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/structural-cleanup-real-e2e/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/structural-cleanup-real-e2e/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/structural-cleanup-real-e2e/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "docs/agent/WORKSTATE.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

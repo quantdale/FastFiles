@@ -18,7 +18,7 @@ rationale (R), historical (H), dynamic status (D), external prerequisite (E).
 | `.agent/PLANNER_HANDOFF.md`, `.agent/EXECUTION_PROMPT.md` | Planner/executor contract | M (Status field consumed by continuation semantics) | Authoritative input, not a restating surface | Via lifecycle workstream 7 (existing) |
 | `openspec/**` (proposals/designs/tasks/evidence) | Campaign ledgers | H once completed | Historical by definition; excluded from guard scope | n/a |
 | `docs/release/**`, `docs/quality/**`, `docs/benchmarks/**` | Release/quality/bench records | H/E | Spot-audited; no current-facing enumeration claims beyond recorded runs | n/a |
-| Root audit/recovery/frontier reports (`ENGINEERING_AUDIT_REPORT.md`, `FASTFILES_FRONTIER_HANDOFF.md`, `FASTFILES_RECOVERY_REPORT.md`) and `codebase-audit/sessions/**` | Point-in-time engineering reports | H | Classified historical: they describe the tree at a recorded moment (several still use pre-generation snapshot wording). Adding them to the guard's surface set would rewrite evidence; their age is visible from content/paths, and no continuation contract consumes them as current authority. | n/a |
+| `docs/agent/history/` audit/recovery/frontier reports (`ENGINEERING_AUDIT_REPORT.md`, `FASTFILES_FRONTIER_HANDOFF.md`, `FASTFILES_RECOVERY_REPORT.md`) and `codebase-audit/sessions/**` | Point-in-time engineering reports | H | Classified historical: they describe the tree at a recorded moment (several still use pre-generation snapshot wording). Adding them to the guard's surface set would rewrite evidence; their age is visible from content/paths, and no continuation contract consumes them as current authority. | n/a |
 
 ## Duplicated machine-derived claims mapped for checking
 

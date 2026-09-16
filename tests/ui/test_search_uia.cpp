@@ -10,8 +10,11 @@
 #include "UiaTestSurface.h"
 #include "ffui/SearchFiltersDisclosure.h"
 
+#include <atomic>
 #include <algorithm>
 #include <string>
+#include <utility>
+#include <vector>
 #include <windows.h>
 
 #include "../TestSupport.h"
@@ -49,6 +52,127 @@ Microsoft::WRL::ComPtr<IRawElementProviderFragment> FirstChild(IRawElementProvid
 Microsoft::WRL::ComPtr<IRawElementProviderFragment> NextSibling(IRawElementProviderFragment* element) {
     Microsoft::WRL::ComPtr<IRawElementProviderFragment> result;
     element->Navigate(NavigateDirection_NextSibling, &result);
+    return result;
+}
+
+// A real cross-process UIA client passes a proxy for startAfter rather than
+// the provider's concrete C++ object. Keep this proxy-shaped element small so
+// Search.Results exercises the same COM boundary as a desktop UIA client.
+class SearchRuntimeIdProxy final : public IRawElementProviderSimple,
+                                   public IRawElementProviderFragment {
+public:
+    explicit SearchRuntimeIdProxy(std::vector<int> runtimeId) : runtimeId_(std::move(runtimeId)) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** object) noexcept override {
+        if (object == nullptr) return E_POINTER;
+        *object = nullptr;
+        if (riid == IID_IUnknown || riid == IID_IRawElementProviderSimple) {
+            *object = static_cast<IRawElementProviderSimple*>(this);
+        } else if (riid == IID_IRawElementProviderFragment) {
+            *object = static_cast<IRawElementProviderFragment*>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
+        AddRef();
+        return S_OK;
+    }
+
+    STDMETHODIMP_(ULONG) AddRef() noexcept override {
+        return references_.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    STDMETHODIMP_(ULONG) Release() noexcept override {
+        const ULONG remaining = references_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        if (remaining == 0) delete this;
+        return remaining;
+    }
+
+    STDMETHODIMP GetPatternProvider(PATTERNID, IUnknown** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP GetPropertyValue(PROPERTYID, VARIANT* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        VariantInit(retVal);
+        return S_OK;
+    }
+
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP get_ProviderOptions(ProviderOptions* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = ProviderOptions_ServerSideProvider;
+        return S_OK;
+    }
+
+    STDMETHODIMP Navigate(NavigateDirection, IRawElementProviderFragment** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP GetRuntimeId(SAFEARRAY** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        SAFEARRAYBOUND bound{static_cast<ULONG>(runtimeId_.size()), 0};
+        SAFEARRAY* array = SafeArrayCreate(VT_I4, 1, &bound);
+        if (array == nullptr) return E_OUTOFMEMORY;
+        for (LONG i = 0; i < static_cast<LONG>(runtimeId_.size()); ++i) {
+            (void)SafeArrayPutElement(array, &i, &runtimeId_[static_cast<size_t>(i)]);
+        }
+        *retVal = array;
+        return S_OK;
+    }
+
+    STDMETHODIMP get_BoundingRectangle(UiaRect* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = UiaRect{};
+        return S_OK;
+    }
+
+    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP SetFocus() noexcept override { return S_OK; }
+
+    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+private:
+    std::atomic<ULONG> references_{1};
+    std::vector<int> runtimeId_;
+};
+
+std::vector<int> RuntimeIdOf(IRawElementProviderFragment* element) {
+    std::vector<int> result;
+    SAFEARRAY* array = nullptr;
+    if (element == nullptr || FAILED(element->GetRuntimeId(&array)) || array == nullptr) return result;
+    LONG lower = 0;
+    LONG upper = -1;
+    if (SUCCEEDED(SafeArrayGetLBound(array, 1, &lower)) &&
+        SUCCEEDED(SafeArrayGetUBound(array, 1, &upper))) {
+        for (LONG i = lower; i <= upper; ++i) {
+            int value = 0;
+            if (FAILED(SafeArrayGetElement(array, &i, &value))) {
+                result.clear();
+                break;
+            }
+            result.push_back(value);
+        }
+    }
+    SafeArrayDestroy(array);
     return result;
 }
 
@@ -357,6 +481,22 @@ void TestSearchFindItemForeignStartAfter() {
               found != nullptr && GetName(found.Get()) == L"file42.txt",
           "foreign startAfter degrades to a full scan and still finds the result");
     VariantClear(&name);
+
+    // The same result identity delivered through a proxy must resume after
+    // that row without dereferencing the proxy as SearchResultUiaProvider.
+    auto first = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
+    const auto firstRuntimeId = RuntimeIdOf(first.Get());
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> proxy;
+    proxy.Attach(new SearchRuntimeIdProxy(firstRuntimeId));
+    VARIANT afterName{};
+    VariantInit(&afterName);
+    afterName.vt = VT_BSTR;
+    afterName.bstrVal = SysAllocString(L"file1.txt");
+    found.Reset();
+    Check(SUCCEEDED(container->FindItemByProperty(proxy.Get(), UIA_NamePropertyId, afterName, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"file1.txt",
+          "proxy-shaped startAfter resumes from the matching search result");
+    VariantClear(&afterName);
 }
 
 void TestSearchFiltersDisclosureProvider() {

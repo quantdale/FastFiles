@@ -156,6 +156,11 @@ public:
 
     // --- navigation surface (ColumnView) ---
     virtual UiaViewGeometry UiaGeometry() const { return {}; }
+    // The shell details pane publishes its current terminal state through the
+    // root help text.  This is a user-visible accessibility projection, not a
+    // test-only channel: screen readers and black-box diagnostics can tell
+    // Loading from Ready, Unsupported, or Disabled without scraping pixels.
+    virtual std::wstring UiaDetailsStatus() const { return {}; }
     virtual int UiaPaneCount() const { return 0; }
     virtual int UiaActivePane() const { return 0; }
     virtual bool UiaPaneIsHome(int pane) const { (void)pane; return false; }

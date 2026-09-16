@@ -9,6 +9,27 @@ add_library(ffsetup STATIC
   src/PackageTrust.cpp
 )
 
+set(FF_SETUP_PUBLIC_HEADERS
+  include/ffsetup/AuthenticodeVerification.h
+  include/ffsetup/GroupSetup.h
+  include/ffsetup/Identifiers.h
+  include/ffsetup/InstallDirAcl.h
+  include/ffsetup/PackageTrust.h
+  include/ffsetup/PeerImageMatch.h
+  include/ffsetup/PinnedSignatures.h
+  include/ffsetup/ScheduledTaskRegistration.h
+  include/ffsetup/SecurityDescriptors.h
+  include/ffsetup/ServiceRegistration.h
+  include/ffsetup/ServiceStopPolicy.h
+  include/ffsetup/SetupResult.h
+)
+target_sources(ffsetup PRIVATE ${FF_SETUP_PUBLIC_HEADERS})
+source_group("Public API" FILES ${FF_SETUP_PUBLIC_HEADERS})
+source_group("Implementation" FILES
+  src/SecurityDescriptors.cpp src/ServiceRegistration.cpp src/GroupSetup.cpp
+  src/InstallDirAcl.cpp src/PeerImageMatch.cpp src/ScheduledTaskRegistration.cpp
+  src/AuthenticodeVerification.cpp src/PackageTrust.cpp)
+
 target_include_directories(ffsetup PUBLIC
   "${FASTFILES_GENERATED_INCLUDE_DIR}"
   include

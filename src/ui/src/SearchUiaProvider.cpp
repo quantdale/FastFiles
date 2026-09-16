@@ -98,47 +98,71 @@ std::wstring UiaSearchTimeText(uint64_t modifiedTime) {
     return buffer;
 }
 
-// Reads the leading (namespace, kind) discriminants of a provider's runtime
-// ID without casting. False when the element exposes no usable custom ID
-// (HWND-backed roots) or fails resolution (stale elements).
-bool RuntimeIdKind(IRawElementProviderSimple* element, int* ns, int* kind) {
-    *ns = -1;
-    *kind = -1;
+// Reads a bounded custom runtime ID without casting. A real cross-process UIA
+// client supplies a proxy object for startAfter, so this must never rely on
+// the provider's concrete C++ layout. False when the element exposes no
+// usable custom ID (HWND-backed roots) or fails resolution (stale elements).
+bool ReadRuntimeId(IRawElementProviderSimple* element, std::vector<int>& values) {
+    values.clear();
+    if (element == nullptr) return false;
     Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
     if (FAILED(element->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return false;
     SAFEARRAY* ids = nullptr;
     if (FAILED(fragment->GetRuntimeId(&ids)) || ids == nullptr) return false;
-    bool ok = false;
     LONG lower = 0;
     LONG upper = -1;
-    if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
-        SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper)) && upper - lower + 1 >= 2) {
-        LONG i0 = lower;
-        LONG i1 = lower + 1;
-        if (SUCCEEDED(SafeArrayGetElement(ids, &i0, ns)) &&
-            SUCCEEDED(SafeArrayGetElement(ids, &i1, kind))) {
-            ok = true;
+    bool ok = SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+              SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper));
+    if (ok) {
+        const LONGLONG count = static_cast<LONGLONG>(upper) - static_cast<LONGLONG>(lower) + 1;
+        ok = count >= 2 && count <= 32;
+        if (ok) {
+            values.reserve(static_cast<size_t>(count));
+            for (LONG i = lower; i <= upper; ++i) {
+                int value = 0;
+                if (FAILED(SafeArrayGetElement(ids, &i, &value))) {
+                    values.clear();
+                    ok = false;
+                    break;
+                }
+                values.push_back(value);
+            }
         }
     }
     SafeArrayDestroy(ids);
     return ok;
 }
 
+uint64_t RuntimeIdPair(const std::vector<int>& values, size_t lowIndex) {
+    if (lowIndex + 1 >= values.size()) return 0;
+    const uint64_t low = static_cast<uint32_t>(values[lowIndex]);
+    const uint64_t high = static_cast<uint32_t>(values[lowIndex + 1]);
+    return low | (high << 32);
+}
+
 size_t IndexOfResultProvider(SearchUiaProvider* owner, int column,
                              IRawElementProviderSimple* startAfter) {
-    (void)owner;
     (void)column;
     if (startAfter == nullptr) return SIZE_MAX;
-    // Only cast when the runtime ID proves the foreign element is one of this
-    // tree's own results; a sibling from another surface is legal input and
-    // must degrade to "start from the beginning", never reinterpret fields.
-    int ns = -1;
-    int kind = -1;
-    if (!RuntimeIdKind(startAfter, &ns, &kind) || ns != kUiaNsSearch || kind != 1) return SIZE_MAX;
-    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
-    if (FAILED(startAfter->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return SIZE_MAX;
-    auto* result = static_cast<SearchResultUiaProvider*>(fragment.Get());
-    return result->Index();
+    // Resolve by the stable result identity encoded in the runtime ID. A
+    // sibling from another surface, a stale result, or a proxy with malformed
+    // data degrades to "start from the beginning"; none may be reinterpreted
+    // as this provider's concrete C++ object.
+    std::vector<int> values;
+    if (!ReadRuntimeId(startAfter, values) || values.size() < 4 ||
+        values[0] != kUiaNsSearch || values[1] != 1) {
+        return SIZE_MAX;
+    }
+    const uint64_t idHash = RuntimeIdPair(values, 2);
+    if (owner == nullptr || owner->Surface() == nullptr) return SIZE_MAX;
+    const size_t count = owner->Surface()->UiaSearchResultCount();
+    for (size_t index = 0; index < count; ++index) {
+        const UiaSearchResultInfo info = owner->Surface()->UiaSearchResultInfoOf(index);
+        if (UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name) == idHash) {
+            return index;
+        }
+    }
+    return SIZE_MAX;
 }
 
 } // namespace
@@ -410,6 +434,7 @@ Microsoft::WRL::ComPtr<SearchResultUiaProvider> SearchUiaProvider::ResultElement
     const UiaSearchResultInfo info = surface_->UiaSearchResultInfoOf(index);
     const uint64_t idHash = UiaSearchIdentityHash(info.volumeId, info.id, info.folder, info.name);
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(kUiaNsSearch), idHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = results_.find(key);
     if (it != results_.end() && it->second != nullptr) {
         return it->second;
@@ -425,6 +450,7 @@ Microsoft::WRL::ComPtr<SearchResultUiaProvider> SearchUiaProvider::ResultElement
 }
 
 void SearchUiaProvider::InvalidateResults() {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     results_.clear();
     cacheSize_ = 0;
 }

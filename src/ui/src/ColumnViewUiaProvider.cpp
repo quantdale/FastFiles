@@ -126,48 +126,71 @@ std::wstring UiaSizeText(uint64_t sizeBytes) {
     return std::to_wstring(sizeBytes) + L" bytes";
 }
 
-// Reads the leading (namespace, kind) discriminants of a provider's runtime
-// ID without casting. False when the element exposes no usable custom ID
-// (HWND-backed roots) or fails resolution (stale elements).
-bool RuntimeIdKind(IRawElementProviderSimple* element, int* ns, int* kind) {
-    *ns = -1;
-    *kind = -1;
+// Reads a provider runtime ID without assuming that the caller supplied an
+// in-process concrete provider. ItemContainerProvider is routinely called
+// through a cross-process UIA proxy, so down-casting the supplied interface
+// would turn a valid proxy into an access violation.
+bool ReadRuntimeId(IRawElementProviderSimple* element, std::vector<int>& values) {
+    values.clear();
+    if (element == nullptr) return false;
     Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
     if (FAILED(element->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return false;
     SAFEARRAY* ids = nullptr;
     if (FAILED(fragment->GetRuntimeId(&ids)) || ids == nullptr) return false;
-    bool ok = false;
     LONG lower = 0;
     LONG upper = -1;
-    if (SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
-        SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper)) && upper - lower + 1 >= 2) {
-        LONG i0 = lower;
-        LONG i1 = lower + 1;
-        if (SUCCEEDED(SafeArrayGetElement(ids, &i0, ns)) &&
-            SUCCEEDED(SafeArrayGetElement(ids, &i1, kind))) {
-            ok = true;
+    const bool boundsOk = SUCCEEDED(SafeArrayGetLBound(ids, 1, &lower)) &&
+                          SUCCEEDED(SafeArrayGetUBound(ids, 1, &upper));
+    const long long count = boundsOk ? static_cast<long long>(upper) - static_cast<long long>(lower) + 1 : 0;
+    bool ok = boundsOk && count >= 2 && count <= 32;
+    if (ok) {
+        values.reserve(static_cast<size_t>(count));
+        for (long long offset = 0; offset < count; ++offset) {
+            LONG index = lower + static_cast<LONG>(offset);
+            int value = 0;
+            if (FAILED(SafeArrayGetElement(ids, &index, &value))) {
+                ok = false;
+                values.clear();
+                break;
+            }
+            values.push_back(value);
         }
     }
     SafeArrayDestroy(ids);
     return ok;
 }
 
+uint64_t RuntimeIdPair(const std::vector<int>& values, size_t lowIndex) {
+    return static_cast<uint64_t>(static_cast<uint32_t>(values[lowIndex])) |
+           (static_cast<uint64_t>(static_cast<uint32_t>(values[lowIndex + 1])) << 32);
+}
+
 // Resolve the item's row from a startAfter element for FindItemByProperty
-// (unknown startAfter = start at the beginning). The cast is guarded by the
-// runtime-ID discriminants: a sibling from a foreign surface is legal input
-// and must degrade to "start from the beginning", never reinterpret fields.
+// (unknown startAfter = start at the beginning). A foreign or proxy element
+// is legal input; it degrades to a full scan unless its runtime identity
+// matches an item in this exact column.
 int RowOfItemProvider(ColumnViewUiaProvider* owner, int pane, int column,
                       IRawElementProviderSimple* startAfter) {
-    (void)owner;
-    if (startAfter == nullptr) return -1;
-    int ns = -1;
-    int kind = -1;
-    if (!RuntimeIdKind(startAfter, &ns, &kind) || ns != kUiaNsColumnView || kind != 3) return -1;
-    Microsoft::WRL::ComPtr<IRawElementProviderFragment> fragment;
-    if (FAILED(startAfter->QueryInterface(IID_IRawElementProviderFragment, &fragment))) return -1;
-    auto* item = static_cast<ColumnItemUiaProvider*>(fragment.Get());
-    if (item->Pane() != pane || item->Column() != column) return -1;
-    return item->Row();
+    if (owner == nullptr || !owner->SurfaceAlive() || owner->Surface() == nullptr || startAfter == nullptr) {
+        return -1;
+    }
+    std::vector<int> values;
+    if (!ReadRuntimeId(startAfter, values) || values.size() < 7 ||
+        values[0] != kUiaNsColumnView || values[1] != 3 || values[2] != pane) {
+        return -1;
+    }
+    UiaSurface* surface = owner->Surface();
+    if (column < 0 || column >= surface->UiaColumnCount(pane)) return -1;
+    const UiaColumnInfo columnInfo = surface->UiaColumnInfoOf(pane, column);
+    if (UiaHashWide(columnInfo.path) != RuntimeIdPair(values, 3)) return -1;
+    const uint64_t itemHash = RuntimeIdPair(values, 5);
+    for (int row = 0; row < columnInfo.itemCount; ++row) {
+        const UiaItemInfo item = surface->UiaItemInfoOf(pane, column, row);
+        if (UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath) == itemHash) {
+            return row;
+        }
+    }
+    return -1;
 }
 
 } // namespace
@@ -248,6 +271,9 @@ STDMETHODIMP ColumnViewUiaProvider::GetPropertyValue(PROPERTYID propertyId, VARI
             }
             return S_OK;
         }
+        case UIA_HelpTextPropertyId:
+            SetVariantString(retVal, surface_->UiaDetailsStatus());
+            return S_OK;
         case UIA_ClassNamePropertyId: {
             if (hwnd_ != nullptr && IsWindow(hwnd_)) {
                 wchar_t className[256]{};
@@ -601,6 +627,7 @@ bool ColumnViewUiaProvider::ResolveColumnIdentity(int pane, int column, uint64_t
 
 Microsoft::WRL::ComPtr<ColumnViewGroupUiaProvider> ColumnViewUiaProvider::GroupElement() {
     if (!Alive() || surface_ == nullptr) return nullptr;
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     if (group_ == nullptr) {
         group_ = Microsoft::WRL::ComPtr<ColumnViewGroupUiaProvider>(new ColumnViewGroupUiaProvider(this));
     }
@@ -609,6 +636,7 @@ Microsoft::WRL::ComPtr<ColumnViewGroupUiaProvider> ColumnViewUiaProvider::GroupE
 
 Microsoft::WRL::ComPtr<PaneUiaProvider> ColumnViewUiaProvider::PaneElement(int pane) {
     if (!Alive() || surface_ == nullptr || pane < 0 || pane > 1) return nullptr;
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     if (panes_[static_cast<size_t>(pane)] == nullptr) {
         panes_[static_cast<size_t>(pane)] = Microsoft::WRL::ComPtr<PaneUiaProvider>(new PaneUiaProvider(this, pane));
     }
@@ -620,6 +648,7 @@ Microsoft::WRL::ComPtr<ColumnUiaProvider> ColumnViewUiaProvider::ColumnElement(i
     uint64_t pathHash = 0;
     if (!ResolveColumnIdentity(pane, column, pathHash)) return nullptr;
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), pathHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = columns_.find(key);
     if (it != columns_.end() && it->second != nullptr) {
         return it->second;
@@ -641,6 +670,7 @@ Microsoft::WRL::ComPtr<ColumnItemUiaProvider> ColumnViewUiaProvider::ItemElement
     const UiaItemInfo item = surface_->UiaItemInfoOf(pane, column, row);
     const uint64_t idHash = UiaItemIdentityHash(item.volumeRowId, item.fileIdLow, item.fileIdHigh, item.fullPath);
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), pathHash, idHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = items_.find(key);
     if (it != items_.end() && it->second != nullptr) {
         return it->second;
@@ -660,6 +690,7 @@ Microsoft::WRL::ComPtr<ColumnStatusUiaProvider> ColumnViewUiaProvider::StatusEle
     uint64_t pathHash = 0;
     if (!ResolveColumnIdentity(pane, column, pathHash)) return nullptr;
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), pathHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = statuses_.find(key);
     if (it != statuses_.end() && it->second != nullptr) {
         return it->second;
@@ -671,6 +702,7 @@ Microsoft::WRL::ComPtr<ColumnStatusUiaProvider> ColumnViewUiaProvider::StatusEle
 
 Microsoft::WRL::ComPtr<HomeGroupUiaProvider> ColumnViewUiaProvider::HomeGroupElement(int pane) {
     if (!Alive() || surface_ == nullptr || pane < 0 || pane > 1) return nullptr;
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     if (homeGroups_[static_cast<size_t>(pane)] == nullptr) {
         homeGroups_[static_cast<size_t>(pane)] = Microsoft::WRL::ComPtr<HomeGroupUiaProvider>(new HomeGroupUiaProvider(this, pane));
     }
@@ -681,6 +713,7 @@ Microsoft::WRL::ComPtr<HomeSectionUiaProvider> ColumnViewUiaProvider::HomeSectio
     if (!Alive() || surface_ == nullptr) return nullptr;
     if (ordinal < 0 || ordinal >= surface_->UiaHomeSectionCount(pane)) return nullptr;
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), static_cast<uint64_t>(ordinal));
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = homeSections_.find(key);
     if (it != homeSections_.end() && it->second != nullptr) {
         return it->second;
@@ -699,6 +732,7 @@ Microsoft::WRL::ComPtr<HomeItemUiaProvider> ColumnViewUiaProvider::HomeItemEleme
                                        UiaCombineKey(static_cast<uint64_t>(item.sectionKind),
                                                      static_cast<uint64_t>(item.indexInSection)),
                                        valueHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = homeItems_.find(key);
     if (it != homeItems_.end() && it->second != nullptr) {
         return it->second;
@@ -719,6 +753,7 @@ Microsoft::WRL::ComPtr<HomeClearUiaProvider> ColumnViewUiaProvider::HomeClearEle
     const int sectionKind = clearKind == kUiaHomeClearRecentFolders
         ? kUiaHomeSectionRecentFolders : kUiaHomeSectionRecentSearches;
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), static_cast<uint64_t>(sectionKind));
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = homeClears_.find(key);
     if (it != homeClears_.end() && it->second != nullptr) {
         return it->second;
@@ -730,6 +765,7 @@ Microsoft::WRL::ComPtr<HomeClearUiaProvider> ColumnViewUiaProvider::HomeClearEle
 
 Microsoft::WRL::ComPtr<TreemapGroupUiaProvider> ColumnViewUiaProvider::TreemapGroupElement() {
     if (!Alive() || treemapSurface_ == nullptr) return nullptr;
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     if (treemapGroup_ == nullptr) {
         treemapGroup_ = Microsoft::WRL::ComPtr<TreemapGroupUiaProvider>(new TreemapGroupUiaProvider(this));
     }
@@ -739,6 +775,7 @@ Microsoft::WRL::ComPtr<TreemapGroupUiaProvider> ColumnViewUiaProvider::TreemapGr
 Microsoft::WRL::ComPtr<TreemapTileUiaProvider> ColumnViewUiaProvider::TreemapTileElement(uint64_t scopeHash, uint64_t idHash) {
     if (!Alive() || treemapSurface_ == nullptr) return nullptr;
     const uint64_t key = UiaCombineKey(scopeHash, idHash);
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     auto it = treemapTiles_.find(key);
     if (it != treemapTiles_.end() && it->second != nullptr) {
         return it->second;
@@ -758,6 +795,7 @@ Microsoft::WRL::ComPtr<TreemapTileUiaProvider> ColumnViewUiaProvider::TreemapTil
 // --- cache invalidation ----------------------------------------------------
 
 void ColumnViewUiaProvider::InvalidateColumn(int pane, uint64_t pathHash) {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     const uint64_t key = UiaCombineKey(static_cast<uint64_t>(pane), pathHash);
     columns_.erase(key);
     statuses_.erase(key);
@@ -776,6 +814,7 @@ void ColumnViewUiaProvider::InvalidateColumn(int pane, uint64_t pathHash) {
 }
 
 void ColumnViewUiaProvider::InvalidatePane(int pane) {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     for (auto it = columns_.begin(); it != columns_.end();) {
         if (it->second != nullptr && it->second->Pane() == pane) it = columns_.erase(it);
         else ++it;
@@ -793,6 +832,7 @@ void ColumnViewUiaProvider::InvalidatePane(int pane) {
 }
 
 void ColumnViewUiaProvider::InvalidateHome(int pane) {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     for (auto it = homeSections_.begin(); it != homeSections_.end();) {
         if (it->second != nullptr && it->second->Pane() == pane) it = homeSections_.erase(it);
         else ++it;
@@ -810,12 +850,14 @@ void ColumnViewUiaProvider::InvalidateHome(int pane) {
 }
 
 void ColumnViewUiaProvider::InvalidateTreemap() {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     treemapTiles_.clear();
     treemapTileCacheSize_ = 0;
     treemapGroup_.Reset();
 }
 
 void ColumnViewUiaProvider::InvalidateAll() {
+    std::lock_guard<std::recursive_mutex> lock(cacheMutex_);
     columns_.clear();
     items_.clear();
     statuses_.clear();

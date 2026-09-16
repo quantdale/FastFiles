@@ -1,11 +1,11 @@
-# FastFiles build, test, and (opt-in) commit/push script
+# FastFiles build, test, and (opt-in) commit/push compatibility script.
 # Run this from the FastFiles repo root in Visual Studio Developer PowerShell.
 # Git mutation is never performed by default. To commit and push, pass
 # -Commit together with -CommitMessage (required when -Commit is used).
 # Examples:
-#   ./build_and_deploy.ps1                                     # build + test only
-#   ./build_and_deploy.ps1 -SkipTests                          # build only
-#   ./build_and_deploy.ps1 -Commit -CommitMessage "fix: ..."   # build + test + commit + push
+#   ./tools/development/build_and_deploy.ps1                   # build + test only
+#   ./tools/development/build_and_deploy.ps1 -SkipTests        # build only
+#   ./tools/development/build_and_deploy.ps1 -Commit -CommitMessage "fix: ..." # build + test + commit + push
 
 param(
     [switch]$SkipBuild,
@@ -17,10 +17,14 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+Push-Location $repoRoot
+try {
+
 Write-Host "=== FastFiles Build & Deploy Script ===" -ForegroundColor Cyan
 
 # Verify we're in the right directory
-if (-not (Test-Path "CMakeLists.txt")) {
+if (-not (Test-Path (Join-Path $repoRoot 'CMakeLists.txt'))) {
     Write-Error "CMakeLists.txt not found. Please run this script from the FastFiles repo root."
 }
 
@@ -96,3 +100,6 @@ if ($Commit) {
 }
 
 Write-Host "`n=== Done ===" -ForegroundColor Cyan
+} finally {
+    Pop-Location
+}

@@ -3,6 +3,9 @@
 # reconciliation sweeps, and diagnostic reads (filesystem-index-store design.md
 # D1) all touch the same sqlite3* connection pool from different threads.
 add_library(sqlite3 STATIC sqlite3.c)
+source_group("SQLite" FILES sqlite3.c sqlite3.h)
+target_sources(sqlite3 PRIVATE sqlite3.h)
+set_target_properties(sqlite3 PROPERTIES FOLDER "Third Party/SQLite")
 target_include_directories(sqlite3 PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_definitions(sqlite3 PUBLIC
   SQLITE_THREADSAFE=1

@@ -193,10 +193,20 @@ std::wstring FormatSelectionProbeState(const SelectionDiagnostics& diagnostics) 
 WindowShell::WindowShell() : previewController_([this](uint64_t requestId, PreviewResult result) {
     // Publish immutably: RenderDetails takes only this shared_ptr under the
     // lock, so a large decoded image is never deep-copied per paint frame.
+    const auto state = result.state;
     auto payload = std::make_shared<const PreviewResult>(std::move(result));
     std::lock_guard<std::mutex> lock(previewMutex_);
     if (requestId == activePreviewRequest_) {
         preview_ = std::move(payload);
+        switch (state) {
+            case PreviewState::Ready: columnView_.SetUiaDetailsStatus(L"Preview: Ready"); break;
+            case PreviewState::TooLarge: columnView_.SetUiaDetailsStatus(L"Preview: Too large"); break;
+            case PreviewState::PermissionDenied: columnView_.SetUiaDetailsStatus(L"Preview: Permission denied"); break;
+            case PreviewState::Unavailable: columnView_.SetUiaDetailsStatus(L"Preview: Unavailable"); break;
+            case PreviewState::Disabled: columnView_.SetUiaDetailsStatus(L"Preview: Disabled"); break;
+            case PreviewState::Loading: columnView_.SetUiaDetailsStatus(L"Preview: Loading"); break;
+            case PreviewState::Unsupported: columnView_.SetUiaDetailsStatus(L"Preview: Unsupported"); break;
+        }
         if (hwnd_ != nullptr) PostMessageW(hwnd_, WM_APP_PREVIEW_READY, 0, 0);
     }
 }) {}
@@ -1615,9 +1625,19 @@ void WindowShell::RefreshSelectionPresentation() {
     // Request would make that otherwise-fast completion wait behind the UI
     // thread and amplify selection churn into visible loading.
     if (!canPreview) {
+        if (!settings_.previewEnabled) {
+            columnView_.SetUiaDetailsStatus(L"Preview: Disabled");
+        } else if (!selection) {
+            columnView_.SetUiaDetailsStatus(L"Preview: No selection");
+        } else if (selection->isDirectory) {
+            columnView_.SetUiaDetailsStatus(L"Preview: Select a file");
+        } else {
+            columnView_.SetUiaDetailsStatus(L"Preview: Too large");
+        }
         previewController_.Clear();
         return;
     }
+    columnView_.SetUiaDetailsStatus(L"Preview: Loading");
     RequestFileType(selection->path);
     // Forward the configured Preview Limit so text truncation follows the
     // advertised control, not just the auto-preview gate.

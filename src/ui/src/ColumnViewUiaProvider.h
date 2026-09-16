@@ -25,6 +25,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -513,7 +514,15 @@ private:
     int PaneAtPoint(double xDip, double yDip) const;
     bool ResolveColumnIdentity(int pane, int column, uint64_t& pathHash) const;
 
-    // Caches (UI thread only).
+    // UIAutomationCore invokes provider methods on a worker thread while
+    // semantic notifications invalidate these caches on the UI thread. The
+    // recursive lock also covers the intentional invalidation nesting
+    // (InvalidatePane -> InvalidateHome and InvalidateAll ->
+    // InvalidateTreemap). Never hold it while raising a UIA event.
+    mutable std::recursive_mutex cacheMutex_;
+
+    // On-demand provider caches. Each map is bounded by the constants above;
+    // stale entries are removed after the corresponding semantic change.
     Microsoft::WRL::ComPtr<ColumnViewGroupUiaProvider> group_;
     std::array<Microsoft::WRL::ComPtr<PaneUiaProvider>, 2> panes_;
     std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<ColumnUiaProvider>> columns_;

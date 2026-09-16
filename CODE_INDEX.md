@@ -351,6 +351,10 @@ IPC per keystroke) + the control pipe — does **not** link `ffindexstore`.
   and `Wait-UiaDirectChild` cover dynamic fragment reconstruction without
   whole-tree DFS assumptions; recorded trees cover ambiguity, identity, stale
   reacquisition, and process-ownership mechanics.
+- `verify/e2e/` — real executable black-box harness. It launches the diagnostic
+  UI, drives UIA plus real pointer/keyboard input, verifies marker-bound
+  filesystem outcomes, checks terminal UI state and DPI-aware geometry, and
+  writes bounded failure evidence under ignored `build/e2e-artifacts/`.
 
 ## `FastFilesSetup` (installer) & `fftest` (probe)
 
@@ -428,3 +432,17 @@ frames/records at the parsers — update it when protocol parsing changes.
   target only, keeps its own warning config; avoid incidental edits.
 - Generated/untracked (do not commit): `build/`, `out/`, `.vs/`,
   `CMakeUserPresets.json`, `verify/runs/`, `verify/baselines/`.
+
+## Repository layout
+
+- `src/` — product targets: UI shell, unprivileged engine, privileged service,
+  installer, and shared protocol/IPC/setup/index/search libraries.
+- `tests/` — CTest unit/integration tests grouped by component; `tests/e2e/`
+  points to the interactive black-box layer.
+- `verify/` — capability runners, UIA driver, release gates, and `verify/e2e/`.
+- `tools/development/` — legacy compatibility helpers that are not part of the
+  product build.
+- `docs/` — maintained development, testing, release, and historical evidence
+  documents; point-in-time campaign reports live under `docs/agent/history/`.
+- `openspec/` — architecture and change contracts; `third_party/` — vendored
+  dependencies.

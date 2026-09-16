@@ -18,6 +18,7 @@
 // fail cleanly instead of retargeting the new occupant of the same index.
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 
@@ -148,6 +149,10 @@ private:
     Microsoft::WRL::ComPtr<IRawElementProviderSimple> hostProvider_;
     UiaSurface* surface_ = nullptr;
     HWND listHwnd_ = nullptr;
+    // UIAutomationCore may query result elements on a worker thread while
+    // the UI thread replaces the result set. Protect the bounded cache from
+    // concurrent find/erase/clear operations.
+    mutable std::recursive_mutex cacheMutex_;
     std::unordered_map<uint64_t, Microsoft::WRL::ComPtr<SearchResultUiaProvider>> results_;
     size_t cacheSize_ = 0;
 };

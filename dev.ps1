@@ -6,14 +6,17 @@ test, run, fixture, and diagnostics commands in one place.
 [CmdletBinding()]
 param(
     [ValidateSet('doctor', 'setup', 'bootstrap', 'configure', 'build', 'run',
-                 'test', 'test-fast', 'test-full', 'clean', 'rebuild',
-                 'package', 'logs', 'stop', 'fixture', 'fixture-clean')]
+                 'test', 'test-fast', 'test-e2e', 'test-full', 'dogfood',
+                 'clean', 'rebuild', 'package', 'logs', 'stop', 'fixture',
+                 'fixture-clean')]
     [string] $Command = 'doctor',
     [ValidateSet('debug', 'debug-diagnostic', 'release', 'release-test', 'analyze', 'asan')]
     [string] $Preset = '',
     [string] $Target = '',
     [string] $Filter = '',
     [int] $Parallel = 0,
+    [ValidateRange(1, 20)]
+    [int] $LifecycleIterations = 2,
     [switch] $SkipBuild,
     [switch] $ResetFixture,
     [switch] $Gallery
@@ -74,7 +77,7 @@ function Get-FastFilesBuildPreset {
     if (-not [string]::IsNullOrWhiteSpace($Preset)) {
         return $Preset
     }
-    if ($Command -eq 'run') {
+    if ($Command -in @('run', 'test-e2e', 'dogfood')) {
         return 'debug-diagnostic'
     }
     if ($Command -eq 'package') {
@@ -247,6 +250,19 @@ function Stop-FastFilesDevelopmentProcesses {
     }
 }
 
+function Invoke-FastFilesE2E {
+    param([string] $ScenarioFilter = 'all')
+    $e2ePreset = 'debug-diagnostic'
+    if (-not $SkipBuild) {
+        Build-FastFiles -BuildPreset $e2ePreset
+    }
+    $e2eScript = Join-Path $repoRoot 'verify/e2e/Run-FastFilesE2E.ps1'
+    $e2eExe = Join-Path (Get-FastFilesBuildDirectory -BuildPreset $e2ePreset) 'src/ui/FastFiles.exe'
+    $arguments = @('-RepoRoot', $repoRoot, '-Exe', $e2eExe, '-Filter', $ScenarioFilter,
+                   '-LifecycleIterations', [string]$LifecycleIterations)
+    Invoke-FastFilesPowerShellScript -ScriptPath $e2eScript -Arguments $arguments
+}
+
 try {
     Push-Location $repoRoot
     $buildPreset = Get-FastFilesBuildPreset
@@ -288,13 +304,28 @@ try {
             Write-Host "Executable: $executable"
             Write-Host 'Use .\dev.ps1 stop when the manual run is complete.'
         }
-        { $_ -in @('test', 'test-full') } {
+        'test' {
             $null = Initialize-FastFilesToolchain
             Build-FastFiles -BuildPreset $buildPreset
             $testDirectory = Get-FastFilesBuildDirectory -BuildPreset $buildPreset
             Invoke-FastFilesTool -FilePath $toolchain.CTestExe `
                 -Arguments @('--test-dir', $testDirectory, '--output-on-failure') `
                 -Label "CTest '$buildPreset'"
+        }
+        'test-full' {
+            $null = Initialize-FastFilesToolchain
+            Build-FastFiles -BuildPreset $buildPreset
+            $testDirectory = Get-FastFilesBuildDirectory -BuildPreset $buildPreset
+            Invoke-FastFilesTool -FilePath $toolchain.CTestExe `
+                -Arguments @('--test-dir', $testDirectory, '--output-on-failure') `
+                -Label "CTest '$buildPreset'"
+            $e2eFilter = if ($Filter) { $Filter } else { 'all' }
+            Invoke-FastFilesE2E -ScenarioFilter $e2eFilter
+        }
+        'test-e2e' {
+            $null = Initialize-FastFilesToolchain
+            $e2eFilter = if ($Filter) { $Filter } else { 'all' }
+            Invoke-FastFilesE2E -ScenarioFilter $e2eFilter
         }
         'test-fast' {
             $null = Initialize-FastFilesToolchain
@@ -356,6 +387,23 @@ try {
         }
         'stop' {
             Stop-FastFilesDevelopmentProcesses
+        }
+        'dogfood' {
+            $null = Initialize-FastFilesToolchain
+            if (-not $SkipBuild) {
+                Build-FastFiles -BuildPreset 'debug-diagnostic'
+            }
+            $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) 'FastFiles-dogfood'
+            $fixtureScript = Join-Path $repoRoot 'verify/dogfood/New-DogfoodFixture.ps1'
+            $fixtureArguments = @('-Root', $fixtureRoot, '-Profile', 'Small')
+            if ($ResetFixture) { $fixtureArguments += '-Reset' }
+            Invoke-FastFilesPowerShellScript -ScriptPath $fixtureScript -Arguments $fixtureArguments
+            $executable = Join-Path (Get-FastFilesBuildDirectory -BuildPreset 'debug-diagnostic') 'src/ui/FastFiles.exe'
+            $workingDirectory = [IO.Path]::GetDirectoryName($executable)
+            $started = Start-Process -FilePath $executable -WorkingDirectory $workingDirectory -PassThru
+            Write-Host "FastFiles dogfood session started (PID $($started.Id))." -ForegroundColor Green
+            Write-Host "Fixture: $fixtureRoot"
+            Write-Host 'Walk through Home, browse, nested navigation, Back/Forward/Up, Search, Storage Analysis, preview, settings, resize, tabs, close/reopen, then run .\dev.ps1 stop.'
         }
         'fixture' {
             $fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) 'FastFiles-dogfood'

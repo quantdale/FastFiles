@@ -71,11 +71,12 @@ Compiler/linker flags are strict and non-negotiable (`/W4 /WX /permissive- /sdl 
 
 Tests are **plain C++ executables registered with CTest — no gtest/catch**. They use a hand-rolled `Check(condition, description)` helper that increments a failure counter and returns non-zero exit on failure (see `tests/protocol/test_protocol.cpp`). `test_fuzz.cpp` feeds malformed frames/records at the parsers — keep it updated when protocol parsing changes.
 
-- Test dirs mirror components: `tests/{protocol,ipc,indexstore,search,indexsvc,engine,navigation,commands,fileoperations,preview,ui,setup,uia-driver}` plus `tests/drift` (the doc-drift/line-ending guard). See `tests/README.md` for the test-directory overview.
+- Test dirs mirror components: `tests/{protocol,ipc,indexstore,search,indexsvc,engine,navigation,commands,fileoperations,preview,ui,setup,uia-driver,e2e}` plus `tests/{drift,verification}`. See `tests/README.md` for the test-directory overview.
 - File naming: `test_<behavior>.cpp`; benchmarks `bench_<behavior>.cpp`. Register new executables with CTest in the component's `CMakeLists.txt`. The shared helper header is `tests/TestSupport.h` (`fftest::Check` / `fftest::FailureCount`) — use it in new tests instead of copy-pasting a local `Check`.
 - CTest `-R` matches the **test name**, which equals the target name — e.g. `ffprotocol_tests`, `ffprotocol_fuzz_tests`, `ffprotocol_diagnostics_tests`. Use `-R <substring>` (e.g. `-R indexstore`) to run one component's tests.
 - Single-target fast loop: `cmake --build --preset debug --target <test-target>`, then `ctest --test-dir build/debug -R <name> --output-on-failure`.
 - `ffdoc_drift_tests` (pwsh-gated) checks the guidance docs for superseded claims and `src/`/`tests/` for mixed line endings — run it after editing root docs. The `asan` preset (configure/build only, no test preset) builds ASan-instrumented binaries for the fuzz/parser tests: `cmake --preset asan && cmake --build --preset asan --target ffprotocol_fuzz_tests`.
+- Real black-box UI tests live in `verify/e2e/` with a discoverability pointer in `tests/e2e/`; run `.\dev.ps1 test-e2e` or `.\dev.ps1 test-e2e -Filter navigation`. They launch the actual `build\debug-diagnostic\src\ui\FastFiles.exe`, use UIA plus real input, verify marker-bound filesystem results, and preserve failure evidence under ignored `build\e2e-artifacts\`.
 - Cover success, malformed-input, recovery, and boundary cases where relevant. Run the focused test first, then `ctest --preset debug` before submitting.
 
 ## Normal development vs. privileged trust-store validation

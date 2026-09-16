@@ -283,6 +283,9 @@ ColumnView::~ColumnView() {
 Column ColumnView::MakeComputerRootColumn() {
     Column root;
     root.path = L""; // sentinel: not engine-backed, populated directly below
+    // The synthetic drive list is populated synchronously below; it does not
+    // have an engine generation that could still be loading.
+    root.freshness.state = SnapshotViewState::Current;
 
     const DWORD driveMask = GetLogicalDrives();
     for (wchar_t letter = L'A'; letter <= L'Z'; ++letter) {
@@ -2955,6 +2958,16 @@ void ColumnView::UiaScrollHomeItemIntoView(int pane, int globalIndex) {
 }
 
 // --- provider plumbing ------------------------------------------------------
+
+std::wstring ColumnView::UiaDetailsStatus() const {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    return uiaDetailsStatus_;
+}
+
+void ColumnView::SetUiaDetailsStatus(std::wstring status) {
+    std::lock_guard<std::mutex> lock(columnsMutex_);
+    uiaDetailsStatus_ = std::move(status);
+}
 
 void ColumnView::SetUiaGeometry(const UiaViewGeometry& geometry) {
     std::lock_guard<std::mutex> lock(columnsMutex_);

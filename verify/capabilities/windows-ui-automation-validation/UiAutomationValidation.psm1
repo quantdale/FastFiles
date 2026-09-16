@@ -312,7 +312,13 @@ function Invoke-UiaOpenSettings {
     # The first keyboard action after launch can lose the foreground fight
     # (Windows foreground lock + app still settling); retry the palette chord.
     for ($attempt = 0; $attempt -lt 3; $attempt++) {
-        $null = Set-UiaForeground -Driver $Driver -Element $Main
+        # SendInput is only valid after the semantic foreground precondition has
+        # been proved. Set-UiaForeground alone can return before an unrelated
+        # overlay still owns the desktop foreground.
+        if (-not (Ensure-UiaInputForeground -Driver $Driver -Main $Main -Attempts 2)) {
+            if ($attempt + 1 -lt 3) { Start-Sleep -Milliseconds 500 }
+            continue
+        }
         Start-Sleep -Milliseconds 600
         $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}{SHIFT}p'
         Start-Sleep -Milliseconds 1200
@@ -405,7 +411,6 @@ function Invoke-UiaAddressBarNavigate {
     if (-not $close.Pass) {
         return [pscustomobject]@{ Pass = $false; Detail = "clean interaction state not established before navigation: $($close.Detail)" }
     }
-    $null = Set-UiaForeground -Driver $Driver -Element $Main
     $null = Reset-UiaModifierKeys -Driver $Driver
     Start-Sleep -Milliseconds 300
     # stabilize-live-uia-e2e: the Ctrl+L chord only reaches the address bar
@@ -417,12 +422,8 @@ function Invoke-UiaAddressBarNavigate {
     # appear AND the navigation must land on ExpectedLeaf.
     $addr = $null
     for ($chordAttempt = 0; $chordAttempt -lt 3 -and -not $addr; $chordAttempt++) {
-        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-            $null = Set-UiaForeground -Driver $Driver -Element $Main
-            Start-Sleep -Milliseconds 300
-        }
-        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-            Start-Sleep -Milliseconds 400
+        if (-not (Ensure-UiaInputForeground -Driver $Driver -Main $Main -Attempts 2)) {
+            if ($chordAttempt + 1 -lt 3) { Start-Sleep -Milliseconds 400 }
             continue
         }
         $null = Send-UiaInput -Driver $Driver -Keys '{CTRL}l'
@@ -660,7 +661,6 @@ function Invoke-UiaPaletteCommand {
     param($Driver, $Main, [int] $ProcessId, [string] $Query, [string[]] $ExpectedNames,
         [string[]] $ExpectedNameLike = @(), [string] $ExpectedCommandName = '',
         [string] $ExpectedCommandId = '', [switch] $VerifyBeforeEnter)
-    $null = Set-UiaForeground -Driver $Driver -Element $Main
     $null = Reset-UiaModifierKeys -Driver $Driver
     Start-Sleep -Milliseconds 400
     # stabilize-live-uia-e2e: the Ctrl+Shift+P chord only opens the palette
@@ -669,18 +669,10 @@ function Invoke-UiaPaletteCommand {
     # does not appear.
     $edit = $null
     for ($attempt = 0; $attempt -lt 2 -and -not $edit; $attempt++) {
-        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-            $null = Set-UiaForeground -Driver $Driver -Element $Main
-            Start-Sleep -Milliseconds 400
-        }
-        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-            Invoke-UiaActivateAppWindow -Driver $Driver -Main $Main
-        }
         # Do not dispatch the chord into an unrelated foreground window.  The
-        # prior harness sent it regardless of this post-activation check,
-        # which made a terminal/overlay consume the command and produced a
-        # false downstream pane/selection failure.
-        if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
+        # bounded helper includes caption-click activation when the foreground
+        # lock rejects SetForegroundWindow, then verifies the target HWND.
+        if (-not (Ensure-UiaInputForeground -Driver $Driver -Main $Main -Attempts 2)) {
             if ($attempt + 1 -lt 2) { Start-Sleep -Milliseconds 500 }
             continue
         }
@@ -1509,6 +1501,35 @@ function New-UiaSessionSandbox {
     }
 }
 
+function Get-UiaExistingSessionSandbox {
+    param([Parameter(Mandatory)] [string] $SessionRoot, [string] $InvocationId = 'unbound')
+    $root = [IO.Path]::GetFullPath($SessionRoot).TrimEnd('\')
+    $marker = Join-Path $root '.fastfiles-uia-session'
+    if (-not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+        throw "UIA session root is not marker-protected: '$root'"
+    }
+    $localAppData = Join-Path $root 'LocalAppData'
+    $appData = Join-Path $root 'AppData'
+    $fixtureRoot = Join-Path $root 'Fixtures'
+    foreach ($required in @($localAppData, $appData, $fixtureRoot)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Container)) {
+            throw "UIA session root is incomplete: '$required'"
+        }
+    }
+    return [pscustomobject]@{
+        SessionRoot = $root
+        MarkerPath = $marker
+        FixtureRoot = $fixtureRoot
+        Environment = @{
+            LOCALAPPDATA = $localAppData
+            APPDATA = $appData
+            FASTFILES_UIA_FIXTURE_ROOT = $fixtureRoot
+            FASTFILES_UIA_DIAGNOSTICS = '1'
+            FASTFILES_UIA_INVOCATION_ID = [string]$InvocationId
+        }
+    }
+}
+
 function Wait-UiaMainWindow {
     param($Driver, [int] $ProcessId, [int] $TimeoutMs = 15000)
     $sw = [Diagnostics.Stopwatch]::StartNew()
@@ -1521,13 +1542,19 @@ function Wait-UiaMainWindow {
 }
 
 function New-UiaScenarioContext {
-    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn, [string] $InvocationId = 'unbound', [string[]] $ArgumentList = @())
+    param([string] $Exe, [string] $RepoRoot, [string] $ScenarioId, $LogFn,
+        [string] $InvocationId = 'unbound', [string[]] $ArgumentList = @(),
+        [string] $SessionRoot = '')
     # Snapshot before launch. Existing repo-build processes are evidence, not
     # implicit cleanup targets: the engine is intentionally persistent and a
     # same-name process may belong to another test or installation.
     $beforeProcesses = @(Get-UiaRepoProcessSnapshot -RepoRoot $RepoRoot)
     $pipeBefore = Test-UiaEnginePipePresent
-    $sandbox = New-UiaSessionSandbox -ScenarioId $ScenarioId -InvocationId $InvocationId
+    $sandbox = if ([string]::IsNullOrWhiteSpace($SessionRoot)) {
+        New-UiaSessionSandbox -ScenarioId $ScenarioId -InvocationId $InvocationId
+    } else {
+        Get-UiaExistingSessionSandbox -SessionRoot $SessionRoot -InvocationId $InvocationId
+    }
     $script:UiaActiveLocalAppData = Join-Path $sandbox.SessionRoot 'LocalAppData'
     $launched = Start-UiaFastFiles -Exe $Exe -Environment $sandbox.Environment -ArgumentList $ArgumentList
     if (-not $launched) {
@@ -1606,7 +1633,7 @@ function New-UiaScenarioContext {
 }
 
 function Remove-UiaScenarioContext {
-    param($Context, $LogFn, [string] $ArtifactsDir)
+    param($Context, $LogFn, [string] $ArtifactsDir, [switch] $KeepSessionRoot)
     if (-not $Context) { return [pscustomobject]@{ Pass = $true; State = 'no-context' } }
     foreach ($win in @($Context.ExplorerWindows)) {
         Close-UiaExplorerWindow -Driver $Context.Driver -WindowElement $win
@@ -1666,7 +1693,7 @@ function Remove-UiaScenarioContext {
             try { Copy-Item -LiteralPath $diagSource -Destination (Join-Path $ArtifactsDir ("diagnostics-$stamp.log")) -Force -ErrorAction Stop } catch { }
         }
     }
-    if ($sessionRoot -and $sessionRoot.StartsWith($sessionsRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
+    if (-not $KeepSessionRoot -and $sessionRoot -and $sessionRoot.StartsWith($sessionsRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and
         (Test-Path -LiteralPath $Context.SessionMarker -PathType Leaf)) {
         Remove-Item -LiteralPath $sessionRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -5396,4 +5423,4 @@ function Invoke-UiaVisualMatrix {
     return [pscustomobject]@{ Checks = @($checks); Passed = ($checks.Count - $failed); Failed = $failed; Detail = $detail }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke, Invoke-UiaVisualMatrix
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke, Invoke-UiaVisualMatrix, Find-UiaTerminalColumnItem, Open-UiaSearchPanel, Set-UiaSearchFixtureScope, Set-UiaSearchQuery, Get-UiaSearchResultItems, Get-UiaSearchQuerySurface, Export-UiaEvidence

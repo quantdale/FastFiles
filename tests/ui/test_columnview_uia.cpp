@@ -10,6 +10,7 @@
 #include "UiaTestSurface.h"
 
 #include <algorithm>
+#include <atomic>
 #include <set>
 #include <string>
 #include <vector>
@@ -120,6 +121,106 @@ std::vector<int> GetRuntimeId(IRawElementProviderFragment* element) {
     SafeArrayDestroy(array);
     return result;
 }
+
+// A real cross-process UIA client passes a proxy for startAfter rather than
+// the provider's concrete C++ object. Keep this proxy-shaped element small so
+// ItemContainerProvider coverage exercises the same COM boundary.
+class RuntimeIdProxy final : public IRawElementProviderSimple,
+                             public IRawElementProviderFragment {
+public:
+    explicit RuntimeIdProxy(std::vector<int> runtimeId) : runtimeId_(std::move(runtimeId)) {}
+
+    STDMETHODIMP QueryInterface(REFIID riid, void** object) noexcept override {
+        if (object == nullptr) return E_POINTER;
+        *object = nullptr;
+        if (riid == IID_IUnknown || riid == IID_IRawElementProviderSimple) {
+            *object = static_cast<IRawElementProviderSimple*>(this);
+        } else if (riid == IID_IRawElementProviderFragment) {
+            *object = static_cast<IRawElementProviderFragment*>(this);
+        } else {
+            return E_NOINTERFACE;
+        }
+        AddRef();
+        return S_OK;
+    }
+
+    STDMETHODIMP_(ULONG) AddRef() noexcept override {
+        return references_.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    STDMETHODIMP_(ULONG) Release() noexcept override {
+        const ULONG remaining = references_.fetch_sub(1, std::memory_order_acq_rel) - 1;
+        if (remaining == 0) delete this;
+        return remaining;
+    }
+
+    STDMETHODIMP GetPatternProvider(PATTERNID, IUnknown** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP GetPropertyValue(PROPERTYID, VARIANT* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        VariantInit(retVal);
+        return S_OK;
+    }
+
+    STDMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP get_ProviderOptions(ProviderOptions* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = ProviderOptions_ServerSideProvider;
+        return S_OK;
+    }
+
+    STDMETHODIMP Navigate(NavigateDirection, IRawElementProviderFragment** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP GetRuntimeId(SAFEARRAY** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        SAFEARRAYBOUND bound{static_cast<ULONG>(runtimeId_.size()), 0};
+        SAFEARRAY* array = SafeArrayCreate(VT_I4, 1, &bound);
+        if (array == nullptr) return E_OUTOFMEMORY;
+        for (LONG i = 0; i < static_cast<LONG>(runtimeId_.size()); ++i) {
+            (void)SafeArrayPutElement(array, &i, &runtimeId_[static_cast<size_t>(i)]);
+        }
+        *retVal = array;
+        return S_OK;
+    }
+
+    STDMETHODIMP get_BoundingRectangle(UiaRect* retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = UiaRect{};
+        return S_OK;
+    }
+
+    STDMETHODIMP GetEmbeddedFragmentRoots(SAFEARRAY** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+    STDMETHODIMP SetFocus() noexcept override { return S_OK; }
+
+    STDMETHODIMP get_FragmentRoot(IRawElementProviderFragmentRoot** retVal) noexcept override {
+        if (retVal == nullptr) return E_POINTER;
+        *retVal = nullptr;
+        return S_OK;
+    }
+
+private:
+    std::atomic<ULONG> references_{1};
+    std::vector<int> runtimeId_;
+};
 
 Microsoft::WRL::ComPtr<IRawElementProviderFragment> NavigateTo(
     IRawElementProviderFragment* element, NavigateDirection direction) {
@@ -1053,6 +1154,21 @@ void TestFindItemByPropertyForeignStartAfter() {
     Check(SUCCEEDED(container->FindItemByProperty(item0Simple.Get(), UIA_NamePropertyId, name, &found)) &&
               found != nullptr && GetName(found.Get()) == L"file3.txt",
           "own startAfter still finds later items");
+    VariantClear(&name);
+
+    // A cross-process UIA proxy has the same runtime ID but is not a
+    // ColumnItemUiaProvider object. The production path must parse identity,
+    // never down-cast the proxy.
+    const auto item0RuntimeId = GetRuntimeId(item0.Get());
+    Microsoft::WRL::ComPtr<IRawElementProviderSimple> proxy;
+    proxy.Attach(new RuntimeIdProxy(item0RuntimeId));
+    VariantInit(&name);
+    name.vt = VT_BSTR;
+    name.bstrVal = SysAllocString(L"file3.txt");
+    found.Reset();
+    Check(SUCCEEDED(container->FindItemByProperty(proxy.Get(), UIA_NamePropertyId, name, &found)) &&
+              found != nullptr && GetName(found.Get()) == L"file3.txt",
+          "proxy-shaped startAfter is resolved through its runtime identity");
     VariantClear(&name);
 }
 

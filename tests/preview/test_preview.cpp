@@ -102,6 +102,10 @@ void TestMalformedProvidersDoNotCrash() {
     Check(imageResult.kind == PreviewKind::None, "corrupt image must use the no-preview fallback");
     Check(textResult.kind == PreviewKind::Text || textResult.kind == PreviewKind::None,
           "malformed text must complete without crashing");
+    if (textResult.kind == PreviewKind::Text) {
+        Check(textResult.state == PreviewState::Ready,
+              "a successfully decoded text preview must advertise Ready state");
+    }
     std::error_code error;
     std::filesystem::remove_all(root, error);
     Check(!error, "preview fixture cleanup failed");
@@ -243,11 +247,15 @@ void TestBomLessUtf8DetectedBeforeAnsiFallback() {
     registry.Register(CreateTextPreviewProvider());
     const auto utf8Result = registry.CreatePreview({utf8.wstring(), 6, 0, false}, token);
     Check(utf8Result.kind == PreviewKind::Text, "BOM-less UTF-8 must still preview as text");
+    Check(utf8Result.state == PreviewState::Ready,
+          "BOM-less UTF-8 preview must advertise Ready state");
     Check(utf8Result.text.find(L"caf\u00e9") != std::wstring::npos,
           "BOM-less UTF-8 must be decoded as UTF-8 (no mojibake)");
     const auto ansiResult = registry.CreatePreview({ansi.wstring(), 4, 0, false}, token);
     Check(ansiResult.kind == PreviewKind::Text && !ansiResult.text.empty(),
           "invalid UTF-8 must fall back to the ANSI code page");
+    Check(ansiResult.state == PreviewState::Ready,
+          "ANSI fallback preview must advertise Ready state");
     std::error_code error;
     std::filesystem::remove_all(root, error);
     Check(!error, "utf8 fixture cleanup failed");
@@ -326,6 +334,8 @@ void TestPreviewLimitControlsTextTruncation() {
     const auto defaultResult = registry.CreatePreview({big.wstring(), fileSize, 0, false}, token);
     Check(defaultResult.kind == PreviewKind::Text && defaultResult.truncated,
           "default ceiling must truncate a large text preview");
+    Check(defaultResult.state == PreviewState::Ready,
+          "truncated text preview must still advertise Ready state");
     // Configured 1 MB limit carried in the descriptor: no truncation.
     FileDescriptor raised{};
     raised.path = big.wstring();
@@ -334,6 +344,8 @@ void TestPreviewLimitControlsTextTruncation() {
     const auto raisedResult = registry.CreatePreview(raised, token);
     Check(raisedResult.kind == PreviewKind::Text && !raisedResult.truncated,
           "a configured 1 MB limit must raise the text truncation point past 256 KB");
+    Check(raisedResult.state == PreviewState::Ready,
+          "configured-limit text preview must advertise Ready state");
     Check(raisedResult.text.size() * sizeof(wchar_t) > 256ull * 1024ull,
           "the raised-limit preview must carry more than the default 256 KB of text");
     std::error_code error;

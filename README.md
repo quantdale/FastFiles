@@ -14,6 +14,7 @@ The whole product rests on one deliberately early architectural decision — a *
 - [Building](#building)
 - [Running FastFiles](#running-fastfiles)
 - [Testing](#testing)
+- [Real E2E verification](#real-e2e-verification)
 - [Diagnostics and troubleshooting](#diagnostics-and-troubleshooting)
 - [Runtime verification](#runtime-verification)
 - [Architecture](#architecture)
@@ -58,6 +59,7 @@ For day-to-day test builds use the wrapper instead of memorizing presets:
 ```powershell
 .\dev.ps1 build
 .\dev.ps1 test
+.\dev.ps1 test-e2e
 .\dev.ps1 test-fast -Target ffpreview_tests
 .\dev.ps1 clean
 .\dev.ps1 rebuild
@@ -67,14 +69,14 @@ For day-to-day test builds use the wrapper instead of memorizing presets:
 PowerShell entries and builds the selected preset before running that filter.
 
 Advanced users can still invoke CMake presets directly from a loaded Visual
-Studio developer environment. `build_and_deploy.ps1` remains as a legacy
-configure/build/test plus explicitly opt-in commit/push helper; new work should
-start with `dev.ps1` so toolchain discovery and safe process targeting are
-consistent.
+Studio developer environment. The compatibility helper at
+`tools/development/build_and_deploy.ps1` remains an explicitly opt-in
+configure/build/test plus commit/push path; new work should start with `dev.ps1`
+so toolchain discovery and safe process targeting are consistent.
 
 ```powershell
-./build_and_deploy.ps1              # configure + build + full test suite
-./build_and_deploy.ps1 -SkipTests   # build only
+./tools/development/build_and_deploy.ps1              # configure + build + full test suite
+./tools/development/build_and_deploy.ps1 -SkipTests   # build only
 ```
 
 ## Features
@@ -287,6 +289,35 @@ Notes:
 - Do **not** launch the app or a UIA probe while `verify.ps1 build` is running — a concurrent launch has made the gate report spurious assertion failures.
 
 See `tests/README.md` for conventions and per-component coverage.
+
+## Real E2E verification
+
+The black-box layer launches the real `debug-diagnostic` executable, drives the
+visible UI through UI Automation and real pointer/keyboard input, and checks
+the disposable fixture on disk. It is intentionally separate from default
+CTest so ordinary edit/build loops stay fast:
+
+```powershell
+.\dev.ps1 test-e2e                         # all real UI flows
+.\dev.ps1 test-e2e -Filter navigation      # one scenario
+.\dev.ps1 test-e2e -Filter 'search,preview' # selected scenarios
+.\dev.ps1 test-full                        # CTest plus all E2E flows
+```
+
+The runner uses `build\debug-diagnostic\src\ui\FastFiles.exe` and covers
+launch readiness, directory browsing, cold restore, search supersession,
+Storage Analysis terminal/geometry state, asynchronous preview selection,
+marker-bound file operations, and repeated process lifecycle. Every bounded
+wait has a stage-specific timeout. A failure preserves
+`build\e2e-artifacts\<run-id>\` with a JSON summary, UIA tree, screenshot,
+diagnostics tail, process list, current location, and observed UI state.
+
+The fixture is created under a marker-protected per-run directory in
+`%LOCALAPPDATA%\FastFilesUiaSessions`; file-operation scenarios refuse paths
+outside that root. No real Desktop/Documents data is modified. Use
+`.\dev.ps1 dogfood` for a guided manual run, and `.\dev.ps1 stop` to terminate
+only repository-built FastFiles processes. The harness and its detailed
+scenario matrix are documented in [`docs/testing/e2e.md`](docs/testing/e2e.md).
 
 ## Diagnostics and troubleshooting
 

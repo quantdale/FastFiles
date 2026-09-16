@@ -5,6 +5,9 @@
 add_library(ffntfsobserve STATIC
   src/NtfsObserve.cpp
 )
+target_sources(ffntfsobserve PRIVATE src/NtfsObserve.h)
+source_group("NTFS Observe/Implementation" FILES src/NtfsObserve.cpp)
+source_group("NTFS Observe/Private Headers" FILES src/NtfsObserve.h)
 target_include_directories(ffntfsobserve PUBLIC src)
 target_compile_features(ffntfsobserve PUBLIC cxx_std_20)
 target_link_libraries(ffntfsobserve PUBLIC ffindexsvcprobes ffmftparser ffusnparser)
@@ -12,6 +15,8 @@ target_link_libraries(ffntfsobserve PUBLIC ffindexsvcprobes ffmftparser ffusnpar
 add_executable(fftest
   src/Main.cpp
 )
+
+source_group("Diagnostics Probe/Implementation" FILES src/Main.cpp)
 
 fastfiles_add_version_resource(fftest "fftest.exe" "FastFiles diagnostic validation probe")
 

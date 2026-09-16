@@ -407,6 +407,8 @@ public:
     // live viewport geometry on layout/DPI changes and every render,
     // registers the pane-0 horizontal-scroll writer (the shell animates it
     // like Shift+wheel), and creates/releases the fragment root.
+    std::wstring UiaDetailsStatus() const override;
+    void SetUiaDetailsStatus(std::wstring status);
     void SetUiaGeometry(const UiaViewGeometry& geometry);
     void SetUiaKeyboardFocusOwned(bool owned);
     void SetUiaHorizontalScrollWriter(std::function<void(float)> writer);
@@ -451,6 +453,7 @@ private:
     void NotifyUiaSelectionTransition(const UiaSelectionSnapshot& before, int pane);
     void ClampVerticalScrollForPane(int pane, float delta, float viewportHeight);
     UiaViewGeometry uiaGeometry_;
+    std::wstring uiaDetailsStatus_;
     std::function<void(float)> uiaHorizontalScrollWriter_;
     UiaEventRouter uiaEvents_;
     UiaOwnerStatePtr uiaState_;

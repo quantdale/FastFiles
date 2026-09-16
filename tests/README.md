@@ -87,6 +87,24 @@ There is **no `analyze` test preset** — `ctest --preset analyze` fails. Flags 
 
 New tests should cover success, malformed-input, recovery, and boundary cases where relevant.
 
+## E2E classification
+
+`tests/e2e/` is the discoverability pointer for the real black-box layer. The
+implementation lives under `verify/e2e/` because it owns process control,
+UIA-driver integration, evidence collection, and marker-safe cleanup rather
+than compiling into a CTest executable. Run it with:
+
+```powershell
+.\dev.ps1 test-e2e
+.\dev.ps1 test-e2e -Filter navigation
+```
+
+These tests are deliberately excluded from default CTest; see
+[`docs/testing/e2e.md`](../docs/testing/e2e.md) for the scenario contract and
+failure-artifact layout. Unit/integration tests may use seams, but E2E tests
+must launch the real executable and verify visible UI plus real filesystem
+outcomes.
+
 ## Dual-pane/UIA lifecycle coverage
 
 `ffnavigation_tests` covers the production `NavigationWorkspace` transition
