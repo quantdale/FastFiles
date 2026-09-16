@@ -97,6 +97,16 @@ The following gates passed on the campaign tree:
 - Performance baselines — capability PASS, but this filtered run compared 0
   metrics and is awaiting its first stored baseline; it is advisory, not a
   claim of a historical performance regression result.
+- `pwsh .\verify\verify.ps1 release-candidate -ReleaseMode unsigned-validation
+  -OutputDirectory .\build\release-candidate-final-20260916 -Force` — PASS;
+  the portable x64 archive, checksums, provenance, and all five artifact
+  metadata records carry build identity `334400edc49ce62b820ff9801a37cad9b5f44de5`.
+- Clean `release-readiness -Mode compose` at the same exact commit — clean
+  worktree, unsigned candidate packaging/provenance, all required local build,
+  test, protocol, filesystem, ASAN, documentation, and policy gates passed.
+  The command exits 1 only because the non-required production artifact gate
+  is fail-closed for external signing/clean-host prerequisites and the Tier-3
+  guest matrix is unavailable.
 
 The UIA capability was also run in bounded groups after the all-scenarios
 envelope exceeded its 1200-second limit: core 16, search 7, treemap 3,
@@ -106,10 +116,10 @@ aggregate `all` run timed out and then exposed a verifier result-schema error
 while composing the timeout; grouped live coverage is the reliable evidence
 until that verifier aggregation defect is repaired.
 
-The first release-readiness composition correctly identified the pre-commit
-dirty tree and therefore rejected clean-worktree/candidate packaging. It also
-reported the independent production signing and clean-host prerequisites as
-external. A clean final composition is run after the implementation commit.
+An earlier release-readiness composition correctly identified the pre-commit
+dirty tree and rejected clean-worktree/candidate packaging. The final clean
+composition passed both of those gates and kept the independent production
+signing, clean-host, and Tier-3 prerequisites explicitly non-PASS.
 
 ## Manual dogfood
 

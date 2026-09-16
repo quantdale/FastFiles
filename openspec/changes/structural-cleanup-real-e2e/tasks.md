@@ -40,10 +40,10 @@
 
 - [x] 4.1 Run focused CTest and the real E2E filters; fix product or harness
   defects rather than weakening assertions.
-- [ ] 4.2 Run Debug, release-test, analyze, ASAN protocol/IPC, OpenSpec strict,
+- [x] 4.2 Run Debug, release-test, analyze, ASAN protocol/IPC, OpenSpec strict,
   doc drift/source policy, verifier, and release-readiness gates available on
   the host; record external blockers honestly.
 - [x] 4.3 Perform the final manual dogfood walkthrough at the available 125%
   DPI, capture meaningful screenshots, and verify stop/reopen/orphan cleanup.
-- [ ] 4.4 Update WORKSTATE, commit coherent slices, fetch/reconcile origin/main,
+- [x] 4.4 Update WORKSTATE, commit coherent slices, fetch/reconcile origin/main,
   push without force, and verify the final exact SHA and hosted result.

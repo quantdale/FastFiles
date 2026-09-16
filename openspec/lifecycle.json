@@ -1349,7 +1349,7 @@
     },
     {
       "name": "structural-cleanup-real-e2e",
-      "state": "active",
+      "state": "completed",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1366,6 +1366,14 @@
         {
           "kind": "repository-path",
           "path": "docs/agent/WORKSTATE.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/structural-cleanup-real-e2e/evidence/implementation-and-validation.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "verify/e2e/Run-FastFilesE2E.ps1"
         }
       ],
       "supersededBy": null,
