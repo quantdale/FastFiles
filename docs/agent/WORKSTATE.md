@@ -1,5 +1,18 @@
 # Fast Files — Agent Workstate
 
+# exact-head-recertification-verifier-aggregation-dogfood — ACTIVE 2026-09-16
+
+- User-authorized execution campaign loaded from `pasted-text-1.txt`: repair the full UIA verifier timeout/result-schema/aggregation path, make execution bounded and cleanup-safe, rerun exact-HEAD certification, manually dogfood the final binary, and leave a clean pushed SHA/evidence chain.
+- Reconciled live state: branch `main`, HEAD `f803e3c2bae95747c05593ed856198d9a5d6825a`, `origin/main` currently equal, primary worktree clean. Auxiliary `.kilo/worktrees/scythe-cloud` remains untouched at detached `0dc3356`.
+- Repository planner prompt is archived/frozen; this user-provided campaign is the active override. No implementation changes made yet.
+- Baseline: `./dev.ps1 doctor` PASS (MSVC/SDK/CMake/Ninja/CTest/pwsh available). `./dev.ps1 test-e2e` completed with a valid envelope but FAIL 4/8: launch/navigation/cold-restore/lifecycle PASS; search/storage/preview/file-operations stopped at a foreign foreground window while trying Ctrl+L or the palette. Artifact root: `build/e2e-artifacts/20260916-183339-1c4d9dd6`; no FastFiles residue was reported. This is a host-focus limitation, not a FastFiles assertion.
+- Exact aggregate reproduction: `pwsh -NoProfile -File ./verify/verify.ps1 run -Capability windows-ui-automation-validation -Format human` completed `PASS` with `22 passed, 6 skipped, 0 failed`; no schema/composition error surfaced. Run tree reported by the command: `verify/runs/ad-hoc/20260916-103804` (execution tree intentionally not read per repository policy).
+- Focused verifier contracts: `./dev.ps1 test-fast -Preset debug -Target ffverify_result_composition_ps_tests` passed 1/1 in 45.60s; the adjacent selection, process-reaper, and E2E-harness contract filter passed 3/3 in 4.83s. Existing source and tests already contain the timeout/envelope scalar-artifact fixes; no speculative verifier edit was made.
+- Computer Use dogfood on the exact `build/debug-diagnostic/src/ui/FastFiles.exe` passed Home, direct/nested fixture navigation, Back/Forward/Up/breadcrumb, two tabs, exact/partial/no-result/rapid-replacement search, Storage Analysis overview and degraded drill-down terminal, populated C-drive treemap tile activation, Preview Ready/Unsupported, Settings open/close, maximize/restore, native close, and cold relaunch restoring `05-content`. The session was stopped with `./dev.ps1 stop`; no UI window or standalone engine remained. The installed `FastFilesIndexSvc` process was left untouched.
+- Full Debug CTest rerun passed `105/105` in 184.78s, including the previously reported `ffdoc_drift_tests` position; the focused drift rerun had already passed 1/1, so the first full-run ledger entry was transient and not reproducible.
+- NEXT EXACT ACTION: run the full release-test CTest gate, then the exact release-candidate/readiness and certification commands; keep this workstate as the only session-owned dirty file until final validation, fetch/push, and hosted Actions inspection.
+- Do not resume unrelated historical campaigns or production trust-store/privileged validation. Preserve legitimate host skips and external blockers honestly.
+
 # structural-cleanup-real-e2e — COMPLETE 2026-09-16
 
 - Reconciled live state: branch `main`, starting HEAD `0dc33562ad6380c8b505ab221769acb189cd83b1`; the expected pre-existing `frontier open spec.txt` is not present, and no untracked user file currently needs preservation. The auxiliary `.kilo/worktrees/scythe-cloud` worktree remains untouched.
