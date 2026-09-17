@@ -25,6 +25,10 @@ using namespace fftest;
 
 namespace {
 
+bool IsWithinInclusive(float value, float minimum, float maximum) {
+    return value >= minimum && value <= maximum;
+}
+
 bool NearlyEqual(float a, float b) { return (a > b ? a - b : b - a) < 0.001f; }
 
 float SrgbToLinear(float channel) {
@@ -275,11 +279,11 @@ void TestNativeHeaderAndTabPalettes() {
 
 void TestNativePrecisionTypeAndDensityRamp() {
     using namespace ffui;
-    Check(UiMetrics::kRowHeight >= 36.0f && UiMetrics::kRowHeight <= 44.0f,
+    Check(IsWithinInclusive(UiMetrics::kRowHeight, 36.0f, 44.0f),
           "compact browse rows stay in the dense desktop range");
-    Check(UiMetrics::kControlHeight >= 30.0f && UiMetrics::kControlHeight <= 36.0f,
+    Check(IsWithinInclusive(UiMetrics::kControlHeight, 30.0f, 36.0f),
           "compact controls stay in the native target range");
-    Check(UiMetrics::kRadiusSmall >= 5.0f && UiMetrics::kRadiusSmall <= 7.0f,
+    Check(IsWithinInclusive(UiMetrics::kRadiusSmall, 5.0f, 7.0f),
           "small geometry uses functional 5-to-7 DIP radii");
 
     const UiDensity compact = GetUiDensity(UiDensityProfile::Compact);
