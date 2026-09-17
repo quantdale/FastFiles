@@ -429,8 +429,9 @@ void TestInvokeAndScrollItem() {
 
 void TestScrollPattern() {
     auto surface = MakeSinglePaneSurface();
-    surface.panes[0].columns[0].items.resize(100); // 100 rows x 28 DIP = 2800 DIP content
+    surface.panes[0].columns[0].items.resize(100);
     surface.geometry.heightDip = 600.0f;           // visible 572 DIP -> scrollable
+    const float expectedMaxScroll = ffui::UiaMaxVerticalScrollDip(100, surface.geometry.heightDip);
     auto state = std::make_shared<ffui::UiaOwnerState>();
     ffui::ColumnViewUiaProvider root(state, &surface, nullptr);
     auto group = FirstChild(static_cast<IRawElementProviderFragment*>(&root));
@@ -451,10 +452,10 @@ void TestScrollPattern() {
     Check(SUCCEEDED(scroll->SetScrollPercent(UIA_ScrollPatternNoScroll, 100.0)),
           "SetScrollPercent(100) succeeds");
     Check(std::find(surface.actions.begin(), surface.actions.end(),
-                    L"scroll:0:0:" + std::to_wstring(static_cast<int>(2228))) != surface.actions.end() ||
+                    L"scroll:0:0:" + std::to_wstring(static_cast<int>(expectedMaxScroll))) != surface.actions.end() ||
               !surface.actions.empty(),
           "SetScrollPercent drove the real scroll action");
-    surface.panes[0].vScroll = 2228.0f;
+    surface.panes[0].vScroll = expectedMaxScroll;
     scroll->get_VerticalScrollPercent(&percent);
     Check(percent > 99.0 && percent <= 100.0, "vertical scroll reports ~100% at the end");
 
@@ -783,10 +784,13 @@ void TestElementProviderFromPointAndFocus() {
           "focus is the focused item");
     VariantClear(&value);
 
-    // Hit-testing: screen point on row 1 maps to item 1.
-    // Row 1: y = (badge 28 + 1*28) * 1.0 = 56px; column 0 x in [0, 240).
+    // Hit-testing: screen point in row 1 maps to item 1.
+    // native-precision-workspace: derive the point from the shared row metric
+    // so density changes exercise the same rendered/UIA geometry.
+    const double row1Y = static_cast<double>(ffui::UiMetrics::kBadgeHeight) +
+                         static_cast<double>(ffui::UiaBrowseRowHeightDip()) * 1.5;
     Microsoft::WRL::ComPtr<IRawElementProviderFragment> hit;
-    Check(SUCCEEDED(root.ElementProviderFromPoint(120.0, 56.0, &hit)) && hit != nullptr,
+    Check(SUCCEEDED(root.ElementProviderFromPoint(120.0, row1Y, &hit)) && hit != nullptr,
           "point on row 1 hits an element");
     if (hit != nullptr) {
         VariantInit(&value);
