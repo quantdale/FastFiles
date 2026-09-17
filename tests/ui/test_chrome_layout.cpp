@@ -37,9 +37,9 @@ void TestCommandFamilyGeometry() {
                                              layout.newTab};
         bool uniform = true;
         for (const auto& rect : commands) {
-            uniform = uniform && NearlyEqual(rect.size, 28.0f);
+            uniform = uniform && NearlyEqual(rect.size, 32.0f);
         }
-        Check(uniform, "every command button is the same 28-DIP square at every width");
+        Check(uniform, "every command button is the same 32-DIP square at every width");
         Check(NearlyEqual(layout.back.top, layout.forward.top) &&
                   NearlyEqual(layout.forward.top, layout.up.top),
               "Back/Forward/Up share one toolbar row");
@@ -48,7 +48,7 @@ void TestCommandFamilyGeometry() {
               "toolbar commands never overlap");
         Check(layout.back.left >= 0.0f && layout.settings.right() <= width + 0.001f,
               "command family stays inside the client width");
-        Check(NearlyEqual(layout.newTab.left, width - 4.0f - 28.0f) &&
+        Check(NearlyEqual(layout.newTab.left, width - 4.0f - 32.0f) &&
                   NearlyEqual(layout.settings.right() + 4.0f, layout.newTab.left),
               "New Tab and Settings anchor to the trailing edge with one gap");
         Check(NearlyEqual(layout.back.top, 40.0f) && NearlyEqual(layout.tabs.top, 4.0f),
@@ -71,7 +71,7 @@ void TestLocationAndSearchReservation() {
 
     const auto narrow = ffui::ComputeChromeLayout(600.0f, 1, 0);
     Check(narrow.searchCollapsed, "Narrow width collapses search to its icon");
-    Check(NearlyEqual(narrow.search.size, 28.0f), "collapsed search is one command square");
+    Check(NearlyEqual(narrow.search.size, 32.0f), "collapsed search is one command square");
     Check(narrow.addressRight >= narrow.addressLeft &&
               narrow.addressRight <= narrow.search.left + 0.001f,
           "Narrow width keeps the location region before the collapsed search icon");
@@ -176,7 +176,7 @@ void TestLocationBandInsideChrome() {
     for (const float width : widths) {
         const auto layout = ffui::ComputeChromeLayout(width, 1, 0);
         const ffui::ChromeBand band = ffui::ChromeLocationBand(layout);
-        Check(NearlyEqual(band.Height(), 28.0f),
+        Check(NearlyEqual(band.Height(), 32.0f),
               "location band keeps the command-row height at every width class");
         Check(NearlyEqual(band.top, layout.search.top),
               "location band starts on the toolbar row");
@@ -187,7 +187,7 @@ void TestLocationBandInsideChrome() {
     }
     const auto wide = ffui::ComputeChromeLayout(1400.0f, 1, 0);
     const ffui::ChromeBand wideBand = ffui::ChromeLocationBand(wide);
-    Check(wide.search.size >= 240.0f && NearlyEqual(wideBand.Height(), 28.0f),
+    Check(wide.search.size >= 240.0f && NearlyEqual(wideBand.Height(), 32.0f),
           "a wide search field never stretches the location band");
 }
 

@@ -37,7 +37,7 @@ constexpr float kHomeSpaceM = 16.0f;          // kSpaceM: legacy inter-section s
 // ui-v3 home 2: sections separate by a generous kSpaceL band so grouping is
 // carried by whitespace and typography instead of boxes.
 constexpr float kHomeSectionGap = 24.0f;      // kSpaceL: inter-section spacing band
-constexpr float kHomeRadiusSmall = 4.0f;      // kRadiusSmall: row corner radius
+constexpr float kHomeRadiusSmall = 6.0f;      // kRadiusSmall: row corner radius
 constexpr float kHomeRadiusMedium = 8.0f;     // kRadiusMedium: card corner radius
 // ui-v3 home 2: headers stack a Subtitle-size semibold section title over an
 // optional Caption-size count hint; primary destination rows carry two text
@@ -45,7 +45,7 @@ constexpr float kHomeRadiusMedium = 8.0f;     // kRadiusMedium: card corner radi
 constexpr float kHomeHeaderHeight = 44.0f;    // section header band height
 constexpr float kHomeRowHeight = 52.0f;       // 1-column two-line item row height
 constexpr float kHomeCardHeight = 56.0f;      // 2-column two-line item card height
-constexpr float kHomeSingleRowHeight = 36.0f; // compact single-line utility row height
+constexpr float kHomeSingleRowHeight = 40.0f; // compact single-line utility row height
 constexpr float kHomeMaxContentWidth = 960.0f; // WIDE: content capped + left-aligned
 constexpr float kHomeNarrowMaxWidth = 480.0f;  // viewport < this => single column
 constexpr float kHomeWideMinWidth = 1100.0f;   // viewport >= this => wide content cap

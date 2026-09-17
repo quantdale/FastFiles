@@ -195,7 +195,7 @@ int main() {
         const auto previous = ffui::gUiDensityProfile;
         ffui::gUiDensityProfile = ffui::UiDensityProfile::Comfortable;
         const float comfortableRow = ffui::BrowseRowHeight();
-        Check(comfortableRow == 34.0f, "Comfortable hit-test uses the 34 DIP row height");
+        Check(comfortableRow == 44.0f, "Comfortable hit-test uses the 44 DIP row height");
         const auto comfortable = ComputeColumnHitTest(
             D2D1::Point2F(12.0f, badge + 2.0f * comfortableRow + 1.0f),
             0.0f, 0.0f, 0.0f, width, false, 0);

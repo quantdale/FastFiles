@@ -66,10 +66,10 @@ constexpr float kProgressSweepSeconds = 1.4f;
 // ui-v3 search: query-first surface geometry (DIP). Collapsed rows reclaim
 // the old permanent-filter band for results; expanding adds one combo row.
 constexpr float kSurfaceInsetDip = 12.0f;
-constexpr float kQueryRowHeightDip = 26.0f;
-constexpr float kFilterBarHeightDip = 24.0f;
-constexpr float kFilterRowHeightDip = 26.0f;   // expanded scope/sort/direction row
-constexpr float kRowGapDip = 4.0f;             // UiMetrics::kSpaceXs
+constexpr float kQueryRowHeightDip = UiMetrics::kControlHeight;
+constexpr float kFilterBarHeightDip = UiMetrics::kControlHeight;
+constexpr float kFilterRowHeightDip = UiMetrics::kControlHeight; // expanded scope/sort/direction row
+constexpr float kRowGapDip = UiMetrics::kSpaceS;
 constexpr float kListBottomMarginDip = 12.0f;
 constexpr float kCompactBreakWidthDip = 698.0f; // same break as the previous layout
 constexpr float kScopeWidthDip = 210.0f;

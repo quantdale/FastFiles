@@ -28,8 +28,8 @@ inline StorageSurfaceLayout ComputeStorageSurfaceLayout(const ShellLayoutRect& s
                                                      120.0f, 110.0f, 110.0f, 90.0f};
     constexpr float kLeftInset = 12.0f;
     constexpr float kRightInset = 12.0f;
-    constexpr float kGap = 4.0f;
-    constexpr float kButtonHeight = 28.0f;
+    constexpr float kGap = 8.0f;
+    constexpr float kButtonHeight = 32.0f;
     // Native radio-button labels cannot ellipsize; below this width the longest
     // label ("Largest Folders") clips mid-word at standard body sizes.
     constexpr float kLabelFitButtonWidth = 118.0f;

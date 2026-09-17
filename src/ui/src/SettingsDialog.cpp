@@ -23,14 +23,13 @@ namespace {
 constexpr UINT WM_APP_VOLUME_STATUS = WM_APP + 21;
 constexpr int kDialogWidth = 620;
 constexpr int kDialogHeight = 520;
-constexpr int kTabControlHeight = 28;
+constexpr int kTabControlHeight = 32;
 constexpr int kPageTop = 36;
 constexpr int kPagePadding = 12;
 // ui-overhaul phase 10: helper/description statics render in the muted token so
 // a setting row can carry a title (primary) plus explanatory text (secondary).
 constexpr int kSettingsHelperTextId = 1301;
-constexpr int kControlHeight = 24;
-constexpr int kControlSpacing = 32;
+constexpr int kControlHeight = 32;
 
 // Scale a DIP metric to physical pixels for Win32 control layout.
 int Scaled(int dipValue) {
@@ -463,10 +462,12 @@ void SettingsDialog::CreateControls(HWND hwnd) {
     (void)hwnd;
     // OK/Cancel buttons
     CreateWindowExW(0, L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON | WS_TABSTOP,
-                    Scaled(kDialogWidth) - Scaled(180), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
+                    Scaled(kDialogWidth) - Scaled(180), Scaled(kDialogHeight) - Scaled(kControlHeight + 12),
+                    Scaled(80), Scaled(kControlHeight),
                     dialog_, reinterpret_cast<HMENU>(IDOK), GetModuleHandleW(nullptr), nullptr);
     CreateWindowExW(0, L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP,
-                    Scaled(kDialogWidth) - Scaled(90), Scaled(kDialogHeight) - Scaled(36), Scaled(80), Scaled(24),
+                    Scaled(kDialogWidth) - Scaled(90), Scaled(kDialogHeight) - Scaled(kControlHeight + 12),
+                    Scaled(80), Scaled(kControlHeight),
                     dialog_, reinterpret_cast<HMENU>(IDCANCEL), GetModuleHandleW(nullptr), nullptr);
 }
 
@@ -511,7 +512,8 @@ void SettingsDialog::PopulateGeneralPage() {
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL | ES_NUMBER,
-                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(240), Scaled(200), Scaled(24),
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(240),
+                                           Scaled(200), Scaled(kControlHeight),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         previewSizeHint_ = CreateWindowExW(0, L"STATIC",
                         L"Maximum bytes read when generating a preview; enter a positive integer.",
@@ -580,7 +582,8 @@ void SettingsDialog::PopulateNavigationPage() {
                         dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         startupPathEdit_ = CreateWindowExW(0, L"EDIT", L"",
                                            WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(55), Scaled(300), Scaled(24),
+                                           Scaled(kPagePadding) + Scaled(100), Scaled(kPagePadding) + Scaled(55),
+                                           Scaled(300), Scaled(kControlHeight),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     if (!restoreSessionCheck_) {
@@ -1056,25 +1059,25 @@ void SettingsDialog::PopulateIndexingPage() {
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
 
         addRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Add Rule", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                          rightColumnX, Scaled(kPagePadding + 30), rightColumnWidth, Scaled(24),
+                                          rightColumnX, Scaled(kPagePadding + 30), rightColumnWidth, Scaled(kControlHeight),
                                           dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         excludeRuleCheck_ = CreateWindowExW(0, L"BUTTON", L"Exclude rule", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
                                             rightColumnX, Scaled(kPagePadding + 264), rightColumnWidth + Scaled(16), Scaled(20),
                                             dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeRuleButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                             rightColumnX, Scaled(kPagePadding + 62), rightColumnWidth, Scaled(24),
+                                             rightColumnX, Scaled(kPagePadding + 62), rightColumnWidth, Scaled(kControlHeight),
                                              dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveUpButton_ = CreateWindowExW(0, L"BUTTON", L"Up", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                         rightColumnX, Scaled(kPagePadding + 94), rightColumnWidth, Scaled(24),
+                                         rightColumnX, Scaled(kPagePadding + 94), rightColumnWidth, Scaled(kControlHeight),
                                          dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         moveDownButton_ = CreateWindowExW(0, L"BUTTON", L"Down", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                           rightColumnX, Scaled(kPagePadding + 126), rightColumnWidth, Scaled(24),
+                                           rightColumnX, Scaled(kPagePadding + 126), rightColumnWidth, Scaled(kControlHeight),
                                            dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         pauseResumeButton_ = CreateWindowExW(0, L"BUTTON", L"Pause", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                              rightColumnX, Scaled(kPagePadding + 158), rightColumnWidth, Scaled(24),
+                                              rightColumnX, Scaled(kPagePadding + 158), rightColumnWidth, Scaled(kControlHeight),
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         addToIndexingButton_ = CreateWindowExW(0, L"BUTTON", L"Add to Indexing", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                rightColumnX, Scaled(kPagePadding + 190), rightColumnWidth, Scaled(24),
+                                                rightColumnX, Scaled(kPagePadding + 190), rightColumnWidth, Scaled(kControlHeight),
                                                 dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     UpdateVolumeList();
@@ -1092,10 +1095,10 @@ void SettingsDialog::PopulateStoragePage() {
         ListView_SetExtendedListViewStyle(categoryList_, LVS_EX_FULLROWSELECT);
         
         addCategoryButton_ = CreateWindowExW(0, L"BUTTON", L"Add", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                              Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
+                                              Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(kControlHeight),
                                               dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
         removeCategoryButton_ = CreateWindowExW(0, L"BUTTON", L"Remove", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                 Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 60), Scaled(80), Scaled(24),
+                                                 Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 60), Scaled(80), Scaled(kControlHeight),
                                                  dialog_, nullptr, GetModuleHandleW(nullptr), nullptr);
     }
     
@@ -1126,7 +1129,7 @@ void SettingsDialog::PopulateShortcutsPage() {
         ListView_SetExtendedListViewStyle(shortcutList_, LVS_EX_FULLROWSELECT);
         
         resetShortcutsButton_ = CreateWindowExW(0, L"BUTTON", L"Reset Defaults", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                                  Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(24),
+                                                  Scaled(kDialogWidth) - Scaled(90), Scaled(kPagePadding + 30), Scaled(80), Scaled(kControlHeight),
                                                   dialog_, reinterpret_cast<HMENU>(40001), GetModuleHandleW(nullptr), nullptr);
     }
     

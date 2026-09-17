@@ -121,10 +121,10 @@ inline ChromeLocationRow ComputeChromeLocationRow(const ChromeLayout& layout, fl
 inline ChromeLayout ComputeChromeLayout(float clientWidthDip, int tabCount, int activeTabIndex) {
     constexpr float kChromeHeight = 72.0f;
     constexpr float kRowTop = 4.0f;
-    constexpr float kRowHeight = 28.0f;
+    constexpr float kRowHeight = 32.0f;
     constexpr float kToolbarTop = 40.0f;
     constexpr float kEdge = 4.0f;
-    constexpr float kCommandSize = 28.0f;
+    constexpr float kCommandSize = 32.0f;
     constexpr float kCommandGap = 4.0f;
     constexpr float kAddressGap = 8.0f;
     constexpr float kTabMinWidth = 96.0f;

@@ -66,18 +66,19 @@ struct UiTheme {
 inline UiTheme GetUiTheme(bool dark) {
     UiTheme t{};
     if (dark) {
-        // Linear-inspired layered charcoal surfaces, but with FastFiles' blue
-        // interaction accent rather than a decorative neon brand color.
-        t.background         = D2D1::ColorF(0x101216);
-        t.surface            = D2D1::ColorF(0x171A20);
-        t.border             = D2D1::ColorF(0x2B3038);
-        t.text               = D2D1::ColorF(0xF4F6F8);
-        t.textSecondary      = D2D1::ColorF(0xA9B1BC);
-        t.textOnAccent       = D2D1::ColorF(0x0E1728);
-        t.accent             = D2D1::ColorF(0x5B8DEF);
-        t.accentHover        = D2D1::ColorF(0x73A0F5);
-        t.folderGlyph        = D2D1::ColorF(0x73A0F5);
-        t.fileGlyph          = D2D1::ColorF(0x9DA6B3);
+        // Things-like calm organization with Dropbox's tonal dark hierarchy:
+        // the canvas, navigation surface, and primary work surface are close
+        // neighbors, while the blue accent is reserved for interaction.
+        t.background         = D2D1::ColorF(0x111315);
+        t.surface            = D2D1::ColorF(0x1A1E22);
+        t.border             = D2D1::ColorF(0x2A3036);
+        t.text               = D2D1::ColorF(0xF3F5F7);
+        t.textSecondary      = D2D1::ColorF(0xA7B0BA);
+        t.textOnAccent       = D2D1::ColorF(0x101820);
+        t.accent             = D2D1::ColorF(0x4C8DFF);
+        t.accentHover        = D2D1::ColorF(0x6A9FFF);
+        t.folderGlyph        = D2D1::ColorF(0x6A9FFF);
+        t.fileGlyph          = D2D1::ColorF(0xA7B0BA);
         t.error              = D2D1::ColorF(0xFF7B72);
         t.badgeActiveBg      = D2D1::ColorF(0x173826);
         t.badgeActiveText    = D2D1::ColorF(0x8DDBA8);
@@ -87,55 +88,57 @@ inline UiTheme GetUiTheme(bool dark) {
         t.searchBorder       = D2D1::ColorF(0x3B424D);
         t.searchText         = D2D1::ColorF(0xF4F6F8);
         t.searchPlaceholder  = D2D1::ColorF(0x929CAA);
-        t.surfaceElevated    = D2D1::ColorF(0x1C2027);
-        t.surfaceSubtle      = D2D1::ColorF(0x1A1E24);
+        t.surfaceElevated    = D2D1::ColorF(0x20252A);
+        t.surfaceSubtle      = D2D1::ColorF(0x15181B);
         t.hoverOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.060f);
         t.pressOverlay       = D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.105f);
-        t.selectionSoft      = D2D1::ColorF(0x5B8DEF, 0.16f);
+        t.selectionSoft      = D2D1::ColorF(0x4C8DFF, 0.16f);
         t.dividerSubtle      = D2D1::ColorF(0xF4F6F8, 0.075f);
-        t.focusStroke        = D2D1::ColorF(0x76A7FF);
-        t.textTertiary       = D2D1::ColorF(0x8A94A3);
-        t.textDisabled       = D2D1::ColorF(0x697383);
+        t.focusStroke        = D2D1::ColorF(0x6A9FFF);
+        t.textTertiary       = D2D1::ColorF(0x74808C);
+        t.textDisabled       = D2D1::ColorF(0x69747F);
         t.success            = D2D1::ColorF(0x81C995);
         t.warning            = D2D1::ColorF(0xF9AB00);
         t.info               = D2D1::ColorF(0x8AB4F8);
         t.dropTargetStroke   = D2D1::ColorF(0x82B1FF);
     } else {
-        // Perplexity/shadcn-inspired light workspace: the canvas is subtly
-        // tinted while primary work surfaces stay white, keeping structure
-        // visible without a dashboard of bordered cards.
-        t.background         = D2D1::ColorF(0xF6F7F9);
+        // Native Precision Workspace light mode: a cool canvas, a slightly
+        // deeper navigation surface, and white work surfaces keep structure
+        // visible without turning the browser into a wall of cards.
+        t.background         = D2D1::ColorF(0xF7F8FA);
         t.surface            = D2D1::ColorF(0xFFFFFF);
-        t.border             = D2D1::ColorF(0xD9DDE3);
-        t.text               = D2D1::ColorF(0x1D232C);
-        t.textSecondary      = D2D1::ColorF(0x596273);
+        t.border             = D2D1::ColorF(0xE1E5EA);
+        t.text               = D2D1::ColorF(0x202428);
+        t.textSecondary      = D2D1::ColorF(0x66717D);
         t.textOnAccent       = D2D1::ColorF(0xFFFFFF);
-        t.accent             = D2D1::ColorF(0x0067C0);
-        t.accentHover        = D2D1::ColorF(0x005A9E);
-        t.folderGlyph        = D2D1::ColorF(0x0067C0);
-        t.fileGlyph          = D2D1::ColorF(0x667085);
+        t.accent             = D2D1::ColorF(0x2A70D1);
+        t.accentHover        = D2D1::ColorF(0x205EBA);
+        t.folderGlyph        = D2D1::ColorF(0x2F78E9);
+        t.fileGlyph          = D2D1::ColorF(0x6B7682);
         t.error              = D2D1::ColorF(0xB42318);
         t.badgeActiveBg      = D2D1::ColorF(0xE7F6EC);
         t.badgeActiveText    = D2D1::ColorF(0x176B35);
         t.badgeDegradedBg    = D2D1::ColorF(0xFFF4D6);
         t.badgeDegradedText  = D2D1::ColorF(0x785A00);
         t.treemapCalculating = D2D1::ColorF(0xFFF4D6);
-        t.searchBorder       = D2D1::ColorF(0xB7BDC7);
-        t.searchText         = D2D1::ColorF(0x1D232C);
-        t.searchPlaceholder  = D2D1::ColorF(0x667085);
+        t.searchBorder       = D2D1::ColorF(0xC5CBD3);
+        t.searchText         = D2D1::ColorF(0x202428);
+        t.searchPlaceholder  = D2D1::ColorF(0x66717D);
         t.surfaceElevated    = D2D1::ColorF(0xFFFFFF);
-        t.surfaceSubtle      = D2D1::ColorF(0xEFF1F4);
+        t.surfaceSubtle      = D2D1::ColorF(0xF1F3F5);
         t.hoverOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.035f);
         t.pressOverlay       = D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.070f);
-        t.selectionSoft      = D2D1::ColorF(0x0067C0, 0.10f);
+        t.selectionSoft      = D2D1::ColorF(0x2A70D1, 0.10f);
         t.dividerSubtle      = D2D1::ColorF(0x1D232C, 0.070f);
-        t.focusStroke        = D2D1::ColorF(0x0067C0);
-        t.textTertiary       = D2D1::ColorF(0x667085);
-        t.textDisabled       = D2D1::ColorF(0x929CAA);
+        t.focusStroke        = D2D1::ColorF(0x2A70D1);
+        // Caption text stays close to the secondary role on light surfaces so
+        // small metadata never falls below the product's AA contrast floor.
+        t.textTertiary       = D2D1::ColorF(0x66717D);
+        t.textDisabled       = D2D1::ColorF(0x929CA6);
         t.success            = D2D1::ColorF(0x188038);
         t.warning            = D2D1::ColorF(0xB54708);
-        t.info               = D2D1::ColorF(0x0067C0);
-        t.dropTargetStroke   = D2D1::ColorF(0x0067C0);
+        t.info               = D2D1::ColorF(0x2A70D1);
+        t.dropTargetStroke   = D2D1::ColorF(0x2A70D1);
     }
     return t;
 }
@@ -145,12 +148,12 @@ inline UiTheme GetUiTheme(bool dark) {
 namespace UiMetrics {
 constexpr float kChromeHeight = 72.0f;
 constexpr float kColumnWidth = 240.0f;
-constexpr float kRowHeight = 28.0f;
+constexpr float kRowHeight = 38.0f;
 constexpr float kBadgeHeight = 28.0f;
-constexpr float kControlHeight = 24.0f;
+constexpr float kControlHeight = 32.0f;
 // Corner radii: small geometry keeps a desktop-tool character; pills are
 // reserved for semantically pill-shaped chips.
-constexpr float kRadiusSmall = 4.0f;
+constexpr float kRadiusSmall = 6.0f;
 constexpr float kRadiusMedium = 8.0f;
 // Spacing scale (DIPs)
 constexpr float kSpaceXxs = 2.0f;
@@ -163,8 +166,8 @@ constexpr float kSpaceXl = 32.0f;
 // Content (DIPs)
 constexpr float kIconSize = 16.0f;
 constexpr float kIconSizeLg = 20.0f;
-constexpr float kTargetMinSize = 24.0f;
-constexpr float kRadiusField = 6.0f;
+constexpr float kTargetMinSize = 28.0f;
+constexpr float kRadiusField = 7.0f;
 // Typography ramp (DIPs)
 constexpr float kFontSizeCaption = 12.0f;
 constexpr float kFontSizeBody = 14.0f;
@@ -211,7 +214,7 @@ struct UiDensity {
 
 inline UiDensity GetUiDensity(UiDensityProfile profile) {
     if (profile == UiDensityProfile::Comfortable) {
-        return {/*rowHeight=*/34.0f, /*controlHeight=*/28.0f, /*iconSize=*/20.0f,
+        return {/*rowHeight=*/44.0f, /*controlHeight=*/36.0f, /*iconSize=*/20.0f,
                 /*rowGap=*/8.0f, /*commandGap=*/8.0f};
     }
     return {/*rowHeight=*/UiMetrics::kRowHeight, /*controlHeight=*/UiMetrics::kControlHeight,

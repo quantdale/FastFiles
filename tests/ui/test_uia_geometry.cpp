@@ -87,7 +87,7 @@ void TestOffscreenMath() {
           "column outside its pane is offscreen");
 
     // Partially visible rows are NOT offscreen (UIA contract).
-    const D2D1_RECT_F partial = ffui::UiaItemRectDip(0, 20, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);
+    const D2D1_RECT_F partial = ffui::UiaItemRectDip(0, 15, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);
     Check(partial.top < 600.0f && partial.bottom > 600.0f &&
               !ffui::UiaRectOffscreen(partial, 0.0f, 800.0f, 600.0f),
           "partially visible row is not offscreen");
@@ -97,7 +97,7 @@ void TestComfortableDensityRowHeight() {
     const auto previous = ffui::gUiDensityProfile;
     ffui::gUiDensityProfile = ffui::UiDensityProfile::Comfortable;
     const float row = ffui::UiaBrowseRowHeightDip();
-    Check(row == 34.0f, "Comfortable browse row height is 34 DIP");
+    Check(row == 44.0f, "Comfortable browse row height is 44 DIP");
     const D2D1_RECT_F row0 = ffui::UiaItemRectDip(0, 0, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);
     Check(row0.bottom - row0.top == row, "UIA item rect uses Comfortable row height");
     const D2D1_RECT_F row1 = ffui::UiaItemRectDip(0, 1, 0.0f, 800.0f, 0.0f, 0.0f, false, 600.0f);

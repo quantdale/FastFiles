@@ -545,7 +545,10 @@ void NavigationSidebar::DrawRail(HDC dc, const RECT& client, const UiTheme& them
 void NavigationSidebar::Draw(HDC dc, const RECT& client) {
     const UiTheme theme = GetUiTheme(darkTheme_);
     const bool highContrast = UiSystemHighContrast();
-    const COLORREF background = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.background);
+    // The sidebar is a structural navigation surface, not another content
+    // panel. Its subtle tonal step keeps the file workspace dominant while
+    // remaining quiet in both themes.
+    const COLORREF background = highContrast ? GetSysColor(COLOR_WINDOW) : ToColorRef(theme.surfaceSubtle);
     HBRUSH bgBrush = CreateSolidBrush(background);
     if (bgBrush) {
         FillRect(dc, &client, bgBrush);
