@@ -140,7 +140,7 @@ bool SettingsDialog::Initialize(HWND owner, ffprotocol::Settings* settings,
 
     // ui-v3 settings: one DPI-scaled Segoe UI body format for all children —
     // labels, edits, combos, buttons, lists — replacing the system default.
-    bodyFont_ = CreateFontW(-static_cast<int>(UiScale(ffui::UiMetrics::kFontSizeBody)), 0, 0, 0,
+    bodyFont_ = CreateFontW(-static_cast<int>(UiScale(ffui::UiTypeSize(ffui::UiTypeRole::Body))), 0, 0, 0,
                             FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                             CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
     if (bodyFont_ != nullptr) {

@@ -192,7 +192,7 @@ void TreemapView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwr
     context->CreateSolidColorBrush(theme.treemapCalculating, &calculatingBrush_);
     dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
                                      DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-                                     12.0f, L"en-us", &textFormat_);
+                                     ffui::UiTypeSize(ffui::UiTypeRole::Caption), L"en-us", &textFormat_);
     textFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     resourcesCreated_ = true;
 }

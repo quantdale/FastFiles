@@ -272,6 +272,31 @@ void TestNativeHeaderAndTabPalettes() {
     Check(hcHeader.useSystemHeader, "High Contrast keeps the system header");
     Check(hcTab.useSystemTab, "High Contrast keeps the system tab control");
 }
+
+void TestNativePrecisionTypeAndDensityRamp() {
+    using namespace ffui;
+    Check(UiMetrics::kRowHeight >= 36.0f && UiMetrics::kRowHeight <= 44.0f,
+          "compact browse rows stay in the dense desktop range");
+    Check(UiMetrics::kControlHeight >= 30.0f && UiMetrics::kControlHeight <= 36.0f,
+          "compact controls stay in the native target range");
+    Check(UiMetrics::kRadiusSmall >= 5.0f && UiMetrics::kRadiusSmall <= 7.0f,
+          "small geometry uses functional 5-to-7 DIP radii");
+
+    const UiDensity compact = GetUiDensity(UiDensityProfile::Compact);
+    const UiDensity comfortable = GetUiDensity(UiDensityProfile::Comfortable);
+    Check(NearlyEqual(compact.rowHeight, UiMetrics::kRowHeight),
+          "compact density uses the shared row metric");
+    Check(NearlyEqual(compact.controlHeight, UiMetrics::kControlHeight),
+          "compact density uses the shared control metric");
+    Check(comfortable.rowHeight > compact.rowHeight && comfortable.controlHeight > compact.controlHeight,
+          "comfortable density increases both row and control targets");
+
+    Check(UiTypeSize(UiTypeRole::Caption) < UiTypeSize(UiTypeRole::Body) &&
+              UiTypeSize(UiTypeRole::Body) < UiTypeSize(UiTypeRole::Subtitle),
+          "caption, body, and subtitle form an ascending type ramp");
+    Check(UiTypeSemibold(UiTypeRole::Subtitle) && !UiTypeSemibold(UiTypeRole::Caption),
+          "hierarchy uses weight in addition to size");
+}
 } // namespace
 
 int main() {
@@ -285,5 +310,6 @@ int main() {
     TestNativeExplorerThemeNullHwnd();
     TestNativeHeaderAndTabPalettes();
     TestThemeContrast();
+    TestNativePrecisionTypeAndDensityRamp();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

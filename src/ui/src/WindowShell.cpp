@@ -1532,15 +1532,18 @@ void WindowShell::Render() {
         }
         if (!detailsTextFormat_) {
             renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"en-us", &detailsTextFormat_);
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                ffui::UiTypeSize(ffui::UiTypeRole::Body), L"en-us", &detailsTextFormat_);
         }
         if (!previewTextFormat_) {
             renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 18.0f, L"en-us", &previewTextFormat_);
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                ffui::UiTypeSize(ffui::UiTypeRole::Subtitle), L"en-us", &previewTextFormat_);
         }
         if (!detailsCaptionFormat_) {
             renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"en-us", &detailsCaptionFormat_);
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                ffui::UiTypeSize(ffui::UiTypeRole::Caption), L"en-us", &detailsCaptionFormat_);
         }
         ffui::RenderGallery(context, detailsTextBrush_.Get(), detailsBrush_.Get(),
             previewTextFormat_.Get(), detailsTextFormat_.Get(), detailsCaptionFormat_.Get(),
@@ -1777,7 +1780,8 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
     // theme/device changes without an explicit reset).
     if (!detailsTextFormat_) {
         renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"en-us", &detailsTextFormat_);
+            DWRITE_FONT_STRETCH_NORMAL, ffui::UiTypeSize(ffui::UiTypeRole::Body),
+            L"en-us", &detailsTextFormat_);
         renderer_.DWriteFactory()->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH_NORMAL, 12.0f, L"en-us", &previewTextFormat_);
         previewTextFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
@@ -1787,7 +1791,8 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         // ui-overhaul phase 7: the selected item name is the pane's title and
         // must outrank every metadata row.
         renderer_.DWriteFactory()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"en-us", &detailsTitleFormat_);
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+            ffui::UiTypeSize(ffui::UiTypeRole::Subtitle), L"en-us", &detailsTitleFormat_);
     }
     if (highContrast) {
         // High contrast: suppress the rounded-token styling and fall back to
@@ -1843,9 +1848,12 @@ void WindowShell::RenderDetails(ID2D1DeviceContext* context, const ffui::Details
         float y = cardTop + pad;
 
         if (summary.items.empty()) {
-            // Empty selection is a deliberate state, never a blank card.
+            // native-precision-workspace: keep the no-selection prompt near
+            // the top of the details card so it stays concise instead of
+            // turning a quiet state into a centered empty card.
+            const float stateBottom = (std::min)(cardBottom - pad, cardTop + pad + 96.0f);
             ffui::DrawUiStatePanel(
-                context, D2D1::RectF(contentLeft, cardTop, contentRight, statusTop - inset),
+                context, D2D1::RectF(contentLeft, cardTop + pad, contentRight, stateBottom),
                 titleFormat, L"Nothing selected", detailsCaptionFormat_.Get(),
                 L"Select a file or folder to see its details and preview.", theme, highContrast,
                 &detailsStateBrushes_);

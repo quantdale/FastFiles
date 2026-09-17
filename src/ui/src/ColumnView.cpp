@@ -1702,12 +1702,12 @@ void ColumnView::EnsureCreated(ID2D1DeviceContext* context, IDWriteFactory* dwri
 
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        14.0f, L"en-us", &textFormat_);
+        ffui::UiTypeSize(ffui::UiTypeRole::Body), L"en-us", &textFormat_);
     textFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
     dwriteFactory->CreateTextFormat(
         L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        12.0f, L"en-us", &badgeTextFormat_);
+        ffui::UiTypeSize(ffui::UiTypeRole::Caption), L"en-us", &badgeTextFormat_);
     dwriteFactory->CreateTextFormat(
         L"Segoe MDL2 Assets", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, ffui::UiMetrics::kIconSize, L"en-us", &glyphFormat_);
