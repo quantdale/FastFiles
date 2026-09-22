@@ -2,6 +2,12 @@
 
 // Generated from the repository VERSION file. Do not duplicate the product
 // version in installer, package, or release-tooling source.
+//
+// Source/build identity (kBuildIdentity and related constants) lives in the
+// build-time generated header below so a normal incremental rebuild after a
+// commit always refreshes it. cmake/WriteBuildIdentity.cmake owns that file.
+#include "ffsetup/BuildIdentity.h"
+
 namespace ffsetup {
 
 inline constexpr wchar_t kProductVersion[] = L"@FASTFILES_PRODUCT_VERSION@";
@@ -9,7 +15,5 @@ inline constexpr char kProductVersionAscii[] = "@FASTFILES_PRODUCT_VERSION@";
 inline constexpr wchar_t kProductName[] = L"@FASTFILES_PRODUCT_NAME@";
 inline constexpr wchar_t kCompanyName[] = L"@FASTFILES_COMPANY_NAME@";
 inline constexpr wchar_t kPublisherName[] = L"@FASTFILES_PUBLISHER_NAME@";
-inline constexpr wchar_t kBuildIdentity[] = L"@FASTFILES_BUILD_ID@";
-inline constexpr char kBuildIdentityAscii[] = "@FASTFILES_BUILD_ID@";
 
 } // namespace ffsetup

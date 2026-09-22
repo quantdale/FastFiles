@@ -448,6 +448,9 @@ Check (($manifest.commit -match '^[0-9a-f]{40}$')) 'manifest records the current
 Check (@($manifest.artifacts | Where-Object { $_.buildIdentity -notmatch '^[0-9a-f]{40}$' }).Count -eq 0) 'all artifacts carry a canonical build identity'
 Check (@($manifest.artifacts | Where-Object { $_.componentRole -notin @('ui', 'engine', 'service', 'installer') }).Count -eq 0) 'all artifacts carry a distinct component role'
 Check ((@($manifest.artifacts | ForEach-Object { $_ | ConvertTo-Json -Depth 8 }) -join '|') -eq (@($manifestAgain.artifacts | ForEach-Object { $_ | ConvertTo-Json -Depth 8 }) -join '|')) 'manifest artifact records are deterministic'
+Check ((Get-ReleaseBuildConfigurationLabel -ArtifactRoot (Join-Path $RepoRoot 'build\release-test')) -eq 'release-test') 'release-test artifact root is labeled release-test'
+Check ((Get-ReleaseBuildConfigurationLabel -ArtifactRoot (Join-Path $RepoRoot 'build\release')) -eq 'Release') 'release artifact root is labeled Release'
+Check ($manifest.configuration -eq (Get-ReleaseBuildConfigurationLabel -ArtifactRoot $BuildRoot)) "manifest configuration matches artifact-root label ($($manifest.configuration))"
 $expectedProductVersion = Get-RepositoryProductVersion -RepoRoot $RepoRoot
 $expectedFileVersion = "$expectedProductVersion.0"
 $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $BuildRoot -RepoRoot $RepoRoot

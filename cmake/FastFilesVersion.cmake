@@ -31,38 +31,77 @@ set(FASTFILES_FILE_VERSION "${FASTFILES_PRODUCT_VERSION}.0")
 set(FASTFILES_VERSION_COMMA
   "${FASTFILES_VERSION_MAJOR},${FASTFILES_VERSION_MINOR},${FASTFILES_VERSION_PATCH},0")
 
-# Every executable in a package carries the exact source/build identity in
-# VERSIONINFO. Release tooling copies that value into the authenticated
-# package manifest, so a same-signer binary from another commit cannot be
-# mixed into the package. A caller may provide a CI identity explicitly; a
-# normal checkout derives it from Git and fails closed when neither is usable.
-set(FASTFILES_BUILD_ID "$ENV{FASTFILES_BUILD_ID}")
-string(STRIP "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID)
-if(FASTFILES_BUILD_ID STREQUAL "")
-  execute_process(
-    COMMAND git -C "${CMAKE_SOURCE_DIR}" rev-parse HEAD
-    RESULT_VARIABLE FASTFILES_GIT_RESULT
-    OUTPUT_VARIABLE FASTFILES_BUILD_ID
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET)
-  if(NOT FASTFILES_GIT_RESULT EQUAL 0)
-    set(FASTFILES_BUILD_ID "")
+# Source/build identity is refreshed on every build by
+# cmake/WriteBuildIdentity.cmake (always-run custom target below). It is NOT
+# derived at configure time, so a normal incremental rebuild after a commit can
+# never keep a stale PrivateBuild / kBuildIdentity. A caller may still pin an
+# explicit CI identity through the FASTFILES_BUILD_ID environment variable; the
+# build-time script validates it fail-closed.
+#
+# At configure time we only fail early when an obviously malformed override is
+# already visible, so misconfiguration surfaces before the first compile.
+set(ff_configured_build_id "$ENV{FASTFILES_BUILD_ID}")
+string(STRIP "${ff_configured_build_id}" ff_configured_build_id)
+if(NOT ff_configured_build_id STREQUAL "")
+  string(LENGTH "${ff_configured_build_id}" ff_configured_build_id_length)
+  if(NOT ff_configured_build_id_length EQUAL 40 OR NOT ff_configured_build_id MATCHES "^[0-9a-fA-F]+$")
+    message(FATAL_ERROR
+      "FASTFILES_BUILD_ID must be a 40-character Git identity (or FASTFILES_BUILD_ID must be set).")
   endif()
 endif()
-string(LENGTH "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID_LENGTH)
-if(NOT FASTFILES_BUILD_ID_LENGTH EQUAL 40 OR NOT FASTFILES_BUILD_ID MATCHES "^[0-9a-fA-F]+$")
-  message(FATAL_ERROR
-    "FASTFILES_BUILD_ID must be a 40-character Git identity (or FASTFILES_BUILD_ID must be set).")
-endif()
-string(TOLOWER "${FASTFILES_BUILD_ID}" FASTFILES_BUILD_ID)
 
 if(NOT DEFINED FASTFILES_GENERATED_INCLUDE_DIR)
   message(FATAL_ERROR "FASTFILES_GENERATED_INCLUDE_DIR must be set before FastFilesVersion.cmake")
 endif()
+
+set(FASTFILES_BUILD_IDENTITY_HEADER
+  "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup/BuildIdentity.h")
+set(FASTFILES_BUILD_IDENTITY_RC_DEFINES
+  "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup/BuildIdentity.rc.h")
+
+# Static product constants stay configure-time (VERSION-derived). Identity is
+# deliberately excluded from this header; FastFilesVersion.h includes the
+# build-time generated BuildIdentity.h instead.
 configure_file(
   "${CMAKE_SOURCE_DIR}/cmake/FastFilesVersion.h.in"
   "${FASTFILES_GENERATED_INCLUDE_DIR}/ffsetup/FastFilesVersion.h"
   @ONLY)
+
+# Best-effort architecture label for identity metadata (informational only).
+set(ff_identity_architecture "unknown")
+if(CMAKE_GENERATOR_PLATFORM)
+  string(TOLOWER "${CMAKE_GENERATOR_PLATFORM}" ff_identity_architecture)
+elseif(DEFINED CMAKE_CXX_COMPILER_ARCHITECTURE_ID AND NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "")
+  string(TOLOWER "${CMAKE_CXX_COMPILER_ARCHITECTURE_ID}" ff_identity_architecture)
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+  set(ff_identity_architecture "x64")
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+  set(ff_identity_architecture "x86")
+endif()
+
+# Always-run identity refresh. Outputs are rewritten only when bytes change,
+# so unchanged identity preserves mtimes and forces zero recompiles; a new
+# commit moves the header/rc-define mtimes and bounds the rebuild to the
+# identity consumers (version resources + identity-including TUs).
+if(NOT TARGET fastfiles_build_identity)
+  set(ff_identity_configuration "unknown")
+  if(NOT "${CMAKE_BUILD_TYPE}" STREQUAL "")
+    set(ff_identity_configuration "${CMAKE_BUILD_TYPE}")
+  endif()
+  add_custom_target(fastfiles_build_identity ALL
+    COMMAND "${CMAKE_COMMAND}"
+      "-DSOURCE_DIR=${CMAKE_SOURCE_DIR}"
+      "-DOUTPUT_HEADER=${FASTFILES_BUILD_IDENTITY_HEADER}"
+      "-DOUTPUT_RC_DEFINES=${FASTFILES_BUILD_IDENTITY_RC_DEFINES}"
+      "-DCONFIGURATION=${ff_identity_configuration}"
+      "-DARCHITECTURE=${ff_identity_architecture}"
+      -P "${CMAKE_SOURCE_DIR}/cmake/WriteBuildIdentity.cmake"
+    BYPRODUCTS
+      "${FASTFILES_BUILD_IDENTITY_HEADER}"
+      "${FASTFILES_BUILD_IDENTITY_RC_DEFINES}"
+    COMMENT "Refreshing FastFiles build identity"
+    VERBATIM)
+endif()
 
 function(fastfiles_add_version_resource target original_filename file_description)
   if(NOT TARGET "${target}")
@@ -76,5 +115,11 @@ function(fastfiles_add_version_resource target original_filename file_descriptio
     "${resource_path}"
     @ONLY)
   set_source_files_properties("${resource_path}" PROPERTIES GENERATED TRUE)
+  # The .rc includes the build-time identity defines; OBJECT_DEPENDS forces the
+  # resource to recompile exactly when the identity bytes change.
+  set_source_files_properties("${resource_path}" PROPERTIES
+    OBJECT_DEPENDS "${FASTFILES_BUILD_IDENTITY_RC_DEFINES}")
   target_sources("${target}" PRIVATE "${resource_path}")
+  # The generated identity header/rc-defines must exist before first compile.
+  add_dependencies("${target}" fastfiles_build_identity)
 endfunction()

@@ -608,12 +608,32 @@ function Get-RepositoryCommit {
     return $null
 }
 
+# Label the artifact root with the build configuration that produced it. The
+# release-test preset and the production release preset share the same artifact
+# filenames, so a default of 'Release' would silently mislabel unsigned
+# validation kits as Release configuration evidence.
+function Get-ReleaseBuildConfigurationLabel {
+    param([Parameter(Mandatory)] [string] $ArtifactRoot)
+
+    $normalized = $ArtifactRoot.Replace('/', '\').TrimEnd('\')
+    if ($normalized -match '(?i)(?:^|[\\/])release-test(?:[\\/]|$)') { return 'release-test' }
+    if ($normalized -match '(?i)(?:^|[\\/])release(?:[\\/]|$)') { return 'Release' }
+    if ($normalized -match '(?i)(?:^|[\\/])debug(?:-diagnostic)?(?:[\\/]|$)') { return 'Debug' }
+    if ($normalized -match '(?i)(?:^|[\\/])asan(?:[\\/]|$)') { return 'asan' }
+    if ($normalized -match '(?i)(?:^|[\\/])analyze(?:[\\/]|$)') { return 'analyze' }
+    return 'Release'
+}
+
 function Get-ReleaseArtifactManifest {
     param(
         [Parameter(Mandatory)] [string] $ArtifactRoot,
         [string] $RepoRoot,
-        [string] $Configuration = 'Release'
+        [string] $Configuration = $null
     )
+
+    if ([string]::IsNullOrWhiteSpace($Configuration)) {
+        $Configuration = Get-ReleaseBuildConfigurationLabel -ArtifactRoot $ArtifactRoot
+    }
 
     $paths = Get-ReleaseArtifactPaths -ArtifactRoot $ArtifactRoot
     $records = @($paths | Sort-Object order | ForEach-Object {
@@ -1262,6 +1282,7 @@ Export-ModuleMember -Function @(
     'Get-RepositoryProductVersion',
     'Test-ExecutableVersionMetadata',
     'Test-ReleaseVersionMetadata',
+    'Get-ReleaseBuildConfigurationLabel',
     'Get-ReleaseArtifactManifest',
     'Write-PackageManifest',
     'Test-PackageManifestSignature',

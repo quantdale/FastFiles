@@ -28,4 +28,25 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/tests/drift/test_source_provenance_fixtures.ps1"
   )
   set_tests_properties(ffsource_provenance_fixture_tests PROPERTIES TIMEOUT 180)
+
+  # Build-identity freshness: prove the build-time identity script refreshes
+  # PrivateBuild / kBuildIdentity when HEAD moves without a reconfigure, and
+  # that malformed/missing identities fail closed.
+  add_test(
+    NAME ffbuild_identity_freshness_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/tests/drift/test_build_identity_freshness.ps1"
+  )
+  set_tests_properties(ffbuild_identity_freshness_tests PROPERTIES TIMEOUT 180)
+
+  # Binary identity binding: the five debug product binaries must embed the
+  # current source identity as PrivateBuild (skip 77 until the debug preset is
+  # built). This is the detector that would have caught the stale-PrivateBuild
+  # evidence incident before certification claimed exact-tip binaries.
+  add_test(
+    NAME ffbuild_identity_binding_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/tests/drift/test_binary_identity_binding.ps1"
+  )
+  set_tests_properties(ffbuild_identity_binding_tests PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
 endif()
