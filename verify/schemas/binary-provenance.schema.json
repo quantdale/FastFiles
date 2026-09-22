@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastfiles.local/schemas/binary-provenance.schema.json",
+  "title": "FastFiles binary provenance evidence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "mode",
+    "stage",
+    "source",
+    "binaries",
+    "checkResult",
+    "checkedAtUtc"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "type": "integer", "const": 1 },
+    "kind": { "type": "string", "const": "fastfiles-binary-provenance" },
+    "mode": { "type": "string", "enum": ["exact-tree", "development"] },
+    "stage": { "type": "string", "minLength": 1 },
+    "source": {
+      "type": "object",
+      "required": ["headSha", "treeSha", "treeSemantic", "sourceClean", "stateDigest"],
+      "additionalProperties": true,
+      "properties": {
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "treeSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "treeSemantic": { "type": "string", "const": "HEAD^{tree}" },
+        "sourceClean": { "type": "boolean" },
+        "stateDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "reasonCodes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "binaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["filename", "path", "buildIdentityFormatValid", "issues"],
+        "additionalProperties": true,
+        "properties": {
+          "filename": { "type": "string" },
+          "path": { "type": "string" },
+          "sha256": { "type": ["string", "null"] },
+          "buildIdentity": { "type": ["string", "null"] },
+          "buildIdentityFormatValid": { "type": "boolean" },
+          "peArchitecture": { "type": ["string", "null"] },
+          "productVersion": { "type": ["string", "null"] },
+          "fileVersion": { "type": ["string", "null"] },
+          "worktreeState": { "type": ["string", "null"] },
+          "configuration": { "type": ["string", "null"] },
+          "issues": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "setIdentity": { "type": ["string", "null"], "pattern": "^([0-9a-f]{40})?$" },
+    "setConsistent": { "type": "boolean" },
+    "boundToHead": { "type": "boolean" },
+    "boundToTree": { "type": "boolean" },
+    "treeSemantic": { "type": "string", "const": "HEAD^{tree}" },
+    "checkResult": {
+      "type": "object",
+      "required": ["status", "issueCodes"],
+      "additionalProperties": true,
+      "properties": {
+        "status": { "type": "string", "enum": ["PASS", "FAIL"] },
+        "issueCodes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "STALE_BINARY",
+              "WRONG_BINARY",
+              "MISSING_IDENTITY",
+              "MALFORMED_IDENTITY",
+              "DIRTY_TREE_MISMATCH",
+              "MIXED_BINARY_SET",
+              "HEAD_UNAVAILABLE",
+              "TREE_BINDING_UNAVAILABLE",
+              "ARCH_MISMATCH",
+              "HEAD_CHANGED_DURING_RUN"
+            ]
+          }
+        },
+        "reason": { "type": ["string", "null"] }
+      }
+    },
+    "checkedAtUtc": { "type": "string" }
+  }
+}

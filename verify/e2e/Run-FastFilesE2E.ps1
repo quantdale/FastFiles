@@ -4,7 +4,9 @@ param(
     [string] $Exe = '',
     [string] $Filter = 'all',
     [string] $ArtifactsDir = '',
-    [int] $LifecycleIterations = 2
+    [int] $LifecycleIterations = 2,
+    [switch] $RequireExactTree,
+    [switch] $SkipProvenanceGate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,9 +26,43 @@ if ([string]::IsNullOrWhiteSpace($ArtifactsDir)) {
 $resolvedArtifacts = [IO.Path]::GetFullPath($ArtifactsDir)
 New-Item -ItemType Directory -Path $resolvedArtifacts -Force | Out-Null
 
+# Certification provenance gate: refuse to run functional E2E against binaries
+# that do not embed the current source identity. A mismatch is terminal.
+$provenance = $null
+if (-not $SkipProvenanceGate) {
+    Import-Module (Join-Path $resolvedRepo 'verify\core\Provenance.psm1') -Force -DisableNameChecking
+    $buildRoot = Split-Path -Parent (Split-Path -Parent $resolvedExe)
+    $relatedBinaries = @($resolvedExe)
+    foreach ($sibling in (Get-DefaultCertificationBinaries -RepoRoot $resolvedRepo -BuildDirectory $buildRoot)) {
+        if ((Test-Path -LiteralPath $sibling -PathType Leaf) -and ($relatedBinaries -notcontains $sibling)) {
+            $relatedBinaries += $sibling
+        }
+    }
+    $gateMode = if ($RequireExactTree) { 'exact-tree' } else { 'development' }
+    $gate = Invoke-ProvenanceGate -RepoRoot $resolvedRepo -Binaries $relatedBinaries -Mode $gateMode -Stage 'e2e-preflight' -PassThru
+    $provenance = $gate.evidence
+    if (-not $gate.ok) {
+        $provenance | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath (Join-Path $resolvedArtifacts 'provenance-gate-failure.json') -Encoding utf8NoBOM
+        $failure = [pscustomobject]@{
+            status        = 'FAIL'
+            stage         = 'provenance-gate'
+            detail        = $gate.message
+            binaryProvenance = $provenance
+        }
+        $failure | ConvertTo-Json -Depth 20
+        Write-Error $gate.message
+        exit 1
+    }
+} else {
+    Write-Warning 'Provenance gate skipped by operator (-SkipProvenanceGate); results are unbound to source identity.'
+}
+
 Import-Module (Join-Path $PSScriptRoot 'FastFilesE2E.psm1') -Force
 $result = Invoke-FastFilesE2E -Exe $resolvedExe -RepoRoot $resolvedRepo -ArtifactsDir $resolvedArtifacts `
     -Filter $Filter -LifecycleIterations $LifecycleIterations
+if ($provenance) {
+    $result | Add-Member -NotePropertyName 'binaryProvenance' -NotePropertyValue $provenance -Force
+}
 $result | ConvertTo-Json -Depth 20
 switch ([string]$result.status) {
     'PASS' { exit 0 }

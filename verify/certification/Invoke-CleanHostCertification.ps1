@@ -38,14 +38,18 @@ $installMode = $InstallCandidate -and (-not $AuditOnly)
 $startUtc = [DateTime]::UtcNow
 $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-# 1. Capture Git Provenance
-$headSha = (& git -C $RepoRoot rev-parse HEAD 2>&1).ToString().Trim()
-$treeSha = (& git -C $RepoRoot write-tree 2>&1).ToString().Trim()
-$porcelain = @(& git -C $RepoRoot status --porcelain 2>&1 | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ -ne '' })
-$isDirty = ($porcelain.Count -gt 0)
+# 1. Capture Git Provenance via the shared source-state authority
+# (HEAD^{tree}, not git write-tree — index tree and commit tree are different
+# objects and only HEAD^{tree} describes the source revision under test).
+Import-Module (Join-Path $RepoRoot 'verify\core\RepositoryState.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'verify\core\Provenance.psm1') -Force -DisableNameChecking
+$sourceState = Get-RepositorySourceState -RepoRoot $RepoRoot -QualificationMode $(if ($RequireExactTree) { 'exact-tree' } else { 'development' })
+$headSha = $sourceState.headSha
+$treeSha = $sourceState.treeSha
+$isDirty = -not $sourceState.sourceClean
 
 if ($RequireExactTree -and $isDirty) {
-    throw "Exact-tree qualification required, but repository working tree is dirty ($($porcelain.Count) changes)."
+    throw "Exact-tree qualification required, but repository working tree is dirty ($(@($sourceState.stagedPaths + $sourceState.unstagedPaths + $sourceState.untrackedPaths).Count) changes)."
 }
 
 $exactTreeBound = (-not $isDirty)
@@ -346,7 +350,7 @@ if (-not $installMode) {
         if ($candidateKind -eq 'unsupported') {
             Add-CheckResult -Id 'install-artifact-exists' -Status 'PASS' -Message "Candidate file exists: $candidateFile"
             Add-CheckResult -Id 'install-artifact-hash' -Status 'PASS' -Message "Candidate hash recorded: $candidateHash"
-            Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Provenance bound to commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound)"
+            Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Source state recorded: commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound); candidate identity not applicable for unsupported kind"
             Add-CheckResult -Id 'install-precondition' -Status 'PASS' -Message 'Host precondition checks passed'
             Add-CheckResult -Id 'install-privilege-elevation' -Status $(if ($isAdmin) { 'PASS' } else { 'BLOCKED_NOT_ELEVATED' }) -Message $(if ($isAdmin) { 'Running with administrative elevation' } else { 'Process is not elevated' })
             Add-CheckResult -Id 'install-invoke' -Status 'FAIL' -Message "Unsupported candidate type '$candidateExt'; only .exe and .zip candidates can be executed (fail-closed)"
@@ -360,7 +364,7 @@ if (-not $installMode) {
             # Arbitrary installers may write outside campaign dirs: elevation required.
             Add-CheckResult -Id 'install-artifact-exists' -Status 'PASS' -Message "Candidate file exists: $candidateFile"
             Add-CheckResult -Id 'install-artifact-hash' -Status 'PASS' -Message "Candidate hash recorded: $candidateHash"
-            Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Provenance bound to commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound)"
+            Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Source state recorded: commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound); candidate identity not checked for blocked installer path"
             Add-CheckResult -Id 'install-precondition' -Status 'PASS' -Message 'Host precondition checks passed'
             Add-CheckResult -Id 'install-privilege-elevation' -Status 'BLOCKED_NOT_ELEVATED' -Message 'Cannot execute third-party installer without elevation'
             foreach ($legId in @($journeyLegIds | Where-Object { @('install-artifact-exists', 'install-artifact-hash', 'install-artifact-provenance', 'install-precondition', 'install-privilege-elevation') -notcontains $_ })) {
@@ -400,7 +404,30 @@ if (-not $installMode) {
                 }
 
                 Invoke-JourneyLeg -Id 'install-artifact-provenance' -Body {
-                    Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Candidate bound to commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound)"
+                    # Structural binding, not a restatement of host git state:
+                    # when the candidate is a FastFiles product executable, its
+                    # embedded PrivateBuild must equal the current source HEAD.
+                    # Archives and foreign installers cannot expose PrivateBuild
+                    # here, so they record an honest limited-binding result.
+                    $gateMode = if ($RequireExactTree) { 'exact-tree' } else { 'development' }
+                    if ($candidateKind -eq 'installer-exe' -or $candidateKind -eq 'portable-exe') {
+                        $binRecord = Get-BinaryProvenanceRecord -Path $candidateFile
+                        $sourceRecord = Get-SourceProvenanceRecord -RepoRoot $RepoRoot -Mode $(if ($RequireExactTree) { 'exact-tree' } else { 'development' })
+                        $binding = Test-BinarySourceBinding -BinaryRecords @($binRecord) -SourceRecord $sourceRecord -Mode $(if ($RequireExactTree) { 'strict' } else { 'development' })
+                        $details['binaryProvenance'] = New-BinaryProvenanceEvidence -SourceRecord $sourceRecord -Binding $binding -BinaryRecords @($binRecord) -Stage 'install-artifact-provenance' -Mode $gateMode
+                        if (-not $binding.valid) {
+                            Set-JourneyFailed -Id 'install-artifact-provenance'
+                            $message = Format-ProvenanceMismatch -ReasonCode ($binding.issueCodes | Select-Object -First 1) -Stage 'install-artifact-provenance' `
+                                -Expected $sourceRecord.headSha -Actual $binding.setIdentity -Binaries @([IO.Path]::GetFileName($candidateFile)) `
+                                -Check 'head-binding' -Detail ($binding.issueCodes -join ',') -SourceRecord $sourceRecord
+                            Add-CheckResult -Id 'install-artifact-provenance' -Status 'FAIL' -Message $message
+                        } else {
+                            Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Candidate PrivateBuild $($binRecord.buildIdentity) bound to commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound, sha256=$candidateHash)"
+                        }
+                    } else {
+                        Add-CheckResult -Id 'install-artifact-provenance' -Status 'PASS' -Message "Archive candidate source state recorded: commit $headSha / tree $treeSha (exactTreeBound=$exactTreeBound, sha256=$candidateHash); embedded PrivateBuild unavailable until package payloads are read"
+                        $details['candidateBinaryIdentityUnavailable'] = $true
+                    }
                 }
 
                 Invoke-JourneyLeg -Id 'install-precondition' -Body {

@@ -37,6 +37,23 @@ Import-Module (Join-Path $repo 'verify\uia-driver\UiaDriver.psm1') -Force -Disab
 Import-Module (Join-Path $repo 'verify\capabilities\windows-ui-automation-validation\UiAutomationValidation.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repo 'verify\capabilities\windows-ui-automation-validation\UiAutomationWin32.psm1') -Force -Global -DisableNameChecking
 Import-Module (Join-Path $repo 'verify\visual\VisualCapture.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $repo 'verify\core\Provenance.psm1') -Force -DisableNameChecking
+
+# Refuse to capture a visual catalog against binaries that do not embed the
+# current source identity. Stale binary + exactTreeBound claim is the failure
+# mode this gate exists to prevent.
+$catalogBinaries = @($exe)
+$catalogBuildRoot = Split-Path -Parent (Split-Path -Parent $exe)
+foreach ($sibling in (Get-DefaultCertificationBinaries -RepoRoot $repo -BuildDirectory $catalogBuildRoot)) {
+    if ((Test-Path -LiteralPath $sibling -PathType Leaf) -and ($catalogBinaries -notcontains $sibling)) {
+        $catalogBinaries += $sibling
+    }
+}
+$catalogGate = Invoke-ProvenanceGate -RepoRoot $repo -Binaries $catalogBinaries -Mode development -Stage 'visual-catalog-preflight' -PassThru
+if (-not $catalogGate.ok) {
+    throw $catalogGate.message
+}
+$catalogProvenance = $catalogGate.evidence
 
 if (-not ('FfVisualWindowPos' -as [type])) {
     Add-Type -TypeDefinition @'

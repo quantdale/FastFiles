@@ -577,7 +577,12 @@ function Test-ReleaseVersionMetadata {
     $expectedProductVersion = Get-RepositoryProductVersion -RepoRoot $RepoRoot
     $expectedFileVersion = "$expectedProductVersion.0"
     $expectedBuildIdentity = Get-RepositoryCommit -RepoRoot $RepoRoot
-    if ($expectedBuildIdentity -and $expectedBuildIdentity -notmatch '^[0-9a-fA-F]{40}$') { throw 'BUILD_IDENTITY_INVALID' }
+    # Fail closed when HEAD cannot be resolved: comparing against a null
+    # expected identity would silently downgrade BUILD_IDENTITY_MISMATCH to a
+    # presence-only check and let stale binaries qualify.
+    if (-not $expectedBuildIdentity -or $expectedBuildIdentity -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'PROVENANCE_MISMATCH:HEAD_UNAVAILABLE: expected=40-hex repository HEAD; actual=unavailable; binary=all; check=head-binding; detail=git rev-parse HEAD failed'
+    }
     $checks = [System.Collections.Generic.List[object]]::new()
     foreach ($entry in @(Get-ReleaseArtifactPaths -ArtifactRoot $ArtifactRoot)) {
         $checks.Add((Test-ExecutableVersionMetadata -Path $entry.sourcePath -ExpectedProductVersion $expectedProductVersion `

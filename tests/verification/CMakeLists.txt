@@ -30,4 +30,12 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/tests/e2e/Test-E2EHarness.ps1"
   )
   set_tests_properties(ffe2e_harness_ps_tests PROPERTIES TIMEOUT 120)
+  # Source-to-binary provenance gate: stale/mixed/missing/malformed identities
+  # and dirty-tree exact-mode must fail closed with PROVENANCE_MISMATCH.
+  add_test(
+    NAME ffverify_provenance_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-Provenance.ps1"
+  )
+  set_tests_properties(ffverify_provenance_ps_tests PROPERTIES TIMEOUT 120)
 endif()
