@@ -72,7 +72,13 @@ if ($Commit) {
     }
 
     Write-Host "`n[4/4] Committing and pushing..." -ForegroundColor Yellow
-    
+
+    Import-Module (Join-Path $repoRoot 'verify\core\Governance.psm1') -Force -DisableNameChecking
+    $govCommit = Assert-AgentGovernance -Operation 'git-commit' -RepoRoot $repoRoot -PassThru
+    if (-not $govCommit.ok) {
+        Write-Error "governance refused commit: $($govCommit.message)"
+    }
+
     # Check git status
     $status = git status --short
     if (-not $status) {
@@ -88,7 +94,11 @@ if ($Commit) {
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Git commit failed."
     }
-    
+
+    $govPush = Assert-AgentGovernance -Operation 'git-push' -RepoRoot $repoRoot -PassThru
+    if (-not $govPush.ok) {
+        Write-Error "governance refused push: $($govPush.message)"
+    }
     git push
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Git push failed."

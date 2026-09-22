@@ -1,0 +1,6 @@
+#!/bin/sh
+# FastFiles tracked pre-commit hook: refuse commits while a read-only agent
+# session is active (FASTFILES_AGENT_MODE=readonly or the sticky sentinel
+# verify/runs/agent-mode.readonly). Activate with:
+#   git config core.hooksPath .githooks
+exec pwsh -NoProfile -File "$(git rev-parse --show-toplevel)/verify/governance/hook-guard.ps1" -Operation pre-commit

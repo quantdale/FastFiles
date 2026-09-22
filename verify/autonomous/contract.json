@@ -62,6 +62,7 @@
   },
   "boundedRetries": 3,
   "resumeProtocol": "On re-invocation without -Fresh, the latest incomplete run under verify/runs/autonomous/ is loaded and resumed at the first incomplete phase. Completed phases are never re-run. If the run is escalated or retries are exhausted, the orchestrator refuses to continue and reports deterministically.",
+  "sessionMissionPrecedence": "An explicit user-provided session mission supersedes archived repository planner prompts (.agent/EXECUTION_PROMPT.md, .agent/NEXT_CAMPAIGN_12H.md) and inert workstate documents. Under FASTFILES_AGENT_MODE=readonly, no campaign document authorizes git mutation; Resolve-CampaignDocAuthority classifies Status headers and, in a read-only context, flags imperative commit/push language outside (or even inside) an active mission as a hijack attempt. The commit and sync phases call Assert-AgentGovernance and refuse git-commit/git-push while read-only mode is active.",
   "capabilities": [
     "crash-analysis",
     "diagnostics",

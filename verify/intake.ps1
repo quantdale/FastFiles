@@ -67,6 +67,7 @@ Import-Module (Join-Path $VerifyRoot 'core\Repair.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Gate.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Toolchain.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'core\Schema.psm1') -Force
+Import-Module (Join-Path $VerifyRoot 'core\Governance.psm1') -Force
 Import-Module (Join-Path $VerifyRoot 'capabilities\diagnostics\Diagnostics.psm1') -Force -Global
 
 $script:RunPhases = @(
@@ -747,6 +748,10 @@ function Invoke-PhaseCommit {
     )
     $existing = @($paths | Where-Object { Test-Path -LiteralPath (Join-Path $RepoRoot $_) })
     if ($existing.Count -eq 0) { return [pscustomobject]@{ ok = $true; summary = 'nothing new to commit' } }
+    $govCommit = Assert-AgentGovernance -Operation 'git-commit' -RepoRoot $RepoRoot -PassThru
+    if (-not $govCommit.ok) {
+        return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "governance refused commit: $($govCommit.message)" }
+    }
     $add = Invoke-BoundedProcess -FilePath 'git' -ArgumentList @('add', '--', $existing) -WorkingDirectory $RepoRoot -TimeoutSeconds 60 -LogPath (Join-Path $RunPath 'log-commit-add.txt')
     if ($add.exitCode -ne 0) { return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "git add failed: $($add.output)" } }
     $msg = "autonomous: add intake orchestrator + contract (run $($State.runId))"
@@ -772,6 +777,12 @@ function Invoke-PhaseSync {
         Set-NoteProperty $State 'sync' ([pscustomobject]@{ pushed = $false; reason = 'push-not-opted-in' })
         Save-IntakeState -State $State -RunPath $RunPath
         return [pscustomobject]@{ ok = $true; summary = 'sync: remote available but push not opted-in (-AllowPush) (SKIPPED, recorded)' }
+    }
+    $govPush = Assert-AgentGovernance -Operation 'git-push' -RepoRoot $RepoRoot -PassThru
+    if (-not $govPush.ok) {
+        Set-NoteProperty $State 'sync' ([pscustomobject]@{ pushed = $false; reason = $govPush.message })
+        Save-IntakeState -State $State -RunPath $RunPath
+        return [pscustomobject]@{ ok = $false; class = 'ClassA'; summary = "governance refused push: $($govPush.message)" }
     }
     $push = Invoke-BoundedProcess -FilePath 'git' -ArgumentList @('push', 'origin', 'HEAD') -WorkingDirectory $RepoRoot -TimeoutSeconds 120 -LogPath (Join-Path $RunPath 'log-sync-push.txt')
     Set-NoteProperty $State 'sync' ([pscustomobject]@{ pushed = ($push.exitCode -eq 0); reason = if ($push.exitCode -eq 0) { 'pushed' } else { $push.output } })

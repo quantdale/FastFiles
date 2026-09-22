@@ -16,6 +16,7 @@ add_subdirectory(status)
 add_subdirectory(providers)
 add_subdirectory(verification)
 add_subdirectory(e2e)
+add_subdirectory(governance)
 
 # CTest test properties are directory-scoped since CMake 3.29: a
 # set_tests_properties() call here cannot see tests registered by the

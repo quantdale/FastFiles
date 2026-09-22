@@ -9,6 +9,9 @@
 *.ps1 text eol=crlf
 *.psm1 text eol=crlf
 
+# Git hook shims are POSIX sh: a checked-out CR breaks the shebang line.
+.githooks/* text eol=lf
+
 # Binary artifacts -- never convert or treat as text.
 *.exe binary
 *.png binary

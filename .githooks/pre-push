@@ -1,0 +1,4 @@
+#!/bin/sh
+# FastFiles tracked pre-push hook: refuse pushes while a read-only agent
+# session is active. Activate with: git config core.hooksPath .githooks
+exec pwsh -NoProfile -File "$(git rev-parse --show-toplevel)/verify/governance/hook-guard.ps1" -Operation pre-push
