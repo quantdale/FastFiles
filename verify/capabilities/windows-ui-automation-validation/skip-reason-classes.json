@@ -1,0 +1,59 @@
+{
+    "schemaVersion": 1,
+    "classes": [
+        "CAPABILITY_UNAVAILABLE",
+        "AUTOMATION_LIMITATION",
+        "ENVIRONMENT_UNSUPPORTED",
+        "FLAKY",
+        "PRODUCT_DEFECT",
+        "HARNESS_DEFECT",
+        "UNKNOWN"
+    ],
+    "reasons": {
+        "privileged-scan-unavailable": {
+            "primaryClass": "CAPABILITY_UNAVAILABLE",
+            "canonicalCode": "PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE",
+            "absenceCodes": [
+                "service-not-installed",
+                "service-not-authorized",
+                "signer-pins-unavailable",
+                "elevation-unavailable",
+                "clean-host-requirement",
+                "host-contamination"
+            ],
+            "notes": "Deterministic eligibility: Resolve-UiaPrivilegedScanEligibility OBSERVES service installation, authorized-group membership of the launching user, configure-baked signer pins, and elevation (read-only probes; pins are never provisioned or modified), and always appends the campaign-policy absences clean-host-requirement and host-contamination. Skip detail carries the machine-readable expected form SKIP/reason=PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE/evidence=<facts>; if every code is false the scenario must FAIL loudly instead of skipping."
+        },
+        "engine-connect-unavailable": {
+            "primaryClass": "CAPABILITY_UNAVAILABLE",
+            "notes": "Engine handshake was not observed in the session; the scenario needs engine-served snapshot data to assert anything real."
+        },
+        "connected-state-observed": {
+            "primaryClass": "CAPABILITY_UNAVAILABLE",
+            "notes": "Degraded-badge observation requires an engine-disconnected session state; a connected state makes the degraded text unobservable by definition."
+        },
+        "engine-connected-host": {
+            "primaryClass": "CAPABILITY_UNAVAILABLE",
+            "notes": "The early engine-less check requires an engine-less observation window; an engine-connected host makes that precondition unobservable."
+        },
+        "explorer-drag-source-unavailable": {
+            "primaryClass": "AUTOMATION_LIMITATION",
+            "notes": "Synthetic input cannot arm the host Explorer OLE drag source: semantic SelectionItemPattern.Select succeeds but a synthetic down+move never arms; bounded foreground/select retries are exhausted at the emitter."
+        },
+        "interactive-drop-target-obstructed": {
+            "primaryClass": "ENVIRONMENT_UNSUPPORTED",
+            "notes": "A third-party shell paste interceptor owns the bound drop point; the harness must not kill or neutralize host shell extensions."
+        },
+        "interactive-window-layout-unavailable": {
+            "primaryClass": "ENVIRONMENT_UNSUPPORTED",
+            "notes": "After Phase 4 P3 left-half normalization the only remaining layout skip is a genuinely too-small display for two non-overlapping windows."
+        },
+        "interactive-foreground-unavailable": {
+            "primaryClass": "FLAKY",
+            "notes": "Foreign-foreground races vary run-to-run on this interactive host (same-host PASS history for drag-between-panes and selection-model-interactions); Phase 4 P1 requires proven foreign ownership before this skip may be recorded."
+        },
+        "ui-exe-not-built": {
+            "primaryClass": "HARNESS_DEFECT",
+            "notes": "The UI binary was not built before execution; harness/setup issue, never product behavior."
+        }
+    }
+}

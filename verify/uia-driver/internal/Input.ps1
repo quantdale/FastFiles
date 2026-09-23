@@ -156,6 +156,7 @@ public static class FfNativeInput
     public const uint MOUSEEVENTF_LEFTUP = 0x0004;
     public const uint MOUSEEVENTF_RIGHTDOWN = 0x0008;
     public const uint MOUSEEVENTF_RIGHTUP = 0x0010;
+    public const uint MOUSEEVENTF_VIRTUALDESK = 0x4000;
 
     public static bool KeyDown(ushort vk)
     {
@@ -194,14 +195,20 @@ public static class FfNativeInput
 
     public static bool MouseMove(int x, int y)
     {
-        int sw = GetSystemMetrics(0);
-        int sh = GetSystemMetrics(1);
-        if (sw <= 0 || sh <= 0) return false;
+        // hardening-campaign Phase 4: normalize against the VIRTUAL screen so
+        // coordinates outside the primary monitor map correctly on
+        // multi-monitor hosts; on a single display this is algebraically
+        // identical to the old primary-only math (origin 0, width == screen).
+        int vx = GetSystemMetrics(76);   // SM_XVIRTUALSCREEN
+        int vy = GetSystemMetrics(77);   // SM_YVIRTUALSCREEN
+        int vw = GetSystemMetrics(78);   // SM_CXVIRTUALSCREEN
+        int vh = GetSystemMetrics(79);   // SM_CYVIRTUALSCREEN
+        if (vw <= 1 || vh <= 1) return false;
         INPUT[] input = new INPUT[1];
         input[0].type = INPUT_MOUSE;
-        input[0].u.mi.dx = (x * 65535) / (sw - 1);
-        input[0].u.mi.dy = (y * 65535) / (sh - 1);
-        input[0].u.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_MOVE;
+        input[0].u.mi.dx = ((x - vx) * 65535) / (vw - 1);
+        input[0].u.mi.dy = ((y - vy) * 65535) / (vh - 1);
+        input[0].u.mi.dwFlags = MOUSEEVENTF_ABSOLUTE | MOUSEEVENTF_VIRTUALDESK | MOUSEEVENTF_MOVE;
         return SendInput(1, input, Marshal.SizeOf(typeof(INPUT))) == 1;
     }
 
@@ -367,25 +374,34 @@ function Send-UiaMouseDrag {
     param($Driver, [int] $FromX, [int] $FromY, [int] $ToX, [int] $ToY,
           [int] $Steps = 20, [int] $StepDelayMs = 60, [switch] $NoSend)
     if (-not $NoSend) {
-        $null = [FfNativeInput]::MouseMove($FromX, $FromY)
-        Start-Sleep -Milliseconds 300
-        $null = [FfNativeInput]::MouseButton($true, $true)
-        Start-Sleep -Milliseconds 600
-        # Small arm move so the source crosses its drag threshold; the pause
-        # after the down must outlast the source's selection/repaint work or
-        # the arm move is swallowed and the drag never starts.
-        $armX = $FromX + [int](($ToX - $FromX) / 8)
-        $armY = $FromY + [int](($ToY - $FromY) / 8)
-        $null = [FfNativeInput]::MouseMove($armX, $armY)
-        Start-Sleep -Milliseconds 600
-        for ($i = 1; $i -le $Steps; $i++) {
-            $x = $FromX + [int](($ToX - $FromX) * $i / $Steps)
-            $y = $FromY + [int](($ToY - $FromY) * $i / $Steps)
-            $null = [FfNativeInput]::MouseMove($x, $y)
-            Start-Sleep -Milliseconds $StepDelayMs
+        try {
+            $null = [FfNativeInput]::MouseMove($FromX, $FromY)
+            Start-Sleep -Milliseconds 300
+            $null = [FfNativeInput]::MouseButton($true, $true)
+            Start-Sleep -Milliseconds 600
+            # Small arm move so the source crosses its drag threshold; the pause
+            # after the down must outlast the source's selection/repaint work or
+            # the arm move is swallowed and the drag never starts.
+            $armX = $FromX + [int](($ToX - $FromX) / 8)
+            $armY = $FromY + [int](($ToY - $FromY) / 8)
+            $null = [FfNativeInput]::MouseMove($armX, $armY)
+            Start-Sleep -Milliseconds 600
+            for ($i = 1; $i -le $Steps; $i++) {
+                $x = $FromX + [int](($ToX - $FromX) * $i / $Steps)
+                $y = $FromY + [int](($ToY - $FromY) * $i / $Steps)
+                $null = [FfNativeInput]::MouseMove($x, $y)
+                Start-Sleep -Milliseconds $StepDelayMs
+            }
+            Start-Sleep -Milliseconds 800
+            $null = [FfNativeInput]::MouseButton($true, $false)
+        } catch {
+            # hardening-campaign Phase 4: input-state cleanup -- never leave
+            # the physical button down if the sequence dies mid-drag; a stuck
+            # button contaminates every subsequent input on the host.
+            throw
+        } finally {
+            $null = [FfNativeInput]::MouseButton($true, $false)
         }
-        Start-Sleep -Milliseconds 800
-        $null = [FfNativeInput]::MouseButton($true, $false)
     }
     return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }
 }

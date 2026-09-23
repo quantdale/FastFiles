@@ -1413,15 +1413,26 @@ function Position-UiaExplorerBesideFastFiles {
         $mainBr = Get-UiaElementProperty -Driver $Driver -Element $Main -Name 'BoundingRectangle'
         $winBr = Get-UiaElementProperty -Driver $Driver -Element $ExplorerWindow -Name 'BoundingRectangle'
         if (-not $mainBr -or -not $winBr) { return $null }
-        $screenW = [FfNativeInput]::GetSystemMetrics(0)   # SM_CXSCREEN
-        $screenH = [FfNativeInput]::GetSystemMetrics(1)   # SM_CYSCREEN
-        $newWidth = $screenW - ($mainBr.x + $mainBr.width) - 40
+        # hardening-campaign Phase 4: explicit display capability detection --
+        # measure the placement budget against the VIRTUAL screen (multi-
+        # monitor aware) instead of primary-monitor metrics, so a main window
+        # on any display gets a correct right-edge/height budget. On a single
+        # display this is algebraically identical (origin 0, same extents).
+        $screenX = [FfNativeInput]::GetSystemMetrics(76)  # SM_XVIRTUALSCREEN
+        $screenY = [FfNativeInput]::GetSystemMetrics(77)  # SM_YVIRTUALSCREEN
+        $screenW = [FfNativeInput]::GetSystemMetrics(78)  # SM_CXVIRTUALSCREEN
+        $screenH = [FfNativeInput]::GetSystemMetrics(79)  # SM_CYVIRTUALSCREEN
+        $newWidth = ($screenX + $screenW) - ($mainBr.x + $mainBr.width) - 40
         if ($newWidth -lt 500) { $newWidth = 500 }
         $newHeight = $winBr.height
-        if ($mainBr.y + $newHeight -gt $screenH) { $newHeight = $screenH - $mainBr.y - 20 }
+        if ($mainBr.y + $newHeight -gt ($screenY + $screenH)) { $newHeight = ($screenY + $screenH) - $mainBr.y - 20 }
         if ($newHeight -lt 300) { $newHeight = 300 }
         $null = Set-UiaWindowPosition -Driver $Driver -Element $ExplorerWindow -X ($mainBr.x + $mainBr.width + 20) -Y $mainBr.y -Width $newWidth -Height $newHeight
-        Start-Sleep -Milliseconds 1000
+        # hardening-campaign Phase 4: replace the arbitrary post-move sleep
+        # with the documented readiness signal -- layout quiescence -- because
+        # the moved Explorer view rebuilds and its OLE drop target only
+        # re-registers once the layout settles.
+        $null = Wait-UiaStableRect -Driver $Driver -Element $ExplorerWindow -StableReads 3 -IntervalMs 300 -TimeoutMs 5000
         # The move (SetWindowPos) destabilizes the DUIListView UIA providers,
         # so all element reads afterwards must re-acquire fresh elements.
         # Re-acquire the folder view and return its center.
@@ -1658,6 +1669,14 @@ function Remove-UiaScenarioContext {
                 }
             }
         } catch { }
+    }
+    # hardening-campaign Phase 4: restore desktop input state before the
+    # lifecycle goes away -- release any held modifiers and drop the topmost
+    # style the foreground helpers set, so neither leaks past the scenario
+    # (mirrors the windows-visual-validation teardown).
+    try { $null = Reset-UiaModifierKeys -Driver $Context.Driver } catch { }
+    if ($Context.Main) {
+        try { $null = Keep-UiaWindowTopmost -Driver $Context.Driver -Element $Context.Main -Topmost $false } catch { }
     }
     foreach ($fixture in @($Context.Fixtures)) {
         Remove-Item -LiteralPath $fixture -Recurse -Force -ErrorAction SilentlyContinue
@@ -2829,7 +2848,11 @@ function Invoke-UiaScenarioDragOut {
 
     try {
         $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $dragSource -ExpectedLeaf 'source'
-        if (-not $nav.Pass) { return & $fail "navigation to source failed: $($nav.Detail)" }
+        if (-not $nav.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-out-to-explorer' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation to source failed: $($nav.Detail)"
+        }
         # Bring the target column fully into view before deriving coordinates.
         try {
             $pane0 = Find-UiaElement -Driver $driver -AutomationId 'Pane.0' -ProcessId $appPid -TimeoutMs 3000
@@ -2845,6 +2868,30 @@ function Invoke-UiaScenarioDragOut {
         $src = Get-UiaElementCenter -Driver $driver -Element $item
         $sourceIdentity = Get-UiaElementIdentity -Driver $driver -Element $item
 
+        # hardening-campaign Phase 4 P3: normalize FastFiles to the left half
+        # BEFORE binding Explorer. Position-UiaExplorerBesideFastFiles only
+        # moves Explorer, so a maximized/centered FastFiles can leave no
+        # display region for a non-overlapping drop target and the layout
+        # check below skips a drag this host can actually execute. The
+        # isolated lifecycle owns this window; source geometry is re-acquired
+        # after Explorer positioning. A genuinely small screen still reaches
+        # the honest non-overlap skip.
+        $mainNormRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
+        $normScreenW = [FfNativeInput]::GetSystemMetrics(0)   # SM_CXSCREEN
+        $normScreenH = [FfNativeInput]::GetSystemMetrics(1)   # SM_CYSCREEN
+        if ($mainNormRect -and $normScreenW -ge 600 -and $normScreenH -gt 0) {
+            $null = Set-UiaWindowPosition -Driver $driver -Element $main -X 0 -Y 0 -Width ([int]($normScreenW / 2)) -Height $normScreenH
+            # hardening-campaign Phase 4: wait for the normalized geometry to
+            # settle against its semantic target via a bounded poll -- never a
+            # blind fixed sleep -- because the Explorer bind and the
+            # non-overlap check below read live rects.
+            $normTargetW = [int]($normScreenW / 2)
+            for ($normPoll = 0; $normPoll -lt 10; $normPoll++) {
+                $settledRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
+                if ($settledRect -and $settledRect.x -eq 0 -and [Math]::Abs($settledRect.width - $normTargetW) -le 16) { break }
+                Start-Sleep -Milliseconds 150
+            }
+        }
         # Bind the test-owned Explorer window on the destination folder.
         $explorerPids = Get-UiaExplorerPidSet
         $explorer = Start-Process explorer.exe -ArgumentList $dragTarget -PassThru
@@ -3072,7 +3119,11 @@ function Invoke-UiaScenarioDragIn {
 
     try {
         $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $dragTarget -ExpectedLeaf 'target'
-        if (-not $nav.Pass) { return & $fail "navigation to the FastFiles target failed: $($nav.Detail)" }
+        if (-not $nav.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-in-from-explorer' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation to the FastFiles target failed: $($nav.Detail)"
+        }
         $explorerPids = Get-UiaExplorerPidSet
         $explorer = Start-Process explorer.exe -ArgumentList $dragSource -PassThru
         $win = Get-UiaExplorerReadyWindow -Driver $driver -Path $dragSource -CandidateProcessIds $explorerPids -TimeoutMs 15000
@@ -3204,7 +3255,11 @@ function Invoke-UiaScenarioDragPanes {
         # Navigate Pane.0 to the source BEFORE dual-pane creation (dual pane
         # clones the active pane's model).
         $nav0 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $left -ExpectedLeaf 'left'
-        if (-not $nav0.Pass) { return & $fail "navigation of Pane.0 to 'left' failed: $($nav0.Detail)" }
+        if (-not $nav0.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav0.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation of Pane.0 to 'left' failed: $($nav0.Detail)"
+        }
         $dp = Ensure-UiaDualPane -Driver $driver -Main $main -ProcessId $appPid
         if (-not $dp.Pass) {
             $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $dp.Detail
@@ -3222,7 +3277,11 @@ function Invoke-UiaScenarioDragPanes {
             return & $fail $activatePane.Detail
         }
         $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $right -ExpectedLeaf 'right'
-        if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to 'right' failed: $($nav1.Detail)" }
+        if (-not $nav1.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav1.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation of Pane.1 to 'right' failed: $($nav1.Detail)"
+        }
         # stabilize-live-uia-e2e: PROVE pane ownership semantically. A global
         # address-bar commit navigates the ACTIVE pane; the tab-label check
         # inside the navigate helper cannot distinguish which pane moved, so
@@ -3254,7 +3313,15 @@ function Invoke-UiaScenarioDragPanes {
         if (-not $dst3) { $dst3 = Get-UiaElementCenter -Driver $driver -Element $pane1 }
 
         if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
-            return & $fail 'foreground could not be established on FastFiles before the cross-pane drag'
+            # hardening-campaign Phase 4 P2b: record the foreground owner and
+            # route through the shared converter like the selection Ctrl+A
+            # paths, so a foreign thief becomes an evidence-backed skip while
+            # a FastFiles-foreground failure stays a hard FAIL.
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            $fgDetail = "foreground could not be established on FastFiles before the cross-pane drag (foreground='$($state.ForegroundTitle)')"
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'drag-between-panes' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $fgDetail
+            if ($blocked) { return $blocked }
+            return & $fail $fgDetail
         }
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 400
@@ -3664,7 +3731,12 @@ function Invoke-UiaScenarioSelectionModelInteractions {
     $invokeRowClick = {
         param([string]$Name, [string]$Modifier = '', [string]$PaneId = 'Pane.0')
         if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
-            return [pscustomobject]@{ Pass = $false; Detail = "input foreground precondition failed before clicking '$Name' in $PaneId" }
+            # hardening-campaign Phase 4 P2c: capture the foreground owner so
+            # the converter downstream can distinguish a foreign thief
+            # (honest skip) from a FastFiles-foreground product failure (hard
+            # FAIL) -- without the capture P1 must refuse the skip.
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            return [pscustomobject]@{ Pass = $false; Detail = "input foreground precondition failed before clicking '$Name' in $PaneId (foreground='$($state.ForegroundTitle)')" }
         }
         $col = $null
         for ($colWait = 0; $colWait -lt 16 -and -not $col; $colWait++) {
@@ -3911,7 +3983,11 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             return & $fail $activatePane.Detail
         }
         $nav1 = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
-        if (-not $nav1.Pass) { return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)" }
+        if (-not $nav1.Pass) {
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav1.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation of Pane.1 to fixture folder failed: $($nav1.Detail)"
+        }
         & $scrollPaneRight 'Pane.1'
         # Wait for Pane.1's terminal column to expose the fixture rows.
         $p1Owned = Wait-UiaCondition -Driver $driver -TimeoutMs 12000 -PollIntervalMs 300 -Description "Pane.1 terminal column shows fixture rows" -ScriptBlock {
@@ -3945,6 +4021,13 @@ function Invoke-UiaScenarioSelectionModelInteractions {
         $null = Reset-UiaModifierKeys -Driver $driver
         Start-Sleep -Milliseconds 150
         if (-not (Ensure-UiaInputForeground -Driver $driver -Main $main)) {
+            # hardening-campaign Phase 4 P2: route this guard through the shared
+            # converter like the 5.8 Ctrl+A path, so a foreign-foreground block
+            # records an evidence-backed skip while FastFiles-foreground
+            # failures stay hard FAILs.
+            $state = Get-UiaInteractiveState -Driver $driver -ProcessId $appPid
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "foreground precondition failed before Ctrl+A in Pane.0 (foreground='$($state.ForegroundTitle)')"
+            if ($blocked) { return $blocked }
             return & $fail 'input foreground precondition failed before Ctrl+A in Pane.0'
         }
         $null = Send-UiaInput -Driver $driver -Keys '{CTRL}a'
@@ -4171,9 +4254,103 @@ function Convert-UiaForegroundFailureToSkip {
     $foreign = $match.Success -and ($foreground.Length -eq 0 -or $foreground -ne 'FastFiles')
     if ($Detail -match 'foregroundTitle":"<foreign>"' -or $Detail -match 'focusedAutomationId":"RootWebArea"') { $foreign = $true }
     $pointBlocked = $Detail -match 'point .* is not inside FastFiles; topmost='
-    if (-not (($precondition -and ($foreign -or -not $match.Success)) -or $pointBlocked)) { return $null }
+    # hardening-campaign Phase 4 P1: a skip requires PROVEN foreign ownership
+    # (the foreground='...' capture or the JSON foreign markers above).
+    # Missing evidence must never default to SKIPPED -- that arm let a product
+    # failure with FastFiles in the foreground hide as an environment skip.
+    if (-not (($precondition -and $foreign) -or $pointBlocked)) { return $null }
     return New-UiaVSubResult -Id $Id -Status 'SKIPPED' -Reason 'interactive-foreground-unavailable' -DurationMs $DurationMs `
         -Detail "BLOCKED_ENVIRONMENT: $Detail; no input or downstream assertion was attempted while another interactive window owned the foreground"
+}
+
+# hardening-campaign Phase 4 (4.2): deterministic eligibility for the
+# privileged-scan scenarios. The requirement's absence must be OBSERVED,
+# never asserted: probe the observable capability facts (service installation,
+# authorized-group membership of the launching user, configure-baked signer
+# pins, elevation) and always append the campaign-policy absences (clean-host
+# certification pending; working-dev-host contamination). Probes are strictly
+# read-only -- pins are inspected in the CMake cache, never provisioned or
+# modified, so fail-closed pin policy stays untouched (no fake production
+# pins, no trust-store interaction, no elevation required to probe).
+function Resolve-UiaPrivilegedScanEligibility {
+    $absences = New-Object System.Collections.Generic.List[string]
+
+    $serviceState = 'absent'
+    $service = Get-Service -Name 'FastFilesIndexSvc' -ErrorAction SilentlyContinue
+    if (-not $service) {
+        $absences.Add('service-not-installed')
+    } else {
+        $serviceState = [string]$service.Status
+    }
+
+    $groupState = 'probe-unavailable'
+    $group = Get-LocalGroup -Name 'FastFilesUsers' -ErrorAction SilentlyContinue
+    if (-not $group) {
+        $groupState = 'group-missing'
+        $absences.Add('service-not-authorized')
+    } else {
+        $members = @(Get-LocalGroupMember -Name 'FastFilesUsers' -ErrorAction SilentlyContinue)
+        if ($null -eq $members -or $members.Count -eq 0) {
+            $groupState = 'members-unreadable'
+        } else {
+            $who = [Environment]::UserName
+            $isMember = $false
+            foreach ($m in $members) {
+                $n = [string]$m.Name
+                if ($n -ieq $who -or $n.EndsWith("\" + $who, [StringComparison]::OrdinalIgnoreCase)) { $isMember = $true; break }
+            }
+            $groupState = if ($isMember) { 'member' } else { 'not-member' }
+            if (-not $isMember) { $absences.Add('service-not-authorized') }
+        }
+    }
+
+    $pinState = 'absent'
+    $repoRootForPins = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
+    $cachePath = Join-Path $repoRootForPins 'build\debug-diagnostic\CMakeCache.txt'
+    if (Test-Path -LiteralPath $cachePath) {
+        $cacheText = Get-Content -LiteralPath $cachePath -Raw
+        $enginePin = ''
+        $svcPin = ''
+        if ($cacheText -match '(?m)^FASTFILES_ENGINE_SIGNATURE_THUMBPRINT:[^=]*=(.*)$') { $enginePin = $Matches[1].Trim() }
+        if ($cacheText -match '(?m)^FASTFILES_INDEX_SVC_SIGNATURE_THUMBPRINT:[^=]*=(.*)$') { $svcPin = $Matches[1].Trim() }
+        $engineOk = -not [string]::IsNullOrWhiteSpace($enginePin) -and $enginePin -notmatch 'NOTFOUND'
+        $svcOk = -not [string]::IsNullOrWhiteSpace($svcPin) -and $svcPin -notmatch 'NOTFOUND'
+        if ($engineOk -and $svcOk) { $pinState = 'available' }
+    } else {
+        $pinState = 'cache-missing'
+    }
+    if ($pinState -ne 'available') { $absences.Add('signer-pins-unavailable') }
+
+    $elevated = $false
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        $elevated = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    } catch { $elevated = $false }
+    if (-not $elevated) { $absences.Add('elevation-unavailable') }
+
+    # Campaign-policy absences: never probed, always declared until the
+    # external privileged certification campaign closes them.
+    $absences.Add('clean-host-requirement')
+    $absences.Add('host-contamination')
+
+    return [pscustomobject]@{
+        Absences = @($absences)
+        Eligible = ($absences.Count -eq 0)
+        ServiceState = $serviceState
+        GroupState = $groupState
+        PinState = $pinState
+        Elevated = $elevated
+    }
+}
+
+# hardening-campaign Phase 4 (4.2): the mandated machine-readable expected
+# form for the privileged-scan skip -- SKIP / canonical reason / evidence facts
+# -- built in exactly one place so tests can pin the contract.
+function Get-UiaPrivilegedSkipDetail {
+    param($Eligibility)
+    $codes = ($Eligibility.Absences -join ',')
+    return "SKIP`nreason=PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE`nevidence=absence=$codes;service=$($Eligibility.ServiceState);group=$($Eligibility.GroupState);pins=$($Eligibility.PinState);elevated=$($Eligibility.Elevated)"
 }
 
 # stabilize-live-uia-e2e 2.1/5: the scenario registry. Isolated scenarios run
@@ -4765,7 +4942,15 @@ function Invoke-UiaSharedSessionScenarios {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail 'Connection badge state recorded: degraded text visible via UIA iff the engine did not connect to the running service.'))
     }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('storage-mid-scan-calculating')) {
-        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'No authenticated privileged MFT/USN scan is available in this session (service unavailable or mutual authentication failed); the mid-scan "Calculating..." path cannot be exercised'))
+        $elig = Resolve-UiaPrivilegedScanEligibility
+        if (-not $elig.Eligible) {
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail (Get-UiaPrivilegedSkipDetail -Eligibility $elig)))
+        } else {
+            # hardening-campaign Phase 4 4.2: eligibility inverted. Fail loud
+            # rather than skip -- the policy absences must hold until the
+            # privileged certification campaign closes.
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'storage-mid-scan-calculating' -Status 'FAIL' -Reason 'privileged-eligibility-inconsistent' -DurationMs 0 -Detail 'no absence codes observed while clean-host-requirement/host-contamination must hold; privileged certification campaign is still open'))
+        }
     }
     }
 
@@ -4893,7 +5078,14 @@ function Invoke-UiaSharedSessionScenarios {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-structured-filter-query' -Status $filterStatus -Reason $filterReason -DurationMs 0 -Detail $filterDetail -Diagnostics @('3.11-structured-filter.tree.txt')))
     }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-toggle-service-while-open')) {
-        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail 'The privileged path is unverified in this development tree (placeholder signature pins), so the engine treats the service as unavailable; toggling service availability while search is open cannot be meaningfully exercised'))
+        $elig = Resolve-UiaPrivilegedScanEligibility
+        if (-not $elig.Eligible) {
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'SKIPPED' -Reason 'privileged-scan-unavailable' -DurationMs 0 -Detail (Get-UiaPrivilegedSkipDetail -Eligibility $elig)))
+        } else {
+            # hardening-campaign Phase 4 4.2: eligibility inverted. Fail loud
+            # rather than skip -- see the storage-mid-scan sibling guard.
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-toggle-service-while-open' -Status 'FAIL' -Reason 'privileged-eligibility-inconsistent' -DurationMs 0 -Detail 'no absence codes observed while clean-host-requirement/host-contamination must hold; privileged certification campaign is still open'))
+        }
     }
     }
 
@@ -5423,4 +5615,4 @@ function Invoke-UiaVisualMatrix {
     return [pscustomobject]@{ Checks = @($checks); Passed = ($checks.Count - $failed); Failed = $failed; Detail = $detail }
 }
 
-Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke, Invoke-UiaVisualMatrix, Find-UiaTerminalColumnItem, Open-UiaSearchPanel, Set-UiaSearchFixtureScope, Set-UiaSearchQuery, Get-UiaSearchResultItems, Get-UiaSearchQuerySurface, Export-UiaEvidence
+Export-ModuleMember -Function Test-UiAutomationValidationAvailability, Invoke-UiAutomationValidationCapability, Get-UiAutomationValidationDiagnostics, Resolve-UiaScenarioSelection, Resolve-UiaExecutionOrder, New-UiaScenarioContext, Remove-UiaScenarioContext, Invoke-UiaPaletteCommand, Invoke-UiaAddressBarNavigate, Invoke-UiaOpenSettings, Invoke-UiaCloseSettingsDialog, Close-UiaSearchPanelIfOpen, Invoke-UiaActivateAppWindow, Wait-UiaStableGeometry, Invoke-UiaCoreSmoke, Invoke-UiaVisualMatrix, Find-UiaTerminalColumnItem, Open-UiaSearchPanel, Set-UiaSearchFixtureScope, Set-UiaSearchQuery, Get-UiaSearchResultItems, Get-UiaSearchQuerySurface, Export-UiaEvidence, Convert-UiaForegroundFailureToSkip, Resolve-UiaPrivilegedScanEligibility, Get-UiaPrivilegedSkipDetail
