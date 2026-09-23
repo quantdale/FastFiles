@@ -956,7 +956,11 @@ function Invoke-UiaMouseTabOperation {
     if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
         $null = Set-UiaForeground -Driver $Driver -Element $Main
         if (-not (Test-UiaForegroundWindow -Driver $Driver -Element $Main)) {
-            return [pscustomobject]@{ Pass = $false; Status = 'SKIPPED'; Reason = 'interactive-foreground-unavailable'; Detail = 'FastFiles foreground could not be established for the + button input; no downstream tab assertion was attempted'; DurationMs = $sw.Elapsed.TotalMilliseconds }
+            # hardening-campaign Phase 4 (reviewer-C H-SKIP-1): record the
+            # actual foreground owner -- a skip without machine evidence is an
+            # ambiguous skip, which this campaign exists to eliminate.
+            $state = Get-UiaInteractiveState -Driver $Driver -ProcessId $ProcessId
+            return [pscustomobject]@{ Pass = $false; Status = 'SKIPPED'; Reason = 'interactive-foreground-unavailable'; Detail = "FastFiles foreground could not be established for the + button input (foreground='$($state.ForegroundTitle)'); no downstream tab assertion was attempted"; DurationMs = $sw.Elapsed.TotalMilliseconds }
         }
     }
     $before = Get-UiaTabCount -Driver $Driver -Main $Main -ProcessId $ProcessId
@@ -2642,7 +2646,10 @@ function Invoke-UiaScenarioTreemapReadability {
         }
         # Return to the fixture root.
         $rootNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
-        if (-not $rootNav.Pass) { & $fail "return to root failed" }
+        # hardening-campaign Phase 4 (reviewer-C H-FAIL-1): return the failure
+        # result -- without return the discarded $fail object fell through to
+        # palette/storage after a failed precondition.
+        if (-not $rootNav.Pass) { return & $fail "return to root failed" }
         Start-Sleep -Milliseconds 300
 
         # Open Storage Analysis via palette.
@@ -2887,18 +2894,26 @@ function Invoke-UiaScenarioDragOut {
         # after Explorer positioning. A genuinely small screen still reaches
         # the honest non-overlap skip.
         $mainNormRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
-        $normScreenW = [FfNativeInput]::GetSystemMetrics(0)   # SM_CXSCREEN
-        $normScreenH = [FfNativeInput]::GetSystemMetrics(1)   # SM_CYSCREEN
+        # hardening-campaign Phase 4 (reviewer-C H-COORD-1): measure against the
+        # VIRTUAL screen (multi-monitor aware), consistent with the input
+        # mapping and Explorer placement -- primary metrics misplace FastFiles
+        # whenever the virtual origin is non-zero or the desktop spans
+        # displays. Single-display algebra is identical (origin 0, same
+        # extents).
+        $normScreenX = [FfNativeInput]::GetSystemMetrics(76)   # SM_XVIRTUALSCREEN
+        $normScreenY = [FfNativeInput]::GetSystemMetrics(77)   # SM_YVIRTUALSCREEN
+        $normScreenW = [FfNativeInput]::GetSystemMetrics(78)   # SM_CXVIRTUALSCREEN
+        $normScreenH = [FfNativeInput]::GetSystemMetrics(79)   # SM_CYVIRTUALSCREEN
         if ($mainNormRect -and $normScreenW -ge 600 -and $normScreenH -gt 0) {
-            $null = Set-UiaWindowPosition -Driver $driver -Element $main -X 0 -Y 0 -Width ([int]($normScreenW / 2)) -Height $normScreenH
+            $normTargetW = [int]($normScreenW / 2)
+            $null = Set-UiaWindowPosition -Driver $driver -Element $main -X $normScreenX -Y $normScreenY -Width $normTargetW -Height $normScreenH
             # hardening-campaign Phase 4: wait for the normalized geometry to
             # settle against its semantic target via a bounded poll -- never a
             # blind fixed sleep -- because the Explorer bind and the
             # non-overlap check below read live rects.
-            $normTargetW = [int]($normScreenW / 2)
             for ($normPoll = 0; $normPoll -lt 10; $normPoll++) {
                 $settledRect = Get-UiaElementProperty -Driver $driver -Element $main -Name 'BoundingRectangle'
-                if ($settledRect -and $settledRect.x -eq 0 -and [Math]::Abs($settledRect.width - $normTargetW) -le 16) { break }
+                if ($settledRect -and $settledRect.x -eq $normScreenX -and [Math]::Abs($settledRect.width - $normTargetW) -le 16) { break }
                 Start-Sleep -Milliseconds 150
             }
         }
@@ -3213,7 +3228,11 @@ function Invoke-UiaScenarioDragIn {
             $null = Set-UiaForeground -Driver $driver -Element $win
             Start-Sleep -Milliseconds 400
             if (-not (Test-UiaForegroundWindow -Driver $driver -Element $win)) {
-                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail 'Explorer foreground could not be established for the drag source mouse-down; the host Explorer drag source is unavailable to synthetic input'
+                # hardening-campaign Phase 4 (reviewer-C H-SKIP-2): capture the
+                # foreground owner like the sibling skip above -- evidence, not
+                # assertion.
+                $st = Get-UiaInteractiveState -Driver $driver
+                return New-UiaVSubResult -Id 'drag-in-from-explorer' -Status 'SKIPPED' -Reason 'explorer-drag-source-unavailable' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail "Explorer foreground could not be established for the drag source mouse-down (foreground='$($st.ForegroundTitle)'); the host Explorer drag source is unavailable to synthetic input"
             }
         }
         $null = Send-UiaMouseDrag -Driver $driver -FromX $src2.x -FromY $src2.y -ToX $dst2.x -ToY $dst2.y
@@ -4969,7 +4988,12 @@ function Invoke-UiaSharedSessionScenarios {
     $badgeStatus = if ($degradedVisible) { 'PASS' } else { 'SKIPPED' }
     $badgeReason = if ($degradedVisible) { $null } else { 'connected-state-observed' }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('connection-badge-degraded')) {
-        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail 'Connection badge state recorded: degraded text visible via UIA iff the engine did not connect to the running service.'))
+        # hardening-campaign Phase 4 (reviewer-C H-SKIP-3): record the OBSERVED
+        # badge/engine facts -- the skip reason must be backed by live state,
+        # not a static description.
+        $badgeEngineFact = 'unknown'
+        try { $badgeEngineFact = [string][bool](Test-UiaEngineConnected -LogPath (Get-UiaDiagnosticsLogPath) -AfterUtc $launched.StartTime.ToUniversalTime()) } catch { $badgeEngineFact = 'unknown' }
+        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'connection-badge-degraded' -Status $badgeStatus -Reason $badgeReason -DurationMs 0 -Detail ('Connection badge observed: degradedVisible=' + $degradedVisible + '; engineConnected=' + $badgeEngineFact + ' (degraded text visible via UIA iff the engine did not connect to the running service)')))
     }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('storage-mid-scan-calculating')) {
         $elig = Resolve-UiaPrivilegedScanEligibility

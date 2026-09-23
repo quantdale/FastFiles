@@ -148,6 +148,17 @@ Check ($moduleText42 -match 'reason=PRIVILEGED_SCAN_CAPABILITY_UNAVAILABLE') 'ca
 Check ($moduleText42 -match 'privileged-eligibility-inconsistent') 'eligible-inversion guard fails loud instead of skipping'
 Check (($moduleText42 -notmatch 'toggling service availability while search is open cannot be meaningfully exercised') -and ($moduleText42 -notmatch 'the mid-scan "Calculating..." path cannot be exercised')) 'legacy free-form privileged skip details are gone'
 
+# --- Reviewer-C integrity guards (adversarial holes H-SKIP/H-FAIL/H-COORD) ---
+$capText = Get-Content -LiteralPath $modulePath -Raw
+Check ($capText -notmatch 'GetSystemMetrics\(0\)|GetSystemMetrics\(1\)') 'capability placement/input never reads primary-monitor metrics (virtual screen only)'
+Check ($capText -match 'return & \$fail "return to root failed"') 'return-to-root failure returns its result (no swallowed fall-through)'
+$mtGuard = [regex]::Match($capText, 'button input \(foreground=')
+Check $mtGuard.Success 'mouse-tab foreground skip records the foreground owner'
+$diGuard = [regex]::Match($capText, 'drag source mouse-down \(foreground=')
+Check $diGuard.Success 'drag-in foreground skip records the foreground owner'
+Check ($capText -match 'Connection badge observed: degradedVisible=') 'badge skip records the observed degraded fact'
+Check ($capText -match 'engineConnected=') 'badge skip records the engine-connected fact'
+
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All foreground skip-conversion and skip-reason-class checks passed.'
 exit 0
