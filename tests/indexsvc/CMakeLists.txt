@@ -37,6 +37,18 @@ add_test(NAME ffvolumescanner_terminal_tests COMMAND ffvolumescanner_terminal_te
 add_executable(ffindexsvc_write_deadline_policy_tests test_write_deadline_policy.cpp)
 add_test(NAME ffindexsvc_write_deadline_policy_tests COMMAND ffindexsvc_write_deadline_policy_tests)
 
+# hardening-campaign Phase 7 H1/H2: red-first lifecycle-transition policy
+# tests. Revalidation cadence must come from the service's own clock (not a
+# client-controlled Heartbeat), and escaping exceptions must reach ordered
+# teardown + diagnostic sinks instead of std::terminate on LocalSystem.
+add_executable(ffservice_revalidation_policy_tests test_connection_revalidation_policy.cpp)
+target_link_libraries(ffservice_revalidation_policy_tests PRIVATE ffprotocol)
+target_include_directories(ffservice_revalidation_policy_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
+add_test(NAME ffservice_revalidation_policy_tests COMMAND ffservice_revalidation_policy_tests)
+
+add_executable(ffservice_exception_boundary_policy_tests test_worker_exception_boundary_policy.cpp)
+add_test(NAME ffservice_exception_boundary_policy_tests COMMAND ffservice_exception_boundary_policy_tests)
+
 # ntfs-observe certification-probe contract (FC-003/FC-004): synthetic
 # fixtures only, never a live volume.
 add_executable(ffntfsobserve_tests test_ntfs_observe.cpp)
@@ -44,4 +56,5 @@ target_link_libraries(ffntfsobserve_tests PRIVATE ffntfsobserve)
 add_test(NAME ffntfsobserve_tests COMMAND ffntfsobserve_tests)
 
 set_tests_properties(ffmftparser_tests ffusnrecord_tests ffprivilege_diagnostics_tests ffcommand_surface_tests
-    ffconnection_registry_tests ffvolumescanner_terminal_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests PROPERTIES TIMEOUT 120)
+    ffconnection_registry_tests ffvolumescanner_terminal_tests ffindexsvc_write_deadline_policy_tests ffntfsobserve_tests
+    ffservice_revalidation_policy_tests ffservice_exception_boundary_policy_tests PROPERTIES TIMEOUT 120)

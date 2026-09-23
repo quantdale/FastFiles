@@ -11,10 +11,12 @@
 #include <vector>
 
 #include "ffipc/PipeFraming.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Version.h"
 
 #include "ClientAuthentication.h"
 #include "CommandSurface.h"
+#include "DiagnosticsHardening.h"
 #include "StalenessMonitor.h"
 #include "UsnJournalReader.h"
 #include "VolumeEnumeration.h"
@@ -33,6 +35,17 @@ using ffprotocol::MessageType;
 // connections are reaped (the timeout closes via the same teardown path as
 // any other disconnect).
 constexpr std::chrono::milliseconds kInboundIdleTimeout{300000};
+// hardening-campaign Phase 7 H1: authorization validity on an ESTABLISHED
+// connection is re-proven on this wall-clock cadence -- never driven by which
+// message types a client sends. Matches the engine's ~20s heartbeat cycle
+// (the honest-path rate, so behavior is never weaker than before) and stays an
+// order of magnitude under kInboundIdleTimeout so the cadence always fires
+// before the reap.
+constexpr std::chrono::milliseconds kRevalidationInterval{20000};
+// Heartbeat may skip its OWN revalidation only when the cadence gate ran
+// within this epsilon on the very same frame -- prevents back-to-back
+// WinVerifyTrust while preserving event-driven re-proof on the honest path.
+constexpr std::chrono::milliseconds kRevalidationFreshEpsilon{100};
 constexpr std::chrono::milliseconds kHandshakeTimeout{30000};
 
 // The service listener opens Ctrl-pipe instances with FILE_FLAG_OVERLAPPED.
@@ -192,6 +205,20 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
 
     bool disconnect = false;
     auto idleDeadline = std::chrono::steady_clock::now() + kInboundIdleTimeout;
+    // hardening-campaign Phase 7 H1: authorization validity is re-proven from
+    // the SERVICE's monotonic clock -- initialized at connection establishment
+    // (the handshake just verified the peer) so every connection generation
+    // starts verified and counts its own attested span.
+    auto lastRevalidated = std::chrono::steady_clock::now();
+    // hardening-campaign Phase 7 H2: terminal exception boundary for the
+    // connection generation loop. Any escaping exception (bad_alloc/
+    // system_error from frame reads, payload copies, registry operations, or
+    // thread spawn) becomes a diagnostic + defined disconnect instead of
+    // std::terminate on this LocalSystem service. The ordered teardown BELOW
+    // runs OUTSIDE the catch unconditionally, preserving the handle-staleness
+    // invariant. The dispatch body keeps its original indentation so this
+    // security fix stays reviewable as a boundary-only change.
+    try {
     while (!disconnect) {
         auto frame = ReadActiveFrame(pipeHandle, shutdownEvent, idleDeadline);
         if (!frame) {
@@ -209,6 +236,21 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
         if (!IsAllowedClientRequest(frame->header.messageType)) {
             disconnect = true;
             break;
+        }
+
+        // hardening-campaign Phase 7 H1: wall-clock revalidation gate. The
+        // allowlist gate above proved the frame is *allowed*; this proves the
+        // peer is *still* the authorized client before ANY work runs -- on the
+        // service's own cadence, so a client that never sends Heartbeat can no
+        // longer extend the attested span (closes the client-owned-cadence
+        // bypass; mirrors the engine's 20s verify cycle). Fail-closed: a
+        // failed revalidation disconnects before dispatch.
+        if (ShouldRevalidate(std::chrono::steady_clock::now(), lastRevalidated, kRevalidationInterval)) {
+            if (!RevalidateClient(*identity, installDir)) {
+                disconnect = true;
+                break;
+            }
+            lastRevalidated = std::chrono::steady_clock::now();
         }
 
         switch (static_cast<MessageType>(frame->header.messageType)) {
@@ -270,12 +312,39 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 const bool lowPriority = (request.flags & ffprotocol::kStartVolumeScanLowPriority) != 0;
                 const auto stopFlag = worker.stopFlag;
                 const auto peerVersion = negotiatedVersion;
-                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeCursor,
-                                              lowPriority, peerVersion, stopFlag] {
-                    RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
-                                  peerVersion, *stopFlag);
-                });
+                // hardening-campaign Phase 7 H2: register the slot BEFORE the
+                // thread starts, so a throw between construction and insertion
+                // can never orphan a writer holding the pipe handle
+                // (StopAndJoinAll must always see every worker).
                 activeScans.push_back(std::move(worker));
+                activeScans.back().thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter,
+                                                          resumeCursor, lowPriority, peerVersion, stopFlag] {
+                    // hardening-campaign Phase 7 H2: terminal exception
+                    // boundary for the scan worker -- translate an escaping
+                    // failure into the defined ScanFailed terminal plus
+                    // diagnostics, never std::terminate on LocalSystem.
+                    try {
+                        RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
+                                      peerVersion, *stopFlag);
+                    } catch (const std::exception&) {
+                        try {
+                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                                          {}, {}, L"scan-worker-exception", 0, 0});
+                            SendScanTerminal(pipeHandle, writeMutex, volumeId, peerVersion, false);
+                            WriteServiceLifecycleLog(L"scan worker exception boundary: ScanFailed terminal emitted");
+                        } catch (...) { }
+                    } catch (...) {
+                        try {
+                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                                          {}, {}, L"scan-worker-unknown-exception", 0, 0});
+                            SendScanTerminal(pipeHandle, writeMutex, volumeId, peerVersion, false);
+                            WriteServiceLifecycleLog(
+                                L"scan worker unknown exception boundary: ScanFailed terminal emitted");
+                        } catch (...) { }
+                    }
+                });
                 break;
             }
 
@@ -331,25 +400,51 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 const auto resumeUsn = request.resumeUsn;
                 const auto stopFlag = worker.stopFlag;
                 const auto peerVersion = negotiatedVersion;
-                worker.thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter, resumeUsn,
-                                              peerVersion, stopFlag] {
-                    const JournalStreamOutcome outcome =
-                        RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn,
-                                            peerVersion, *stopFlag);
-                    if (outcome == JournalStreamOutcome::ResumePositionInvalid && peerVersion.major != 1) {
-                        // D6/task 7.6: tell the engine its ResumeUsn aged
-                        // out of the journal's retained range before this
-                        // worker tears down, so it falls back to a
-                        // reconciliation sweep instead of a blind resume.
-                        // Major-1 peers predate this additive message and
-                        // must not receive an unknown reply-only type.
-                        ffprotocol::JournalResumeInvalidPayload payload{volumeId};
-                        std::lock_guard<std::mutex> lock(writeMutex);
-                        WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::JournalResumeInvalid),
-                                               &payload, sizeof(payload));
+                // hardening-campaign Phase 7 H2: register the slot BEFORE the
+                // thread starts (same orphan-window fix as the scan worker).
+                activeJournals.push_back(std::move(worker));
+                activeJournals.back().thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter,
+                                                             resumeUsn, peerVersion, stopFlag] {
+                    // hardening-campaign Phase 7 H2: terminal exception
+                    // boundary for the journal worker. Journal failures are
+                    // silent-Ended by design D6 -- an escaping exception maps
+                    // to exactly that (worker ends, connection stays up, the
+                    // engine reconciles) plus diagnostics; never terminate.
+                    try {
+                        const JournalStreamOutcome outcome =
+                            RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn,
+                                                peerVersion, *stopFlag);
+                        if (outcome == JournalStreamOutcome::ResumePositionInvalid && peerVersion.major != 1) {
+                            // D6/task 7.6: tell the engine its ResumeUsn aged
+                            // out of the journal's retained range before this
+                            // worker tears down, so it falls back to a
+                            // reconciliation sweep instead of a blind resume.
+                            // Major-1 peers predate this additive message and
+                            // must not receive an unknown reply-only type.
+                            ffprotocol::JournalResumeInvalidPayload payload{volumeId};
+                            std::lock_guard<std::mutex> lock(writeMutex);
+                            WriteFrameWithDeadline(pipeHandle,
+                                                   static_cast<uint16_t>(MessageType::JournalResumeInvalid),
+                                                   &payload, sizeof(payload));
+                        }
+                    } catch (const std::exception&) {
+                        try {
+                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
+                                                          {}, {}, L"journal-worker-exception", 0, 0});
+                            WriteServiceLifecycleLog(
+                                L"journal worker exception boundary: journal stream ends; engine reconciles");
+                        } catch (...) { }
+                    } catch (...) {
+                        try {
+                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
+                                                          {}, {}, L"journal-worker-unknown-exception", 0, 0});
+                            WriteServiceLifecycleLog(
+                                L"journal worker unknown exception boundary: journal stream ends; engine reconciles");
+                        } catch (...) { }
                     }
                 });
-                activeJournals.push_back(std::move(worker));
                 break;
             }
 
@@ -369,13 +464,20 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
             }
 
             case MessageType::Heartbeat: {
-                // Periodic re-validation piggybacks on the heartbeat
-                // cadence (task 3.5) -- catches revoked group membership
+                // hardening-campaign Phase 7 H1: the wall-clock gate above
+                // owns time-based revalidation; Heartbeat keeps its
+                // event-driven re-proof (task 3.5 -- revoked group membership
                 // or a replaced/unsigned binary on a long-lived connection,
-                // not only at initial Handshake.
-                if (!RevalidateClient(*identity, installDir)) {
-                    disconnect = true;
-                    break;
+                // not only at initial Handshake) unless the gate just ran on
+                // this very same frame, in which case the timestamp is fresh
+                // and only the ack is due.
+                if (ShouldRevalidate(std::chrono::steady_clock::now(), lastRevalidated,
+                                     kRevalidationFreshEpsilon)) {
+                    if (!RevalidateClient(*identity, installDir)) {
+                        disconnect = true;
+                        break;
+                    }
+                    lastRevalidated = std::chrono::steady_clock::now();
                 }
                 std::lock_guard<std::mutex> lock(writeMutex);
                 disconnect = !WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
@@ -391,6 +493,27 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 disconnect = true;
                 break;
         }
+    }
+    } catch (const std::exception&) {
+        // hardening-campaign Phase 7 H2: translate to a defined connection
+        // error -- diagnostic + lifecycle log, then the ordered teardown
+        // below (new transport + re-authentication is the engine's half of
+        // the recovery: broken pipe -> backoff reconnect -> full re-gate).
+        try {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
+                                          {}, {}, L"ctrl-dispatch-exception", 0, 0});
+            WriteServiceLifecycleLog(L"ctrl connection exception boundary: disconnecting for teardown");
+        } catch (...) { }
+        disconnect = true;
+    } catch (...) {
+        try {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
+                                          {}, {}, L"ctrl-dispatch-unknown-exception", 0, 0});
+            WriteServiceLifecycleLog(L"ctrl connection unknown exception boundary: disconnecting for teardown");
+        } catch (...) { }
+        disconnect = true;
     }
 
     StopAndJoinAll(activeScans);

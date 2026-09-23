@@ -112,23 +112,6 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                                   &payload, sizeof(payload));
 }
 
-// index-durability-false-success-closure D1/2.1: the single terminal sender.
-// A failed scan must never masquerade as a completion -- the engine treats
-// ScanComplete as the authority to mark the volume indexed and to finalize
-// reconciliation passes, which would delete rows a failed scan simply never
-// reached. Peers older than {2,2} cannot parse ScanFailed, so they keep
-// receiving today's ScanComplete byte-for-byte on the same paths.
-bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                      ffprotocol::ProtocolVersion negotiatedVersion, bool success) {
-    if (!success && ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
-        ffprotocol::ScanFailedPayload payload{volumeId};
-        std::lock_guard<std::mutex> lock(writeMutex);
-        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
-                                      &payload, sizeof(payload));
-    }
-    return SendScanComplete(pipe, writeMutex, volumeId);
-}
-
 class BackgroundMode {
 public:
     explicit BackgroundMode(bool enabled) : enabled_(enabled && SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)) {}
@@ -143,6 +126,25 @@ private:
 };
 
 } // namespace
+
+// index-durability-false-success-closure D1/2.1: the single terminal sender.
+// A failed scan must never masquerade as a completion -- the engine treats
+// ScanComplete as the authority to mark the volume indexed and to finalize
+// reconciliation passes, which would delete rows a failed scan simply never
+// reached. Peers older than {2,2} cannot parse ScanFailed, so they keep
+// receiving today's ScanComplete byte-for-byte on the same paths.
+// hardening-campaign Phase 7 H2: now declared in VolumeScanner.h so the
+// ServiceConnection exception boundary can emit the failure terminal too.
+bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                      ffprotocol::ProtocolVersion negotiatedVersion, bool success) {
+    if (!success && ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
+        ffprotocol::ScanFailedPayload payload{volumeId};
+        std::lock_guard<std::mutex> lock(writeMutex);
+        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
+                                      &payload, sizeof(payload));
+    }
+    return SendScanComplete(pipe, writeMutex, volumeId);
+}
 
 void RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,

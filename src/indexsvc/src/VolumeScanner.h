@@ -35,8 +35,8 @@ namespace ffindexsvc {
 // acks, etc.) -- named-pipe writes from multiple threads on one handle
 // are not implicitly serialized by the OS, so frames could otherwise
 // interleave. Polls `shouldStop` between buffers/records/batches for
-// prompt cancellation (StopVolumeScan or connection teardown) rather
-// than only checking once per batch.
+// prompt cancellation (StopVolumeScan or connection teardown) rather than
+// only checking once per batch.
 // allocated-size-storage-accuracy D3/2.4: `negotiatedVersion` selects the
 // wire record layout. Peers that negotiated protocol {2,1}+
 // (ProtocolSupportsAllocatedSize) receive ScanRecordBatchV2 frames with
@@ -51,5 +51,16 @@ void RunVolumeScan(
     bool lowPriority,
     ffprotocol::ProtocolVersion negotiatedVersion,
     const std::atomic<bool>& shouldStop);
+
+// hardening-campaign Phase 7 H2: the single terminal sender (index-durability
+// D1/2.1) is shared with the ServiceConnection exception boundary. A scan
+// worker that dies on an escaping exception MUST still tell {2,2}+ peers
+// ScanFailed (legacy peers keep ScanComplete) so a fault can never
+// masquerade as a completion; `success=false` is the failure terminal.
+bool SendScanTerminal(HANDLE pipe,
+                      std::mutex& writeMutex,
+                      ffprotocol::VolumeId volumeId,
+                      ffprotocol::ProtocolVersion negotiatedVersion,
+                      bool success);
 
 } // namespace ffindexsvc

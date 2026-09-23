@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 
 #include "ffprotocol/Commands.h"
@@ -39,6 +40,17 @@ inline bool IsAllowedClientRequest(uint16_t rawMessageType) {
         default:
             return false;
     }
+}
+
+// hardening-campaign Phase 7 H1: pure wall-clock revalidation predicate.
+// Authorization validity on an established connection must be a function of
+// the SERVICE's monotonic clock -- never of which message types the client
+// chooses to send -- so the dispatch loop can prove the attested span is
+// still fresh. Closed interval: the exact boundary is already stale.
+inline bool ShouldRevalidate(std::chrono::steady_clock::time_point now,
+                             std::chrono::steady_clock::time_point lastRevalidated,
+                             std::chrono::milliseconds interval) {
+    return now - lastRevalidated >= interval;
 }
 
 } // namespace ffindexsvc
