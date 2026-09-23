@@ -1792,6 +1792,10 @@ function Invoke-UiaScenarioSearchDeep {
     try {
         $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $folder -ExpectedLeaf 'SubFolder'
         if (-not $nav.Pass) {
+            # hardening-campaign Phase 4 P2d: proven foreign ownership converts
+            # to an evidence-backed skip; FastFiles-owned failures stay FAIL.
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'search-deep-result-navigation' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
             return & $fail "pre-navigation to the containing folder failed: $($nav.Detail)"
         }
         $null = Set-UiaForeground -Driver $driver -Element $main
@@ -2362,7 +2366,13 @@ function Invoke-UiaScenarioSearchAllocatedSize {
             }
             $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         }
-        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        if (-not $nav.Pass) {
+            # hardening-campaign Phase 4 P2d: proven foreign ownership converts
+            # to an evidence-backed skip; FastFiles-owned failures stay FAIL.
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation to fixture folder failed: $($nav.Detail)"
+        }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
 
@@ -3425,7 +3435,14 @@ function Invoke-UiaScenarioErrorStateLate {
     try {
         # --- Phase 1: navigate to the directory and confirm sentinel is visible ---
         $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $missing -ExpectedLeaf $leaf
-        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        if (-not $nav.Pass) {
+            # hardening-campaign Phase 4 P2d: proven foreign/no foreground
+            # ownership converts to an evidence-backed skip; FastFiles-owned
+            # failures stay hard FAIL (reproduced live: foreground='<none>').
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'in-column-error-state-late' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation to fixture folder failed: $($nav.Detail)"
+        }
         # deterministic-missing-path-state 6.2: reacquire the terminal Column
         # View semantically (direct-child navigation, never whole-window DFS),
         # find the sentinel row, and retain its provider reference for the
@@ -3557,7 +3574,13 @@ function Invoke-UiaScenarioErrorStateLate {
         $parentLeaf = Split-Path $parent -Leaf
         $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $parent -ExpectedLeaf $parentLeaf
         $reNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $missing -ExpectedLeaf $leaf
-        if (-not $reNav.Pass) { return & $fail "re-navigation to recreated folder failed: $($reNav.Detail)" }
+        if (-not $reNav.Pass) {
+            # hardening-campaign Phase 4 P2d: same converter channel as the
+            # first navigation above -- proven foreign ownership only.
+            $blocked = Convert-UiaForegroundFailureToSkip -Id 'in-column-error-state-late' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $reNav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "re-navigation to recreated folder failed: $($reNav.Detail)"
+        }
         $sw2 = [System.Diagnostics.Stopwatch]::StartNew()
         $newSentinel = Find-UiaTerminalColumnItem -Driver $driver -Main $main -Name 'after-recreate.txt' -PaneId 'Pane.0' -TimeoutMs 15000
         $sw2.Stop()
@@ -3858,7 +3881,14 @@ function Invoke-UiaScenarioSelectionModelInteractions {
             }
             $nav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $appPid -Path $scratch -ExpectedLeaf (Split-Path $scratch -Leaf)
         }
-        if (-not $nav.Pass) { return & $fail "navigation to fixture folder failed: $($nav.Detail)" }
+        if (-not $nav.Pass) {
+            # hardening-campaign Phase 4 P2d: completes selection's converter
+            # coverage -- proven foreign ownership skips with evidence, a
+            # FastFiles-owned failure remains a hard FAIL.
+            $blocked = Convert-UiaForegroundFailureToSkip -Id $id -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+            if ($blocked) { return $blocked }
+            return & $fail "navigation to fixture folder failed: $($nav.Detail)"
+        }
         $null = Set-UiaForeground -Driver $driver -Element $main
         Start-Sleep -Milliseconds 300
 
