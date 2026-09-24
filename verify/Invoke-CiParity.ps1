@@ -176,7 +176,12 @@ exit 0
     # ---- Step 3: OpenSpec strict (hosted hygiene job) ----
     Invoke-ParityStep -Id 'openspec' -HostedRef 'ci.yml:134-136 openspec validate --all --strict' -UnavailableReason 'REQUIRED-BUT-UNAVAILABLE: openspec CLI/network fetch unavailable on this host' -Command @'
 Set-Location '{ROOT}'
-$output = & npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive 2>&1
+# npm 11 on Windows: invoke npx BARE (direct pipeline capture). The
+# call-operator-prefixed npx form dispatches the Roaming npx shim with mangled
+# arguments (npm receives 'exec px …' and fails 'could not determine
+# executable'); bare invocation + the '--' executable separator resolve the
+# pinned package deterministically (verified 83/83). No global-install reliance.
+$output = npx --yes --package=@fission-ai/openspec@1.8.0 -- openspec validate --all --strict --no-interactive 2>&1
 $code = $LASTEXITCODE
 $output | ForEach-Object { Write-Host $_ }
 # CLI/package resolution failure = the tool is unavailable on this host, not

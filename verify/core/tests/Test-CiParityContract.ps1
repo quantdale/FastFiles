@@ -79,6 +79,13 @@ foreach ($code in @("'PASS'", "'FAIL'", "'SKIPPED'")) {
     Check ($orchestrator -like '*' + $code + '*') "result vocabulary includes $code"
 }
 Check (($orchestrator -match 'exit 0') -and ($orchestrator -match 'exit 2') -and ($orchestrator -match 'exit 1')) 'exit vocabulary maps to 0/1/2 harness codes'
+# residual-campaign Phase B: deterministic OpenSpec resolution + honest
+# three-way classification (PASS / validation FAIL / tool-unavailable).
+Check ($orchestrator -match [regex]::Escape('npx --yes --package=@fission-ai/openspec@1.8.0 -- openspec validate --all --strict')) 'openspec command uses the pinned package with the npm-11 -- executable separator'
+Check ($orchestrator -match 'could not determine executable') 'tool-resolution failure still classifies as unavailable (exit 2), never FAIL'
+Check ($orchestrator -match 'exit \$code') 'actual validation exit code propagates (validation failure stays FAIL, never SKIPPED)'
+Check ($orchestrator -notmatch 'openspec@latest') 'openspec invocation is version-pinned (no latest/uncontrolled resolution)'
+Check ($orchestrator -notmatch '& npx') 'openspec invocation avoids the call-operator npx form (Roaming-shim argument mangling on Windows)'
 
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All CI-parity contract checks passed.'
