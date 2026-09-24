@@ -159,6 +159,19 @@ Check $diGuard.Success 'drag-in foreground skip records the foreground owner'
 Check ($capText -match 'Connection badge observed: degradedVisible=') 'badge skip records the observed degraded fact'
 Check ($capText -match 'engineConnected=') 'badge skip records the engine-connected fact'
 
+# --- Residual-campaign Phase E: shared-session compose sites consult the converter ---
+foreach ($sharedId in @(
+    'keyboard-address-bar-navigation',
+    'selection-and-scroll-patterns',
+    'search-results-discoverable',
+    'search-structured-filter-query',
+    'search-panel-open',
+    'scroll-pattern-real-viewport',
+    'settings-dialog-keyboard-navigation'
+)) {
+    Check ($capText -match ("Convert-UiaForegroundFailureToSkip -Id '" + $sharedId + "'")) "shared-session site consults the converter for '$sharedId'"
+}
+
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All foreground skip-conversion and skip-reason-class checks passed.'
 exit 0

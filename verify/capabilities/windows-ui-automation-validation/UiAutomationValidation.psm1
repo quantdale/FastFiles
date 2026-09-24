@@ -4617,7 +4617,19 @@ function Invoke-UiaSharedSessionScenarios {
         $kbdStatus = 'PASS'
         $kbdReason = $null
         $kbdDetail = 'Tab cycled inside dialog (6 cycles); ESC closed dialog; palette home answered after close'
-    } catch { $kbdDetail = "settings keyboard navigation failed: $($_.Exception.Message)" }
+    } catch {
+        # residual-campaign Phase E: palette-shaped details carrying a proven
+        # JSON foreign marker become evidence-backed skips; Tab/ESC structural
+        # failures (no capture) keep today's FAIL byte-identically (P1 gate).
+        $kbdBlocked = Convert-UiaForegroundFailureToSkip -Id 'settings-dialog-keyboard-navigation' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $_.Exception.Message
+        if ($kbdBlocked) {
+            $kbdStatus = 'SKIPPED'
+            $kbdReason = 'interactive-foreground-unavailable'
+            $kbdDetail = $kbdBlocked.Detail
+        } else {
+            $kbdDetail = "settings keyboard navigation failed: $($_.Exception.Message)"
+        }
+    }
     $sw.Stop()
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'settings-dialog-keyboard-navigation' -Status $kbdStatus -Reason $kbdReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $kbdDetail))
     }
@@ -4684,7 +4696,18 @@ function Invoke-UiaSharedSessionScenarios {
     & $LogFn "3.2 address-bar navigation pass=$($nav.Pass) detail=$($nav.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.2-keyboard-navigation'
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('keyboard-address-bar-navigation')) {
-        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
+        $kbdNavBlocked = $null
+        if (-not $nav.Pass) {
+            # residual-campaign Phase E: proven foreign/no-foreground nav detail
+            # becomes an evidence-backed skip; FastFiles-owned failures keep the
+            # FAIL below byte-identically (P1 gate).
+            $kbdNavBlocked = Convert-UiaForegroundFailureToSkip -Id 'keyboard-address-bar-navigation' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail
+        }
+        if ($kbdNavBlocked) {
+            [void]$SubResults.Value.Add($kbdNavBlocked)
+        } else {
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'keyboard-address-bar-navigation' -Status ($(if ($nav.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($nav.Pass) { $null } else { 'navigation-not-reflected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $nav.Detail))
+        }
     }
 
     # The guard proves the fixture tree reached the browsed snapshot before the
@@ -4864,7 +4887,20 @@ function Invoke-UiaSharedSessionScenarios {
             $selReason = $null
             $selDetail = "SelectionItem.IsSelected=$isSel; multi-select via Ctrl+click count=$($selItems.Count) ($patternDetail)"
         }
-    } catch { $selDetail = "selection scenario failed: $($_.Exception.Message)" }
+    } catch {
+        # residual-campaign Phase E (R5 path A): the nav throw preserves the
+        # detail verbatim -- proven foreign ownership becomes an evidence-backed
+        # SKIPPED at the existing compose; every other throw keeps today's
+        # FAIL detail byte-identically (P1 gate).
+        $selBlocked = Convert-UiaForegroundFailureToSkip -Id 'selection-and-scroll-patterns' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $_.Exception.Message
+        if ($selBlocked) {
+            $selStatus = 'SKIPPED'
+            $selReason = 'interactive-foreground-unavailable'
+            $selDetail = $selBlocked.Detail
+        } else {
+            $selDetail = "selection scenario failed: $($_.Exception.Message)"
+        }
+    }
     $sw.Stop()
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.3-selection-scroll'
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'selection-and-scroll-patterns' -Status $selStatus -Reason $selReason -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $selDetail))
@@ -4885,12 +4921,28 @@ function Invoke-UiaSharedSessionScenarios {
             $scrollReason = 'engine-connect-unavailable'
             $scrollDetail = 'pane Scroll pattern present; real scroll percent requires engine-served directory data (unavailable in this environment)'
         } else {
-            $null = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
+            $scrollNav = Invoke-UiaAddressBarNavigate -Driver $driver -Main $main -ProcessId $launched.Id -Path $folder -ExpectedLeaf 'SubFolder'
+            if (-not $scrollNav.Pass) {
+                # residual-campaign Phase E: this nav result was previously
+                # DISCARDED ($null), destroying the evidence -- a foreign-nav
+                # failure surfaced later as 'scroll state unexpected' with no
+                # capture. Consult the converter first; non-eligible failures
+                # now fail with the real nav detail instead of a misleading
+                # downstream message (P1 gate preserves FAIL semantics).
+                $scrollBlocked = Convert-UiaForegroundFailureToSkip -Id 'scroll-pattern-real-viewport' -DurationMs 0 -Detail $scrollNav.Detail
+                if ($scrollBlocked) {
+                    $scrollStatus = $scrollBlocked.Status
+                    $scrollReason = $scrollBlocked.Reason
+                    $scrollDetail = $scrollBlocked.Detail
+                } else {
+                    throw "re-navigation for scroll failed: $($scrollNav.Detail)"
+                }
+            } else {
             for ($i = 0; $i -lt 80; $i++) {
                 Set-Content -LiteralPath (Join-Path $folder ("f{0:D2}.txt" -f $i)) -Value 'x' -Encoding utf8
             }
             Start-Sleep -Seconds 3
-            $null = Invoke-UiaPattern -Driver $driver -Element $pane -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double] -1, [double] 100)
+            $null = Invoke-UiaPattern -Driver $driver -Element $pane -PatternName 'Scroll' -Method 'SetScrollPercent' -Arguments @([double] -1, 100)
             Start-Sleep -Milliseconds 600
             $pct = Get-UiaElementProperty -Driver $driver -Element $pane -Name 'VerticalScrollPercent'
             $scrollable = Get-UiaElementProperty -Driver $driver -Element $pane -Name 'VerticallyScrollable'
@@ -4898,6 +4950,7 @@ function Invoke-UiaSharedSessionScenarios {
             $scrollStatus = 'PASS'
             $scrollReason = $null
             $scrollDetail = "Scroll pattern: scrollable=$scrollable percent-after-100%=$pct"
+            }
         }
     } catch { $scrollDetail = "scroll scenario failed: $($_.Exception.Message)" }
     [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'scroll-pattern-real-viewport' -Status $scrollStatus -Reason $scrollReason -DurationMs 0 -Detail $scrollDetail))
@@ -5047,7 +5100,19 @@ function Invoke-UiaSharedSessionScenarios {
     & $LogFn "3.11 search pass=$($sp.Pass) detail=$($sp.Detail)"
     $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-search-panel'
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-panel-open')) {
-        [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-panel-open' -Status ($(if ($sp.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sp.Pass) { $null } else { 'search-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail))
+        $spBlocked = $null
+        if (-not $sp.Pass) {
+            # residual-campaign Phase E: palette/search-panel details that carry
+            # a proven foreign marker (JSON foregroundTitle or focus phrases)
+            # become evidence-backed skips; non-eligible shapes return $null and
+            # keep the FAIL below byte-identically (P1 gate).
+            $spBlocked = Convert-UiaForegroundFailureToSkip -Id 'search-panel-open' -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail
+        }
+        if ($spBlocked) {
+            [void]$SubResults.Value.Add($spBlocked)
+        } else {
+            [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-panel-open' -Status ($(if ($sp.Pass) { 'PASS' } else { 'FAIL' })) -Reason ($(if ($sp.Pass) { $null } else { 'search-panel-unexpected' })) -DurationMs $sw.Elapsed.TotalMilliseconds -Detail $sp.Detail))
+        }
     }
 
     $fixtureScopeReady = $true
@@ -5088,7 +5153,20 @@ function Invoke-UiaSharedSessionScenarios {
             $searchReason = $null
             $searchDetail = "Search.Results exposes result 'alpha.txt'"
         }
-    } catch { $searchDetail = "search scenario failed: $($_.Exception.Message)" }
+    } catch {
+        # residual-campaign Phase E (R5 path B leg 1): the fixture-nav throw
+        # preserves the nav detail -- proven foreign ownership becomes an
+        # evidence-backed SKIPPED; every other throw keeps today's FAIL
+        # byte-identically (P1 gate).
+        $searchBlocked = Convert-UiaForegroundFailureToSkip -Id 'search-results-discoverable' -DurationMs 0 -Detail $_.Exception.Message
+        if ($searchBlocked) {
+            $searchStatus = 'SKIPPED'
+            $searchReason = 'interactive-foreground-unavailable'
+            $searchDetail = $searchBlocked.Detail
+        } else {
+            $searchDetail = "search scenario failed: $($_.Exception.Message)"
+        }
+    }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-results-discoverable')) {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-results-discoverable' -Status $searchStatus -Reason $searchReason -DurationMs 0 -Detail $searchDetail))
     }
@@ -5127,7 +5205,19 @@ function Invoke-UiaSharedSessionScenarios {
             $filterDetail = "structured ext:txt returned $($txtResults.Count) results, all .txt"
             $Artifacts.Value += Export-UiaEvidence -Driver $driver -Main $main -ArtifactsDir $ArtifactsDir -Name '3.11-structured-filter'
         }
-    } catch { $filterDetail = "structured filter failed: $($_.Exception.Message)" }
+    } catch {
+        # residual-campaign Phase E (R5 path B leg 2): same converter channel as
+        # leg 1 -- proven foreign ownership skips with evidence; all other
+        # throws keep today's FAIL byte-identically (P1 gate).
+        $filterBlocked = Convert-UiaForegroundFailureToSkip -Id 'search-structured-filter-query' -DurationMs 0 -Detail $_.Exception.Message
+        if ($filterBlocked) {
+            $filterStatus = 'SKIPPED'
+            $filterReason = 'interactive-foreground-unavailable'
+            $filterDetail = $filterBlocked.Detail
+        } else {
+            $filterDetail = "structured filter failed: $($_.Exception.Message)"
+        }
+    }
     if (Test-UiaScenarioSelected -SelectedIds $SelectedIds -ScenarioIds @('search-structured-filter-query')) {
         [void]$SubResults.Value.Add((New-UiaVSubResult -Id 'search-structured-filter-query' -Status $filterStatus -Reason $filterReason -DurationMs 0 -Detail $filterDetail -Diagnostics @('3.11-structured-filter.tree.txt')))
     }
