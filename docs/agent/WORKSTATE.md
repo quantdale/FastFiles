@@ -1,6 +1,14 @@
 # Fast Files — Agent Workstate
 
-# residual-defect-closure-and-certification-completion — IN PROGRESS 2026-09-24
+# final-residual-hardening-and-hosted-ci-recovery — PROPOSED 2026-09-25
+
+- User asked to use OpenSpec explore and propose on `D:\Downloads\fastfiles final.txt`; this is a planning session, not mission implementation. The supplied mission is a narrow successor to residual closure and explicitly requires deterministic partial-frame injection, a conditional provenance digest decision, live hosted CI recheck, exact-candidate validation, independent review, and external handoff.
+- Live starting branch/HEAD at planning: `main` / `a8533a772048ea39ad44c319a96ee91dc844506f`, tracking `origin/main`; detached auxiliary worktree at `0dc3356`. Treat this as a dated observation and re-query at implementation resume. An unrelated `.claude/settings.local.json` was untracked at first observation, then absent after the turn interruption; this session did not edit it.
+- Exploration: prior `residual-defect-closure-and-certification-completion` has task 1.4 (deterministic partial-frame behavior) and 5.4 (review) unchecked. Production `ffipc::WriteFrameOverlapped` serializes one contiguous frame then loops on short overlapped writes; existing scanner test covers a closed-reader terminal write but not selected byte-prefix failure. `verify/core/Provenance.psm1` already checks embedded identity, source/tree state, and binary SHA-256; digest value remains unproven. Current workflow defines six hosted executions. Historical hosted billing annotations and pass counts remain historical evidence.
+- OpenSpec successor `openspec/changes/final-residual-hardening-and-hosted-ci-recovery/` now has proposal, design, one delta spec, and numbered tasks. Strict change validation passed. Lifecycle marks the predecessor superseded and the successor active; predecessor tasks remain honestly unchecked until implementation proves them.
+- No product code, regression fixture, digest, or certification was executed in this planning session. NEXT EXACT ACTION: when the user requests implementation, resume tasks.md at 1.1, re-establish live state, and launch the three independent investigations in parallel. Keep the provenance decision conditional and hosted/local evidence separate.
+
+# residual-defect-closure-and-certification-completion — HISTORICAL CHECKPOINT 2026-09-24
 
 - User `resume` received after an interrupted UIA aggregate. Final pushed source/docs HEAD is `bf3964c7d2ae34735f6a632f4f6724ef7c57eb71`; `origin/main` matches exactly. Source checkpoint `9231d4b` and evidence/docs checkpoints `39371f6`/`bf3964c` are executable-tree equivalent. Auxiliary worktree remains detached at `0dc3356`; no destructive Git action used.
 - OpenSpec change `residual-defect-closure-and-certification-completion` is active in `openspec/lifecycle.json`; proposal/design/spec/tasks are the current campaign ledger.

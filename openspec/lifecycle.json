@@ -1381,7 +1381,7 @@
     },
     {
       "name": "residual-defect-closure-and-certification-completion",
-      "state": "active",
+      "state": "superseded",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1394,6 +1394,26 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/residual-defect-closure-and-certification-completion/tasks.md"
+        }
+      ],
+      "supersededBy": "final-residual-hardening-and-hosted-ci-recovery",
+      "taskOverrides": []
+    },
+    {
+      "name": "final-residual-hardening-and-hosted-ci-recovery",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-residual-hardening-and-hosted-ci-recovery/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-residual-hardening-and-hosted-ci-recovery/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/final-residual-hardening-and-hosted-ci-recovery/tasks.md"
         }
       ],
       "supersededBy": null,
