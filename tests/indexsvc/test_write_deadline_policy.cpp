@@ -63,6 +63,40 @@ void TestServiceUsesBoundedSharedWrites() {
                   "shared pipe listener always creates overlapped instances");
     fftest::Check(listener.find("CancelSynchronousIo") == std::string::npos,
                   "shared pipe listener has no synchronous cancellation fallback");
+
+    // residual-campaign R1 (reviewer-D residual, code-evident at VolumeScanner.cpp:388):
+    // a MID-SCAN batch-write failure must reach a defined failure terminal for
+    // {2,2}+ peers instead of ending silently -- red-first: absent today.
+    // Legacy peers and cancellation must keep silence (routing them through the
+    // failure terminal would deliver ScanComplete to a failed scan = the PA-001
+    // row-deletion hazard).
+    const std::string scanner = ReadText(root / "src" / "indexsvc" / "src" / "VolumeScanner.cpp");
+    // Positive-form guard only: today's code has "!writeFailed && …", whose
+    // substring must NOT satisfy this check (false-green trap avoided by the
+    // leading "if (writeFailed" without '!').
+    fftest::Check(scanner.find("if (writeFailed && !shouldStop.load())") != std::string::npos,
+                  "mid-scan write failure emits a capability-gated failure terminal instead of ending silently");
+    // The write-failure terminal must never fall back to legacy ScanComplete:
+    // an unconditional SendScanTerminal(..., false) after writeFailed would
+    // mark a failed scan complete for pre-{2,2} peers.
+    const std::size_t wfGuard = scanner.find("if (writeFailed && !shouldStop.load())");
+    fftest::Check(wfGuard != std::string::npos,
+                  "write-failure terminal is guarded by cancellation (never on shouldStop)");
+    if (wfGuard != std::string::npos) {
+        // Window must span the full commented block (rationale precedes code).
+        const std::string wfBlock = scanner.substr(wfGuard, 3000);
+        fftest::Check(wfBlock.find("ProtocolSupportsScanFailure") != std::string::npos &&
+                          wfBlock.find("SendScanTerminal") != std::string::npos,
+                      "write-failure terminal block is capability-gated and routes to SendScanTerminal");
+        // Failure must be observable even when the transport cannot carry the
+        // terminal: a file-channel diagnostic is emitted unconditionally.
+        fftest::Check(wfBlock.find("AppendDiagnostic") != std::string::npos,
+                      "write failure always emits a transport-independent diagnostic");
+        // Completion terminal must remain mutually exclusive with failure.
+        const std::size_t completionGuard = scanner.find("if (!writeFailed && !shouldStop.load())");
+        fftest::Check(completionGuard != std::string::npos && completionGuard > wfGuard,
+                      "completion terminal stays gated on !writeFailed after the failure path (exactly one outcome)");
+    }
 }
 
 } // namespace

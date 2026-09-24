@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "ffipc/PipeFraming.h"
+#include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Records.h"
 
 #include "MftParser.h"
@@ -385,6 +386,32 @@ void RunVolumeScan(
 
     CloseHandle(volumeHandle);
 
+    if (writeFailed && !shouldStop.load()) {
+        // residual-campaign Phase A (reviewer-D residual): a mid-scan batch-write
+        // failure previously ended the scan with NO observable outcome -- the
+        // engine could only discover it later via heartbeat timeout plus
+        // reconciliation. Failure is now observed on two channels:
+        //   1. ALWAYS a metadata-only diagnostic (file channel), which survives
+        //      even a dead or stalled transport where the terminal frame itself
+        //      cannot be delivered; the nested try keeps the H2 worker boundary
+        //      nothrow (logging allocation failure cannot terminate LocalSystem).
+        //   2. A best-effort, capability-gated failure terminal for {2,2}+ peers
+        //      (ScanFailed; bounded write deadline, never blocks).
+        // Legacy pre-{2,2} peers deliberately keep silence: routing them through
+        // the failure terminal would deliver ScanComplete for a FAILED scan --
+        // the PA-001 row-deletion hazard. Cancellation (shouldStop) stays silent
+        // by design and is distinguished from failure here.
+        // Exactly-one outcome: the completion terminal below is gated on
+        // !writeFailed, so failure and completion paths are mutually exclusive.
+        try {
+            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
+                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                          {}, {}, L"scan-batch-write-failed", 0, 0});
+        } catch (...) { }
+        if (ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
+            SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
+        }
+    }
     if (!writeFailed && !shouldStop.load()) {
         // PA-001: only an enumeration that reached the end of the MFT gets a
         // ScanComplete; an enumeration cut short by a non-EOF fault sends
