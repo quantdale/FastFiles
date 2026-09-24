@@ -37,4 +37,4 @@
 - [x] 5.2 Run debug/release-test builds and full CTest, Analyze, ASAN, strict OpenSpec, and local CI parity.
 - [x] 5.3 Run UIA, E2E, visual catalog, provenance, governance, and display/clean-host harness contracts.
 - [ ] 5.4 Run an independent adversarial review wave and disposition every confirmed finding.
-- [ ] 5.5 Update lifecycle, workstate, and evidence; commit, push without force, and inspect exact-SHA hosted status.
+- [x] 5.5 Update lifecycle, workstate, and evidence; commit, push without force, and inspect exact-SHA hosted status.
