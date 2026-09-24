@@ -31,6 +31,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'core\CiParity.psm1') -Force -DisableNameChecking
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not (Test-Path -LiteralPath (Join-Path $repoRoot 'CMakeLists.txt') -PathType Leaf)) {
@@ -83,6 +84,7 @@ function Invoke-ParityStep {
         [Parameter(Mandatory)] [string] $HostedRef,
         [Parameter(Mandatory)] [string] $Command,
         [switch] $NeedsToolchain,
+        [switch] $UnavailableExitCode,
         [string] $UnavailableReason = ''
     )
     if ($script:SkipRequested -contains $Id) {
@@ -119,10 +121,10 @@ function Invoke-ParityStep {
         Add-Content -LiteralPath $outLog -Value "--- stderr ---" -Encoding utf8
         Get-Content -LiteralPath $errLog | Add-Content -LiteralPath $outLog -Encoding utf8
     }
-    $status = if ($timedOut) { 'FAIL' } elseif ($exit -eq 0) { 'PASS' } elseif ($exit -eq 2) { 'SKIPPED' } else { 'FAIL' }
+    $status = Get-CiParityStepStatus -ExitCode ([int]($exit ?? 3)) -TimedOut $timedOut -AllowUnavailableExit:$UnavailableExitCode
     $reason = if ($timedOut) { "timeout-${TimeoutSeconds}s" }
-              elseif ($UnavailableReason) { $UnavailableReason }
-              elseif ($exit -ne 0 -and $exit -ne 2 -and $exit -ne $null) { "exit-code-$exit" }
+              elseif ($status -eq 'SKIPPED' -and $UnavailableReason) { $UnavailableReason }
+              elseif ($status -eq 'FAIL' -and $exit -ne $null) { "exit-code-$exit" }
               else { $null }
     $steps.Add([pscustomobject]@{
         id         = $Id
@@ -143,7 +145,7 @@ $sourceBinding = Get-RepoBinding
 
 # ---- Step 1: preflight (hosted: toolchain discovery in every build job) ----
 $toolchainOk = $true
-$pfStatus = Invoke-ParityStep -Id 'preflight' -HostedRef 'ci.yml:37-45 toolchain discovery' -NeedsToolchain -Command @'
+$pfStatus = Invoke-ParityStep -Id 'preflight' -HostedRef 'ci.yml:37-45 toolchain discovery' -NeedsToolchain -UnavailableExitCode -Command @'
 $toolchain = Find-VSToolchain
 if (-not $toolchain) { Write-Host 'no VC toolchain'; exit 2 }
 Write-Host "VS $($toolchain.InstallationVersion); cmake=$($toolchain.CMakeExe)"
@@ -174,24 +176,9 @@ exit 0
 '@ | Out-Null
 
     # ---- Step 3: OpenSpec strict (hosted hygiene job) ----
-    Invoke-ParityStep -Id 'openspec' -HostedRef 'ci.yml:134-136 openspec validate --all --strict' -UnavailableReason 'REQUIRED-BUT-UNAVAILABLE: openspec CLI/network fetch unavailable on this host' -Command @'
-Set-Location '{ROOT}'
-# npm 11 on Windows: invoke npx BARE (direct pipeline capture). The
-# call-operator-prefixed npx form dispatches the Roaming npx shim with mangled
-# arguments (npm receives 'exec px …' and fails 'could not determine
-# executable'); bare invocation + the '--' executable separator resolve the
-# pinned package deterministically (verified 83/83). No global-install reliance.
-$output = npx --yes --package=@fission-ai/openspec@1.8.0 -- openspec validate --all --strict --no-interactive 2>&1
-$code = $LASTEXITCODE
-$output | ForEach-Object { Write-Host $_ }
-# CLI/package resolution failure = the tool is unavailable on this host, not
-# a document validation failure -- classify honestly as exit 2 (SKIPPED /
-# REQUIRED-BUT-UNAVAILABLE), never as FAIL.
-if ($code -ne 0 -and ("$output" -match 'could not determine executable' -or "$output" -match 'ERR_MODULE_NOT_FOUND' -or "$output" -match 'ENOENT' -or "$output" -match 'command not found')) {
-    Write-Host 'openspec CLI unavailable on this host (npx resolution failed)'
-    exit 2
-}
-exit $code
+    Invoke-ParityStep -Id 'openspec' -HostedRef 'ci.yml:134-136 openspec validate --all --strict' -UnavailableExitCode -UnavailableReason 'REQUIRED-BUT-UNAVAILABLE: openspec CLI/network fetch unavailable on this host' -Command @'
+& '{ROOT}\verify\Invoke-OpenSpecStrict.ps1' -RepoRoot '{ROOT}'
+exit $LASTEXITCODE
 '@ | Out-Null
 
     # ---- Step 4: build matrix (hosted build job, fail-fast:false legs) ----
@@ -281,7 +268,7 @@ exit 0
 $pass = @($steps | Where-Object { $_.status -eq 'PASS' }).Count
 $fail = @($steps | Where-Object { $_.status -eq 'FAIL' }).Count
 $skipped = @($steps | Where-Object { $_.status -eq 'SKIPPED' }).Count
-$overall = if ($fail -gt 0) { 'FAIL' } elseif ($pass -eq 0 -and $skipped -gt 0) { 'SKIPPED' } else { 'PASS' }
+$overall = Get-CiParityOverallStatus -Steps @($steps)
 
 $report = [ordered]@{
     schemaVersion  = 1
@@ -301,8 +288,7 @@ $report = [ordered]@{
     overall        = $overall
 }
 $reportPath = Join-Path $runDir 'parity-report.json'
-$report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $reportPath -Encoding utf8
-
+$jsonTemp = "$reportPath.tmp-$PID"
 $md = @()
 $md += '# LOCAL CI-PARITY (this Windows host) -- NOT hosted GitHub Actions evidence'
 $md += ''
@@ -320,7 +306,19 @@ $md += ''
 $md += '## Hosted-only omissions (never simulated)'
 $md += '- actions/checkout fetch, actions/upload-artifact retention, runner image/timeout enforcement, ::error annotations, workflow-command output, job-isolation freshness, npx registry fetch provenance.'
 $mdPath = Join-Path $runDir 'parity-report.md'
-$md | Set-Content -LiteralPath $mdPath -Encoding utf8
+$mdTemp = "$mdPath.tmp-$PID"
+try {
+    # Publish Markdown first and the authoritative JSON last. If either write
+    # fails, exit 3 without leaving a newly discoverable PASS JSON artifact.
+    $md | Set-Content -LiteralPath $mdTemp -Encoding utf8
+    $report | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $jsonTemp -Encoding utf8
+    Move-Item -LiteralPath $mdTemp -Destination $mdPath -Force
+    Move-Item -LiteralPath $jsonTemp -Destination $reportPath -Force
+} catch {
+    Remove-Item -LiteralPath $jsonTemp, $mdTemp -Force -ErrorAction SilentlyContinue
+    Write-Host "HARNESS ERROR: evidence publication failed: $($_.Exception.Message)"
+    exit 3
+}
 
 Write-Host ''
 Write-Host "parity report: $reportPath"

@@ -523,6 +523,56 @@ void TestScanFailedLeavesPriorIndexAuthorityIntact() {
           "the next authoritative completion still marks the volume");
 }
 
+// residual-defect-closure-and-certification-completion 1.5: a delivered
+// ScanFailed schedules a bounded retry. The test makes the retry deadline
+// due without changing production's five-second delay, then observes the
+// scheduler's fresh StartVolumeScan request.
+void TestScanFailedSchedulesRetry() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_scan_failed_retry.db")),
+          "pipeline opens for scan-failure retry test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 63;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "scan-failure retry creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    AddSession(manager, volumeId);
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.active_ = true;
+    manager.Start();
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    bool queued = false;
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        queued = manager.failedScanRetries_.contains(7);
+        if (queued) {
+            manager.failedScanRetries_.at(7).due = std::chrono::steady_clock::now() - 1ms;
+            ++manager.scanRetryGeneration_;
+        }
+    }
+    Check(queued, "ScanFailed queues a bounded retry");
+    manager.wakeCv_.notify_one();
+
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!HasCapturedBytes(capture->client) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    const auto message = ReadCapturedMessage(capture->client);
+    Check(message == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the due ScanFailed retry reissues StartVolumeScan");
+    manager.Stop();
+}
+
 // index-durability-false-success-closure 6.1: a terminal for a volume with
 // no scan in flight carries no authority -- it must never mark, and must
 // never finalize a pass its scan did not own.
@@ -814,6 +864,7 @@ int main() {
     TestInitialScanBatchesDoNotRepeatWholeSnapshotExports();
     TestPendingDecisionForObservedUnselectedVolume();
     TestScanFailedLeavesPriorIndexAuthorityIntact();
+    TestScanFailedSchedulesRetry();
     TestDuplicateTerminalsWithoutScanInFlightAreRefused();
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();

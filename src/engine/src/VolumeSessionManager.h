@@ -140,12 +140,12 @@ private:
     // Issues StartVolumeScan (with the persisted cursor if the initial
     // scan never finished, task 6.3) and OpenUsnJournal (with the
     // persisted ResumeUsn) for a newly-seen or reconnected volume.
-    void StartOrResumeVolume(ffprotocol::VolumeId ephemeralId, const VolumeSession& session);
+    bool StartOrResumeVolume(ffprotocol::VolumeId ephemeralId, const VolumeSession& session);
     // tasks.md 7.6/D6: a from-scratch StartVolumeScan whose completion
     // (via IndexPipeline's reconciliation-pass tracking) self-corrects
     // missed events, rather than an unconditional full rescan discarding
     // existing rows.
-    void TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
+    bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
     void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force = false);
     // True when the volume's indexing is currently paused (globally or by
     // letter). Callers must hold mutex_.
@@ -157,6 +157,10 @@ private:
 
     void ReconciliationSchedulerLoop();
     void RefreshProjectionScanState();
+    struct FailedScanRetry {
+        std::chrono::steady_clock::time_point due{};
+        bool reconciliation = false;
+    };
     void SendSessionTeardown(ffprotocol::VolumeId ephemeralId, const VolumeSession& session);
     bool RequestJournalOpen(ffprotocol::VolumeId ephemeralId, uint64_t resumeUsn,
                             ffindexstore::VolumeRowId expectedDurableId);
@@ -189,6 +193,11 @@ private:
     std::thread reconciliationThread_;
     std::mutex wakeMutex_;
     std::condition_variable wakeCv_;
+    // Guarded by wakeMutex_. A delivered ScanFailed schedules a bounded retry
+    // without spawning an unowned thread; the scheduler wakes for the earlier
+    // of this deadline and its normal reconciliation poll.
+    std::map<uint32_t, FailedScanRetry> failedScanRetries_;
+    uint64_t scanRetryGeneration_ = 0; // guarded by wakeMutex_
 };
 
 } // namespace ffengine

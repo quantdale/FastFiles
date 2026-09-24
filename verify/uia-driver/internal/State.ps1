@@ -179,6 +179,10 @@ function Get-UiaInteractiveState {
         TimestampUtc    = [DateTime]::UtcNow
         ForegroundHwnd  = $null
         ForegroundTitle = $null
+        # True only when GetForegroundWindow/TitleOf completed. A null title
+        # from a failed query must not be confused with a proven ownerless
+        # desktop and converted into an environment skip.
+        ForegroundEvidenceAvailable = $true
         FocusedElement  = $null
         Windows         = @()
         Popups          = @()
@@ -191,7 +195,9 @@ function Get-UiaInteractiveState {
             $state.ForegroundHwnd = $fg
             $state.ForegroundTitle = [FfNativeWindowInfo]::TitleOf($fg)
         }
-    } catch { }
+    } catch {
+        $state.ForegroundEvidenceAvailable = $false
+    }
 
     if ($ProcessId -gt 0) {
         try {
@@ -336,11 +342,14 @@ function Reset-UiaModifierKeys {
     # VK codes: SHIFT 0x10, CTRL 0x11, MENU 0x12, LSHIFT 0xA0, RSHIFT 0xA1,
     # LCONTROL 0xA2, RCONTROL 0xA3, LMENU 0xA4, RMENU 0xA5, LWIN 0x5B, RWIN 0x5C.
     $vks = @(0x10, 0x11, 0x12, 0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0x5B, 0x5C)
+    $ok = $true
     if (-not $NoSend -and -not (Test-UiaMockElement $Driver.Root)) {
-        foreach ($vk in $vks) { [void][FfNativeInput]::KeyUp([uint16]$vk) }
+        foreach ($vk in $vks) {
+            if (-not [FfNativeInput]::KeyUp([uint16]$vk)) { $ok = $false }
+        }
     }
     return [pscustomobject]@{
-        used = 'SendInput'; fallback = $true; kind = 'modifier-reset'
+        used = 'SendInput'; fallback = $true; ok = $ok; kind = 'modifier-reset'
         released = @($vks); dryRun = $NoSend
     }
 }
@@ -448,9 +457,9 @@ function Get-UiaExplorerWindow {
                 (Get-UiaElementIdentity -Driver $Driver -Element $_).ClassName -eq 'CabinetWClass'
             })
             foreach ($window in $windows) {
-                $pid = 0
-                try { $pid = [int](Get-UiaElementProperty -Driver $Driver -Element $window -Name 'ProcessId') } catch { }
-                if ($CandidateProcessIds -and $CandidateProcessIds.Count -gt 0 -and $pid -notin $CandidateProcessIds) {
+                $windowProcessId = 0
+                try { $windowProcessId = [int](Get-UiaElementProperty -Driver $Driver -Element $window -Name 'ProcessId') } catch { }
+                if ($CandidateProcessIds -and $CandidateProcessIds.Count -gt 0 -and $windowProcessId -notin $CandidateProcessIds) {
                     # A newly spawned explorer.exe (broker) is a legitimate
                     # owner of the test window; pre-launch PIDs are not the
                     # only candidates. Fall through to the semantic checks

@@ -64,39 +64,33 @@ void TestServiceUsesBoundedSharedWrites() {
     fftest::Check(listener.find("CancelSynchronousIo") == std::string::npos,
                   "shared pipe listener has no synchronous cancellation fallback");
 
-    // residual-campaign R1 (reviewer-D residual, code-evident at VolumeScanner.cpp:388):
-    // a MID-SCAN batch-write failure must reach a defined failure terminal for
-    // {2,2}+ peers instead of ending silently -- red-first: absent today.
-    // Legacy peers and cancellation must keep silence (routing them through the
-    // failure terminal would deliver ScanComplete to a failed scan = the PA-001
-    // row-deletion hazard).
+    // residual-defect-closure-and-certification-completion 1.1: a failed
+    // frame write is connection-fatal. It must never append another frame to
+    // a possibly desynchronized byte stream.
     const std::string scanner = ReadText(root / "src" / "indexsvc" / "src" / "VolumeScanner.cpp");
-    // Positive-form guard only: today's code has "!writeFailed && …", whose
-    // substring must NOT satisfy this check (false-green trap avoided by the
-    // leading "if (writeFailed" without '!').
-    fftest::Check(scanner.find("if (writeFailed && !shouldStop.load())") != std::string::npos,
-                  "mid-scan write failure emits a capability-gated failure terminal instead of ending silently");
-    // The write-failure terminal must never fall back to legacy ScanComplete:
-    // an unconditional SendScanTerminal(..., false) after writeFailed would
-    // mark a failed scan complete for pre-{2,2} peers.
-    const std::size_t wfGuard = scanner.find("if (writeFailed && !shouldStop.load())");
-    fftest::Check(wfGuard != std::string::npos,
-                  "write-failure terminal is guarded by cancellation (never on shouldStop)");
-    if (wfGuard != std::string::npos) {
-        // Window must span the full commented block (rationale precedes code).
-        const std::string wfBlock = scanner.substr(wfGuard, 3000);
-        fftest::Check(wfBlock.find("ProtocolSupportsScanFailure") != std::string::npos &&
-                          wfBlock.find("SendScanTerminal") != std::string::npos,
-                      "write-failure terminal block is capability-gated and routes to SendScanTerminal");
-        // Failure must be observable even when the transport cannot carry the
-        // terminal: a file-channel diagnostic is emitted unconditionally.
-        fftest::Check(wfBlock.find("AppendDiagnostic") != std::string::npos,
-                      "write failure always emits a transport-independent diagnostic");
-        // Completion terminal must remain mutually exclusive with failure.
-        const std::size_t completionGuard = scanner.find("if (!writeFailed && !shouldStop.load())");
-        fftest::Check(completionGuard != std::string::npos && completionGuard > wfGuard,
-                      "completion terminal stays gated on !writeFailed after the failure path (exactly one outcome)");
+    fftest::Check(scanner.find("ScanRunResult RunVolumeScan(") != std::string::npos,
+                  "scanner exposes an explicit run outcome");
+    fftest::Check(scanner.find("return ScanRunResult::TransportFailed") != std::string::npos,
+                  "a failed scan write returns a transport-fatal outcome");
+    const std::size_t failureGuard = scanner.find("if (writeFailed)");
+    fftest::Check(failureGuard != std::string::npos,
+                  "mid-scan write failure has a dedicated outcome branch");
+    if (failureGuard != std::string::npos) {
+        const std::size_t failureEnd = scanner.find("return ScanRunResult::TransportFailed;", failureGuard);
+        fftest::Check(failureEnd != std::string::npos,
+                      "transport-fatal branch has an explicit return");
+        if (failureEnd != std::string::npos) {
+            const std::string failureBlock = scanner.substr(failureGuard, failureEnd - failureGuard);
+            fftest::Check(failureBlock.find("recordFailureDiagnostic") != std::string::npos,
+                          "transport-fatal write failure records a metadata diagnostic");
+            fftest::Check(failureBlock.find("SendScanTerminal") == std::string::npos,
+                          "transport-fatal write failure never appends a terminal frame");
+        }
     }
+    fftest::Check(scanner.find("return ScanRunResult::Cancelled;") != std::string::npos,
+                  "cancellation remains a silent outcome");
+    fftest::Check(scanner.find("recordFailureDiagnostic(L\"scan-terminal-write-failed\"") != std::string::npos,
+                  "a failed terminal write is diagnosed as transport-fatal");
 }
 
 } // namespace

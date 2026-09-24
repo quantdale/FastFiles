@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 
 #include "ffipc/PipeFraming.h"
@@ -13,14 +14,19 @@ namespace ffindexsvc {
 constexpr std::chrono::milliseconds kWriteDeadline{5000};
 
 inline bool WriteFrameWithDeadline(HANDLE pipeHandle, uint16_t messageType,
-                                   const void* payload, uint32_t payloadSize) noexcept {
-    return ffipc::WriteFrameOverlapped(
+                                   const void* payload, uint32_t payloadSize,
+                                   std::atomic<bool>* transportFailed = nullptr) noexcept {
+    if (transportFailed != nullptr && transportFailed->load()) return false;
+    const bool written = ffipc::WriteFrameOverlapped(
         pipeHandle, messageType, payload, payloadSize,
         std::chrono::steady_clock::now() + kWriteDeadline);
+    if (!written && transportFailed != nullptr) transportFailed->store(true);
+    return written;
 }
 
-inline bool WriteFrameWithDeadline(HANDLE pipeHandle, uint16_t messageType) noexcept {
-    return WriteFrameWithDeadline(pipeHandle, messageType, nullptr, 0);
+inline bool WriteFrameWithDeadline(HANDLE pipeHandle, uint16_t messageType,
+                                   std::atomic<bool>* transportFailed = nullptr) noexcept {
+    return WriteFrameWithDeadline(pipeHandle, messageType, nullptr, 0, transportFailed);
 }
 
 } // namespace ffindexsvc

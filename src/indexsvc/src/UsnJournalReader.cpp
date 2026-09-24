@@ -37,16 +37,16 @@ bool IsRepresentableInLegacyV1(const ffprotocol::UsnDeltaV3& record) noexcept {
 }
 
 bool SendJournalOpened(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, uint64_t journalId,
-                        uint64_t currentUsn) {
+                        uint64_t currentUsn, std::atomic<bool>* transportFailed) {
     ffprotocol::UsnJournalOpenedPayload payload{volumeId, journalId, currentUsn};
     std::lock_guard<std::mutex> lock(writeMutex);
     return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened),
-                                  &payload, sizeof(payload));
+                                  &payload, sizeof(payload), transportFailed);
 }
 
 bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
                       const std::vector<ffprotocol::UsnDeltaV3>& records, uint64_t latestUsn,
-                      ffprotocol::ProtocolVersion negotiatedVersion) {
+                      ffprotocol::ProtocolVersion negotiatedVersion, std::atomic<bool>* transportFailed) {
     if (negotiatedVersion.major == 1) {
         // A major-1 peer does not know message 19 or the V2 presence mask.
         // Never encode an absent V2 field as a legacy zero: omit a partial
@@ -73,7 +73,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
 
         std::lock_guard<std::mutex> lock(writeMutex);
         return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatch),
-                                      payload.data(), static_cast<uint32_t>(payload.size()));
+                                      payload.data(), static_cast<uint32_t>(payload.size()), transportFailed);
     }
 
     if (!ffprotocol::ProtocolSupportsAllocatedSize(negotiatedVersion)) {
@@ -103,7 +103,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
 
         std::lock_guard<std::mutex> lock(writeMutex);
         return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV2),
-                                      payload.data(), static_cast<uint32_t>(payload.size()));
+                                      payload.data(), static_cast<uint32_t>(payload.size()), transportFailed);
     }
 
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeUsnDeltaV3Batch(records);
@@ -122,7 +122,7 @@ bool SendJournalBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
 
     std::lock_guard<std::mutex> lock(writeMutex);
     return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::JournalRecordBatchV3),
-                                  payload.data(), static_cast<uint32_t>(payload.size()));
+                                  payload.data(), static_cast<uint32_t>(payload.size()), transportFailed);
 }
 
 // Re-reads a changed file's current allowlisted fields via the same
@@ -188,7 +188,8 @@ bool QueryOrCreateUsnJournal(HANDLE volumeHandle, USN_JOURNAL_DATA_V0& journalDa
 
 JournalStreamOutcome RunUsnJournalStream(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter, uint64_t resumeUsn,
-    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop) {
+    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop,
+    std::atomic<bool>* transportFailed) {
     const wchar_t volumePath[] = {L'\\', L'\\', L'.', L'\\', driveLetter, L':', L'\0'};
 
     // SeBackupPrivilege must be explicitly enabled (not just held) for
@@ -213,7 +214,7 @@ JournalStreamOutcome RunUsnJournalStream(
     }
 
     if (!SendJournalOpened(pipe, writeMutex, volumeId, static_cast<uint64_t>(journalData.UsnJournalID),
-                            static_cast<uint64_t>(journalData.NextUsn))) {
+                            static_cast<uint64_t>(journalData.NextUsn), transportFailed)) {
         CloseHandle(volumeHandle);
         return JournalStreamOutcome::Ended;
     }
@@ -352,7 +353,7 @@ JournalStreamOutcome RunUsnJournalStream(
         startUsn = nextUsn;
 
         if (!batch.empty()) {
-            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch, negotiatedVersion)) {
+            if (!SendJournalBatch(pipe, writeMutex, volumeId, batch, latestUsnInBatch, negotiatedVersion, transportFailed)) {
                 break;
             }
             batch.clear();

@@ -120,6 +120,18 @@ bool SendHandshakeReject(HANDLE pipeHandle, ffprotocol::HandshakeRejectReason re
     return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HandshakeReject), &payload, sizeof(payload));
 }
 
+void AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode code, std::wstring volumeId,
+                              const wchar_t* state) noexcept {
+    try {
+        ffprotocol::DiagnosticEvent event{};
+        event.category = ffprotocol::DiagnosticCategory::IndexingError;
+        event.code = code;
+        event.volumeId = std::move(volumeId);
+        event.state = state;
+        ffprotocol::AppendDiagnostic(event);
+    } catch (...) { }
+}
+
 bool SendVolumeList(HANDLE pipeHandle) {
     auto volumes = EnumerateFixedNtfsVolumes();
 
@@ -202,6 +214,10 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
     std::mutex writeMutex;
     std::vector<ActiveWorker> activeScans;
     std::vector<ActiveWorker> activeJournals;
+    // A worker that observes a transport-fatal write failure sets this before
+    // cancelling pending overlapped I/O. The control loop then cannot keep
+    // dispatching on a byte stream whose frame boundary is no longer trusted.
+    auto transportFailed = std::make_shared<std::atomic<bool>>(false);
 
     bool disconnect = false;
     auto idleDeadline = std::chrono::steady_clock::now() + kInboundIdleTimeout;
@@ -219,8 +235,11 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
     // invariant. The dispatch body keeps its original indentation so this
     // security fix stays reviewable as a boundary-only change.
     try {
-    while (!disconnect) {
+    while (!disconnect && !transportFailed->load()) {
         auto frame = ReadActiveFrame(pipeHandle, shutdownEvent, idleDeadline);
+        if (transportFailed->load()) {
+            break;
+        }
         if (!frame) {
             break; // I/O error, clean disconnect, or inbound idle timeout
         }
@@ -256,6 +275,10 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
         switch (static_cast<MessageType>(frame->header.messageType)) {
             case MessageType::EnumerateVolumes: {
                 std::lock_guard<std::mutex> lock(writeMutex);
+                if (transportFailed->load()) {
+                    disconnect = true;
+                    break;
+                }
                 disconnect = !SendVolumeList(pipeHandle);
                 break;
             }
@@ -318,31 +341,41 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 // (StopAndJoinAll must always see every worker).
                 activeScans.push_back(std::move(worker));
                 activeScans.back().thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter,
-                                                          resumeCursor, lowPriority, peerVersion, stopFlag] {
-                    // hardening-campaign Phase 7 H2: terminal exception
-                    // boundary for the scan worker -- translate an escaping
-                    // failure into the defined ScanFailed terminal plus
-                    // diagnostics, never std::terminate on LocalSystem.
+                                                          resumeCursor, lowPriority, peerVersion, stopFlag,
+                                                          transportFailed] {
+                    // H2: an escaping worker exception is not safe to turn into
+                    // a terminal on the same pipe. The exception may have
+                    // occurred after a partial write, so record it and make
+                    // the connection transport-fatal instead.
                     try {
-                        RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
-                                      peerVersion, *stopFlag);
-                    } catch (const std::exception&) {
-                        try {
-                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
-                                                          {}, {}, L"scan-worker-exception", 0, 0});
-                            SendScanTerminal(pipeHandle, writeMutex, volumeId, peerVersion, false);
-                            WriteServiceLifecycleLog(L"scan worker exception boundary: ScanFailed terminal emitted");
-                        } catch (...) { }
-                    } catch (...) {
-                        try {
-                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
-                                                          {}, {}, L"scan-worker-unknown-exception", 0, 0});
-                            SendScanTerminal(pipeHandle, writeMutex, volumeId, peerVersion, false);
+                        const ScanRunResult outcome =
+                            RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
+                                          peerVersion, *stopFlag, transportFailed.get());
+                        if (outcome == ScanRunResult::TransportFailed) {
+                            transportFailed->store(true);
+                            CancelIoEx(pipeHandle, nullptr);
                             WriteServiceLifecycleLog(
-                                L"scan worker unknown exception boundary: ScanFailed terminal emitted");
+                                L"scan worker transport failure: connection abort requested; no terminal appended");
+                        }
+                    } catch (const std::exception&) {
+                        transportFailed->store(true);
+                        try {
+                            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                                     std::to_wstring(volumeId.value), L"scan-worker-exception");
+                            WriteServiceLifecycleLog(
+                                L"scan worker exception boundary: connection abort requested; no terminal appended");
                         } catch (...) { }
+                        try { CancelIoEx(pipeHandle, nullptr); } catch (...) { }
+                    } catch (...) {
+                        transportFailed->store(true);
+                        try {
+                            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                                     std::to_wstring(volumeId.value),
+                                                     L"scan-worker-unknown-exception");
+                            WriteServiceLifecycleLog(
+                                L"scan worker unknown exception boundary: connection abort requested; no terminal appended");
+                        } catch (...) { }
+                        try { CancelIoEx(pipeHandle, nullptr); } catch (...) { }
                     }
                 });
                 break;
@@ -404,7 +437,7 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 // thread starts (same orphan-window fix as the scan worker).
                 activeJournals.push_back(std::move(worker));
                 activeJournals.back().thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter,
-                                                             resumeUsn, peerVersion, stopFlag] {
+                                                             resumeUsn, peerVersion, stopFlag, transportFailed] {
                     // hardening-campaign Phase 7 H2: terminal exception
                     // boundary for the journal worker. Journal failures are
                     // silent-Ended by design D6 -- an escaping exception maps
@@ -413,7 +446,10 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                     try {
                         const JournalStreamOutcome outcome =
                             RunUsnJournalStream(pipeHandle, writeMutex, volumeId, driveLetter, resumeUsn,
-                                                peerVersion, *stopFlag);
+                                                peerVersion, *stopFlag, transportFailed.get());
+                        if (transportFailed->load()) {
+                            CancelIoEx(pipeHandle, nullptr);
+                        }
                         if (outcome == JournalStreamOutcome::ResumePositionInvalid && peerVersion.major != 1) {
                             // D6/task 7.6: tell the engine its ResumeUsn aged
                             // out of the journal's retained range before this
@@ -425,21 +461,19 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                             std::lock_guard<std::mutex> lock(writeMutex);
                             WriteFrameWithDeadline(pipeHandle,
                                                    static_cast<uint16_t>(MessageType::JournalResumeInvalid),
-                                                   &payload, sizeof(payload));
+                                                   &payload, sizeof(payload), transportFailed.get());
                         }
                     } catch (const std::exception&) {
                         try {
-                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
-                                                          {}, {}, L"journal-worker-exception", 0, 0});
+                            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN, {},
+                                                     L"journal-worker-exception");
                             WriteServiceLifecycleLog(
                                 L"journal worker exception boundary: journal stream ends; engine reconciles");
                         } catch (...) { }
                     } catch (...) {
                         try {
-                            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
-                                                          {}, {}, L"journal-worker-unknown-exception", 0, 0});
+                            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN, {},
+                                                     L"journal-worker-unknown-exception");
                             WriteServiceLifecycleLog(
                                 L"journal worker unknown exception boundary: journal stream ends; engine reconciles");
                         } catch (...) { }
@@ -480,7 +514,11 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                     lastRevalidated = std::chrono::steady_clock::now();
                 }
                 std::lock_guard<std::mutex> lock(writeMutex);
-                disconnect = !WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck));
+                if (transportFailed->load()) {
+                    disconnect = true;
+                    break;
+                }
+                disconnect = !WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::HeartbeatAck), transportFailed.get());
                 break;
             }
 
@@ -500,17 +538,15 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
         // below (new transport + re-authentication is the engine's half of
         // the recovery: broken pipe -> backoff reconnect -> full re-gate).
         try {
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
-                                          {}, {}, L"ctrl-dispatch-exception", 0, 0});
+            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN, {},
+                                     L"ctrl-dispatch-exception");
             WriteServiceLifecycleLog(L"ctrl connection exception boundary: disconnecting for teardown");
         } catch (...) { }
         disconnect = true;
     } catch (...) {
         try {
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                          ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN,
-                                          {}, {}, L"ctrl-dispatch-unknown-exception", 0, 0});
+            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_UNKNOWN, {},
+                                     L"ctrl-dispatch-unknown-exception");
             WriteServiceLifecycleLog(L"ctrl connection unknown exception boundary: disconnecting for teardown");
         } catch (...) { }
         disconnect = true;

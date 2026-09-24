@@ -511,7 +511,7 @@ function Add-VisualScenarioResult {
     }
     if ($null -eq $PrivacyRedactions) { $PrivacyRedactions = @() }
     $dpiCheck = Test-VisualDpiMatch -RequestedPercent $requestedDpiScale -ObservedDpi $ObservedDpi
-    $dpiMatch = if ($hasScreenshotPath) { $dpiCheck.Match } else { $true }
+    $dpiMatch = if ($hasScreenshotPath) { $dpiCheck.Match } else { $null }
     # Map legacy theme names to v2 enum.
     $v2Theme = switch ($Theme.ToLowerInvariant()) {
         'light' { 'light' }
@@ -783,7 +783,47 @@ function Write-VisualCaptureRun {
     return [pscustomobject]@{ Manifest = $manifestPath; ManifestV2 = $v2ManifestPath; Summary = $summaryPath; Count = $Run.Records.Count; ProvenanceState = $Run.ProvenanceState }
 }
 
+function Compare-VisualScenarioCoverage {
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [string[]] $ExpectedScenarioIds,
+        [object[]] $Records,
+        [string[]] $AllowedDiagnosticIds = @('catalog-lifecycle', 'gallery-error')
+    )
+
+    $expected = @($ExpectedScenarioIds | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    $records = @($Records)
+    $ids = @($records | ForEach-Object { [string]$_.scenarioId } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $counts = @{}
+    foreach ($id in $ids) {
+        if ($counts.ContainsKey($id)) { $counts[$id] = [int]$counts[$id] + 1 } else { $counts[$id] = 1 }
+    }
+    $missing = @($expected | Where-Object { -not $counts.ContainsKey($_) })
+    $duplicates = @($counts.Keys | Where-Object { [int]$counts[$_] -gt 1 } | Sort-Object)
+    $allowed = @($AllowedDiagnosticIds)
+    $unexpected = @($ids | Where-Object { ($expected -notcontains $_) -and ($allowed -notcontains $_) } | Sort-Object -Unique)
+    $expectedRecords = @($records | Where-Object { $expected -contains [string]$_.scenarioId })
+    $nonPass = @($expectedRecords | Where-Object { [string]$_.status -ne 'PASS' } | ForEach-Object { [string]$_.scenarioId } | Sort-Object -Unique)
+    $invalidPass = @($expectedRecords | Where-Object {
+        [string]$_.status -eq 'PASS' -and (
+            $null -eq $_.assertionResult -or -not [bool]$_.assertionResult.pass -or
+            [string]::IsNullOrWhiteSpace([string]$_.screenshotPath) -or
+            [string]::IsNullOrWhiteSpace([string]$_.imageHash))
+    } | ForEach-Object { [string]$_.scenarioId } | Sort-Object -Unique)
+    return [pscustomobject]@{
+        Ok = ($missing.Count -eq 0 -and $duplicates.Count -eq 0 -and $unexpected.Count -eq 0 -and $nonPass.Count -eq 0 -and $invalidPass.Count -eq 0)
+        Expected = $expected
+        Missing = $missing
+        Duplicates = $duplicates
+        Unexpected = $unexpected
+        NonPass = $nonPass
+        InvalidPass = $invalidPass
+        Recorded = @($ids | Sort-Object -Unique)
+    }
+}
+
 Export-ModuleMember -Function Get-VisualWindowBounds, Get-VisualGitCommit, Get-VisualGitTree,
     New-VisualCaptureRun, New-VisualEvidenceV2Record, Test-VisualEvidenceV2Record,
     Add-VisualScenarioResult, Register-VisualCaptureFile, Capture-VisualWindow,
-    Write-VisualCaptureRun, Test-VisualDpiMatch, Clear-VisualRunRetention
+    Write-VisualCaptureRun, Test-VisualDpiMatch, Clear-VisualRunRetention,
+    Compare-VisualScenarioCoverage

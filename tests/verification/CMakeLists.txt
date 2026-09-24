@@ -56,6 +56,22 @@ if(FF_PWSH_EXECUTABLE)
             "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-CiParityContract.ps1"
   )
   set_tests_properties(ffverify_parity_contract_ps_tests PROPERTIES TIMEOUT 60)
+  # residual-defect-closure-and-certification-completion 2.4: real child
+  # process classification with controlled npm/npx fixtures; no network.
+  add_test(
+    NAME ffverify_openspec_child_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-OpenSpecStrictClassification.ps1"
+  )
+  set_tests_properties(ffverify_openspec_child_ps_tests PROPERTIES TIMEOUT 60)
+  # residual-defect-closure-and-certification-completion 3.2: visual catalog
+  # scenario registry/completeness contract; no app launch or run-tree input.
+  add_test(
+    NAME ffverify_visual_catalog_coverage_ps_tests
+    COMMAND "${FF_PWSH_EXECUTABLE}" -NoProfile -ExecutionPolicy Bypass -File
+            "${PROJECT_SOURCE_DIR}/verify/core/tests/Test-VisualCatalogCoverage.ps1"
+  )
+  set_tests_properties(ffverify_visual_catalog_coverage_ps_tests PROPERTIES TIMEOUT 60)
   # hardening-campaign Phase 5: clean-host/install/service certification
   # harness (HostContamination.psm1 + InstallCertificationPlan.psm1) --
   # detector state transitions and the section-11 skeleton vocabulary guard,

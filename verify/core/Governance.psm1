@@ -11,13 +11,14 @@ Import-Module (Join-Path $PSScriptRoot 'RepositoryState.psm1') -Force -DisableNa
 
 function Get-AgentMode {
     [CmdletBinding()]
-    param()
+    param([string] $RepoRoot = '')
 
     $raw = $env:FASTFILES_AGENT_MODE
-    $sentinelPath = Join-Path (Get-Location).Path 'verify\runs\agent-mode.readonly'
+    $modeRoot = if ([string]::IsNullOrWhiteSpace($RepoRoot)) { (Get-Location).Path } else { [IO.Path]::GetFullPath($RepoRoot) }
+    $sentinelPath = Join-Path $modeRoot 'verify\runs\agent-mode.readonly'
     $repoSentinel = $null
     try {
-        $inside = Invoke-RepositoryGit -RepoRoot (Get-Location).Path -Arguments @('rev-parse', '--show-toplevel') -AllowFailure
+        $inside = Invoke-RepositoryGit -RepoRoot $modeRoot -Arguments @('rev-parse', '--show-toplevel') -AllowFailure
         if ($inside.exitCode -eq 0 -and $inside.lines.Count -gt 0) {
             $top = ([string]$inside.lines[0]).Trim()
             if ($top) { $repoSentinel = Join-Path $top 'verify\runs\agent-mode.readonly' }
@@ -42,8 +43,8 @@ function Get-AgentMode {
 
 function Test-AgentModeReadOnly {
     [CmdletBinding()]
-    param()
-    $mode = Get-AgentMode
+    param([string] $RepoRoot = '')
+    $mode = Get-AgentMode -RepoRoot $RepoRoot
     return ($mode -eq 'readonly' -or $mode.StartsWith('unrecognized:'))
 }
 
@@ -101,19 +102,19 @@ function Assert-AgentGovernance {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('git-add', 'git-commit', 'git-push', 'git-ref-write', 'tracked-write', 'implement-script', 'autonomous-run')]
+        [ValidateSet('git-add', 'git-commit', 'git-push', 'git-ref-write', 'git-unknown', 'tracked-write', 'implement-script', 'autonomous-run')]
         [string] $Operation,
         [string] $RepoRoot = '',
         [AllowEmptyCollection()] [string[]] $Paths = @(),
         [switch] $PassThru
     )
 
-    if (-not (Test-AgentModeReadOnly)) {
-        if ($PassThru) { return [pscustomobject]@{ ok = $true; mode = (Get-AgentMode); operation = $Operation; message = $null } }
+    if (-not (Test-AgentModeReadOnly -RepoRoot $RepoRoot)) {
+        if ($PassThru) { return [pscustomobject]@{ ok = $true; mode = (Get-AgentMode -RepoRoot $RepoRoot); operation = $Operation; message = $null } }
         return
     }
 
-    $mode = Get-AgentMode
+    $mode = Get-AgentMode -RepoRoot $RepoRoot
     $message = "readonly-mode-violation:$Operation"
     if ($mode.StartsWith('unrecognized:')) {
         $message = "agent-mode-unrecognized:$($mode.Substring('unrecognized:'.Length))"
@@ -156,10 +157,11 @@ function Invoke-GuardedGit {
         '^add$' { 'git-add'; break }
         '^commit$' { 'git-commit'; break }
         '^push$' { 'git-push'; break }
-        '^(tag|branch|update-ref|rebase|reset|merge)$' { 'git-ref-write'; break }
-        default { '' }
+        '^(tag|branch|update-ref|rebase|reset|merge|checkout|switch|restore|clean|apply|stash|cherry-pick|revert|worktree|config|gc|filter-branch)$' { 'git-ref-write'; break }
+        '^(status|diff|log|show|rev-parse|ls-files|ls-tree|cat-file|remote|describe|blame|shortlog)$' { 'git-read'; break }
+        default { 'git-unknown' }
     }
-    if ($operation) {
+    if ($operation -and $operation -ne 'git-read') {
         $guard = Assert-AgentGovernance -Operation $operation -RepoRoot $RepoRoot -PassThru
         if (-not $guard.ok) {
             if ($PassThru) { return [pscustomobject]@{ ok = $false; exitCode = $guard.exitCode; message = $guard.message; output = @() } }

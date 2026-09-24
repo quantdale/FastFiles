@@ -42,7 +42,14 @@ namespace ffindexsvc {
 // (ProtocolSupportsAllocatedSize) receive ScanRecordBatchV2 frames with
 // MftRecordFixedV2 records carrying allocated size; all other peers receive
 // the exact legacy ScanRecordBatch/MftRecordFixedV1 bytes.
-void RunVolumeScan(
+enum class ScanRunResult {
+    Completed,
+    FailedTerminalDelivered,
+    Cancelled,
+    TransportFailed,
+};
+
+ScanRunResult RunVolumeScan(
     HANDLE pipe,
     std::mutex& writeMutex,
     ffprotocol::VolumeId volumeId,
@@ -50,17 +57,19 @@ void RunVolumeScan(
     const std::vector<uint8_t>& resumeCursor,
     bool lowPriority,
     ffprotocol::ProtocolVersion negotiatedVersion,
-    const std::atomic<bool>& shouldStop);
+    const std::atomic<bool>& shouldStop,
+    std::atomic<bool>* transportFailed = nullptr);
 
-// hardening-campaign Phase 7 H2: the single terminal sender (index-durability
-// D1/2.1) is shared with the ServiceConnection exception boundary. A scan
-// worker that dies on an escaping exception MUST still tell {2,2}+ peers
-// ScanFailed (legacy peers keep ScanComplete) so a fault can never
-// masquerade as a completion; `success=false` is the failure terminal.
+// index-durability-false-success-closure D1/2.1: the single terminal sender.
+// A setup or pre-write enumeration failure can use the capability-gated
+// failure terminal. A failed frame write is deliberately NOT followed by a
+// terminal: the byte stream may already contain a partial frame, so the
+// service reports TransportFailed and the connection is recreated instead.
 bool SendScanTerminal(HANDLE pipe,
                       std::mutex& writeMutex,
                       ffprotocol::VolumeId volumeId,
                       ffprotocol::ProtocolVersion negotiatedVersion,
-                      bool success);
+                      bool success,
+                      std::atomic<bool>* transportFailed = nullptr);
 
 } // namespace ffindexsvc

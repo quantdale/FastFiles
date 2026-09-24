@@ -1378,6 +1378,26 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "residual-defect-closure-and-certification-completion",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/residual-defect-closure-and-certification-completion/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/residual-defect-closure-and-certification-completion/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/residual-defect-closure-and-certification-completion/tasks.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

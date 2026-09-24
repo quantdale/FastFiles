@@ -284,6 +284,11 @@ function Set-UiaForeground {
     }
 }
 
+function Assert-UiaInputAccepted {
+    param([bool] $Accepted, [string] $Stage)
+    if (-not $Accepted) { throw "UIA_INPUT_FAILED:$Stage" }
+}
+
 function Send-UiaInput {
     param($Driver, [Parameter(Mandatory)][string] $Keys, [switch] $NoSend)
     $seq = [System.Collections.ArrayList]::new()
@@ -332,33 +337,63 @@ function Send-UiaInput {
         $mods.ctrl = $false; $mods.alt = $false; $mods.shift = $false
     }
     if (-not $NoSend) {
-        foreach ($item in $seq) {
-            if ($item.down) { [void][FfNativeInput]::KeyDown($item.vk) } else { [void][FfNativeInput]::KeyUp($item.vk) }
+        $downKeys = [System.Collections.Generic.List[uint16]]::new()
+        try {
+            foreach ($item in $seq) {
+                if ($item.down) {
+                    Assert-UiaInputAccepted ([FfNativeInput]::KeyDown($item.vk)) "key-down-$($item.vk)"
+                    [void]$downKeys.Add([uint16]$item.vk)
+                } else {
+                    Assert-UiaInputAccepted ([FfNativeInput]::KeyUp($item.vk)) "key-up-$($item.vk)"
+                    [void]$downKeys.Remove([uint16]$item.vk)
+                }
+            }
+        } catch {
+            foreach ($vk in @($downKeys)) {
+                try { [void][FfNativeInput]::KeyUp($vk) } catch { }
+            }
+            throw
         }
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; keys = $Keys; dryRun = $NoSend; sequence = @($seq) }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; ok = $true; inputAccepted = $true; keys = $Keys; dryRun = $NoSend; sequence = @($seq) }
 }
 
 function Send-UiaText {
     param($Driver, [Parameter(Mandatory)][string] $Text, [switch] $NoSend)
     if (-not $NoSend) {
-        [void][FfNativeInput]::TypeText($Text)
+        $sent = [FfNativeInput]::TypeText($Text)
+        Assert-UiaInputAccepted ($sent -eq $Text.Length) "unicode-text-$sent/$($Text.Length)"
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'unicode-text'; chars = $Text.Length; dryRun = $NoSend }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; ok = $true; inputAccepted = $true; kind = 'unicode-text'; chars = $Text.Length; dryRun = $NoSend }
 }
 
 function Send-UiaMouseInput {
     param($Driver, [int] $X, [int] $Y, [ValidateSet('Left', 'Right')][string] $Button = 'Left', [ValidateSet('Click', 'Down', 'Up')][string] $Action = 'Click', [ValidateSet('', 'Ctrl', 'Shift', 'Alt')][string] $Modifier = '', [switch] $NoSend)
     if (-not $NoSend) {
         $vk = if ($Modifier -eq 'Ctrl') { 0x11 } elseif ($Modifier -eq 'Shift') { 0x10 } elseif ($Modifier -eq 'Alt') { 0x12 } else { 0 }
-        if ($vk -ne 0) { [void][FfNativeInput]::KeyDown($vk) }
-        $null = [FfNativeInput]::MouseMove($X, $Y)
-        $isLeft = ($Button -eq 'Left')
-        if ($Action -in @('Click', 'Down')) { $null = [FfNativeInput]::MouseButton($isLeft, $true) }
-        if ($Action -in @('Click', 'Up')) { $null = [FfNativeInput]::MouseButton($isLeft, $false) }
-        if ($vk -ne 0) { [void][FfNativeInput]::KeyUp($vk) }
+        $modifierDown = $false
+        $buttonDown = $false
+        try {
+            if ($vk -ne 0) {
+                Assert-UiaInputAccepted ([FfNativeInput]::KeyDown($vk)) "modifier-down-$vk"
+                $modifierDown = $true
+            }
+            Assert-UiaInputAccepted ([FfNativeInput]::MouseMove($X, $Y)) "mouse-move-$X,$Y"
+            $isLeft = ($Button -eq 'Left')
+            if ($Action -in @('Click', 'Down')) {
+                Assert-UiaInputAccepted ([FfNativeInput]::MouseButton($isLeft, $true)) "mouse-down-$Button"
+                $buttonDown = $true
+            }
+            if ($Action -in @('Click', 'Up')) {
+                Assert-UiaInputAccepted ([FfNativeInput]::MouseButton($isLeft, $false)) "mouse-up-$Button"
+                $buttonDown = $false
+            }
+        } finally {
+            if ($buttonDown) { try { [void][FfNativeInput]::MouseButton(($Button -eq 'Left'), $false) } catch { } }
+            if ($modifierDown) { try { [void][FfNativeInput]::KeyUp($vk) } catch { } }
+        }
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; action = $Action; x = $X; y = $Y; modifier = $Modifier; dryRun = $NoSend }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; ok = $true; inputAccepted = $true; action = $Action; x = $X; y = $Y; modifier = $Modifier; dryRun = $NoSend }
 }
 
 function Send-UiaMouseDrag {
@@ -372,36 +407,41 @@ function Send-UiaMouseDrag {
         Explorer) to enter DoDragDrop reliably with injected input.
     #>
     param($Driver, [int] $FromX, [int] $FromY, [int] $ToX, [int] $ToY,
-          [int] $Steps = 20, [int] $StepDelayMs = 60, [switch] $NoSend)
+          [int] $Steps = 20, [int] $StepDelayMs = 60, $SourceWindow, [switch] $NoSend)
+    $armObserved = $false
     if (-not $NoSend) {
+        $buttonDown = $false
         try {
-            $null = [FfNativeInput]::MouseMove($FromX, $FromY)
+            Assert-UiaInputAccepted ([FfNativeInput]::MouseMove($FromX, $FromY)) "drag-start-$FromX,$FromY"
             Start-Sleep -Milliseconds 300
-            $null = [FfNativeInput]::MouseButton($true, $true)
+            Assert-UiaInputAccepted ([FfNativeInput]::MouseButton($true, $true)) 'drag-down'
+            $buttonDown = $true
             Start-Sleep -Milliseconds 600
             # Small arm move so the source crosses its drag threshold; the pause
             # after the down must outlast the source's selection/repaint work or
             # the arm move is swallowed and the drag never starts.
             $armX = $FromX + [int](($ToX - $FromX) / 8)
             $armY = $FromY + [int](($ToY - $FromY) / 8)
-            $null = [FfNativeInput]::MouseMove($armX, $armY)
+            Assert-UiaInputAccepted ([FfNativeInput]::MouseMove($armX, $armY)) 'drag-arm'
+            if ($null -ne $SourceWindow) {
+                try {
+                    $sourceHwnd = [IntPtr]$SourceWindow.Current.NativeWindowHandle
+                    $armObserved = [FfNativeInput]::ThreadHasCapture($sourceHwnd)
+                } catch { $armObserved = $false }
+            }
             Start-Sleep -Milliseconds 600
             for ($i = 1; $i -le $Steps; $i++) {
                 $x = $FromX + [int](($ToX - $FromX) * $i / $Steps)
                 $y = $FromY + [int](($ToY - $FromY) * $i / $Steps)
-                $null = [FfNativeInput]::MouseMove($x, $y)
+                Assert-UiaInputAccepted ([FfNativeInput]::MouseMove($x, $y)) "drag-move-$i"
                 Start-Sleep -Milliseconds $StepDelayMs
             }
             Start-Sleep -Milliseconds 800
-            $null = [FfNativeInput]::MouseButton($true, $false)
-        } catch {
-            # hardening-campaign Phase 4: input-state cleanup -- never leave
-            # the physical button down if the sequence dies mid-drag; a stuck
-            # button contaminates every subsequent input on the host.
-            throw
+            Assert-UiaInputAccepted ([FfNativeInput]::MouseButton($true, $false)) 'drag-up'
+            $buttonDown = $false
         } finally {
-            $null = [FfNativeInput]::MouseButton($true, $false)
+            if ($buttonDown) { try { [void][FfNativeInput]::MouseButton($true, $false) } catch { } }
         }
     }
-    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }
+    return [pscustomobject]@{ used = 'SendInput'; fallback = $true; ok = $true; inputAccepted = $true; armObserved = $armObserved; kind = 'mouse-drag'; from = "$FromX,$FromY"; to = "$ToX,$ToY"; dryRun = $NoSend }
 }

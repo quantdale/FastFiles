@@ -173,10 +173,12 @@ function Test-BinarySourceBinding {
             [void]$issueCodes.Add('MIXED_BINARY_SET')
         } elseif ($identities.Count -eq 1) {
             $observed = $identities[0]
-            $expected = if ($env:FASTFILES_BUILD_ID -and $env:FASTFILES_BUILD_ID.Trim() -match '^[0-9a-fA-F]{40}$') {
+            $override = if ($env:FASTFILES_BUILD_ID -and $env:FASTFILES_BUILD_ID.Trim() -match '^[0-9a-fA-F]{40}$') {
                 $env:FASTFILES_BUILD_ID.Trim().ToLowerInvariant()
-            } else {
-                $SourceRecord.headSha
+            } else { $null }
+            $expected = $SourceRecord.headSha
+            if ($Mode -eq 'strict' -and $override -and $expected -and $override -ne $expected) {
+                [void]$issueCodes.Add('BUILD_ID_OVERRIDE_MISMATCH')
             }
             if (-not $expected) {
                 if ($Mode -eq 'strict') { [void]$issueCodes.Add('HEAD_UNAVAILABLE') }

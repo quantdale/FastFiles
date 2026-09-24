@@ -133,7 +133,7 @@ jobs:
 
       - name: OpenSpec strict validation
         shell: pwsh
-        run: npx --yes --package=@fission-ai/openspec@1.8.0 openspec validate --all --strict --no-interactive
+        run: npx --yes --package=@fission-ai/openspec@1.8.0 -- openspec validate --all --strict --no-interactive
 
       - name: Status and provider contract tests
         shell: pwsh

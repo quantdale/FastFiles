@@ -39,15 +39,27 @@ Import-Module (Join-Path $repo 'verify\capabilities\windows-ui-automation-valida
 Import-Module (Join-Path $repo 'verify\visual\VisualCapture.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repo 'verify\core\Provenance.psm1') -Force -DisableNameChecking
 
+# Canonical product scenarios. Gallery variants are conditional and are not
+# silently counted as core scenarios when -Gallery is absent.
+$coreScenarioIds = @(
+    'home-default', 'browse-column-view', 'browse-keyboard-focus', 'browse-empty-state',
+    'home-wide', 'details-closed', 'dual-pane', 'home-from-command', 'fast-search-idle',
+    'search-filters-expanded', 'search-no-results', 'storage-overview', 'settings-general',
+    'command-palette', 'home-narrow', 'home-dark'
+)
+$galleryScenarioIds = @('gallery-light', 'gallery-dark', 'gallery-narrow', 'gallery-wide')
+
 # Refuse to capture a visual catalog against binaries that do not embed the
 # current source identity. Stale binary + exactTreeBound claim is the failure
 # mode this gate exists to prevent.
-$catalogBinaries = @($exe)
-$catalogBuildRoot = Split-Path -Parent (Split-Path -Parent $exe)
-foreach ($sibling in (Get-DefaultCertificationBinaries -RepoRoot $repo -BuildDirectory $catalogBuildRoot)) {
-    if ((Test-Path -LiteralPath $sibling -PathType Leaf) -and ($catalogBinaries -notcontains $sibling)) {
-        $catalogBinaries += $sibling
-    }
+$catalogBuildRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $exe))
+$catalogBinaries = @(Get-DefaultCertificationBinaries -RepoRoot $repo -BuildDirectory $catalogBuildRoot)
+$missingCatalogBinaries = @($catalogBinaries | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
+if ($missingCatalogBinaries.Count -gt 0) {
+    throw "VISUAL_CATALOG_BINARY_SET_INCOMPLETE: missing $($missingCatalogBinaries -join ',')"
+}
+if ($catalogBinaries -notcontains $exe) {
+    throw "VISUAL_CATALOG_BINARY_SET_INVALID: UI executable is not in the required certification set"
 }
 $catalogGate = Invoke-ProvenanceGate -RepoRoot $repo -Binaries $catalogBinaries -Mode development -Stage 'visual-catalog-preflight' -PassThru
 if (-not $catalogGate.ok) {
@@ -600,16 +612,37 @@ try {
     try { $searchEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 2000 } catch { }
     if ($searchEdit) {
         $sentinel = 'zzzz_no_matching_files_query_9999'
-        $applied = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value $sentinel
-        if (-not $applied.ok) {
-            # A synthetic value can be ignored by an edit that only reacts to
-            # real edits; fall back to actual typing, never to a hardcoded pass.
-            try { $searchEdit.SetFocus() } catch { }
-            $null = Send-UiaText -Driver $driver -Text $sentinel
-        }
-        Start-Sleep -Milliseconds 600
+        $null = Set-UiaElementValue -Driver $driver -Element $searchEdit -Value $sentinel
         $queryNow = $null
-        try { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $searchEdit } catch { }
+        $queryReady = Wait-UiaCondition -Driver $driver -TimeoutMs 2000 -PollIntervalMs 200 -Description "search query='$sentinel'" -ScriptBlock {
+            try {
+                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 500
+                if (-not $liveEdit) { return $false }
+                $liveText = [string](Get-UiaElementTextValue -Driver $driver -Element $liveEdit)
+                $script:visualCatalogQueryNow = $liveText
+                return ($liveText -eq $sentinel)
+            } catch { return $false }
+        }
+        if (-not $queryReady) {
+            # A ValuePattern write can report success while the live provider is
+            # replaced. Reacquire the edit and use real input as the fallback.
+            $liveEdit = $null
+            try { $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000 } catch { }
+            if ($liveEdit) {
+                try { $liveEdit.SetFocus() } catch { }
+                $null = Send-UiaText -Driver $driver -Text $sentinel
+                Start-Sleep -Milliseconds 400
+                try { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit } catch { }
+            }
+        } else {
+            $queryNow = $script:visualCatalogQueryNow
+        }
+        if ($null -eq $queryNow) {
+            try {
+                $liveEdit = Find-UiaElement -Driver $driver -AutomationId '7101' -FromElement $main -TimeoutMs 1000
+                if ($liveEdit) { $queryNow = Get-UiaElementTextValue -Driver $driver -Element $liveEdit }
+            } catch { }
+        }
         $resultsEl = $null
         try { $resultsEl = Find-UiaElement -Driver $driver -AutomationId 'Search.Results' -FromElement $main -TimeoutMs 2000 } catch { }
         $resultChildren = 0
@@ -809,6 +842,20 @@ try {
 } finally {
     if ($ctx) {
         $null = Remove-UiaScenarioContext -Context $ctx -LogFn $log
+    }
+    $expectedScenarioIds = @($coreScenarioIds)
+    if ($Gallery) { $expectedScenarioIds += $galleryScenarioIds }
+    $coverage = Compare-VisualScenarioCoverage -ExpectedScenarioIds $expectedScenarioIds -Records $run.Records
+    if (-not $coverage.Ok) {
+        $coverageReason = "missing=$($coverage.Missing -join ','); duplicate=$($coverage.Duplicates -join ','); unexpected=$($coverage.Unexpected -join ',')"
+        Write-CatalogLog "VISUAL_CATALOG_COVERAGE_FAIL: $coverageReason"
+        $null = Add-VisualScenarioResult -Run $run -ScenarioId 'catalog-coverage' `
+            -ExpectedState 'canonical visual scenario registry' -FixtureId 'coverage-contract' `
+            -Theme 'Light' -Width 1280 -PaneMode 'single' -Status 'FAIL' `
+            -Reason $coverageReason -AssertionPass $false
+        $exit = 1
+    } else {
+        Write-CatalogLog "VISUAL_CATALOG_COVERAGE_PASS: $($coverage.Expected.Count) expected scenario ids recorded exactly once"
     }
     $written = Write-VisualCaptureRun -Run $run
     Write-CatalogLog "catalog manifest: $($written.Manifest)"

@@ -3,10 +3,8 @@
 #include <winioctl.h>
 
 #include <cstring>
-#include <thread>
 #include <vector>
 
-#include "ffipc/PipeFraming.h"
 #include "ffprotocol/Diagnostics.h"
 #include "ffprotocol/Records.h"
 
@@ -57,7 +55,8 @@ std::vector<uint8_t> EncodeCursor(uint64_t nextFileReference) {
 }
 
 bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextFileReference) {
+                    const std::vector<ffprotocol::MftRecordV1>& records, uint64_t nextFileReference,
+                    std::atomic<bool>* transportFailed) {
     const std::vector<uint8_t> cursor = EncodeCursor(nextFileReference);
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatch(records);
 
@@ -75,7 +74,7 @@ bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId vol
 
     std::lock_guard<std::mutex> lock(writeMutex);
     return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatch),
-                                  payload.data(), static_cast<uint32_t>(payload.size()));
+                                  payload.data(), static_cast<uint32_t>(payload.size()), transportFailed);
 }
 
 // allocated-size-storage-accuracy D3/2.4: ScanRecordBatchV2 with
@@ -84,7 +83,8 @@ bool SendScanBatch(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId vol
 // recordFormatVersion so a legacy parser can never reinterpret the larger
 // fixed records as the V1 layout.
 bool SendScanBatchV2(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                     const std::vector<ffprotocol::MftRecordV2>& records, uint64_t nextFileReference) {
+                     const std::vector<ffprotocol::MftRecordV2>& records, uint64_t nextFileReference,
+                     std::atomic<bool>* transportFailed) {
     const std::vector<uint8_t> cursor = EncodeCursor(nextFileReference);
     const std::vector<uint8_t> serializedRecords = ffprotocol::SerializeMftBatchV2(records);
 
@@ -103,14 +103,15 @@ bool SendScanBatchV2(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId v
 
     std::lock_guard<std::mutex> lock(writeMutex);
     return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanRecordBatchV2),
-                                  payload.data(), static_cast<uint32_t>(payload.size()));
+                                  payload.data(), static_cast<uint32_t>(payload.size()), transportFailed);
 }
 
-bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId) {
+bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                      std::atomic<bool>* transportFailed) {
     ffprotocol::ScanCompletePayload payload{volumeId};
     std::lock_guard<std::mutex> lock(writeMutex);
     return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete),
-                                  &payload, sizeof(payload));
+                                  &payload, sizeof(payload), transportFailed);
 }
 
 class BackgroundMode {
@@ -137,20 +138,25 @@ private:
 // hardening-campaign Phase 7 H2: now declared in VolumeScanner.h so the
 // ServiceConnection exception boundary can emit the failure terminal too.
 bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                      ffprotocol::ProtocolVersion negotiatedVersion, bool success) {
+                      ffprotocol::ProtocolVersion negotiatedVersion, bool success,
+                      std::atomic<bool>* transportFailed) {
     if (!success && ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
         ffprotocol::ScanFailedPayload payload{volumeId};
         std::lock_guard<std::mutex> lock(writeMutex);
         return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
-                                      &payload, sizeof(payload));
+                                      &payload, sizeof(payload), transportFailed);
     }
-    return SendScanComplete(pipe, writeMutex, volumeId);
+    return SendScanComplete(pipe, writeMutex, volumeId, transportFailed);
 }
 
-void RunVolumeScan(
+ScanRunResult RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
     const std::vector<uint8_t>& resumeCursor, bool lowPriority,
-    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop) {
+    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop,
+    std::atomic<bool>* transportFailed) {
+    if (shouldStop.load()) {
+        return ScanRunResult::Cancelled;
+    }
     // THREAD_MODE_BACKGROUND lowers both CPU and I/O scheduling priority
     // for the lifetime of a reconciliation worker. It is thread-local, so
     // normal scans and journal readers remain responsive.
@@ -171,8 +177,9 @@ void RunVolumeScan(
         LogRawVolumeOpenDiagnostic(
             volumePath, tokenState,
             ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
-        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
-        return;
+        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
+            ? ScanRunResult::FailedTerminalDelivered
+            : ScanRunResult::TransportFailed;
     }
     // Capture the actual service token immediately before the raw-volume
     // open. The capture is observational and must not alter the call path.
@@ -185,8 +192,9 @@ void RunVolumeScan(
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
     if (!volumeOpened) {
-        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
-        return;
+        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
+            ? ScanRunResult::FailedTerminalDelivered
+            : ScanRunResult::TransportFailed;
     }
 
     // Authoritative record/sector geometry comes from the volume itself,
@@ -196,16 +204,18 @@ void RunVolumeScan(
     if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                            &bytesReturned, nullptr)) {
         CloseHandle(volumeHandle);
-        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
-        return;
+        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
+            ? ScanRunResult::FailedTerminalDelivered
+            : ScanRunResult::TransportFailed;
     }
 
     const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         CloseHandle(volumeHandle);
-        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
-        return;
+        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
+            ? ScanRunResult::FailedTerminalDelivered
+            : ScanRunResult::TransportFailed;
     }
 
     const size_t outputBufferSize = sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) - 1 + recordSize;
@@ -223,14 +233,34 @@ void RunVolumeScan(
     const auto sendBatch = [&](const std::vector<ffprotocol::MftRecordV2>& records,
                                uint64_t nextFileReference) {
         if (sendAllocated) {
-            return SendScanBatchV2(pipe, writeMutex, volumeId, records, nextFileReference);
+            return SendScanBatchV2(pipe, writeMutex, volumeId, records, nextFileReference, transportFailed);
         }
         std::vector<ffprotocol::MftRecordV1> legacyRecords;
         legacyRecords.reserve(records.size());
         for (const auto& record : records) {
             legacyRecords.push_back(DowngradeMftRecordV2(record));
         }
-        return SendScanBatch(pipe, writeMutex, volumeId, legacyRecords, nextFileReference);
+        return SendScanBatch(pipe, writeMutex, volumeId, legacyRecords, nextFileReference, transportFailed);
+    };
+    DWORD writeError = ERROR_SUCCESS;
+    const auto sendBatchWithError = [&](const std::vector<ffprotocol::MftRecordV2>& records,
+                                        uint64_t nextFileReference) {
+        const bool sent = sendBatch(records, nextFileReference);
+        if (!sent) {
+            writeError = GetLastError();
+        }
+        return sent;
+    };
+    const auto recordFailureDiagnostic = [&](const wchar_t* state, DWORD error) noexcept {
+        try {
+            ffprotocol::DiagnosticEvent event{};
+            event.category = ffprotocol::DiagnosticCategory::IndexingError;
+            event.code = ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED;
+            event.volumeId = std::to_wstring(volumeId.value);
+            event.state = state;
+            event.errorCode = error;
+            ffprotocol::AppendDiagnostic(event);
+        } catch (...) { }
     };
 
     // FSCTL_ENUM_USN_DATA returns the exact opaque file-reference value
@@ -352,7 +382,7 @@ void RunVolumeScan(
                 // can replay a bounded prefix, which ingestion safely
                 // upserts; advancing to the buffer's next cursor here
                 // could skip records not processed yet.
-                writeFailed = !sendBatch(batch, bufferStartFileReference);
+                writeFailed = !sendBatchWithError(batch, bufferStartFileReference);
                 batch.clear();
             }
         }
@@ -375,50 +405,42 @@ void RunVolumeScan(
         }
 
         if (!writeFailed && bufferHadRecords) {
-            writeFailed = !sendBatch(batch, nextFileReference);
+            writeFailed = !sendBatchWithError(batch, nextFileReference);
             batch.clear();
         }
     }
 
     if (!batch.empty() && !writeFailed) {
-        writeFailed = !sendBatch(batch, nextFileReference);
+        writeFailed = !sendBatchWithError(batch, nextFileReference);
     }
 
     CloseHandle(volumeHandle);
 
-    if (writeFailed && !shouldStop.load()) {
-        // residual-campaign Phase A (reviewer-D residual): a mid-scan batch-write
-        // failure previously ended the scan with NO observable outcome -- the
-        // engine could only discover it later via heartbeat timeout plus
-        // reconciliation. Failure is now observed on two channels:
-        //   1. ALWAYS a metadata-only diagnostic (file channel), which survives
-        //      even a dead or stalled transport where the terminal frame itself
-        //      cannot be delivered; the nested try keeps the H2 worker boundary
-        //      nothrow (logging allocation failure cannot terminate LocalSystem).
-        //   2. A best-effort, capability-gated failure terminal for {2,2}+ peers
-        //      (ScanFailed; bounded write deadline, never blocks).
-        // Legacy pre-{2,2} peers deliberately keep silence: routing them through
-        // the failure terminal would deliver ScanComplete for a FAILED scan --
-        // the PA-001 row-deletion hazard. Cancellation (shouldStop) stays silent
-        // by design and is distinguished from failure here.
-        // Exactly-one outcome: the completion terminal below is gated on
-        // !writeFailed, so failure and completion paths are mutually exclusive.
-        try {
-            ffprotocol::AppendDiagnostic({ffprotocol::DiagnosticCategory::IndexingError,
-                                          ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
-                                          {}, {}, L"scan-batch-write-failed", 0, 0});
-        } catch (...) { }
-        if (ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
-            SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false);
+    if (writeFailed) {
+        // A failed frame write may have left a partial frame in the byte
+        // stream. Never append ScanFailed or ScanComplete to that stream:
+        // the next frame boundary would be untrustworthy. The diagnostic is
+        // transport-independent; the service worker turns this outcome into
+        // connection abort and reconnect.
+        if (!shouldStop.load()) {
+            recordFailureDiagnostic(L"scan-batch-write-failed", writeError);
         }
+        return ScanRunResult::TransportFailed;
     }
-    if (!writeFailed && !shouldStop.load()) {
-        // PA-001: only an enumeration that reached the end of the MFT gets a
-        // ScanComplete; an enumeration cut short by a non-EOF fault sends
-        // the ScanFailed terminal (or ScanComplete only to pre-{2,2} peers,
-        // which have no failure vocabulary and keep today's behavior).
-        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, !enumerationFailed);
+    if (shouldStop.load()) {
+        return ScanRunResult::Cancelled;
     }
+
+    // PA-001: only an enumeration that reached the end of the MFT gets a
+    // ScanComplete; an enumeration cut short by a non-EOF fault sends the
+    // capability-gated ScanFailed terminal when available. A terminal write
+    // failure is itself transport-fatal and is never hidden by a retry.
+    const bool terminalSent = SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, !enumerationFailed, transportFailed);
+    if (!terminalSent) {
+        recordFailureDiagnostic(L"scan-terminal-write-failed", GetLastError());
+        return ScanRunResult::TransportFailed;
+    }
+    return enumerationFailed ? ScanRunResult::FailedTerminalDelivered : ScanRunResult::Completed;
 }
 
 } // namespace ffindexsvc

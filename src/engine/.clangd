@@ -1,0 +1,10 @@
+CompileFlags:
+  CompilationDatabase: ../../build/debug
+  Add:
+    - -I../protocol/include
+    - -I../ipc/include
+    - -I../setup/include
+    - -I../indexstore/include
+    - -I../search/include
+    - -I./src
+    - -I../../build/debug/generated

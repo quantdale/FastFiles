@@ -34,9 +34,18 @@ Check ($null -eq $noCapture) 'precondition without a foreground capture cannot s
 $jsonForeign = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail 'palette edit (6301) did not appear; observed "foregroundTitle":"<foreign>"'
 Check ($null -ne $jsonForeign -and $jsonForeign.status -eq 'SKIPPED') 'JSON foreign marker converts to a skip'
 
-# Ownerless desktop (empty capture) is an environment block.
-$ownerless = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail "foreground could not be established (foreground='')"
-Check ($null -ne $ownerless -and $ownerless.status -eq 'SKIPPED') 'ownerless foreground capture converts to a skip'
+# Ownerless desktop is an environment block only when the observation itself
+# succeeded. An unavailable query must remain a hard failure.
+$ownerless = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail "foreground could not be established (foreground=''; foregroundEvidenceAvailable=true)"
+Check ($null -ne $ownerless -and $ownerless.status -eq 'SKIPPED') 'proven ownerless foreground converts to a skip'
+$unavailable = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail "foreground could not be established (foreground='<unavailable>'; foregroundEvidenceAvailable=false)"
+Check ($null -eq $unavailable) 'unavailable foreground evidence cannot become a skip'
+$none = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail "foreground could not be established (foreground='<none>'; foregroundEvidenceAvailable=true)"
+Check ($null -ne $none -and $none.status -eq 'SKIPPED') 'observed ownerless foreground converts to a skip'
+$topmostUnknown = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail 'point 10,20 is not inside FastFiles; topmost=unavailable'
+Check ($null -eq $topmostUnknown) 'unavailable topmost observation cannot become a skip'
+$thrownNavigation = Invoke-UiaAddressBarNavigateResult -Driver $null -Main $null -ProcessId 0 -Path 'C:\fixture' -ExpectedLeaf 'fixture' -NavigationInvoker { throw 'synthetic navigation failure' }
+Check (-not $thrownNavigation.Pass -and $thrownNavigation.Detail -match 'address navigation helper failed') 'navigation-helper exceptions are converted to the result contract'
 
 # A blocked input point is its own evidence path, independent of precondition text.
 $pointBlocked = Convert-UiaForegroundFailureToSkip -Id 'scenario-x' -DurationMs 5 -Detail 'click point 10,20 is not inside FastFiles; topmost=OtherWnd'
@@ -51,7 +60,7 @@ Check ($null -eq $product) 'non-precondition product failure never converts'
 # SKIPPED subresult; everything else is $null and the caller records a hard
 # FAIL. Assert the whole evidence set contains no PASS anywhere.
 $noPassByForeground = $true
-foreach ($outcome in @($foreign, $owning, $noCapture, $jsonForeign, $ownerless, $pointBlocked, $product)) {
+foreach ($outcome in @($foreign, $owning, $noCapture, $jsonForeign, $ownerless, $unavailable, $pointBlocked, $product)) {
     if ($null -ne $outcome -and $outcome.status -eq 'PASS') { $noPassByForeground = $false }
 }
 Check $noPassByForeground 'foreground failure never converts into PASS (skip-or-fail only)'
@@ -154,8 +163,9 @@ Check ($capText -notmatch 'GetSystemMetrics\(0\)|GetSystemMetrics\(1\)') 'capabi
 Check ($capText -match 'return & \$fail "return to root failed"') 'return-to-root failure returns its result (no swallowed fall-through)'
 $mtGuard = [regex]::Match($capText, 'button input \(foreground=')
 Check $mtGuard.Success 'mouse-tab foreground skip records the foreground owner'
-$diGuard = [regex]::Match($capText, 'drag source mouse-down \(foreground=')
-Check $diGuard.Success 'drag-in foreground skip records the foreground owner'
+$diGuard = [regex]::Match($capText, 'attempt=\$dragAttempts Explorer foreground could not be established')
+Check $diGuard.Success 'drag-in foreground skip records the per-attempt foreground blocker'
+Check ($capText -match 'acceptedInputAttempts -eq 3') 'drag-in automation skip requires three accepted-input attempts'
 Check ($capText -match 'Connection badge observed: degradedVisible=') 'badge skip records the observed degraded fact'
 Check ($capText -match 'engineConnected=') 'badge skip records the engine-connected fact'
 
@@ -171,6 +181,21 @@ foreach ($sharedId in @(
 )) {
     Check ($capText -match ("Convert-UiaForegroundFailureToSkip -Id '" + $sharedId + "'")) "shared-session site consults the converter for '$sharedId'"
 }
+
+# --- Residual-campaign Phase D (R4 ranked fixes) ---
+Check ($capText.Contains("ForegroundTitle -like 'FastFiles*'")) 'Safe-state maps ownership by FastFiles* prefix (product retitle cannot become foreign)'
+Check ($capText.Contains("-notlike 'FastFiles*'")) 'converter uses prefix ownership on raw captures (false-skip hole closed)'
+$ensureIdx = $capText.IndexOf('function Ensure-UiaInputForeground')
+$ensureForIdx = if ($ensureIdx -ge 0) { $capText.IndexOf('for ($attempt', $ensureIdx) } else { -1 }
+$ensureTopIdx = if ($ensureForIdx -ge 0) { $capText.IndexOf('Keep-UiaWindowTopmost', $ensureForIdx) } else { -1 }
+Check ($ensureIdx -ge 0 -and $ensureForIdx -gt $ensureIdx -and $ensureTopIdx -gt $ensureForIdx -and ($ensureTopIdx - $ensureIdx) -lt 800) 'Ensure re-pulses TOPMOST inside its attempt loop'
+Check (([regex]::Matches($capText, [regex]::Escape('Ensure-UiaInputForeground -Driver $driver -Main $main -Attempts 3'))).Count -ge 2) 'context verifies foreground before AND after the engine-connect poll'
+Check ($capText.Contains('residual-campaign Phase D (R4 rank1): scroll the terminal')) 'Activate-UiaPane scrolls the terminal column before the focus click'
+Check ($capText.Contains("did not establish HasKeyboardFocus; foreground='")) 'Activate failure detail keeps the converter-compatible capture'
+Check ($capText.Contains('$($safe.focusedAutomationId)')) 'Activate failure detail splits focus evidence (Safe-state facts)'
+Check ($capText.Contains('Invoke-UiaAddressBarNavigateResult')) 'shared Search navigation uses a total-result wrapper'
+Check ($capText.Contains('$searchFixtureNavClassified = $true')) 'failed Search fixture navigation classifies dependent scenarios before further input'
+Check ($capText.Contains('-not $searchFixtureNavClassified')) 'dependent Search compose paths are suppressed after navigation failure'
 
 if ($failures -gt 0) { exit 1 }
 Write-Host 'All foreground skip-conversion and skip-reason-class checks passed.'

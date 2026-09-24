@@ -174,31 +174,52 @@ function Select-E2EItem {
     $main = Get-E2EMain -Context $Context
     $null = Set-UiaForeground -Driver $Context.Driver -Element $main
     $null = Reset-UiaModifierKeys -Driver $Context.Driver
-    $point = Get-UiaClickablePoint -Driver $Context.Driver -Element $item
-    if (-not $point) {
-        $rect = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'BoundingRectangle'
-        if ($rect -and $rect.width -gt 0 -and $rect.height -gt 0) {
-            $point = [pscustomobject]@{
-                x = [int]($rect.x + ($rect.width / 2))
-                y = [int]($rect.y + ($rect.height / 2))
+    $semanticSelected = $false
+    $semanticWait = $null
+    try {
+        if (Test-UiaPatternAvailable -Driver $Context.Driver -Element $item -PatternName 'SelectionItem') {
+            $null = Invoke-UiaPattern -Driver $Context.Driver -Element $item -PatternName 'SelectionItem' -Method 'Select'
+            $semanticWait = Wait-E2ECondition -TimeoutMs 2500 -Description "semantic selection '$Name'" -Condition {
+                try {
+                    $fresh = Get-E2EItem -Context $Context -Name $Name -TimeoutMs 700
+                    if (-not $fresh) { return $false }
+                    return [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $fresh -PatternName 'SelectionItem' -Method 'GetSelection')
+                } catch { return $false }
+            }
+            $semanticSelected = [bool]$semanticWait.Pass
+        }
+    } catch { $semanticSelected = $false }
+    if (-not $semanticSelected) {
+        $point = Get-UiaClickablePoint -Driver $Context.Driver -Element $item
+        if (-not $point) {
+            $rect = Get-UiaElementProperty -Driver $Context.Driver -Element $item -Name 'BoundingRectangle'
+            if ($rect -and $rect.width -gt 0 -and $rect.height -gt 0) {
+                $point = [pscustomobject]@{
+                    x = [int]($rect.x + ($rect.width / 2))
+                    y = [int]($rect.y + ($rect.height / 2))
+                }
             }
         }
+        if (-not $point) {
+            return [pscustomobject]@{ Pass = $false; Value = $null; ElapsedMs = $wait.ElapsedMs; Description = "select '$Name'"; Detail = 'selected item exposed neither clickable point nor bounding rectangle' }
+        }
+        $input = Send-UiaMouseInput -Driver $Context.Driver -X $point.x -Y $point.y -Button 'Left' -Action 'Click'
+        if (-not [bool]$input.ok) {
+            return [pscustomobject]@{ Pass = $false; Value = $null; ElapsedMs = $wait.ElapsedMs; Description = "select '$Name'"; Detail = "native pointer input was rejected: $($input | ConvertTo-Json -Compress)" }
+        }
+        $selected = Wait-E2ECondition -TimeoutMs 4000 -Description "real pointer selection '$Name'" -Condition {
+            try {
+                $fresh = Get-E2EItem -Context $Context -Name $Name -TimeoutMs 700
+                if (-not $fresh) { return $false }
+                return [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $fresh -PatternName 'SelectionItem' -Method 'GetSelection')
+            } catch { return $false }
+        }
+        if (-not $selected.Pass) {
+            return [pscustomobject]@{ Pass = $false; Value = $null; ElapsedMs = $selected.ElapsedMs; Description = "selected '$Name'"; Detail = 'pointer fallback did not produce a semantic selected item' }
+        }
+        $semanticWait = $selected
     }
-    if (-not $point) {
-        return [pscustomobject]@{ Pass = $false; Value = $null; ElapsedMs = $wait.ElapsedMs; Description = "select '$Name'"; Detail = 'selected item exposed neither clickable point nor bounding rectangle' }
-    }
-    $null = Send-UiaMouseInput -Driver $Context.Driver -X $point.x -Y $point.y -Button 'Left' -Action 'Click'
-    $selected = Wait-E2ECondition -TimeoutMs 4000 -Description "real pointer selection '$Name'" -Condition {
-        try {
-            $fresh = Get-E2EItem -Context $Context -Name $Name -TimeoutMs 700
-            if (-not $fresh) { return $false }
-            return [bool](Invoke-UiaPattern -Driver $Context.Driver -Element $fresh -PatternName 'SelectionItem' -Method 'GetSelection')
-        } catch { return $false }
-    }
-    if (-not $selected.Pass) {
-        return [pscustomobject]@{ Pass = $false; Value = $null; ElapsedMs = $selected.ElapsedMs; Description = "selected '$Name'"; Detail = 'real pointer click did not produce a semantic selected item' }
-    }
-    return [pscustomobject]@{ Pass = $true; Value = (Get-E2EItem -Context $Context -Name $Name -TimeoutMs 2000); ElapsedMs = $selected.ElapsedMs; Description = "selected '$Name'" }
+    return [pscustomobject]@{ Pass = $true; Value = (Get-E2EItem -Context $Context -Name $Name -TimeoutMs 2000); ElapsedMs = $semanticWait.ElapsedMs; Description = "selected '$Name'" }
 }
 
 function Set-E2EEditText {
@@ -510,9 +531,9 @@ function Invoke-E2ELaunchScenario {
 function Invoke-E2ENavigationScenario {
     param([Parameter(Mandatory)] $Context, [Parameter(Mandatory)] $Fixture)
     $watch = [Diagnostics.Stopwatch]::StartNew()
-    $home = Invoke-E2ENavigationCommand -Context $Context -Query 'home' -Name 'Home' -CommandId 'navigation.home'
-    if (-not $home.Pass) {
-        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'home' -Detail $home.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
+    $homeCommand = Invoke-E2ENavigationCommand -Context $Context -Query 'home' -Name 'Home' -CommandId 'navigation.home'
+    if (-not $homeCommand.Pass) {
+        return New-E2EResult -Id 'navigation-browse' -Status 'FAIL' -Stage 'home' -Detail $homeCommand.Detail -DurationMs $watch.Elapsed.TotalMilliseconds
     }
     $homeWait = Wait-E2ECondition -TimeoutMs 6000 -Description 'Home surface visible' -Condition {
         try {
@@ -778,6 +799,29 @@ function Invoke-E2EPreviewScenario {
     if (-not $selected.Pass) {
         return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'preview-selection' -Detail 'previewable fixture file could not be selected' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    # SelectionItem.Select establishes semantic ownership but some Direct2D
+    # previews are refreshed only by the real row activation path. Reacquire
+    # the live row and issue one bounded pointer click before observing preview.
+    $previewItem = Get-E2EItem -Context $Context -Name 'restore-proof.txt' -TimeoutMs 2000
+    $previewPoint = $null
+    if ($previewItem) {
+        try { $previewItem.SetFocus() } catch { }
+        $previewRect = Get-UiaElementProperty -Driver $Context.Driver -Element $previewItem -Name 'BoundingRectangle'
+        if ($previewRect -and $previewRect.width -gt 0 -and $previewRect.height -gt 0) {
+            $previewPoint = [pscustomobject]@{ x = [int]($previewRect.x + $previewRect.width / 2); y = [int]($previewRect.y + $previewRect.height / 2) }
+        } else {
+            $previewPoint = Get-UiaClickablePoint -Driver $Context.Driver -Element $previewItem
+        }
+    }
+    if ($previewPoint) {
+        $input = Send-UiaMouseInput -Driver $Context.Driver -X $previewPoint.x -Y $previewPoint.y -Button 'Left' -Action 'Click'
+        if (-not [bool]$input.ok) {
+            return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'preview-activation' -Detail 'preview row pointer input was rejected' -DurationMs $watch.Elapsed.TotalMilliseconds
+        }
+        Start-Sleep -Milliseconds 500
+    } else {
+        return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'preview-activation' -Detail 'preview row had no usable live geometry' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
     $allowedTerminal = @('Preview: Ready', 'Preview: Unsupported', 'Preview: Too large', 'Preview: Permission denied', 'Preview: Unavailable', 'Preview: Disabled')
     $previewWait = Wait-E2ECondition -TimeoutMs 12000 -Description 'preview terminal state' -Condition {
         $status = Get-E2EPreviewStatus -Context $Context
@@ -796,6 +840,25 @@ function Invoke-E2EPreviewScenario {
     if (-not $selectedOther.Pass) {
         return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'stale-preview-selection' -Detail 'second deterministic selection could not be materialized' -DurationMs $watch.Elapsed.TotalMilliseconds
     }
+    $secondItem = Get-E2EItem -Context $Context -Name 'small.bin' -TimeoutMs 2000
+    $secondPoint = $null
+    if ($secondItem) {
+        try { $secondItem.SetFocus() } catch { }
+        $secondRect = Get-UiaElementProperty -Driver $Context.Driver -Element $secondItem -Name 'BoundingRectangle'
+        if ($secondRect -and $secondRect.width -gt 0 -and $secondRect.height -gt 0) {
+            $secondPoint = [pscustomobject]@{ x = [int]($secondRect.x + $secondRect.width / 2); y = [int]($secondRect.y + $secondRect.height / 2) }
+        } else {
+            $secondPoint = Get-UiaClickablePoint -Driver $Context.Driver -Element $secondItem
+        }
+    }
+    if (-not $secondPoint) {
+        return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'stale-preview-activation' -Detail 'second preview row had no usable live geometry' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    $secondInput = Send-UiaMouseInput -Driver $Context.Driver -X $secondPoint.x -Y $secondPoint.y -Button 'Left' -Action 'Click'
+    if (-not [bool]$secondInput.ok) {
+        return New-E2EResult -Id 'preview-terminal-state' -Status 'FAIL' -Stage 'stale-preview-activation' -Detail 'second preview row pointer input was rejected' -DurationMs $watch.Elapsed.TotalMilliseconds
+    }
+    Start-Sleep -Milliseconds 500
     $secondWait = Wait-E2ECondition -TimeoutMs 12000 -Description 'new selection preview terminal state' -Condition {
         $status = Get-E2EPreviewStatus -Context $Context
         return ($allowedTerminal -contains $status) -and $status -ne 'Preview: Loading'

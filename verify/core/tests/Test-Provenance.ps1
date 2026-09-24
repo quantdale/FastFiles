@@ -166,12 +166,12 @@ try {
     Check ($defaults.Count -eq 5) 'default certification binary set has five product executables'
     Check (@($defaults | Where-Object { $_ -match 'FastFiles(\.exe|Engine\.exe|IndexSvc\.exe|Setup\.exe)$|fftest\.exe$' }).Count -eq 5) 'default set names ui, engine, service, installer, probe'
 
-    # Env override wins over git HEAD for expected identity
+    # Env override cannot replace the repository HEAD in strict mode.
     $savedOverride = $env:FASTFILES_BUILD_ID
     try {
         $env:FASTFILES_BUILD_ID = $realHeadA
         $bindingOverride = Test-BinarySourceBinding -BinaryRecords $matchA -SourceRecord $sourceAfterB -Mode strict
-        Check ($bindingOverride.valid) 'FASTFILES_BUILD_ID override is the expected identity even when git HEAD moved'
+        Check ((-not $bindingOverride.valid) -and ($bindingOverride.issueCodes -contains 'BUILD_ID_OVERRIDE_MISMATCH')) 'strict mode rejects a build-id override that differs from repository HEAD'
         $env:FASTFILES_BUILD_ID = $realHeadB
         $bindingOverride2 = Test-BinarySourceBinding -BinaryRecords $stale -SourceRecord $sourceAfterB -Mode strict
         Check ((-not $bindingOverride2.valid) -and ($bindingOverride2.issueCodes -contains 'STALE_BINARY')) 'override mismatch still reports STALE_BINARY'

@@ -227,8 +227,8 @@ $validationModule = Get-Module UiAutomationValidation
 $collapsedDriver = New-UiaDriver -Provider mock -TimeoutMs 1000
 $null = Import-UiaRecordedTree -Driver $collapsedDriver -Path $filtersTree
 $main = $collapsedDriver.Root
-$opened = & $validationModule { param($driver, $main, $pid)
-    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $pid -TimeoutMs 2000
+$opened = & $validationModule { param($driver, $main, $processId)
+    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $processId -TimeoutMs 2000
 } $collapsedDriver $main 4242
 Check ($opened.Pass) "Expand-UiaSearchFilters passes on ExpandCollapse; detail=$($opened.Detail)"
 $openedBtn = Find-UiaElement -Driver $collapsedDriver -AutomationId 'Search.Filters'
@@ -237,8 +237,8 @@ $openedExpand = @($openedRec.patternCalls | Where-Object { $_.pattern -eq 'Expan
 $openedInvoke = @($openedRec.patternCalls | Where-Object { $_.pattern -eq 'Invoke' })
 Check ($openedExpand.Count -eq 1) 'capability Expand-UiaSearchFilters posts Expand once'
 Check ($openedInvoke.Count -eq 0) 'capability Expand-UiaSearchFilters does not toggle via Invoke'
-$already = & $validationModule { param($driver, $main, $pid)
-    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $pid -TimeoutMs 1000
+$already = & $validationModule { param($driver, $main, $processId)
+    Expand-UiaSearchFilters -Driver $driver -Main $main -ProcessId $processId -TimeoutMs 1000
 } $collapsedDriver $main 4242
 Check ($already.Pass) 'already-expanded Filters disclosure is a no-op success'
 $afterRec = Get-UiaMockRecord -Driver $collapsedDriver -Element $openedBtn
@@ -250,8 +250,8 @@ if (-not $startFn) {
 }
 $startSrc = if ($startFn) { $startFn.ScriptBlock.ToString() } else { '' }
 Check ($startSrc -match 'WindowStyle Normal') 'Start-UiaFastFiles forces WindowStyle Normal so hidden workers cannot launch FastFiles hidden'
-$querySet = & $validationModule { param($driver, $main, $pid)
-    Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $pid -Query 'alloc'
+$querySet = & $validationModule { param($driver, $main, $processId)
+    Set-UiaSearchQuery -Driver $driver -Main $main -ProcessId $processId -Query 'alloc'
 } $collapsedDriver $main 4242
 Check ($querySet.Pass) "Set-UiaSearchQuery targets AutomationId 7101; detail=$($querySet.Detail)"
 $queryRec = Get-UiaMockRecord -Driver $collapsedDriver -Element (Find-UiaElement -Driver $collapsedDriver -AutomationId '7101')
@@ -310,7 +310,7 @@ $flag = $true
 $cond2 = Wait-UiaCondition -Driver $mock -TimeoutMs 500 -ScriptBlock { return $flag }
 Check $cond2 'condition met returns true'
 $kb = Send-UiaInput -Driver $mock -Keys '{ENTER}{DOWN}' -NoSend
-Check ($kb.used -eq 'SendInput' -and $kb.dryRun) 'keyboard dry-run records SendInput fallback'
+Check ($kb.used -eq 'SendInput' -and $kb.dryRun -and $kb.ok) 'keyboard dry-run records accepted-input contract'
 $chord = Send-UiaInput -Driver $mock -Keys '{CTRL}{SHIFT}p' -NoSend
 $chordVks = @($chord.sequence | ForEach-Object { [int]$_.vk })
 $expect = @(17, 16, 80, 80, 16, 17)
@@ -321,9 +321,11 @@ Check (($ctrlLVks -join ',') -eq '17,76,76,17') 'single-char token after CTRL re
 $plain = Send-UiaInput -Driver $mock -Keys 'abc' -NoSend
 Check ($plain.sequence.Count -eq 6) "plain text has no stray modifier keys, got $($plain.sequence.Count)"
 $ms = Send-UiaMouseInput -Driver $mock -X 10 -Y 10 -Action 'Click' -NoSend
-Check ($ms.used -eq 'SendInput' -and $ms.dryRun) 'mouse dry-run records SendInput fallback'
+Check ($ms.used -eq 'SendInput' -and $ms.dryRun -and $ms.ok) 'mouse dry-run records accepted-input contract'
+$dragDry = Send-UiaMouseDrag -Driver $mock -FromX 1 -FromY 1 -ToX 2 -ToY 2 -NoSend
+Check ($dragDry.ok -and $dragDry.inputAccepted) 'drag dry-run records accepted-input contract'
 $tx = Send-UiaText -Driver $mock -Text 'C:\Temp\sub dir' -NoSend
-Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15) 'unicode text dry-run records char count'
+Check ($tx.used -eq 'SendInput' -and $tx.kind -eq 'unicode-text' -and $tx.chars -eq 15 -and $tx.ok) 'unicode text dry-run records accepted-input contract'
 
 Write-Host "== stabilize-live-uia-e2e: bounded semantic waits =="
 $onTimeoutRan = $false

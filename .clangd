@@ -1,0 +1,8 @@
+CompileFlags:
+  CompilationDatabase: build/debug
+  Add:
+    - -Isrc/protocol/include
+    - -Isrc/ipc/include
+    - -Isrc/setup/include
+    - -Isrc/indexsvc/src
+    - -Ibuild/debug/generated

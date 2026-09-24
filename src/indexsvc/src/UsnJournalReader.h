@@ -65,6 +65,7 @@ JournalStreamOutcome RunUsnJournalStream(
     wchar_t driveLetter,
     uint64_t resumeUsn,
     ffprotocol::ProtocolVersion negotiatedVersion,
-    const std::atomic<bool>& shouldStop);
+    const std::atomic<bool>& shouldStop,
+    std::atomic<bool>* transportFailed = nullptr);
 
 } // namespace ffindexsvc
