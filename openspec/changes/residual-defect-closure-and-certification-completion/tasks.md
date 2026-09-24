@@ -19,7 +19,7 @@
 
 - [x] 3.1 Add the canonical 16-core/4-gallery scenario registry and pure missing/duplicate/unexpected comparator.
 - [x] 3.2 Run the comparator on normal and early-failure paths; add a headless contract test.
-- [ ] 3.3 Repair the current settings/theme precondition and rerun exact-tree core and gallery catalogs.
+- [x] 3.3 Repair the current settings/theme precondition and rerun exact-tree core and gallery catalogs.
 - [x] 3.4 Record the historical 20 = 16 + 4 mapping and explicit disposition of older shell-only states.
 
 ## 4. UIA reliability and navigation boundaries
@@ -34,7 +34,7 @@
 ## 5. Integrated certification
 
 - [x] 5.1 Run focused protocol, IPC, service, engine, UIA-driver, and verification tests.
-- [ ] 5.2 Run debug/release-test builds and full CTest, Analyze, ASAN, strict OpenSpec, and local CI parity.
+- [x] 5.2 Run debug/release-test builds and full CTest, Analyze, ASAN, strict OpenSpec, and local CI parity.
 - [x] 5.3 Run UIA, E2E, visual catalog, provenance, governance, and display/clean-host harness contracts.
 - [ ] 5.4 Run an independent adversarial review wave and disposition every confirmed finding.
 - [ ] 5.5 Update lifecycle, workstate, and evidence; commit, push without force, and inspect exact-SHA hosted status.
