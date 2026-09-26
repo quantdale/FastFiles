@@ -72,7 +72,7 @@ void TestServiceUsesBoundedSharedWrites() {
                   "scanner exposes an explicit run outcome");
     fftest::Check(scanner.find("return ScanRunResult::TransportFailed") != std::string::npos,
                   "a failed scan write returns a transport-fatal outcome");
-    const std::size_t failureGuard = scanner.find("if (writeFailed)");
+    const std::size_t failureGuard = scanner.find("if (writeFailed_)");
     fftest::Check(failureGuard != std::string::npos,
                   "mid-scan write failure has a dedicated outcome branch");
     if (failureGuard != std::string::npos) {
@@ -81,15 +81,15 @@ void TestServiceUsesBoundedSharedWrites() {
                       "transport-fatal branch has an explicit return");
         if (failureEnd != std::string::npos) {
             const std::string failureBlock = scanner.substr(failureGuard, failureEnd - failureGuard);
-            fftest::Check(failureBlock.find("recordFailureDiagnostic") != std::string::npos,
-                          "transport-fatal write failure records a metadata diagnostic");
+            fftest::Check(failureBlock.find("RecordFailureDiagnostic(L\"scan-batch-write-failed\"") != std::string::npos,
+                          "transport-fatal write failure records its scan-batch diagnostic");
             fftest::Check(failureBlock.find("SendScanTerminal") == std::string::npos,
                           "transport-fatal write failure never appends a terminal frame");
         }
     }
     fftest::Check(scanner.find("return ScanRunResult::Cancelled;") != std::string::npos,
                   "cancellation remains a silent outcome");
-    fftest::Check(scanner.find("recordFailureDiagnostic(L\"scan-terminal-write-failed\"") != std::string::npos,
+    fftest::Check(scanner.find("RecordFailureDiagnostic(L\"scan-terminal-write-failed\"") != std::string::npos,
                   "a failed terminal write is diagnosed as transport-fatal");
 }
 
