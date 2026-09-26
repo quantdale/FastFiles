@@ -200,7 +200,10 @@ function Get-BinaryProvenanceRecord {
             if (-not (Test-Path -LiteralPath $releaseCommon -PathType Leaf)) {
                 throw "Release PE parser is missing: $releaseCommon"
             }
-            Import-Module $releaseCommon -Force -DisableNameChecking
+            # Do not force-reload this shared module: callers such as the
+            # release-candidate script import it in their own scope, and a
+            # forced reload here removes those commands from that caller.
+            Import-Module $releaseCommon -DisableNameChecking
             $architecture = Get-PeArchitecture -Path $snapshotPath
             if ($architecture -and $architecture.architecture) {
                 $record.peArchitecture = $architecture.architecture

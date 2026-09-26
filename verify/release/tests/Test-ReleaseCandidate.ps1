@@ -214,26 +214,34 @@ try {
         [string]$candidateJson.authoritativeArtifact -ceq [string]$candidateJson.archive -and
         [string]$candidateJson.authoritativeArtifactSha256 -match '^[0-9A-F]{64}$') `
         'JSON mode emits one terminal PASS document and names the ZIP as its sole authoritative payload'
-    $candidateArchiveHashBeforeCompanionMutation = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
-    Check ($candidateArchiveHashBeforeCompanionMutation -ceq [string]$candidateJson.authoritativeArtifactSha256) `
-        'terminal result carries the observed hash of its authoritative archive'
-    $lateCompanionPath = Join-Path $outputA 'late-untrusted-sibling.dll'
-    [IO.File]::WriteAllText($lateCompanionPath, 'not an authoritative payload', [Text.UTF8Encoding]::new($false))
-    $candidateArchiveHashAfterCompanionMutation = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
-    $lateCompanionArchiveEntry = Get-ZipEntrySha256 -ArchivePath $candidateJson.authoritativeArtifact -EntryPath 'late-untrusted-sibling.dll'
-    Check ($candidateArchiveHashBeforeCompanionMutation -ceq $candidateArchiveHashAfterCompanionMutation -and
-        $null -eq $lateCompanionArchiveEntry) 'a post-return sibling addition does not alter or enter the authoritative ZIP'
-    Remove-Item -LiteralPath $lateCompanionPath -Force
-    $archiveReplacementBackup = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-candidate-archive-backup-' + [guid]::NewGuid().ToString('N') + '.zip')
-    Copy-Item -LiteralPath $candidateJson.authoritativeArtifact -Destination $archiveReplacementBackup -Force
-    try {
-        [IO.File]::WriteAllText($candidateJson.authoritativeArtifact, 'replaced archive bytes', [Text.UTF8Encoding]::new($false))
-        $replacementArchiveHash = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
-        Check ($replacementArchiveHash -cne [string]$candidateJson.authoritativeArtifactSha256) `
-            'a post-return authoritative archive replacement is detected by the terminal result hash'
-    } finally {
-        Copy-Item -LiteralPath $archiveReplacementBackup -Destination $candidateJson.authoritativeArtifact -Force
-        Remove-Item -LiteralPath $archiveReplacementBackup -Force
+    $hasAuthoritativeArchive = $candidateJson -and $candidateJson.authoritativeArtifact -and
+        (Test-Path -LiteralPath ([string]$candidateJson.authoritativeArtifact) -PathType Leaf)
+    if ($hasAuthoritativeArchive) {
+        $candidateArchiveHashBeforeCompanionMutation = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
+        Check ($candidateArchiveHashBeforeCompanionMutation -ceq [string]$candidateJson.authoritativeArtifactSha256) `
+            'terminal result carries the observed hash of its authoritative archive'
+        $lateCompanionPath = Join-Path $outputA 'late-untrusted-sibling.dll'
+        [IO.File]::WriteAllText($lateCompanionPath, 'not an authoritative payload', [Text.UTF8Encoding]::new($false))
+        $candidateArchiveHashAfterCompanionMutation = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
+        $lateCompanionArchiveEntry = Get-ZipEntrySha256 -ArchivePath $candidateJson.authoritativeArtifact -EntryPath 'late-untrusted-sibling.dll'
+        Check ($candidateArchiveHashBeforeCompanionMutation -ceq $candidateArchiveHashAfterCompanionMutation -and
+            $null -eq $lateCompanionArchiveEntry) 'a post-return sibling addition does not alter or enter the authoritative ZIP'
+        Remove-Item -LiteralPath $lateCompanionPath -Force
+        $archiveReplacementBackup = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-candidate-archive-backup-' + [guid]::NewGuid().ToString('N') + '.zip')
+        Copy-Item -LiteralPath $candidateJson.authoritativeArtifact -Destination $archiveReplacementBackup -Force
+        try {
+            [IO.File]::WriteAllText($candidateJson.authoritativeArtifact, 'replaced archive bytes', [Text.UTF8Encoding]::new($false))
+            $replacementArchiveHash = (Get-FileHash -LiteralPath $candidateJson.authoritativeArtifact -Algorithm SHA256).Hash
+            Check ($replacementArchiveHash -cne [string]$candidateJson.authoritativeArtifactSha256) `
+                'a post-return authoritative archive replacement is detected by the terminal result hash'
+        } finally {
+            Copy-Item -LiteralPath $archiveReplacementBackup -Destination $candidateJson.authoritativeArtifact -Force
+            Remove-Item -LiteralPath $archiveReplacementBackup -Force
+        }
+    } else {
+        Check $false 'terminal result carries the observed hash of its authoritative archive'
+        Check $false 'a post-return sibling addition does not alter or enter the authoritative ZIP'
+        Check $false 'a post-return authoritative archive replacement is detected by the terminal result hash'
     }
 
     $oldPostKitFailpoint = [Environment]::GetEnvironmentVariable('FASTFILES_TEST_RELEASE_CANDIDATE_FAIL_AFTER_KIT', 'Process')

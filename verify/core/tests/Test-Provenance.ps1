@@ -200,7 +200,13 @@ try {
     $malformedPePath = Join-Path $fixtureRoot 'build\malformed.exe'
     New-Item -ItemType Directory -Path (Split-Path -Parent $malformedPePath) -Force | Out-Null
     [IO.File]::WriteAllBytes($malformedPePath, [Text.Encoding]::ASCII.GetBytes('not a PE image'))
+    Import-Module (Join-Path $repoRoot 'verify\release\ReleaseCommon.psm1') -Force -DisableNameChecking
+    $releaseArtifactCommandBefore = Get-Command Get-ReleaseArtifactManifest -ErrorAction SilentlyContinue
     $malformedPe = Get-BinaryProvenanceRecord -Path $malformedPePath -RepoRoot $fixtureRoot
+    $releaseArtifactCommandAfter = Get-Command Get-ReleaseArtifactManifest -ErrorAction SilentlyContinue
+    Check ($releaseArtifactCommandBefore -and $releaseArtifactCommandAfter -and
+        $releaseArtifactCommandAfter.ModuleName -ceq $releaseArtifactCommandBefore.ModuleName) `
+        'provenance PE collection preserves ReleaseCommon commands imported by its caller'
     Check ($malformedPe.issues -contains 'ARCH_READ_ERROR') 'malformed PE input produces an architecture read failure'
     $bindingMalformedPe = Test-BinarySourceBinding -BinaryRecords @($malformedPe) -SourceRecord $sourceClean -Mode strict
     Check ((-not $bindingMalformedPe.valid) -and ($bindingMalformedPe.issueCodes -contains 'ARCH_READ_ERROR')) 'strict binding rejects malformed PE records'
