@@ -401,7 +401,7 @@ try {
     $debugRootExit = $LASTEXITCODE
     $debugRootText = $debugRootOutput | Out-String
     Check ($debugRootExit -eq 1 -and $debugRootText -match 'RELEASE_BUILD_CONFIGURATION_MISMATCH' -and
-        $debugRootText -match 'expected config=RelWithDebInfo' -and $debugRootText -match 'Debug') 'candidate rejects same-HEAD Debug binaries copied into a custom Release BuildRoot'
+        $debugRootText -match 'requires config=RelWithDebInfo' -and $debugRootText -match 'Debug') 'candidate rejects same-HEAD Debug binaries copied into a custom Release BuildRoot'
 
     Copy-CertificationBuildRoot -SourceRoot $BuildRoot -DestinationRoot $missingConfigurationBuildRoot
     $missingConfigurationBinary = Join-Path $missingConfigurationBuildRoot 'src\engine\FastFilesEngine.exe'
