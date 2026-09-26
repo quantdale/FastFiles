@@ -13,6 +13,10 @@ namespace {
 constexpr std::chrono::milliseconds kCancellationCollectionGrace{250};
 constexpr size_t kMaximumQuarantinedOperations = 32;
 
+#if defined(FF_IPC_TESTING)
+thread_local std::optional<uint32_t> gWriteFailureAfterBytesForTesting;
+#endif
+
 struct OverlappedOperation {
     OVERLAPPED overlapped{};
     HANDLE event = nullptr;
@@ -254,7 +258,24 @@ bool WriteExactOverlapped(HANDLE pipeHandle, const void* buffer, uint32_t size,
     ReapQuarantinedOperations();
     const uint8_t* cursor = static_cast<const uint8_t*>(buffer);
     uint32_t remaining = size;
+#if defined(FF_IPC_TESTING)
+    const auto failureAfterBytes = gWriteFailureAfterBytesForTesting;
+    gWriteFailureAfterBytesForTesting.reset();
+    uint32_t bytesSubmitted = 0;
+#endif
     while (remaining > 0) {
+#if defined(FF_IPC_TESTING)
+        uint32_t operationSize = remaining;
+        if (failureAfterBytes) {
+            if (bytesSubmitted >= *failureAfterBytes) {
+                SetLastError(ERROR_WRITE_FAULT);
+                return false;
+            }
+            operationSize = (std::min)(operationSize, *failureAfterBytes - bytesSubmitted);
+        }
+#else
+        const uint32_t operationSize = remaining;
+#endif
         std::unique_ptr<OverlappedOperation> operation;
         try {
             operation = std::make_unique<OverlappedOperation>();
@@ -265,13 +286,13 @@ bool WriteExactOverlapped(HANDLE pipeHandle, const void* buffer, uint32_t size,
         if (operation->event == nullptr) return false;
         operation->overlapped.hEvent = operation->event;
         try {
-            operation->buffer.assign(cursor, cursor + remaining);
+            operation->buffer.assign(cursor, cursor + operationSize);
         } catch (...) {
             return false;
         }
 
         DWORD bytesWritten = 0;
-        const BOOL completed = WriteFile(pipeHandle, operation->buffer.data(), remaining, &bytesWritten,
+        const BOOL completed = WriteFile(pipeHandle, operation->buffer.data(), operationSize, &bytesWritten,
                                          &operation->overlapped);
         if (!completed) {
             const DWORD error = GetLastError();
@@ -298,6 +319,9 @@ bool WriteExactOverlapped(HANDLE pipeHandle, const void* buffer, uint32_t size,
         }
         cursor += bytesWritten;
         remaining -= bytesWritten;
+#if defined(FF_IPC_TESTING)
+        bytesSubmitted += bytesWritten;
+#endif
         CloseOperationEvent(*operation);
     }
     return true;
@@ -464,5 +488,13 @@ bool WriteFrameOverlapped(HANDLE pipeHandle, uint16_t messageType, const void* p
 bool WriteFrameOverlapped(HANDLE pipeHandle, uint16_t messageType) noexcept {
     return WriteFrameOverlapped(pipeHandle, messageType, nullptr, 0);
 }
+
+#if defined(FF_IPC_TESTING)
+namespace testing {
+void FailNextOverlappedFrameWriteAfterBytes(const uint32_t byteCount) noexcept {
+    gWriteFailureAfterBytesForTesting = byteCount;
+}
+} // namespace testing
+#endif
 
 } // namespace ffipc

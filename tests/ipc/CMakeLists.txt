@@ -1,5 +1,8 @@
 add_executable(ffipc_framing_tests test_pipe_framing.cpp)
-target_link_libraries(ffipc_framing_tests PRIVATE ffipc)
+target_sources(ffipc_framing_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ipc/src/PipeFraming.cpp)
+target_include_directories(ffipc_framing_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ipc/include)
+target_compile_definitions(ffipc_framing_tests PRIVATE FF_IPC_TESTING=1)
+target_link_libraries(ffipc_framing_tests PRIVATE ffprotocol)
 
 add_test(NAME ffipc_framing_tests COMMAND ffipc_framing_tests)
 set_tests_properties(ffipc_framing_tests PROPERTIES TIMEOUT 120)

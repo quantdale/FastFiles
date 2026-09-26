@@ -11,6 +11,84 @@
 
 Import-Module (Join-Path $PSScriptRoot 'RepositoryState.psm1') -Force -DisableNameChecking
 
+if (-not ('FastFilesProvenanceFile' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class FastFilesProvenanceFile
+{
+    private const uint GenericRead = 0x80000000;
+    private const uint ShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint FileAttributeNormal = 0x00000080;
+    private const uint FileFlagOpenReparsePoint = 0x00200000;
+    private const uint FileFlagSequentialScan = 0x08000000;
+    private const uint AttributeDirectory = 0x00000010;
+    private const uint AttributeReparsePoint = 0x00000400;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileAttributeTagInfo
+    {
+        public uint FileAttributes;
+        public uint ReparseTag;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateFileW")]
+    private static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security,
+        uint creation, uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "GetFileInformationByHandleEx")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int infoClass,
+        out FileAttributeTagInfo info, uint size);
+
+    public static FileStream OpenRegularReadOnly(string path)
+    {
+        SafeFileHandle handle = CreateFile(path, GenericRead, ShareRead, IntPtr.Zero, OpenExisting,
+            FileAttributeNormal | FileFlagOpenReparsePoint | FileFlagSequentialScan, IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new Win32Exception(error);
+        }
+
+        try
+        {
+            FileAttributeTagInfo info;
+            if (!GetFileInformationByHandleEx(handle, 9, out info, (uint)Marshal.SizeOf(typeof(FileAttributeTagInfo))))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            if ((info.FileAttributes & AttributeReparsePoint) != 0)
+            {
+                throw new IOException("Binary provenance rejects reparse-point executables.");
+            }
+            if ((info.FileAttributes & AttributeDirectory) != 0)
+            {
+                throw new IOException("Binary provenance requires a regular executable file.");
+            }
+            return new FileStream(handle, FileAccess.Read, 65536, false);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+}
+'@ -Language CSharp -ErrorAction Stop
+}
+
+function Get-BinaryVersionInfo {
+    param([Parameter(Mandatory)] [string] $Path)
+    return [Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+}
+
 function Get-BinaryProvenanceRecord {
     [CmdletBinding()]
     param(
@@ -47,63 +125,83 @@ function Get-BinaryProvenanceRecord {
     }
 
     $record.exists = $true
+    $snapshotPath = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-provenance-' + [guid]::NewGuid().ToString('N') + '.bin')
+    $sourceStream = $null
+    $snapshotStream = $null
+    $snapshotReady = $false
     try {
-        $record.sha256 = (Get-FileHash -LiteralPath $fullPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        # Open the selected file once without write/delete sharing and do not
+        # follow a final-component reparse point. All metadata below is read
+        # from this immutable byte snapshot, so hash/VERSIONINFO/PE cannot race
+        # separate opens of a changing path.
+        $sourceStream = [FastFilesProvenanceFile]::OpenRegularReadOnly($fullPath)
+        $snapshotStream = [IO.File]::Open($snapshotPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+        $sourceStream.CopyTo($snapshotStream)
+        $snapshotStream.Flush()
+        $snapshotReady = $true
     } catch {
+        # A locked, disappearing, or rejected reparse-point input cannot be
+        # snapshotted and therefore cannot produce a stable content hash.
         $issues.Add('HASH_READ_ERROR')
+        $issues.Add('BINARY_RECORD_READ_ERROR')
+    } finally {
+        if ($snapshotStream) { $snapshotStream.Dispose() }
+        if ($sourceStream) { $sourceStream.Dispose() }
     }
-
-    try {
-        $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($fullPath)
-        $record.productVersion = if ([string]::IsNullOrWhiteSpace($info.ProductVersion)) { $null } else { $info.ProductVersion }
-        $record.fileVersion = if ([string]::IsNullOrWhiteSpace($info.FileVersion)) { $null } else { $info.FileVersion }
-        $record.productName = if ([string]::IsNullOrWhiteSpace($info.ProductName)) { $null } else { $info.ProductName }
-        $record.companyName = if ([string]::IsNullOrWhiteSpace($info.CompanyName)) { $null } else { $info.CompanyName }
-        $record.originalFilename = if ([string]::IsNullOrWhiteSpace($info.OriginalFilename)) { $null } else { $info.OriginalFilename }
-        $record.internalName = if ([string]::IsNullOrWhiteSpace($info.InternalName)) { $null } else { $info.InternalName }
-        $identity = if ([string]::IsNullOrWhiteSpace($info.PrivateBuild)) { $null } else { $info.PrivateBuild.Trim().ToLowerInvariant() }
-        $record.buildIdentity = $identity
-        $special = if ([string]::IsNullOrWhiteSpace($info.SpecialBuild)) { '' } else { $info.SpecialBuild }
-        if ($special -match 'tree=([^;]+)') { $record.worktreeState = $Matches[1] }
-        if ($special -match 'config=([^;]+)') { $record.configuration = $Matches[1] }
-        if ($special -match 'arch=([^;]+)') { $record.architectureLabel = $Matches[1] }
-        if ($null -eq $identity) {
-            $issues.Add('MISSING_IDENTITY')
-        } elseif ($identity -notmatch '^[0-9a-f]{40}$') {
-            $issues.Add('MALFORMED_IDENTITY')
-        } else {
-            $record.buildIdentityFormatValid = $true
+    if (-not $snapshotReady) {
+        if (Test-Path -LiteralPath $snapshotPath -PathType Leaf) {
+            Remove-Item -LiteralPath $snapshotPath -Force -ErrorAction SilentlyContinue
         }
-    } catch {
-        $issues.Add('VERSION_RESOURCE_READ_ERROR')
+        $record.issues = @($issues)
+        return [pscustomobject]$record
     }
 
-    if ($RepoRoot) {
+    $snapshotGuard = $null
+    try {
+        # Lock and validate the captured copy itself while metadata APIs reopen
+        # it by path. Its contents and directory entry cannot be replaced under
+        # the read-only shared handle.
+        $snapshotGuard = [FastFilesProvenanceFile]::OpenRegularReadOnly($snapshotPath)
         try {
-            $architecture = & {
-                # Prefer the release-tooling PE probe when available so the
-                # architecture field matches package manifests.
-                $releaseCommon = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'release\ReleaseCommon.psm1'
-                if (Test-Path -LiteralPath $releaseCommon) {
-                    Import-Module $releaseCommon -Force -DisableNameChecking
-                    Get-PeArchitecture -Path $fullPath
-                } else {
-                    $bytes = [IO.File]::ReadAllBytes($fullPath)
-                    if ($bytes.Length -gt 0x3c) {
-                        $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
-                        if (($peOffset + 6) -lt $bytes.Length -and $bytes[$peOffset] -eq 0x4d -and $bytes[$peOffset + 1] -eq 0x5a) {
-                            $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
-                            $label = switch ($machine) {
-                                0x8664 { 'x64' }
-                                0x014c { 'x86' }
-                                0xaa64 { 'arm64' }
-                                default { "machine-0x$($machine.ToString('x4'))" }
-                            }
-                            [pscustomobject]@{ architecture = $label; machine = $machine }
-                        } else { $null }
-                    } else { $null }
-                }
+            $record.sha256 = (Get-FileHash -LiteralPath $snapshotPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        } catch {
+            $issues.Add('HASH_READ_ERROR')
+        }
+
+        try {
+            $info = Get-BinaryVersionInfo -Path $snapshotPath
+            $record.productVersion = if ([string]::IsNullOrWhiteSpace($info.ProductVersion)) { $null } else { $info.ProductVersion }
+            $record.fileVersion = if ([string]::IsNullOrWhiteSpace($info.FileVersion)) { $null } else { $info.FileVersion }
+            $record.productName = if ([string]::IsNullOrWhiteSpace($info.ProductName)) { $null } else { $info.ProductName }
+            $record.companyName = if ([string]::IsNullOrWhiteSpace($info.CompanyName)) { $null } else { $info.CompanyName }
+            $record.originalFilename = if ([string]::IsNullOrWhiteSpace($info.OriginalFilename)) { $null } else { $info.OriginalFilename }
+            $record.internalName = if ([string]::IsNullOrWhiteSpace($info.InternalName)) { $null } else { $info.InternalName }
+            $identity = if ([string]::IsNullOrWhiteSpace($info.PrivateBuild)) { $null } else { $info.PrivateBuild.Trim().ToLowerInvariant() }
+            $record.buildIdentity = $identity
+            $special = if ([string]::IsNullOrWhiteSpace($info.SpecialBuild)) { '' } else { $info.SpecialBuild }
+            if ($special -match 'tree=([^;]+)') { $record.worktreeState = $Matches[1] }
+            if ($special -match 'config=([^;]+)') { $record.configuration = $Matches[1] }
+            if ($special -match 'arch=([^;]+)') { $record.architectureLabel = $Matches[1] }
+            if ($null -eq $identity) {
+                $issues.Add('MISSING_IDENTITY')
+            } elseif ($identity -notmatch '^[0-9a-f]{40}$') {
+                $issues.Add('MALFORMED_IDENTITY')
+            } else {
+                $record.buildIdentityFormatValid = $true
             }
+        } catch {
+            $issues.Add('VERSION_RESOURCE_READ_ERROR')
+        }
+
+        try {
+            # Use the canonical release PE parser for every provenance record;
+            # it receives the same stable snapshot as the hash and VERSIONINFO reads.
+            $releaseCommon = Join-Path (Split-Path -Parent $PSScriptRoot) 'release\ReleaseCommon.psm1'
+            if (-not (Test-Path -LiteralPath $releaseCommon -PathType Leaf)) {
+                throw "Release PE parser is missing: $releaseCommon"
+            }
+            Import-Module $releaseCommon -Force -DisableNameChecking
+            $architecture = Get-PeArchitecture -Path $snapshotPath
             if ($architecture -and $architecture.architecture) {
                 $record.peArchitecture = $architecture.architecture
                 if ($architecture.architecture -ne 'x64') { $issues.Add('ARCH_MISMATCH') }
@@ -112,6 +210,11 @@ function Get-BinaryProvenanceRecord {
             }
         } catch {
             $issues.Add('ARCH_READ_ERROR')
+        }
+    } finally {
+        if ($snapshotGuard) { $snapshotGuard.Dispose() }
+        if (Test-Path -LiteralPath $snapshotPath -PathType Leaf) {
+            Remove-Item -LiteralPath $snapshotPath -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -156,13 +259,82 @@ function Test-BinarySourceBinding {
 
     $issueCodes = [System.Collections.Generic.List[string]]::new()
     $records = @($BinaryRecords)
+    if ($Mode -eq 'strict' -and $records.Count -eq 0) {
+        [void]$issueCodes.Add('EMPTY_BINARY_SET')
+    }
 
     foreach ($record in $records) {
-        foreach ($issue in @($record.issues)) {
+        if ($null -eq $record) {
+            if ($Mode -eq 'strict') { [void]$issueCodes.Add('BINARY_RECORD_INVALID') }
+            continue
+        }
+
+        $issuesProperty = $record.PSObject.Properties['issues']
+        $recordIssues = if ($issuesProperty) { @($issuesProperty.Value) } else { @() }
+        if ($Mode -eq 'strict') {
+            if (-not $issuesProperty) { [void]$issueCodes.Add('BINARY_RECORD_INVALID') }
+            foreach ($issue in $recordIssues) {
+                if (-not [string]::IsNullOrWhiteSpace([string]$issue)) { [void]$issueCodes.Add([string]$issue) }
+            }
+
+            $existsProperty = $record.PSObject.Properties['exists']
+            if (-not $existsProperty -or $existsProperty.Value -isnot [bool]) {
+                [void]$issueCodes.Add('BINARY_RECORD_INVALID')
+            } elseif (-not [bool]$existsProperty.Value) {
+                [void]$issueCodes.Add('MISSING_BINARY')
+            }
+
+            foreach ($requiredStringName in @('filename', 'path')) {
+                $requiredString = $record.PSObject.Properties[$requiredStringName]
+                if (-not $requiredString -or $requiredString.Value -isnot [string] -or [string]::IsNullOrWhiteSpace([string]$requiredString.Value)) {
+                    [void]$issueCodes.Add('BINARY_RECORD_INVALID')
+                }
+            }
+        }
+        foreach ($issue in $recordIssues) {
             if ($issue -in @('MISSING_IDENTITY', 'MALFORMED_IDENTITY')) {
                 [void]$issueCodes.Add($issue)
-            } elseif ($issue -eq 'ARCH_MISMATCH' -and $Mode -eq 'strict') {
-                [void]$issueCodes.Add($issue)
+            }
+        }
+
+        if ($Mode -eq 'strict') {
+            $hashProperty = $record.PSObject.Properties['sha256']
+            if (-not $hashProperty -or [string]$hashProperty.Value -notmatch '^[0-9a-fA-F]{64}$') {
+                [void]$issueCodes.Add('BINARY_HASH_UNAVAILABLE')
+            }
+
+            $identityProperty = $record.PSObject.Properties['buildIdentity']
+            $identity = if ($identityProperty) { [string]$identityProperty.Value } else { '' }
+            if ($identity -notmatch '^[0-9a-fA-F]{40}$') {
+                if ($recordIssues -notcontains 'MALFORMED_IDENTITY') {
+                    [void]$issueCodes.Add('MISSING_IDENTITY')
+                }
+            } else {
+                $identityFormatProperty = $record.PSObject.Properties['buildIdentityFormatValid']
+                if (-not $identityFormatProperty -or $identityFormatProperty.Value -isnot [bool] -or -not $identityFormatProperty.Value) {
+                    [void]$issueCodes.Add('BINARY_RECORD_INVALID')
+                }
+            }
+
+            $treeProperty = $record.PSObject.Properties['worktreeState']
+            $treeState = if ($treeProperty) { ([string]$treeProperty.Value).Trim().ToLowerInvariant() } else { '' }
+            if ($treeState -eq 'dirty') {
+                [void]$issueCodes.Add('DIRTY_BINARY_BUILD')
+            } elseif ($treeState -eq 'unbound') {
+                [void]$issueCodes.Add('UNBOUND_BINARY_BUILD')
+            } elseif ($treeState -ne 'clean') {
+                [void]$issueCodes.Add('BINARY_TREE_STATE_UNAVAILABLE')
+            }
+
+            $architectureProperty = $record.PSObject.Properties['peArchitecture']
+            $architecture = if ($architectureProperty) { [string]$architectureProperty.Value } else { '' }
+            if ($architecture -eq 'x64') {
+                # The canonical PE probe has independently verified the required
+                # executable architecture.
+            } elseif ([string]::IsNullOrWhiteSpace($architecture) -or $recordIssues -contains 'ARCH_READ_ERROR') {
+                [void]$issueCodes.Add('ARCH_READ_ERROR')
+            } else {
+                [void]$issueCodes.Add('ARCH_MISMATCH')
             }
         }
     }
@@ -192,12 +364,14 @@ function Test-BinarySourceBinding {
         if (-not $SourceRecord.headSha -or $SourceRecord.headSha -notmatch '^[0-9a-f]{40}$') {
             [void]$issueCodes.Add('HEAD_UNAVAILABLE')
         }
-        if (-not $SourceRecord.sourceClean) {
+        $sourceCleanProperty = $SourceRecord.PSObject.Properties['sourceClean']
+        if (-not $sourceCleanProperty -or $sourceCleanProperty.Value -isnot [bool] -or -not $sourceCleanProperty.Value) {
             [void]$issueCodes.Add('DIRTY_TREE_MISMATCH')
         }
         # Tree binding is not yet embedded as its own identity channel; record
         # that only commit-level binding was provable when the tree is clean.
-        if ($SourceRecord.sourceClean -and -not $SourceRecord.treeSha) {
+        if ($sourceCleanProperty -and $sourceCleanProperty.Value -is [bool] -and $sourceCleanProperty.Value -and
+            ([string]$SourceRecord.treeSha -notmatch '^[0-9a-f]{40}$')) {
             [void]$issueCodes.Add('TREE_BINDING_UNAVAILABLE')
         }
     }
@@ -209,7 +383,11 @@ function Test-BinarySourceBinding {
         setIdentity     = if ($identities.Count -eq 1) { $identities[0] } else { $null }
         setConsistent   = $identities.Count -le 1
         boundToHead     = ($uniqueIssues -notcontains 'STALE_BINARY' -and $uniqueIssues -notcontains 'MIXED_BINARY_SET' -and $identities.Count -eq 1 -and $SourceRecord.headSha -and $identities[0] -eq $SourceRecord.headSha)
-        boundToTree     = [bool]$SourceRecord.treeSha
+        # The build embeds commit identity and a build-time cleanliness claim,
+        # but no tree SHA. Keep this false even when the current source tree is
+        # known; a source tree hash alone does not bind these binary bytes to it.
+        boundToTree     = $false
+        treeBindingStatus = 'NOT_EMBEDDED'
         treeSemantic    = $SourceRecord.treeSemantic
         valid           = $uniqueIssues.Count -eq 0
     }
@@ -260,9 +438,10 @@ function New-BinaryProvenanceEvidence {
             reasonCodes  = $SourceRecord.reasonCodes
         }
         binaries      = @($BinaryRecords | ForEach-Object {
-                [pscustomobject]@{
+            [pscustomobject]@{
                     filename                 = $_.filename
                     path                     = $_.path
+                    exists                   = $_.exists
                     sha256                   = $_.sha256
                     buildIdentity            = $_.buildIdentity
                     buildIdentityFormatValid = $_.buildIdentityFormatValid
@@ -278,6 +457,7 @@ function New-BinaryProvenanceEvidence {
         setConsistent  = $Binding.setConsistent
         boundToHead    = $Binding.boundToHead
         boundToTree    = $Binding.boundToTree
+        treeBindingStatus = $Binding.treeBindingStatus
         checkResult    = [pscustomobject]@{
             status     = if ($Binding.valid) { 'PASS' } else { 'FAIL' }
             issueCodes = $Binding.issueCodes
@@ -291,7 +471,7 @@ function Invoke-ProvenanceGate {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string] $RepoRoot,
-        [Parameter(Mandatory)] [AllowEmptyCollection()] [string[]] $Binaries,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [AllowEmptyString()] [string[]] $Binaries,
         [ValidateSet('exact-tree', 'development')]
         [string] $Mode = 'exact-tree',
         [Parameter(Mandatory)] [string] $Stage,
@@ -315,8 +495,23 @@ function Invoke-ProvenanceGate {
 
     $binaryRecords = @()
     foreach ($path in @($Binaries)) {
-        if ([string]::IsNullOrWhiteSpace($path)) { continue }
-        $binaryRecords += Get-BinaryProvenanceRecord -Path $path
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            $binaryRecords += [pscustomobject]@{
+                path = [string]$path; filename = ''; exists = $false; sha256 = $null; peArchitecture = $null
+                buildIdentity = $null; buildIdentityFormatValid = $false; worktreeState = $null
+                issues = @('MISSING_BINARY', 'EMPTY_BINARY_PATH')
+            }
+            continue
+        }
+        try {
+            $binaryRecords += Get-BinaryProvenanceRecord -Path $path -RepoRoot $RepoRoot
+        } catch {
+            $binaryRecords += [pscustomobject]@{
+                path = [string]$path; filename = [IO.Path]::GetFileName([string]$path); exists = $false; sha256 = $null; peArchitecture = $null
+                buildIdentity = $null; buildIdentityFormatValid = $false; worktreeState = $null
+                issues = @('BINARY_RECORD_READ_ERROR')
+            }
+        }
     }
 
     $binding = Test-BinarySourceBinding -BinaryRecords $binaryRecords -SourceRecord $sourceRecord -Mode $bindingMode
@@ -351,6 +546,73 @@ function Invoke-ProvenanceGate {
     return $evidence
 }
 
+function Test-ReleaseBuildRootProvenance {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] $Provenance)
+
+    $issueCodes = [System.Collections.Generic.List[string]]::new()
+    $expectedArtifactConfiguration = switch ([string]$Provenance.expectedConfiguration) {
+        'RelWithDebInfo' { 'release-test' }
+        'Release' { 'Release' }
+        default { $null }
+    }
+    if (-not $expectedArtifactConfiguration -or
+        [string]$Provenance.artifactManifestConfiguration -cne $expectedArtifactConfiguration) {
+        [void]$issueCodes.Add('CANDIDATE_CONFIGURATION_PAIR_INVALID')
+    }
+    if ([string]$Provenance.status -cne 'PASS' -or
+        [string]::IsNullOrWhiteSpace([string]$Provenance.buildRoot) -or
+        -not [bool]$Provenance.setConsistent -or -not [bool]$Provenance.boundToHead -or
+        [bool]$Provenance.boundToTree -or [string]$Provenance.treeBindingStatus -cne 'NOT_EMBEDDED') {
+        [void]$issueCodes.Add('CANDIDATE_BINDING_FLAGS_INVALID')
+    }
+
+    $source = $Provenance.source
+    if (-not $source -or -not [bool]$source.sourceClean -or
+        [string]$source.headSha -notmatch '^[0-9a-f]{40}$' -or
+        [string]$source.treeSha -notmatch '^[0-9a-f]{40}$' -or
+        [string]$source.stateDigest -notmatch '^[0-9a-f]{64}$' -or
+        [string]$Provenance.setIdentity -cne [string]$source.headSha) {
+        [void]$issueCodes.Add('CANDIDATE_SOURCE_BINDING_INVALID')
+    }
+
+    $requiredNames = @('FastFiles.exe', 'FastFilesEngine.exe', 'FastFilesIndexSvc.exe', 'FastFilesSetup.exe', 'fftest.exe')
+    $binaries = @($Provenance.binaries)
+    if ($binaries.Count -ne $requiredNames.Count) {
+        [void]$issueCodes.Add('CANDIDATE_BINARY_INVENTORY_INVALID')
+    }
+    foreach ($name in $requiredNames) {
+        if (@($binaries | Where-Object { [string]$_.filename -ceq $name }).Count -ne 1) {
+            [void]$issueCodes.Add('CANDIDATE_BINARY_INVENTORY_INVALID')
+        }
+    }
+
+    foreach ($binary in $binaries) {
+        $filename = [string]$binary.filename
+        $binaryIssues = @($binary.issues | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        if ($filename -notin $requiredNames -or
+            [string]$binary.path -cne "BuildRoot/$filename" -or
+            -not [bool]$binary.exists -or
+            [string]$binary.sha256 -notmatch '^[0-9a-f]{64}$' -or
+            [string]$binary.buildIdentity -cne [string]$Provenance.setIdentity -or
+            -not [bool]$binary.buildIdentityFormatValid -or
+            [string]$binary.peArchitecture -cne 'x64' -or
+            [string]$binary.worktreeState -cne 'clean') {
+            [void]$issueCodes.Add('CANDIDATE_BINARY_BINDING_INVALID')
+        }
+        if ($expectedArtifactConfiguration -and
+            [string]$binary.configuration -cne [string]$Provenance.expectedConfiguration) {
+            [void]$issueCodes.Add('CANDIDATE_BINARY_CONFIGURATION_INVALID')
+        }
+        if ($binaryIssues.Count -gt 0) {
+            [void]$issueCodes.Add('CANDIDATE_BINARY_ISSUES_PRESENT')
+        }
+    }
+
+    $uniqueIssues = @($issueCodes | Sort-Object -Unique)
+    [pscustomobject]@{ valid = ($uniqueIssues.Count -eq 0); issueCodes = $uniqueIssues }
+}
+
 function Get-DefaultCertificationBinaries {
     [CmdletBinding()]
     param(
@@ -377,5 +639,6 @@ Export-ModuleMember -Function @(
     'Format-ProvenanceMismatch',
     'New-BinaryProvenanceEvidence',
     'Invoke-ProvenanceGate',
+    'Test-ReleaseBuildRootProvenance',
     'Get-DefaultCertificationBinaries'
 )

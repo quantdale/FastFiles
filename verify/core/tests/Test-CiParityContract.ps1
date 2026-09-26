@@ -59,6 +59,7 @@ $manifestJobs = @($manifestJobs | Sort-Object -Unique)
 $joinedWorkflow = $workflowJobs -join '|'
 $joinedManifest = $manifestJobs -join '|'
 Check (($joinedWorkflow -eq $joinedManifest)) ("job manifest matches current workflow (workflow=[" + ($workflowJobs -join ',') + "] orchestrator=[" + ($manifestJobs -join ',') + "]")
+Check ($orchestrator -match 'ffvolumescanner_terminal_tests' -and $orchestrator -match '4 targets \+ 4 tests') 'local ASan parity includes the scanner worker-boundary fixture from hosted CI'
 
 # Every job must be cited by hosted line-range reference in the orchestrator
 # (the parity mapping itself, not just the names).
@@ -78,7 +79,8 @@ foreach ($job in $workflowJobs) {
 
 # Truth-label vocabulary: local parity can never claim hosted success.
 Check ($orchestrator -match 'LOCAL-PARITY-NOT-HOSTED-CI') 'orchestrator labels output as local parity, not hosted CI'
-Check ($orchestrator -match 'EXTERNALLY_BLOCKED_BILLING') 'orchestrator records the hosted billing block explicitly'
+Check ($orchestrator -notmatch 'EXTERNALLY_BLOCKED_BILLING|lastGreenRun|33985962357|HOSTED_CI:') 'local parity contains no fixed or inferred hosted run status'
+Check ($orchestrator -match 'workflowJobs\s+=' -and $orchestrator -match 'steps\s*=') 'local report retains workflow mapping and local step results'
 Check ($orchestrator -notmatch 'GitHub CI PASS') 'orchestrator never contains a GitHub CI PASS claim'
 foreach ($code in @("'PASS'", "'FAIL'", "'SKIPPED'")) {
     Check ($orchestrator -like '*' + $code + '*') "result vocabulary includes $code"

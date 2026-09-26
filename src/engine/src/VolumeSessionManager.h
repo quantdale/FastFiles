@@ -193,9 +193,9 @@ private:
     std::thread reconciliationThread_;
     std::mutex wakeMutex_;
     std::condition_variable wakeCv_;
-    // Guarded by wakeMutex_. A delivered ScanFailed schedules a bounded retry
-    // without spawning an unowned thread; the scheduler wakes for the earlier
-    // of this deadline and its normal reconciliation poll.
+    // Guarded by wakeMutex_. Delivered ScanFailed outcomes retry without a
+    // finite attempt cap, once per volume per five-second cadence, and without
+    // spawning an unowned thread. Disconnect and Stop clear ephemeral entries.
     std::map<uint32_t, FailedScanRetry> failedScanRetries_;
     uint64_t scanRetryGeneration_ = 0; // guarded by wakeMutex_
 };

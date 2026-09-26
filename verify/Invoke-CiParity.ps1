@@ -4,7 +4,7 @@
 # (the single workflow file; 4 job ids / 6 hosted runs) as one bounded,
 # evidence-retaining run. This is LOCAL parity evidence only: its output must
 # never be described as hosted GitHub Actions success. Hosted CI is currently
-# BLOCKED_EXTERNAL (account billing); last green hosted run: 33985962357.
+# Hosted status is not collected here and must not be inferred from local results.
 #
 # Contract:
 #   * orchestrates EXISTING canonical commands (never re-implements validation),
@@ -204,13 +204,13 @@ exit $LASTEXITCODE
     }
 
     # ---- Step 6: ASAN slice (exact hosted target/test list) ----
-    Invoke-ParityStep -Id 'asan-slice' -HostedRef 'ci.yml:83-114 asan 3 targets + 3 tests' -NeedsToolchain -Command @'
+    Invoke-ParityStep -Id 'asan-slice' -HostedRef 'ci.yml:83-114 asan 4 targets + 4 tests' -NeedsToolchain -Command @'
 Set-Location '{ROOT}'
 & $t.CMakeExe --preset asan
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $t.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests
+& $t.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-& $t.CTestExe --test-dir build/asan -R '^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests)$' --output-on-failure
+& $t.CTestExe --test-dir build/asan -R '^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests|ffvolumescanner_terminal_tests)$' --output-on-failure
 exit $LASTEXITCODE
 '@ | Out-Null
 
@@ -276,12 +276,6 @@ $report = [ordered]@{
     label          = 'LOCAL-PARITY-NOT-HOSTED-CI'
     generatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
     source         = $sourceBinding
-    hosted         = [ordered]@{
-        workflow        = '.github/workflows/ci.yml'
-        hostedCi        = 'EXTERNALLY_BLOCKED_BILLING'
-        lastGreenRun    = '33985962357'
-        verifiedAgainst = $null
-    }
     workflowJobs   = $script:ParityWorkflowJobs
     steps          = @($steps)
     summary        = [ordered]@{ pass = $pass; fail = $fail; skipped = $skipped; total = @($steps).Count }
@@ -293,7 +287,6 @@ $md = @()
 $md += '# LOCAL CI-PARITY (this Windows host) -- NOT hosted GitHub Actions evidence'
 $md += ''
 $md += '- Label: LOCAL-PARITY-NOT-HOSTED-CI'
-$md += '- Hosted CI: EXTERNALLY_BLOCKED_BILLING (last green run 33985962357)'
 $md += "- Source: $($sourceBinding.headSha) branch=$($sourceBinding.branch) dirty=$($sourceBinding.dirty)"
 $md += "- Overall: $overall (pass=$pass fail=$fail skipped=$skipped)"
 $md += ''
@@ -323,7 +316,7 @@ try {
 Write-Host ''
 Write-Host "parity report: $reportPath"
 Write-Host "overall=$overall pass=$pass fail=$fail skipped=$skipped"
-Write-Host "HOSTED_CI: EXTERNALLY_BLOCKED_BILLING (never report this local run as hosted CI success)"
+Write-Host 'LOCAL-PARITY-NOT-HOSTED-CI: this report contains no hosted run status.'
 
 switch ($overall) {
     'PASS' { exit 0 }

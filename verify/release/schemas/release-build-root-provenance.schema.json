@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fastfiles.local/schemas/release-build-root-provenance.schema.json",
+  "title": "FastFiles selected release BuildRoot provenance projection",
+  "description": "Shape-only deterministic projection of strict gate evidence. Test-ReleaseBuildRootProvenance in Provenance.psm1 enforces inventory, clean issue lists, configuration pairing, and cross-field binding semantics that the repository's dependency-free schema subset cannot express.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "kind",
+    "status",
+    "stage",
+    "mode",
+    "expectedConfiguration",
+    "artifactManifestConfiguration",
+    "buildRoot",
+    "source",
+    "setIdentity",
+    "setConsistent",
+    "boundToHead",
+    "boundToTree",
+    "treeBindingStatus",
+    "binaries"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "schemaVersion": { "type": "integer", "enum": [1] },
+    "kind": { "type": "string", "enum": ["fastfiles-release-build-root-provenance"] },
+    "status": { "type": "string", "enum": ["PASS"] },
+    "stage": { "type": "string", "enum": ["release-candidate-build-root"] },
+    "mode": { "type": "string", "enum": ["exact-tree"] },
+    "expectedConfiguration": { "type": "string", "enum": ["RelWithDebInfo", "Release"] },
+    "artifactManifestConfiguration": { "type": "string", "enum": ["release-test", "Release"] },
+    "buildRoot": { "type": "string", "pattern": "^(?!\\s*$).+" },
+    "source": {
+      "type": "object",
+      "required": ["headSha", "treeSha", "treeSemantic", "sourceClean", "stateDigest"],
+      "additionalProperties": true,
+      "properties": {
+        "headSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "treeSha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "treeSemantic": { "type": "string", "enum": ["HEAD^{tree}"] },
+        "sourceClean": { "type": "boolean", "enum": [true] },
+        "stateDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "setIdentity": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "setConsistent": { "type": "boolean", "enum": [true] },
+    "boundToHead": { "type": "boolean", "enum": [true] },
+    "boundToTree": { "type": "boolean", "enum": [false] },
+    "treeBindingStatus": { "type": "string", "enum": ["NOT_EMBEDDED"] },
+    "binaries": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "required": [
+          "filename",
+          "path",
+          "exists",
+          "sha256",
+          "buildIdentity",
+          "buildIdentityFormatValid",
+          "peArchitecture",
+          "worktreeState",
+          "configuration",
+          "issues"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "filename": { "type": "string", "enum": ["FastFiles.exe", "FastFilesEngine.exe", "FastFilesIndexSvc.exe", "FastFilesSetup.exe", "fftest.exe"] },
+          "path": { "type": "string", "pattern": "^BuildRoot/[^/]+$" },
+          "exists": { "type": "boolean", "enum": [true] },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "buildIdentity": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+          "buildIdentityFormatValid": { "type": "boolean", "enum": [true] },
+          "peArchitecture": { "type": "string", "enum": ["x64"] },
+          "worktreeState": { "type": "string", "enum": ["clean"] },
+          "configuration": { "type": "string", "enum": ["RelWithDebInfo", "Release"] },
+          "issues": { "type": "array", "maxItems": 0, "items": { "type": "string" } }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "expectedConfiguration": { "const": "RelWithDebInfo" } } },
+      "then": {
+        "properties": {
+          "artifactManifestConfiguration": { "const": "release-test" },
+          "binaries": { "items": { "properties": { "configuration": { "const": "RelWithDebInfo" } } } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "expectedConfiguration": { "const": "Release" } } },
+      "then": {
+        "properties": {
+          "artifactManifestConfiguration": { "const": "Release" },
+          "binaries": { "items": { "properties": { "configuration": { "const": "Release" } } } }
+        }
+      }
+    }
+  ]
+}

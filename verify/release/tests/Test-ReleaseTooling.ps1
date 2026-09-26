@@ -852,6 +852,299 @@ try {
     }
 }
 
+$artifactRaceRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-artifact-manifest-race-' + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Path $artifactRaceRoot -Force | Out-Null
+    foreach ($artifactPath in @(Get-ReleaseArtifactPaths -ArtifactRoot $BuildRoot)) {
+        Copy-Item -LiteralPath $artifactPath.sourcePath -Destination (Join-Path $artifactRaceRoot $artifactPath.name) -Force
+    }
+    $artifactRaceBaseline = Get-ReleaseArtifactManifest -ArtifactRoot $artifactRaceRoot -Configuration 'test-fixture'
+    $raceTarget = Join-Path $artifactRaceRoot 'FastFilesEngine.exe'
+    $raceReplacement = Join-Path $artifactRaceRoot 'replacement.exe'
+    $raceOriginalBytes = [IO.File]::ReadAllBytes($raceTarget)
+    $raceReplacementBytes = [byte[]]::new($raceOriginalBytes.Length)
+    [Array]::Copy($raceOriginalBytes, $raceReplacementBytes, $raceOriginalBytes.Length)
+    $raceReplacementBytes[$raceReplacementBytes.Length - 1] = $raceReplacementBytes[$raceReplacementBytes.Length - 1] -bxor 0xff
+    [IO.File]::WriteAllBytes($raceReplacement, $raceReplacementBytes)
+    $baselineEngine = @($artifactRaceBaseline.artifacts | Where-Object filename -eq 'FastFilesEngine.exe')[0]
+
+    & $releaseCommonModule {
+        $script:ReleaseArtifactOriginalSignatureForTest = (Get-Command Get-SignatureRecord).ScriptBlock
+        $script:ReleaseArtifactSnapshotTargetForTest = $raceTarget
+        $script:ReleaseArtifactSnapshotReplacementForTest = $raceReplacement
+        $script:ReleaseArtifactSnapshotCapturedForTest = {
+            param($sourcePath, $snapshotPath)
+            if ([IO.Path]::GetFullPath($sourcePath) -ieq [IO.Path]::GetFullPath($script:ReleaseArtifactSnapshotTargetForTest)) {
+                Copy-Item -LiteralPath $script:ReleaseArtifactSnapshotReplacementForTest -Destination $sourcePath -Force
+                $script:ReleaseArtifactSnapshotCapturedForTest = $null
+            }
+        }
+        Set-Item -Path Function:\Get-SignatureRecord -Value {
+            param([Parameter(Mandatory)] [string] $Path)
+            $record = & $script:ReleaseArtifactOriginalSignatureForTest -Path $Path
+            Add-Member -InputObject $record -MemberType NoteProperty -Name testSnapshotSha256 `
+                -Value ((Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToUpperInvariant()) -Force
+            return $record
+        }
+    }
+    try {
+        $artifactRaceResult = Get-ReleaseArtifactManifest -ArtifactRoot $artifactRaceRoot -Configuration 'test-fixture'
+    } finally {
+        & $releaseCommonModule {
+            $script:ReleaseArtifactSnapshotCapturedForTest = $null
+            if ($script:ReleaseArtifactOriginalSignatureForTest) {
+                Set-Item -Path Function:\Get-SignatureRecord -Value $script:ReleaseArtifactOriginalSignatureForTest
+                $script:ReleaseArtifactOriginalSignatureForTest = $null
+            }
+            $script:ReleaseArtifactSnapshotTargetForTest = $null
+            $script:ReleaseArtifactSnapshotReplacementForTest = $null
+        }
+    }
+    $racedEngine = @($artifactRaceResult.artifacts | Where-Object filename -eq 'FastFilesEngine.exe')[0]
+    $mutatedEngineHash = (Get-FileHash -LiteralPath $raceTarget -Algorithm SHA256).Hash.ToUpperInvariant()
+    Check ($racedEngine.sha256 -ceq $baselineEngine.sha256 -and [long]$racedEngine.size -eq [long]$baselineEngine.size -and
+        [string]$racedEngine.configuration -ceq [string]$baselineEngine.configuration -and
+        [string]$racedEngine.peMachine -ceq [string]$baselineEngine.peMachine -and
+        [string]$racedEngine.signature.testSnapshotSha256 -ceq [string]$baselineEngine.sha256 -and
+        $mutatedEngineHash -cne [string]$baselineEngine.sha256) `
+        'artifact manifest derives hash, size, PE, VERSIONINFO, and Authenticode from one snapshot after source replacement'
+} catch {
+    Check $false "artifact manifest replacement fixture completed without exception ($($_.Exception.Message))"
+} finally {
+    $artifactRaceFull = [IO.Path]::GetFullPath($artifactRaceRoot).TrimEnd('\')
+    $artifactRaceTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ($artifactRaceFull.StartsWith($artifactRaceTempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $artifactRaceFull)) {
+        Remove-Item -LiteralPath $artifactRaceFull -Recurse -Force
+    }
+}
+
+$archiveProbeRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-archive-probe-' + [guid]::NewGuid().ToString('N'))
+try {
+    New-Item -ItemType Directory -Path $archiveProbeRoot -Force | Out-Null
+    $archiveProbePayload = Join-Path $archiveProbeRoot 'payload.bin'
+    $archiveProbeBytes = [byte[]](1, 2, 3, 4, 5)
+    $archiveProbeReplacement = [byte[]](9, 8, 7, 6, 5)
+    [IO.File]::WriteAllBytes($archiveProbePayload, $archiveProbeBytes)
+    $expectedArchiveEntries = @(Get-ReleaseArchiveInventory -Root $archiveProbeRoot)
+    $archiveProbePath = Join-Path $archiveProbeRoot 'injected.zip'
+    Add-Type -AssemblyName System.IO.Compression -ErrorAction SilentlyContinue
+    $zipStream = [IO.File]::Open($archiveProbePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $zip = [IO.Compression.ZipArchive]::new($zipStream, [IO.Compression.ZipArchiveMode]::Create, $false)
+    try {
+        $zipEntry = $zip.CreateEntry('payload.bin', [IO.Compression.CompressionLevel]::Optimal)
+        $entryStream = $zipEntry.Open()
+        try {
+            # Deterministically inject the path replacement in the packaging
+            # window, then restore the source as the original race could do.
+            [IO.File]::WriteAllBytes($archiveProbePayload, $archiveProbeReplacement)
+            $entryStream.Write($archiveProbeReplacement, 0, $archiveProbeReplacement.Length)
+        } finally { $entryStream.Dispose() }
+    } finally {
+        $zip.Dispose()
+        $zipStream.Dispose()
+        [IO.File]::WriteAllBytes($archiveProbePayload, $archiveProbeBytes)
+    }
+    $mutatedArchiveCheck = Test-ReleaseArchiveContents -ArchivePath $archiveProbePath -ExpectedEntries $expectedArchiveEntries
+    $restoredSourceHash = (Get-FileHash -LiteralPath $archiveProbePayload -Algorithm SHA256).Hash
+    Check (-not $mutatedArchiveCheck.valid -and @($mutatedArchiveCheck.issues | Where-Object { $_ -eq 'ARCHIVE_ENTRY_HASH_MISMATCH:payload.bin' }).Count -eq 1 -and
+        $restoredSourceHash -ieq [string]$expectedArchiveEntries[0].sha256) `
+        'archive inventory rejects a payload replaced during ZIP creation even after the source path is restored'
+
+    $validArchivePath = Join-Path $archiveProbeRoot 'valid.zip'
+    $validZipStream = [IO.File]::Open($validArchivePath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+    $validZip = [IO.Compression.ZipArchive]::new($validZipStream, [IO.Compression.ZipArchiveMode]::Create, $false)
+    try {
+        $validEntry = $validZip.CreateEntry('payload.bin', [IO.Compression.CompressionLevel]::Optimal)
+        $validEntryStream = $validEntry.Open()
+        try { $validEntryStream.Write($archiveProbeBytes, 0, $archiveProbeBytes.Length) }
+        finally { $validEntryStream.Dispose() }
+    } finally { $validZip.Dispose(); $validZipStream.Dispose() }
+    $validArchiveCheck = Test-ReleaseArchiveContents -ArchivePath $validArchivePath -ExpectedEntries $expectedArchiveEntries
+    Check ($validArchiveCheck.valid -and $validArchiveCheck.entryCount -eq 1) 'archive inventory accepts the exact immutable payload snapshot'
+} catch {
+    Check $false "archive inventory mutation fixture completed without exception ($($_.Exception.Message))"
+} finally {
+    $archiveProbeFull = [IO.Path]::GetFullPath($archiveProbeRoot).TrimEnd('\')
+    $archiveProbeTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ($archiveProbeFull.StartsWith($archiveProbeTempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $archiveProbeFull)) {
+        Remove-Item -LiteralPath $archiveProbeFull -Recurse -Force
+    }
+}
+
+$candidateSnapshotRoot = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-candidate-snapshot-check-' + [guid]::NewGuid().ToString('N'))
+try {
+    $candidateOutputRoot = Join-Path $candidateSnapshotRoot 'output'
+    $candidateStagingRoot = Join-Path $candidateSnapshotRoot 'staging'
+    New-Item -ItemType Directory -Path (Join-Path $candidateOutputRoot 'validation') -Force | Out-Null
+    New-Item -ItemType Directory -Path (Join-Path $candidateStagingRoot 'validation') -Force | Out-Null
+    $snapshotCommit = 'A' * 40
+    $snapshotSqliteVersion = '3.49.1'
+    $expectedCandidatePaths = @('artifact-manifest.json', 'dependency-inventory.json', 'kit-manifest.json', 'privileged-release.ps1', 'validation/fftest.exe')
+    $candidateOutputFftest = Join-Path (Join-Path $candidateOutputRoot 'validation') 'fftest.exe'
+    [IO.File]::WriteAllText((Join-Path $candidateOutputRoot 'artifact-manifest.json'), '{}', [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($candidateOutputFftest, 'probe', [Text.UTF8Encoding]::new($false))
+    $candidateOutputHelper = Join-Path $candidateOutputRoot 'privileged-release.ps1'
+    [IO.File]::WriteAllText($candidateOutputHelper, 'committed-helper-bytes', [Text.UTF8Encoding]::new($false))
+    $expectedKitProjection = [ordered]@{
+        schemaVersion = 1
+        kind = 'fastfiles-clean-host-kit'
+        commit = $snapshotCommit
+        architecture = 'x64'
+        pinProvisioning = [ordered]@{
+            engine = [ordered]@{ name = 'engine'; state = 'MISSING'; source = 'not-exported-until-matched-to-signed-artifact'; length = 0; thumbprint = $null }
+            service = [ordered]@{ name = 'service'; state = 'MISSING'; source = 'not-exported-until-matched-to-signed-artifact'; length = 0; thumbprint = $null }
+            provenanceRequired = $true
+        }
+        productionSigning = [ordered]@{ required = $true; currentState = 'BLOCKED_EXTERNAL' }
+        sourceCloneRequired = $false
+        buildToolsRequired = $false
+    }
+    $kitOutputPath = Join-Path $candidateOutputRoot 'kit-manifest.json'
+    [IO.File]::WriteAllText($kitOutputPath, (ConvertTo-Json -InputObject $expectedKitProjection -Depth 12), [Text.UTF8Encoding]::new($false))
+    $dependencyInventory = [ordered]@{
+        schemaVersion = 1
+        kind = 'fastfiles-dependency-inventory'
+        format = 'internal-structured-inventory'
+        commit = $snapshotCommit
+        components = @([ordered]@{ name = 'SQLite'; version = $snapshotSqliteVersion; scope = 'statically linked build/runtime dependency'; source = 'third_party/sqlite' })
+        note = 'This is a lightweight dependency inventory, not a claim of a complete SPDX or CycloneDX SBOM.'
+    }
+    [IO.File]::WriteAllText((Join-Path $candidateOutputRoot 'dependency-inventory.json'), (ConvertTo-Json -InputObject $dependencyInventory -Depth 8), [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath (Join-Path $candidateOutputRoot 'artifact-manifest.json') -Destination $candidateStagingRoot
+    Copy-Item -LiteralPath $kitOutputPath -Destination $candidateStagingRoot
+    Copy-Item -LiteralPath (Join-Path $candidateOutputRoot 'dependency-inventory.json') -Destination $candidateStagingRoot
+    Copy-Item -LiteralPath $candidateOutputHelper -Destination $candidateStagingRoot
+    Copy-Item -LiteralPath $candidateOutputFftest -Destination (Join-Path $candidateStagingRoot 'validation')
+    $validCandidateSnapshot = Test-ReleaseCandidateSnapshotContents -Root $candidateStagingRoot -ExpectedPaths $expectedCandidatePaths `
+        -ExpectedCommit $snapshotCommit -ExpectedSqliteVersion $snapshotSqliteVersion
+    Check ($validCandidateSnapshot.valid -and $validCandidateSnapshot.entryCount -eq 5) 'candidate snapshot accepts the exact declared file set and committed SQLite inventory'
+    $validKitProjection = Test-ReleaseKitManifestProjection -Path (Join-Path $candidateStagingRoot 'kit-manifest.json') -ExpectedManifest $expectedKitProjection
+    Check $validKitProjection.valid 'candidate kit manifest projection accepts the complete expected record'
+
+    $originalKitBytes = [IO.File]::ReadAllBytes($kitOutputPath)
+    $originalKitHash = (Get-FileHash -LiteralPath $kitOutputPath -Algorithm SHA256).Hash
+    $originalKitText = [Text.UTF8Encoding]::new($false, $true).GetString($originalKitBytes)
+    $tamperedKitText = $originalKitText.Replace($snapshotCommit, ('B' * 40))
+    [IO.File]::WriteAllText($kitOutputPath, $tamperedKitText, [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $kitOutputPath -Destination (Join-Path $candidateStagingRoot 'kit-manifest.json') -Force
+    [IO.File]::WriteAllBytes($kitOutputPath, $originalKitBytes)
+    $restoredKitHash = (Get-FileHash -LiteralPath $kitOutputPath -Algorithm SHA256).Hash
+    $tamperedKitProjection = Test-ReleaseKitManifestProjection -Path (Join-Path $candidateStagingRoot 'kit-manifest.json') -ExpectedManifest $expectedKitProjection
+    Check (-not $tamperedKitProjection.valid -and $restoredKitHash -ieq $originalKitHash) `
+        'candidate snapshot rejects a changed kit commit after its output path is restored'
+
+    $tamperedKitPin = Get-Content -LiteralPath (Join-Path $candidateStagingRoot 'kit-manifest.json') -Raw | ConvertFrom-Json
+    $tamperedKitPin.pinProvisioning.engine.state = 'POPULATED'
+    [IO.File]::WriteAllText((Join-Path $candidateStagingRoot 'kit-manifest.json'),
+        (ConvertTo-Json -InputObject $tamperedKitPin -Depth 12), [Text.UTF8Encoding]::new($false))
+    $tamperedKitPinProjection = Test-ReleaseKitManifestProjection -Path (Join-Path $candidateStagingRoot 'kit-manifest.json') -ExpectedManifest $expectedKitProjection
+    Check (-not $tamperedKitPinProjection.valid -and
+        @($tamperedKitPinProjection.issues | Where-Object { $_ -eq 'CANDIDATE_KIT_MANIFEST_PROJECTION_MISMATCH' }).Count -eq 1) `
+        'candidate snapshot rejects a forged pin-provisioning state'
+    Copy-Item -LiteralPath $kitOutputPath -Destination (Join-Path $candidateStagingRoot 'kit-manifest.json') -Force
+
+    $unexpectedRootPath = Join-Path $candidateStagingRoot 'unexpected.exe'
+    [IO.File]::WriteAllText($unexpectedRootPath, 'unexpected', [Text.UTF8Encoding]::new($false))
+    $unexpectedRootCheck = Test-ReleaseCandidateSnapshotContents -Root $candidateStagingRoot -ExpectedPaths $expectedCandidatePaths `
+        -ExpectedCommit $snapshotCommit -ExpectedSqliteVersion $snapshotSqliteVersion
+    Check (-not $unexpectedRootCheck.valid -and @($unexpectedRootCheck.issues | Where-Object { $_ -eq 'CANDIDATE_SNAPSHOT_UNEXPECTED_PATH:unexpected.exe' }).Count -eq 1) `
+        'candidate snapshot rejects an undeclared root executable'
+    Remove-Item -LiteralPath $unexpectedRootPath -Force
+
+    $unexpectedValidationPath = Join-Path $candidateStagingRoot 'validation\unexpected.exe'
+    [IO.File]::WriteAllText($unexpectedValidationPath, 'unexpected', [Text.UTF8Encoding]::new($false))
+    $unexpectedValidationCheck = Test-ReleaseCandidateSnapshotContents -Root $candidateStagingRoot -ExpectedPaths $expectedCandidatePaths `
+        -ExpectedCommit $snapshotCommit -ExpectedSqliteVersion $snapshotSqliteVersion
+    Check (-not $unexpectedValidationCheck.valid -and @($unexpectedValidationCheck.issues | Where-Object { $_ -eq 'CANDIDATE_SNAPSHOT_UNEXPECTED_PATH:validation/unexpected.exe' }).Count -eq 1) `
+        'candidate snapshot rejects an undeclared validation member'
+    Remove-Item -LiteralPath $unexpectedValidationPath -Force
+
+    $dependencyOutputPath = Join-Path $candidateOutputRoot 'dependency-inventory.json'
+    $dependencyStagingPath = Join-Path $candidateStagingRoot 'dependency-inventory.json'
+    $originalDependencyBytes = [IO.File]::ReadAllBytes($dependencyOutputPath)
+    $originalDependencyHash = (Get-FileHash -LiteralPath $dependencyOutputPath -Algorithm SHA256).Hash
+    $originalDependencyText = [Text.UTF8Encoding]::new($false, $true).GetString($originalDependencyBytes)
+    $tamperedDependencyText = $originalDependencyText.Replace($snapshotCommit, ('B' * 40)).Replace($snapshotSqliteVersion, '0.0.0')
+    [IO.File]::WriteAllText($dependencyOutputPath, $tamperedDependencyText, [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath $dependencyOutputPath -Destination $dependencyStagingPath -Force
+    [IO.File]::WriteAllBytes($dependencyOutputPath, $originalDependencyBytes)
+    $restoredOutputHash = (Get-FileHash -LiteralPath $dependencyOutputPath -Algorithm SHA256).Hash
+    $tamperedDependencyCheck = Test-ReleaseCandidateSnapshotContents -Root $candidateStagingRoot -ExpectedPaths $expectedCandidatePaths `
+        -ExpectedCommit $snapshotCommit -ExpectedSqliteVersion $snapshotSqliteVersion
+    Check (-not $tamperedDependencyCheck.valid -and
+        @($tamperedDependencyCheck.issues | Where-Object { $_ -eq 'CANDIDATE_SNAPSHOT_DEPENDENCY_INVENTORY_MISMATCH' }).Count -eq 1 -and
+        $restoredOutputHash -ieq $originalDependencyHash) `
+        'candidate snapshot rejects a replaced dependency inventory after the output path is restored'
+
+    $wrongVersionText = $originalDependencyText.Replace($snapshotSqliteVersion, '0.0.0')
+    [IO.File]::WriteAllText($dependencyStagingPath, $wrongVersionText, [Text.UTF8Encoding]::new($false))
+    $wrongVersionCheck = Test-ReleaseCandidateSnapshotContents -Root $candidateStagingRoot -ExpectedPaths $expectedCandidatePaths `
+        -ExpectedCommit $snapshotCommit -ExpectedSqliteVersion $snapshotSqliteVersion
+    Check (-not $wrongVersionCheck.valid -and
+        @($wrongVersionCheck.issues | Where-Object { $_ -eq 'CANDIDATE_SNAPSHOT_DEPENDENCY_INVENTORY_MISMATCH' }).Count -eq 1) `
+        'candidate snapshot rejects a SQLite version that differs from committed dependency metadata'
+
+    Copy-Item -LiteralPath $dependencyOutputPath -Destination $dependencyStagingPath -Force
+    $expectedCandidateOutputEntries = @(Get-ReleaseArchiveInventory -Root $candidateStagingRoot)
+    $candidateArchivePath = Join-Path $candidateOutputRoot 'FastFiles-test.zip'
+    [byte[]]$candidateArchiveBytes = @(1, 2, 3, 4, 5)
+    [IO.File]::WriteAllBytes($candidateArchivePath, $candidateArchiveBytes)
+    $expectedCandidateOutputEntries += [pscustomobject]@{
+        path = 'FastFiles-test.zip'
+        length = $candidateArchiveBytes.Length
+        sha256 = (Get-FileHash -LiteralPath $candidateArchivePath -Algorithm SHA256).Hash
+    }
+    $candidateAdditionalOutputs = @('candidate-manifest.json', 'provenance.json', 'SHA256SUMS.txt', '.fastfiles-release-candidate-v1')
+    foreach ($name in $candidateAdditionalOutputs) {
+        [IO.File]::WriteAllText((Join-Path $candidateOutputRoot $name), "generated:$name", [Text.UTF8Encoding]::new($false))
+    }
+    $outputSnapshotCheck = Test-ReleaseCandidateOutputContents -Root $candidateOutputRoot `
+        -ExpectedEntries $expectedCandidateOutputEntries -AdditionalPaths $candidateAdditionalOutputs
+    Check ($outputSnapshotCheck.valid -and $outputSnapshotCheck.guards.Count -eq 10) 'candidate output files match the guarded archive generation'
+    foreach ($guard in @($outputSnapshotCheck.guards)) { if ($guard) { $guard.Dispose() } }
+
+    $helperOutputBytes = [IO.File]::ReadAllBytes($candidateOutputHelper)
+    [IO.File]::WriteAllText($candidateOutputHelper, 'alternate-helper-bytes', [Text.UTF8Encoding]::new($false))
+    $mutatedOutputCheck = Test-ReleaseCandidateOutputContents -Root $candidateOutputRoot `
+        -ExpectedEntries $expectedCandidateOutputEntries -AdditionalPaths $candidateAdditionalOutputs
+    Check (-not $mutatedOutputCheck.valid -and
+        @($mutatedOutputCheck.issues | Where-Object { $_ -eq 'CANDIDATE_OUTPUT_HASH_MISMATCH:privileged-release.ps1' }).Count -eq 1) `
+        'candidate refuses a returned helper tree changed after archive snapshot capture'
+    foreach ($guard in @($mutatedOutputCheck.guards)) { if ($guard) { $guard.Dispose() } }
+    [IO.File]::WriteAllBytes($candidateOutputHelper, $helperOutputBytes)
+
+    $checksumsPath = Join-Path $candidateOutputRoot 'SHA256SUMS.txt'
+    $markerPath = Join-Path $candidateOutputRoot '.fastfiles-release-candidate-v1'
+    $checksumLines = @(Get-ChildItem -LiteralPath $candidateOutputRoot -Recurse -File -Force | Where-Object {
+            [IO.Path]::GetFullPath($_.FullName) -ine [IO.Path]::GetFullPath($checksumsPath) -and
+            [IO.Path]::GetFullPath($_.FullName) -ine [IO.Path]::GetFullPath($markerPath)
+        } | ForEach-Object {
+            $relative = $_.FullName.Substring([IO.Path]::GetFullPath($candidateOutputRoot).TrimEnd('\').Length).TrimStart('\').Replace('\', '/')
+            "$((Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant())  $relative"
+        } | Sort-Object)
+    [IO.File]::WriteAllText($checksumsPath, ($checksumLines -join "`n") + "`n", [Text.UTF8Encoding]::new($false))
+    $checksumsCheck = Test-ReleaseCandidateChecksums -Root $candidateOutputRoot -ChecksumsPath $checksumsPath -MarkerPath $markerPath
+    Check $checksumsCheck.valid 'candidate checksums match the complete output generation'
+    $lateCandidateFile = Join-Path $candidateOutputRoot 'package\late-insertion.dll'
+    New-Item -ItemType Directory -Path (Split-Path -Parent $lateCandidateFile) -Force | Out-Null
+    [IO.File]::WriteAllText($lateCandidateFile, 'late insertion after checksum enumeration', [Text.UTF8Encoding]::new($false))
+    $lateOutputCheck = Test-ReleaseCandidateOutputContents -Root $candidateOutputRoot `
+        -ExpectedEntries $expectedCandidateOutputEntries -AdditionalPaths $candidateAdditionalOutputs
+    Check (-not $lateOutputCheck.valid -and
+        @($lateOutputCheck.issues | Where-Object { $_ -eq 'CANDIDATE_OUTPUT_UNEXPECTED_PATH:package/late-insertion.dll' }).Count -eq 1) `
+        'final output inventory rejects a file inserted after checksum enumeration'
+    foreach ($guard in @($lateOutputCheck.guards)) { if ($guard) { $guard.Dispose() } }
+    Remove-Item -LiteralPath $lateCandidateFile -Force
+} catch {
+    Check $false "candidate snapshot inventory fixtures completed without exception ($($_.Exception.Message))"
+} finally {
+    $candidateSnapshotFull = [IO.Path]::GetFullPath($candidateSnapshotRoot).TrimEnd('\')
+    $candidateSnapshotTempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\')
+    if ($candidateSnapshotFull.StartsWith($candidateSnapshotTempRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $candidateSnapshotFull)) {
+        Remove-Item -LiteralPath $candidateSnapshotFull -Recurse -Force
+    }
+}
+
 $hostPreflight = Get-CleanHostPreflight
 Check ($null -ne $hostPreflight.resources.service -and $null -ne $hostPreflight.resources.installDirectory) 'clean-host preflight reports exact FastFiles resources'
 Check ($null -ne $hostPreflight.trustStore -and -not $hostPreflight.trustStore.checked) 'clean-host preflight does not mutate or claim trust-store provenance'

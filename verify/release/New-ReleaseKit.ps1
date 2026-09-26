@@ -3,6 +3,8 @@ param(
     [string] $BuildRoot,
     [string] $OutputDirectory = (Join-Path ([IO.Path]::GetTempPath()) 'FastFiles-release-kit'),
     [string] $ManifestSignaturePath,
+    [ValidateSet('release-test', 'Release')]
+    [string] $Configuration,
     [switch] $Force,
     [ValidateSet('human', 'json')]
     [string] $OutputFormat = 'human'
@@ -44,9 +46,11 @@ try {
         if ($fftestArchitecture.architecture -ne 'x64') { throw "WRONG_ARCHITECTURE: validation probe is $($fftestArchitecture.architecture), expected x64." }
         Copy-Item -LiteralPath $fftestPath -Destination (Join-Path $validationDir 'fftest.exe') -Force
     }
-    $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $BuildRoot -RepoRoot $repoRoot
+    # Manifest the copied package bytes. The release candidate later compares
+    # their hashes to the selected BuildRoot snapshot before accepting the kit.
+    $manifest = Get-ReleaseArtifactManifest -ArtifactRoot $packageRoot -RepoRoot $repoRoot -Configuration $Configuration
     $versionPaths = if ($fftestIncluded) { @((Join-Path $validationDir 'fftest.exe')) } else { @() }
-    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $BuildRoot -RepoRoot $repoRoot -AdditionalPaths $versionPaths
+    $versionCheck = Test-ReleaseVersionMetadata -ArtifactRoot $packageRoot -RepoRoot $repoRoot -AdditionalPaths $versionPaths
     if (-not $versionCheck.valid) {
         $details = @($versionCheck.artifacts | Where-Object { -not $_.valid } | ForEach-Object { "$($_.filename):$($_.issues -join ',')" }) -join '; '
         throw "VERSION_METADATA_INVALID: $details"

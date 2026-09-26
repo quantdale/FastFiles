@@ -52,6 +52,14 @@ validates the four executable payloads, and writes an ignored directory under
 The result is useful for local validation only. It is explicitly not a production
 release and cannot authenticate the privileged runtime.
 
+The ZIP is the sole authoritative release payload. The loose package directory,
+candidate manifest, provenance report, checksums, and other files in the output
+directory are mutable companion evidence, not a trust anchor; extra siblings are
+not payload. The command result reports the ZIP path and SHA-256; consumers must
+recompute that hash against the archive bytes before use. Before promoting a
+production archive, consumers must validate its package signature and authorized
+signer policy independently.
+
 ## Authorized production candidate
 
 Production signing remains an external, fail-closed prerequisite. The expected

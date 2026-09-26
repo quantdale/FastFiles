@@ -1,6 +1,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -74,9 +75,11 @@ struct NamedPipePair {
     }
 };
 
-NamedPipePair MakeOverlappedNamedPipe() {
+NamedPipePair MakeOverlappedNamedPipe(const bool overlappedClient = false) {
     NamedPipePair pipe;
-    const std::wstring name = L"\\\\.\\pipe\\FastFilesIpcTest." + std::to_wstring(GetCurrentProcessId());
+    static std::atomic<uint32_t> pipeInstance{0};
+    const std::wstring name = L"\\\\.\\pipe\\FastFilesIpcTest." + std::to_wstring(GetCurrentProcessId()) +
+                              L"." + std::to_wstring(pipeInstance.fetch_add(1, std::memory_order_relaxed));
     pipe.server = CreateNamedPipeW(name.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
                                    PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1,
                                    64 * 1024, 64 * 1024, 0, nullptr);
@@ -95,7 +98,7 @@ NamedPipePair MakeOverlappedNamedPipe() {
     const BOOL connected = ConnectNamedPipe(pipe.server, &connect);
     const DWORD connectError = connected ? ERROR_SUCCESS : GetLastError();
     pipe.client = CreateFileW(name.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
-                              OPEN_EXISTING, 0, nullptr);
+                              OPEN_EXISTING, overlappedClient ? FILE_FLAG_OVERLAPPED : 0, nullptr);
     bool connectionReady = connected != FALSE || connectError == ERROR_PIPE_CONNECTED;
     if (!connectionReady && connectError == ERROR_IO_PENDING) {
         const DWORD waitResult = WaitForSingleObject(connect.hEvent, 2000);
@@ -198,6 +201,63 @@ void TestRealNamedPipeHandshakeRoundTrips() {
     Check(reply && reply->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck),
           "handshake acknowledgement message type crosses the real pipe");
     Check(reply && reply->payload.size() == sizeof(ack), "handshake acknowledgement payload is complete");
+}
+
+void TestProductionWriterEmitsDeterministicPrefixes() {
+    const std::vector<uint8_t> payload = {
+        0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x97, 0xA8,
+        0xB9, 0xCA, 0xDB, 0xEC, 0xFD, 0x0E, 0x1F, 0x20,
+    };
+    ffprotocol::FrameHeader header{};
+    header.totalLength = static_cast<uint32_t>(sizeof(header) + payload.size());
+    header.structVersion = ffprotocol::kCurrentStructVersion;
+    header.messageType = static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat);
+    std::vector<uint8_t> serialized(sizeof(header) + payload.size());
+    std::memcpy(serialized.data(), &header, sizeof(header));
+    std::memcpy(serialized.data() + sizeof(header), payload.data(), payload.size());
+
+    const std::vector<uint32_t> byteBoundaries = {
+        0,
+        1,
+        static_cast<uint32_t>(sizeof(header) - 1),
+        static_cast<uint32_t>(sizeof(header)),
+        static_cast<uint32_t>(sizeof(header) + payload.size() / 2),
+        static_cast<uint32_t>(serialized.size() - 1),
+    };
+    for (const uint32_t prefixSize : byteBoundaries) {
+        NamedPipePair pipe = MakeOverlappedNamedPipe(true);
+        Check(pipe.server != nullptr && pipe.client != nullptr,
+              "prefix-write case creates an isolated real byte-mode named pipe");
+        if (pipe.server == nullptr || pipe.client == nullptr) continue;
+
+        ffipc::testing::FailNextOverlappedFrameWriteAfterBytes(prefixSize);
+        const bool writeResult = ffipc::WriteFrameOverlapped(
+            pipe.server, header.messageType, payload.data(), static_cast<uint32_t>(payload.size()),
+            std::chrono::steady_clock::now() + std::chrono::seconds(2));
+        Check(!writeResult, "injected prefix write fails after the selected real bytes");
+        Check(GetLastError() == ERROR_WRITE_FAULT,
+              "controlled failure is reported after the selected prefix has completed");
+
+        std::vector<uint8_t> actual(serialized.size());
+        DWORD peekedBytes = 0;
+        DWORD availableBytes = 0;
+        const bool peeked = PeekNamedPipe(pipe.client, actual.data(), static_cast<DWORD>(actual.size()),
+                                          &peekedBytes, &availableBytes, nullptr) != FALSE;
+        Check(peeked, "test inspects bytes emitted on the real named pipe");
+        Check(peekedBytes == prefixSize && availableBytes == prefixSize,
+              "emitted byte count matches the selected boundary exactly");
+        Check(peekedBytes == 0 || std::memcmp(actual.data(), serialized.data(), peekedBytes) == 0,
+              "emitted bytes are the exact production-serialized frame prefix");
+
+        ffipc::ReceivedFrame received{};
+        const auto readStatus = ffipc::ReadFrameOverlappedDetailed(
+            pipe.client, nullptr, std::chrono::steady_clock::now() + std::chrono::milliseconds(100), &received);
+        const auto expectedStatus = prefixSize == 0
+            ? ffipc::FrameReadStatus::Timeout
+            : ffipc::FrameReadStatus::Disconnected;
+        Check(readStatus == expectedStatus,
+              "production frame reader rejects the incomplete frame at this byte boundary");
+    }
 }
 
 void TestOverlappedReadTimesOut() {
@@ -639,6 +699,7 @@ int main() {
     TestOversizedWriteRejectedBeforeIo();
     TestMalformedHeadersRejectedWithoutPayloadRead();
     TestRealNamedPipeHandshakeRoundTrips();
+    TestProductionWriterEmitsDeterministicPrefixes();
     TestOverlappedReadTimesOut();
     TestPartialHeaderTimesOut();
     TestPeerDeathDuringFrameReturns();

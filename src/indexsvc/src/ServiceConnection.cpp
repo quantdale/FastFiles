@@ -17,6 +17,8 @@
 #include "ClientAuthentication.h"
 #include "CommandSurface.h"
 #include "DiagnosticsHardening.h"
+#include "ScanWorkerBoundary.h"
+#include "ServiceWorkerLifecycle.h"
 #include "StalenessMonitor.h"
 #include "UsnJournalReader.h"
 #include "VolumeEnumeration.h"
@@ -28,6 +30,9 @@ namespace ffindexsvc {
 namespace {
 
 using ffprotocol::MessageType;
+using detail::ActiveWorker;
+using detail::StopAndJoin;
+using detail::StopAndJoinAll;
 
 // A client that stops sending frames would otherwise pin this connection --
 // and any scan/journal worker threads it owns -- indefinitely. Conservative:
@@ -79,37 +84,6 @@ std::optional<ffipc::ReceivedFrame> ReadActiveFrame(HANDLE pipeHandle, HANDLE sh
 // Heartbeat/Stop/Close/second-scan requests concurrently, per tasks.md
 // 4.4/5.4's "batched streaming ... for the duration of an open journal
 // handle" requirement.
-struct ActiveWorker {
-    uint32_t volumeId = 0;
-    std::shared_ptr<std::atomic<bool>> stopFlag;
-    std::thread thread;
-};
-
-void StopAndJoin(std::vector<ActiveWorker>& workers, uint32_t volumeId) {
-    for (auto it = workers.begin(); it != workers.end(); ++it) {
-        if (it->volumeId == volumeId) {
-            it->stopFlag->store(true);
-            if (it->thread.joinable()) {
-                it->thread.join();
-            }
-            workers.erase(it);
-            return;
-        }
-    }
-}
-
-void StopAndJoinAll(std::vector<ActiveWorker>& workers) {
-    for (auto& worker : workers) {
-        worker.stopFlag->store(true);
-    }
-    for (auto& worker : workers) {
-        if (worker.thread.joinable()) {
-            worker.thread.join();
-        }
-    }
-    workers.clear();
-}
-
 bool SendIncompatibleVersion(HANDLE pipeHandle) {
     ffprotocol::IncompatibleVersionPayload payload{ffprotocol::kCurrentProtocolVersion};
     return WriteFrameWithDeadline(pipeHandle, static_cast<uint16_t>(MessageType::IncompatibleVersion), &payload, sizeof(payload));
@@ -343,40 +317,27 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                 activeScans.back().thread = std::thread([pipeHandle, &writeMutex, volumeId, driveLetter,
                                                           resumeCursor, lowPriority, peerVersion, stopFlag,
                                                           transportFailed] {
-                    // H2: an escaping worker exception is not safe to turn into
-                    // a terminal on the same pipe. The exception may have
-                    // occurred after a partial write, so record it and make
-                    // the connection transport-fatal instead.
-                    try {
-                        const ScanRunResult outcome =
-                            RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
-                                          peerVersion, *stopFlag, transportFailed.get());
-                        if (outcome == ScanRunResult::TransportFailed) {
-                            transportFailed->store(true);
-                            CancelIoEx(pipeHandle, nullptr);
+                    // hardening-campaign Phase 7 H2: the shared worker boundary
+                    // makes any partial stream connection-fatal and never adds
+                    // a terminal after an exception or failed frame write.
+                    RunScanWorkerBoundary(pipeHandle, *transportFailed,
+                        [&] {
+                            return RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor,
+                                                 lowPriority, peerVersion, *stopFlag, transportFailed.get());
+                        },
+                        [] {
                             WriteServiceLifecycleLog(
                                 L"scan worker transport failure: connection abort requested; no terminal appended");
-                        }
-                    } catch (const std::exception&) {
-                        transportFailed->store(true);
-                        try {
+                        },
+                        [volumeId](ScanWorkerExceptionKind kind) {
+                            const bool unknown = kind == ScanWorkerExceptionKind::Unknown;
                             AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
-                                                     std::to_wstring(volumeId.value), L"scan-worker-exception");
-                            WriteServiceLifecycleLog(
-                                L"scan worker exception boundary: connection abort requested; no terminal appended");
-                        } catch (...) { }
-                        try { CancelIoEx(pipeHandle, nullptr); } catch (...) { }
-                    } catch (...) {
-                        transportFailed->store(true);
-                        try {
-                            AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
-                                                     std::to_wstring(volumeId.value),
-                                                     L"scan-worker-unknown-exception");
-                            WriteServiceLifecycleLog(
-                                L"scan worker unknown exception boundary: connection abort requested; no terminal appended");
-                        } catch (...) { }
-                        try { CancelIoEx(pipeHandle, nullptr); } catch (...) { }
-                    }
+                                std::to_wstring(volumeId.value), unknown
+                                    ? L"scan-worker-unknown-exception" : L"scan-worker-exception");
+                            WriteServiceLifecycleLog(unknown
+                                ? L"scan worker unknown exception boundary: connection abort requested; no terminal appended"
+                                : L"scan worker exception boundary: connection abort requested; no terminal appended");
+                        });
                 });
                 break;
             }

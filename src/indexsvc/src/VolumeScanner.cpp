@@ -3,6 +3,7 @@
 #include <winioctl.h>
 
 #include <cstring>
+#include <new>
 #include <vector>
 
 #include "ffprotocol/Diagnostics.h"
@@ -114,6 +115,102 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                                   &payload, sizeof(payload), transportFailed);
 }
 
+class ScanOutput {
+public:
+    ScanOutput(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+               ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop,
+               std::atomic<bool>* transportFailed)
+        : pipe_(pipe), writeMutex_(writeMutex), volumeId_(volumeId), negotiatedVersion_(negotiatedVersion),
+          shouldStop_(shouldStop), transportFailed_(transportFailed) {}
+
+    bool SendBatch(const std::vector<ffprotocol::MftRecordV2>& records, uint64_t nextFileReference) {
+        bool sent = false;
+        if (ffprotocol::ProtocolSupportsAllocatedSize(negotiatedVersion_)) {
+            sent = SendScanBatchV2(pipe_, writeMutex_, volumeId_, records, nextFileReference, transportFailed_);
+        } else {
+            std::vector<ffprotocol::MftRecordV1> legacyRecords;
+            legacyRecords.reserve(records.size());
+            for (const auto& record : records) {
+                legacyRecords.push_back(DowngradeMftRecordV2(record));
+            }
+            sent = SendScanBatch(pipe_, writeMutex_, volumeId_, legacyRecords, nextFileReference, transportFailed_);
+        }
+        if (!sent) {
+            writeFailed_ = true;
+            writeError_ = GetLastError();
+        }
+        return sent;
+    }
+
+    bool Failed() const noexcept { return writeFailed_; }
+
+    ScanRunResult Finish(bool enumerationFailed) {
+        if (writeFailed_) {
+            if (!shouldStop_.load()) {
+                RecordFailureDiagnostic(L"scan-batch-write-failed", writeError_);
+            }
+            return ScanRunResult::TransportFailed;
+        }
+        if (shouldStop_.load()) {
+            return ScanRunResult::Cancelled;
+        }
+
+        // PA-001: only a complete enumeration receives ScanComplete (or the
+        // capability-gated ScanFailed); a terminal write error is fatal to
+        // this stream and never gets retried on the same connection.
+        if (!SendScanTerminal(pipe_, writeMutex_, volumeId_, negotiatedVersion_, !enumerationFailed,
+                              transportFailed_)) {
+            RecordFailureDiagnostic(L"scan-terminal-write-failed", GetLastError());
+            return ScanRunResult::TransportFailed;
+        }
+        return enumerationFailed ? ScanRunResult::FailedTerminalDelivered : ScanRunResult::Completed;
+    }
+
+private:
+    void RecordFailureDiagnostic(const wchar_t* state, DWORD error) const noexcept {
+        try {
+            ffprotocol::DiagnosticEvent event{};
+            event.category = ffprotocol::DiagnosticCategory::IndexingError;
+            event.code = ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED;
+            event.volumeId = std::to_wstring(volumeId_.value);
+            event.state = state;
+            event.errorCode = error;
+            ffprotocol::AppendDiagnostic(event);
+        } catch (...) { }
+    }
+
+    HANDLE pipe_;
+    std::mutex& writeMutex_;
+    ffprotocol::VolumeId volumeId_;
+    ffprotocol::ProtocolVersion negotiatedVersion_;
+    const std::atomic<bool>& shouldStop_;
+    std::atomic<bool>* transportFailed_;
+    bool writeFailed_ = false;
+    DWORD writeError_ = ERROR_SUCCESS;
+};
+
+class ScopedVolumeHandle {
+public:
+    explicit ScopedVolumeHandle(HANDLE handle) noexcept : handle_(handle) {}
+    ~ScopedVolumeHandle() { reset(); }
+
+    ScopedVolumeHandle(const ScopedVolumeHandle&) = delete;
+    ScopedVolumeHandle& operator=(const ScopedVolumeHandle&) = delete;
+
+    HANDLE get() const noexcept { return handle_; }
+    bool valid() const noexcept { return handle_ != INVALID_HANDLE_VALUE && handle_ != nullptr; }
+
+    void reset() noexcept {
+        if (valid()) {
+            CloseHandle(handle_);
+            handle_ = INVALID_HANDLE_VALUE;
+        }
+    }
+
+private:
+    HANDLE handle_;
+};
+
 class BackgroundMode {
 public:
     explicit BackgroundMode(bool enabled) : enabled_(enabled && SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)) {}
@@ -148,6 +245,31 @@ bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
     }
     return SendScanComplete(pipe, writeMutex, volumeId, transportFailed);
 }
+
+#if defined(FF_INDEXSVC_TESTING)
+ScanRunResult RunSyntheticVolumeScanForTesting(
+    HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+    ffprotocol::ProtocolVersion negotiatedVersion, const SyntheticScanSourceForTesting& source,
+    const std::atomic<bool>& shouldStop, bool enumerationFailed,
+    const BeforeScanTerminalForTesting& beforeTerminal, std::atomic<bool>* transportFailed) {
+    ScanOutput output(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop, transportFailed);
+    if (!shouldStop.load()) {
+        std::vector<ffprotocol::MftRecordV2> records;
+        if (source(records) && !shouldStop.load()) {
+            output.SendBatch(records, 0);
+        }
+    }
+    if (!output.Failed() && !shouldStop.load() && beforeTerminal) {
+        beforeTerminal();
+    }
+    return output.Finish(enumerationFailed);
+}
+
+void ThrowAfterVolumeHandleAcquiredForTesting(HANDLE handle) {
+    ScopedVolumeHandle volumeHandle(handle);
+    throw std::bad_alloc{};
+}
+#endif
 
 ScanRunResult RunVolumeScan(
     HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
@@ -184,10 +306,10 @@ ScanRunResult RunVolumeScan(
     // Capture the actual service token immediately before the raw-volume
     // open. The capture is observational and must not alter the call path.
     const TokenPrivilegeState tokenState = CaptureTokenPrivilegeState();
-    HANDLE volumeHandle = CreateFileW(
+    ScopedVolumeHandle volumeHandle(CreateFileW(
         volumePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    const bool volumeOpened = volumeHandle != INVALID_HANDLE_VALUE;
+        FILE_FLAG_BACKUP_SEMANTICS, nullptr));
+    const bool volumeOpened = volumeHandle.valid();
     const DWORD volumeOpenError = volumeOpened ? ERROR_SUCCESS : GetLastError();
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
@@ -201,9 +323,9 @@ ScanRunResult RunVolumeScan(
     // never a hardcoded constant.
     NTFS_VOLUME_DATA_BUFFER volumeData{};
     DWORD bytesReturned = 0;
-    if (!DeviceIoControl(volumeHandle, FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
+    if (!DeviceIoControl(volumeHandle.get(), FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                            &bytesReturned, nullptr)) {
-        CloseHandle(volumeHandle);
+        volumeHandle.reset();
         return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
             ? ScanRunResult::FailedTerminalDelivered
             : ScanRunResult::TransportFailed;
@@ -212,7 +334,7 @@ ScanRunResult RunVolumeScan(
     const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
-        CloseHandle(volumeHandle);
+        volumeHandle.reset();
         return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
             ? ScanRunResult::FailedTerminalDelivered
             : ScanRunResult::TransportFailed;
@@ -225,43 +347,11 @@ ScanRunResult RunVolumeScan(
 
     std::vector<ffprotocol::MftRecordV2> batch;
     batch.reserve(kBatchSize);
-    // allocated-size-storage-accuracy D3/2.4: records accumulate in the
-    // additive V2 shape; at send time they go out as V2 (peer negotiated
-    // {2,1}+) or are downgraded to the exact legacy V1 bytes for older
-    // peers. One accumulation path, two wire encodings.
-    const bool sendAllocated = ffprotocol::ProtocolSupportsAllocatedSize(negotiatedVersion);
-    const auto sendBatch = [&](const std::vector<ffprotocol::MftRecordV2>& records,
-                               uint64_t nextFileReference) {
-        if (sendAllocated) {
-            return SendScanBatchV2(pipe, writeMutex, volumeId, records, nextFileReference, transportFailed);
-        }
-        std::vector<ffprotocol::MftRecordV1> legacyRecords;
-        legacyRecords.reserve(records.size());
-        for (const auto& record : records) {
-            legacyRecords.push_back(DowngradeMftRecordV2(record));
-        }
-        return SendScanBatch(pipe, writeMutex, volumeId, legacyRecords, nextFileReference, transportFailed);
-    };
-    DWORD writeError = ERROR_SUCCESS;
-    const auto sendBatchWithError = [&](const std::vector<ffprotocol::MftRecordV2>& records,
-                                        uint64_t nextFileReference) {
-        const bool sent = sendBatch(records, nextFileReference);
-        if (!sent) {
-            writeError = GetLastError();
-        }
-        return sent;
-    };
-    const auto recordFailureDiagnostic = [&](const wchar_t* state, DWORD error) noexcept {
-        try {
-            ffprotocol::DiagnosticEvent event{};
-            event.category = ffprotocol::DiagnosticCategory::IndexingError;
-            event.code = ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED;
-            event.volumeId = std::to_wstring(volumeId.value);
-            event.state = state;
-            event.errorCode = error;
-            ffprotocol::AppendDiagnostic(event);
-        } catch (...) { }
-    };
+    // allocated-size-storage-accuracy D3/2.4: one shared output path selects
+    // the V2 record format for {2,1}+ peers and downgrades older peers to the
+    // byte-compatible V1 format. The same output state also owns the
+    // transport-fatal decision exercised by the portable synthetic fixture.
+    ScanOutput scanOutput(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop, transportFailed);
 
     // FSCTL_ENUM_USN_DATA returns the exact opaque file-reference value
     // required by its next call as the first 8 bytes of each output
@@ -280,7 +370,7 @@ ScanRunResult RunVolumeScan(
         enumData.HighUsn = MAXLONGLONG;
 
         DWORD enumBytesReturned = 0;
-        if (!DeviceIoControl(volumeHandle, FSCTL_ENUM_USN_DATA, &enumData, sizeof(enumData), enumBuffer.data(),
+        if (!DeviceIoControl(volumeHandle.get(), FSCTL_ENUM_USN_DATA, &enumData, sizeof(enumData), enumBuffer.data(),
                               static_cast<DWORD>(enumBuffer.size()), &enumBytesReturned, nullptr)) {
             // index-durability-false-success-closure 2.2: ERROR_HANDLE_EOF
             // is the expected terminal condition (the enumeration reached
@@ -324,7 +414,7 @@ ScanRunResult RunVolumeScan(
 
             DWORD recordBytesReturned = 0;
             const BOOL ok = DeviceIoControl(
-                volumeHandle, FSCTL_GET_NTFS_FILE_RECORD, &input, sizeof(input), outputBuffer.data(),
+                volumeHandle.get(), FSCTL_GET_NTFS_FILE_RECORD, &input, sizeof(input), outputBuffer.data(),
                 static_cast<DWORD>(outputBuffer.size()), &recordBytesReturned, nullptr);
             if (!ok) {
                 // tasks.md 4.3: a single unreadable/vanished record
@@ -382,7 +472,7 @@ ScanRunResult RunVolumeScan(
                 // can replay a bounded prefix, which ingestion safely
                 // upserts; advancing to the buffer's next cursor here
                 // could skip records not processed yet.
-                writeFailed = !sendBatchWithError(batch, bufferStartFileReference);
+                writeFailed = !scanOutput.SendBatch(batch, bufferStartFileReference);
                 batch.clear();
             }
         }
@@ -405,42 +495,21 @@ ScanRunResult RunVolumeScan(
         }
 
         if (!writeFailed && bufferHadRecords) {
-            writeFailed = !sendBatchWithError(batch, nextFileReference);
+            writeFailed = !scanOutput.SendBatch(batch, nextFileReference);
             batch.clear();
         }
     }
 
     if (!batch.empty() && !writeFailed) {
-        writeFailed = !sendBatchWithError(batch, nextFileReference);
+        writeFailed = !scanOutput.SendBatch(batch, nextFileReference);
     }
 
-    CloseHandle(volumeHandle);
+    volumeHandle.reset();
 
-    if (writeFailed) {
-        // A failed frame write may have left a partial frame in the byte
-        // stream. Never append ScanFailed or ScanComplete to that stream:
-        // the next frame boundary would be untrustworthy. The diagnostic is
-        // transport-independent; the service worker turns this outcome into
-        // connection abort and reconnect.
-        if (!shouldStop.load()) {
-            recordFailureDiagnostic(L"scan-batch-write-failed", writeError);
-        }
-        return ScanRunResult::TransportFailed;
-    }
-    if (shouldStop.load()) {
-        return ScanRunResult::Cancelled;
-    }
-
-    // PA-001: only an enumeration that reached the end of the MFT gets a
-    // ScanComplete; an enumeration cut short by a non-EOF fault sends the
-    // capability-gated ScanFailed terminal when available. A terminal write
-    // failure is itself transport-fatal and is never hidden by a retry.
-    const bool terminalSent = SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, !enumerationFailed, transportFailed);
-    if (!terminalSent) {
-        recordFailureDiagnostic(L"scan-terminal-write-failed", GetLastError());
-        return ScanRunResult::TransportFailed;
-    }
-    return enumerationFailed ? ScanRunResult::FailedTerminalDelivered : ScanRunResult::Completed;
+    // A failed batch may have left a partial frame on the byte stream. The
+    // output state therefore returns TransportFailed without appending a
+    // terminal; ServiceConnection closes this connection before reconnect.
+    return scanOutput.Finish(enumerationFailed);
 }
 
 } // namespace ffindexsvc

@@ -6,7 +6,7 @@ Defines the evidence required to certify the remaining transport failure boundar
 
 ### Requirement: Partial-frame transport failures have deterministic proof
 
-The certification fixture MUST transmit through the production frame serialization and transport path and inject failure at known byte boundaries. It MUST cover failure before the first byte, within the header, immediately after the header, within the payload, and immediately before frame completion, where those boundaries are representable by the transport. For every failed frame, certification MUST establish that the scan cannot be reported successful, the invalidated connection emits no later terminal, and the receiver cannot accept incomplete bytes as a valid frame. It MUST also establish bounded teardown, terminal-write failure behavior, behavioral cancellation and worker-exception outcomes, and a fresh connection's recovery without stale state or authentication bypass. A portable synthetic scan or verifier seam MUST be isolated from the production service build and MUST NOT be reported as live signed-peer or elevated MFT/USN validation. Repeated `ScanFailed` deliveries MUST have bounded retry rate and outstanding state, with disconnect clearing pending retry work.
+The certification fixture MUST transmit through the production frame serialization and transport path and inject failure at known byte boundaries. It MUST cover failure before the first byte, within the header, immediately after the header, within the payload, and immediately before frame completion, where those boundaries are representable by the transport. For every failed frame, certification MUST establish that the scan cannot be reported successful, the invalidated connection emits no later terminal, and the receiver cannot accept incomplete bytes as a valid frame. It MUST establish bounded teardown for the cancelable named-pipe worker path, terminal-write failure behavior, behavioral cancellation requests and worker-exception outcomes, and a fresh connection's recovery without stale state or authentication bypass. An arbitrary synchronous raw-volume `DeviceIoControl` cancellation request MUST NOT be described as a finite completion guarantee; the current scanner owner join remains a documented residual until a production-safe bound is demonstrated. A portable synthetic scan or verifier seam MUST be isolated from the production service build and MUST NOT be reported as live signed-peer or elevated MFT/USN validation. Repeated `ScanFailed` deliveries MUST have bounded retry rate and outstanding state, with disconnect clearing pending retry work.
 
 #### Scenario: Partial header or payload is delivered
 
@@ -26,16 +26,58 @@ The certification fixture MUST transmit through the production frame serializati
 #### Scenario: Cancellation or worker exception interrupts active scan work
 
 - **WHEN** cancellation occurs during active output or a controlled worker exception is raised
-- **THEN** cancellation remains silent, an exception cannot yield a successful terminal, and owned workers and handles are released within the deadline
+- **THEN** a cancelable blocked service-pipe operation exits through the owned worker lifecycle within its test deadline, an exception cannot yield a successful terminal, and owned handles are released when the worker returns; a synchronous raw-volume operation receives a cancellation request but is not claimed to have a finite OS completion bound
+
+#### Scenario: Raw-volume synchronous I/O does not promptly complete
+
+- **WHEN** an arbitrary storage driver continues a synchronous raw-volume IOCTL after `CancelSynchronousIo` is requested
+- **THEN** certification records the unbounded join as a residual limitation and does not claim deadline-bounded worker teardown for that operation
 
 ### Requirement: Additional provenance is adopted only for a demonstrated gap
 
 The provenance review MUST distinguish source-tree identity, binary-content integrity, build-input coverage, and proof that a binary was compiled from claimed sources. It MUST challenge the existing controls with clean and dirty source states, stale or mixed binaries, copied artifacts, generated inputs, and manifest mismatches. Strict certification MUST reject required missing, unhashable, or unreadable executable records and MUST either enforce embedded build-time cleanliness or cease claiming that it has verified it. Confirmed fail-open verifier defects MUST be repaired with regression tests independently of the decision on an additional digest. After those repairs, the review MUST record exactly one digest decision: `IMPLEMENT`, `ALREADY COVERED`, or `NOT JUSTIFIED`. An added digest MUST have deterministic input and verification rules and MUST reject every mismatch in its documented policy. Certification MUST NOT claim that a source digest or a manifest generated from selected binaries alone proves how an executable was built.
 
+Release artifact records MUST derive file size, SHA-256, PE architecture, VERSIONINFO, and Authenticode status from one guarded byte snapshot. Release-candidate packaging MUST create its archive from a guarded input snapshot and validate the final ZIP's exact entry inventory and every entry's length and SHA-256 against that snapshot. The staged snapshot MUST contain exactly the declared candidate members, including only the conditional detached package signature when present; its dependency inventory MUST match the candidate commit and SQLite version read from that commit. The full `kit-manifest.json` projection MUST be recomputed from the guarded package, version metadata, signature state, and selected-root pin state. Before reporting success, the archive MUST be named as the sole authoritative payload and every ZIP entry MUST still match the validated archive generation; candidate and provenance manifests MUST match their generated projections, and the checksum list MUST match the output at final validation. The terminal result MUST include the authoritative archive path and SHA-256 so a consumer can detect post-return replacement. The loose output directory and sidecar reports are mutable companion evidence, not a trust anchor or part of the payload, and the result MUST NOT claim that directory membership remains immutable after the command returns. Consumers MUST recompute the archive hash and validate required production signatures independently and MUST NOT treat extra sibling files as payload. The archived product manifest and package must agree with selected-root provenance, the validation probe hash, and committed helper blobs. In JSON mode, the candidate command MUST emit exactly one parseable terminal document; child-tool output MUST NOT precede or follow that document, including when a successful child is followed by a candidate failure.
+
 #### Scenario: A required binary cannot be verified
 
 - **WHEN** a required executable is absent, cannot be hashed or read, or carries an incompatible build-time dirty-state claim
 - **THEN** strict binary-to-source binding fails with a specific reason and cannot issue a valid certification record
+
+#### Scenario: A selected artifact path changes while its manifest is collected
+
+- **WHEN** the selected executable path is replaced after a metadata read begins but before the remaining manifest fields are collected
+- **THEN** every exported field, including the signature record and SHA-256, describes one guarded snapshot, and a package copy that differs from strict selected-root provenance is rejected
+
+#### Scenario: A package path changes while the candidate archive is created
+
+- **WHEN** a package or helper path is replaced while ZIP entries are written and restored before the source directory is inspected again
+- **THEN** the final archive is checked against the guarded pre-archive inventory and semantic package/provenance checks, so any differing archived entry fails candidate generation
+
+#### Scenario: An undeclared candidate member or replaced dependency inventory enters the snapshot
+
+- **WHEN** an extra file is added to the candidate output, or the dependency inventory is replaced after its source was validated and then the source path is restored
+- **THEN** the snapshot fails its exact member allowlist or dependency commit/version check before archive creation
+
+#### Scenario: The kit manifest or returned output changes during candidate generation
+
+- **WHEN** the kit commit or privileged pin-provisioning record is altered after the output path is restored, or a package/helper changes after the ZIP snapshot is captured
+- **THEN** candidate generation rejects the complete kit projection or final output mismatch and cannot report success with a mixed generation
+
+#### Scenario: A loose companion file is added after candidate generation
+
+- **WHEN** a sibling file is added to the returned output directory after the candidate command has reported success
+- **THEN** the result's named ZIP remains the sole authoritative payload, the new sibling is not part of that archive, and the output directory is not represented as immutable or authoritative
+
+#### Scenario: The authoritative archive is replaced after return
+
+- **WHEN** the file at the reported archive path is replaced after the command returns
+- **THEN** recomputing its SHA-256 does not match the terminal result's authoritative archive hash, so the replacement is detectable without trusting mutable sidecars
+
+#### Scenario: A child succeeds but candidate processing later fails in JSON mode
+
+- **WHEN** a child release tool emits a PASS document and the candidate then fails after the child exits successfully
+- **THEN** the command emits exactly one parseable terminal FAIL document, suppresses the child PASS from JSON output, and exits nonzero
 
 #### Scenario: Existing controls reject the threat
 

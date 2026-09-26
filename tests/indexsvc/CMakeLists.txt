@@ -26,9 +26,13 @@ add_test(NAME ffconnection_registry_tests COMMAND ffconnection_registry_tests)
 # and the legacy ScanComplete to older peers (compiled source pattern follows
 # ffconnection_registry_tests; the probe/parse deps are static libraries).
 add_executable(ffvolumescanner_terminal_tests test_volume_scanner_terminal.cpp
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src/VolumeScanner.cpp)
-target_link_libraries(ffvolumescanner_terminal_tests PRIVATE ffmftparser ffindexsvcprobes ffipc ffprotocol)
-target_include_directories(ffvolumescanner_terminal_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src/VolumeScanner.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ipc/src/PipeFraming.cpp)
+target_link_libraries(ffvolumescanner_terminal_tests PRIVATE ffmftparser ffindexsvcprobes ffprotocol)
+target_include_directories(ffvolumescanner_terminal_tests PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/indexsvc/src
+  ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ipc/include)
+target_compile_definitions(ffvolumescanner_terminal_tests PRIVATE FF_INDEXSVC_TESTING=1 FF_IPC_TESTING=1)
 add_test(NAME ffvolumescanner_terminal_tests COMMAND ffvolumescanner_terminal_tests)
 
 # fastfiles-audit-remediation FF-AUDIT-08: keep the service's live write path

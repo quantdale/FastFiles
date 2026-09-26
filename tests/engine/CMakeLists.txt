@@ -25,6 +25,14 @@ target_link_libraries(ffengine_volume_session_manager_tests PRIVATE ffindexstore
 target_compile_definitions(ffengine_volume_session_manager_tests PRIVATE FF_PRIVILEGED_CONNECTION_TESTING=1)
 add_test(NAME ffengine_volume_session_manager_tests COMMAND ffengine_volume_session_manager_tests)
 
+# final-residual-hardening-and-hosted-ci-recovery 2.5: keep the verifier and
+# unique-pipe seams exclusive to the focused engine lifecycle test target.
+add_executable(ffengine_privileged_connection_seam_policy_tests
+  test_privileged_connection_testing_policy.cpp)
+add_test(NAME ffengine_privileged_connection_seam_policy_tests
+  COMMAND ffengine_privileged_connection_seam_policy_tests)
+set_tests_properties(ffengine_privileged_connection_seam_policy_tests PROPERTIES TIMEOUT 30)
+
 # Portable pin-enforcement suite: no elevation, no production signer/pins, no
 # trust-store mutation. This is the mandatory default; it must keep passing on
 # an ordinary non-admin Windows host and in hosted CI.

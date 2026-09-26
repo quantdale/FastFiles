@@ -7,6 +7,11 @@
 #include <vector>
 
 #include "ffprotocol/Commands.h"
+#include "ffprotocol/Records.h"
+
+#if defined(FF_INDEXSVC_TESTING)
+#include <functional>
+#endif
 
 namespace ffindexsvc {
 
@@ -71,5 +76,30 @@ bool SendScanTerminal(HANDLE pipe,
                       ffprotocol::ProtocolVersion negotiatedVersion,
                       bool success,
                       std::atomic<bool>* transportFailed = nullptr);
+
+#if defined(FF_INDEXSVC_TESTING)
+// The focused scanner fixture feeds parsed synthetic records through the
+// same batch serializer, writer, failure state, and terminal decision used
+// after production MFT parsing. Neither this seam nor its source callback is
+// present in the FastFilesIndexSvc target.
+using SyntheticScanSourceForTesting =
+    std::function<bool(std::vector<ffprotocol::MftRecordV2>&)>;
+using BeforeScanTerminalForTesting = std::function<void()>;
+
+ScanRunResult RunSyntheticVolumeScanForTesting(
+    HANDLE pipe,
+    std::mutex& writeMutex,
+    ffprotocol::VolumeId volumeId,
+    ffprotocol::ProtocolVersion negotiatedVersion,
+    const SyntheticScanSourceForTesting& source,
+    const std::atomic<bool>& shouldStop,
+    bool enumerationFailed = false,
+    const BeforeScanTerminalForTesting& beforeTerminal = {},
+    std::atomic<bool>* transportFailed = nullptr);
+
+// Throws after taking ownership to verify that the production handle guard
+// closes an acquired volume handle when later scan work raises an exception.
+void ThrowAfterVolumeHandleAcquiredForTesting(HANDLE handle);
+#endif
 
 } // namespace ffindexsvc

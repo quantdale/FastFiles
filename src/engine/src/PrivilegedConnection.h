@@ -120,6 +120,9 @@ public:
     void SetServiceIdentityVerifierForTesting(std::function<bool(HANDLE)> verifier) {
         serviceIdentityVerifier_ = std::move(verifier);
     }
+    // Keeps reconnect fixtures on a unique pipe instead of the installed
+    // machine-wide service endpoint.
+    void SetControlPipeNameForTesting(const std::wstring& pipeName) { controlPipeNameForTesting_ = pipeName; }
 #endif
 
 private:
@@ -195,6 +198,7 @@ private:
     bool wakeRequested_ = false;
 #ifdef FF_PRIVILEGED_CONNECTION_TESTING
     std::function<bool(HANDLE)> serviceIdentityVerifier_;
+    std::wstring controlPipeNameForTesting_;
 #endif
 };
 

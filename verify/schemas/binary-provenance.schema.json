@@ -41,6 +41,7 @@
         "properties": {
           "filename": { "type": "string" },
           "path": { "type": "string" },
+          "exists": { "type": "boolean" },
           "sha256": { "type": ["string", "null"] },
           "buildIdentity": { "type": ["string", "null"] },
           "buildIdentityFormatValid": { "type": "boolean" },
@@ -56,7 +57,11 @@
     "setIdentity": { "type": ["string", "null"], "pattern": "^([0-9a-f]{40})?$" },
     "setConsistent": { "type": "boolean" },
     "boundToHead": { "type": "boolean" },
-    "boundToTree": { "type": "boolean" },
+    "boundToTree": {
+      "type": "boolean",
+      "description": "True is reserved for a future verifier that proves a binary embeds the source tree identity; the current build embeds only a commit and build-time cleanliness claim."
+    },
+    "treeBindingStatus": { "type": "string", "enum": ["NOT_EMBEDDED"] },
     "treeSemantic": { "type": "string", "const": "HEAD^{tree}" },
     "checkResult": {
       "type": "object",
@@ -71,6 +76,18 @@
             "enum": [
               "STALE_BINARY",
               "WRONG_BINARY",
+              "MISSING_BINARY",
+              "EMPTY_BINARY_SET",
+              "EMPTY_BINARY_PATH",
+              "BINARY_RECORD_INVALID",
+              "BINARY_RECORD_READ_ERROR",
+              "BINARY_HASH_UNAVAILABLE",
+              "HASH_READ_ERROR",
+              "VERSION_RESOURCE_READ_ERROR",
+              "ARCH_READ_ERROR",
+              "DIRTY_BINARY_BUILD",
+              "UNBOUND_BINARY_BUILD",
+              "BINARY_TREE_STATE_UNAVAILABLE",
               "MISSING_IDENTITY",
               "MALFORMED_IDENTITY",
               "DIRTY_TREE_MISMATCH",
@@ -78,7 +95,8 @@
               "HEAD_UNAVAILABLE",
               "TREE_BINDING_UNAVAILABLE",
               "ARCH_MISMATCH",
-              "HEAD_CHANGED_DURING_RUN"
+              "HEAD_CHANGED_DURING_RUN",
+              "BUILD_ID_OVERRIDE_MISMATCH"
             ]
           }
         },

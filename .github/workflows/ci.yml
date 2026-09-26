@@ -94,9 +94,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & $toolchain.CMakeExe --preset asan
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests
+          & $toolchain.CMakeExe --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $ctestOutput = @(& $toolchain.CTestExe --test-dir build/asan -R "^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests)$" --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
+          $ctestOutput = @(& $toolchain.CTestExe --test-dir build/asan -R "^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests|ffvolumescanner_terminal_tests)$" --output-on-failure 2>&1 | ForEach-Object { $_.ToString() })
           $ctestExit = $LASTEXITCODE
           $ctestOutput | ForEach-Object { Write-Host $_ }
           if ($ctestExit -ne 0) {

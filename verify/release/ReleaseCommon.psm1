@@ -1,5 +1,76 @@
 Set-StrictMode -Version Latest
 
+if (-not ('FastFilesReleaseArtifactReadFile' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class FastFilesReleaseArtifactReadFile
+{
+    private const uint GenericRead = 0x80000000;
+    private const uint FileShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint AttributeDirectory = 0x00000010;
+    private const uint AttributeReparsePoint = 0x00000400;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileAttributeTagInfo
+    {
+        public uint FileAttributes;
+        public uint ReparseTag;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateFileW")]
+    private static extern SafeFileHandle CreateFile(string name, uint access, uint share, IntPtr security,
+        uint creation, uint flags, IntPtr template);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandleEx(SafeFileHandle handle, int infoClass,
+        out FileAttributeTagInfo info, uint size);
+
+    public static FileStream OpenRegularReadOnly(string path)
+    {
+        SafeFileHandle handle = CreateFile(path, GenericRead, FileShareRead, IntPtr.Zero,
+            OpenExisting, OpenReparsePoint, IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new Win32Exception(error);
+        }
+
+        try
+        {
+            FileAttributeTagInfo info;
+            if (!GetFileInformationByHandleEx(handle, 9, out info,
+                (uint)Marshal.SizeOf(typeof(FileAttributeTagInfo))))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            if ((info.FileAttributes & AttributeReparsePoint) != 0)
+            {
+                throw new IOException("Release artifact input cannot be a reparse point.");
+            }
+            if ((info.FileAttributes & AttributeDirectory) != 0)
+            {
+                throw new IOException("Release artifact input must be a regular file.");
+            }
+            return new FileStream(handle, FileAccess.Read, 65536, false);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+}
+'@ -Language CSharp -ErrorAction Stop
+}
+
 $script:ReleaseArtifactDefinitions = @(
     [pscustomobject]@{ Name = 'FastFiles.exe'; PackagePath = 'FastFiles.exe'; BuildPath = 'src\ui\FastFiles.exe'; Role = 'ui'; Pin = $null },
     [pscustomobject]@{ Name = 'FastFilesEngine.exe'; PackagePath = 'FastFilesEngine.exe'; BuildPath = 'src\engine\FastFilesEngine.exe'; Role = 'engine'; Pin = 'engine' },
@@ -8,6 +79,7 @@ $script:ReleaseArtifactDefinitions = @(
 )
 
 $script:CodeSigningApplicationPolicyOid = '1.3.6.1.5.5.7.3.3'
+$script:ReleaseArtifactSnapshotCapturedForTest = $null
 
 function Normalize-Thumbprint {
     param([AllowNull()] [string] $Value)
@@ -475,6 +547,7 @@ function Get-FileVersionRecord {
     param([Parameter(Mandatory)] [string] $Path)
 
     $info = [Diagnostics.FileVersionInfo]::GetVersionInfo($Path)
+    $configurationMatch = [regex]::Match([string]$info.SpecialBuild, '(?:^|;)config=([^;]+)')
     [pscustomobject]@{
         productVersion = if ([string]::IsNullOrWhiteSpace($info.ProductVersion)) { $null } else { $info.ProductVersion }
         fileVersion = if ([string]::IsNullOrWhiteSpace($info.FileVersion)) { $null } else { $info.FileVersion }
@@ -484,6 +557,18 @@ function Get-FileVersionRecord {
         internalName = if ([string]::IsNullOrWhiteSpace($info.InternalName)) { $null } else { $info.InternalName }
         originalFilename = if ([string]::IsNullOrWhiteSpace($info.OriginalFilename)) { $null } else { $info.OriginalFilename }
         buildIdentity = if ([string]::IsNullOrWhiteSpace($info.PrivateBuild)) { $null } else { $info.PrivateBuild }
+        configuration = if ($configurationMatch.Success) { $configurationMatch.Groups[1].Value.Trim() } else { $null }
+    }
+}
+
+function Get-ExpectedArtifactBuildConfiguration {
+    param([Parameter(Mandatory)] [string] $Configuration)
+
+    switch ($Configuration) {
+        'release-test' { return 'RelWithDebInfo' }
+        'Release' { return 'Release' }
+        'Debug' { return 'Debug' }
+        default { return $null }
     }
 }
 
@@ -641,29 +726,65 @@ function Get-ReleaseArtifactManifest {
     }
 
     $paths = Get-ReleaseArtifactPaths -ArtifactRoot $ArtifactRoot
-    $records = @($paths | Sort-Object order | ForEach-Object {
-        $architecture = Get-PeArchitecture -Path $_.sourcePath
-        $signature = Get-SignatureRecord -Path $_.sourcePath
-        $version = Get-FileVersionRecord -Path $_.sourcePath
-        [pscustomobject]@{
-            path = $_.packagePath.Replace('\', '/')
-            filename = $_.name
-            size = (Get-Item -LiteralPath $_.sourcePath).Length
-            sha256 = (Get-FileHash -LiteralPath $_.sourcePath -Algorithm SHA256).Hash.ToUpperInvariant()
-            architecture = $architecture.architecture
-            peMachine = $architecture.machine
-            productVersion = $version.productVersion
-            fileVersion = $version.fileVersion
-            productName = $version.productName
-            companyName = $version.companyName
-            fileDescription = $version.fileDescription
-            internalName = $version.internalName
-            originalFilename = $version.originalFilename
-            buildIdentity = $version.buildIdentity
-            componentRole = $_.componentRole
-            signature = $signature
+    $expectedBuildConfiguration = Get-ExpectedArtifactBuildConfiguration -Configuration $Configuration
+    $records = [System.Collections.Generic.List[object]]::new()
+    foreach ($artifactPath in @($paths | Sort-Object order)) {
+        $snapshotPath = Join-Path ([IO.Path]::GetTempPath()) ('FastFiles-release-artifact-' + [guid]::NewGuid().ToString('N') + '.exe')
+        $sourceStream = $null
+        $snapshotWriter = $null
+        $snapshotGuard = $null
+        try {
+            # Open the selected executable once without write/delete sharing and
+            # reject a final-component reparse point. Every exported fact below
+            # is collected from the same guarded snapshot, including Authenticode.
+            $sourceStream = [FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly([IO.Path]::GetFullPath($artifactPath.sourcePath))
+            $snapshotWriter = [IO.File]::Open($snapshotPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::Write, [IO.FileShare]::None)
+            $sourceStream.CopyTo($snapshotWriter)
+            $snapshotWriter.Flush($true)
+            $snapshotWriter.Dispose()
+            $snapshotWriter = $null
+            $sourceStream.Dispose()
+            $sourceStream = $null
+
+            $snapshotGuard = [FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly($snapshotPath)
+            if ($script:ReleaseArtifactSnapshotCapturedForTest -is [scriptblock]) {
+                & $script:ReleaseArtifactSnapshotCapturedForTest $artifactPath.sourcePath $snapshotPath
+            }
+
+            $architecture = Get-PeArchitecture -Path $snapshotPath
+            $signature = Get-SignatureRecord -Path $snapshotPath
+            $version = Get-FileVersionRecord -Path $snapshotPath
+            if ($expectedBuildConfiguration -and $version.configuration -cne $expectedBuildConfiguration) {
+                throw "RELEASE_ARTIFACT_CONFIGURATION_MISMATCH: $($artifactPath.name) embeds config='$($version.configuration)'; expected '$expectedBuildConfiguration' for manifest configuration '$Configuration'."
+            }
+            $records.Add([pscustomobject]@{
+                path = $artifactPath.packagePath.Replace('\', '/')
+                filename = $artifactPath.name
+                size = $snapshotGuard.Length
+                sha256 = (Get-FileHash -LiteralPath $snapshotPath -Algorithm SHA256).Hash.ToUpperInvariant()
+                architecture = $architecture.architecture
+                peMachine = $architecture.machine
+                productVersion = $version.productVersion
+                fileVersion = $version.fileVersion
+                productName = $version.productName
+                companyName = $version.companyName
+                fileDescription = $version.fileDescription
+                internalName = $version.internalName
+                originalFilename = $version.originalFilename
+                buildIdentity = $version.buildIdentity
+                configuration = $version.configuration
+                componentRole = $artifactPath.componentRole
+                signature = $signature
+            })
+        } finally {
+            if ($snapshotGuard) { $snapshotGuard.Dispose() }
+            if ($snapshotWriter) { $snapshotWriter.Dispose() }
+            if ($sourceStream) { $sourceStream.Dispose() }
+            if (Test-Path -LiteralPath $snapshotPath -PathType Leaf) {
+                Remove-Item -LiteralPath $snapshotPath -Force -ErrorAction SilentlyContinue
+            }
         }
-    })
+    }
     [pscustomobject]@{
         schemaVersion = 2
         kind = 'fastfiles-release-artifact-manifest'
@@ -673,6 +794,352 @@ function Get-ReleaseArtifactManifest {
         expectedArchitecture = 'x64'
         expectedComponentInventory = @($records | ForEach-Object { $_.filename })
         artifacts = $records
+    }
+}
+
+function Get-ReleaseArchiveInventory {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)] [string] $Root)
+
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $rootItem = Get-Item -LiteralPath $rootFull -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "ARCHIVE_INVENTORY_ROOT_INVALID: $rootFull"
+    }
+    $files = @(Get-ChildItem -LiteralPath $rootFull -Recurse -File -Force -ErrorAction Stop)
+    $inventory = [System.Collections.Generic.List[object]]::new()
+    foreach ($file in $files) {
+        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "ARCHIVE_INVENTORY_REPARSE_FILE: $($file.FullName)"
+        }
+        $relativePath = $file.FullName.Substring($rootFull.Length).TrimStart('\').Replace('\', '/')
+        $stream = [FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly($file.FullName)
+        try {
+            $length = $stream.Length
+            $stream.Position = 0
+            $sha256 = [Security.Cryptography.SHA256]::Create()
+            try { $hash = [Convert]::ToHexString($sha256.ComputeHash($stream)) }
+            finally { $sha256.Dispose() }
+        } finally {
+            $stream.Dispose()
+        }
+        $inventory.Add([pscustomobject]@{ path = $relativePath; length = $length; sha256 = $hash })
+    }
+    return @($inventory | Sort-Object { [string]$_.path })
+}
+
+function Test-ReleaseCandidateSnapshotContents {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string[]] $ExpectedPaths,
+        [Parameter(Mandatory)] [string] $ExpectedCommit,
+        [Parameter(Mandatory)] [string] $ExpectedSqliteVersion
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $rootItem = Get-Item -LiteralPath $rootFull -Force -ErrorAction Stop
+    if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "CANDIDATE_SNAPSHOT_ROOT_INVALID: $rootFull"
+    }
+
+    $expected = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($path in $ExpectedPaths) {
+        if ([string]::IsNullOrWhiteSpace($path) -or $path.Contains('\') -or $path.StartsWith('/') -or
+            @($path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0 -or $path -match '^[A-Za-z]:') {
+            [void]$issues.Add('CANDIDATE_SNAPSHOT_EXPECTED_PATH_INVALID')
+            continue
+        }
+        if (-not $expected.Add($path)) { [void]$issues.Add("CANDIDATE_SNAPSHOT_EXPECTED_PATH_DUPLICATE:$path") }
+    }
+
+    $observed = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    foreach ($file in @(Get-ChildItem -LiteralPath $rootFull -Recurse -File -Force -ErrorAction Stop)) {
+        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            [void]$issues.Add('CANDIDATE_SNAPSHOT_REPARSE_FILE')
+            continue
+        }
+        $path = $file.FullName.Substring($rootFull.Length).TrimStart('\').Replace('\', '/')
+        if (-not $observed.Add($path)) { [void]$issues.Add("CANDIDATE_SNAPSHOT_OBSERVED_PATH_DUPLICATE:$path") }
+        elseif (-not $expected.Contains($path)) { [void]$issues.Add("CANDIDATE_SNAPSHOT_UNEXPECTED_PATH:$path") }
+    }
+    foreach ($path in $expected) {
+        if (-not $observed.Contains($path)) { [void]$issues.Add("CANDIDATE_SNAPSHOT_REQUIRED_PATH_MISSING:$path") }
+    }
+
+    $dependencyPath = Join-Path $rootFull 'dependency-inventory.json'
+    if (Test-Path -LiteralPath $dependencyPath -PathType Leaf) {
+        try {
+            $dependency = Get-Content -LiteralPath $dependencyPath -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+            $components = @($dependency.components)
+            if ([int]$dependency.schemaVersion -ne 1 -or
+                [string]$dependency.kind -cne 'fastfiles-dependency-inventory' -or
+                [string]$dependency.format -cne 'internal-structured-inventory' -or
+                [string]$dependency.commit -cne $ExpectedCommit -or
+                [string]$dependency.note -cne 'This is a lightweight dependency inventory, not a claim of a complete SPDX or CycloneDX SBOM.' -or
+                $components.Count -ne 1 -or
+                [string]$components[0].name -cne 'SQLite' -or
+                [string]$components[0].version -cne $ExpectedSqliteVersion -or
+                [string]$components[0].scope -cne 'statically linked build/runtime dependency' -or
+                [string]$components[0].source -cne 'third_party/sqlite') {
+                [void]$issues.Add('CANDIDATE_SNAPSHOT_DEPENDENCY_INVENTORY_MISMATCH')
+            }
+        } catch {
+            [void]$issues.Add('CANDIDATE_SNAPSHOT_DEPENDENCY_INVENTORY_INVALID')
+        }
+    } else {
+        [void]$issues.Add('CANDIDATE_SNAPSHOT_DEPENDENCY_INVENTORY_MISSING')
+    }
+
+    [pscustomobject]@{
+        valid = $issues.Count -eq 0
+        entryCount = $observed.Count
+        expectedPaths = @($expected)
+        observedPaths = @($observed)
+        issues = @($issues.ToArray())
+    }
+}
+
+function Test-ReleaseKitManifestProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] $ExpectedManifest
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    try {
+        $actualManifest = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $actualJson = ConvertTo-Json -InputObject $actualManifest -Depth 24 -Compress
+        $expectedJson = ConvertTo-Json -InputObject $ExpectedManifest -Depth 24 -Compress
+        if ($actualJson -cne $expectedJson) { [void]$issues.Add('CANDIDATE_KIT_MANIFEST_PROJECTION_MISMATCH') }
+    } catch {
+        [void]$issues.Add('CANDIDATE_KIT_MANIFEST_PROJECTION_INVALID')
+    }
+    [pscustomobject]@{ valid = $issues.Count -eq 0; issues = @($issues.ToArray()) }
+}
+
+function Test-ReleaseJsonProjection {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Path,
+        [Parameter(Mandatory)] $ExpectedValue
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    try {
+        $actualValue = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $actualJson = ConvertTo-Json -InputObject $actualValue -Depth 24 -Compress
+        $expectedJson = ConvertTo-Json -InputObject $ExpectedValue -Depth 24 -Compress
+        if ($actualJson -cne $expectedJson) { [void]$issues.Add('RELEASE_JSON_PROJECTION_MISMATCH') }
+    } catch {
+        [void]$issues.Add('RELEASE_JSON_PROJECTION_INVALID')
+    }
+    [pscustomobject]@{ valid = $issues.Count -eq 0; issues = @($issues.ToArray()) }
+}
+
+function Test-ReleaseCandidateOutputContents {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [object[]] $ExpectedEntries,
+        [Parameter(Mandatory)] [string[]] $AdditionalPaths
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $guards = [System.Collections.Generic.List[IO.FileStream]]::new()
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    try {
+        $rootItem = Get-Item -LiteralPath $rootFull -Force -ErrorAction Stop
+        if (-not $rootItem.PSIsContainer -or ($rootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "CANDIDATE_OUTPUT_ROOT_INVALID: $rootFull"
+        }
+        $expectedByPath = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+        foreach ($entry in $ExpectedEntries) {
+            $path = [string]$entry.path
+            if ([string]::IsNullOrWhiteSpace($path) -or $path.Contains('\') -or $path.StartsWith('/') -or
+                @($path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0 -or
+                $path -match '^[A-Za-z]:') {
+                [void]$issues.Add('CANDIDATE_OUTPUT_EXPECTED_PATH_INVALID')
+                continue
+            }
+            if ($expectedByPath.ContainsKey($path)) {
+                [void]$issues.Add("CANDIDATE_OUTPUT_EXPECTED_PATH_DUPLICATE:$path")
+                continue
+            }
+            if ([string]$entry.sha256 -notmatch '^[0-9A-Fa-f]{64}$' -or [long]$entry.length -lt 0) {
+                [void]$issues.Add("CANDIDATE_OUTPUT_EXPECTED_RECORD_INVALID:$path")
+                continue
+            }
+            $expectedByPath.Add($path, $entry)
+        }
+        $additional = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($path in $AdditionalPaths) {
+            if ([string]::IsNullOrWhiteSpace($path) -or $path.Contains('\') -or $path.StartsWith('/') -or
+                @($path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0 -or
+                $path -match '^[A-Za-z]:') {
+                [void]$issues.Add('CANDIDATE_OUTPUT_ADDITIONAL_PATH_INVALID')
+                continue
+            }
+            if ($expectedByPath.ContainsKey($path) -or -not $additional.Add($path)) {
+                [void]$issues.Add("CANDIDATE_OUTPUT_ADDITIONAL_PATH_DUPLICATE:$path")
+            }
+        }
+
+        $seenExpected = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        $seenAdditional = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+        foreach ($file in @(Get-ChildItem -LiteralPath $rootFull -Recurse -File -Force -ErrorAction Stop)) {
+            if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                [void]$issues.Add('CANDIDATE_OUTPUT_REPARSE_FILE')
+                continue
+            }
+            $path = $file.FullName.Substring($rootFull.Length).TrimStart('\').Replace('\', '/')
+            if ($expectedByPath.ContainsKey($path)) {
+                if (-not $seenExpected.Add($path)) { [void]$issues.Add("CANDIDATE_OUTPUT_DUPLICATE_PATH:$path"); continue }
+                $stream = [FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly($file.FullName)
+                $guards.Add($stream)
+                $entry = $expectedByPath[$path]
+                if ($stream.Length -ne [long]$entry.length) {
+                    [void]$issues.Add("CANDIDATE_OUTPUT_LENGTH_MISMATCH:$path")
+                    continue
+                }
+                $stream.Position = 0
+                $hash = [Security.Cryptography.SHA256]::Create()
+                try { $actualHash = [Convert]::ToHexString($hash.ComputeHash($stream)) }
+                finally { $hash.Dispose() }
+                if ($actualHash -ine [string]$entry.sha256) { [void]$issues.Add("CANDIDATE_OUTPUT_HASH_MISMATCH:$path") }
+            } elseif ($additional.Contains($path)) {
+                if (-not $seenAdditional.Add($path)) { [void]$issues.Add("CANDIDATE_OUTPUT_DUPLICATE_PATH:$path"); continue }
+                $guards.Add([FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly($file.FullName))
+            } else {
+                [void]$issues.Add("CANDIDATE_OUTPUT_UNEXPECTED_PATH:$path")
+            }
+        }
+        foreach ($path in $expectedByPath.Keys) {
+            if (-not $seenExpected.Contains($path)) { [void]$issues.Add("CANDIDATE_OUTPUT_REQUIRED_PATH_MISSING:$path") }
+        }
+        foreach ($path in $additional) {
+            if (-not $seenAdditional.Contains($path)) { [void]$issues.Add("CANDIDATE_OUTPUT_REQUIRED_PATH_MISSING:$path") }
+        }
+        return [pscustomobject]@{
+            valid = $issues.Count -eq 0
+            issues = @($issues.ToArray())
+            guards = $guards
+        }
+    } catch {
+        foreach ($guard in $guards) { if ($guard) { $guard.Dispose() } }
+        throw
+    }
+}
+
+function Test-ReleaseCandidateChecksums {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $Root,
+        [Parameter(Mandatory)] [string] $ChecksumsPath,
+        [Parameter(Mandatory)] [string] $MarkerPath
+    )
+
+    $rootFull = [IO.Path]::GetFullPath($Root).TrimEnd('\')
+    $checksumsFull = [IO.Path]::GetFullPath($ChecksumsPath)
+    $markerFull = [IO.Path]::GetFullPath($MarkerPath)
+    $lines = @(Get-ChildItem -LiteralPath $rootFull -Recurse -File -Force -ErrorAction Stop | Where-Object {
+            [IO.Path]::GetFullPath($_.FullName) -ine $checksumsFull -and
+            [IO.Path]::GetFullPath($_.FullName) -ine $markerFull
+        } | ForEach-Object {
+            $relative = $_.FullName.Substring($rootFull.Length).TrimStart('\').Replace('\', '/')
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToUpperInvariant()
+            "$hash  $relative"
+        } | Sort-Object)
+    $expectedText = ($lines -join "`n") + "`n"
+    $actualText = [IO.File]::ReadAllText($checksumsFull)
+    [pscustomobject]@{ valid = $actualText -ceq $expectedText; issue = if ($actualText -ceq $expectedText) { $null } else { 'CANDIDATE_CHECKSUMS_MISMATCH' } }
+}
+
+function Test-ReleaseArchiveContents {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string] $ArchivePath,
+        [Parameter(Mandatory)] [object[]] $ExpectedEntries
+    )
+
+    $issues = [System.Collections.Generic.List[string]]::new()
+    $expectedByPath = [System.Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($expected in $ExpectedEntries) {
+        $path = [string]$expected.path
+        if ([string]::IsNullOrWhiteSpace($path) -or $path.Contains('\') -or $path.StartsWith('/') -or
+            @($path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0 -or
+            $path -match '^[A-Za-z]:') {
+            [void]$issues.Add('ARCHIVE_EXPECTED_PATH_INVALID')
+            continue
+        }
+        if ($expectedByPath.ContainsKey($path)) {
+            [void]$issues.Add('ARCHIVE_EXPECTED_DUPLICATE_PATH')
+            continue
+        }
+        if ([string]$expected.sha256 -notmatch '^[0-9A-Fa-f]{64}$' -or [long]$expected.length -lt 0) {
+            [void]$issues.Add('ARCHIVE_EXPECTED_RECORD_INVALID')
+            continue
+        }
+        $expectedByPath.Add($path, $expected)
+    }
+
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $stream = $null
+    $archive = $null
+    try {
+        $stream = [FastFilesReleaseArtifactReadFile]::OpenRegularReadOnly([IO.Path]::GetFullPath($ArchivePath))
+        $archive = [IO.Compression.ZipArchive]::new($stream, [IO.Compression.ZipArchiveMode]::Read, $true)
+        foreach ($entry in $archive.Entries) {
+            $path = [string]$entry.FullName
+            if ([string]::IsNullOrWhiteSpace($path) -or $path.Contains('\') -or $path.StartsWith('/') -or
+                @($path.Split('/') | Where-Object { $_ -in @('', '.', '..') }).Count -gt 0 -or
+                $path -match '^[A-Za-z]:') {
+                [void]$issues.Add('ARCHIVE_ENTRY_PATH_INVALID')
+                continue
+            }
+            if (-not $seen.Add($path)) {
+                [void]$issues.Add("ARCHIVE_ENTRY_DUPLICATE:$path")
+                continue
+            }
+            if (-not $expectedByPath.ContainsKey($path)) {
+                [void]$issues.Add("ARCHIVE_ENTRY_UNEXPECTED:$path")
+                continue
+            }
+            $expected = $expectedByPath[$path]
+            if ($entry.Length -ne [long]$expected.length) {
+                [void]$issues.Add("ARCHIVE_ENTRY_LENGTH_MISMATCH:$path")
+                continue
+            }
+            $entryStream = $null
+            $sha256 = $null
+            try {
+                $entryStream = $entry.Open()
+                $sha = [Security.Cryptography.SHA256]::Create()
+                try { $sha256 = [Convert]::ToHexString($sha.ComputeHash($entryStream)) }
+                finally { $sha.Dispose() }
+            } finally {
+                if ($entryStream) { $entryStream.Dispose() }
+            }
+            if ($sha256 -ine [string]$expected.sha256) {
+                [void]$issues.Add("ARCHIVE_ENTRY_HASH_MISMATCH:$path")
+            }
+        }
+    } catch {
+        [void]$issues.Add('ARCHIVE_READ_ERROR')
+    } finally {
+        if ($archive) { $archive.Dispose() }
+        if ($stream) { $stream.Dispose() }
+    }
+    foreach ($path in $expectedByPath.Keys) {
+        if (-not $seen.Contains($path)) { [void]$issues.Add("ARCHIVE_ENTRY_MISSING:$path") }
+    }
+    $uniqueIssues = @($issues | Sort-Object -Unique)
+    [pscustomobject]@{
+        valid = $uniqueIssues.Count -eq 0
+        issues = $uniqueIssues
+        entryCount = $seen.Count
     }
 }
 
@@ -1289,6 +1756,13 @@ Export-ModuleMember -Function @(
     'Test-ReleaseVersionMetadata',
     'Get-ReleaseBuildConfigurationLabel',
     'Get-ReleaseArtifactManifest',
+    'Get-ReleaseArchiveInventory',
+    'Test-ReleaseCandidateSnapshotContents',
+    'Test-ReleaseKitManifestProjection',
+    'Test-ReleaseJsonProjection',
+    'Test-ReleaseCandidateOutputContents',
+    'Test-ReleaseCandidateChecksums',
+    'Test-ReleaseArchiveContents',
     'Write-PackageManifest',
     'Test-PackageManifestSignature',
     'Test-PackageManifest',

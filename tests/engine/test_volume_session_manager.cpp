@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -48,6 +49,55 @@ std::unique_ptr<PipeCapture> CreatePipeCapture() {
         return nullptr;
     }
     return capture;
+}
+
+bool ConnectOverlappedPipeWithTimeout(HANDLE pipe, DWORD timeoutMilliseconds) {
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (overlapped.hEvent == nullptr) return false;
+    const BOOL connected = ConnectNamedPipe(pipe, &overlapped);
+    if (connected != FALSE) {
+        CloseHandle(overlapped.hEvent);
+        return true;
+    }
+    const DWORD error = GetLastError();
+    if (error == ERROR_PIPE_CONNECTED) {
+        CloseHandle(overlapped.hEvent);
+        return true;
+    }
+    if (error != ERROR_IO_PENDING) {
+        CloseHandle(overlapped.hEvent);
+        return false;
+    }
+
+    const DWORD waitResult = WaitForSingleObject(overlapped.hEvent, timeoutMilliseconds);
+    if (waitResult != WAIT_OBJECT_0) {
+        CancelIoEx(pipe, &overlapped);
+        WaitForSingleObject(overlapped.hEvent, 2000);
+        DWORD ignored = 0;
+        GetOverlappedResult(pipe, &overlapped, &ignored, FALSE);
+        CloseHandle(overlapped.hEvent);
+        return false;
+    }
+    DWORD ignored = 0;
+    const bool result = GetOverlappedResult(pipe, &overlapped, &ignored, FALSE) != FALSE;
+    CloseHandle(overlapped.hEvent);
+    return result;
+}
+
+bool WriteOneOverlappedByte(HANDLE pipe, uint8_t value) {
+    OVERLAPPED overlapped{};
+    overlapped.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (overlapped.hEvent == nullptr) return false;
+    DWORD bytesWritten = 0;
+    const BOOL completed = WriteFile(pipe, &value, sizeof(value), &bytesWritten, &overlapped);
+    bool success = completed != FALSE;
+    if (!success && GetLastError() == ERROR_IO_PENDING) {
+        success = WaitForSingleObject(overlapped.hEvent, 2000) == WAIT_OBJECT_0
+            && GetOverlappedResult(pipe, &overlapped, &bytesWritten, FALSE) != FALSE;
+    }
+    CloseHandle(overlapped.hEvent);
+    return success && bytesWritten == sizeof(value);
 }
 
 std::optional<uint16_t> ReadCapturedMessage(HANDLE client) {
@@ -523,10 +573,11 @@ void TestScanFailedLeavesPriorIndexAuthorityIntact() {
           "the next authoritative completion still marks the volume");
 }
 
-// residual-defect-closure-and-certification-completion 1.5: a delivered
-// ScanFailed schedules a bounded retry. The test makes the retry deadline
-// due without changing production's five-second delay, then observes the
-// scheduler's fresh StartVolumeScan request.
+// final-residual-hardening-and-hosted-ci-recovery 2.4: delivered ScanFailed
+// outcomes use an intentionally unbounded retry policy with a five-second
+// per-volume cadence. One map entry per ephemeral volume bounds queue state;
+// disconnect and manager stop clear it. The test measures repeated scheduled
+// intervals, then makes the final retry due without changing production time.
 void TestScanFailedSchedulesRetry() {
     using namespace std::chrono_literals;
     ffengine::IndexPipeline pipeline;
@@ -550,7 +601,29 @@ void TestScanFailedSchedulesRetry() {
     manager.Start();
     manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
 
-    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    bool queueCardinalityRemainedOne = true;
+    std::chrono::milliseconds shortestRetryDelay = std::chrono::milliseconds::max();
+    constexpr uint32_t kRepeatedFailures = 3;
+    for (uint32_t failure = 0; failure < kRepeatedFailures; ++failure) {
+        {
+            std::lock_guard<std::mutex> lock(manager.mutex_);
+            manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+        }
+        const auto failureAt = std::chrono::steady_clock::now();
+        connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        queueCardinalityRemainedOne = queueCardinalityRemainedOne && manager.failedScanRetries_.size() == 1;
+        const auto retry = manager.failedScanRetries_.find(7);
+        if (retry != manager.failedScanRetries_.end()) {
+            const auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(retry->second.due - failureAt);
+            shortestRetryDelay = (std::min)(shortestRetryDelay, delay);
+        }
+    }
+    Check(queueCardinalityRemainedOne,
+          "repeated delivered ScanFailed outcomes keep one retry slot for the same volume");
+    Check(shortestRetryDelay >= 4900ms && shortestRetryDelay <= 5100ms,
+          "each repeated ScanFailed outcome schedules no earlier than the five-second cadence");
+
     bool queued = false;
     {
         std::lock_guard<std::mutex> lock(manager.wakeMutex_);
@@ -560,7 +633,7 @@ void TestScanFailedSchedulesRetry() {
             ++manager.scanRetryGeneration_;
         }
     }
-    Check(queued, "ScanFailed queues a bounded retry");
+    Check(queued, "ScanFailed queues its per-volume retry deadline");
     manager.wakeCv_.notify_one();
 
     const auto deadline = std::chrono::steady_clock::now() + 2s;
@@ -850,6 +923,180 @@ void TestHeartbeatServicePeerRevalidationDropsToDisconnected() {
     Check(leftActive.load(), "a failed heartbeat revalidation left Active instead of dropping to degraded mode");
 }
 
+// final-residual-hardening-and-hosted-ci-recovery 2.4: a peer that closes
+// after delivering a real partial frame must release the Active reader, must
+// not dispatch a completion callback, and must pass the test-only identity
+// gate again on a newly connected pipe generation, and must drop a later
+// generation when that gate rejects the service identity.
+void TestPartialFrameDisconnectReconnectsAndReauthorizes() {
+    using namespace std::chrono_literals;
+    const std::wstring pipeName = L"\\\\.\\pipe\\FastFiles.ReconnectTest." +
+        std::to_wstring(GetCurrentProcessId()) + L"." + std::to_wstring(GetTickCount64());
+    HANDLE firstActive = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    HANDLE secondActive = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    Check(firstActive != nullptr && secondActive != nullptr,
+          "reconnect fixture creates per-generation activity events");
+    if (firstActive == nullptr || secondActive == nullptr) {
+        if (firstActive != nullptr) CloseHandle(firstActive);
+        if (secondActive != nullptr) CloseHandle(secondActive);
+        return;
+    }
+
+    std::atomic<uint32_t> handshakeCount{0};
+    std::atomic<bool> serverFailed{false};
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_partial_frame_reconnect.db")),
+          "reconnect fixture index pipeline opens");
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    manager.Start();
+    std::thread service([&] {
+        for (uint32_t generation = 0; generation < 3; ++generation) {
+            HANDLE server = CreateNamedPipeW(pipeName.c_str(), PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT, 1, 64 * 1024, 64 * 1024, 0, nullptr);
+            if (server == INVALID_HANDLE_VALUE) {
+                serverFailed.store(true, std::memory_order_release);
+                return;
+            }
+            if (!ConnectOverlappedPipeWithTimeout(server, 8000)) {
+                serverFailed.store(true, std::memory_order_release);
+                CloseHandle(server);
+                return;
+            }
+
+            if (generation == 1) {
+                ffipc::ReceivedFrame unexpectedFrame;
+                const auto status = ffipc::ReadFrameOverlappedDetailed(
+                    server, nullptr, std::chrono::steady_clock::now() + 3s, &unexpectedFrame);
+                if (status != ffipc::FrameReadStatus::Disconnected) {
+                    serverFailed.store(true, std::memory_order_release);
+                }
+                CloseHandle(server);
+                continue;
+            }
+
+            const auto request = ffipc::ReadFrameOverlapped(
+                server, std::chrono::steady_clock::now() + 5s);
+            if (!request || request->header.messageType != static_cast<uint16_t>(ffprotocol::MessageType::Handshake)) {
+                serverFailed.store(true, std::memory_order_release);
+                CloseHandle(server);
+                return;
+            }
+            handshakeCount.fetch_add(1, std::memory_order_relaxed);
+            ffprotocol::HandshakeAckPayload ack{ffprotocol::kCurrentProtocolVersion};
+            if (!ffipc::WriteFrameOverlapped(server, static_cast<uint16_t>(ffprotocol::MessageType::HandshakeAck),
+                                             &ack, sizeof(ack), std::chrono::steady_clock::now() + 5s)) {
+                serverFailed.store(true, std::memory_order_release);
+                CloseHandle(server);
+                return;
+            }
+
+            if (generation == 0) {
+                if (WaitForSingleObject(firstActive, 5000) != WAIT_OBJECT_0) {
+                    serverFailed.store(true, std::memory_order_release);
+                    CloseHandle(server);
+                    return;
+                }
+                ffprotocol::FrameHeader partial{};
+                partial.totalLength = static_cast<uint32_t>(sizeof(partial) + sizeof(ffprotocol::ScanCompletePayload));
+                partial.structVersion = ffprotocol::kCurrentStructVersion;
+                partial.messageType = static_cast<uint16_t>(ffprotocol::MessageType::ScanComplete);
+                if (!WriteOneOverlappedByte(server, reinterpret_cast<const uint8_t*>(&partial)[0])) {
+                    serverFailed.store(true, std::memory_order_release);
+                }
+                // Closing the service endpoint is the transport failure under
+                // test. The client reader must drop the incomplete frame and
+                // the connection loop must create a new pipe generation.
+                CloseHandle(server);
+                continue;
+            }
+
+            if (WaitForSingleObject(secondActive, 5000) != WAIT_OBJECT_0) {
+                serverFailed.store(true, std::memory_order_release);
+                CloseHandle(server);
+                return;
+            }
+            for (;;) {
+                const auto frame = ffipc::ReadFrameOverlapped(
+                    server, std::chrono::steady_clock::now() + 5s);
+                if (!frame) break;
+                if (frame->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::Heartbeat)) {
+                    if (!ffipc::WriteFrameOverlapped(server,
+                            static_cast<uint16_t>(ffprotocol::MessageType::HeartbeatAck),
+                            nullptr, 0, std::chrono::steady_clock::now() + 5s)) {
+                        serverFailed.store(true, std::memory_order_release);
+                        break;
+                    }
+                }
+            }
+            CloseHandle(server);
+        }
+    });
+
+    connection.SetControlPipeNameForTesting(pipeName);
+    std::atomic<uint32_t> identityChecks{0};
+    connection.SetServiceIdentityVerifierForTesting([&identityChecks](HANDLE) {
+        const uint32_t generation = identityChecks.fetch_add(1, std::memory_order_relaxed) + 1;
+        return generation != 2;
+    });
+    std::atomic<uint32_t> activeCount{0};
+    std::atomic<uint32_t> completionCallbacks{0};
+    connection.SetScanCompleteCallback([&completionCallbacks](ffprotocol::VolumeId) {
+        completionCallbacks.fetch_add(1, std::memory_order_relaxed);
+    });
+    std::atomic<bool> sessionAndRetryStateCleared{false};
+    connection.Start(L"C:\\FastFilesReconnectFixture", [&](ffengine::ConnectionState state,
+                                                               ffengine::UnavailableReason) {
+        manager.OnConnectionStateChanged(state);
+        if (state == ffengine::ConnectionState::Active) {
+            const uint32_t activeGeneration = activeCount.fetch_add(1, std::memory_order_acq_rel) + 1;
+            if (activeGeneration == 1) {
+                {
+                    std::lock_guard<std::mutex> lock(manager.mutex_);
+                    manager.sessionsByEphemeralId_[707].scanInProgress = true;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+                    manager.failedScanRetries_[707] = {std::chrono::steady_clock::now() + 1h, false};
+                    ++manager.scanRetryGeneration_;
+                }
+            } else if (activeGeneration == 2) {
+                bool sessionsEmpty = false;
+                bool retriesEmpty = false;
+                {
+                    std::lock_guard<std::mutex> lock(manager.mutex_);
+                    sessionsEmpty = manager.sessionsByEphemeralId_.empty();
+                }
+                {
+                    std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+                    retriesEmpty = manager.failedScanRetries_.empty();
+                }
+                sessionAndRetryStateCleared.store(sessionsEmpty && retriesEmpty, std::memory_order_release);
+            }
+            if (activeGeneration == 1) SetEvent(firstActive);
+            if (activeGeneration == 2) SetEvent(secondActive);
+        }
+    });
+
+    const DWORD secondActiveResult = WaitForSingleObject(secondActive, 12000);
+    manager.Stop();
+    if (service.joinable()) service.join();
+    CloseHandle(firstActive);
+    CloseHandle(secondActive);
+
+    Check(secondActiveResult == WAIT_OBJECT_0,
+          "a partial frame disconnect is followed by a fresh Active connection");
+    Check(handshakeCount.load() == 2,
+          "only the initially authorized and later reauthorized pipes send handshakes");
+    Check(identityChecks.load() >= 3,
+          "service identity authorization runs again on each replacement connection");
+    Check(completionCallbacks.load() == 0,
+          "a truncated ScanComplete frame never reaches the engine completion callback");
+    Check(sessionAndRetryStateCleared.load(std::memory_order_acquire),
+          "disconnect clears ephemeral sessions and pending scan retries before reconnect");
+    Check(!serverFailed.load(), "reconnect service fixture completed both transport generations cleanly");
+}
+
 } // namespace
 
 int main() {
@@ -871,5 +1118,6 @@ int main() {
     TestJournalGapDuringInFlightScanDefersUntilCompletion();
     TestStopReturnsWithoutWaitingForTheSchedulerInterval();
     TestHeartbeatServicePeerRevalidationDropsToDisconnected();
+    TestPartialFrameDisconnectReconnectsAndReauthorizes();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

@@ -39,6 +39,9 @@ void TestWorkerExceptionBoundaryPolicy() {
     if (root.empty()) return;
 
     const std::string source = ReadText(root / "src" / "indexsvc" / "src" / "ServiceConnection.cpp");
+    const std::string scanBoundary = ReadText(root / "src" / "indexsvc" / "src" / "ScanWorkerBoundary.h");
+    const std::string workerLifecycle = ReadText(root / "src" / "indexsvc" / "src" / "ServiceWorkerLifecycle.h");
+    const std::string scanner = ReadText(root / "src" / "indexsvc" / "src" / "VolumeScanner.cpp");
 
     const std::size_t stdException = source.find("catch (const std::exception");
     const std::size_t catchAll = source.find("catch (...)");
@@ -52,6 +55,19 @@ void TestWorkerExceptionBoundaryPolicy() {
                   "an escaping exception is recorded in the admin-only service log");
     fftest::Check(source.find("AppendDiagnostic") != std::string::npos,
                   "an escaping exception emits a metadata-only diagnostic event");
+
+    fftest::Check(source.find("RunScanWorkerBoundary(") != std::string::npos,
+                  "the real service scan worker delegates to the tested production boundary");
+    fftest::Check(scanBoundary.find("transportFailed.store(true)") != std::string::npos,
+                  "scan worker exceptions poison the connection generation");
+    fftest::Check(scanBoundary.find("CancelIoEx(pipeHandle, nullptr)") != std::string::npos,
+                  "scan worker failures cancel outstanding service pipe I/O");
+    const std::regex standardWorkerCatch(R"(catch\s*\(\s*const\s+std::exception\s*&\s*\))");
+    const std::regex unknownWorkerCatchWithFatalStore(
+        R"(catch\s*\(\s*\.\.\.\s*\)\s*\{\s*transportFailed\.store\(true\)\s*;)");
+    fftest::Check(std::regex_search(scanBoundary, standardWorkerCatch) &&
+                      std::regex_search(scanBoundary, unknownWorkerCatchWithFatalStore),
+                  "the shared scan boundary contains standard and unknown worker exceptions");
 
     // Teardown must strictly FOLLOW the boundary: the catch wraps dispatch,
     // and StopAndJoinAll/TeardownConnection/CloseClientIdentity/CloseHandle
@@ -77,10 +93,37 @@ void TestWorkerExceptionBoundaryPolicy() {
     // checks must remain (regression against a careless boundary refactor).
     fftest::Check(source.find("StopAndJoinAll(activeJournals)") != std::string::npos,
                   "journal workers are drained on teardown");
-    fftest::Check(source.find("joinable()") != std::string::npos,
-                  "worker joins stay joinable-guarded (empty-slot safe)");
+    const std::regex selectedWorkerJoinGuard(
+        R"(if\s*\(\s*it->thread\.joinable\(\)\s*\)\s*\{\s*it->thread\.join\(\);)");
+    const std::regex allWorkersJoinGuard(
+        R"(if\s*\(\s*worker\.thread\.joinable\(\)\s*\)\s*\{\s*worker\.thread\.join\(\);)");
+    fftest::Check(std::regex_search(workerLifecycle, selectedWorkerJoinGuard) &&
+                      std::regex_search(workerLifecycle, allWorkersJoinGuard),
+                  "worker owner keeps both selected and all-worker joins joinable-guarded");
     fftest::Check(source.find("registry.TeardownConnection(connectionId)") != std::string::npos,
                   "connection-scoped handle registry is torn down");
+
+    const std::size_t cancelSyncIo = workerLifecycle.find("CancelSynchronousIo(worker.thread.native_handle())");
+    const std::size_t stopJoin = workerLifecycle.find("it->thread.join()", cancelSyncIo);
+    fftest::Check(cancelSyncIo != std::string::npos && stopJoin != std::string::npos && cancelSyncIo < stopJoin,
+                  "the shared service worker owner requests synchronous-I/O cancellation before joining");
+    fftest::Check(workerLifecycle.find("only requests cancellation") != std::string::npos &&
+                      workerLifecycle.find("does not provide a") != std::string::npos &&
+                      workerLifecycle.find("completion deadline") != std::string::npos &&
+                      workerLifecycle.find("joining still waits for the kernel request to return") != std::string::npos,
+                  "worker teardown documents that kernel-I/O cancellation does not guarantee a deadline");
+
+    const std::regex volumeGuardPattern(R"(ScopedVolumeHandle\s+volumeHandle\s*\(\s*CreateFileW\s*\()");
+    fftest::Check(std::regex_search(scanner, volumeGuardPattern),
+                  "production RunVolumeScan owns the raw volume handle with RAII");
+    size_t explicitVolumeReleases = 0;
+    size_t releaseSearch = 0;
+    while ((releaseSearch = scanner.find("volumeHandle.reset();", releaseSearch)) != std::string::npos) {
+        ++explicitVolumeReleases;
+        releaseSearch += sizeof("volumeHandle.reset();") - 1;
+    }
+    fftest::Check(explicitVolumeReleases >= 3 && scanner.find("CloseHandle(volumeHandle)") == std::string::npos,
+                  "intentional geometry-failure and enumeration cleanup remain explicit under the guard");
 }
 
 } // namespace

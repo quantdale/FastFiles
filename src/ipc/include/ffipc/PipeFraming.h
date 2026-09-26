@@ -96,4 +96,13 @@ bool WriteFrameOverlapped(HANDLE pipeHandle, uint16_t messageType, const void* p
 
 bool WriteFrameOverlapped(HANDLE pipeHandle, uint16_t messageType) noexcept;
 
+#if defined(FF_IPC_TESTING)
+namespace testing {
+// Arms the next overlapped frame write in this thread to emit exactly this
+// many real named-pipe bytes, then fail its following write operation. This
+// API exists only in the focused IPC/scanner fixture builds.
+void FailNextOverlappedFrameWriteAfterBytes(uint32_t byteCount) noexcept;
+} // namespace testing
+#endif
+
 } // namespace ffipc

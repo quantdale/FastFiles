@@ -207,9 +207,17 @@ bool PrivilegedConnection::VerifyServiceIdentity(HANDLE pipe) const {
 PrivilegedConnection::PipePtr PrivilegedConnection::ConnectVerifyAndHandshake() {
     SetState(ConnectionState::Connecting, UnavailableReason::None);
 
+#if defined(FF_PRIVILEGED_CONNECTION_TESTING)
+    const std::wstring& controlPipeName = controlPipeNameForTesting_.empty()
+        ? ffsetup::kCtrlPipeName
+        : controlPipeNameForTesting_;
+#else
+    const std::wstring& controlPipeName = ffsetup::kCtrlPipeName;
+#endif
+
     PipePtr pipe;
     while (running_) {
-        const HANDLE rawPipe = CreateFileW(ffsetup::kCtrlPipeName, GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+        const HANDLE rawPipe = CreateFileW(controlPipeName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
                                            FILE_FLAG_OVERLAPPED, nullptr);
         if (rawPipe != INVALID_HANDLE_VALUE) {
             pipe = std::make_shared<OwnedPipe>(rawPipe);
@@ -224,7 +232,7 @@ PrivilegedConnection::PipePtr PrivilegedConnection::ConnectVerifyAndHandshake() 
         // Bounded by running_ so Stop() can't be blocked indefinitely
         // under sustained pipe contention (unlike every other wait in
         // this class, WaitNamedPipeW itself has no cancellation hook).
-        if (!WaitNamedPipeW(ffsetup::kCtrlPipeName, 2000)) {
+        if (!WaitNamedPipeW(controlPipeName.c_str(), 2000)) {
             SetState(ConnectionState::Disconnected, UnavailableReason::ServiceNotRunning);
             return nullptr;
         }
