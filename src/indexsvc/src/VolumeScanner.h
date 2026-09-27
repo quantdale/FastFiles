@@ -52,6 +52,32 @@ enum class ScanRunResult {
     FailedTerminalDelivered,
     Cancelled,
     TransportFailed,
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3: the
+    // scan did not complete and the negotiated peer cannot parse ScanFailed.
+    // No terminal was written -- sending ScanComplete would be a false
+    // success -- so the attempt ends by tearing its connection down; the
+    // engine's disconnect path already treats that as non-authoritative and
+    // recovers on a fresh connection.
+    FailureAbortedConnection,
+};
+
+// True when the scan outcome must end its owning connection: a poisoned
+// frame stream (TransportFailed) or an unreportable failure that cannot be
+// represented as a terminal without lying (FailureAbortedConnection).
+constexpr bool ScanRunResultRequiresConnectionAbort(ScanRunResult outcome) noexcept {
+    return outcome == ScanRunResult::TransportFailed ||
+           outcome == ScanRunResult::FailureAbortedConnection;
+}
+
+// The single terminal decision's result. SuccessTerminalDelivered and
+// FailureTerminalDelivered mean a framed terminal is on the wire;
+// FailureNotRepresentable means the caller must abort without writing
+// anything; TransportFailed means the stream is already poisoned.
+enum class ScanTerminalOutcome {
+    SuccessTerminalDelivered,
+    FailureTerminalDelivered,
+    FailureNotRepresentable,
+    TransportFailed,
 };
 
 ScanRunResult RunVolumeScan(
@@ -65,17 +91,24 @@ ScanRunResult RunVolumeScan(
     const std::atomic<bool>& shouldStop,
     std::atomic<bool>* transportFailed = nullptr);
 
-// index-durability-false-success-closure D1/2.1: the single terminal sender.
-// A setup or pre-write enumeration failure can use the capability-gated
-// failure terminal. A failed frame write is deliberately NOT followed by a
-// terminal: the byte stream may already contain a partial frame, so the
-// service reports TransportFailed and the connection is recreated instead.
-bool SendScanTerminal(HANDLE pipe,
-                      std::mutex& writeMutex,
-                      ffprotocol::VolumeId volumeId,
-                      ffprotocol::ProtocolVersion negotiatedVersion,
-                      bool success,
-                      std::atomic<bool>* transportFailed = nullptr);
+// index-durability-false-success-closure D1/2.1, extended by
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure D3: the
+// single terminal sender. A failed scan must never masquerade as a
+// completion -- the engine treats ScanComplete as the authority to mark the
+// volume indexed and to finalize reconciliation passes, which would delete
+// rows a failed scan simply never reached. Peers older than {2,2} cannot
+// parse ScanFailed, so for those a failed scan is not representable at all:
+// no terminal is written and the caller ends the connection (the cancelled
+// path already proves the engine refuses authority on disconnect). A failed
+// frame write is deliberately NOT followed by a terminal: the byte stream
+// may already contain a partial frame, so the service reports TransportFailed
+// and the connection is recreated instead.
+ScanTerminalOutcome SendScanTerminal(HANDLE pipe,
+                                     std::mutex& writeMutex,
+                                     ffprotocol::VolumeId volumeId,
+                                     ffprotocol::ProtocolVersion negotiatedVersion,
+                                     bool success,
+                                     std::atomic<bool>* transportFailed = nullptr);
 
 #if defined(FF_INDEXSVC_TESTING)
 // The focused scanner fixture feeds parsed synthetic records through the

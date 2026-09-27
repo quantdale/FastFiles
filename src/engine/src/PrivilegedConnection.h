@@ -123,6 +123,20 @@ public:
     // Keeps reconnect fixtures on a unique pipe instead of the installed
     // machine-wide service endpoint.
     void SetControlPipeNameForTesting(const std::wstring& pipeName) { controlPipeNameForTesting_ = pipeName; }
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure 2.2:
+    // routes one already-framed service message through the production
+    // Active-reader dispatch (including its exact-length payload checks) so
+    // the mixed-version reproducer can bind the service's real terminal
+    // decision to the engine's real durable outcome without a live service.
+    // Returns false when the frame was rejected as a protocol violation.
+    bool DispatchFrameForTesting(const ffipc::ReceivedFrame& frame) {
+        std::atomic<bool> heartbeatAckPending{false};
+        std::mutex ackMutex;
+        std::condition_variable ackCv;
+        std::atomic<bool> protocolViolation{false};
+        DispatchReceivedFrame(frame, heartbeatAckPending, ackMutex, ackCv, protocolViolation);
+        return !protocolViolation.load();
+    }
 #endif
 
 private:

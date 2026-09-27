@@ -1097,6 +1097,80 @@ void TestPartialFrameDisconnectReconnectsAndReauthorizes() {
     Check(!serverFailed.load(), "reconnect service fixture completed both transport generations cleanly");
 }
 
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 3.4/5.2:
+// losing the connection loses the scan that owned an in-flight reconciliation
+// pass (this is exactly what the service's unreportable legacy failure does by
+// tearing the connection down). The pass must be discarded -- its partial
+// seen-set can never drive removals -- the volume must keep its durable state,
+// and the old connection-scoped ids must carry no authority afterwards.
+void TestConnectionLossAbortsReconciliationPassWithoutAuthority() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_connection_loss_reconciliation.db")),
+          "pipeline opens for connection-loss reconciliation test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 71;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    Check(pipeline.ApplyMftBatch(volumeId, {MakeMftRecord(5, 5, u"", 0x10, 0),
+                                            MakeMftRecord(100, 5, u"seed.txt", 0, 1)}),
+          "the connection-loss fixture seeds a durable root + file entry");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+    Check(pipeline.IsReconciliationPassActive(volumeId), "the reconciliation pass is active before the loss");
+
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "connection loss discards the pass whose scan can no longer complete");
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "connection loss never marks the interrupted scan complete");
+    Check(pipeline.GetVolumeMetadata(volumeId)->lastReconciliationTime == 0,
+          "connection loss does not advance the reconciliation cadence clock");
+    Check(manager.sessionsByEphemeralId_.empty(),
+          "connection loss clears every connection-scoped engine session");
+    {
+        const auto snapshot = pipeline.ExportDirectorySnapshot(volumeId, L"C:");
+        const auto root = snapshot.find(L"C:");
+        bool seedPresent = false;
+        if (root != snapshot.end()) {
+            for (const auto& entry : root->second.entries) {
+                if (entry.name == L"seed.txt") seedPresent = true;
+            }
+        }
+        Check(seedPresent,
+              "discarding the pass deletes no durable records from incomplete coverage");
+    }
+
+    // A terminal for the prior connection's id has no session to act on and
+    // therefore no authority at all -- the next Active period re-derives
+    // identity from a fresh EnumerateVolumes instead of reusing it.
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "a stale connection-scoped completion cannot mark the volume after the loss");
+
+    // Recovery is not poisoned: a fresh Active period installs a new
+    // connection-scoped id and a genuine completion still marks the volume.
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    Check(manager.sessionsByEphemeralId_.empty(),
+          "a later Active period starts from freshly derived connection state");
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        manager.sessionsByEphemeralId_.emplace(
+            8, ffengine::VolumeSessionManager::VolumeSession{volumeId, L'C', 0, false});
+        manager.sessionsByEphemeralId_.at(8).scanInProgress = true;
+    }
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{8});
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "the next genuine completion still marks the volume indexed");
+    manager.Stop();
+}
+
 } // namespace
 
 int main() {
@@ -1119,5 +1193,6 @@ int main() {
     TestStopReturnsWithoutWaitingForTheSchedulerInterval();
     TestHeartbeatServicePeerRevalidationDropsToDisconnected();
     TestPartialFrameDisconnectReconnectsAndReauthorizes();
+    TestConnectionLossAbortsReconciliationPassWithoutAuthority();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

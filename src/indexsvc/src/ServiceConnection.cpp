@@ -325,9 +325,21 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
                             return RunVolumeScan(pipeHandle, writeMutex, volumeId, driveLetter, resumeCursor,
                                                  lowPriority, peerVersion, *stopFlag, transportFailed.get());
                         },
-                        [] {
-                            WriteServiceLifecycleLog(
-                                L"scan worker transport failure: connection abort requested; no terminal appended");
+                        [volumeId](ScanRunResult outcome) {
+                            // legacy-protocol-correctness-and-raw-volume-
+                            // cancellation-closure D3: an unreportable failure
+                            // is not a transport fault -- the stream is clean,
+                            // the peer simply has no failure terminal to parse,
+                            // so the connection is ended instead of lied to.
+                            const bool unreportable = outcome == ScanRunResult::FailureAbortedConnection;
+                            if (unreportable) {
+                                AppendBoundaryDiagnostic(ffprotocol::DiagnosticCode::FFDIAG_SCAN_FAILED,
+                                    std::to_wstring(volumeId.value),
+                                    L"scan-failure-not-representable-connection-abort");
+                            }
+                            WriteServiceLifecycleLog(unreportable
+                                ? L"scan worker failure unreportable to negotiated peer: connection abort requested; no terminal appended"
+                                : L"scan worker transport failure: connection abort requested; no terminal appended");
                         },
                         [volumeId](ScanWorkerExceptionKind kind) {
                             const bool unknown = kind == ScanWorkerExceptionKind::Unknown;

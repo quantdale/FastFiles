@@ -102,9 +102,11 @@ void TestPrivilegedConnectionTestSeamScopeAndProductionFallback() {
     const std::size_t headerTestGate = header.find("#ifdef FF_PRIVILEGED_CONNECTION_TESTING");
     const std::size_t verifierSetter = header.find("SetServiceIdentityVerifierForTesting", headerTestGate);
     const std::size_t pipeSetter = header.find("SetControlPipeNameForTesting", verifierSetter);
+    const std::size_t frameDispatcher = header.find("DispatchFrameForTesting", pipeSetter);
     const std::size_t headerTestGateEnd = header.find("#endif", pipeSetter);
-    fftest::Check(headerTestGate < verifierSetter && verifierSetter < pipeSetter && pipeSetter < headerTestGateEnd,
-                  "the verifier and pipe-name seams are both excluded unless the test macro is defined");
+    fftest::Check(headerTestGate < verifierSetter && verifierSetter < pipeSetter && pipeSetter < frameDispatcher &&
+                      frameDispatcher < headerTestGateEnd,
+                  "the verifier, pipe-name, and frame-dispatch seams are all excluded unless the test macro is defined");
 }
 
 } // namespace

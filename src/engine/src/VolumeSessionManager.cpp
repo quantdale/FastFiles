@@ -289,14 +289,35 @@ void VolumeSessionManager::OnConnectionStateChanged(ConnectionState state) {
         // connection -- clearing this on every non-Active transition
         // means the next Active period starts clean and re-derives
         // durable identity from a fresh EnumerateVolumes (task 7.1).
+        std::vector<std::pair<ffindexstore::VolumeRowId, wchar_t>> abandonedPasses;
         {
             std::lock_guard<std::mutex> lock(mutex_);
+            for (const auto& [ephemeralValue, session] : sessionsByEphemeralId_) {
+                (void)ephemeralValue;
+                abandonedPasses.emplace_back(session.durableId, session.driveLetter);
+            }
             sessionsByEphemeralId_.clear();
             lastSnapshotPublish_.clear();
         }
         {
             std::lock_guard<std::mutex> wakeLock(wakeMutex_);
             failedScanRetries_.clear();
+        }
+        // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3:
+        // a reconciliation pass is only ever finalized by the authoritative
+        // completion of its own scan. Losing the connection loses that scan
+        // (including the unreportable legacy failure the service ends by
+        // tearing the connection down), so the pass is discarded here -- its
+        // partial seen-set can never drive removals, and a later
+        // reconciliation starts fresh through BeginReconciliationPass.
+        for (const auto& [durableId, driveLetter] : abandonedPasses) {
+            if (pipeline_.IsReconciliationPassActive(durableId)) {
+                pipeline_.AbortReconciliationPass(durableId);
+                AppendManagerDiagnostic(ffprotocol::DiagnosticCategory::VolumeStateTransition,
+                                        ffprotocol::DiagnosticCode::FFDIAG_STALE_SCAN_TERMINAL,
+                                        {}, std::wstring(1, driveLetter),
+                                        L"reconciliation-pass-aborted-connection-lost", 0, 0);
+            }
         }
         pipeline_.SetBulkScanActive(false);
         return;

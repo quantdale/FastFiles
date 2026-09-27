@@ -115,6 +115,26 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
                                   &payload, sizeof(payload), transportFailed);
 }
 
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure D3: every
+// pre-enumeration failure path routes through the single terminal decision and
+// maps its outcome onto the scan result. A peer that cannot parse ScanFailed
+// receives no terminal -- FailureAbortedConnection tells the worker boundary
+// to end the connection instead of emitting a false success.
+ScanRunResult DeliverFailedScanTerminal(HANDLE pipe, std::mutex& writeMutex,
+                                        ffprotocol::VolumeId volumeId,
+                                        ffprotocol::ProtocolVersion negotiatedVersion,
+                                        std::atomic<bool>* transportFailed) {
+    const ScanTerminalOutcome terminal =
+        SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed);
+    if (terminal == ScanTerminalOutcome::TransportFailed) {
+        return ScanRunResult::TransportFailed;
+    }
+    if (terminal == ScanTerminalOutcome::FailureNotRepresentable) {
+        return ScanRunResult::FailureAbortedConnection;
+    }
+    return ScanRunResult::FailedTerminalDelivered;
+}
+
 class ScanOutput {
 public:
     ScanOutput(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
@@ -158,10 +178,18 @@ public:
         // PA-001: only a complete enumeration receives ScanComplete (or the
         // capability-gated ScanFailed); a terminal write error is fatal to
         // this stream and never gets retried on the same connection.
-        if (!SendScanTerminal(pipe_, writeMutex_, volumeId_, negotiatedVersion_, !enumerationFailed,
-                              transportFailed_)) {
+        const ScanTerminalOutcome terminal = SendScanTerminal(
+            pipe_, writeMutex_, volumeId_, negotiatedVersion_, !enumerationFailed, transportFailed_);
+        if (terminal == ScanTerminalOutcome::TransportFailed) {
             RecordFailureDiagnostic(L"scan-terminal-write-failed", GetLastError());
             return ScanRunResult::TransportFailed;
+        }
+        if (terminal == ScanTerminalOutcome::FailureNotRepresentable) {
+            // legacy-protocol-correctness-and-raw-volume-cancellation-closure
+            // D3: the negotiated peer cannot parse ScanFailed, so the honest
+            // outcome is no terminal at all plus connection teardown.
+            RecordFailureDiagnostic(L"scan-failure-not-representable-to-peer", ERROR_SUCCESS);
+            return ScanRunResult::FailureAbortedConnection;
         }
         return enumerationFailed ? ScanRunResult::FailedTerminalDelivered : ScanRunResult::Completed;
     }
@@ -226,24 +254,36 @@ private:
 
 } // namespace
 
-// index-durability-false-success-closure D1/2.1: the single terminal sender.
-// A failed scan must never masquerade as a completion -- the engine treats
-// ScanComplete as the authority to mark the volume indexed and to finalize
-// reconciliation passes, which would delete rows a failed scan simply never
-// reached. Peers older than {2,2} cannot parse ScanFailed, so they keep
-// receiving today's ScanComplete byte-for-byte on the same paths.
-// hardening-campaign Phase 7 H2: now declared in VolumeScanner.h so the
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure D3: the
+// single terminal sender. A failed scan must never masquerade as a
+// completion -- the engine treats ScanComplete as the authority to mark the
+// volume indexed and to finalize reconciliation passes, which would delete
+// rows a failed scan simply never reached. A peer older than {2,2} cannot
+// parse ScanFailed, so a failed scan has no representable terminal for it:
+// the caller writes nothing and ends the connection, and the engine's
+// existing disconnect path refuses authority and recovers on a fresh
+// connection (same shape as the silent-cancellation path).
+// hardening-campaign Phase 7 H2: declared in VolumeScanner.h so the
 // ServiceConnection exception boundary can emit the failure terminal too.
-bool SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
-                      ffprotocol::ProtocolVersion negotiatedVersion, bool success,
-                      std::atomic<bool>* transportFailed) {
-    if (!success && ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
+ScanTerminalOutcome SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
+                                     ffprotocol::ProtocolVersion negotiatedVersion, bool success,
+                                     std::atomic<bool>* transportFailed) {
+    if (!success) {
+        if (!ffprotocol::ProtocolSupportsScanFailure(negotiatedVersion)) {
+            return ScanTerminalOutcome::FailureNotRepresentable;
+        }
         ffprotocol::ScanFailedPayload payload{volumeId};
         std::lock_guard<std::mutex> lock(writeMutex);
-        return WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
-                                      &payload, sizeof(payload), transportFailed);
+        if (!WriteFrameWithDeadline(pipe, static_cast<uint16_t>(ffprotocol::MessageType::ScanFailed),
+                                    &payload, sizeof(payload), transportFailed)) {
+            return ScanTerminalOutcome::TransportFailed;
+        }
+        return ScanTerminalOutcome::FailureTerminalDelivered;
     }
-    return SendScanComplete(pipe, writeMutex, volumeId, transportFailed);
+    if (!SendScanComplete(pipe, writeMutex, volumeId, transportFailed)) {
+        return ScanTerminalOutcome::TransportFailed;
+    }
+    return ScanTerminalOutcome::SuccessTerminalDelivered;
 }
 
 #if defined(FF_INDEXSVC_TESTING)
@@ -299,9 +339,7 @@ ScanRunResult RunVolumeScan(
         LogRawVolumeOpenDiagnostic(
             volumePath, tokenState,
             ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
-        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
-            ? ScanRunResult::FailedTerminalDelivered
-            : ScanRunResult::TransportFailed;
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
     }
     // Capture the actual service token immediately before the raw-volume
     // open. The capture is observational and must not alter the call path.
@@ -314,9 +352,7 @@ ScanRunResult RunVolumeScan(
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
     if (!volumeOpened) {
-        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
-            ? ScanRunResult::FailedTerminalDelivered
-            : ScanRunResult::TransportFailed;
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
     }
 
     // Authoritative record/sector geometry comes from the volume itself,
@@ -326,18 +362,14 @@ ScanRunResult RunVolumeScan(
     if (!DeviceIoControl(volumeHandle.get(), FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                            &bytesReturned, nullptr)) {
         volumeHandle.reset();
-        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
-            ? ScanRunResult::FailedTerminalDelivered
-            : ScanRunResult::TransportFailed;
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
     }
 
     const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         volumeHandle.reset();
-        return SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed)
-            ? ScanRunResult::FailedTerminalDelivered
-            : ScanRunResult::TransportFailed;
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
     }
 
     const size_t outputBufferSize = sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) - 1 + recordSize;

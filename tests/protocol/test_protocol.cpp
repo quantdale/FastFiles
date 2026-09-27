@@ -337,9 +337,12 @@ void TestUsnV3PresenceMaskRoundTripAndDowngradePolicy() {
     Check(!ProtocolSupportsAllocatedSize({2, 0}), "protocol {2,0} does not support the allocated-size records");
     Check(!ProtocolSupportsAllocatedSize({1, 99}), "a major-1 peer never receives the allocated-size records");
 
-    // index-durability-false-success-closure 1.3: the ScanFailed terminal is
-    // gated the same additive-minor way -- {2,2}+ understands it; anything
-    // older keeps the legacy ScanComplete terminal on failure paths.
+    // index-durability-false-success-closure 1.3, corrected by
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure 3.2:
+    // the ScanFailed terminal is gated the same additive-minor way -- {2,2}+
+    // understands it. An older peer has no failure terminal at all: the
+    // service writes nothing and ends the connection rather than emitting a
+    // false-success ScanComplete (VolumeScanner.cpp SendScanTerminal).
     Check(ProtocolSupportsScanFailure({2, 2}), "protocol {2,2} supports the ScanFailed terminal");
     Check(ProtocolSupportsScanFailure({3, 0}), "a future major with matching minor gates open for ScanFailed");
     Check(!ProtocolSupportsScanFailure({2, 1}), "the previous minor does not support the ScanFailed terminal");

@@ -25,6 +25,30 @@ target_link_libraries(ffengine_volume_session_manager_tests PRIVATE ffindexstore
 target_compile_definitions(ffengine_volume_session_manager_tests PRIVATE FF_PRIVILEGED_CONNECTION_TESTING=1)
 add_test(NAME ffengine_volume_session_manager_tests COMMAND ffengine_volume_session_manager_tests)
 
+# legacy-protocol-correctness-and-raw-volume-cancellation-closure 2.2/2.3:
+# deterministic mixed-version failed-scan reproducer. Compiles the real
+# service scanner and the real engine dispatch/session/pipeline sources into
+# one executable so a single test binds the service's terminal decision to
+# the engine's durable outcome for every supported negotiation.
+add_executable(ffengine_legacy_scan_failure_binding_tests
+  test_legacy_scan_failure_binding.cpp
+  ${CMAKE_SOURCE_DIR}/src/indexsvc/src/VolumeScanner.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/IndexPipeline.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/PrivilegedConnection.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeIdentity.cpp
+  ${CMAKE_SOURCE_DIR}/src/engine/src/VolumeSessionManager.cpp
+)
+target_include_directories(ffengine_legacy_scan_failure_binding_tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/src/engine/src
+  ${CMAKE_SOURCE_DIR}/src/indexsvc/src
+  ${CMAKE_SOURCE_DIR}/src/ipc/include)
+target_link_libraries(ffengine_legacy_scan_failure_binding_tests PRIVATE
+  ffindexstore ffprotocol ffsearch ffipc ffsetup ffmftparser ffindexsvcprobes Rpcrt4 Shell32 Ole32)
+target_compile_definitions(ffengine_legacy_scan_failure_binding_tests PRIVATE
+  FF_INDEXSVC_TESTING=1 FF_PRIVILEGED_CONNECTION_TESTING=1)
+add_test(NAME ffengine_legacy_scan_failure_binding_tests
+  COMMAND ffengine_legacy_scan_failure_binding_tests)
+
 # final-residual-hardening-and-hosted-ci-recovery 2.5: keep the verifier and
 # unique-pipe seams exclusive to the focused engine lifecycle test target.
 add_executable(ffengine_privileged_connection_seam_policy_tests
@@ -230,5 +254,6 @@ add_executable(ffengine_bench_secondary_filename_index
 )
 target_link_libraries(ffengine_bench_secondary_filename_index PRIVATE ffsearch sqlite3 psapi)
 
+set_tests_properties(ffengine_legacy_scan_failure_binding_tests PROPERTIES TIMEOUT 180)
 set_tests_properties(ffengine_index_pipeline_tests ffengine_volume_session_manager_tests ffengine_degraded_special_files_tests ffengine_directory_watcher_tests ffengine_idle_manager_tests ffengine_ui_server_lifecycle_tests ffengine_snapshot_publisher_tests ffengine_subtree_gating_tests ffengine_client_handshake_tests ffengine_active_path_resilience_tests ffengine_seeded_indexed_mode_tests ffengine_index_pipeline_concurrency_tests PROPERTIES TIMEOUT 120)
 set_tests_properties(ffengine_authenticode_verification_tests PROPERTIES TIMEOUT 600)
