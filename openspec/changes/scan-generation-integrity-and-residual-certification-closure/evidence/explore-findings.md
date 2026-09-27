@@ -2,7 +2,7 @@
 
 Read-only trace for the campaign in `D:\Downloads\fastfiles.txt`. No product code was run or edited. Suspicions are not promoted to executed failures.
 
-This change does not replace `legacy-protocol-correctness-and-raw-volume-cancellation-closure`. That change stays the sole `active` entry in `openspec/lifecycle.json`. `openspec list --json` before this scaffold was created showed it `in-progress` at 37/38 tasks. Its task 5.4 is still `[ ]`. Predecessor `final-residual-hardening-and-hosted-ci-recovery` task 2.3 is still `[ ]`.
+This change does not replace `legacy-protocol-correctness-and-raw-volume-cancellation-closure`. At the **pre-registration exploration snapshot**, that change was the sole `active` entry in `openspec/lifecycle.json`; `openspec list --json` then showed it `in-progress` at 37/38 tasks. Apply later registered this change as a second active entry. This exploration record is retained as a historical snapshot. The predecessor's task 5.4 and `final-residual-hardening-and-hosted-ci-recovery` task 2.3 remain `[ ]`.
 
 ## Live repository
 

@@ -37,8 +37,8 @@
 ## 7. Targeted-build identity
 
 - [x] 7.1 Map `fastfiles_build_identity`, every `fastfiles_add_version_resource` consumer, and any other binary that embeds a source revision, including targeted ASan, diagnostic, and test binaries and the exact commands local and hosted CI use.
-- [x] 7.2 In an isolated worktree or equivalent fixture, configure and build at revision A, advance the source identity to revision B, run those targeted commands, and read the embedded identity. The check must fail if it accepts an artifact that a different target already refreshed. Check the four release executables and the targeted diagnostic/test binaries separately.
-- [x] 7.3 If a certification-relevant binary can keep a stale identity after a successful targeted build, correct only that dependency edge and do not force a global recompile. If the current edges already refresh every such binary, record the no-code closure and do not edit the build files. Keep a malformed `FASTFILES_BUILD_ID` fail-closed, and keep a well-formed override embedded as given.
+- [x] 7.2 In an isolated worktree or equivalent fixture, configure and build at revision A, advance the source identity to revision B, run those targeted commands, and read the embedded identity. The check must fail if it accepts an artifact that a different target already refreshed. Check the four release executables and the targeted diagnostic/test binaries separately. (`evidence/targeted-build-identity-isolated.ps1` and `.json`: 8 identity-bearing targets each passed in a separate worktree; six targeted ASan binaries were classified as having no identity carrier.)
+- [x] 7.3 If a certification-relevant binary can keep a stale identity after a successful targeted build, correct only that dependency edge and do not force a global recompile. If the current edges already refresh every such binary, record the no-code closure and do not edit the build files. Keep a malformed `FASTFILES_BUILD_ID` fail-closed, and keep a well-formed override embedded as given. (`tests/setup/CMakeLists.txt` now directly orders both header-consuming package-trust targets after `fastfiles_build_identity`; the isolated A→B proof passes, the probe's well-formed override is embedded as given, and `ffbuild_identity_freshness_tests` covers empty/malformed rejection.)
 
 ## 8. Hosted certification hold
 
@@ -48,7 +48,7 @@
 
 ## 9. Raw-volume completion bound
 
-- [ ] 9.1 Do not redesign privileged worker ownership, overlapped device control, `CancelIoEx` policy, or process isolation. In the handoff, classify the synchronous raw-volume `DeviceIoControl` completion bound as unproven. Leave predecessor task 5.4 and residual-hardening task 2.3 unchecked. Do not treat simulated stall tests as that proof.
+- [x] 9.1 Do not redesign privileged worker ownership, overlapped device control, `CancelIoEx` policy, or process isolation. In the handoff, classify the synchronous raw-volume `DeviceIoControl` completion bound as unproven. Leave predecessor task 5.4 and residual-hardening task 2.3 unchecked. Do not treat simulated stall tests as that proof. (evidence: `evidence/certification-residuals-and-handoff.md`)
 
 ## 10. Local certification and review
 

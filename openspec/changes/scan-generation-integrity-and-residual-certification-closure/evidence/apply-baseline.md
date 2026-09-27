@@ -1,6 +1,10 @@
 # Apply baseline and hosted hold (tasks 1.1, 8.1, 8.2)
 
-## Task 1.1 — live repository at apply time
+## Task 1.1 — initial scaffold snapshot
+
+The table below is the snapshot recorded when the change scaffold was
+created. It is retained as historical evidence and is **not** the state from
+the later apply resume.
 
 Recorded from the local clone, not from any remembered SHA. `git fetch --prune
 origin` ran first; nothing was reset, rewritten, or stashed.
@@ -19,6 +23,19 @@ origin` ran first; nothing was reset, rewritten, or stashed.
 
 Baseline sanity before any edit: `ffengine_volume_session_manager_tests`
 rebuilt and passed (1/1, 19.03 s) on this HEAD.
+
+## Reconciled apply-resume state — 2026-09-28
+
+After `git fetch --prune origin`, the apply session resumed with local `main`
+at `4c014549759ff78929ad7c234d4270edce029889`, three commits ahead of
+`origin/main` `1172c1a1e6aa9c1a726d52abdade0975b6979e4b` and zero behind. Those
+three local commits belong to this change's implementation and fixture fixes.
+The feature branch
+`feat/scan-generation-integrity-and-residual-certification-closure` was
+created at that same tip without rewriting history. The existing detached
+`.kilo/worktrees/scythe-cloud` at `0dc3356` was left untouched. Subsequent
+implementation edits are tracked as session work on the feature branch; this
+checkpoint does not claim the later working tree was clean.
 
 ## Task 8.1 — hosted CI recheck at apply start
 

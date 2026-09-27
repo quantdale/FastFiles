@@ -1,4 +1,7 @@
 {
+  "status": "SUPERSEDED_SHARED_BUILD_TREE_NOT_ACCEPTED_AS_TASK_7_2_PROOF",
+  "supersededBy": "targeted-build-identity-isolated.json",
+  "supersededReason": "The A-to-B builds shared one generated identity tree, so an earlier target could refresh outputs before a later target was checked.",
   "revisionA": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
   "revisionB": "66bb9cb39730d677fed396cd87a0360660627ec0",
   "syntheticOverride": "0123456789abcdef0123456789abcdef01234567",

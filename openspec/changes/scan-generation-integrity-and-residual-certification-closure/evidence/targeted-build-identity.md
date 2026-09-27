@@ -1,109 +1,117 @@
-# Targeted-build provenance (tasks 7.1–7.3)
+# Targeted-build identity proof (tasks 7.1–7.3)
 
-## Task 7.1 — map
+Status: the isolated A→B proof passed on executable candidate
+`bac5d616070ec6accade403273501c43d44747e9`. Each identity-bearing target had a
+separate clean worktree and build directory. The prior report in
+`targeted-build-identity.json` used one shared build tree and is superseded: an
+earlier target could refresh the generated identity before a later target was
+tested.
 
-`fastfiles_build_identity` (`cmake/FastFilesVersion.cmake`) is an `ALL` custom
-target that runs `cmake/WriteBuildIdentity.cmake` on every build. That script
-derives the identity from `FASTFILES_BUILD_ID` (override) or
-`git -C <source> rev-parse HEAD`, validates it fail-closed as exactly 40 hex
-characters, and writes two byte-stable outputs only when the bytes change:
+## Task 7.1 — source and command map
 
-- `generated/ffsetup/BuildIdentity.h` — `ffsetup::kBuildIdentity` (wide) and
-  `kBuildIdentityAscii`, plus tree/config/arch/commit-time constants;
-- `generated/ffsetup/BuildIdentity.rc.h` — the same values as
-  `FF_BUILD_IDENTITY` / `FF_BUILD_SPECIAL` for the version resource.
+`fastfiles_build_identity` (`cmake/FastFilesVersion.cmake`) is an always-run
+custom target. `cmake/WriteBuildIdentity.cmake` reads the explicit
+`FASTFILES_BUILD_ID` override or the worktree's `git rev-parse HEAD`, validates
+exactly 40 hexadecimal characters, and writes byte-stable outputs only when
+their contents change:
 
-`fastfiles_add_version_resource(target, original, description)` sets
-`OBJECT_DEPENDS` on the generated `.rc` defines and
-`add_dependencies(<target> fastfiles_build_identity)`. Consumers:
+- `generated/ffsetup/BuildIdentity.h` — `ffsetup::kBuildIdentity` and
+  `kBuildIdentityAscii`, plus tree/configuration/architecture/commit-time data;
+- `generated/ffsetup/BuildIdentity.rc.h` — version-resource identity macros.
 
-| Target | Executable | Source | Identity carrier |
-| --- | --- | --- | --- |
-| `FastFiles` | `FastFiles.exe` | `src/ui/CMakeLists.txt:188` | version resource (`PrivateBuild`) |
-| `FastFilesEngine` | `FastFilesEngine.exe` | `src/engine/CMakeLists.txt:34` | version resource |
-| `FastFilesIndexSvc` | `FastFilesIndexSvc.exe` | `src/indexsvc/CMakeLists.txt:73` | version resource |
-| `FastFilesSetup` | `FastFilesSetup.exe` | `src/installer/CMakeLists.txt:15` | version resource |
-| `fftest` | `fftest.exe` | `src/fftest/CMakeLists.txt:21` | version resource |
+`fastfiles_add_version_resource` adds both the identity-target dependency and
+the generated resource dependency. The package-trust targets include
+`ffsetup/FastFilesVersion.h` from their fixture code, so they also need a
+direct dependency on `fastfiles_build_identity`.
 
-Other binaries that embed a source revision — through
-`ffsetup/FastFilesVersion.h` → `BuildIdentity.h`, with **no** version
-resource — are the installer and package-trust TUs:
+| Target / artifact | Preset and targeted command | Identity carrier |
+| --- | --- | --- |
+| `FastFiles` / `FastFiles.exe` | `release-test`; `debug-diagnostic` | VERSIONINFO `PrivateBuild` |
+| `FastFilesEngine` / `FastFilesEngine.exe` | `release-test` | VERSIONINFO `PrivateBuild` |
+| `FastFilesIndexSvc` / `FastFilesIndexSvc.exe` | `release-test` | VERSIONINFO `PrivateBuild` |
+| `FastFilesSetup` / `FastFilesSetup.exe` | `release-test` | VERSIONINFO `PrivateBuild`; installer code also includes `FastFilesVersion.h` |
+| `fftest` / `fftest.exe` | `release-test` | VERSIONINFO `PrivateBuild` |
+| `ffsetup_package_trust_tests.exe` | `release-test` | Embedded UTF-16 build identity in the signed-package fixture |
+| `ffsetup_package_trust_wintrust_integration_tests.exe` | `release-test` with `FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS=ON` | Embedded UTF-16 build identity; build only, no trust-store test execution |
+| ASan protocol, IPC, scanner, and engine tests | `asan`, listed below | No `FastFilesVersion.h` include or source-revision carrier |
 
-- `src/installer/src/InstallSteps.cpp` (compiled into `FastFilesSetup.exe`);
-- `tests/setup/PackageTrustFixtureSupport.h` +
-  `tests/setup/test_package_trust.cpp` → **`ffsetup_package_trust_tests.exe`**;
-- `tests/setup/test_package_trust_wintrust_integration.cpp` → the opt-in
-  `ffsetup_package_trust_wintrust_integration_tests.exe` (only registered when
-  `FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS=ON`).
+The version-resource targets above are the four release executables plus
+`fftest`. The focused diagnostic executable is the `debug-diagnostic`
+`FastFiles` target. Searching `src/` and `tests/` for `kBuildIdentity` and
+`FastFilesVersion.h` found the package-trust fixture and its opt-in WinTrust
+counterpart as the other compiled identity consumers.
 
-Commands local and hosted CI use:
+The hosted targeted ASan command builds:
 
-- hosted `debug` / `release-test` / `analyze`: `cmake --preset <preset>` then
-  `cmake --build --preset <preset>` (full build), then CTest;
-- hosted `asan-protocol-ipc-lifecycle`: `cmake --preset asan` then
-  `cmake --build --preset asan --target ffprotocol_fuzz_tests
-  ffipc_framing_tests ffipc_listener_lifecycle_tests
-  ffvolumescanner_terminal_tests`;
-- hosted `unsigned-release-candidate-qualification`: `cmake --preset
-  release-test`, `cmake --build --preset release-test`, then
-  `verify/release/tests/Test-ReleaseCandidate.ps1`;
-- local: `pwsh ./dev.ps1 build -Preset <preset> [-Target <target>]`,
-  `pwsh ./verify/verify.ps1 build`, `pwsh ./verify/Invoke-CiParity.ps1`.
+```text
+cmake --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests
+```
+
+The local campaign additionally targets
+`ffengine_volume_session_manager_tests` and
+`ffengine_legacy_scan_failure_binding_tests`. All six were inspected in the
+isolated ASan build and contain neither revision A nor revision B; none includes
+the generated identity header. Hosted `debug`, `release-test`, and `analyze`
+use full preset builds; their targeted reproduction commands are recorded in
+the result table below. The unsigned release-candidate gate also uses the full
+`release-test` preset build.
 
 ## Task 7.2 — isolated revision A → revision B experiment
 
-`build/_probe_identity.ps1` (evidence copy:
-`evidence/targeted-build-identity.json`) created a detached git worktree at
-revision A, configured `--preset debug`, and built the certification targets
-there. It then advanced the source identity with an empty commit in that
-worktree (revision B), ran each **targeted** build command separately, and read
-each binary's embedded identity from the binary itself:
+Reproducible probe: `targeted-build-identity-isolated.ps1`. It created one
+short-path worktree per identity-bearing target, configured that target's
+preset, built only the named target at A, copied the A artifact as a stale
+control, made an empty commit B in that worktree, then built only the same
+target and read the resulting binary. No other target could update that
+worktree's generated identity between A and B. The short fixture root was
+`D:\ffp\<run-id>` to keep the repository's long historical evidence paths
+within Windows' path limit. All ten owned worktrees and the unique fixture
+directory were removed; the pre-existing `.kilo/worktrees/scythe-cloud` was
+untouched.
 
-- version-resource executables: `(Get-Item exe).VersionInfo.PrivateBuild`;
-- header-only test binary: a byte search for the ASCII and UTF-16LE identity
-  literals inside the file.
+Revision A was the clean executable candidate above. Each B is the empty commit
+created in that target's isolated worktree.
 
-```text
-revisionA = 1172c1a1e6aa9c1a726d52abdade0975b6979e4b
-revisionB = 66bb9cb39730d677fed396cd87a0360660627ec0   (isolated worktree commit)
-```
+| Isolated target | Preset | Revision B | B refresh | Copied A artifact stayed A |
+| --- | --- | --- | --- | --- |
+| `FastFiles` | `release-test` | `1dac4883ea77bebe3363e88af5901c7a9228bbe8` | PASS | PASS |
+| `FastFilesEngine` | `release-test` | `60076b59914f06f4e6beb54b015c6fe5ebdd02aa` | PASS | PASS |
+| `FastFilesIndexSvc` | `release-test` | `470a22511d57ed53643d2ab8634b246e6004db74` | PASS | PASS |
+| `FastFilesSetup` | `release-test` | `ea8c40b6c57a55c4f692cf2c2e3878b0b0b3e9a6` | PASS | PASS |
+| `fftest` | `release-test` | `cb3266fadbe53c99819a83a1028d903cdc13f2ab` | PASS | PASS |
+| `ffsetup_package_trust_tests` | `release-test` | `0896d4d8c0c5288efb421009e463e3d56cc539b2` | PASS | PASS |
+| `ffsetup_package_trust_wintrust_integration_tests` | `release-test` | `b1459f8eac2ade9e991a66016de3636716dcd74f` | PASS | PASS |
+| diagnostic `FastFiles` | `debug-diagnostic` | `4a81edcac7eac80b9646bef8258f869a5d8a8045` | PASS | PASS |
 
-| Binary | At A | After targeted build at B | Still A? |
-| --- | --- | --- | --- |
-| `FastFiles.exe` | A | **B** | no |
-| `FastFilesEngine.exe` | A | **B** | no |
-| `FastFilesIndexSvc.exe` | A | **B** | no |
-| `FastFilesSetup.exe` | A | **B** | no |
-| `fftest.exe` | A | **B** | no |
-| `ffsetup_package_trust_tests.exe` | A | **B** | no |
+The ASan target command was run in its own worktree at A and again after empty
+commit B `6de833f662f7841dbf9531b469eb81b58c95a533`. All six test executables
+were present at both revisions and contained neither full identity. This is a
+no-carrier classification, not a claim that these test binaries embed A or B.
 
-Stale-artifact control: a copy of `FastFiles.exe` taken before the advance
-still reports A and does **not** report B, so the check reads the artifact it
-names and cannot pass because another target refreshed a shared header.
+The probe separately built `FastFilesEngine` with
+`FASTFILES_BUILD_ID=0123456789abcdef0123456789abcdef01234567`; its VERSIONINFO
+`PrivateBuild` matched the override exactly and the build warned that it differs
+from Git HEAD. Explicit-empty and malformed override rejection are covered by
+`ffbuild_identity_freshness_tests`; the candidate run is recorded with the
+exact-candidate validation results in
+`certification-residuals-and-handoff.md`.
 
-Override behaviour was validated separately:
+Machine-readable per-target identities, exit codes, stale controls, ASan
+classification, override result, and cleanup status are in
+`targeted-build-identity-isolated.json`.
 
-- `FASTFILES_BUILD_ID=0123456789abcdef0123456789abcdef01234567` +
-  `cmake --build --preset debug --target FastFilesEngine` → exit 0, the
-  embedded `PrivateBuild` is exactly that override, and the build warns that it
-  differs from `git HEAD`;
-- `FASTFILES_BUILD_ID=not-a-40-hex-identity` → the targeted build exits 1 and
-  the configure exits 1, both with
-  `FASTFILES_BUILD_ID must be a 40-character Git identity` (fail-closed, no
-  fallback identity written);
-- a targeted build of the existing `debug-diagnostic` tree with the override
-  moved `FastFiles.exe` to the override and a plain rebuild restored
-  `1172c1a1e6aa9c1a726d52abadde...` (`matchesHead: true`), so the diagnostic
-  tree is left at its normal identity.
+## Task 7.3 — dependency-edge correction
 
-The isolated worktree was removed after the run; the only residue is the
-report itself (`git worktree list` shows only the pre-existing worktrees).
+Review found the two package-trust executables compiled code that embeds the
+generated identity but had no direct target dependency. Added
+`add_dependencies(... fastfiles_build_identity)` to
+`ffsetup_package_trust_tests` and the opt-in
+`ffsetup_package_trust_wintrust_integration_tests`. The isolated experiment
+proves both now transition from A to B under their own targeted build. The
+existing version-resource dependency edges also refresh all five versioned
+executables. No global rebuild dependency or unrelated build edge was added.
 
-## Task 7.3 — no-code closure
-
-Every certification-relevant binary that embeds a source revision refreshed to
-revision B under the targeted commands above, with no global rebuild. The
-existing identity target and its dependency edges are therefore sufficient, so
-**no build file was edited** and the identity target's dependency edges are
-unchanged. The fail-closed rejection of a malformed override and the
-as-given embedding of a well-formed one are both preserved and proven.
+The identity freshness tests also require explicitly empty and malformed
+`FASTFILES_BUILD_ID` values to fail closed, and preserve a well-formed override
+as given. Those checks are part of the focused candidate gate; the standalone
+probe above records the successful well-formed executable override.

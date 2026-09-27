@@ -1,0 +1,244 @@
+{
+  "schema": "fastfiles-targeted-build-identity-isolated-v1",
+  "candidateRevisionA": "bac5d616070ec6accade403273501c43d44747e9",
+  "candidateWorkingTree": "clean commit worktree; no FASTFILES_BUILD_ID override",
+  "isolatedTargetResults": [
+    {
+      "name": "FastFiles-release-test",
+      "preset": "release-test",
+      "target": "FastFiles",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "1dac4883ea77bebe3363e88af5901c7a9228bbe8",
+      "binary": "src\\ui\\FastFiles.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "1dac4883ea77bebe3363e88af5901c7a9228bbe8",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "FastFilesEngine-release-test",
+      "preset": "release-test",
+      "target": "FastFilesEngine",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "60076b59914f06f4e6beb54b015c6fe5ebdd02aa",
+      "binary": "src\\engine\\FastFilesEngine.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "60076b59914f06f4e6beb54b015c6fe5ebdd02aa",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "FastFilesIndexSvc-release-test",
+      "preset": "release-test",
+      "target": "FastFilesIndexSvc",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "470a22511d57ed53643d2ab8634b246e6004db74",
+      "binary": "src\\indexsvc\\FastFilesIndexSvc.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "470a22511d57ed53643d2ab8634b246e6004db74",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "FastFilesSetup-release-test",
+      "preset": "release-test",
+      "target": "FastFilesSetup",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "ea8c40b6c57a55c4f692cf2c2e3878b0b0b3e9a6",
+      "binary": "src\\installer\\FastFilesSetup.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "ea8c40b6c57a55c4f692cf2c2e3878b0b0b3e9a6",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "fftest-release-test",
+      "preset": "release-test",
+      "target": "fftest",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "cb3266fadbe53c99819a83a1028d903cdc13f2ab",
+      "binary": "src\\fftest\\fftest.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "cb3266fadbe53c99819a83a1028d903cdc13f2ab",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "package-trust-release-test",
+      "preset": "release-test",
+      "target": "ffsetup_package_trust_tests",
+      "kind": "embedded-header",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "0896d4d8c0c5288efb421009e463e3d56cc539b2",
+      "binary": "tests\\setup\\ffsetup_package_trust_tests.exe",
+      "revisionAIdentity": {
+        "ascii": false,
+        "utf16": true,
+        "embedded": true
+      },
+      "revisionBIdentity": {
+        "ascii": false,
+        "utf16": true,
+        "embedded": true
+      },
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "package-trust-integration-release-test",
+      "preset": "release-test",
+      "target": "ffsetup_package_trust_wintrust_integration_tests",
+      "kind": "embedded-header",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "b1459f8eac2ade9e991a66016de3636716dcd74f",
+      "binary": "tests\\setup\\ffsetup_package_trust_wintrust_integration_tests.exe",
+      "revisionAIdentity": {
+        "ascii": false,
+        "utf16": true,
+        "embedded": true
+      },
+      "revisionBIdentity": {
+        "ascii": false,
+        "utf16": true,
+        "embedded": true
+      },
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    },
+    {
+      "name": "FastFiles-debug-diagnostic",
+      "preset": "debug-diagnostic",
+      "target": "FastFiles",
+      "kind": "version-resource",
+      "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionB": "4a81edcac7eac80b9646bef8258f869a5d8a8045",
+      "binary": "src\\ui\\FastFiles.exe",
+      "revisionAIdentity": "bac5d616070ec6accade403273501c43d44747e9",
+      "revisionBIdentity": "4a81edcac7eac80b9646bef8258f869a5d8a8045",
+      "revisionBTargetRefreshPass": true,
+      "staleRevisionAControlPass": true,
+      "configureExitCode": 0,
+      "targetedBuildAExitCode": 0,
+      "targetedBuildBExitCode": 0
+    }
+  ],
+  "asanTargetResults": {
+    "preset": "asan",
+    "commandA": "cmake --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests ffengine_volume_session_manager_tests ffengine_legacy_scan_failure_binding_tests",
+    "commandB": "cmake --build --preset asan --target ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests ffengine_volume_session_manager_tests ffengine_legacy_scan_failure_binding_tests",
+    "revisionA": "bac5d616070ec6accade403273501c43d44747e9",
+    "revisionB": "6de833f662f7841dbf9531b469eb81b58c95a533",
+    "binariesAtA": [
+      {
+        "target": "ffprotocol_fuzz_tests",
+        "exists": true,
+        "containsRevisionA": false
+      },
+      {
+        "target": "ffipc_framing_tests",
+        "exists": true,
+        "containsRevisionA": false
+      },
+      {
+        "target": "ffipc_listener_lifecycle_tests",
+        "exists": true,
+        "containsRevisionA": false
+      },
+      {
+        "target": "ffvolumescanner_terminal_tests",
+        "exists": true,
+        "containsRevisionA": false
+      },
+      {
+        "target": "ffengine_volume_session_manager_tests",
+        "exists": true,
+        "containsRevisionA": false
+      },
+      {
+        "target": "ffengine_legacy_scan_failure_binding_tests",
+        "exists": true,
+        "containsRevisionA": false
+      }
+    ],
+    "binariesAtB": [
+      {
+        "target": "ffprotocol_fuzz_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      },
+      {
+        "target": "ffipc_framing_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      },
+      {
+        "target": "ffipc_listener_lifecycle_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      },
+      {
+        "target": "ffvolumescanner_terminal_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      },
+      {
+        "target": "ffengine_volume_session_manager_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      },
+      {
+        "target": "ffengine_legacy_scan_failure_binding_tests",
+        "exists": true,
+        "containsRevisionA": false,
+        "containsRevisionB": false
+      }
+    ],
+    "result": "PASS: targeted ASan binaries have no source-revision carrier and contain neither A nor B"
+  },
+  "staleControls": [],
+  "overrideChecks": [
+    {
+      "command": "FASTFILES_BUILD_ID=<40-hex> cmake --build --preset release-test --target FastFilesEngine",
+      "embeddedIdentity": "0123456789abcdef0123456789abcdef01234567",
+      "embeddedAsGiven": true,
+      "warnsAboutHeadMismatch": true,
+      "result": "PASS"
+    }
+  ],
+  "cleanup": {
+    "fixtureRoot": "D:\\ffp\\e55972f199f8",
+    "ownedWorktreesRemoved": true
+  },
+  "failure": null
+}
