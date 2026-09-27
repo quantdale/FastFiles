@@ -1711,6 +1711,11 @@ void TestInterruptedReconciliationRetryReattachesToTheNewVolumeId() {
     const auto enumerationFrame = ReadCapturedMessageWithTimeout(capture->client, 500ms);
     Check(!enumerationFrame || *enumerationFrame == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
           "the enumeration path issues no scan while the durable floor is unexpired");
+    // Drain the enumeration's journal reopen while the retry is still
+    // future-dated. ArmScanReissue already wakes the scheduler during the
+    // volume-list callback; once the fixture expires the floor, a retry can
+    // race any later drain and be consumed before the assertion reads it.
+    DrainCapturedFrames(capture->client);
     {
         std::lock_guard<std::mutex> lock(manager.mutex_);
         Check(manager.scanReissueFloors_.empty(),
@@ -1726,15 +1731,18 @@ void TestInterruptedReconciliationRetryReattachesToTheNewVolumeId() {
         }
     }
     Check(queued, "the durable intent moves onto exactly one slot for the new volume id");
-    // Drain the enumeration's journal reopen before the retry can issue its
-    // scan: notifying first would race the drain against the retry frame.
-    DrainCapturedFrames(capture->client);
     manager.wakeCv_.notify_one();
 
     const auto retried = ReadCapturedScanStartWithTimeout(capture->client, 5s);
     Check(retried && retried->volumeId == 8,
           "the retry addresses the new connection-scoped id, never the discarded one");
-    Check(manager.sessionsByEphemeralId_.at(8).reconciliationScan,
+    bool retryMarkedReconciliation = false;
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        const auto session = manager.sessionsByEphemeralId_.find(8);
+        retryMarkedReconciliation = session != manager.sessionsByEphemeralId_.end() && session->second.reconciliationScan;
+    }
+    Check(retryMarkedReconciliation,
           "the transferred retry is a reconciliation of the already-indexed volume");
     Check(pipeline.IsReconciliationPassActive(durableId),
           "the transferred retry begins its own reconciliation pass");
