@@ -1702,6 +1702,17 @@ void TestInterruptedReconciliationRetryReattachesToTheNewVolumeId() {
     Check(!pipeline.IsReconciliationPassActive(durableId),
           "the interrupted pass is discarded rather than finalized");
 
+    // The five-second delay was asserted above. Keep the synthetic floor
+    // future-dated during connection handoff so its natural deadline cannot
+    // expire while the fixture reads and drains the journal-reopen frame.
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        const auto floor = manager.scanReissueFloors_.find(durableId);
+        if (floor != manager.scanReissueFloors_.end()) {
+            floor->second.due = std::chrono::steady_clock::now() + 30s;
+        }
+    }
+
     // Replacement connection: same durable volume, a NEW connection-scoped id.
     manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
     DrainCapturedFrames(capture->client);
