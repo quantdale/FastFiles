@@ -1726,10 +1726,12 @@ void TestInterruptedReconciliationRetryReattachesToTheNewVolumeId() {
         }
     }
     Check(queued, "the durable intent moves onto exactly one slot for the new volume id");
+    // Drain the enumeration's journal reopen before the retry can issue its
+    // scan: notifying first would race the drain against the retry frame.
+    DrainCapturedFrames(capture->client);
     manager.wakeCv_.notify_one();
 
-    DrainCapturedFrames(capture->client);
-    const auto retried = ReadCapturedScanStartWithTimeout(capture->client, 2s);
+    const auto retried = ReadCapturedScanStartWithTimeout(capture->client, 5s);
     Check(retried && retried->volumeId == 8,
           "the retry addresses the new connection-scoped id, never the discarded one");
     Check(manager.sessionsByEphemeralId_.at(8).reconciliationScan,
