@@ -1396,12 +1396,12 @@
           "path": "openspec/changes/residual-defect-closure-and-certification-completion/tasks.md"
         }
       ],
-      "supersededBy": "final-residual-hardening-and-hosted-ci-recovery",
+      "supersededBy": "legacy-protocol-correctness-and-raw-volume-cancellation-closure",
       "taskOverrides": []
     },
     {
       "name": "final-residual-hardening-and-hosted-ci-recovery",
-      "state": "active",
+      "state": "superseded",
       "evidence": [
         {
           "kind": "repository-path",
@@ -1414,6 +1414,38 @@
         {
           "kind": "repository-path",
           "path": "openspec/changes/final-residual-hardening-and-hosted-ci-recovery/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/tasks.md"
+        }
+      ],
+      "supersededBy": "legacy-protocol-correctness-and-raw-volume-cancellation-closure",
+      "taskOverrides": []
+    },
+    {
+      "name": "legacy-protocol-correctness-and-raw-volume-cancellation-closure",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/evidence/explore-findings.md"
         }
       ],
       "supersededBy": null,

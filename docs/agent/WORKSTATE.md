@@ -1,5 +1,18 @@
 # Fast Files — Agent Workstate
 
+# legacy-protocol-correctness-and-raw-volume-cancellation-closure — PROPOSED 2026-09-27
+
+- Propose-only session. No product C++/engine/service/UI/test-binary edits, no OpenSpec apply, no reproducer execution that mutates production code.
+- Change: `openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/` (proposal, design, six specs, tasks all unchecked, `evidence/explore-findings.md`, `APPLY_PROMPT.md`).
+- Lifecycle: this change is the sole `active` campaign. `final-residual-hardening-and-hosted-ci-recovery` is `superseded` by it. `residual-defect-closure-and-certification-completion.supersededBy` was repointed to this change because a supersession target cannot itself be superseded. Predecessor tasks 2.3 / 5.5 / 6.1 / 6.2 / 6.6 remain **unchecked** and are restated in the new `tasks.md`.
+- Invariants captured: a non-completed scan must never be represented as successful merely because the peer cannot understand `ScanFailed`; a cancellation request is not completed I/O; local parity is not hosted certification.
+- Strict OpenSpec: `openspec validate --all --strict --no-interactive` 86/86. Status: 4/4 artifacts complete (apply-ready). `Get-ProjectStatusLifecycleModel` PASS with one active change.
+- **NEXT EXACT ACTION:** another session applies via `openspec/changes/legacy-protocol-correctness-and-raw-volume-cancellation-closure/APPLY_PROMPT.md` (`.agent/skills/openspec-apply-change`, `/opsx:apply`). Start with tasks 1.x baseline/branch, then 2.x mixed-version reproducer before any `SendScanTerminal` correction.
+
+# final-residual-hardening-and-hosted-ci-recovery — SUPERSEDED 2026-09-27
+
+- Superseded by `legacy-protocol-correctness-and-raw-volume-cancellation-closure`. Open tasks 2.3, 5.5, 6.1, 6.2, and 6.6 were not checked off.
+
 # final-residual-hardening-and-hosted-ci-recovery — IN PROGRESS 2026-09-27
 
 - Live reconciliation: branch `main` was clean at documentation tip `54cbe9211a9e9d73af762183af5c292d6e2fbd29`; a fresh fetch found `origin/main=1b7d1c4a30431a8a171483b5958bb92f5c1daf9a`, 10 commits ahead / 0 behind. This checkpoint adds only task/report/workstate documentation. The detached `.kilo/worktrees/scythe-cloud` remains at `0dc3356`; leave the pre-existing `FastFilesIndexSvc` PID 16216 untouched.
