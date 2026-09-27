@@ -40,13 +40,13 @@ set(FASTFILES_VERSION_COMMA
 #
 # At configure time we only fail early when an obviously malformed override is
 # already visible, so misconfiguration surfaces before the first compile.
-set(ff_configured_build_id "$ENV{FASTFILES_BUILD_ID}")
-string(STRIP "${ff_configured_build_id}" ff_configured_build_id)
-if(NOT ff_configured_build_id STREQUAL "")
+if(DEFINED ENV{FASTFILES_BUILD_ID})
+  set(ff_configured_build_id "$ENV{FASTFILES_BUILD_ID}")
+  string(STRIP "${ff_configured_build_id}" ff_configured_build_id)
   string(LENGTH "${ff_configured_build_id}" ff_configured_build_id_length)
   if(NOT ff_configured_build_id_length EQUAL 40 OR NOT ff_configured_build_id MATCHES "^[0-9a-fA-F]+$")
     message(FATAL_ERROR
-      "FASTFILES_BUILD_ID must be a 40-character Git identity (or FASTFILES_BUILD_ID must be set).")
+      "FASTFILES_BUILD_ID must be a non-empty 40-character Git identity when set.")
   endif()
 endif()
 

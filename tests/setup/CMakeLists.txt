@@ -23,6 +23,9 @@ set_tests_properties(ffsetup_peer_image_match_tests PROPERTIES TIMEOUT 120)
 # ordinary non-admin Windows host and in hosted CI.
 add_executable(ffsetup_package_trust_tests test_package_trust.cpp)
 target_link_libraries(ffsetup_package_trust_tests PRIVATE ffsetup)
+# The package-trust fixture embeds kBuildIdentity directly from the generated
+# header; targeted builds need the identity refresh before compiling this TU.
+add_dependencies(ffsetup_package_trust_tests fastfiles_build_identity)
 add_test(NAME ffsetup_package_trust_tests COMMAND ffsetup_package_trust_tests)
 set_tests_properties(ffsetup_package_trust_tests PROPERTIES TIMEOUT 300)
 
@@ -32,6 +35,7 @@ set_tests_properties(ffsetup_package_trust_tests PROPERTIES TIMEOUT 300)
 if(FASTFILES_ENABLE_PRIVILEGED_TRUST_TESTS)
   add_executable(ffsetup_package_trust_wintrust_integration_tests test_package_trust_wintrust_integration.cpp)
   target_link_libraries(ffsetup_package_trust_wintrust_integration_tests PRIVATE ffsetup)
+  add_dependencies(ffsetup_package_trust_wintrust_integration_tests fastfiles_build_identity)
   add_custom_target(ffsetup_package_trust_wintrust_fixture ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
       "${CMAKE_CURRENT_SOURCE_DIR}/PackageTrustFixture.ps1"

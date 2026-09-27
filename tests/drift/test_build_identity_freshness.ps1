@@ -44,7 +44,8 @@ function Invoke-WriteIdentity {
         [Parameter(Mandatory)] [string] $RcDefinesPath,
         [string] $Configuration = 'Debug',
         [string] $Architecture = 'x64',
-        [string] $ExpectedBuildId = ''
+        [string] $ExpectedBuildId = '',
+        [switch] $SetEmptyBuildId
     )
     $headerDir = Split-Path -Parent $HeaderPath
     $rcDir = Split-Path -Parent $RcDefinesPath
@@ -52,7 +53,13 @@ function Invoke-WriteIdentity {
     New-Item -ItemType Directory -Path $rcDir -Force | Out-Null
     $savedBuildId = $env:FASTFILES_BUILD_ID
     try {
-        if ($ExpectedBuildId -ne '') { $env:FASTFILES_BUILD_ID = $ExpectedBuildId } else { Remove-Item Env:FASTFILES_BUILD_ID -ErrorAction SilentlyContinue }
+        if ($SetEmptyBuildId) {
+            $env:FASTFILES_BUILD_ID = ''
+        } elseif ($ExpectedBuildId -ne '') {
+            $env:FASTFILES_BUILD_ID = $ExpectedBuildId
+        } else {
+            Remove-Item Env:FASTFILES_BUILD_ID -ErrorAction SilentlyContinue
+        }
         $savedConfiguration = $env:FASTFILES_IDENTITY_CONFIGURATION
         $args = @(
             "-DSOURCE_DIR=$SourceDir"
@@ -67,6 +74,31 @@ function Invoke-WriteIdentity {
     } finally {
         if ($null -ne $savedBuildId) { $env:FASTFILES_BUILD_ID = $savedBuildId } else { Remove-Item Env:FASTFILES_BUILD_ID -ErrorAction SilentlyContinue }
         if ($null -ne $savedConfiguration) { $env:FASTFILES_IDENTITY_CONFIGURATION = $savedConfiguration } else { Remove-Item Env:FASTFILES_IDENTITY_CONFIGURATION -ErrorAction SilentlyContinue }
+    }
+}
+function Test-ConfigureRejectsEmptyBuildId {
+    $configureFixture = Join-Path $fixtureRoot 'configure-empty-override'
+    $configureBuild = Join-Path $configureFixture 'build'
+    $fixtureCmake = Join-Path $configureFixture 'cmake'
+    New-Item -ItemType Directory -Path $fixtureCmake -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'VERSION') -Destination (Join-Path $configureFixture 'VERSION')
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'cmake\FastFilesVersion.h.in') -Destination $fixtureCmake
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'cmake\FastFilesVersion.rc.in') -Destination $fixtureCmake
+    $modulePath = Join-Path $repoRoot 'cmake\FastFilesVersion.cmake'
+    $cmakeLists = @(
+        'cmake_minimum_required(VERSION 3.20)',
+        'project(FastFilesBuildIdentityFixture NONE)',
+        'set(FASTFILES_GENERATED_INCLUDE_DIR "${CMAKE_BINARY_DIR}/generated")',
+        "include(`"$modulePath`")"
+    ) -join "`n"
+    Set-Content -LiteralPath (Join-Path $configureFixture 'CMakeLists.txt') -Value $cmakeLists -Encoding utf8NoBOM
+    $savedBuildId = $env:FASTFILES_BUILD_ID
+    try {
+        $env:FASTFILES_BUILD_ID = ''
+        & $cmakeExe -S $configureFixture -B $configureBuild 2>&1 | Out-Null
+        return ($LASTEXITCODE -ne 0)
+    } finally {
+        if ($null -ne $savedBuildId) { $env:FASTFILES_BUILD_ID = $savedBuildId } else { Remove-Item Env:FASTFILES_BUILD_ID -ErrorAction SilentlyContinue }
     }
 }
 function Get-FileSha {
@@ -149,18 +181,21 @@ try {
     } finally {
         if ($null -ne $savedBuildId) { $env:FASTFILES_BUILD_ID = $savedBuildId } else { Remove-Item Env:FASTFILES_BUILD_ID -ErrorAction SilentlyContinue }
     }
+    # 6. A defined-but-empty environment override is malformed, not absent.
+    Check (-not (Invoke-WriteIdentity -SourceDir $fixtureRoot -HeaderPath $headerPath -RcDefinesPath $rcPath -SetEmptyBuildId)) 'explicit empty environment override fails the build-time identity script'
+    Check (Test-ConfigureRejectsEmptyBuildId) 'explicit empty environment override fails during CMake configure'
 
-    # 6. Non-repository without override fails closed.
+    # 7. Non-repository without override fails closed.
     $norepoOk = $true
     try {
         $norepoOk = Invoke-WriteIdentity -SourceDir $notARepo -HeaderPath $notARepoHeader -RcDefinesPath $notARepoRc
     } catch { $norepoOk = $false }
     Check ($norepoOk -eq $false) 'non-repository source dir without override fails closed'
 
-    # 7. Restore healthy identity so later steps do not inherit the malformed state.
+    # 8. Restore healthy identity so later steps do not inherit the malformed state.
     Check (Invoke-WriteIdentity -SourceDir $fixtureRoot -HeaderPath $headerPath -RcDefinesPath $rcPath) 'identity script recovers after negative cases'
 
-    # 8. Configuration/architecture are part of the recorded metadata.
+    # 9. Configuration/architecture are part of the recorded metadata.
     Check (Invoke-WriteIdentity -SourceDir $fixtureRoot -HeaderPath $headerPath -RcDefinesPath $rcPath -Configuration release-test -Architecture x64) 'configuration label is accepted'
     Check ((Get-Content -LiteralPath $headerPath -Raw) -match 'kBuildConfigurationAscii\[\] = "release-test"') 'header records configuration'
     Check ((Get-Content -LiteralPath $rcPath -Raw) -match 'FF_BUILD_CONFIGURATION "release-test"') 'rc defines record configuration'

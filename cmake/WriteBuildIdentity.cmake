@@ -26,10 +26,13 @@ if(NOT DEFINED ARCHITECTURE)
 endif()
 
 set(ff_build_id "")
-if(DEFINED EXPECTED_BUILD_ID AND NOT EXPECTED_BUILD_ID STREQUAL "")
+set(ff_has_build_id_override FALSE)
+if(DEFINED EXPECTED_BUILD_ID)
   set(ff_build_id "${EXPECTED_BUILD_ID}")
-elseif(DEFINED ENV{FASTFILES_BUILD_ID} AND NOT "$ENV{FASTFILES_BUILD_ID}" STREQUAL "")
+  set(ff_has_build_id_override TRUE)
+elseif(DEFINED ENV{FASTFILES_BUILD_ID})
   set(ff_build_id "$ENV{FASTFILES_BUILD_ID}")
+  set(ff_has_build_id_override TRUE)
 else()
   execute_process(
     COMMAND git -C "${SOURCE_DIR}" rev-parse HEAD
@@ -46,7 +49,7 @@ string(STRIP "${ff_build_id}" ff_build_id)
 string(LENGTH "${ff_build_id}" ff_build_id_length)
 if(NOT ff_build_id_length EQUAL 40 OR NOT ff_build_id MATCHES "^[0-9a-fA-F]+$")
   message(FATAL_ERROR
-    "FASTFILES_BUILD_ID must be a 40-character Git identity (or FASTFILES_BUILD_ID must be set).")
+    "FASTFILES_BUILD_ID must be a non-empty 40-character Git identity when set.")
 endif()
 string(TOLOWER "${ff_build_id}" ff_build_id)
 
@@ -54,42 +57,39 @@ string(TOLOWER "${ff_build_id}" ff_build_id)
 # override cannot prove cleanliness, so it is reported as unbound.
 set(ff_tree_state "unbound")
 set(ff_commit_time "unbound")
-if(NOT DEFINED EXPECTED_BUILD_ID OR EXPECTED_BUILD_ID STREQUAL "")
-  if(DEFINED ENV{FASTFILES_BUILD_ID} AND NOT "$ENV{FASTFILES_BUILD_ID}" STREQUAL "")
-    set(ff_tree_state "unbound")
-    set(ff_commit_time "unbound")
-  else()
-    execute_process(
-      COMMAND git -C "${SOURCE_DIR}" status --porcelain
-      RESULT_VARIABLE ff_status_result
-      OUTPUT_VARIABLE ff_status_output
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET)
-    if(ff_status_result EQUAL 0)
-      if(ff_status_output STREQUAL "")
-        set(ff_tree_state "clean")
-      else()
-        set(ff_tree_state "dirty")
-      endif()
+if(NOT ff_has_build_id_override)
+  execute_process(
+    COMMAND git -C "${SOURCE_DIR}" status --porcelain
+    RESULT_VARIABLE ff_status_result
+    OUTPUT_VARIABLE ff_status_output
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(ff_status_result EQUAL 0)
+    if(ff_status_output STREQUAL "")
+      set(ff_tree_state "clean")
     else()
-      set(ff_tree_state "unbound")
+      set(ff_tree_state "dirty")
     endif()
-
-    execute_process(
-      COMMAND git -C "${SOURCE_DIR}" show -s --format=%cI HEAD
-      RESULT_VARIABLE ff_time_result
-      OUTPUT_VARIABLE ff_commit_time
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      ERROR_QUIET)
-    if(NOT ff_time_result EQUAL 0)
-      set(ff_commit_time "unbound")
-    endif()
+  else()
+    set(ff_tree_state "unbound")
   endif()
+
+  execute_process(
+    COMMAND git -C "${SOURCE_DIR}" show -s --format=%cI HEAD
+    RESULT_VARIABLE ff_time_result
+    OUTPUT_VARIABLE ff_commit_time
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(NOT ff_time_result EQUAL 0)
+    set(ff_commit_time "unbound")
+  endif()
+else()
+  set(ff_tree_state "unbound")
+  set(ff_commit_time "unbound")
 endif()
 
 # Optional early warning when an explicit override disagrees with the checkout.
-if((DEFINED EXPECTED_BUILD_ID AND NOT EXPECTED_BUILD_ID STREQUAL "") OR
-   (DEFINED ENV{FASTFILES_BUILD_ID} AND NOT "$ENV{FASTFILES_BUILD_ID}" STREQUAL ""))
+if(ff_has_build_id_override)
   execute_process(
     COMMAND git -C "${SOURCE_DIR}" rev-parse HEAD
     RESULT_VARIABLE ff_verify_result

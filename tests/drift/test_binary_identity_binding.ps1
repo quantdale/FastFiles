@@ -47,8 +47,9 @@ if ([string]::IsNullOrWhiteSpace($overrideId) -and -not $expected) {
 if ([string]::IsNullOrWhiteSpace($overrideId)) { $overrideId = $expected }
 
 $binaries = Resolve-BuildIdentityBinaries
-if ($binaries.Count -lt 5) {
-    Write-Host "skip: only $($binaries.Count)/5 debug identity binaries are present; build the debug preset first"
+$packageTrustBinary = Join-Path $repoRoot 'build\debug\tests\setup\ffsetup_package_trust_tests.exe'
+if ($binaries.Count -lt 5 -or -not (Test-Path -LiteralPath $packageTrustBinary -PathType Leaf)) {
+    Write-Host "skip: only $($binaries.Count)/5 version-resource binaries and package-trust test=$([bool](Test-Path -LiteralPath $packageTrustBinary -PathType Leaf)); build the debug preset first"
     exit 77
 }
 
@@ -67,6 +68,14 @@ foreach ($path in $binaries) {
 
 $unique = @($identities.Values | Sort-Object -Unique)
 Check ($unique.Count -eq 1) "all $($binaries.Count) binaries share one identity (mixed set count=$($unique.Count))"
+
+# This targeted test binary embeds kBuildIdentity in its signed-package fixture
+# payload rather than VERSIONINFO. Its target has an explicit build-identity
+# dependency so building only this executable cannot reuse a header refreshed
+# by another target.
+$packageTrustBytes = [IO.File]::ReadAllBytes($packageTrustBinary)
+$packageTrustText = [Text.Encoding]::Unicode.GetString($packageTrustBytes)
+Check ($packageTrustText.Contains($overrideId)) 'ffsetup_package_trust_tests embeds the expected source identity in its fixture payload'
 
 if ($failures -gt 0) {
     $observed = ($identities.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join '; '
