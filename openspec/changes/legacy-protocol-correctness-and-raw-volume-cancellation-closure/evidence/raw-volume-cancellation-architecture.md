@@ -35,29 +35,30 @@ shutdown (`PipeListener::Stop` → `JoinConnectionThreads` → each connection's
 
 The fixture parks a worker in `WaitForSingleObject` on an event the test
 releases, which has exactly the observable shape of a synchronous kernel call
-that has not returned, and which `CancelSynchronousIo` cannot cancel (it
-returns `ERROR_NOT_FOUND`; `RequestWorkerStop` treats that as "no synchronous
-request in flight", which is the documented request-only semantics). No
-production volume is opened or stalled.
+that has not returned, and which `CancelSynchronousIo` cannot cancel (it returns
+`ERROR_NOT_FOUND`; `RequestWorkerStop` treats that as "no synchronous request in
+flight", which is the documented request-only semantics). No production volume
+is opened or stalled. The scan-worker cases run the real production scan
+decision where practical; the journal case exercises the same production
+`ActiveWorker`/`RequestWorkerStop`/`StopAndJoin(All)` lifecycle with a
+journal-shaped worker (the raw `FSCTL_READ_USN_JOURNAL` call itself is
+**UNPROVEN** here — see §3(a)).
 
-Recorded separately by the fixture:
-
-| Guarantee | Measured result |
-|---|---|
-| Time until cancellation is requested | immediate (0 ms in the recorded run); stop flag published before any wait |
-| Time until the control path responds | the join is **still parked 400 ms after the request**; the architecture does not bound this |
-| Time until the worker stops | 15 ms **after the parked operation finally returns** |
-| Whether cleanup requires kernel I/O completion | yes — `StopAndJoinAll` returns only once the operation completes |
-| Whether new work can be admitted | no admission while the stalled worker is parked; the supersede returns first, then the replacement slot is admitted |
-| Whether per-volume isolation holds | a supersede for the stalled volume leaves the other volume's worker untouched |
-| Whether the service can shut down | `StopAndJoinAll` has the same parked property; a parked worker delays shutdown until it returns |
-| Whether a previous worker can affect a replacement | no — a late-completing worker that observes the stop writes no batch and no terminal (`Cancelled`); a worker whose connection-abort flag is set gets `TransportFailed` and writes nothing |
-
-Additional fixture assertions: repeated stalled stop/start cycles leave no
-queued worker and no accumulation; the cancelled late worker never emits a
-false success terminal; the frame write of a worker whose connection is already
-torn down is suppressed by the same `transportFailed` flag `RunCtrlConnection`
-uses to stop dispatching.
+| Guarantee | Evidence class | Recorded result |
+|---|---|---|
+| Time until the stop flag is published / a cancellation is requested | **measured** | immediate; the flag is published before any wait. In this fixture the thread is parked in a non-I/O wait, so `CancelSynchronousIo` reports `ERROR_NOT_FOUND` ("no synchronous request in flight") — no I/O was cancelled in this run. The real cancel of in-flight pipe I/O is measured separately by `TestStopAndJoinCancelsSynchronousWorkerIo` (`ERROR_OPERATION_ABORTED`). |
+| Time until the control path responds | **measured** | the join is still parked 400 ms after the request; the architecture does not bound this |
+| Time until the worker stops | **measured** | 15 ms after the parked operation finally returns (single recorded run; the asserted bound is < 3 s) |
+| Whether cleanup requires kernel I/O completion | **measured** | yes — `StopAndJoin(All)` returns only once the operation completes |
+| Whether new work can be admitted | **derived from code order, not measured** | `ServiceConnection.cpp` supersede/admission is serialized behind `StopAndJoin` (`StartVolumeScan` joins the previous worker before the replacement slot is created), so no admission happens while parked. The fixture only restates that ordering. |
+| Whether the service can shut down | **derived from code order, not measured** | `PipeListener::Stop` → `JoinConnectionThreads` → `StopAndJoinAll` has the same parked property; no service-level fixture stands a listener up while a worker is parked, so the shutdown bound is **UNPROVEN**. |
+| Whether a previous worker can affect a replacement session | **derived structurally, not measured** | a worker holds its generation's pipe `HANDLE` value and the connection's `writeMutex`; both stay valid until `join()` returns, and the kernel cannot recycle the handle before it is closed, so a late worker can only write to its own dead instance. `test_volume_scanner_terminal.cpp` proves the write-suppression half (a worker whose connection-abort flag is set gets `TransportFailed` and writes nothing); no fixture models a full replacement connection, so the replacement-session claim is **not measured**. |
+| Cancellation wins over a pre-enumeration setup failure | **measured** | `TestStopDuringSetupFailureStaysSilent` for `{2,2}`, `{2,1}` and `{1,5}`: a stop published during a failing setup call returns `Cancelled`, requests no abort, and writes no terminal |
+| A late-completing scan operation emits nothing after a stop | **measured** | `TestLateCompletingScanOperationEmitsNothingAfterStop`: the real `RunSyntheticVolumeScanForTesting` path returns `Cancelled` after the parked source returns, with no batch and no terminal |
+| A late worker on a torn-down connection writes no batch/terminal | **measured** | `TestDeadConnectionSuppressesLateWorkerWrites`: the production `transportFailed` flag turns the frame write into `TransportFailed`; zero bytes reach the pipe |
+| Journal worker stop uses the same bounded request | **measured (lifecycle)** | `TestJournalWorkerStopUsesTheSameBoundedRequest`: request returns immediately; the owner waits for the parked operation; per-volume stop leaves the other journal untouched; a late journal frame write is suppressed by the same production writer |
+| Repeated stalled stop/start cycles do not accumulate | **measured** | three cycles, each drained, each < 2 s |
+| Supersede/admission ordering with a parked worker | **measured** | `TestSupersedeDoesNotAdmitReplacementsWhileStalled`: the owner thread exclusively owns the worker vector; the replacement slot appears only after the parked worker returns |
 
 ## 3. Architecture evaluation (4.4)
 
@@ -67,9 +68,10 @@ Not selected. Validating it requires opening a real raw volume handle — which
 needs elevation (`SeBackupPrivilege`) — for every FSCTL and handle shape, on
 each supported Windows version. That is exactly the elevated live-volume
 certification boundary recorded in `verify/certification/external-frontier.json`
-and is unavailable here. Per-FSCTL overlapped support therefore remains
-**UNPROVEN**; implementing it now would be guesswork about security- and
-lifecycle-relevant kernel behavior, which the campaign forbids.
+and is unavailable here. Per-FSCTL overlapped support (for the scanner and the
+journal `FSCTL_READ_USN_JOURNAL` path alike) therefore remains **UNPROVEN**;
+implementing it now would be guesswork about security- and lifecycle-relevant
+kernel behavior, which the campaign forbids.
 
 ### (b) Dedicated worker ownership + explicit lifecycle + bounded admission
 
@@ -121,6 +123,15 @@ and fail-closed behavior untouched, and never reports a request as completion.
 What it explicitly does **not** provide is a finite completion bound or a
 bounded control-plane return while a worker is parked; those stay `UNPROVEN`.
 
+Blast radius (reviewer finding, report-only): because a scan failure that no
+negotiated peer can be told about ends the whole connection, one legacy
+volume's failing scan also interrupts every other volume's scan/journal worker
+on that connection and forces a reconnect plus re-enumeration. That is the
+design's chosen trade-off (D3: prefer teardown over a false-success terminal);
+durable cursors and `ResumeUsn` make the interrupted journal streams resume
+without data loss, and the engine's new per-volume reissue floor keeps the
+retry cadence bounded.
+
 ### Rejected outright
 
 `TerminateThread`; detaching a worker that still touches stack-owned state;
@@ -136,7 +147,21 @@ a non-cooperative storage driver.
   an arbitrary synchronous raw-volume `DeviceIoControl`.
 * Named-pipe cancellation remains a separate, already-proven guarantee and is
   never reported as a raw-volume result.
+* The unreportable-legacy-failure abort path has an explicit recovery bound:
+  the engine records a per-durable-volume reissue floor (five seconds, the same
+  cadence a delivered `ScanFailed` uses) and the existing bounded retry
+  scheduler reissues `StartVolumeScan` when it expires
+  (`VolumeSessionManager::ScanReissueFloorLocked` / `ArmScanReissue`), including
+  for an aborted reconciliation.
 * Unlock for the deferred architecture: an elevated Windows host with a raw
   NTFS volume where each FSCTL's overlapped/`CancelIoEx` behavior can be
   measured, plus hosted checks restored — then implement (a) for the FSCTLs
   that actually support it, and (b)/(c) only for those that do not.
+* Pre-existing, not introduced by this change and not demonstrated reachable
+  here: the journal worker may write `UsnJournalOpened`/`JournalResumeInvalid`
+  after a stop was requested (`UsnJournalReader.cpp`, `ServiceConnection.cpp`)
+  — no false success, but a pre-existing post-stop frame; and a malformed
+  trailing enumeration record can be skipped while the cursor advances
+  (`VolumeScanner.cpp`) — Windows builds those buffers, so reachability is
+  **UNVERIFIED**. Both are recorded as residuals rather than changed
+  speculatively.

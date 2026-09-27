@@ -29,6 +29,7 @@
 #include "VolumeScanner.h"
 #include "ScanWorkerBoundary.h"
 #include "ServiceWorkerLifecycle.h"
+#include "WriteDeadline.h"
 
 using namespace fftest;
 
@@ -132,23 +133,39 @@ void RunScanBoundaryOnBoundedWorker(HANDLE pipe, std::atomic<bool>& transportFai
     CloseHandle(workerDone);
 }
 
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+// (reviewer finding D-5): the setup-failure cases must fail on a letter with
+// no volume behind it even when the process holds the backup privilege (a
+// mounted drive letter would otherwise enumerate for real). Scan for a free
+// letter instead of assuming one.
+wchar_t ResolveUnmountedDriveLetter() {
+    for (wchar_t letter = L'R'; letter <= L'Z'; ++letter) {
+        const wchar_t root[] = {letter, L':', L'\\', L'\0'};
+        if (GetDriveTypeW(root) == DRIVE_NO_ROOT_DIR) {
+            return letter;
+        }
+    }
+    return L'\0';
+}
+
 void RunDeliveredFailureTerminalCase(ffprotocol::ProtocolVersion negotiated, uint16_t expectedTerminal,
                                      const char* description) {
     auto pair = CreatePipePair();
     Check(pair != nullptr, "scan-terminal case creates an in-process pipe pair");
     if (!pair) return;
+    const wchar_t unmounted = ResolveUnmountedDriveLetter();
+    Check(unmounted != L'\0', "the test host has a drive letter with no volume behind it");
+    if (unmounted == L'\0') return;
 
     std::mutex writeMutex;
     std::atomic<bool> shouldStop{false};
     std::atomic<bool> transportFailed{false};
     constexpr ffprotocol::VolumeId kVolume{7};
-    // Drive letter Q is deliberately chosen as a letter with no volume on
-    // the test host; whichever setup stage fails first (privilege enable,
-    // volume open, or geometry query), the scan never enumerates and the
-    // single terminal frame is what distinguishes truth from a false
-    // success.
+    // The scan never enumerates (no volume behind the letter); whichever setup
+    // stage fails first (privilege enable, volume open, or geometry query), the
+    // single terminal frame is what distinguishes truth from a false success.
     const ffindexsvc::ScanRunResult result =
-        ffindexsvc::RunVolumeScan(pair->server, writeMutex, kVolume, L'Q', {}, false, negotiated, shouldStop,
+        ffindexsvc::RunVolumeScan(pair->server, writeMutex, kVolume, unmounted, {}, false, negotiated, shouldStop,
                                   &transportFailed);
     Check(result == ffindexsvc::ScanRunResult::FailedTerminalDelivered,
           "a setup failure reports a delivered failure terminal");
@@ -182,6 +199,9 @@ void RunUnreportableFailureCase(ffprotocol::ProtocolVersion negotiated, const ch
     auto pair = CreatePipePair();
     Check(pair != nullptr, "unreportable-failure case creates an in-process pipe pair");
     if (!pair) return;
+    const wchar_t unmounted = ResolveUnmountedDriveLetter();
+    Check(unmounted != L'\0', "the test host has a drive letter with no volume behind it");
+    if (unmounted == L'\0') return;
 
     std::mutex writeMutex;
     std::atomic<bool> shouldStop{false};
@@ -191,7 +211,7 @@ void RunUnreportableFailureCase(ffprotocol::ProtocolVersion negotiated, const ch
     ffindexsvc::RunScanWorkerBoundary(
         pair->server, transportFailed,
         [&]() -> ffindexsvc::ScanRunResult {
-            result = ffindexsvc::RunVolumeScan(pair->server, writeMutex, kVolume, L'Q', {}, false, negotiated,
+            result = ffindexsvc::RunVolumeScan(pair->server, writeMutex, kVolume, unmounted, {}, false, negotiated,
                                                shouldStop, &transportFailed);
             return result;
         },
@@ -912,8 +932,15 @@ void TestSupersedeDoesNotAdmitReplacementsWhileStalled() {
           "both per-volume workers reach their parked operations");
 
     std::atomic<bool> supersedeReturned{false};
+    std::atomic<bool> onlyTheReplacementRemained{false};
+    // The owner thread exclusively touches the worker vector until it is
+    // joined, so the assertions below never read it concurrently (reviewer
+    // finding B-MINOR: the previous form read workers.size() from the main
+    // thread while the owner might be erasing).
     std::thread supersedeOwner([&] {
         ffindexsvc::detail::StopAndJoin(workers, 7);
+        onlyTheReplacementRemained.store(workers.size() == 1 && workers.front().volumeId == 8,
+                                         std::memory_order_release);
         supersedeReturned.store(true, std::memory_order_release);
     });
     WaitForFlag(supersedeReturned, std::chrono::milliseconds(400));
@@ -923,7 +950,6 @@ void TestSupersedeDoesNotAdmitReplacementsWhileStalled() {
           "the supersede requests the stalled volume's worker to stop");
     Check(!stopEight->load(std::memory_order_acquire),
           "the supersede leaves the other volume's worker untouched");
-    Check(workers.size() == 2, "no replacement is admitted while the stalled worker is parked");
 
     SetEvent(fixture->release);
     WaitForFlag(supersedeReturned, std::chrono::seconds(3));
@@ -932,7 +958,7 @@ void TestSupersedeDoesNotAdmitReplacementsWhileStalled() {
         std::_Exit(EXIT_FAILURE);
     }
     supersedeOwner.join();
-    Check(workers.size() == 1 && workers.front().volumeId == 8,
+    Check(onlyTheReplacementRemained.load(std::memory_order_acquire),
           "the stalled volume's slot is drained and only the replacement is admitted afterwards");
 
     ffindexsvc::detail::StopAndJoinAll(workers);
@@ -974,6 +1000,129 @@ void TestRepeatedStalledStopStartCyclesRemainBounded() {
     std::printf("measured: repeated stalled stop/start cycles completed without accumulation\n");
 }
 
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+// (reviewer finding B-MINOR): a stop that lands while a pre-enumeration setup
+// failure is in flight must win. Cancellation stays terminal-free on the setup
+// paths exactly as ScanOutput::Finish already guarantees for the enumeration
+// path, for both a failure-terminal-capable peer and an unreportable one.
+void TestStopDuringSetupFailureStaysSilent() {
+    const ffprotocol::ProtocolVersion versions[] = {{2, 2}, {2, 1}, {1, 5}};
+    for (const auto negotiated : versions) {
+        auto pair = CreatePipePair();
+        Check(pair != nullptr, "stop-vs-setup-failure case creates an in-process pipe pair");
+        if (!pair) return;
+        const wchar_t unmounted = ResolveUnmountedDriveLetter();
+        Check(unmounted != L'\0', "the test host has a drive letter with no volume behind it");
+        if (unmounted == L'\0') return;
+
+        std::mutex writeMutex;
+        std::atomic<bool> shouldStop{false};
+        std::atomic<bool> transportFailed{false};
+        const ffindexsvc::ScanRunResult result = ffindexsvc::RunVolumeScanWithFailureHookForTesting(
+            pair->server, writeMutex, ffprotocol::VolumeId{7}, unmounted, {}, false, negotiated, shouldStop,
+            [&shouldStop] { shouldStop.store(true, std::memory_order_release); }, &transportFailed);
+
+        char description[192];
+        std::snprintf(description, sizeof(description),
+                      "{%u,%u} a stop during a setup failure reports cancellation",
+                      negotiated.major, negotiated.minor);
+        Check(result == ffindexsvc::ScanRunResult::Cancelled, description);
+        std::snprintf(description, sizeof(description),
+                      "{%u,%u} a stop during a setup failure requests no connection abort",
+                      negotiated.major, negotiated.minor);
+        Check(!transportFailed.load(), description);
+        DWORD available = 0;
+        const bool peeked = PeekNamedPipe(pair->client, nullptr, 0, nullptr, &available, nullptr) != FALSE;
+        std::snprintf(description, sizeof(description),
+                      "{%u,%u} a stop during a setup failure writes no terminal",
+                      negotiated.major, negotiated.minor);
+        Check(peeked && available == 0, description);
+    }
+}
+
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 4.2/5.2
+// (reviewer finding B-MAJOR): the journal worker owns the same ActiveWorker
+// lifecycle as the scan worker, and its frames are written through the same
+// production WriteFrameWithDeadline primitive. The fixture parks a
+// journal-shaped worker in the same non-cancelable operation and measures the
+// same promises separately: the stop request returns immediately, the owner
+// waits for the operation, per-volume stop leaves the other journal untouched,
+// and a late worker whose connection is already torn down cannot frame a
+// journal message. The raw FSCTL_READ_USN_JOURNAL completion bound itself
+// remains UNPROVEN (no real volume; see the architecture note).
+void TestJournalWorkerStopUsesTheSameBoundedRequest() {
+    auto pair = CreatePipePair();
+    Check(pair != nullptr, "journal-worker fixture creates an in-process pipe pair");
+    if (!pair) return;
+    auto fixture = CreateStallFixture();
+    Check(fixture != nullptr, "journal-worker fixture creates its coordination events");
+    if (!fixture) return;
+
+    auto stopEleven = std::make_shared<std::atomic<bool>>(false);
+    auto stopTwelve = std::make_shared<std::atomic<bool>>(false);
+    std::atomic<uint32_t> entered{0};
+    std::vector<ffindexsvc::detail::ActiveWorker> activeJournals;
+    for (const uint32_t volumeId : {11u, 12u}) {
+        ffindexsvc::detail::ActiveWorker worker;
+        worker.volumeId = volumeId;
+        worker.stopFlag = volumeId == 11 ? stopEleven : stopTwelve;
+        worker.thread = std::thread([&fixture, &entered] {
+            entered.fetch_add(1, std::memory_order_acq_rel);
+            WaitForSingleObject(fixture->release, INFINITE); // the non-cooperative journal IOCTL
+        });
+        activeJournals.push_back(std::move(worker));
+    }
+    const auto enteredDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (entered.load(std::memory_order_acquire) < 2 && std::chrono::steady_clock::now() < enteredDeadline) {
+        Sleep(5);
+    }
+    Check(entered.load(std::memory_order_acquire) == 2,
+          "both journal workers reach their parked operations");
+
+    const auto requestStarted = std::chrono::steady_clock::now();
+    const bool cancelRequested = ffindexsvc::detail::RequestWorkerStop(activeJournals[0]);
+    const auto requestElapsed = ElapsedMilliseconds(requestStarted);
+    Check(cancelRequested, "the journal owner reports the cancellation request was made");
+    Check(requestElapsed < std::chrono::milliseconds(500),
+          "requesting a journal cancellation returns without waiting for the operation");
+    Check(stopEleven->load(std::memory_order_acquire) && !stopTwelve->load(std::memory_order_acquire),
+          "the journal stop request is scoped to the requested volume only");
+
+    std::atomic<bool> ownerReturned{false};
+    std::thread owner([&] {
+        ffindexsvc::detail::StopAndJoin(activeJournals, 11);
+        ownerReturned.store(true, std::memory_order_release);
+    });
+    WaitForFlag(ownerReturned, std::chrono::milliseconds(400));
+    Check(!ownerReturned.load(std::memory_order_acquire),
+          "a journal stop does not return while the journal operation is parked (request != completion)");
+    SetEvent(fixture->release);
+    WaitForFlag(ownerReturned, std::chrono::seconds(3));
+    if (!ownerReturned.load(std::memory_order_acquire)) {
+        std::fprintf(stderr, "journal-worker fixture did not return after the operation released\n");
+        std::_Exit(EXIT_FAILURE);
+    }
+    owner.join();
+    Check(activeJournals.size() == 1 && activeJournals.front().volumeId == 12,
+          "the stopped journal's slot is drained and the other journal keeps running");
+    ffindexsvc::detail::StopAndJoinAll(activeJournals);
+    Check(activeJournals.empty(), "StopAndJoinAll drains every journal worker slot");
+
+    // The production journal frame writer suppresses a late worker whose
+    // connection was already torn down.
+    std::atomic<bool> connectionDead{true};
+    constexpr uint16_t kJournalOpenedMessage = static_cast<uint16_t>(ffprotocol::MessageType::UsnJournalOpened);
+    const ffprotocol::UsnJournalOpenedPayload journalOpened{ffprotocol::VolumeId{11}, 1, 2};
+    const bool journalWriteAccepted =
+        ffindexsvc::WriteFrameWithDeadline(pair->server, kJournalOpenedMessage, &journalOpened,
+                                           sizeof(journalOpened), &connectionDead);
+    Check(!journalWriteAccepted,
+          "a late journal worker's frame write is suppressed on a torn-down connection");
+    DWORD available = 0;
+    const bool peeked = PeekNamedPipe(pair->client, nullptr, 0, nullptr, &available, nullptr) != FALSE;
+    Check(peeked && available == 0, "no journal frame reaches the pipe from the suppressed late write");
+}
+
 } // namespace
 
 int main() {
@@ -1008,5 +1157,7 @@ int main() {
     TestDeadConnectionSuppressesLateWorkerWrites();
     TestSupersedeDoesNotAdmitReplacementsWhileStalled();
     TestRepeatedStalledStopStartCyclesRemainBounded();
+    TestStopDuringSetupFailureStaysSilent();
+    TestJournalWorkerStopUsesTheSameBoundedRequest();
     return fftest::FailureCount() == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

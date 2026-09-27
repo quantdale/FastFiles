@@ -17,9 +17,13 @@ struct ProtocolVersion {
 // index-durability-false-success-closure: a {2,2} peer understands the
 // additive ScanFailed terminal message. Because major is the only
 // compatibility gate and negotiation takes the per-component min, a 2.2 peer
-// talking to a 2.1-or-older peer simply keeps the legacy ScanComplete
-// terminal on every path -- exactly as the service's SendJournalBatch
-// major-1 branch works today.
+// talking to a 2.1-or-older peer keeps the legacy ScanComplete terminal on
+// every successful path and receives no terminal at all for a failed scan
+// (legacy-protocol-correctness-and-raw-volume-cancellation-closure D3): the
+// failure is not representable to that peer, so the service ends the
+// connection instead of writing a false-success ScanComplete -- the same
+// shape as the service's SendJournalBatch major-1 branch, which omits a
+// reply-only type an older peer cannot parse.
 constexpr ProtocolVersion kCurrentProtocolVersion{2, 2};
 
 // Major must match, or be exactly one behind current, to absorb staged

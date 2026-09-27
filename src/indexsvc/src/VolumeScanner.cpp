@@ -119,11 +119,26 @@ bool SendScanComplete(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId 
 // pre-enumeration failure path routes through the single terminal decision and
 // maps its outcome onto the scan result. A peer that cannot parse ScanFailed
 // receives no terminal -- FailureAbortedConnection tells the worker boundary
-// to end the connection instead of emitting a false success.
+// to end the connection instead of emitting a false success. A stop that
+// landed while the failing call was in progress wins: cancellation stays
+// terminal-free, exactly as ScanOutput::Finish already treats it.
+#if defined(FF_INDEXSVC_TESTING)
+thread_local BeforeFailedScanTerminalForTesting gBeforeFailedScanTerminalForTesting;
+#endif
+
 ScanRunResult DeliverFailedScanTerminal(HANDLE pipe, std::mutex& writeMutex,
                                         ffprotocol::VolumeId volumeId,
                                         ffprotocol::ProtocolVersion negotiatedVersion,
+                                        const std::atomic<bool>& shouldStop,
                                         std::atomic<bool>* transportFailed) {
+#if defined(FF_INDEXSVC_TESTING)
+    if (gBeforeFailedScanTerminalForTesting) {
+        gBeforeFailedScanTerminalForTesting();
+    }
+#endif
+    if (shouldStop.load()) {
+        return ScanRunResult::Cancelled;
+    }
     const ScanTerminalOutcome terminal =
         SendScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, false, transportFailed);
     if (terminal == ScanTerminalOutcome::TransportFailed) {
@@ -263,8 +278,11 @@ private:
 // the caller writes nothing and ends the connection, and the engine's
 // existing disconnect path refuses authority and recovers on a fresh
 // connection (same shape as the silent-cancellation path).
-// hardening-campaign Phase 7 H2: declared in VolumeScanner.h so the
-// ServiceConnection exception boundary can emit the failure terminal too.
+// hardening-campaign Phase 7 H2 / legacy-protocol-correctness-and-raw-volume-
+// cancellation-closure D3: declared in VolumeScanner.h so the worker boundary
+// and the focused fixtures share one terminal decision; the ServiceConnection
+// worker exception boundary deliberately appends no terminal (a possibly
+// partial stream is connection-fatal).
 ScanTerminalOutcome SendScanTerminal(HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId,
                                      ffprotocol::ProtocolVersion negotiatedVersion, bool success,
                                      std::atomic<bool>* transportFailed) {
@@ -339,7 +357,8 @@ ScanRunResult RunVolumeScan(
         LogRawVolumeOpenDiagnostic(
             volumePath, tokenState,
             ClassifyRawVolumeOpen(tokenState, false, privilegeEnableError), privilegeEnableError);
-        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop,
+                                         transportFailed);
     }
     // Capture the actual service token immediately before the raw-volume
     // open. The capture is observational and must not alter the call path.
@@ -352,7 +371,8 @@ ScanRunResult RunVolumeScan(
     LogRawVolumeOpenDiagnostic(volumePath, tokenState,
                                ClassifyRawVolumeOpen(tokenState, volumeOpened, volumeOpenError), volumeOpenError);
     if (!volumeOpened) {
-        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop,
+                                         transportFailed);
     }
 
     // Authoritative record/sector geometry comes from the volume itself,
@@ -362,14 +382,16 @@ ScanRunResult RunVolumeScan(
     if (!DeviceIoControl(volumeHandle.get(), FSCTL_GET_NTFS_VOLUME_DATA, nullptr, 0, &volumeData, sizeof(volumeData),
                            &bytesReturned, nullptr)) {
         volumeHandle.reset();
-        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop,
+                                         transportFailed);
     }
 
     const uint32_t recordSize = static_cast<uint32_t>(volumeData.BytesPerFileRecordSegment);
     const uint32_t bytesPerSector = static_cast<uint32_t>(volumeData.BytesPerSector);
     if (recordSize == 0 || bytesPerSector == 0) {
         volumeHandle.reset();
-        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, transportFailed);
+        return DeliverFailedScanTerminal(pipe, writeMutex, volumeId, negotiatedVersion, shouldStop,
+                                         transportFailed);
     }
 
     const size_t outputBufferSize = sizeof(NTFS_FILE_RECORD_OUTPUT_BUFFER) - 1 + recordSize;
@@ -543,5 +565,19 @@ ScanRunResult RunVolumeScan(
     // terminal; ServiceConnection closes this connection before reconnect.
     return scanOutput.Finish(enumerationFailed);
 }
+
+#if defined(FF_INDEXSVC_TESTING)
+ScanRunResult RunVolumeScanWithFailureHookForTesting(
+    HANDLE pipe, std::mutex& writeMutex, ffprotocol::VolumeId volumeId, wchar_t driveLetter,
+    const std::vector<uint8_t>& resumeCursor, bool lowPriority,
+    ffprotocol::ProtocolVersion negotiatedVersion, const std::atomic<bool>& shouldStop,
+    const BeforeFailedScanTerminalForTesting& beforeFailure, std::atomic<bool>* transportFailed) {
+    gBeforeFailedScanTerminalForTesting = beforeFailure;
+    const ScanRunResult result = RunVolumeScan(pipe, writeMutex, volumeId, driveLetter, resumeCursor, lowPriority,
+                                               negotiatedVersion, shouldStop, transportFailed);
+    gBeforeFailedScanTerminalForTesting = nullptr;
+    return result;
+}
+#endif
 
 } // namespace ffindexsvc

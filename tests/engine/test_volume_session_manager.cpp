@@ -1171,6 +1171,160 @@ void TestConnectionLossAbortsReconciliationPassWithoutAuthority() {
     manager.Stop();
 }
 
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+// (reviewer finding A-F1/C-MAJOR): an unreportable legacy failure ends the
+// connection without a terminal, so the delivered-ScanFailed retry queue is
+// never armed and the connection-scoped session is cleared. The replacement
+// connection must not restart a persistently failing scan immediately; the
+// durable per-volume reissue floor keeps the documented five-second cadence.
+void TestLegacyFailureReissueIsThrottledAfterConnectionLoss() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_legacy_reissue_floor.db")),
+          "pipeline opens for the legacy reissue-floor test");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the legacy reissue-floor fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 1;
+    // A persistent selection makes the volume eligible for the normal
+    // OnVolumeList start path on every connection generation. The volume is
+    // resolved through the manager's own production path so the durable
+    // identity is the one a real reconnect would see.
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    manager.Start();
+
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    auto readNextFrame = [&capture]() {
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (!HasCapturedBytes(capture->client) && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(10ms);
+        }
+        return HasCapturedBytes(capture->client) ? ffipc::ReadFrame(capture->client) : std::nullopt;
+    };
+    auto drainFrames = [&capture]() {
+        while (HasCapturedBytes(capture->client)) {
+            if (!ffipc::ReadFrame(capture->client)) break;
+        }
+    };
+    const auto firstEnumeration = readNextFrame();
+    Check(firstEnumeration && firstEnumeration->header.messageType ==
+              static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the first Active period re-derives volumes from EnumerateVolumes");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
+    if (manager.sessionsByEphemeralId_.empty()) {
+        Check(false, "the fixture host resolves a scannable C: volume");
+        manager.Stop();
+        return;
+    }
+    const auto firstScan = readNextFrame();
+    Check(firstScan && firstScan->header.messageType ==
+              static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the first connection starts the volume's initial scan");
+    drainFrames();
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+
+    // The pre-{2,2} service aborted the connection while that scan was still
+    // in flight: no terminal of any kind was delivered.
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+    Check(manager.sessionsByEphemeralId_.empty(),
+          "the connection loss clears the connection-scoped session");
+    Check(manager.scanReissueFloors_.size() == 1,
+          "the connection loss records a durable reissue floor for the interrupted scan");
+
+    // The replacement connection re-enumerates and finds the same volume.
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto secondEnumeration = readNextFrame();
+    Check(secondEnumeration && secondEnumeration->header.messageType ==
+              static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the fresh Active period re-derives volumes from EnumerateVolumes");
+    drainFrames();
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
+
+    Check(!HasCapturedBytes(capture->client),
+          "the post-teardown scan reissue is deferred instead of immediate");
+    bool queued = false;
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        queued = manager.failedScanRetries_.contains(7);
+        if (queued) {
+            manager.failedScanRetries_.at(7).due = std::chrono::steady_clock::now() - 1ms;
+            ++manager.scanRetryGeneration_;
+        }
+    }
+    Check(queued, "the deferred reissue is queued on the bounded retry scheduler");
+    manager.wakeCv_.notify_one();
+
+    const auto message = ReadCapturedMessage(capture->client);
+    Check(message == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the due floor reissues StartVolumeScan on the replacement connection");
+    manager.Stop();
+}
+
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+// (reviewer finding A-F2): batches dropped while paused are a coverage hole.
+// If the volume resumes before the terminal arrives, the old pause-at-terminal
+// check no longer sees the drop, so a reconciliation pass could finalize a
+// seen-set missing the dropped window and delete still-valid rows. The dropped
+// batch must make the in-flight scan non-authoritative.
+void TestPausedReconciliationDropIsNonAuthoritative() {
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_paused_reconciliation_drop.db")),
+          "pipeline opens for the paused-reconciliation-drop test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 82;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    Check(pipeline.ApplyMftBatch(volumeId, {MakeMftRecord(5, 5, u"", 0x10, 0),
+                                            MakeMftRecord(100, 5, u"seed.txt", 0, 1)}),
+          "the paused-drop fixture seeds a durable root + file entry");
+    Check(pipeline.MarkScanComplete(volumeId), "the fixture volume is already fully indexed");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    AddSession(manager, volumeId);
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true;
+    session.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    manager.SetIndexingPaused(0, true);
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{9, 9, 9},
+                                  {MakeMftRecord(200, 5, u"during-pause.txt", 0, 2)});
+    Check(session.scanBatchFailed,
+          "a batch dropped while paused marks the in-flight scan non-authoritative");
+
+    // The volume resumes before the scan's terminal arrives.
+    manager.SetIndexingPaused(0, false);
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{10, 10, 10},
+                                  {MakeMftRecord(300, 5, u"after-resume.txt", 0, 3)});
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "the incomplete reconciliation pass is discarded, not finalized");
+    Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
+          "an already-indexed volume keeps its completion state through the dropped window");
+    {
+        const auto snapshot = pipeline.ExportDirectorySnapshot(volumeId, L"C:");
+        const auto root = snapshot.find(L"C:");
+        bool seedPresent = false;
+        if (root != snapshot.end()) {
+            for (const auto& entry : root->second.entries) {
+                if (entry.name == L"seed.txt") seedPresent = true;
+            }
+        }
+        Check(seedPresent,
+              "no durable row is deleted from the partial seen-set left by the paused window");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1194,5 +1348,7 @@ int main() {
     TestHeartbeatServicePeerRevalidationDropsToDisconnected();
     TestPartialFrameDisconnectReconnectsAndReauthorizes();
     TestConnectionLossAbortsReconciliationPassWithoutAuthority();
+    TestLegacyFailureReissueIsThrottledAfterConnectionLoss();
+    TestPausedReconciliationDropIsNonAuthoritative();
     return fftest::FailureCount() == 0 ? 0 : 1;
 }

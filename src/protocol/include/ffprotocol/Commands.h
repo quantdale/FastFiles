@@ -46,14 +46,17 @@ enum class MessageType : uint16_t {
     // JournalRecordBatchV2.
     ScanRecordBatchV2 = 20,    // service -> client, MFT record layout with allocatedSizeBytes
     JournalRecordBatchV3 = 21, // service -> engine, USN V3 layout with allocatedSizeBytes presence bit
-    // index-durability-false-success-closure D1: additive terminal failure message.
-    // Sent by the service *instead of* ScanComplete when a scan cannot run to
-    // completion (setup denial, volume-data failure, mid-scan non-EOF I/O fault).
-    // Sent only to peers that negotiated protocol {2,2}+ (ProtocolSupportsScanFailure);
-    // a legacy peer keeps receiving today's ScanComplete byte-for-byte. Distinct
-    // type (not a re-used/extended ScanComplete) so a legacy exact-length parser
-    // can never misread it, and completion and failure stay mutually exclusive
-    // signals the engine can trust independently.
+    // index-durability-false-success-closure D1, corrected by
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3:
+    // additive terminal failure message. Sent by the service *instead of*
+    // ScanComplete when a scan cannot run to completion (setup denial,
+    // volume-data failure, mid-scan non-EOF I/O fault) and the negotiated peer
+    // can parse it ({2,2}+). A peer below {2,2} has no failure terminal at all:
+    // the service writes nothing for a failed scan and ends that connection
+    // instead of emitting a false-success ScanComplete. Distinct type (not a
+    // re-used/extended ScanComplete) so a legacy exact-length parser can never
+    // misread it, and completion and failure stay mutually exclusive signals
+    // the engine can trust independently.
     ScanFailed = 22, // service -> engine, exactly once per scan that failed to complete
 };
 
@@ -116,14 +119,16 @@ struct VolumeListHeader {
 // (previously issued by this same service via ScanRecordBatchHeader,
 // tasks.md 6.3) immediately follow this fixed struct on the wire; 0 means
 // "no cursor supplied -- scan from the beginning" (spec "Omitted cursor
-// performs a full scan").
-constexpr uint16_t kMaxScanCursorLengthBytes = 256;
+// performs a full scan"). `inline` because a header-declared constant is not
+// used by every including translation unit (it is consumed by
+// protocol/src/Commands.cpp's validators and by the engine's request builder).
+inline constexpr uint16_t kMaxScanCursorLengthBytes = 256;
 
 // StartVolumeScan flags. A reconciliation sweep is deliberately run in
 // Windows background mode so its CPU and I/O work yield to foreground
 // browsing and initial indexing.
 constexpr uint16_t kStartVolumeScanLowPriority = 0x0001;
-constexpr uint16_t kKnownStartVolumeScanFlags = kStartVolumeScanLowPriority;
+inline constexpr uint16_t kKnownStartVolumeScanFlags = kStartVolumeScanLowPriority;
 
 // Protocol v1 ended after the cursor length. Keep its exact packed layout
 // so a v2 engine can still talk to a negotiated v1 service.

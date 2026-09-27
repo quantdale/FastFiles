@@ -133,6 +133,23 @@ ScanRunResult RunSyntheticVolumeScanForTesting(
 // Throws after taking ownership to verify that the production handle guard
 // closes an acquired volume handle when later scan work raises an exception.
 void ThrowAfterVolumeHandleAcquiredForTesting(HANDLE handle);
+
+// legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+// (reviewer finding B-MINOR): invoked immediately before a pre-enumeration
+// failure terminal decision, so a fixture can publish a concurrent stop and
+// prove cancellation stays terminal-free on those paths too.
+using BeforeFailedScanTerminalForTesting = std::function<void()>;
+ScanRunResult RunVolumeScanWithFailureHookForTesting(
+    HANDLE pipe,
+    std::mutex& writeMutex,
+    ffprotocol::VolumeId volumeId,
+    wchar_t driveLetter,
+    const std::vector<uint8_t>& resumeCursor,
+    bool lowPriority,
+    ffprotocol::ProtocolVersion negotiatedVersion,
+    const std::atomic<bool>& shouldStop,
+    const BeforeFailedScanTerminalForTesting& beforeFailure,
+    std::atomic<bool>* transportFailed = nullptr);
 #endif
 
 } // namespace ffindexsvc

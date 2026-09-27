@@ -191,6 +191,11 @@ void RunCtrlConnection(HANDLE pipeHandle, HANDLE shutdownEvent, const std::wstri
     // A worker that observes a transport-fatal write failure sets this before
     // cancelling pending overlapped I/O. The control loop then cannot keep
     // dispatching on a byte stream whose frame boundary is no longer trusted.
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3 also
+    // sets it for a failure the negotiated peer cannot be told about: that
+    // stream is still clean, but the attempt must end by tearing the
+    // connection down rather than writing a false-success terminal, and this
+    // one flag is what makes the control loop stop dispatching and tear down.
     auto transportFailed = std::make_shared<std::atomic<bool>>(false);
 
     bool disconnect = false;

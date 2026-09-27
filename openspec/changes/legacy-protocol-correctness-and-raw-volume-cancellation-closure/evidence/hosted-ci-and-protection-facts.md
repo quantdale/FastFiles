@@ -49,10 +49,10 @@ Four job definitions, all `runs-on: windows-latest`:
    matrix `preset: [debug, release-test, analyze]` (L19) → **3 executions**
    Steps: Checkout (L21); `./verify/check_source_markers.ps1` (L26); `./verify/check_diagnostic_policy.ps1` (L30); configure/build/test via `Toolchain.psm1` (L34); runs `ctest --preset ${{ matrix.preset }}` only when preset != `analyze` (L51).
 2. `asan` (L65), `name: asan-protocol-ipc-lifecycle` (L66), timeout 30 (L68)
-   Steps: Checkout; check_source_markers; check_diagnostic_policy; `--preset asan`, build targets `ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests` (L96), ctest `-R "^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests|ffvolumescanner_terminal_tests)$"` (L100).
+   Steps: Checkout; check_source_markers; check_diagnostic_policy; `--preset asan`, build targets `ffprotocol_fuzz_tests ffipc_framing_tests ffipc_listener_lifecycle_tests ffvolumescanner_terminal_tests` (L97), ctest `-R "^(ffprotocol_fuzz_tests|ffipc_framing_tests|ffipc_listener_lifecycle_tests|ffvolumescanner_terminal_tests)$"` (L99).
 3. `hygiene` (L116), `name: repository-hygiene-and-contracts` (L117), timeout 20 (L119)
    Steps: Checkout; Source+diagnostic policy; `openspec validate --all --strict` (L134); Get-ProjectStatus/New-ReleaseReadinessReport/Test-ProjectStatus/Test-ProviderContract + `git diff --check` (L138); Visual contract tests (L153); Exact committed-tree qualification (L162); Upload artifact (L174).
-4. `release-qualification` (L184), `name: unsigned-release-candidate-qualification` (L185), timeout 45 (L187)
+4. `release-qualification` (L183), `name: unsigned-release-candidate-qualification` (L184), timeout 45 (L186)
    Steps: Checkout; Configure/build `release-test` (L193); `Test-ReleaseCandidate.ps1` (L205); Upload artifact (L211).
 
 **Job count verification:** 4 job *definitions* in the file; the `build` matrix expands `[debug, release-test, analyze]` into 3 runs → **6 total execution jobs**. This matches the real `gh run view` JOBS list (6 jobs: debug, release-test, analyze, asan-protocol-ipc-lifecycle, repository-hygiene-and-contracts, unsigned-release-candidate-qualification). So the "six-job required matrix" = 6 executions from 4 definitions.

@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <thread>
 
@@ -146,6 +147,15 @@ private:
     // missed events, rather than an unconditional full rescan discarding
     // existing rows.
     bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
+    // Caller holds mutex_. Returns the pending reissue floor for a volume whose
+    // previous scan ended in connection loss, or nullopt when a reissue may
+    // proceed (an expired floor is erased as it is consulted).
+    std::optional<std::chrono::steady_clock::time_point> ScanReissueFloorLocked(
+        ffindexstore::VolumeRowId durableId);
+    // Arms the existing bounded retry scheduler for a deferred reissue.
+    // Takes wakeMutex_ only, so it must be called outside mutex_.
+    void ArmScanReissue(ffprotocol::VolumeId ephemeralId, std::chrono::steady_clock::time_point due,
+                        bool reconciliation);
     void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force = false);
     // True when the volume's indexing is currently paused (globally or by
     // letter). Callers must hold mutex_.
@@ -198,6 +208,16 @@ private:
     // spawning an unowned thread. Disconnect and Stop clear ephemeral entries.
     std::map<uint32_t, FailedScanRetry> failedScanRetries_;
     uint64_t scanRetryGeneration_ = 0; // guarded by wakeMutex_
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure D3/8.6:
+    // per durable volume, a floor before the next scan reissue after a
+    // connection ended without any terminal (the unreportable legacy failure
+    // aborts its connection, so no ScanFailed can arm the retry queue). Keyed
+    // by durable identity because the connection-scoped sessions are cleared
+    // on that transition, and honored by both the resume and reconciliation
+    // issue paths so the documented five-second failed-scan cadence is
+    // preserved instead of spinning reconnect -> rescan -> teardown. Guarded
+    // by mutex_; decayed entries are erased when consulted.
+    std::map<ffindexstore::VolumeRowId, FailedScanRetry> scanReissueFloors_;
 };
 
 } // namespace ffengine

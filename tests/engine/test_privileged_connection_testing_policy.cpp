@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -80,7 +81,26 @@ void TestPrivilegedConnectionTestSeamScopeAndProductionFallback() {
     const std::regex focusedTargetDefinition(
         R"(target_compile_definitions\s*\(\s*ffengine_volume_session_manager_tests\s+PRIVATE\s+FF_PRIVILEGED_CONNECTION_TESTING\s*=\s*1\s*\))");
     fftest::Check(std::regex_search(focusedTestCmake, focusedTargetDefinition),
-                  "only ffengine_volume_session_manager_tests receives the test-only definition");
+                  "ffengine_volume_session_manager_tests receives the test-only definition");
+    // legacy-protocol-correctness-and-raw-volume-cancellation-closure 8.6
+    // (reviewer finding): the macro now gates two engine test targets, so the
+    // guard must assert the exact set instead of only searching for one of
+    // them -- otherwise any further target could silently receive the
+    // identity-verifier substitution seam while this test still passes.
+    const std::regex macroTargetDefinitions(
+        R"(target_compile_definitions\s*\(\s*(ffengine_[a-z_]+)\s+PRIVATE[^)]*FF_PRIVILEGED_CONNECTION_TESTING\s*=\s*1[^)]*\))");
+    std::vector<std::string> macroTargets;
+    for (std::sregex_iterator it(focusedTestCmake.begin(), focusedTestCmake.end(), macroTargetDefinitions), end;
+         it != end; ++it) {
+        macroTargets.push_back((*it)[1].str());
+    }
+    std::sort(macroTargets.begin(), macroTargets.end());
+    const std::vector<std::string> expectedMacroTargets = {
+        "ffengine_legacy_scan_failure_binding_tests",
+        "ffengine_volume_session_manager_tests",
+    };
+    fftest::Check(macroTargets == expectedMacroTargets,
+                  "exactly the two intended engine test targets receive the test-only definition");
     fftest::Check(productionCmake.find("FastFilesEngine") != std::string::npos &&
                       productionCmake.find(kTestMacro) == std::string::npos,
                   "the production FastFilesEngine target does not receive the test-only definition");
