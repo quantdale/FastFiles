@@ -72,6 +72,15 @@ if ($null -eq $pwsh) {
         $liveAttempt = Invoke-RunnerFunction -Body 'param($P) Stop-VerificationOwnedBuildProcesses -RunContext $P.RunContext -Before $P.Before -After $P.After' -Parameters @{ RunContext = $RunContext; Before = $emptyBefore; After = $liveAfter }
         Check ($liveAttempt.pass -and @($liveAttempt.residue).Count -eq 0) 'live owned identity is terminated with zero residue'
         Check (@($liveAttempt.terminated | Where-Object { $_.pid -eq $live.Id }).Count -eq 1) 'live owned identity is recorded as terminated'
+        # Terminating a process is asynchronous: the identity-checked kill can
+        # return before the kernel reaps the process object, so disappearance is
+        # verified with a bounded wait. An immediate poll made a whole-suite run
+        # under load fail intermittently; a kill that never takes effect still
+        # fails here after the bound.
+        $goneDeadline = [DateTime]::UtcNow.AddSeconds(5)
+        while ([DateTime]::UtcNow -lt $goneDeadline -and (Get-Process -Id $live.Id -ErrorAction SilentlyContinue)) {
+            Start-Sleep -Milliseconds 50
+        }
         Check (-not (Get-Process -Id $live.Id -ErrorAction SilentlyContinue)) 'terminated owned process is actually gone'
     } finally {
         try { if (-not $live.HasExited) { $live.Kill(); $null = $live.WaitForExit(5000) } } catch { }
