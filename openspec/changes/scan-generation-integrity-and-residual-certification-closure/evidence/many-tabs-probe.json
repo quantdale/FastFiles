@@ -1,0 +1,205 @@
+{
+  "exe": "D:\\Documents\\tryPython\\FastFiles\\build\\debug-diagnostic\\src\\ui\\FastFiles.exe",
+  "exeSha256": "1a31d192cd16c602e4c5849dd1488d5f0044bde5b5e82c23320ed2e762ff24f0",
+  "narrowWidth": {
+    "visibleTabButtons": 4,
+    "visibleLabels": [
+      "6: leaf-6",
+      "7: leaf-7",
+      "8: leaf-8",
+      "9: leaf-9"
+    ],
+    "rawTabButtons": 4,
+    "rawLabels": [
+      "6: leaf-6",
+      "7: leaf-7",
+      "8: leaf-8",
+      "9: leaf-9"
+    ],
+    "overflowPresent": true
+  },
+  "normalWidth": {
+    "visibleTabButtons": 9,
+    "rawTabButtons": 9,
+    "tabs": [
+      {
+        "index": 1,
+        "leaf": "leaf-1",
+        "name": "1: leaf-1"
+      },
+      {
+        "index": 2,
+        "leaf": "leaf-2",
+        "name": "2: leaf-2"
+      },
+      {
+        "index": 3,
+        "leaf": "leaf-3",
+        "name": "3: leaf-3"
+      },
+      {
+        "index": 4,
+        "leaf": "leaf-4",
+        "name": "4: leaf-4"
+      },
+      {
+        "index": 5,
+        "leaf": "leaf-5",
+        "name": "5: leaf-5"
+      },
+      {
+        "index": 6,
+        "leaf": "leaf-6",
+        "name": "6: leaf-6"
+      },
+      {
+        "index": 7,
+        "leaf": "leaf-7",
+        "name": "7: leaf-7"
+      },
+      {
+        "index": 8,
+        "leaf": "leaf-8",
+        "name": "8: leaf-8"
+      },
+      {
+        "index": 9,
+        "leaf": "leaf-9",
+        "name": "9: leaf-9"
+      }
+    ],
+    "overflowPresent": false
+  },
+  "targetTabs": 9,
+  "initialTabButtons": 1,
+  "afterClicksTabButtons": 9,
+  "hiddenTabActivation": {
+    "entry": "first",
+    "activatedIndex": 1.0,
+    "activatedLabel": "1: leaf-1",
+    "activatedLeaf": "leaf-1",
+    "hiddenBeforeSelection": true,
+    "visibleAfterSelection": true,
+    "workspaceEvidence": [],
+    "paneColumns": [
+      {
+        "automationId": "Pane.0.Column.0",
+        "name": "C:\\"
+      },
+      {
+        "automationId": "Pane.0.Column.1",
+        "name": "C:\\Users"
+      },
+      {
+        "automationId": "Pane.0.Column.2",
+        "name": "C:\\Users\\palac"
+      },
+      {
+        "automationId": "Pane.0.Column.3",
+        "name": "C:\\Users\\palac\\AppData"
+      },
+      {
+        "automationId": "Pane.0.Column.4",
+        "name": "C:\\Users\\palac\\AppData\\Local"
+      },
+      {
+        "automationId": "Pane.0.Column.5",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp"
+      },
+      {
+        "automationId": "Pane.0.Column.6",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp\\ff-many-tabs-370c9a3aa1e449a4a54001648392873e"
+      },
+      {
+        "automationId": "Pane.0.Column.7",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp\\ff-many-tabs-370c9a3aa1e449a4a54001648392873e\\leaf-1"
+      }
+    ],
+    "workspaceMatchesLeaf": true
+  },
+  "logicalTabCount": 9.0,
+  "normalWidthAfterNarrow": {
+    "visibleTabButtons": 9,
+    "labels": [
+      "1: leaf-1",
+      "2: leaf-2",
+      "3: leaf-3",
+      "4: leaf-4",
+      "5: leaf-5",
+      "6: leaf-6",
+      "7: leaf-7",
+      "8: leaf-8",
+      "9: leaf-9"
+    ],
+    "overflowPresent": false
+  },
+  "closeDiagnostics": {
+    "appAlive": true,
+    "mainWindowPresent": true,
+    "dialogPresent": false
+  },
+  "closeIdentity": {
+    "closedLeaf": "leaf-5",
+    "visibleTabButtonsAfterClose": 8,
+    "labelsAfterClose": [
+      "1: leaf-1",
+      "2: leaf-2",
+      "3: leaf-3",
+      "4: leaf-4",
+      "5: leaf-6",
+      "6: leaf-7",
+      "7: leaf-8",
+      "8: leaf-9"
+    ],
+    "leavesAfterClose": [
+      "leaf-1",
+      "leaf-2",
+      "leaf-3",
+      "leaf-4",
+      "leaf-6",
+      "leaf-7",
+      "leaf-8",
+      "leaf-9"
+    ],
+    "remainingLeavesIntact": true
+  },
+  "switchIdentity": {
+    "switchedToLabel": "6: leaf-7",
+    "workspaceEvidence": [],
+    "paneColumns": [
+      {
+        "automationId": "Pane.0.Column.0",
+        "name": "C:\\"
+      },
+      {
+        "automationId": "Pane.0.Column.1",
+        "name": "C:\\Users"
+      },
+      {
+        "automationId": "Pane.0.Column.2",
+        "name": "C:\\Users\\palac"
+      },
+      {
+        "automationId": "Pane.0.Column.3",
+        "name": "C:\\Users\\palac\\AppData"
+      },
+      {
+        "automationId": "Pane.0.Column.4",
+        "name": "C:\\Users\\palac\\AppData\\Local"
+      },
+      {
+        "automationId": "Pane.0.Column.5",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp"
+      },
+      {
+        "automationId": "Pane.0.Column.6",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp\\ff-many-tabs-370c9a3aa1e449a4a54001648392873e"
+      },
+      {
+        "automationId": "Pane.0.Column.7",
+        "name": "C:\\Users\\palac\\AppData\\Local\\Temp\\ff-many-tabs-370c9a3aa1e449a4a54001648392873e\\leaf-7"
+      }
+    ],
+    "workspaceMatchesLeaf": true
+  }
+}

@@ -1450,6 +1450,34 @@
       ],
       "supersededBy": null,
       "taskOverrides": []
+    },
+    {
+      "name": "scan-generation-integrity-and-residual-certification-closure",
+      "state": "active",
+      "evidence": [
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/proposal.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/design.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/tasks.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/evidence/explore-findings.md"
+        },
+        {
+          "kind": "repository-path",
+          "path": "openspec/changes/scan-generation-integrity-and-residual-certification-closure/evidence/apply-baseline.md"
+        }
+      ],
+      "supersededBy": null,
+      "taskOverrides": []
     }
   ]
 }

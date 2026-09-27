@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "schema": "fastfiles.visual-release-classification.v1",
+  "timestampUtc": "2026-09-27T09:44:14.4880089Z",
+  "commit": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+  "functional": "PASS",
+  "accessibility": "BLOCKED",
+  "visualRegression": "PASS",
+  "visualReview": "BLOCKED",
+  "evidence": {
+    "functional": "1 passed / 0 failed / 0 skipped",
+    "accessibility": "no dedicated accessibility checks (roles, names, focus visibility, contrast) executed in this capability run",
+    "visualRegression": "1 DWM captures passed semantic postconditions with duplicate-image protection",
+    "visualReview": "deterministic capture matrix only; no vision-critic review executed (FakeCritic cannot produce review PASS)"
+  },
+  "notes": "1 captures passed; 0 skipped/blocked; 0 failed"
+}

@@ -111,6 +111,24 @@ private:
         // is issued when that scan next completes authoritatively (D4),
         // never by racing a second BeginReconciliationPass against it.
         bool deferredReconciliation = false;
+        // scan-generation-integrity-and-residual-certification-closure D2/D3:
+        // how many superseded attempts may still have a terminal in flight
+        // for this connection-scoped volume id. A replacement scan issued
+        // over an unresolved coverage hole cannot hand that older attempt's
+        // terminal a clean authority slate -- ScanComplete/ScanFailed carry
+        // only the volume id, so the two attempts are indistinguishable on
+        // the wire and a local generation counter would not label bytes
+        // already in the pipe. While this is non-zero, each terminal read is
+        // consumed as an older attempt's retirement: it marks nothing,
+        // finalizes no reconciliation pass, and erases no coverage hole.
+        uint32_t scanUnretiredAttempts = 0;
+    };
+
+    // A bounded retry deadline and its kind, shared by the delivered-failure
+    // retry queue, the durable reissue floor, and the retirement path.
+    struct FailedScanRetry {
+        std::chrono::steady_clock::time_point due;
+        bool reconciliation = false;
     };
 
     void OnVolumeList(std::vector<ffprotocol::VolumeInfo> volumes);
@@ -147,15 +165,27 @@ private:
     // missed events, rather than an unconditional full rescan discarding
     // existing rows.
     bool TriggerReconciliation(ffprotocol::VolumeId ephemeralId, ffindexstore::VolumeRowId durableId);
-    // Caller holds mutex_. Returns the pending reissue floor for a volume whose
-    // previous scan ended in connection loss, or nullopt when a reissue may
-    // proceed (an expired floor is erased as it is consulted).
-    std::optional<std::chrono::steady_clock::time_point> ScanReissueFloorLocked(
-        ffindexstore::VolumeRowId durableId);
+    // Caller holds mutex_. Consumes and returns the pending reissue floor for a
+    // volume whose previous scan ended in connection loss. The caller decides
+    // whether an unexpired floor defers the reissue, whether an expired floor
+    // reissues immediately, or whether an already-indexed volume transfers the
+    // intent onto the replacement connection's own retry slot at the same
+    // durable due time.
+    std::optional<FailedScanRetry> TakeScanReissueFloorLocked(ffindexstore::VolumeRowId durableId);
     // Arms the existing bounded retry scheduler for a deferred reissue.
     // Takes wakeMutex_ only, so it must be called outside mutex_.
     void ArmScanReissue(ffprotocol::VolumeId ephemeralId, std::chrono::steady_clock::time_point due,
                         bool reconciliation);
+    // scan-generation-integrity-and-residual-certification-closure D2/D3:
+    // arms one bounded (five-second) retry for a terminal that could not grant
+    // authority -- a coverage hole or a consumed retirement. The retry is what
+    // keeps missing coverage from waiting for the ordinary multi-minute poll /
+    // multi-hour reconciliation interval. Emits no request itself.
+    void ArmFailedScanRetry(ffprotocol::VolumeId ephemeralId, bool reconciliation);
+    // Drops the queued retry for a volume whose attempt just became
+    // authoritative: the coverage it was armed to repair is now proven
+    // complete, so the slot is consumed rather than issuing a redundant scan.
+    void ClearFailedScanRetry(ffprotocol::VolumeId ephemeralId);
     void RepublishSnapshot(ffindexstore::VolumeRowId durableId, wchar_t driveLetter, bool force = false);
     // True when the volume's indexing is currently paused (globally or by
     // letter). Callers must hold mutex_.
@@ -167,10 +197,6 @@ private:
 
     void ReconciliationSchedulerLoop();
     void RefreshProjectionScanState();
-    struct FailedScanRetry {
-        std::chrono::steady_clock::time_point due{};
-        bool reconciliation = false;
-    };
     void SendSessionTeardown(ffprotocol::VolumeId ephemeralId, const VolumeSession& session);
     bool RequestJournalOpen(ffprotocol::VolumeId ephemeralId, uint64_t resumeUsn,
                             ffindexstore::VolumeRowId expectedDurableId);

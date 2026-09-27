@@ -514,6 +514,57 @@ function Get-VisualTabCount {
     }).Count
 }
 
+# The tab strip is a responsive window over the full logical tab set: hidden
+# tabs keep their buttons (and their positions) and are reachable only through
+# the overflow affordance. Counting visible buttons therefore answers "how many
+# fit", not "how many tabs exist". Each tab's own label is "<one-based index>:
+# <leaf>", so the strip's labels carry the logical indices the harness needs.
+function Get-VisualTabStripState {
+    param($Context)
+    $buttons = @()
+    try {
+        $buttons = @(Find-UiaElement -Driver $Context.Driver -ClassName 'Button' -FromElement $Context.Main -TimeoutMs 2000 -All)
+    } catch {
+        $buttons = @()
+    }
+    $tabs = @()
+    foreach ($button in $buttons) {
+        $automationId = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $button -Name 'AutomationId')
+        if ($automationId -notmatch '^830\d+$') { continue }
+        $name = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $button -Name 'Name')
+        $index = 0
+        if ($name -match '^([0-9]+):') { $index = [int]$Matches[1] }
+        $tabs += [pscustomobject]@{ automationId = $automationId; index = $index; name = $name }
+    }
+    return @($tabs)
+}
+
+# Opens the product's own overflow affordance with a real pointer click (the
+# popup menu is modal, so a synchronous BM_CLICK would block the caller) and
+# then drives it the way a keyboard user does: UP/DOWN selects an entry of the
+# Win32 popup menu, ENTER activates it.
+function Invoke-VisualTabListSelection {
+    param($Context, [ValidateSet('first', 'last')][string] $Entry)
+    $overflow = Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 2000
+    if (-not $overflow) { return $false }
+    $point = Get-UiaClickablePoint -Driver $Context.Driver -Element $overflow
+    if (-not $point) {
+        $rect = Get-UiaElementProperty -Driver $Context.Driver -Element $overflow -Name 'BoundingRectangle'
+        if ($rect -and $rect.width -gt 0 -and $rect.height -gt 0) {
+            $point = [pscustomobject]@{ x = [int]($rect.x + $rect.width / 2); y = [int]($rect.y + $rect.height / 2) }
+        }
+    }
+    if (-not $point) { return $false }
+    $null = Send-UiaMouseInput -Driver $Context.Driver -X $point.x -Y $point.y -Button 'Left' -Action 'Click'
+    Start-Sleep -Milliseconds 400
+    $key = if ($Entry -eq 'last') { '{UP}' } else { '{DOWN}' }
+    $null = Send-UiaInput -Driver $Context.Driver -Keys $key
+    Start-Sleep -Milliseconds 250
+    $null = Send-UiaInput -Driver $Context.Driver -Keys '{ENTER}'
+    Start-Sleep -Milliseconds 700
+    return $true
+}
+
 function Invoke-VisualAction {
     param($Context, $Scenario, $Fixtures)
     switch ([string]$Scenario.Action) {
@@ -608,8 +659,77 @@ function Invoke-VisualAction {
                 $null = Invoke-UiaElementAction -Driver $Context.Driver -Element $plus -Action 'Click'
                 Start-Sleep -Milliseconds 150
             }
-            $count = Get-VisualTabCount -Context $Context
-            return (New-VisualActionResult -Pass ($count -ge 8) -Reason "many-tabs count was $count" -Evidence ([pscustomobject]@{ tabCount = $count }))
+            $narrowWidth = [int]$Scenario.Width
+            $visibleBefore = @(Get-VisualTabStripState -Context $Context)
+            $overflowPresent = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
+            $logicalCount = $visibleBefore.Count
+            $hiddenActivation = $null
+            if ($overflowPresent -and $visibleBefore.Count -gt 0) {
+                # The logical set spans more than the visible window. Select the
+                # hidden extreme through the affordance: that both reaches a
+                # hidden tab and activates its own workspace, and the activated
+                # tab's own label proves the identity that was reached.
+                $visibleIndices = @($visibleBefore | ForEach-Object { $_.index })
+                $hiddenEntry = if ($visibleIndices -contains 1) { 'last' } else { 'first' }
+                if (-not (Invoke-VisualTabListSelection -Context $Context -Entry $hiddenEntry)) {
+                    return (New-VisualActionResult -Pass $false -Reason 'the overflow affordance could not be opened and driven by keyboard')
+                }
+                $afterHidden = @(Get-VisualTabStripState -Context $Context)
+                if ($afterHidden.Count -eq 0) {
+                    return (New-VisualActionResult -Pass $false -Reason 'the tab strip exposed no tab button after the overflow selection')
+                }
+                $hiddenIndex = if ($hiddenEntry -eq 'last') {
+                    ($afterHidden | Measure-Object -Property index -Maximum).Maximum
+                } else {
+                    ($afterHidden | Measure-Object -Property index -Minimum).Minimum
+                }
+                $activated = @($afterHidden | Where-Object { $_.index -eq $hiddenIndex })
+                $hiddenActivation = [pscustomobject]@{
+                    entry = $hiddenEntry
+                    activatedIndex = $hiddenIndex
+                    activatedLabel = if ($activated.Count -gt 0) { $activated[0].name } else { $null }
+                    hiddenBeforeSelection = -not ($visibleIndices -contains $hiddenIndex)
+                    visibleAfterSelection = $activated.Count -gt 0
+                }
+                # The logical count is the highest index the affordance reaches.
+                $null = Invoke-VisualTabListSelection -Context $Context -Entry 'last'
+                $afterLast = @(Get-VisualTabStripState -Context $Context)
+                if ($afterLast.Count -eq 0) {
+                    return (New-VisualActionResult -Pass $false -Reason 'the tab strip exposed no tab button after the final overflow selection')
+                }
+                $logicalCount = ($afterLast | Measure-Object -Property index -Maximum).Maximum
+            }
+            # A width where every logical tab fits must show every tab as a
+            # visible button and hide the affordance again.
+            $normal = Set-VisualWindowSize -Context $Context -Width 1280
+            if (-not $normal.Pass) { return (New-VisualActionResult -Pass $false -Reason 'normal-width resize failed during the many-tabs proof') }
+            $normalTabs = @(Get-VisualTabStripState -Context $Context)
+            $normalOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
+            $restored = Set-VisualWindowSize -Context $Context -Width $narrowWidth
+            if (-not $restored.Pass) { return (New-VisualActionResult -Pass $false -Reason 'narrow-width restore failed after the many-tabs proof') }
+            $restoredTabs = @(Get-VisualTabStripState -Context $Context)
+            $restoredOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
+
+            $logicalFloorPass = $logicalCount -ge 8
+            $activationPass = ($null -eq $hiddenActivation) -or ($hiddenActivation.hiddenBeforeSelection -and $hiddenActivation.visibleAfterSelection)
+            $normalPass = $normalTabs.Count -eq $logicalCount -and -not $normalOverflow
+            $narrowStillOverflowsPass = ($null -eq $hiddenActivation) -or ($restoredTabs.Count -lt $logicalCount -and $restoredOverflow)
+            $reason = if (-not $logicalFloorPass) { "logical tab count was $logicalCount" }
+                elseif (-not $activationPass) { 'a hidden tab did not activate its own workspace from the overflow affordance' }
+                elseif (-not $normalPass) { "normal width exposed $($normalTabs.Count) of $logicalCount tab buttons (overflow=$normalOverflow)" }
+                elseif (-not $narrowStillOverflowsPass) { "the restored narrow width showed $($restoredTabs.Count) of $logicalCount tab buttons (overflow=$restoredOverflow)" }
+                else { $null }
+            return (New-VisualActionResult -Pass ($logicalFloorPass -and $activationPass -and $normalPass -and $narrowStillOverflowsPass) -Reason $reason -Evidence ([pscustomobject]@{
+                logicalTabCount = $logicalCount
+                visibleTabButtonsAtNarrowWidth = $visibleBefore.Count
+                narrowWidthLabels = @($visibleBefore | ForEach-Object { $_.name })
+                overflowPresentAtNarrowWidth = $overflowPresent
+                hiddenTabActivation = $hiddenActivation
+                normalWidthTabButtons = $normalTabs.Count
+                normalWidthOverflowPresent = $normalOverflow
+                restoredNarrowVisibleTabButtons = $restoredTabs.Count
+                restoredNarrowOverflowPresent = $restoredOverflow
+            }))
         }
         'resize' { return (Set-VisualWindowSize -Context $Context -Width ([int]$Scenario.Width)) }
         'dual-left' {

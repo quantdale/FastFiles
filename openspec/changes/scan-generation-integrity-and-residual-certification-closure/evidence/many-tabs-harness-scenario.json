@@ -1,0 +1,63 @@
+{
+  "Status": "PASS",
+  "Reason": null,
+  "Summary": "1 captures passed; 0 skipped/blocked; 0 failed",
+  "Artifacts": [
+    {
+      "path": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\visual-capture\\manifest.json",
+      "type": "visual-manifest"
+    },
+    {
+      "path": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\visual-capture\\manifest-v2.json",
+      "type": "visual-evidence-v2-manifest"
+    },
+    {
+      "path": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\visual-capture\\summary.md",
+      "type": "visual-summary"
+    },
+    {
+      "path": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\run.log",
+      "type": "run-log"
+    },
+    {
+      "path": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\release-classification.json",
+      "type": "visual-release-classification"
+    }
+  ],
+  "SubResults": [
+    {
+      "id": "shell-many-tabs-overflow",
+      "status": "PASS",
+      "reason": null,
+      "detail": {
+        "logicalTabCount": 9.0,
+        "visibleTabButtonsAtNarrowWidth": 4,
+        "narrowWidthLabels": [
+          "9: Home",
+          "8: Home",
+          "7: Home",
+          "6: Home"
+        ],
+        "overflowPresentAtNarrowWidth": true,
+        "hiddenTabActivation": {
+          "entry": "first",
+          "activatedIndex": 1.0,
+          "activatedLabel": "1: This PC",
+          "hiddenBeforeSelection": true,
+          "visibleAfterSelection": true
+        },
+        "normalWidthTabButtons": 9,
+        "normalWidthOverflowPresent": false,
+        "restoredNarrowVisibleTabButtons": 4,
+        "restoredNarrowOverflowPresent": true
+      }
+    }
+  ],
+  "ClassificationLegs": {
+    "Functional": "PASS",
+    "Accessibility": "BLOCKED",
+    "VisualRegression": "PASS",
+    "VisualReview": "BLOCKED",
+    "ClassificationPath": "D:\\Documents\\tryPython\\FastFiles\\build\\vis-scenario-shell-many-tabs-overflow\\release-classification.json"
+  }
+}

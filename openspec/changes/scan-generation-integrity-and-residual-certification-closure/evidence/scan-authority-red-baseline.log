@@ -1,0 +1,250 @@
+ok: pipeline opens for matching-journal test
+ok: persisted journal position is established
+ok: matching journal identity resumes instead of reconciling
+ok: matching journal preserves the persisted resume position
+ok: pipeline opens for discontinuity test
+ok: persisted prior journal position is established
+ok: changed journal identity begins reconciliation rather than blind resume
+ok: changed journal resets the stored position to the new journal's current point
+ok: pipeline opens for volume-disappearance test
+ok: volume disappearance creates a capture pipe
+ok: a disappeared volume is retained but marked unavailable
+ok: a disappeared volume requests withdrawal of its published drive snapshot
+ok: a disappeared volume explicitly stops its service scan
+ok: a disappeared volume explicitly closes its open journal
+ok: pipeline opens for volume-status test
+ok: one configured, enabled, tracked volume is reported
+ok: report addresses the volume by drive letter
+ok: a tracked volume is reported reachable
+ok: a completed scan reports no scanning condition
+ok: reconciliation still reports the volume
+ok: an active reconciliation pass reports the needs-reconciliation condition
+ok: an active reconciliation pass also reads as scanning (catch-up in progress)
+ok: pipeline opens for disabled-volume-status test
+ok: disabled volumes are not reported as index-health records
+ok: only the enabled volume appears in the report
+ok: an enabled volume with no live session reads as unreachable
+ok: an enabled tracked volume is reported
+ok: the tracked volume is the one reported
+ok: an enabled tracked volume is reported reachable
+ok: a volume whose scan never completed reports the scanning condition
+ok: pipeline opens for disable-teardown test
+ok: disable teardown creates a capture pipe
+ok: settings-and-appearance 9.2: a disabled volume's session is torn down immediately, no restart
+ok: disabling withdraws the drive's published directories
+ok: disabling a session explicitly stops its service scan
+ok: disabling a session refreshes the service volume list
+ok: disabling a session without a journal acknowledgement does not send an invalid CloseUsnJournal
+ok: re-enabling alone does not resurrect the session; the next EnumerateVolumes poll starts it
+ok: the re-enumeration poll restarts the re-enabled volume's session
+ok: pipeline opens for journal-shutdown test
+ok: journal shutdown creates a capture pipe
+ok: manager shutdown stops each owned service scan before connection teardown
+ok: manager shutdown closes each acknowledged journal before connection teardown
+ok: pipeline opens for pause test
+ok: an applied scan batch populates the index
+ok: the configured volume is still reported while paused
+ok: settings-and-appearance 9.1: pause is reflected back through the status report
+ok: batches received while paused are dropped without applying or advancing the cursor
+ok: resume clears the paused status flag
+ok: batches apply again after resume -- resume continues from the stored position, not from zero
+ok: pipeline opens for scan snapshot-throttle test
+ok: scan batches still commit to the durable projection while publication is deferred
+ok: an in-progress scan batch does not export the complete snapshot
+ok: the completion export contains the indexed directory tree
+ok: ScanComplete forces one complete snapshot export
+ok: ScanComplete clears the publication suppression state
+ok: pipeline opens for pending-decision test
+ok: a selected volume is never pending-decision
+ok: a selected volume is never pending-decision
+ok: settings-and-appearance 9.3: an observed unselected volume reads as pending-decision
+ok: adding the volume to the selection clears the pending-decision record
+ok: pipeline opens for scan-failed authority test
+ok: prior completion state is established
+ok: ScanFailed discards the reconciliation pass instead of finalizing a partial seen-set
+ok: ScanFailed leaves the prior completion state intact (PA-001 index survives)
+ok: ScanFailed leaves the reconciliation cadence clock untouched -- the failure is retried
+ok: ScanFailed clears the in-flight scan state
+ok: a duplicate ScanFailed changes nothing
+ok: the next authoritative completion still marks the volume
+ok: pipeline opens for scan-failure retry test
+ok: scan-failure retry creates a capture pipe
+ok: repeated delivered ScanFailed outcomes keep one retry slot for the same volume
+ok: each repeated ScanFailed outcome schedules no earlier than the five-second cadence
+ok: ScanFailed queues its per-volume retry deadline
+ok: the due ScanFailed retry reissues StartVolumeScan
+ok: pipeline opens for duplicate-terminal test
+ok: stale-terminal fixture persists a journal identity
+ok: a completion without a scan in flight never marks the volume indexed
+ok: a stale completion does not finalize a pass its scan did not own
+ok: a stale failure leaves pass state untouched too
+ok: a real reconciliation can still be started over the orphaned pass
+ok: the started scan is tagged as the pass owner
+ok: pipeline opens for batch-failure test
+ok: exclusive lock established for the batch-failure fixture
+ok: a rejected batch marks the scan non-authoritative
+ok: the rejected batch leaves the stored cursor untouched
+ok: completion after a failed batch does not mark the volume indexed (PA-003)
+ok: completion after a failed batch aborts the pass instead of deleting live rows
+ok: pause/resume re-issued the unfinished scan
+ok: a (re)started scan begins with a clean authority slate
+ok: a later clean scan marks completion -- the failure never poisons the volume
+ok: pipeline opens for paused-completion test
+ok: a completion received while paused does not mark the volume indexed (PA-005)
+ok: a paused completion aborts the pass -- its seen-set is missing every dropped batch
+ok: the paused completion leaves the cadence clock where it was
+ok: resume re-issues the unfinished scan
+ok: the post-resume authoritative completion marks normally
+ok: pipeline opens for deferred-reconciliation test
+ok: deferred-reconciliation test creates a capture pipe
+ok: a gap request during an in-flight scan begins no pass (PA-004)
+ok: the gap request is deferred to the scan's completion
+ok: only the journal reopen rides the wire while reconciliation is deferred
+ok: the in-flight initial scan completes authoritatively
+ok: the deferred reconciliation starts once the scan authority is free
+ok: the deferred scan is tagged as the new pass owner
+ok: the deferred request is consumed on drain
+ok: the deferred reconciliation issues its low-priority scan after completion
+ok: stop-promptness fixture pipeline opens
+ok: repeated Start/Stop never waits out the reconciliation scheduler interval
+ok: the heartbeat fixture reached Active
+ok: the Active connection re-ran service identity verification on the heartbeat cadence
+ok: a failed heartbeat revalidation left Active instead of dropping to degraded mode
+ok: reconnect fixture creates per-generation activity events
+ok: reconnect fixture index pipeline opens
+ok: a partial frame disconnect is followed by a fresh Active connection
+ok: only the initially authorized and later reauthorized pipes send handshakes
+ok: service identity authorization runs again on each replacement connection
+ok: a truncated ScanComplete frame never reaches the engine completion callback
+ok: disconnect clears ephemeral sessions and pending scan retries before reconnect
+ok: reconnect service fixture completed both transport generations cleanly
+ok: pipeline opens for connection-loss reconciliation test
+ok: the connection-loss fixture seeds a durable root + file entry
+ok: the reconciliation pass is active before the loss
+ok: connection loss discards the pass whose scan can no longer complete
+ok: connection loss never marks the interrupted scan complete
+ok: connection loss does not advance the reconciliation cadence clock
+ok: connection loss clears every connection-scoped engine session
+ok: discarding the pass deletes no durable records from incomplete coverage
+ok: a stale connection-scoped completion cannot mark the volume after the loss
+ok: a later Active period starts from freshly derived connection state
+ok: the next genuine completion still marks the volume indexed
+ok: pipeline opFAIL: the older completion never marks the volume complete
+FAIL: the refused coverage hole stays queued on the bounded retry slot
+FAIL: the due retry reissues the initial scan on the same volume id
+FAIL: the retried attempt starts from the last durably applied cursor, not from zero
+FAIL: the retried attempt is in flight
+FAIL: the durable intent is consumed exactly once on transfer
+FAIL: the durable intent moves onto exactly one slot for the new volume id
+FAIL: the retry addresses the new connection-scoped id, never the discarded one
+FAIL: the transferred retry is a reconciliation of the already-indexed volume
+FAIL: the transferred retry begins its own reconciliation pass
+FAIL: an already-expired floor is consumed rather than left pending
+FAIL: an expired floor issues one reconciliation retry promptly through the retry slot
+FAIL: the issued retry is the reconciliation kind carried by the floor
+ens for the legacy reissue-floor test
+ok: the legacy reissue-floor fixture creates a capture pipe
+ok: the first Active period re-derives volumes from EnumerateVolumes
+ok: the first connection starts the volume's initial scan
+ok: the connection loss clears the connection-scoped session
+ok: the connection loss records a durable reissue floor for the interrupted scan
+ok: the fresh Active period re-derives volumes from EnumerateVolumes
+ok: the post-teardown scan reissue is deferred instead of immediate
+ok: the deferred reissue is queued on the bounded retry scheduler
+ok: the due floor reissues StartVolumeScan on the replacement connection
+ok: pipeline opens for the paused-reconciliation-drop test
+ok: the paused-drop fixture seeds a durable root + file entry
+ok: the fixture volume is already fully indexed
+ok: a batch dropped while paused marks the in-flight scan non-authoritative
+ok: the incomplete reconciliation pass is discarded, not finalized
+ok: an already-indexed volume keeps its completion state through the dropped window
+ok: no durable row is deleted from the partial seen-set left by the paused window
+ok: pipeline opens for the resume/older-completion test
+ok: the resume/older-completion fixture creates a capture pipe
+ok: attempt 1 applies its batch
+ok: attempt 1 advances the durable cursor to its last applied position
+ok: the pause drop records a coverage hole against attempt 1
+ok: the dropped batch leaves the cursor frozen at the last applied position
+ok: resume issues replacement work on the same connection-scoped volume id
+ok: the older completion finalizes no reconciliation pass
+ok: the attempt that applied the missing coverage marks the volume complete
+ok: pipeline opens for the already-indexed reconciliation-order test
+ok: the fixture seeds a durable root + file entry
+ok: the fixture volume is already fully indexed
+ok: the fixture persists a journal identity
+ok: the already-indexed reconciliation fixture creates a capture pipe
+ok: the pause drop records the pass's coverage hole
+ok: resume of an already-indexed volume reopens the journal instead of issuing a replacement scan
+ok: no replacement attempt was issued over the already-indexed pass's hole
+ok: the incomplete pass is discarded, not finalized on a partial seen-set
+ok: the already-indexed volume keeps its completion state through the dropped window
+ok: the discarded pass leaves the reconciliation cadence clock untouched
+ok: no durable row is deleted from the incomplete pass's seen-set
+ok: a later journal discontinuity begins a fresh reconciliation pass
+ok: the later authoritative completion finalizes its own pass
+ok: only the authoritative completion advances the cadence clock
+ok: the observed row survives the authoritative pass too
+ok: pipeline opens for the replacement-completion test
+ok: the replacement-completion fixture creates a capture pipe
+ok: resume re-issues the unfinished scan
+ok: a replacement over an attempt with no coverage hole is not ambiguous
+ok: the replacement's ordered completion still marks the volume complete
+ok: a terminal after disconnect neither removes nor restores scan authority
+ok: pipeline opens for the interrupted-reconciliation retry test
+ok: the interrupted-reconciliation fixture creates a capture pipe
+ok: the fixture volume finishes its initial scan before the interruption
+ok: the interrupted work is a reconciliation pass of the already-indexed volume
+ok: the in-flight scan owns that pass
+ok: connection loss records a durable reconciliation reissue floor
+ok: the durable floor is measured at the five-second cadence
+ok: the interrupted pass is discarded rather than finalized
+ok: the replacement connection derives a new connection-scoped session
+ok: the enumeration path issues no scan while the durable floor is unexpired
+ok: pipeline opens for the expired-floor retry test
+ok: the expired-floor fixture volume is already indexed
+ok: the expired-floor fixture creates a capture pipe
+ok: the enumeration path issues the journal reopen, not an immediate reconciliation scan
+ok: pipeline opens for the retry-queue bounds test
+ok: both fiFAIL: both floors are consumed on transfer
+FAIL: one outstanding retry per volume
+FAIL: only the unpaused volume's retry issues a scan
+FAIL: the issued retry is in flight for the unpaused volume
+FAIL: the paused volume's still-valid retry intent survives
+FAIL: a repeated failure keeps one slot per volume
+FAIL: repeated failure stays throttled to the five-second floor
+FAIL: the pass that could not start is abandoned rather than left active
+FAIL: the retired attempt's stale terminal grants no completion
+FAIL: the durable intent is queued for the new connection-scoped id
+FAIL: the interrupted reconciliation is retried under the new id
+FAIL: the retried reconciliation owns its own pass
+FAIL: the recovered pass advances the reconciliation cadence clock
+xture volumes are already indexed
+ok: the retry-queue bounds fixture creates a capture pipe
+ok: each interrupted reconciliation keeps exactly one durable floor
+ok: both interrupted passes are discarded rather than finalized
+ok: no scan is issued for the paused volume
+ok: the failed volume is re-queued
+ok: the failed attempt is not left in flight
+ok: shutdown leaves no pending retry that could issue a request afterwards
+ok: pipeline opens for the failed-retry submission test
+ok: the failed-submission fixture volume is already indexed
+ok: the delivered failure arms the retry slot
+ok: a failed retry submission re-arms the same single slot
+ok: no second retry slot is created by the failure
+ok: the failed attempt does not stay in flight
+ok: pipeline opens for the combined authority/retry regression
+ok: the combined fixture seeds a durable row
+ok: the combined fixture persists a journal identity
+ok: the combined regression creates a capture pipe
+ok: the pause drop records the coverage hole
+ok: the stale terminal deletes no durable row
+ok: the replacement completes authoritatively once it is ordered after the retirement
+ok: the authoritative completion leaves the durable row in place
+ok: the journal discontinuity starts a reconciliation pass
+ok: the reconciliation pass records its dropped window
+ok: the interrupted reconciliation is discarded, never finalized on a partial seen-set
+ok: discarding the pass deletes no valid row
+ok: the interrupted reconciliation keeps a durable five-second floor
+ok: a terminal for the lost connection's id neither restores nor removes authority
+ok: the recovered attempt finalizes its pass authoritatively
+ok: the recovered pass keeps every valid row

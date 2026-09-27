@@ -1,0 +1,151 @@
+{
+  "revisionA": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+  "revisionB": "66bb9cb39730d677fed396cd87a0360660627ec0",
+  "syntheticOverride": "0123456789abcdef0123456789abcdef01234567",
+  "targetedCommands": [
+    "cmake --build --preset debug --target FastFiles FastFilesEngine FastFilesIndexSvc FastFilesSetup fftest ffsetup_package_trust_tests",
+    "cmake --build --preset debug --target FastFiles",
+    "cmake --build --preset debug --target FastFilesEngine",
+    "cmake --build --preset debug --target FastFilesIndexSvc",
+    "cmake --build --preset debug --target FastFilesSetup",
+    "cmake --build --preset debug --target fftest",
+    "cmake --build --preset debug --target ffsetup_package_trust_tests"
+  ],
+  "binaries": [
+    {
+      "phase": "A",
+      "name": "FastFiles.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "A",
+      "name": "FastFilesEngine.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "A",
+      "name": "FastFilesIndexSvc.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "A",
+      "name": "FastFilesSetup.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "A",
+      "name": "fftest.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "A",
+      "name": "ffsetup_package_trust_tests.exe",
+      "kind": "embedded-header",
+      "versionResourceIdentity": null,
+      "embedsRevisionA": true
+    },
+    {
+      "phase": "B",
+      "name": "FastFiles.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "66bb9cb39730d677fed396cd87a0360660627ec0",
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    },
+    {
+      "phase": "B",
+      "name": "FastFilesEngine.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "66bb9cb39730d677fed396cd87a0360660627ec0",
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    },
+    {
+      "phase": "B",
+      "name": "FastFilesIndexSvc.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "66bb9cb39730d677fed396cd87a0360660627ec0",
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    },
+    {
+      "phase": "B",
+      "name": "FastFilesSetup.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "66bb9cb39730d677fed396cd87a0360660627ec0",
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    },
+    {
+      "phase": "B",
+      "name": "fftest.exe",
+      "kind": "version-resource",
+      "versionResourceIdentity": "66bb9cb39730d677fed396cd87a0360660627ec0",
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    },
+    {
+      "phase": "B",
+      "name": "ffsetup_package_trust_tests.exe",
+      "kind": "embedded-header",
+      "versionResourceIdentity": null,
+      "embedsRevisionB": true,
+      "stillEmbedsRevisionA": false
+    }
+  ],
+  "overrideChecks": [
+    {
+      "command": "FASTFILES_BUILD_ID=0123456789abcdef0123456789abcdef01234567 cmake --build --preset debug --target FastFilesEngine",
+      "exitCode": 0,
+      "embedded": "0123456789abcdef0123456789abcdef01234567",
+      "embeddedAsGiven": true,
+      "warnedAboutMismatch": true
+    }
+  ],
+  "malformedChecks": [
+    {
+      "command": "FASTFILES_BUILD_ID=not-a-40-hex-identity cmake --build --preset debug --target FastFilesEngine",
+      "exitCode": 1,
+      "failedClosed": true,
+      "message": "  FASTFILES_BUILD_ID must be a 40-character Git identity (or\r"
+    },
+    {
+      "command": "FASTFILES_BUILD_ID=not-a-40-hex-identity cmake -S <fixture> -B <fixture>/build/debug",
+      "exitCode": 1,
+      "failedClosed": true,
+      "message": "  FASTFILES_BUILD_ID must be a 40-character Git identity (or"
+    }
+  ],
+  "diagnosticTree": [
+    {
+      "phase": "before",
+      "identity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b"
+    },
+    {
+      "phase": "override-targeted-build",
+      "identity": "0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+      "phase": "restored",
+      "identity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+      "matchesHead": true
+    }
+  ],
+  "staleControl": {
+    "path": "D:\\Documents\\tryPython\\FastFiles\\build\\identity-fixture-FastFiles-revisionA.exe",
+    "identity": "1172c1a1e6aa9c1a726d52abdade0975b6979e4b",
+    "reportsRevisionA": true,
+    "reportsRevisionB": false
+  },
+  "error": null
+}
