@@ -576,8 +576,9 @@ void TestScanFailedLeavesPriorIndexAuthorityIntact() {
 // final-residual-hardening-and-hosted-ci-recovery 2.4: delivered ScanFailed
 // outcomes use an intentionally unbounded retry policy with a five-second
 // per-volume cadence. One map entry per ephemeral volume bounds queue state;
-// disconnect and manager stop clear it. The test measures repeated scheduled
-// intervals, then makes the final retry due without changing production time.
+// disconnect transfers pending intent to durable identity and manager stop
+// clears it. The test measures repeated scheduled intervals, then makes the
+// final retry due without changing production time.
 void TestScanFailedSchedulesRetry() {
     using namespace std::chrono_literals;
     ffengine::IndexPipeline pipeline;
@@ -643,6 +644,199 @@ void TestScanFailedSchedulesRetry() {
     const auto message = ReadCapturedMessage(capture->client);
     Check(message == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
           "the due ScanFailed retry reissues StartVolumeScan");
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 10.2: a
+// pause/resume is not allowed to bypass a delivered ScanFailed's five-second
+// floor for an incomplete initial scan.
+void TestPauseResumeHonorsPendingScanFailureFloor() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_pause_resume_retry_floor.db")),
+          "pipeline opens for the pause/resume retry-floor test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 631;
+    const auto volumeId = pipeline.ResolveVolume(key);
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the pause/resume retry-floor fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    AddSession(manager, volumeId);
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.active_ = true;
+    manager.Start();
+    manager.sessionsByEphemeralId_.at(7).scanInProgress = true;
+
+    const auto failureAt = std::chrono::steady_clock::now();
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    std::optional<std::chrono::steady_clock::time_point> originalDue;
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(7);
+        if (retry != manager.failedScanRetries_.end()) originalDue = retry->second.due;
+    }
+    Check(originalDue.has_value(), "ScanFailed arms the pending retry slot");
+    if (originalDue) {
+        const auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(*originalDue - failureAt);
+        Check(delay >= 4900ms && delay <= 5100ms,
+              "the pending retry starts at the five-second floor");
+    }
+
+    manager.SetIndexingPaused(0, true);
+    manager.SetIndexingPaused(0, false);
+    const auto resumeDeadline = std::chrono::steady_clock::now() + 2s;
+    while (!HasCapturedBytes(capture->client) && std::chrono::steady_clock::now() < resumeDeadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    std::optional<ffipc::ReceivedFrame> resumedFrame;
+    if (HasCapturedBytes(capture->client)) resumedFrame = ffipc::ReadFrame(capture->client);
+    Check(resumedFrame
+              && resumedFrame->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
+          "resume reopens the journal without issuing an early initial scan");
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(7);
+        Check(originalDue && retry != manager.failedScanRetries_.end()
+                  && retry->second.due == *originalDue,
+              "resume preserves the original bounded retry deadline");
+    }
+    manager.Stop();
+}
+
+// A delivered reconciliation failure has already cleared scanInProgress by
+// the time a transport disconnect arrives. Its retry must still move from the
+// old ephemeral id to the durable volume and then to the new connection id.
+void TestFailedReconciliationRetrySurvivesDisconnect() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_failed_reconciliation_disconnect.db")),
+          "pipeline opens for the failed-reconciliation disconnect test");
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the failed-reconciliation fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    connection.state_ = ffengine::ConnectionState::Active;
+    connection.negotiatedMajor_ = 2;
+    connection.negotiatedMinor_ = 2;
+    manager.Start();
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto firstEnumeration = ffipc::ReadFrame(capture->client);
+    Check(firstEnumeration
+              && firstEnumeration->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the original connection begins with volume enumeration");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{7}, L'C'}});
+    const auto initialScan = ffipc::ReadFrame(capture->client);
+    const auto initialJournal = ffipc::ReadFrame(capture->client);
+    Check(initialScan
+              && initialScan->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan),
+          "the original session starts its first scan");
+    Check(initialJournal
+              && initialJournal->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
+          "the original session opens its journal");
+    const auto first = manager.sessionsByEphemeralId_.find(7);
+    Check(first != manager.sessionsByEphemeralId_.end(), "the original session is derived from the volume list");
+    if (first == manager.sessionsByEphemeralId_.end()) {
+        manager.Stop();
+        return;
+    }
+    const auto volumeId = first->second.durableId;
+    Check(pipeline.MarkScanComplete(volumeId), "the fixture volume is already indexed");
+    Check(pipeline.SetJournalPosition(volumeId, 41, 900), "the fixture persists a journal position");
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    auto& firstSession = manager.sessionsByEphemeralId_.at(7);
+    firstSession.scanInProgress = true;
+    firstSession.reconciliationScan = true;
+    pipeline.BeginReconciliationPass(volumeId);
+
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    Check(!firstSession.scanInProgress,
+          "ScanFailed closes the current reconciliation attempt before disconnect");
+    std::chrono::steady_clock::time_point failureRetryDue{};
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(7);
+        Check(retry != manager.failedScanRetries_.end() && retry->second.reconciliation,
+              "ScanFailed queues a reconciliation retry for the current ephemeral id");
+        if (retry != manager.failedScanRetries_.end()) failureRetryDue = retry->second.due;
+    }
+
+    const auto disconnectedAt = std::chrono::steady_clock::now();
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Disconnected);
+    {
+        std::lock_guard<std::mutex> lock(manager.mutex_);
+        const auto floor = manager.scanReissueFloors_.find(volumeId);
+        Check(floor != manager.scanReissueFloors_.end() && floor->second.reconciliation,
+              "disconnect transfers the finished reconciliation retry to durable volume identity");
+        if (floor != manager.scanReissueFloors_.end()) {
+            Check(floor->second.due >= failureRetryDue,
+                  "the durable retry does not shorten the original failure deadline");
+            const auto delay = std::chrono::duration_cast<std::chrono::milliseconds>(
+                floor->second.due - disconnectedAt);
+            Check(delay >= 0ms && delay <= 5100ms,
+                  "disconnect preserves an already-running failure floor without adding a new delay");
+        }
+    }
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        Check(manager.failedScanRetries_.empty(),
+              "disconnect discards the obsolete ephemeral retry entry after transfer");
+    }
+
+    manager.OnConnectionStateChanged(ffengine::ConnectionState::Active);
+    const auto enumerate = ffipc::ReadFrame(capture->client);
+    Check(enumerate
+              && enumerate->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::EnumerateVolumes),
+          "the replacement connection begins with volume enumeration");
+    connection.volumeListCallback_({ffprotocol::VolumeInfo{ffprotocol::VolumeId{8}, L'C'}});
+    Check(manager.sessionsByEphemeralId_.contains(8) && !manager.sessionsByEphemeralId_.contains(7),
+          "the replacement connection derives a new session id for the durable volume");
+    Check(manager.sessionsByEphemeralId_.contains(8),
+          "the replacement session reopens its journal while retaining the retry floor");
+    std::optional<ffipc::ReceivedFrame> journalOpen;
+    if (HasCapturedBytes(capture->client)) journalOpen = ffipc::ReadFrame(capture->client);
+    Check(journalOpen
+              && journalOpen->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::OpenUsnJournal),
+          "the replacement session reopens the journal before the queued retry");
+    {
+        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
+        const auto retry = manager.failedScanRetries_.find(8);
+        Check(retry != manager.failedScanRetries_.end() && retry->second.reconciliation
+                  && !manager.failedScanRetries_.contains(7),
+              "the retry intent moves to exactly the new ephemeral id");
+        if (retry != manager.failedScanRetries_.end()) {
+            manager.failedScanRetries_.at(8).due = std::chrono::steady_clock::now() - 1ms;
+            ++manager.scanRetryGeneration_;
+        }
+    }
+    manager.wakeCv_.notify_one();
+    const auto retryDeadline = std::chrono::steady_clock::now() + 2s;
+    while (!HasCapturedBytes(capture->client) && std::chrono::steady_clock::now() < retryDeadline) {
+        std::this_thread::sleep_for(10ms);
+    }
+    std::optional<ffipc::ReceivedFrame> retryFrame;
+    if (HasCapturedBytes(capture->client)) retryFrame = ffipc::ReadFrame(capture->client);
+    ffprotocol::StartVolumeScanRequest retryRequest{};
+    const bool hasRetryRequest = retryFrame
+        && retryFrame->header.messageType == static_cast<uint16_t>(ffprotocol::MessageType::StartVolumeScan)
+        && retryFrame->payload.size() >= sizeof(retryRequest);
+    if (hasRetryRequest) {
+        std::memcpy(&retryRequest, retryFrame->payload.data(), sizeof(retryRequest));
+    }
+    Check(hasRetryRequest && retryRequest.volumeId.value == 8,
+          "the durable retry starts reconciliation under the new connection-scoped id");
     manager.Stop();
 }
 
@@ -1460,6 +1654,14 @@ void TestResumeDoesNotClearCoverageHoleForAnOlderCompletion() {
           "the older completion never marks the volume complete");
     Check(!pipeline.IsReconciliationPassActive(volumeId),
           "the older completion finalizes no reconciliation pass");
+    Check(session.scanInProgress && session.scanUnretiredAttempts == 0,
+          "retiring attempt 1 leaves the replacement in flight with no older terminal outstanding");
+
+    // The replacement now fails before covering the hole. Its own terminal
+    // ends that attempt and arms the bounded retry from the durable cursor.
+    connection.scanFailedCallback_(ffprotocol::VolumeId{7});
+    Check(!session.scanInProgress,
+          "the replacement's own failure releases its scan ownership");
 
     // The hole is still owed: the retirement consumed one terminal and the
     // bounded retry reissues the coverage from the frozen cursor.
@@ -1578,6 +1780,101 @@ void TestPausedReconciliationOlderCompletionAfterResumeDeletesNothing() {
           "only the authoritative completion advances the cadence clock");
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
           "the observed row survives the authoritative pass too");
+    manager.Stop();
+}
+
+// scan-generation-integrity-and-residual-certification-closure 10.2: retiring
+// a late terminal from the superseded attempt must not release the replacement
+// scan's ownership. A journal discontinuity can arrive while that replacement
+// is still active; its terminal must not be reinterpreted as a reconciliation
+// terminal and finalize a seen-set that only covers records after the frozen
+// initial-scan cursor.
+void TestRetiredTerminalCannotAuthorizeLaterReconciliation() {
+    using namespace std::chrono_literals;
+    ffengine::IndexPipeline pipeline;
+    Check(pipeline.Open(FreshDbPath("engine_test_retired_terminal_reconciliation_owner.db")),
+          "pipeline opens for the retired-terminal reconciliation-ownership test");
+    ffindexstore::VolumeKey key;
+    key.serialNumber = 991;
+    const auto volumeId = pipeline.ResolveVolume(key);
+    pipeline.SetVolumeAvailable(volumeId, true, 1);
+    pipeline.SetJournalPosition(volumeId, 41, 900);
+    pipeline.SetLastReconciliationTime(volumeId, CurrentFileTimeForTest());
+
+    ffengine::PrivilegedConnection connection;
+    ffengine::VolumeSessionManager manager(pipeline, connection);
+    auto capture = CreatePipeCapture();
+    Check(capture != nullptr, "the reconciliation-ownership fixture creates a capture pipe");
+    if (!capture) return;
+    AttachCaptureServer(connection, *capture);
+    AddSession(manager, volumeId);
+    ffprotocol::VolumeSetting setting;
+    setting.key = L"C:";
+    setting.enabled = true;
+    manager.ReloadConfiguration({setting});
+    manager.active_ = true;
+    manager.Start();
+    auto& session = manager.sessionsByEphemeralId_.at(7);
+    session.scanInProgress = true; // attempt 1: the incomplete initial scan
+
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{1, 2, 3},
+                                  {MakeMftRecord(5, 5, u"", 0x10, 0),
+                                   MakeMftRecord(100, 5, u"seed.txt", 0, 1)});
+    Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
+          "the incomplete scan has already indexed a durable row");
+    manager.SetIndexingPaused(0, true);
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6},
+                                  {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
+    Check(session.scanBatchFailed, "the pause drop records the original attempt's coverage hole");
+    manager.SetIndexingPaused(0, false);
+    const auto replacement = ReadCapturedScanStartWithTimeout(capture->client, 2s);
+    Check(replacement && replacement->volumeId == 7,
+          "resume issues replacement work under the same connection-scoped volume id");
+    Check(replacement && replacement->cursor == std::vector<uint8_t>({1, 2, 3}),
+          "the replacement resumes from the last applied cursor");
+    Check(session.scanUnretiredAttempts == 1,
+          "the replacement retains exactly one unretired initial-scan attempt");
+    DrainCapturedFrames(capture->client);
+
+    // This terminal retires attempt 1. The replacement remains active and owns
+    // the volume even though its wire terminal has the same volume id.
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(session.scanUnretiredAttempts == 0,
+          "the original terminal retires exactly one superseded attempt");
+    Check(session.scanInProgress,
+          "retiring the older terminal preserves the replacement scan's in-flight ownership");
+
+    // A changed journal id requests reconciliation while the replacement still
+    // covers the initial-scan hole. That request must wait for the replacement
+    // instead of borrowing its volume-id-only terminal.
+    connection.journalOpenedCallback_(ffprotocol::VolumeId{7}, 99, 1234);
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "journal discontinuity defers reconciliation while replacement work is active");
+    Check(session.deferredReconciliation,
+          "the deferred reconciliation intent remains attached to the active session");
+
+    // The replacement only covers entries after the frozen cursor. Its own
+    // completion authorizes the initial scan, then the deferred full pass sees
+    // the existing row before it is allowed to finalize.
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{4, 5, 6},
+                                  {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
+    Check(session.scanUnretiredAttempts == 0 && session.scanInProgress,
+          "the replacement remains the active attempt after the older terminal retires");
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(pipeline.IsReconciliationPassActive(volumeId),
+          "the deferred full reconciliation starts only after the replacement completes");
+    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{7, 8, 9},
+                                  {MakeMftRecord(5, 5, u"", 0x10, 0),
+                                   MakeMftRecord(100, 5, u"seed.txt", 0, 1),
+                                   MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
+    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
+    Check(!pipeline.IsReconciliationPassActive(volumeId),
+          "the later authoritative reconciliation finalizes normally");
+    Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
+          "no stale terminal deletes the row omitted by the replacement cursor window");
+    const auto finalMetadata = pipeline.GetVolumeMetadata(volumeId);
+    Check(finalMetadata && finalMetadata->entryCount == 3,
+          "durable row count remains complete after reconciliation sees only the resumed cursor window");
     manager.Stop();
 }
 
@@ -2055,39 +2352,17 @@ void TestCombinedPauseDisconnectReconnectStaleTerminalRecovers() {
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
           "the stale terminal deletes no durable row");
 
-    // The replacement's batches still reach the store, but a volume-id-only
-    // terminal cannot authorize a replacement that was issued over a coverage
-    // hole: the conservative retirement rule consumes one terminal and leaves
-    // the repair to the bounded retry.
-    connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{2},
-                                  {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
-    connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
-    Check(!pipeline.GetVolumeMetadata(volumeId)->scanComplete,
-          "the replacement's own terminal is not the authority while the hole is owed");
-    Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
-          "the refused replacement terminal deletes no durable row");
-
-    // The bounded retry reissues from the last durably applied position; that
-    // attempt is the authoritative one.
-    {
-        std::lock_guard<std::mutex> lock(manager.wakeMutex_);
-        Check(manager.failedScanRetries_.contains(7), "the owed coverage stays on the retry slot");
-        if (manager.failedScanRetries_.contains(7)) {
-            manager.failedScanRetries_.at(7).due = std::chrono::steady_clock::now() - 1ms;
-            ++manager.scanRetryGeneration_;
-        }
-    }
-    manager.wakeCv_.notify_one();
-    const auto retriedPhaseA = ReadCapturedScanStartWithTimeout(capture->client, 2s);
-    Check(retriedPhaseA && retriedPhaseA->volumeId == 7,
-          "the owed coverage is reissued under the same connection-scoped id");
+    // Once attempt 1's terminal has retired, the service's joined replacement
+    // is the only scan that can produce the next terminal on this connection.
+    // Its complete coverage from the frozen cursor therefore authorizes the
+    // volume and clears the repair slot.
     connection.scanBatchCallback_(ffprotocol::VolumeId{7}, std::vector<uint8_t>{2},
                                   {MakeMftRecord(200, 5, u"paused-window", 0x10, 0)});
     connection.scanCompleteCallback_(ffprotocol::VolumeId{7});
     Check(pipeline.GetVolumeMetadata(volumeId)->scanComplete,
-          "the retried attempt completes authoritatively after the retirement");
+          "the replacement's own terminal authorizes the coverage resumed from the frozen cursor");
     Check(HasDurableRow(pipeline, volumeId, L"seed.txt"),
-          "the authoritative completion leaves the durable row in place");
+          "the replacement's authoritative completion leaves the durable row in place");
     DrainCapturedFrames(capture->client);
 
     // Phase B: interrupt a reconciliation of the now-complete volume.
@@ -2174,6 +2449,8 @@ int main() {
     TestPendingDecisionForObservedUnselectedVolume();
     TestScanFailedLeavesPriorIndexAuthorityIntact();
     TestScanFailedSchedulesRetry();
+    TestPauseResumeHonorsPendingScanFailureFloor();
+    TestFailedReconciliationRetrySurvivesDisconnect();
     TestDuplicateTerminalsWithoutScanInFlightAreRefused();
     TestBatchFailedScanCompletionIsNotAuthoritative();
     TestPausedCompletionIsNotAuthoritative();
@@ -2186,6 +2463,7 @@ int main() {
     TestPausedReconciliationDropIsNonAuthoritative();
     TestResumeDoesNotClearCoverageHoleForAnOlderCompletion();
     TestPausedReconciliationOlderCompletionAfterResumeDeletesNothing();
+    TestRetiredTerminalCannotAuthorizeLaterReconciliation();
     TestReplacementCompletionStillMarksWithoutADroppedBatch();
     TestInterruptedReconciliationRetryReattachesToTheNewVolumeId();
     TestExpiredReconciliationFloorStillRetriesThroughTheQueue();
