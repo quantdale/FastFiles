@@ -3,6 +3,7 @@
 #include "UITheme.h"
 
 #include <algorithm>
+#include <iterator>
 #include <commctrl.h>
 #include <windowsx.h>
 
@@ -216,6 +217,49 @@ void NavigationChrome::Refresh() {
 }
 
 void NavigationChrome::FocusAddressBar() { BeginAddressEdit(); }
+
+bool NavigationChrome::HandleTabNavigation(bool reverse) {
+    if (!window_ || !owner_ || editing_) return false;
+
+    const HWND focused = GetFocus();
+    const bool focusIsShellSurface = focused == owner_ || focused == window_;
+    const bool focusIsChromeControl = focused == addressEdit_ || IsChild(window_, focused);
+    if (!focusIsShellSurface && !focusIsChromeControl) return false;
+    if (focused == addressEdit_) return false;
+
+    std::vector<HWND> focusable;
+    focusable.reserve(8 + tabButtons_.size() + tabCloseButtons_.size());
+    const auto addIfFocusable = [&focusable](HWND control) {
+        if (control && IsWindowVisible(control) && IsWindowEnabled(control)) {
+            focusable.push_back(control);
+        }
+    };
+    addIfFocusable(back_);
+    addIfFocusable(forward_);
+    addIfFocusable(up_);
+    addIfFocusable(search_);
+    addIfFocusable(settings_);
+    addIfFocusable(newTab_);
+    for (size_t index = 0; index < tabButtons_.size(); ++index) {
+        addIfFocusable(tabButtons_[index]);
+        if (index < tabCloseButtons_.size()) addIfFocusable(tabCloseButtons_[index]);
+    }
+    addIfFocusable(overflow_);
+    if (focusable.empty()) return false;
+
+    const auto current = std::find(focusable.begin(), focusable.end(), focused);
+    size_t nextIndex = 0;
+    if (current == focusable.end()) {
+        nextIndex = reverse ? focusable.size() - 1 : 0;
+    } else {
+        const size_t currentIndex = static_cast<size_t>(std::distance(focusable.begin(), current));
+        nextIndex = reverse
+            ? (currentIndex == 0 ? focusable.size() - 1 : currentIndex - 1)
+            : (currentIndex + 1 == focusable.size() ? 0 : currentIndex + 1);
+    }
+    SetFocus(focusable[nextIndex]);
+    return GetFocus() == focusable[nextIndex];
+}
 
 void NavigationChrome::SetSearchActive(bool active) {
     if (searchActive_ == active) return;

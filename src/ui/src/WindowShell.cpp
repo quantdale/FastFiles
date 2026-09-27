@@ -1278,6 +1278,13 @@ int WindowShell::RunMessageLoop() {
             continue;
         }
         if (!commandPalette_.Visible() && DispatchShortcut(msg, ShortcutScope::ActiveView, nativeEditFocused)) continue;
+        // scan-generation-integrity-and-residual-certification-closure 6.4:
+        // the shell is not a dialog and its message loop does not call
+        // IsDialogMessage, so forward Tab focus movement to native chrome.
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB && !nativeEditFocused &&
+            navigationChrome_.HandleTabNavigation((GetKeyState(VK_SHIFT) & 0x8000) != 0)) {
+            continue;
+        }
         TranslateMessage(&msg);
         DispatchMessageW(&msg);
     }

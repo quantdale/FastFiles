@@ -67,6 +67,10 @@ public:
     void Reposition();
     void Refresh();
     void FocusAddressBar();
+    // scan-generation-integrity-and-residual-certification-closure 6.4:
+    // native chrome children are outside an IsDialogMessage loop, so route
+    // Tab traversal explicitly when focus is in the shell or this chrome.
+    bool HandleTabNavigation(bool reverse);
     void SetDarkTheme(bool dark);
     void SetSearchActive(bool active);
     bool Visible() const { return window_ != nullptr; }

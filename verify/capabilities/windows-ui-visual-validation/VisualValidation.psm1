@@ -539,30 +539,92 @@ function Get-VisualTabStripState {
     return @($tabs)
 }
 
-# Opens the product's own overflow affordance with a real pointer click (the
-# popup menu is modal, so a synchronous BM_CLICK would block the caller) and
-# then drives it the way a keyboard user does: UP/DOWN selects an entry of the
-# Win32 popup menu, ENTER activates it.
+# Reads the workspace that is actually active in the pane. Tab labels are not
+# used as a proxy for selection: the active surface exposes either Home or its
+# current filesystem column through the product's semantic UIA tree.
+function Get-VisualActiveWorkspaceIdentity {
+    param($Context)
+    $pane = Get-VisualPane -Context $Context
+    if (-not $pane) { return $null }
+    $home = Find-VisualElement -Driver $Context.Driver -AutomationId 'Pane.0.Home' -FromElement $pane -TimeoutMs 1000
+    if ($home) { return [pscustomobject]@{ kind = 'Home'; leaf = 'Home'; identity = Get-VisualIdentity -Driver $Context.Driver -Element $home } }
+    $columns = @(Find-UiaElement -Driver $Context.Driver -ControlType 'List' -FromElement $pane -TimeoutMs 2500 -All | Where-Object {
+        [string](Get-UiaElementProperty -Driver $Context.Driver -Element $_ -Name 'AutomationId') -match '^Pane\.0\.Column\.\d+$'
+    })
+    if ($columns.Count -eq 0) { return $null }
+    $column = $columns | Sort-Object {
+        $automationId = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $_ -Name 'AutomationId')
+        [int]($automationId -replace '^Pane\.0\.Column\.', '')
+    } | Select-Object -Last 1
+    $workspacePath = [string](Get-UiaElementProperty -Driver $Context.Driver -Element $column -Name 'Name')
+    return [pscustomobject]@{
+        kind = 'FileSystem'
+        path = $workspacePath
+        leaf = [IO.Path]::GetFileName($workspacePath.TrimEnd([char]'\'))
+        identity = Get-VisualIdentity -Driver $Context.Driver -Element $column
+    }
+}
+
+# Opens the product's overflow affordance through keyboard tab traversal and
+# SPACE, then uses bounded arrow-key navigation plus ENTER in its native menu.
 function Invoke-VisualTabListSelection {
-    param($Context, [ValidateSet('first', 'last')][string] $Entry)
+    param($Context, [int] $TargetIndex)
     $overflow = Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 2000
-    if (-not $overflow) { return $false }
-    $point = Get-UiaClickablePoint -Driver $Context.Driver -Element $overflow
-    if (-not $point) {
-        $rect = Get-UiaElementProperty -Driver $Context.Driver -Element $overflow -Name 'BoundingRectangle'
-        if ($rect -and $rect.width -gt 0 -and $rect.height -gt 0) {
-            $point = [pscustomobject]@{ x = [int]($rect.x + $rect.width / 2); y = [int]($rect.y + $rect.height / 2) }
+    if (-not $overflow) { return [pscustomobject]@{ succeeded = $false; reason = 'overflow button is absent'; popupClass = $null } }
+    if (-not (Test-UiaForegroundWindow -Driver $Context.Driver -Element $Context.Main)) {
+        return [pscustomobject]@{ succeeded = $false; reason = 'FastFiles does not own the foreground window'; popupClass = $null }
+    }
+    $interactiveState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+    $focused = [string]$interactiveState.FocusedElement.AutomationId -eq '8208'
+    for ($attempt = 0; -not $focused -and $attempt -lt 32; $attempt++) {
+        $null = Send-UiaInput -Driver $Context.Driver -Keys '{TAB}'
+        Start-Sleep -Milliseconds 75
+        $interactiveState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+        $focused = [string]$interactiveState.FocusedElement.AutomationId -eq '8208'
+    }
+    if (-not $focused) {
+        return [pscustomobject]@{
+            succeeded = $false
+            reason = "keyboard tab traversal did not focus overflow (focus='$($interactiveState.FocusedElement.AutomationId)')"
+            popupClass = $null
         }
     }
-    if (-not $point) { return $false }
-    $null = Send-UiaMouseInput -Driver $Context.Driver -X $point.x -Y $point.y -Button 'Left' -Action 'Click'
-    Start-Sleep -Milliseconds 400
-    $key = if ($Entry -eq 'last') { '{UP}' } else { '{DOWN}' }
-    $null = Send-UiaInput -Driver $Context.Driver -Keys $key
+    Start-Sleep -Milliseconds 150
+    $null = Send-UiaInput -Driver $Context.Driver -Keys '{SPACE}'
     Start-Sleep -Milliseconds 250
+    $interactiveState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+    $menuPopup = @($interactiveState.Popups | Where-Object { $_.className -eq '#32768' } | Select-Object -First 1)
+    if ($menuPopup.Count -eq 0) {
+        return [pscustomobject]@{
+            succeeded = $false
+            reason = "keyboard activation did not open a native menu (foreground='$($interactiveState.ForegroundTitle)', focus='$($interactiveState.FocusedElement.AutomationId)')"
+            popupClass = $null
+        }
+    }
+    $focusName = [string]$interactiveState.FocusedElement.Name
+    # Native TrackPopupMenu exposes no focused UIA item when it opens from the
+    # keyboard. In that state the first DOWN selects item one, so use the
+    # one-based target index as the exact key count. If Windows does expose the
+    # checked item, navigate from that observed index instead.
+    $menuCurrentIndex = 0
+    if ($focusName -match '^([0-9]+):') { $menuCurrentIndex = [int]$Matches[1] }
+    $key = if ($menuCurrentIndex -eq 0 -or $TargetIndex -gt $menuCurrentIndex) { '{DOWN}' } else { '{UP}' }
+    $steps = if ($menuCurrentIndex -eq 0) { $TargetIndex } else { [Math]::Abs($TargetIndex - $menuCurrentIndex) }
+    for ($step = 0; $step -lt $steps; $step++) {
+        $null = Send-UiaInput -Driver $Context.Driver -Keys $key
+        Start-Sleep -Milliseconds 50
+    }
     $null = Send-UiaInput -Driver $Context.Driver -Keys '{ENTER}'
     Start-Sleep -Milliseconds 700
-    return $true
+    return [pscustomobject]@{
+        succeeded = $true
+        reason = $null
+        popupClass = $menuPopup[0].className
+        menuFocusName = $focusName
+        menuStartIndex = $menuCurrentIndex
+        targetIndex = $TargetIndex
+        arrowSteps = $steps
+    }
 }
 
 function Invoke-VisualAction {
@@ -660,71 +722,139 @@ function Invoke-VisualAction {
                 Start-Sleep -Milliseconds 150
             }
             $narrowWidth = [int]$Scenario.Width
-            $visibleBefore = @(Get-VisualTabStripState -Context $Context)
-            $overflowPresent = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
-            $logicalCount = $visibleBefore.Count
-            $hiddenActivation = $null
-            if ($overflowPresent -and $visibleBefore.Count -gt 0) {
-                # The logical set spans more than the visible window. Select the
-                # hidden extreme through the affordance: that both reaches a
-                # hidden tab and activates its own workspace, and the activated
-                # tab's own label proves the identity that was reached.
-                $visibleIndices = @($visibleBefore | ForEach-Object { $_.index })
-                $hiddenEntry = if ($visibleIndices -contains 1) { 'last' } else { 'first' }
-                if (-not (Invoke-VisualTabListSelection -Context $Context -Entry $hiddenEntry)) {
-                    return (New-VisualActionResult -Pass $false -Reason 'the overflow affordance could not be opened and driven by keyboard')
-                }
-                $afterHidden = @(Get-VisualTabStripState -Context $Context)
-                if ($afterHidden.Count -eq 0) {
-                    return (New-VisualActionResult -Pass $false -Reason 'the tab strip exposed no tab button after the overflow selection')
-                }
-                $hiddenIndex = if ($hiddenEntry -eq 'last') {
-                    ($afterHidden | Measure-Object -Property index -Maximum).Maximum
-                } else {
-                    ($afterHidden | Measure-Object -Property index -Minimum).Minimum
-                }
-                $activated = @($afterHidden | Where-Object { $_.index -eq $hiddenIndex })
-                $hiddenActivation = [pscustomobject]@{
-                    entry = $hiddenEntry
-                    activatedIndex = $hiddenIndex
-                    activatedLabel = if ($activated.Count -gt 0) { $activated[0].name } else { $null }
-                    hiddenBeforeSelection = -not ($visibleIndices -contains $hiddenIndex)
-                    visibleAfterSelection = $activated.Count -gt 0
-                }
-                # The logical count is the highest index the affordance reaches.
-                $null = Invoke-VisualTabListSelection -Context $Context -Entry 'last'
-                $afterLast = @(Get-VisualTabStripState -Context $Context)
-                if ($afterLast.Count -eq 0) {
-                    return (New-VisualActionResult -Pass $false -Reason 'the tab strip exposed no tab button after the final overflow selection')
-                }
-                $logicalCount = ($afterLast | Measure-Object -Property index -Maximum).Maximum
-            }
-            # A width where every logical tab fits must show every tab as a
-            # visible button and hide the affordance again.
             $normal = Set-VisualWindowSize -Context $Context -Width 1280
             if (-not $normal.Pass) { return (New-VisualActionResult -Pass $false -Reason 'normal-width resize failed during the many-tabs proof') }
+            $allTabs = @(Get-VisualTabStripState -Context $Context)
+            $overflowAtNormalWidth = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 700)
+            $normalCreationPass = $allTabs.Count -eq 9 -and -not $overflowAtNormalWidth
+            if (-not $normalCreationPass) {
+                return (New-VisualActionResult -Pass $false -Reason "normal width exposed $($allTabs.Count) of 9 tabs (overflow=$overflowAtNormalWidth)")
+            }
+
+            # Give three tabs different real filesystem workspaces so the
+            # selected hidden index can be checked against the active pane's
+            # semantic identity, not inferred from whichever labels appear.
+            $tabOne = Find-VisualElement -Driver $Context.Driver -AutomationId '8300' -FromElement $Context.Main -TimeoutMs 1500
+            if (-not $tabOne) { return (New-VisualActionResult -Pass $false -Reason 'tab one was not exposed at normal width') }
+            $null = Invoke-UiaElementAction -Driver $Context.Driver -Element $tabOne -Action 'Click'
+            $tabOnePath = Invoke-VisualAddress -Context $Context -Path $Fixtures.Standard -ExpectedLeaf 'standard'
+            if (-not $tabOnePath.Pass) { return $tabOnePath }
+
+            $tabTwo = Find-VisualElement -Driver $Context.Driver -AutomationId '8301' -FromElement $Context.Main -TimeoutMs 1500
+            if (-not $tabTwo) { return (New-VisualActionResult -Pass $false -Reason 'tab two was not exposed at normal width') }
+            $null = Invoke-UiaElementAction -Driver $Context.Driver -Element $tabTwo -Action 'Click'
+            $tabTwoPath = Invoke-VisualAddress -Context $Context -Path $Fixtures.Deep -ExpectedLeaf 'level-three'
+            if (-not $tabTwoPath.Pass) { return $tabTwoPath }
+
+            $tabNine = Find-VisualElement -Driver $Context.Driver -AutomationId '8308' -FromElement $Context.Main -TimeoutMs 1500
+            if (-not $tabNine) { return (New-VisualActionResult -Pass $false -Reason 'tab nine was not exposed at normal width') }
+            $null = Invoke-UiaElementAction -Driver $Context.Driver -Element $tabNine -Action 'Click'
+            $tabNinePath = Invoke-VisualAddress -Context $Context -Path $Fixtures.Long -ExpectedLeaf 'long-names'
+            if (-not $tabNinePath.Pass) { return $tabNinePath }
+
+            # Closing the non-active first tab follows the product's real close
+            # path. It activates that tab before closing it, so the next active
+            # tab must be old tab two with its distinct level-three workspace.
+            $closeFirst = Find-VisualElement -Driver $Context.Driver -AutomationId '8400' -FromElement $Context.Main -TimeoutMs 1500
+            if (-not $closeFirst) { return (New-VisualActionResult -Pass $false -Reason "tab one's close control was not exposed at normal width") }
+            $null = Invoke-UiaElementAction -Driver $Context.Driver -Element $closeFirst -Action 'Click'
+            $closeSettled = Wait-UiaCondition -Driver $Context.Driver -TimeoutMs 4000 -PollIntervalMs 100 -ScriptBlock {
+                if ((Get-VisualTabCount -Context $Context) -ne 8) { return $false }
+                $identity = Get-VisualActiveWorkspaceIdentity -Context $Context
+                return $identity -and $identity.leaf -eq 'level-three'
+            }
+            $afterCloseTabs = @(Get-VisualTabStripState -Context $Context)
+            $afterCloseIdentity = Get-VisualActiveWorkspaceIdentity -Context $Context
+            $closeIdentityPass = $closeSettled -and $afterCloseTabs.Count -eq 8
+
+            $narrow = Set-VisualWindowSize -Context $Context -Width $narrowWidth
+            if (-not $narrow.Pass) { return (New-VisualActionResult -Pass $false -Reason 'narrow-width resize failed during the many-tabs proof') }
+            $visibleBefore = @(Get-VisualTabStripState -Context $Context)
+            $visibleIndices = @($visibleBefore | ForEach-Object { $_.index })
+            $overflowAtNarrowWidth = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1000)
+            $logicalCount = $afterCloseTabs.Count
+            $hiddenEntry = if ($visibleIndices -contains 1) { 'last' } else { 'first' }
+            $hiddenIndex = if ($hiddenEntry -eq 'last') { $logicalCount } else { 1 }
+            $expectedHiddenLeaf = if ($hiddenIndex -eq 8) { 'long-names' } else { 'level-three' }
+            $expectedHiddenTab = @($afterCloseTabs | Where-Object { $_.index -eq $hiddenIndex } | Select-Object -First 1)
+            $keyboardSelectionOpened = $false
+            $hiddenActivation = $null
+            $hiddenSelection = $null
+            $switchIdentity = $null
+            if ($overflowAtNarrowWidth -and $visibleBefore.Count -gt 0) {
+                $hiddenSelection = Invoke-VisualTabListSelection -Context $Context -TargetIndex $hiddenIndex
+                $keyboardSelectionOpened = [bool]$hiddenSelection.succeeded
+                $activeHidden = Get-VisualActiveWorkspaceIdentity -Context $Context
+                $afterHidden = @(Get-VisualTabStripState -Context $Context)
+                $expectedHiddenVisible = @($afterHidden | Where-Object { $_.index -eq $hiddenIndex }).Count -eq 1
+                $hiddenActivation = [pscustomobject]@{
+                    entry = $hiddenEntry
+                    selectedIndex = $hiddenIndex
+                    selectedTabLabel = if ($expectedHiddenTab.Count -gt 0) { $expectedHiddenTab[0].name } else { $null }
+                    wasHiddenBeforeSelection = -not ($visibleIndices -contains $hiddenIndex)
+                    selectedButtonVisibleAfter = $expectedHiddenVisible
+                    activeWorkspaceLeaf = if ($activeHidden) { $activeHidden.leaf } else { $null }
+                    menuFocusName = $hiddenSelection.menuFocusName
+                    menuStartIndex = $hiddenSelection.menuStartIndex
+                    arrowSteps = $hiddenSelection.arrowSteps
+                    identityMatchesSelection = $null -ne $activeHidden -and $activeHidden.leaf -eq $expectedHiddenLeaf
+                }
+
+                # Switch back through the same keyboard path. This second
+                # identity check proves the popup selects each requested
+                # workspace, including the hidden first tab after the visible
+                # window has moved to the last tabs.
+                $returnIndex = if ($hiddenIndex -eq 8) { 1 } else { 8 }
+                $expectedReturnLeaf = if ($returnIndex -eq 1) { 'level-three' } else { 'long-names' }
+                $returnSelection = Invoke-VisualTabListSelection -Context $Context -TargetIndex $returnIndex
+                $activeReturn = Get-VisualActiveWorkspaceIdentity -Context $Context
+                $switchIdentity = [pscustomobject]@{
+                    selectedIndex = $returnIndex
+                    activeWorkspaceLeaf = if ($activeReturn) { $activeReturn.leaf } else { $null }
+                    identityMatchesSelection = $null -ne $activeReturn -and $activeReturn.leaf -eq $expectedReturnLeaf
+                    keyboardOpened = [bool]$returnSelection.succeeded
+                    reason = $returnSelection.reason
+                    menuFocusName = $returnSelection.menuFocusName
+                    menuStartIndex = $returnSelection.menuStartIndex
+                    arrowSteps = $returnSelection.arrowSteps
+                }
+            }
+
+            # Every open tab fits at normal width. Returning to the narrow
+            # scenario width must restore the visible window and overflow.
+            $normalAgain = Set-VisualWindowSize -Context $Context -Width 1280
+            if (-not $normalAgain.Pass) { return (New-VisualActionResult -Pass $false -Reason 'normal-width resize failed after overflow selection') }
             $normalTabs = @(Get-VisualTabStripState -Context $Context)
-            $normalOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
+            $normalOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1000)
             $restored = Set-VisualWindowSize -Context $Context -Width $narrowWidth
             if (-not $restored.Pass) { return (New-VisualActionResult -Pass $false -Reason 'narrow-width restore failed after the many-tabs proof') }
             $restoredTabs = @(Get-VisualTabStripState -Context $Context)
-            $restoredOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1200)
+            $restoredOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1000)
 
             $logicalFloorPass = $logicalCount -ge 8
-            $activationPass = ($null -eq $hiddenActivation) -or ($hiddenActivation.hiddenBeforeSelection -and $hiddenActivation.visibleAfterSelection)
+            $overflowReachabilityPass = $overflowAtNarrowWidth -and $visibleBefore.Count -lt $logicalCount
+            $activationPass = $keyboardSelectionOpened -and $hiddenActivation -and $hiddenActivation.wasHiddenBeforeSelection -and $hiddenActivation.selectedButtonVisibleAfter -and $hiddenActivation.identityMatchesSelection
+            $switchIdentityPass = $switchIdentity -and $switchIdentity.keyboardOpened -and $switchIdentity.identityMatchesSelection
             $normalPass = $normalTabs.Count -eq $logicalCount -and -not $normalOverflow
-            $narrowStillOverflowsPass = ($null -eq $hiddenActivation) -or ($restoredTabs.Count -lt $logicalCount -and $restoredOverflow)
+            $narrowStillOverflowsPass = $restoredTabs.Count -lt $logicalCount -and $restoredOverflow
             $reason = if (-not $logicalFloorPass) { "logical tab count was $logicalCount" }
-                elseif (-not $activationPass) { 'a hidden tab did not activate its own workspace from the overflow affordance' }
+                elseif (-not $closeIdentityPass) { "closing tab one did not preserve tab two's workspace identity (count=$($afterCloseTabs.Count), leaf=$($afterCloseIdentity.leaf))" }
+                elseif (-not $overflowReachabilityPass) { "narrow width exposed $($visibleBefore.Count) of $logicalCount tabs (overflow=$overflowAtNarrowWidth)" }
+                elseif (-not $keyboardSelectionOpened) { "keyboard overflow open failed: $($hiddenSelection.reason)" }
+                elseif (-not $activationPass) { "keyboard overflow selection of hidden index $hiddenIndex did not activate '$expectedHiddenLeaf' (actual='$($hiddenActivation.activeWorkspaceLeaf)', menuFocus='$($hiddenSelection.menuFocusName)', start=$($hiddenSelection.menuStartIndex), arrows=$($hiddenSelection.arrowSteps), selected=$($hiddenActivation.selectedTabLabel), visible=$($hiddenActivation.selectedButtonVisibleAfter))" }
+                elseif (-not $switchIdentityPass) { 'keyboard overflow switching did not restore the other unique workspace identity' }
                 elseif (-not $normalPass) { "normal width exposed $($normalTabs.Count) of $logicalCount tab buttons (overflow=$normalOverflow)" }
                 elseif (-not $narrowStillOverflowsPass) { "the restored narrow width showed $($restoredTabs.Count) of $logicalCount tab buttons (overflow=$restoredOverflow)" }
                 else { $null }
-            return (New-VisualActionResult -Pass ($logicalFloorPass -and $activationPass -and $normalPass -and $narrowStillOverflowsPass) -Reason $reason -Evidence ([pscustomobject]@{
+            $pass = $normalCreationPass -and $logicalFloorPass -and $closeIdentityPass -and $overflowReachabilityPass -and $activationPass -and $switchIdentityPass -and $normalPass -and $narrowStillOverflowsPass
+            return (New-VisualActionResult -Pass $pass -Reason $reason -Evidence ([pscustomobject]@{
                 logicalTabCount = $logicalCount
                 visibleTabButtonsAtNarrowWidth = $visibleBefore.Count
                 narrowWidthLabels = @($visibleBefore | ForEach-Object { $_.name })
-                overflowPresentAtNarrowWidth = $overflowPresent
+                overflowPresentAtNarrowWidth = $overflowAtNarrowWidth
+                closeIdentity = [pscustomobject]@{ passed = $closeIdentityPass; remainingTabCount = $afterCloseTabs.Count; activeWorkspaceLeaf = if ($afterCloseIdentity) { $afterCloseIdentity.leaf } else { $null } }
                 hiddenTabActivation = $hiddenActivation
+                keyboardTabSwitchIdentity = $switchIdentity
                 normalWidthTabButtons = $normalTabs.Count
                 normalWidthOverflowPresent = $normalOverflow
                 restoredNarrowVisibleTabButtons = $restoredTabs.Count
