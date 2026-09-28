@@ -1523,12 +1523,12 @@
         },
         {
           "kind": "git-commit",
-          "sha": "c68212ddac74eba0bd7239d65c950a2f39bf4f88"
+          "sha": "6c40ab35793f1f9c03837f4b4dfa84b5964a032b"
         },
         {
           "kind": "hosted-run",
-          "runId": "36474313210",
-          "sha": "c68212ddac74eba0bd7239d65c950a2f39bf4f88",
+          "runId": "36474839438",
+          "sha": "91f85cf3769b97859f2ceafb5340fbcb4c6affc4",
           "record": "openspec/changes/retry-ownership-and-focus-escape-closure/evidence/apply-and-validation.md"
         }
       ],

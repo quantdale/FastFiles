@@ -43,9 +43,13 @@ Design D2 is implemented in `src/engine/src/VolumeSessionManager.{h,cpp}`:
   intent unowned. The scheduler moves a due retry into the visible dispatch owner in the same
   critical section, runs the lock-free D3 seam, then admits, re-queues, or floors it.
 - Disconnect, disappearance, and disable transfer an owned retry to the durable floor before
-  the connection-scoped ids are erased. `TriggerReconciliation` consumes a queued/dispatch owner
-  atomically; its `respectOwnedRetry` flag makes the ordinary interval sweep defer to an owned
-  slot's five-second cadence while a new journal-gap trigger may consume it.
+  the connection-scoped ids are erased. `TriggerReconciliation` never preempts an owned retry
+  slot: a queued or floored slot keeps its bounded due time and its owed kind (an interrupted
+  initial scan is not upgraded to a reconciliation), and the scheduler's dispatch path admits
+  the slot by moving it to the visible dispatch owner first.
+- A replacement that supersedes an attempt still in flight (a pause/resume cycle, even with no
+  dropped batch) is provisional on a {2,3} peer and resets the connection on an older peer, so
+  a retired worker's only terminal can never be accepted as the replacement's.
 - A failed retry submission (`RearmFailedAdmissionLocked`) restores the single bounded slot
   instead of leaving a claim with no legal submission.
 - `RetryOwnerStateLocked` is the production derivation; tests use a data-member oracle so the
@@ -69,8 +73,21 @@ drain/notify race in `TestRetryQueueStaysBoundedThrottledAndPauseAware` was remo
   capability gate, barrier write under the shared write mutex, then replacement registration.
 - New adversarial tests: exact-size acceptance, truncated and extended payloads fail closed,
   unsolicited/duplicate/unknown-id barriers move no authority, disconnect before the barrier
-  keeps the durable floor and no false completion, and a stale-id barrier cannot release the
-  replacement connection's attempt.
+  and immediately after an accepted barrier keep the durable floor and no false completion,
+  and a stale-id barrier cannot release the replacement connection's attempt.
+- The failed barrier write is executed: hindsight-free `ApplyScanAttemptBarrier`
+  (`src/indexsvc/src/ScanAttemptBarrier.h`) is invoked for every outcome (not negotiated,
+  written, failed) in `ffservice_exception_boundary_policy_tests`, and the same test binds that
+  `TearDown` disconnects before the replacement worker is registered.
+- Transport generation: `PrivilegedConnection::DispatchReceivedFrame` rejects any frame that
+  arrives while the connection is not the current authenticated `Active` transport, so an
+  unauthenticated, stale, or replaced generation cannot move scan authority by a barrier,
+  batch, or terminal; `TestBarrierFromNonActiveTransportIsRejected` executes that for
+  Disconnected, Connecting, and Handshaking.
+- Reauthentication reattachment: `TestReauthenticationFailurePreservesFloorKindForFreshId`
+  keeps an interrupted initial scan's owed kind across a failed reauthentication and attaches
+  it to a fresh id; `TestDisconnectImmediatelyAfterAcceptedBarrier` does the same for an
+owed reconciliation.
 - Decision: no protocol bump and no new message. `ScanAttemptStarted` remains the exact-length
   reply-only barrier; `ScanComplete`/`ScanFailed` payloads are unchanged.
 
@@ -85,25 +102,51 @@ adjacency, both escapes, empty/dead-owner safety, disabled Back/Forward/Up, hidd
 several tabs, and address-edit eligibility. The live `shell-many-tabs-overflow` scenario now
 also proves forward and reverse traversal live.
 
+## Review repair
+
+A standards/spec review of `0e15982..91f85cf` found two hard standards violations, missing
+coverage, and two implementation gaps. Repairs landed in
+`6c40ab35793f1f9c03837f4b4dfa84b5964a032b`:
+
+- Citations: every comment this change authored now cites
+  `retry-ownership-and-focus-escape-closure` (with its task number or D-number); the
+  predecessor's own 3.4 barrier and index-durability D2/D4 citations are unchanged.
+- Task ledger: each checked task carries its implementing symbol or evidence per
+  `openspec/config.yaml`.
+- Failed barrier write: the decision is extracted to `ScanAttemptBarrier.h` and executed
+  (not-negotiated/written/failed), with the TearDown-before-worker order bound in
+  `ffservice_exception_boundary_policy_tests`.
+- Generation check: `DispatchReceivedFrame` refuses frames outside the authenticated `Active`
+  transport; the engine tests now model that state and cover the non-Active rejection.
+- Floor kind and cadence: a journal discontinuity or interval sweep defers to an already-owned
+  slot instead of issuing before its due time, and the durable floor's owed kind travels with
+  the transfer.
+- In-flight supersede: any replacement over an in-flight attempt is provisional on {2,3} and
+  resets the connection on an older peer (`TestLegacyPeerInFlightSupersedeResetsConnectionAuthority`).
+- Reauthentication reattachment and disconnect-immediately-after-barrier coverage added.
+- Honest skips: the visual catalog records 20/20 scenarios while its coverage matrix reports
+  live DPI variants and engine-served surfaces as `REQUIRED_BUT_UNAVAILABLE` (this host is
+  120 DPI / 125% and the runner is not engine-backed); UIA keeps six recorded skip reasons.
+
 ## Certification ladder (task 7)
 
-Implementation candidate (production + tests): `f6393058c7d98ef7ababd3bd6f7f311b21f6ae7f`.
-Final executable identity (adds the verification-harness robustness fix):
-`f3bbddfe70ae9afd336319f3c5ca11ddf88bb582`; clean tree, every identity-bearing binary embeds it.
+Implementation candidate (production + tests): `6c40ab35793f1f9c03837f4b4dfa84b5964a032b`;
+clean tree, every identity-bearing binary embeds it. The earlier `f639305`/`f3bbddfe`
+certification is historical and does not certify this repair.
 
 | Check | Result |
 | --- | --- |
-| Identity binding + freshness | PASS (all five binaries + package-trust fixture share the candidate) |
+| Identity binding + freshness | PASS (all five binaries + package-trust fixture share `6c40ab3`) |
 | Debug CTest | 124 / 124 passed, 0 failed, 0 skipped |
 | release-test CTest | 124 / 124 passed, 0 failed, 0 skipped |
 | Analyze | configured and built warning-clean |
 | ASan slice (protocol fuzz, IPC framing + listener, scanner terminal, scan manager, legacy binding) | 6 / 6 passed |
 | Strict OpenSpec | 88 / 88 passed (also in the parity leg) |
 | Local CI parity (`verify/Invoke-CiParity.ps1`) | PASS 11 / 0 / 0, labeled `LOCAL-PARITY-NOT-HOSTED-CI` |
-| Real E2E (`dev.ps1 test-e2e`) | 8 / 8 passed, `boundToHead=true`, identity `f3bbddfe` |
+| Real E2E (`dev.ps1 test-e2e`) | 8 / 8 passed, `boundToHead=true`, identity `6c40ab3` |
 | UIA core runtime | 16 passed, 0 skipped, 0 failed |
-| UIA full runtime | 23 passed, 6 skipped with recorded reasons, 0 failed |
-| Visual catalog (`-Gallery`) | 20 / 20, 0 failed, 0 skipped/blocked, clean teardown |
+| UIA full runtime | 23 passed, 6 skipped with recorded reasons, 0 failed (one search-input flake was isolated and did not reproduce; the full aggregate re-ran green) |
+| Visual catalog (`-Gallery`) | 20 / 20 recorded scenarios passed, 0 failed, clean teardown |
 | Focused `shell-many-tabs-overflow` (forward + reverse Tab traversal) | 1 / 1 passed |
 | `git diff --check` | clean |
 
@@ -115,9 +158,11 @@ host's 120 DPI / 125% scale was claimed.
 
 ## Review and external holds (task 8)
 
-- Self-review: owner transitions are single-owner (zero-owner and multi-owner windows closed),
-  no terminal grants authority before the barrier, the chrome traversal cannot cycle, and the
-  certified artifacts embed the candidate identity.
+- Self-review and review repair: owner transitions are single-owner (zero-owner and
+  multi-owner windows closed), no caller preempts an owned slot's bounded cadence, an in-flight
+  supersede cannot accept a retired terminal, only the authenticated Active transport can move
+  authority, the chrome traversal cannot cycle, and the certified artifacts embed the candidate
+  identity.
 - PR #10 stays unmerged under its NO-MERGE HOLD. Hosted CI is recorded separately below; local
   parity is not hosted CI.
 - The raw-volume synchronous `DeviceIoControl` completion bound stays `UNPROVEN`.
