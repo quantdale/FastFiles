@@ -170,6 +170,28 @@ function Wait-VisualElement {
     try { return (Wait-UiaElement @args) } catch { return $null }
 }
 
+function Wait-VisualMainWindow {
+    param($Driver, [int] $ProcessId, [int] $TimeoutMs = 25000)
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt $TimeoutMs) {
+        try {
+            # Main windows are direct children of the desktop UIA root. A
+            # bounded top-level walk stays reliable on a busy desktop, where
+            # a recursive search can exhaust its node budget inside unrelated
+            # application trees before it reaches the launched process.
+            $root = Get-UiaRootElement -Driver $Driver
+            foreach ($element in @(Get-UiaChildren -Driver $Driver -Element $root)) {
+                $identity = Get-UiaElementIdentity -Driver $Driver -Element $element
+                if ($identity.ClassName -eq 'FastFilesMainWindow' -and [int]$identity.ProcessId -eq $ProcessId) {
+                    return $element
+                }
+            }
+        } catch { }
+        Start-Sleep -Milliseconds 250
+    }
+    return $null
+}
+
 function Get-VisualIdentity {
     param($Driver, $Element)
     if (-not $Element) { return $null }
@@ -255,7 +277,7 @@ function Start-VisualContext {
     $main = $null
     try {
         $process = Start-Process -FilePath $Exe -WorkingDirectory (Split-Path $Exe -Parent) -PassThru
-        $main = Wait-VisualElement -Driver $driver -ClassName 'FastFilesMainWindow' -ProcessId $process.Id -TimeoutMs 25000
+        $main = Wait-VisualMainWindow -Driver $driver -ProcessId $process.Id -TimeoutMs 25000
         if (-not $main) {
             throw 'FastFiles main window was not discoverable within 25 seconds'
         }
@@ -831,6 +853,44 @@ function Invoke-VisualAction {
             $restoredTabs = @(Get-VisualTabStripState -Context $Context)
             $restoredOverflow = $null -ne (Find-VisualElement -Driver $Context.Driver -AutomationId '8208' -FromElement $Context.Main -TimeoutMs 1000)
 
+            # D4: forward and reverse Tab traversal must enter chrome and
+            # escape back to the shell content surface instead of cycling
+            # among chrome controls. Normalize focus to content first with a
+            # bounded forward pass, then prove reverse entry and both escapes.
+            $chromeIdPattern = '^(820[1-8]|83[0-9][0-9]|84[0-9][0-9])$'
+            $traversalFocusedId = $null
+            for ($step = 0; $step -lt 48; $step++) {
+                $traversalState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+                $traversalFocusedId = [string]$traversalState.FocusedElement.AutomationId
+                if (-not ($traversalFocusedId -match $chromeIdPattern)) { break }
+                $null = Send-UiaInput -Driver $Context.Driver -Keys '{TAB}'
+                Start-Sleep -Milliseconds 60
+            }
+            $reverseEntered = $false
+            $reverseEscaped = $false
+            for ($step = 0; $step -lt 48; $step++) {
+                $null = Send-UiaInput -Driver $Context.Driver -Keys '{SHIFT}{TAB}'
+                Start-Sleep -Milliseconds 60
+                $traversalState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+                $traversalFocusedId = [string]$traversalState.FocusedElement.AutomationId
+                $isChrome = $traversalFocusedId -match $chromeIdPattern
+                if (-not $reverseEntered -and $isChrome) { $reverseEntered = $true; continue }
+                if ($reverseEntered -and -not $isChrome) { $reverseEscaped = $true; break }
+            }
+            $reverseTraversalPass = $reverseEntered -and $reverseEscaped
+            $forwardEntered = $false
+            $forwardEscaped = $false
+            for ($step = 0; $step -lt 48; $step++) {
+                $null = Send-UiaInput -Driver $Context.Driver -Keys '{TAB}'
+                Start-Sleep -Milliseconds 60
+                $traversalState = Get-UiaInteractiveState -Driver $Context.Driver -ProcessId $Context.Process.Id
+                $traversalFocusedId = [string]$traversalState.FocusedElement.AutomationId
+                $isChrome = $traversalFocusedId -match $chromeIdPattern
+                if (-not $forwardEntered -and $isChrome) { $forwardEntered = $true; continue }
+                if ($forwardEntered -and -not $isChrome) { $forwardEscaped = $true; break }
+            }
+            $forwardTraversalPass = $forwardEntered -and $forwardEscaped
+            $traversalPass = $reverseTraversalPass -and $forwardTraversalPass
             $logicalFloorPass = $logicalCount -ge 8
             $overflowReachabilityPass = $overflowAtNarrowWidth -and $visibleBefore.Count -lt $logicalCount
             $activationPass = $keyboardSelectionOpened -and $hiddenActivation -and $hiddenActivation.wasHiddenBeforeSelection -and $hiddenActivation.selectedButtonVisibleAfter -and $hiddenActivation.identityMatchesSelection
@@ -845,11 +905,16 @@ function Invoke-VisualAction {
                 elseif (-not $switchIdentityPass) { 'keyboard overflow switching did not restore the other unique workspace identity' }
                 elseif (-not $normalPass) { "normal width exposed $($normalTabs.Count) of $logicalCount tab buttons (overflow=$normalOverflow)" }
                 elseif (-not $narrowStillOverflowsPass) { "the restored narrow width showed $($restoredTabs.Count) of $logicalCount tab buttons (overflow=$restoredOverflow)" }
+                elseif (-not $traversalPass) { "chrome Tab traversal did not enter and escape in both directions (reverseEntered=$reverseEntered reverseEscaped=$reverseEscaped last='$reverseFocusedId'; forwardEntered=$forwardEntered forwardEscaped=$forwardEscaped last='$forwardFocusedId')" }
                 else { $null }
-            $pass = $normalCreationPass -and $logicalFloorPass -and $closeIdentityPass -and $overflowReachabilityPass -and $activationPass -and $switchIdentityPass -and $normalPass -and $narrowStillOverflowsPass
+            $pass = $normalCreationPass -and $logicalFloorPass -and $closeIdentityPass -and $overflowReachabilityPass -and $activationPass -and $switchIdentityPass -and $normalPass -and $narrowStillOverflowsPass -and $traversalPass
             return (New-VisualActionResult -Pass $pass -Reason $reason -Evidence ([pscustomobject]@{
                 logicalTabCount = $logicalCount
                 visibleTabButtonsAtNarrowWidth = $visibleBefore.Count
+                reverseTraversalEntered = $reverseEntered
+                reverseTraversalEscaped = $reverseEscaped
+                forwardTraversalEntered = $forwardEntered
+                forwardTraversalEscaped = $forwardEscaped
                 narrowWidthLabels = @($visibleBefore | ForEach-Object { $_.name })
                 overflowPresentAtNarrowWidth = $overflowAtNarrowWidth
                 closeIdentity = [pscustomobject]@{ passed = $closeIdentityPass; remainingTabCount = $afterCloseTabs.Count; activeWorkspaceLeaf = if ($afterCloseIdentity) { $afterCloseIdentity.leaf } else { $null } }
